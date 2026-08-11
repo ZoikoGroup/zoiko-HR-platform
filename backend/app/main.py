@@ -1,0 +1,128 @@
+"""
+main.py
+-------
+Entry point of the standalone Zoiko HR Platform backend.
+
+Only HR modules are registered:
+  - auth + employee management  (app.modules.employee)
+  - HR module + sub-modules      (app.modules.hr)
+  - Super Admin                  (app.modules.super_admin)
+
+The schema is created on boot via Base.metadata.create_all (create_all is
+additive-only and safe for the platform's own dedicated database).
+"""
+
+import logging
+from contextlib import asynccontextmanager
+from datetime import datetime
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from slowapi import _rate_limit_exceeded_handler
+from slowapi.errors import RateLimitExceeded
+
+from app.config import settings
+from app.database import engine, Base, initialize_database, get_table_names
+from app.core.exceptions import (
+    ZoikoException,
+    zoiko_exception_handler,
+    generic_exception_handler,
+)
+from app.core.rate_limiter import limiter
+
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+logger = logging.getLogger("zoiko.hr")
+
+
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    # create_all is additive-only and never alters existing tables/columns.
+    initialize_database()
+    try:
+        logger.info("[startup] Tables ready: %s", get_table_names())
+    except Exception as e:
+        logger.warning("[startup] Could not list tables: %s", e)
+    yield
+
+
+app = FastAPI(
+    title=settings.APP_NAME,
+    version=settings.APP_VERSION,
+    docs_url="/docs",
+    redoc_url="/redoc",
+    openapi_url="/openapi.json",
+    lifespan=lifespan,
+)
+
+
+@app.middleware("http")
+async def request_logging_middleware(request: Request, call_next):
+    if request.method == "OPTIONS":
+        return await call_next(request)
+    start = datetime.utcnow()
+    response = await call_next(request)
+    elapsed = (datetime.utcnow() - start).total_seconds()
+    logger.info(
+        f"{request.method} {request.url.path} -> {response.status_code} ({elapsed:.3f}s) "
+        f"from {request.client.host if request.client else 'unknown'}"
+    )
+    return response
+
+
+_cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=_cors_origins,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type", "Accept"],
+)
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+app.add_exception_handler(ZoikoException, zoiko_exception_handler)
+app.add_exception_handler(Exception, generic_exception_handler)
+
+
+# ── Router imports (each imported independently so one failure never
+#    silences the rest) ───────────────────────────────────────────────────────
+def _safe_import(import_fn, name):
+    try:
+        return import_fn()
+    except Exception as e:
+        msg = f"Failed to import {name}: {e}"
+        logger.error(msg, exc_info=True)
+        raise RuntimeError(f"CRITICAL startup failure: {msg}") from e
+
+
+auth_router        = _safe_import(lambda: __import__("app.modules.employee.router", fromlist=["auth_router"]).auth_router, "employee.auth_router")
+employee_router    = _safe_import(lambda: __import__("app.modules.employee.router", fromlist=["employee_router"]).employee_router, "employee.employee_router")
+hr_router          = _safe_import(lambda: __import__("app.modules.hr.router", fromlist=["hr_router"]).hr_router, "hr.hr_router")
+attendance_router  = _safe_import(lambda: __import__("app.modules.hr.attendance_router", fromlist=["attendance_router"]).attendance_router, "hr.attendance_router")
+asset_router       = _safe_import(lambda: __import__("app.modules.hr.asset_router", fromlist=["asset_router"]).asset_router, "hr.asset_router")
+learning_router    = _safe_import(lambda: __import__("app.modules.hr.learning_router", fromlist=["learning_router"]).learning_router, "hr.learning_router")
+recruitment_router = _safe_import(lambda: __import__("app.modules.hr.recruitment_router", fromlist=["recruitment_router"]).recruitment_router, "hr.recruitment_router")
+workforce_router   = _safe_import(lambda: __import__("app.modules.hr.workforce_router", fromlist=["workforce_router"]).workforce_router, "hr.workforce_router")
+org_config_router  = _safe_import(lambda: __import__("app.modules.hr.org_config_router", fromlist=["org_config_router"]).org_config_router, "hr.org_config_router")
+super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.router", fromlist=["router"]).router, "super_admin.router")
+
+app.include_router(auth_router)
+app.include_router(employee_router)
+app.include_router(hr_router)
+app.include_router(attendance_router)
+app.include_router(asset_router)
+app.include_router(learning_router)
+app.include_router(recruitment_router)
+app.include_router(workforce_router)
+app.include_router(org_config_router)
+app.include_router(super_admin_router)
+
+
+@app.get("/", include_in_schema=False, tags=["Meta"])
+def root():
+    return {
+        "name": settings.APP_NAME,
+        "version": settings.APP_VERSION,
+        "docs": "/docs",
+        "health": "/super-admin/health",
+    }

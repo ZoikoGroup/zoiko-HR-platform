@@ -1,0 +1,11 @@
+node_modules/
+dist/
+
+# Project
+TODO.md
+# Archives
+*.zip
+
+# Environment files
+.env
+.env.production

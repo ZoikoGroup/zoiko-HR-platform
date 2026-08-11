@@ -1,0 +1,88 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-primary-dark: #1E1B4B;
+  --color-primary-light: #4F46E5;
+  --color-accent: #F97316;
+  --color-accent-hover: #EA580C;
+  --color-secondary: #3B82F6;
+  /* Zoiko brand — the single enterprise accent for Billing */
+  --color-brand: #FF7A00;
+  --color-brand-hover: #FF5500;
+  --color-brand-soft: #FFF4E8;
+  --color-brand-50: #FFF7ED;
+  --color-brand-100: #FFEDD5;
+  --color-brand-200: #FED7AA;
+  --color-brand-300: #FDBA74;
+  --color-brand-400: #FB923C;
+  --color-brand-500: #F97316;
+  --color-brand-600: #EA580C;
+  --color-brand-700: #C2410C;
+  --color-bg-lavender: #F8F7FC;
+  --color-card-bg: #F1F0F6;
+  --color-muted-text: #6B7280;
+  --color-surface: #ffffff;
+  --color-surface-hover: #F8F7FC;
+  --color-border-light: #E5E7EB;
+  --color-border-default: #D1D5DB;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4B5563;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3B82F6;
+  --radius-card: 1rem;
+  --radius-pill: 9999px;
+  --radius-button: 0.75rem;
+  --radius-input: 0.75rem;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-dropdown: 0 4px 16px rgba(0,0,0,0.1);
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #111827;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Native <input type="date"/"time"/"datetime-local"> calendar/clock picker
+   icons are drawn by the browser itself and default to a dark glyph — with
+   the OS in light mode (its actual source of truth for native controls)
+   that glyph disappears against our manually-toggled dark theme. Setting
+   color-scheme tells the browser to draw the icon (and other native chrome
+   like the picker popup) in a light variant that's visible on dark
+   backgrounds, independent of the OS-level preference. */
+.dark input[type="date"],
+.dark input[type="time"],
+.dark input[type="datetime-local"],
+.dark input[type="month"],
+.dark input[type="week"] {
+  color-scheme: dark;
+}

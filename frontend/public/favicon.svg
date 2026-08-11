@@ -1,0 +1,74 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" viewBox="0 0 608.1 619.11">
+  <defs>
+    <style>
+      .cls-1 {
+        fill: url(#Degradado_sin_nombre_18-2);
+      }
+
+      .cls-2 {
+        fill: url(#Degradado_sin_nombre_8-2);
+        opacity: .36;
+      }
+
+      .cls-2, .cls-3 {
+        mix-blend-mode: screen;
+      }
+
+      .cls-4 {
+        fill: #270b87;
+      }
+
+      .cls-5 {
+        isolation: isolate;
+      }
+
+      .cls-6 {
+        fill: url(#Degradado_sin_nombre_10-2);
+      }
+
+      .cls-7 {
+        fill: url(#Degradado_sin_nombre_10);
+      }
+
+      .cls-8 {
+        fill: url(#Degradado_sin_nombre_18);
+      }
+
+      .cls-3 {
+        fill: url(#Degradado_sin_nombre_8);
+        opacity: .51;
+      }
+    </style>
+    <linearGradient id="Degradado_sin_nombre_10" data-name="Degradado sin nombre 10" x1="435.94" y1="123.97" x2="167.83" y2="257.43" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#00c5ff"/>
+      <stop offset="1" stop-color="#0070ff"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_18" data-name="Degradado sin nombre 18" x1="293.19" y1="361.64" x2="380.16" y2="361.64" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#fc4600"/>
+      <stop offset="1" stop-color="#ffb900"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_10-2" data-name="Degradado sin nombre 10" x1="97.33" y1="300.12" x2="433.05" y2="94.61" xlink:href="#Degradado_sin_nombre_10"/>
+    <linearGradient id="Degradado_sin_nombre_18-2" data-name="Degradado sin nombre 18" x1="274.21" y1="398.75" x2="369.15" y2="398.75" xlink:href="#Degradado_sin_nombre_18"/>
+    <linearGradient id="Degradado_sin_nombre_8" data-name="Degradado sin nombre 8" x1="356.68" y1="226.07" x2="359.39" y2="497.59" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#009cff"/>
+      <stop offset="1" stop-color="#000"/>
+    </linearGradient>
+    <linearGradient id="Degradado_sin_nombre_8-2" data-name="Degradado sin nombre 8" x1="348.85" y1="83.02" x2="248.46" y2="274.35" xlink:href="#Degradado_sin_nombre_8"/>
+  </defs>
+  <g class="cls-5">
+    <g id="Layer_1" data-name="Layer 1">
+      <g>
+        <rect class="cls-4" x="24.76" y="30.27" width="558.57" height="558.57" rx="127.12" ry="127.12"/>
+        <g>
+          <path class="cls-7" d="M383.03,121.69c0,93.43-76.04,169.47-169.47,169.47v-95.81c40.61,0,73.66-33.06,73.66-73.66h95.81Z"/>
+          <path class="cls-8" d="M377.18,225.86v271.55c-52.94,0-95.81-42.91-95.81-95.81v-101.69c40.25-12.15,74.27-38.87,95.81-74.05Z"/>
+          <path class="cls-6" d="M213.55,291.16v-95.81c40.61,0,73.66-33.06,73.66-73.66,0,0,32.7,86.49-73.66,169.47Z"/>
+          <path class="cls-1" d="M377.18,411.88v85.53c-52.94,0-95.81-42.91-95.81-95.81v-101.51c0,4.75,1.13,104.99,95.81,111.79Z"/>
+          <path class="cls-3" d="M377.18,225.86v271.55c-13.64,0-26.61-2.87-38.37-8.01v-219.89c15.16-12.22,28.17-26.96,38.37-43.65Z"/>
+          <path class="cls-2" d="M383.03,121.69c0,93.43-76.04,169.47-169.47,169.47v-95.81s118.77,51.24,169.47-73.66Z"/>
+        </g>
+      </g>
+    </g>
+  </g>
+</svg>
