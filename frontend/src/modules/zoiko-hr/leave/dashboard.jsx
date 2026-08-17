@@ -180,20 +180,20 @@ export default function LeaveDashboard() {
         )}
 
         {/* Team Overview Hero */}
-        <div className="relative bg-gradient-to-br from-teal-600 via-teal-700 to-emerald-700 rounded-2xl shadow-lg p-6 text-white overflow-hidden">
+        <div className="relative bg-gradient-to-br from-[#0A1128] via-[#1A2744] to-[#1E3A5F] rounded-2xl shadow-lg p-6 text-white overflow-hidden">
           <div className="absolute top-0 right-0 w-48 h-48 bg-white/5 rounded-full -translate-y-1/2 translate-x-1/4 pointer-events-none" />
           <div className="absolute bottom-0 left-1/3 w-32 h-32 bg-white/5 rounded-full translate-y-1/2 pointer-events-none" />
           <div className="relative flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
-              <p className="text-teal-200 text-sm font-semibold uppercase tracking-wide mb-1">Team Overview — Today</p>
+              <p className="text-blue-200 text-sm font-semibold uppercase tracking-wide mb-1">Team Overview — Today</p>
               {loading ? (
                 <div className="h-10 w-32 bg-white/20 rounded-xl animate-pulse mt-1" />
               ) : (
                 <p className="text-5xl font-extrabold font-mono leading-none">
-                  {teamOverview.working}<span className="text-2xl text-teal-300 font-bold">/{teamOverview.total}</span>
+                  {teamOverview.working}<span className="text-2xl text-blue-300 font-bold">/{teamOverview.total}</span>
                 </p>
               )}
-              <p className="text-teal-200 text-sm mt-1">employees currently working</p>
+              <p className="text-blue-200 text-sm mt-1">employees currently working</p>
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-1 gap-2 text-sm min-w-[160px]">
               {[
@@ -203,7 +203,7 @@ export default function LeaveDashboard() {
               ].map(({ icon: Icon, label, value, color }) => (
                 <div key={label} className="flex items-center gap-2">
                   <Icon className={`w-4 h-4 ${color}`} />
-                  <span className="text-teal-100">{loading ? "—" : value} {label}</span>
+                  <span className="text-blue-100">{loading ? "—" : value} {label}</span>
                 </div>
               ))}
             </div>
@@ -217,7 +217,7 @@ export default function LeaveDashboard() {
                   style={{ width: `${(teamOverview.working / teamOverview.total) * 100}%` }}
                 />
               </div>
-              <p className="text-teal-200 text-xs mt-1">
+              <p className="text-blue-200 text-xs mt-1">
                 {Math.round((teamOverview.working / teamOverview.total) * 100)}% of team active
               </p>
             </div>
@@ -243,7 +243,7 @@ export default function LeaveDashboard() {
         {/* Leave Balances */}
         <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
           <div className="flex items-center gap-2 mb-5">
-            <div className="p-2 bg-teal-50 rounded-xl"><BarChart3 className="w-4 h-4 text-teal-600" /></div>
+            <div className="p-2 bg-blue-50 rounded-xl"><BarChart3 className="w-4 h-4 text-blue-600" /></div>
             <h2 className="text-base font-bold text-gray-900">Leave Balances</h2>
           </div>
           {loading ? (

@@ -331,7 +331,7 @@ export default function HrAdminDashboardPage() {
               return (
                 <div key={d.name} className="flex items-center gap-3 mb-[14px] last:mb-0">
                   <span className="w-[118px] text-[12.5px] font-semibold flex-shrink-0" style={{ color: INK }}>{d.name}</span>
-                  <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "#F6F5FA" }}>
+                  <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "#F0F4F8" }}>
                     <div className="h-full rounded-full" style={{ width: `${d.pct}%`, background: deptColors[i % deptColors.length] }} />
                   </div>
                   <span className="w-[26px] text-right text-[12.5px] font-bold" style={{ color: INK }}>{d.count}</span>

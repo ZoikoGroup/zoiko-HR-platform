@@ -417,7 +417,7 @@ export default function PayrollGuidancePage() {
       <div className="no-print px-4 sm:px-6 lg:px-8 pt-4">
         <div
           className="rounded-[20px] p-6 sm:p-8 text-white relative overflow-hidden"
-          style={{ background: `linear-gradient(135deg, ${BRAND}, #0F9B6E)` }}
+          style={{ background: `linear-gradient(135deg, #0A1128, #1A2744)` }}
         >
           <div className="relative z-10 max-w-2xl">
             <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.05em] bg-white/15 px-2.5 py-1 rounded-full mb-3">

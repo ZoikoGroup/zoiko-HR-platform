@@ -161,19 +161,19 @@ export default function DepartmentDashboard() {
       <div className="space-y-6">
 
         {/* ── Hero banner ── */}
-        <div className="bg-gradient-to-r from-rose-600 to-rose-700 rounded-xl shadow-lg p-6 text-white">
+        <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] rounded-xl shadow-lg p-6 text-white">
           <div className="flex items-center justify-between flex-wrap gap-4">
             <div>
-              <p className="text-rose-100 text-sm font-medium">Total Departments</p>
+              <p className="text-blue-200 text-sm font-medium">Total Departments</p>
               <p className="text-4xl font-bold font-mono mt-1">{stats.total}</p>
-              <p className="text-rose-100 mt-1">
+              <p className="text-blue-200 mt-1">
                 {stats.active} active · {stats.inactive} inactive · {stats.totalEmp} employees
               </p>
             </div>
             <div className="text-right">
-              <p className="text-rose-100 text-sm">Budget Utilization</p>
+              <p className="text-blue-200 text-sm">Budget Utilization</p>
               <p className="text-3xl font-bold">{stats.utilPct}%</p>
-              <p className="text-rose-100 text-sm mt-1">
+              <p className="text-blue-200 text-sm mt-1">
                 ${(stats.totalSpent / 1_000_000).toFixed(1)}M spent of ${(stats.totalBudget / 1_000_000).toFixed(1)}M
               </p>
             </div>
