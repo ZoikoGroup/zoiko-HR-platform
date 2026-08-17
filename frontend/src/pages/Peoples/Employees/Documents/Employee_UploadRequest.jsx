@@ -146,7 +146,7 @@ export default function UploadRequest() {
                   <input
                     type="file"
                     onChange={(e) => setForm({ ...form, file: e.target.files[0] })}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-indigo-50 dark:file:bg-indigo-900/30 file:text-indigo-700 dark:file:text-indigo-300 file:text-xs file:font-semibold hover:file:bg-indigo-100 dark:hover:file:bg-indigo-900/50 bg-white dark:bg-[#0f172a] text-gray-800 dark:text-[#e2e8f0]"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 dark:file:bg-blue-900/30 file:text-blue-700 dark:file:text-blue-300 file:text-xs file:font-semibold hover:file:bg-blue-100 dark:hover:file:bg-blue-900/50 bg-white dark:bg-[#0f172a] text-gray-800 dark:text-[#e2e8f0]"
                   />
                 </div>
                 <div>
@@ -162,7 +162,7 @@ export default function UploadRequest() {
                 <button
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 dark:bg-indigo-700 dark:hover:bg-indigo-800 text-white border-none rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white border-none rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {submitting ? (
                     <span className="flex items-center justify-center gap-2">

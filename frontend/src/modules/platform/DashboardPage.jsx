@@ -4,10 +4,10 @@ import { LayoutDashboard, Users, CreditCard, Activity, TrendingUp, ArrowUpRight,
 
 export default function DashboardPage() {
   const stats = [
-    { title: "Monthly Recurring Revenue", value: "$142,480", change: "+12.4%", isPositive: true, icon: CreditCard, color: "text-[#FF7A00] bg-[#FF7A00]/10 border-[#FF7A00]/25" },
-    { title: "Active Organizations", value: "180", change: "+3.2%", isPositive: true, icon: Users, color: "text-blue-600 bg-blue-500/10 border-blue-500/25" },
-    { title: "System Uptime (24h)", value: "99.99%", change: "Stable", isPositive: true, icon: Activity, color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/25" },
-    { title: "Pending Approvals", value: "5", change: "-2 today", isPositive: false, icon: Package, color: "text-purple-600 bg-purple-500/10 border-purple-500/25" }
+    { title: "Monthly Recurring Revenue", value: "$142,480", change: "+12.4%", isPositive: true, icon: CreditCard, color: "text-[#3B82F6] bg-[#3B82F6]/10 border-[#3B82F6]/25" },
+    { title: "Active Organizations", value: "180", change: "+3.2%", isPositive: true, icon: Users, color: "text-emerald-600 bg-emerald-500/10 border-emerald-500/25" },
+    { title: "System Uptime (24h)", value: "99.99%", change: "Stable", isPositive: true, icon: Activity, color: "text-[#0A1128] bg-[#0A1128]/10 border-[#0A1128]/25" },
+    { title: "Pending Approvals", value: "5", change: "-2 today", isPositive: false, icon: Package, color: "text-amber-600 bg-amber-500/10 border-amber-500/25" }
   ];
 
   const productStats = [
@@ -34,7 +34,7 @@ export default function DashboardPage() {
       {/* Stats Grid */}
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         {stats.map((s, idx) => (
-          <div key={idx} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:border-[#FF7A00]/40 transition duration-255">
+          <div key={idx} className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm hover:border-[#3B82F6]/40 transition duration-255">
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm text-slate-500 font-medium">{s.title}</p>
@@ -106,7 +106,7 @@ export default function DashboardPage() {
                     <p className="text-[10px] text-slate-405 mt-0.5">Users: <span className="font-semibold text-slate-700">{s.users}</span></p>
                   </div>
                   <div className="text-right">
-                    <span className="inline-block rounded-full bg-[#FF7A00]/10 border border-[#FF7A00]/20 px-2 py-0.5 text-[9px] font-bold text-[#FF7A00] uppercase">
+                    <span className="inline-block rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/20 px-2 py-0.5 text-[9px] font-bold text-[#3B82F6] uppercase">
                       {s.tier}
                     </span>
                     <p className="text-[9px] text-slate-400 mt-1">{s.joined}</p>

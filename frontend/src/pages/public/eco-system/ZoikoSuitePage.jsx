@@ -107,15 +107,15 @@ const S = {
     border: "1.5px solid #d8d8e8", borderRadius: 50,
     padding: "7px 16px", marginBottom: 28,
     background: "rgba(255,255,255,0.9)",
-    fontSize: 13, color: "#3b2fb0", fontWeight: 500,
+    fontSize: 13, color: "#3B82F6", fontWeight: 500,
   },
-  badgeDiamond: { fontSize: 11, color: "#3b2fb0" },
+  badgeDiamond: { fontSize: 11, color: "#3B82F6" },
 
   heroH1: {
     fontSize: "clamp(30px,4.5vw,52px)", fontWeight: 800,
     lineHeight: 1.12, color: "#1a1a4e", marginBottom: 0,
   },
-  heroBlue: { color: "#3b82f6" },
+  heroBlue: { color: "#10B981" },
 
   heroSub: {
     fontSize: 16, color: "#666", lineHeight: 1.65,
@@ -127,7 +127,7 @@ const S = {
     gap: 16, flexWrap: "wrap",
   },
   btnOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 30px",
     fontSize: 15, fontWeight: 600, cursor: "pointer",
     display: "inline-flex", alignItems: "center", gap: 8,
@@ -146,7 +146,7 @@ const S = {
   featuresInner: { maxWidth: 1100, margin: "0 auto" },
 
   labelBlue: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
@@ -167,7 +167,7 @@ const S = {
   },
   iconWrap: {
     width: 50, height: 50, borderRadius: 14,
-    background: "linear-gradient(135deg,#2d4fd6 0%,#3b5bd5 100%)",
+    background: "linear-gradient(135deg,#F59E0B 0%,#D97706 100%)",
     display: "flex", alignItems: "center", justifyContent: "center",
     marginBottom: 20,
   },
@@ -186,7 +186,7 @@ const S = {
   connectsInner: { maxWidth: 860, margin: "0 auto", textAlign: "center" },
 
   labelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     marginBottom: 16,
   },

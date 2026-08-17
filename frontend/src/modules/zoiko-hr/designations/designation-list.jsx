@@ -192,13 +192,13 @@ export default function DesignationList() {
     <HRPage title="Designation List" breadcrumbs={[{ label: "HR" }, { label: "Designations", href: "/zoiko-hr/designations" }, { label: "List" }]}>
       <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
         {NAV_ITEMS.map((item) => (
-          <NavLink key={item.href} to={item.href} className={({ isActive }) => `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700"}`}>{item.label}</NavLink>
+          <NavLink key={item.href} to={item.href} className={({ isActive }) => `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700"}`}>{item.label}</NavLink>
         ))}
       </div>
 
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex items-center gap-2">
-          <button onClick={handleOpenCreate} className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"><Plus className="w-4 h-4" /> Add Designation</button>
+          <button onClick={handleOpenCreate} className="inline-flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"><Plus className="w-4 h-4" /> Add Designation</button>
           <button onClick={fetchRecords} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors"><RefreshCw className="w-4 h-4" /></button>
         </div>
       </div>
@@ -220,7 +220,7 @@ export default function DesignationList() {
             <tbody className="bg-white divide-y divide-gray-100">
               {records.map((item) => (
                   <tr key={item.id} onClick={() => { setDetailItem(item); setShowDetail(true); }} className="hover:bg-gray-50/80 cursor-pointer transition-colors">
-                  <td className="px-4 py-3 text-sm font-mono font-bold text-[#FF7A00]">{item.designation_code || "—"}</td>
+                  <td className="px-4 py-3 text-sm font-mono font-bold text-[#3B82F6]">{item.designation_code || "—"}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.title}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{item.department_name}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{item.level}</td>
@@ -248,7 +248,7 @@ export default function DesignationList() {
             <div className="space-y-4 mb-6">
               <div>
                 <label className="block text-sm font-medium text-gray-500">Designation Code</label>
-                <p className="text-sm font-mono font-bold text-[#FF7A00]">{detailItem.designation_code || "—"}</p>
+                <p className="text-sm font-mono font-bold text-[#3B82F6]">{detailItem.designation_code || "—"}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-500">Department</label>
@@ -279,11 +279,11 @@ export default function DesignationList() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Designation Title</label>
-                <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" required placeholder="e.g. Senior Software Engineer" />
+                <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="e.g. Senior Software Engineer" />
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Department Name</label>
-                <select value={formData.department_name} onChange={(e) => setFormData({ ...formData, department_name: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20" required>
+                <select value={formData.department_name} onChange={(e) => setFormData({ ...formData, department_name: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
                   <option value="">Select Department</option>
                   {departments.length === 0 ? (
                     <option value="" disabled>No departments available. Please create a department first.</option>
@@ -310,7 +310,7 @@ export default function DesignationList() {
               </div>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Assign Employee</label>
-                <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20">
+                <select value={selectedEmployeeId} onChange={(e) => setSelectedEmployeeId(e.target.value)} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20">
                   <option value="">Select employee...</option>
                   {employees.map((emp) => {
                     const eid = emp.id || emp.employee_id || emp.user_id || emp.user?.id;
@@ -331,7 +331,7 @@ export default function DesignationList() {
             </div>
             <div className="px-6 py-4 bg-gray-50 border-t border-gray-100 flex justify-end gap-3">
               <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 transition-colors">Cancel</button>
-              <button type="submit" className="px-4 py-2 bg-orange-500 hover:bg-orange-600 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">Save Designation</button>
+              <button type="submit" className="px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-sm font-medium transition-colors shadow-sm">Save Designation</button>
             </div>
           </form>
         </div>

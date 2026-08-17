@@ -27,12 +27,12 @@ const styles = `
     display: inline-flex; align-items: center; gap: 8px;
     background: rgba(255,255,255,0.92); border-radius: 999px;
     padding: 6px 16px; margin-bottom: 28px;
-    font-size: 14px; font-weight: 500; color: #1a1a3e;
+    font-size: 14px; font-weight: 500; color: #3B82F6;
     box-shadow: 0 1px 4px rgba(0,0,0,.08);
     position: relative; z-index: 1;
   }
   .badge-pill {
-    background: #5b5bd6; color: #fff; border-radius: 999px;
+    background: #3B82F6; color: #fff; border-radius: 999px;
     padding: 2px 10px; font-size: 12px; font-weight: 700;
   }
 
@@ -46,7 +46,7 @@ const styles = `
     color: #0B1C3F; margin: 0 0 20px; text-align: center;
     vertical-align: middle;
   }
-  .hero h1 .accent { color: #4A9FE4; }
+  .hero h1 .accent { color: #10B981; }
 
   .hero-sub {
     font-size: 16px; line-height: 1.7; color: #4B5563;
@@ -56,27 +56,27 @@ const styles = `
 
   /* ── BUTTONS ── */
   .btn-primary {
-    background: #f97316; color: #fff; border: none; border-radius: 999px;
+    background: #3B82F6; color: #fff; border: none; border-radius: 999px;
     padding: 15px 30px; font-size: 15px; font-weight: 600; cursor: pointer;
     display: inline-flex; align-items: center; gap: 8px;
     font-family: 'Inter', sans-serif; transition: background .2s;
   }
-  .btn-primary:hover { background: #ea6a0a; }
+  .btn-primary:hover { background: #2563EB; }
 
   .btn-outline {
-    background: #fff; color: #1a1a3e; border: 1.5px solid #d0d0e0;
+    background: #fff; color: #3B82F6; border: 1.5px solid #d0d0e0;
     border-radius: 999px; padding: 15px 30px; font-size: 15px; font-weight: 600;
     cursor: pointer; font-family: 'Inter', sans-serif; transition: border-color .2s;
   }
-  .btn-outline:hover { border-color: #1a1a3e; }
+  .btn-outline:hover { border-color: #2563EB; }
 
   .btn-dark {
-    background: #1f1d5e; color: #fff; border: none; border-radius: 999px;
+    background: #0A1128; color: #fff; border: none; border-radius: 999px;
     padding: 15px 30px; font-size: 15px; font-weight: 600; cursor: pointer;
     font-family: 'Inter', sans-serif; transition: background .2s;
     display: inline-flex; align-items: center; gap: 8px;
   }
-  .btn-dark:hover { background: #2d2a6e; }
+  .btn-dark:hover { background: #111A33; }
 
   .btn-ghost {
     background: rgba(255,255,255,.15); color: #fff;
@@ -91,19 +91,19 @@ const styles = `
 
   .eyebrow-blue {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #5b5bd6; margin-bottom: 18px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 18px;
   }
   .eyebrow-orange {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #f97316; margin-bottom: 18px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 18px;
   }
   .eyebrow-orange-sm {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #f97316; margin-bottom: 14px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 14px;
   }
 
   .section-title {
-    font-size: 40px; font-weight: 800; color: #1a1a3e;
+    font-size: 40px; font-weight: 800; color: #3B82F6;
     letter-spacing: -.9px; margin-bottom: 44px; line-height: 1.15;
   }
   .section-title-white {
@@ -122,9 +122,9 @@ const styles = `
   .w-step { display: flex; align-items: center; }
   .step-pill {
     background: #fff; border: 1px solid #e0e0ee; border-radius: 999px;
-    padding: 8px 16px; font-size: 13.5px; font-weight: 500; color: #1a1a3e; white-space: nowrap;
+    padding: 8px 16px; font-size: 13.5px; font-weight: 500; color: #3B82F6; white-space: nowrap;
   }
-  .step-arrow { color: #f97316; font-size: 16px; margin: 0 6px; line-height: 1; }
+  .step-arrow { color: #3B82F6; font-size: 16px; margin: 0 6px; line-height: 1; }
 
   /* ── PEOPLE PRODUCTS ── */
   .products-section { padding: 90px 52px; background: #f4f4fa; text-align: center; }
@@ -141,13 +141,13 @@ const styles = `
     width: 56px; height: 56px; border-radius: 16px;
     display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
   }
-  .bg-purple { background: #5b5bd6; }
-  .bg-dark-navy { background: #1f1d5e; }
+  .bg-purple { background: #10B981; }
+  .bg-dark-navy { background: #0A1128; }
 
-  .prod-name { font-size: 16px; font-weight: 700; color: #1a1a3e; margin-bottom: 8px; }
+  .prod-name { font-size: 16px; font-weight: 700; color: #3B82F6; margin-bottom: 8px; }
   .prod-desc { font-size: 14px; color: #777799; line-height: 1.55; margin-bottom: 20px; }
   .prod-link {
-    font-size: 14px; font-weight: 600; color: #5b5bd6;
+    font-size: 14px; font-weight: 600; color: #3B82F6;
     text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
   }
   .prod-link:hover { text-decoration: underline; }
@@ -155,7 +155,7 @@ const styles = `
   /* ── SHARED LAYERS ── */
   .shared-layers {
     padding: 64px 52px;
-    background: linear-gradient(120deg, #2d1f9e 0%, #3b2db5 40%, #4f3bcc 70%, #5845d8 100%);
+    background: linear-gradient(120deg, #0A1128 0%, #111A33 100%);
     text-align: center;
   }
   .layers-pills {
@@ -176,10 +176,10 @@ const styles = `
   .problem-left { text-align: left; }
   .problem-eyebrow {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #5b5bd6; margin-bottom: 20px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 20px;
   }
   .problem-title {
-    font-size: 36px; font-weight: 800; color: #1a1a3e;
+    font-size: 36px; font-weight: 800; color: #3B82F6;
     letter-spacing: -.7px; line-height: 1.2; margin-bottom: 18px;
   }
   .problem-desc { font-size: 15px; color: #555577; line-height: 1.65; margin-bottom: 32px; }
@@ -195,13 +195,13 @@ const styles = `
     width: 50px; height: 50px; border-radius: 14px;
     display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
   }
-  .prob-title { font-size: 15px; font-weight: 700; color: #1a1a3e; margin-bottom: 6px; }
+  .prob-title { font-size: 15px; font-weight: 700; color: #3B82F6; margin-bottom: 6px; }
   .prob-desc  { font-size: 13px; color: #777799; line-height: 1.5; }
 
   /* ── CTA BANNER ── */
   .cta-section { padding: 40px 52px 80px; background: #fff; }
   .cta-inner {
-    background: linear-gradient(120deg, #7c22c4 0%, #5b5bd6 45%, #3b82f6 100%);
+    background: linear-gradient(120deg, #0A1128 0%, #111A33 100%);
     border-radius: 28px; padding: 72px 52px; text-align: center;
     max-width: 1100px; margin: 0 auto;
   }
@@ -261,9 +261,9 @@ const IconCheck = () => (
 const IconDoc = () => (
   <svg width="26" height="26" viewBox="0 0 24 24" fill="none">
     <rect x="5" y="3" width="11" height="14" rx="2" fill="white" fillOpacity=".85"/>
-    <rect x="8" y="7"  width="5" height="1.5" rx=".75" fill="#1f1d5e"/>
-    <rect x="8" y="10" width="5" height="1.5" rx=".75" fill="#1f1d5e"/>
-    <rect x="8" y="13" width="3" height="1.5" rx=".75" fill="#1f1d5e"/>
+    <rect x="8" y="7"  width="5" height="1.5" rx=".75" fill="#0A1128"/>
+    <rect x="8" y="10" width="5" height="1.5" rx=".75" fill="#0A1128"/>
+    <rect x="8" y="13" width="3" height="1.5" rx=".75" fill="#0A1128"/>
   </svg>
 );
 

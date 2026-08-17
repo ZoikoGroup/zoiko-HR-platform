@@ -233,9 +233,9 @@ export default function LearningCourses({ isTab }) {
               <span className="text-gray-400">Total: </span>
               <span className="font-bold text-gray-800">{stats.total}</span>
             </div>
-            <div className="bg-white px-4 py-2 border border-purple-100 rounded-lg shadow-sm text-sm">
+            <div className="bg-white px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm">
               <span className="text-gray-400">Categories: </span>
-              <span className="font-bold text-purple-600">{stats.categories}</span>
+              <span className="font-bold text-blue-600">{stats.categories}</span>
             </div>
           </div>
           <button
@@ -315,7 +315,7 @@ export default function LearningCourses({ isTab }) {
                         </td>
                         <td className="px-4 py-3">
                           {c.category ? (
-                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-purple-50 text-purple-700">
+                            <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-50 text-blue-700">
                               {c.category}
                             </span>
                           ) : (

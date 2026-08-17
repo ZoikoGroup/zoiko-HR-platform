@@ -9,9 +9,9 @@ const typeIcons = {
 
 const typeColors = {
   inventory: "bg-blue-50 text-blue-700 border-blue-200",
-  depreciation: "bg-purple-50 text-purple-700 border-purple-200",
+  depreciation: "bg-blue-50 text-blue-700 border-blue-200",
   assignment: "bg-green-50 text-green-700 border-green-200",
-  audit_trail: "bg-orange-50 text-orange-700 border-orange-200",
+  audit_trail: "bg-blue-50 text-blue-700 border-blue-200",
 };
 
 const typeLabels = {

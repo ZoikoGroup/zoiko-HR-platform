@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { Zap, Globe, Mail, MessageCircle, Send, Share2, ExternalLink } from "lucide-react";
-import logo from "../assets/logo.png";
+import logo from "../assets/zoikohr-logo-svg.svg";
 
 const footerColumns = [
   {

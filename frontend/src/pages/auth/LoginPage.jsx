@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
+import logo from "../../assets/zoikohr-logo-svg.svg";
 
 export default function LoginPage() {
   const { login, error: authError, defaultRedirect } = useAuth();
@@ -34,11 +35,8 @@ export default function LoginPage() {
     <div className="min-h-screen flex flex-col font-sans bg-white text-slate-800">
       {/* ---------------- TOP NAVBAR ---------------- */}
       <header className="w-full flex items-center justify-between px-8 py-4 border-b border-slate-100 bg-white">
-        <Link to="/" className="flex items-center space-x-1 cursor-pointer">
-          <span className="text-2xl font-black text-[#EAB308]">Z</span>
-          <span className="text-2xl font-black text-[#1E3A8A]">OIKO</span>
-          <span className="text-2xl font-black text-[#06B6D4]">HR</span>
-          <span className="text-[10px] text-slate-400 align-top -ml-1">TM</span>
+        <Link to="/" className="flex items-center cursor-pointer">
+          <img src={logo} alt="Zoiko HR" className="h-9 w-auto object-contain" />
         </Link>
 
         <nav className="hidden md:flex items-center space-x-6 text-sm font-medium text-slate-600">

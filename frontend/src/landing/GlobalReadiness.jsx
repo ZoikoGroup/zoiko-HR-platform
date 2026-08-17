@@ -2,9 +2,9 @@ import { ArrowRight } from "lucide-react";
 
 export default function GlobalReadiness() {
   return (
-    <section className="bg-gradient-to-br from-[#1E1B4B] via-[#312E81] to-[#3B82F6] py-20 md:py-24">
+    <section className="bg-gradient-to-br from-[#0A1128] to-[#111A33] py-20 md:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-12">
-        <p className="text-xs font-bold text-[#FDBA74] tracking-[0.15em] uppercase mb-4">
+        <p className="text-xs font-bold text-[#3B82F6] tracking-[0.15em] uppercase mb-4">
           Security, Compliance & Trust
         </p>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-white leading-tight tracking-tight mb-8 max-w-lg">
@@ -25,7 +25,7 @@ export default function GlobalReadiness() {
         </div>
 
         <div className="flex items-center gap-4 flex-wrap">
-          <button className="inline-flex items-center gap-2 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold px-7 py-3.5 rounded-full text-sm shadow-lg shadow-orange-500/30 transition-all duration-200 hover:scale-[1.03]">
+          <button className="inline-flex items-center gap-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold px-7 py-3.5 rounded-full text-sm shadow-lg shadow-blue-500/30 transition-all duration-200 hover:scale-[1.03]">
             Visit Trust Center <ArrowRight size={16} />
           </button>
           <button className="inline-flex items-center gap-2 bg-white/10 hover:bg-white/20 text-white font-semibold px-7 py-3.5 rounded-full text-sm border border-white/20 transition-all duration-200">

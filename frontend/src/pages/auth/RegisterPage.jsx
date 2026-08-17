@@ -124,7 +124,7 @@ export default function RegisterPage() {
   return (
     <div style={{
       minHeight: "100vh", display: "flex", flexDirection: "column",
-      background: "linear-gradient(135deg, #fff7f0 0%, #ffffff 50%, #f0f4ff 100%)",
+      background: "#ffffff",
       fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, sans-serif"
     }}>
       <LandingHeader />
@@ -180,7 +180,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -203,7 +203,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -223,7 +223,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB", appearance: "auto"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 >
                   <option value="">Select organization type</option>
@@ -254,7 +254,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -277,7 +277,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -302,7 +302,7 @@ export default function RegisterPage() {
                       outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                       background: "#F9FAFB"
                     }}
-                    onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                    onFocus={e => e.target.style.borderColor = "#3B82F6"}
                     onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                   />
                   <button
@@ -337,7 +337,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -359,7 +359,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -382,7 +382,7 @@ export default function RegisterPage() {
                   outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                   background: "#F9FAFB", resize: "vertical", fontFamily: "inherit"
                 }}
-                onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                onFocus={e => e.target.style.borderColor = "#3B82F6"}
                 onBlur={e => e.target.style.borderColor = "#E5E7EB"}
               />
             </div>
@@ -404,7 +404,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -423,7 +423,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB", appearance: "auto", cursor: countryStates.length === 0 ? "not-allowed" : "default"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 >
                   <option value="">
@@ -449,7 +449,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB", appearance: "auto"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 >
                   <option value="">Select country</option>
@@ -476,7 +476,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB", appearance: "auto", cursor: countryTimezones.length === 0 ? "not-allowed" : "default"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 >
                   {countryTimezones.length === 0 ? (
@@ -504,7 +504,7 @@ export default function RegisterPage() {
                     outline: "none", boxSizing: "border-box", transition: "border-color 0.2s",
                     background: "#F9FAFB"
                   }}
-                  onFocus={e => e.target.style.borderColor = "#FF6B00"}
+                  onFocus={e => e.target.style.borderColor = "#3B82F6"}
                   onBlur={e => e.target.style.borderColor = "#E5E7EB"}
                 />
               </div>
@@ -527,13 +527,13 @@ export default function RegisterPage() {
                     onClick={toggleAllProducts}
                     style={{
                       padding: "14px 12px", borderRadius: "12px", cursor: "pointer",
-                      border: products.every((p) => form.selectedProducts.includes(p.code)) ? "2px solid #FF6B00" : "1.5px solid #E5E7EB",
-                      background: products.every((p) => form.selectedProducts.includes(p.code)) ? "#FFF7F0" : "#F9FAFB",
+                      border: products.every((p) => form.selectedProducts.includes(p.code)) ? "2px solid #3B82F6" : "1.5px solid #E5E7EB",
+                      background: products.every((p) => form.selectedProducts.includes(p.code)) ? "#EFF6FF" : "#F9FAFB",
                       textAlign: "center", transition: "all 0.2s",
-                      boxShadow: products.every((p) => form.selectedProducts.includes(p.code)) ? "0 4px 12px rgba(255,107,0,0.15)" : "none",
+                      boxShadow: products.every((p) => form.selectedProducts.includes(p.code)) ? "0 4px 12px rgba(59,130,246,0.15)" : "none",
                     }}
                   >
-                    <p style={{ margin: "0 0 4px 0", fontSize: "15px", fontWeight: "700", color: products.every((p) => form.selectedProducts.includes(p.code)) ? "#FF6B00" : "#111827" }}>
+                    <p style={{ margin: "0 0 4px 0", fontSize: "15px", fontWeight: "700", color: products.every((p) => form.selectedProducts.includes(p.code)) ? "#3B82F6" : "#111827" }}>
                       All
                     </p>
                     <p style={{ margin: 0, fontSize: "11px", color: "#6B7280", lineHeight: "1.3" }}>
@@ -549,13 +549,13 @@ export default function RegisterPage() {
                         onClick={() => toggleProduct(p.code)}
                         style={{
                           padding: "14px 12px", borderRadius: "12px", cursor: "pointer",
-                          border: isSelected ? "2px solid #FF6B00" : "1.5px solid #E5E7EB",
-                          background: isSelected ? "#FFF7F0" : "#F9FAFB",
+                          border: isSelected ? "2px solid #3B82F6" : "1.5px solid #E5E7EB",
+                          background: isSelected ? "#EFF6FF" : "#F9FAFB",
                           textAlign: "center", transition: "all 0.2s",
-                          boxShadow: isSelected ? "0 4px 12px rgba(255,107,0,0.15)" : "none",
+                          boxShadow: isSelected ? "0 4px 12px rgba(59,130,246,0.15)" : "none",
                         }}
                       >
-                        <p style={{ margin: "0 0 4px 0", fontSize: "15px", fontWeight: "700", color: isSelected ? "#FF6B00" : "#111827" }}>
+                        <p style={{ margin: "0 0 4px 0", fontSize: "15px", fontWeight: "700", color: isSelected ? "#3B82F6" : "#111827" }}>
                           {p.name}
                         </p>
                         <p style={{ margin: 0, fontSize: "11px", color: "#6B7280", lineHeight: "1.3" }}>
@@ -577,12 +577,12 @@ export default function RegisterPage() {
                 onChange={(e) => update("termsAccepted", e.target.checked)}
                 style={{
                   marginTop: "2px", width: "16px", height: "16px", flexShrink: 0,
-                  accentColor: "#FF6B00", cursor: "pointer"
+                  accentColor: "#3B82F6", cursor: "pointer"
                 }}
               />
               <label htmlFor="termsAccepted" style={{ fontSize: "13px", color: "#374151", cursor: "pointer", lineHeight: "1.4" }}>
                 I accept the{" "}
-                <Link to="/terms" style={{ color: "#FF6B00", fontWeight: "600", textDecoration: "none" }}>
+                <Link to="/terms" style={{ color: "#3B82F6", fontWeight: "600", textDecoration: "none" }}>
                   Terms & Conditions
                 </Link>
               </label>
@@ -594,8 +594,8 @@ export default function RegisterPage() {
               style={{
                 width: "100%", padding: "13px", borderRadius: "10px", border: "none",
                 fontSize: "15px", fontWeight: "700", color: "white", cursor: submitting ? "not-allowed" : "pointer",
-                background: submitting ? "#FFA366" : "linear-gradient(135deg, #FF6B00, #FF8C38)",
-                boxShadow: "0 6px 20px rgba(255,107,0,0.35)",
+                background: submitting ? "#93C5FD" : "#3B82F6",
+                boxShadow: "0 6px 20px rgba(59,130,246,0.35)",
                 display: "flex", alignItems: "center", justifyContent: "center", gap: "8px",
                 transition: "all 0.2s", marginTop: "8px"
               }}
@@ -607,7 +607,7 @@ export default function RegisterPage() {
 
           <p style={{ textAlign: "center", fontSize: "13px", color: "#6B7280", marginTop: "20px", marginBottom: 0 }}>
             Already have an account?{" "}
-            <Link to="/login" style={{ color: "#FF6B00", fontWeight: "600", textDecoration: "none" }}>
+            <Link to="/login" style={{ color: "#3B82F6", fontWeight: "600", textDecoration: "none" }}>
               Sign in
             </Link>
           </p>

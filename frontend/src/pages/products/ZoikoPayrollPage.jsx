@@ -16,27 +16,27 @@ import Footer from "../../landing/Footer";
 /**
  * Zoiko Payroll — product landing page
  *
- * Color tokens (sampled from screenshots):
- *  - Navy text/heading:   #161B33
+ * Color tokens (navy/blue/emerald palette):
+ *  - Navy text/heading:   #0A1128
  *  - Body gray:           #5B6373
- *  - Orange badge/CTA:    #D97B3F  ("People" badge here is orange, not blue)
- *  - Orange dark:         #C2672E
- *  - Dark navy card:      #1B2347 -> #11162E (Pay Run card gradient)
- *  - Icon navy:           #1E2A6A (Approval trails / Payslip prep / Jurisdiction / Evidence / Insights)
- *  - Icon orange:         #D97B3F / #C9802E (Exception handling warning icon)
+ *  - Blue badge/CTA:      #3B82F6
+ *  - Blue hover/dark:     #2563EB
+ *  - Dark navy card:      #0A1128 -> #111A33 (Pay Run card gradient)
+ *  - Icon navy:           #0A1128 (Approval trails / Payslip prep / Jurisdiction / Evidence / Insights)
+ *  - Icon amber:          #F59E0B (Exception handling warning icon)
  *  - Section border:      #E6E8EC
  *  - Section bg light:    #F7F8FA
- *  - Bottom CTA gradient: #1C2A8C -> #3F63D8 (blue gradient banner)
+ *  - Bottom CTA gradient: #0A1128 -> #111A33 (navy gradient banner)
  *  - Card row pill bg:    #fff with border, inside light gray pill-track bg
  */
 
-const NAVY = "#161B33";
+const NAVY = "#0A1128";
 const BODY = "#5B6373";
-const ORANGE = "#FF8C00";
-const ORANGE_DARK = "#E67A00";
+const ORANGE = "#3B82F6";
+const ORANGE_DARK = "#2563EB";
 const BORDER = "#E6E8EC";
 const SECTION_BG = "#F7F8FA";
-const ICON_NAVY = "#1E2A6A";
+const ICON_NAVY = "#0A1128";
 
 const flowSteps = [
   "Employee record",
@@ -58,7 +58,7 @@ const getCards = [
   },
   {
     icon: AlertTriangle,
-    iconBg: ORANGE,
+    iconBg: "#F59E0B",
     title: "Exception handling",
     desc: "Catch and resolve anomalies before approval.",
   },
@@ -154,11 +154,11 @@ function Hero() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.35) 100%)",
     }}>
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.22) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 1200, textAlign: "left" }}>
@@ -174,7 +174,7 @@ function Hero() {
               color: NAVY, margin: "0 0 20px", letterSpacing: "-0.02em",
             }}>
               Payroll you can{" "}
-              <span style={{ color: ORANGE }}>control and trust.</span>
+              <span style={{ color: "#10B981" }}>control and trust.</span>
             </h1>
 
             <p style={{ fontSize: "16px", lineHeight: 1.7, color: BODY, margin: "0 0 28px" }}>
@@ -185,11 +185,11 @@ function Hero() {
 
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
               <button onClick={() => navigate("/get-demo")} style={{
-                background: "linear-gradient(135deg, #FF8800, #FF5500)",
+                background: "#3B82F6",
                 color: "#fff", border: "none", borderRadius: 999,
                 padding: "14px 32px", fontSize: 16, fontWeight: 700, cursor: "pointer",
                 display: "flex", alignItems: "center", gap: 8,
-                boxShadow: "0 4px 16px rgba(255,85,0,0.45)",
+                boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
               }}>
                 Get a Demo <ArrowRight size={17} />
               </button>
@@ -213,7 +213,7 @@ function Hero() {
           </div>
 
           <div style={{
-            background: "linear-gradient(152.06deg, #1D0A5E 0%, #240C84 60%, #150844 100%)",
+            background: "linear-gradient(152.06deg, #0A1128 0%, #111A33 60%, #0A1128 100%)",
             borderRadius: 22,
             padding: "30px 28px 34px",
             color: "#fff",
@@ -239,7 +239,7 @@ function Hero() {
               ))}
               <div style={{ display: "flex", justifyContent: "space-between", padding: "14px 4px 4px", borderTop: "1px solid rgba(255,255,255,0.08)", fontSize: 14.5 }}>
                 <span style={{ color: "rgba(255,255,255,0.65)" }}>Status</span>
-                <span style={{ fontWeight: 700, color: "#8FB4FF" }}>Ready for approval</span>
+                <span style={{ fontWeight: 700, color: "#10B981" }}>Ready for approval</span>
               </div>
             </div>
           </div>
@@ -325,7 +325,7 @@ export default function ZoikoPayrollPage() {
               style={{
                 fontSize: 12.5,
                 fontWeight: 800,
-                color: "#3B4FE0",
+                color: "#3B82F6",
                 letterSpacing: "0.08em",
                 marginBottom: 16,
               }}
@@ -383,7 +383,7 @@ export default function ZoikoPayrollPage() {
               style={{
                 fontSize: 12.5,
                 fontWeight: 800,
-                color: "#3B4FE0",
+                color: "#3B82F6",
                 letterSpacing: "0.08em",
                 marginBottom: 16,
               }}
@@ -407,7 +407,7 @@ export default function ZoikoPayrollPage() {
           style={{
             maxWidth: 1180,
             margin: "0 auto",
-            background: "linear-gradient(115deg, #1C2A8C 0%, #3F63D8 100%)",
+            background: "linear-gradient(115deg, #0A1128 0%, #111A33 100%)",
             borderRadius: 26,
             padding: "64px 40px",
             textAlign: "center",

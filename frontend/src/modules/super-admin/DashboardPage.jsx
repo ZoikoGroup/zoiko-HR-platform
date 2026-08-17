@@ -14,7 +14,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Area, AreaChart,
 } from "recharts";
 
-const PIE_COLORS = ["#FF7A00", "#10B981", "#3B82F6", "#8B5CF6", "#F59E0B", "#EF4444"];
+const PIE_COLORS = ["#3B82F6", "#10B981", "#3B82F6", "#0A1128", "#F59E0B", "#EF4444"];
 
 export default function SuperAdminDashboardPage() {
   const navigate = useNavigate();
@@ -46,15 +46,15 @@ export default function SuperAdminDashboardPage() {
   };
 
   const statCards = [
-    { title: "Total Organizations", value: stats?.total_organizations ?? 0, icon: Building2, iconBg: "#FF7A00", link: "/super-admin/organizations" },
+    { title: "Total Organizations", value: stats?.total_organizations ?? 0, icon: Building2, iconBg: "#3B82F6", link: "/super-admin/organizations" },
     { title: "Pending Approval", value: stats?.pending_organizations ?? 0, icon: Clock, iconBg: "#F59E0B", link: "/super-admin/approvals" },
     { title: "Approved", value: stats?.active_organizations ?? 0, icon: CheckCircle, iconBg: "#10B981" },
     { title: "Rejected", value: stats?.rejected_organizations ?? "—", icon: XCircle, iconBg: "#EF4444" },
     { title: "Suspended", value: stats?.suspended_organizations ?? 0, icon: ShieldAlert, iconBg: "#64748B" },
-    { title: "Deactivated", value: stats?.deactivated_organizations ?? 0, icon: ShieldAlert, iconBg: "#8B5CF6" },
-    { title: "Total Users", value: stats?.total_users ?? 0, icon: Users, iconBg: "#8B5CF6" },
+    { title: "Deactivated", value: stats?.deactivated_organizations ?? 0, icon: ShieldAlert, iconBg: "#3B82F6" },
+    { title: "Total Users", value: stats?.total_users ?? 0, icon: Users, iconBg: "#3B82F6" },
     { title: "Revenue", value: `$${stats?.total_revenue ?? 0}`, icon: DollarSign, iconBg: "#FBBF24" },
-    { title: "Open Tickets", value: stats?.open_support_tickets ?? 0, icon: MessageSquare, iconBg: "#F97316" },
+    { title: "Open Tickets", value: stats?.open_support_tickets ?? 0, icon: MessageSquare, iconBg: "#3B82F6" },
     { title: "Storage", value: `${stats?.total_storage_gb ?? 0} GB`, icon: HardDrive, iconBg: "#06B6D4" },
     { title: "Unread Notifications", value: stats?.unread_notifications ?? 0, icon: Bell, iconBg: "#3B82F6" },
     { title: "Security Events", value: stats?.unresolved_security_events ?? 0, icon: Shield, iconBg: "#DC2626" },
@@ -65,7 +65,7 @@ export default function SuperAdminDashboardPage() {
       <div className="space-y-6 font-sans">
         <PageHeader title="Super Admin Dashboard" description="Comprehensive platform overview" />
         <div className="flex items-center justify-center py-20 text-slate-400">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF7A00] border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
         </div>
       </div>
     );
@@ -117,7 +117,7 @@ export default function SuperAdminDashboardPage() {
                       reg.status === "PENDING" ? "bg-amber-50 text-amber-700" :
                       reg.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700" :
                       reg.status === "REJECTED" ? "bg-red-50 text-red-700" :
-                      reg.status === "DEACTIVATED" ? "bg-purple-50 text-purple-700" :
+                       reg.status === "DEACTIVATED" ? "bg-blue-50 text-blue-700" :
                       "bg-slate-50 text-slate-600"
                     }`}>{reg.status}</span>
                   </div>
@@ -141,7 +141,7 @@ export default function SuperAdminDashboardPage() {
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" allowDecimals={false} />
                 <Tooltip />
-                <Area type="monotone" dataKey="count" stroke="#FF7A00" fill="#FF7A00" fillOpacity={0.1} strokeWidth={2} />
+                <Area type="monotone" dataKey="count" stroke="#3B82F6" fill="#3B82F6" fillOpacity={0.1} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -157,7 +157,7 @@ export default function SuperAdminDashboardPage() {
                 <XAxis dataKey="month" tick={{ fontSize: 11 }} stroke="#94a3b8" />
                 <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" allowDecimals={false} />
                 <Tooltip />
-                <Area type="monotone" dataKey="count" stroke="#8B5CF6" fill="#8B5CF6" fillOpacity={0.1} strokeWidth={2} />
+                <Area type="monotone" dataKey="count" stroke="#0A1128" fill="#0A1128" fillOpacity={0.1} strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (
@@ -224,7 +224,7 @@ export default function SuperAdminDashboardPage() {
             <div className="space-y-2">
               {stats.recent_activity.map((act) => (
                 <div key={act.id} className="flex items-center gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#FF7A00]/10 text-[#FF7A00]">
+                  <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[#3B82F6]/10 text-[#3B82F6]">
                     <Activity className="h-4 w-4" />
                   </div>
                   <div className="flex-1 min-w-0">

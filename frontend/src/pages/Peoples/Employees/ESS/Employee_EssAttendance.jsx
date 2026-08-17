@@ -45,7 +45,7 @@ export default function EssAttendance() {
     return (
       <EmployeePageShell title="My Attendance" subtitle="Track your daily check-in and check-out records.">
         <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </EmployeePageShell>
     );

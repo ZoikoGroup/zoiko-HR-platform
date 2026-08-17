@@ -44,8 +44,8 @@ const NAV_ITEMS = [
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const DEPARTMENT_COLORS = [
-  "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-violet-500",
-  "bg-rose-500", "bg-cyan-500", "bg-orange-500", "bg-teal-500",
+  "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-[#0A1128]",
+  "bg-rose-500", "bg-cyan-500", "bg-amber-600", "bg-teal-500",
 ];
 
 const PIE_COLORS = ["#22c55e", "#eab308", "#ef4444", "#3b82f6"];
@@ -231,7 +231,7 @@ export default function OnboardingDashboard() {
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Pending Items</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <PendingCard title="Documents Pending" count={stats?.documentsPending ?? 0} icon={FileText} color="bg-blue-500" />
-            <PendingCard title="Assets Pending" count={stats?.assetsPending ?? 0} icon={Package} color="bg-violet-500" />
+            <PendingCard title="Assets Pending" count={stats?.assetsPending ?? 0} icon={Package} color="bg-[#0A1128]" />
             <PendingCard title="Orientation Pending" count={stats?.orientationPending ?? 0} icon={Calendar} color="bg-amber-500" />
             <PendingCard title="Training Pending" count={stats?.trainingPending ?? 0} icon={BookOpen} color="bg-rose-500" />
           </div>

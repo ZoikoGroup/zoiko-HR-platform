@@ -120,7 +120,7 @@ export default function SuperAdminOrganizationsPage() {
       ACTIVE: "bg-emerald-50 text-emerald-700 border-emerald-200",
       REJECTED: "bg-red-50 text-red-700 border-red-200",
       SUSPENDED: "bg-slate-50 text-slate-700 border-slate-200",
-      DEACTIVATED: "bg-purple-50 text-purple-700 border-purple-200",
+      DEACTIVATED: "bg-blue-50 text-blue-700 border-blue-200",
     };
     return (
       <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border ${map[status] || "bg-slate-50 text-slate-600"}`}>
@@ -164,7 +164,7 @@ export default function SuperAdminOrganizationsPage() {
           </button>
         )}
         <button onClick={() => navigate(`/super-admin/organizations/${o.id}`)}
-          className={`${base} hover:text-[#FF7A00] hover:bg-slate-50`} title="View Details">
+          className={`${base} hover:text-[#3B82F6] hover:bg-slate-50`} title="View Details">
           <History className="h-4 w-4" />
         </button>
       </div>
@@ -190,7 +190,7 @@ export default function SuperAdminOrganizationsPage() {
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#FF7A00]"
+              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]"
             >
               <option value="">All Status</option>
               <option value="pending">Pending</option>
@@ -206,7 +206,7 @@ export default function SuperAdminOrganizationsPage() {
                 placeholder="Search organizations..."
                 value={search}
                 onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full rounded-full border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-800 placeholder-slate-400 outline-none transition focus:bg-white focus:border-[#FF7A00]"
+                className="w-full rounded-full border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-800 placeholder-slate-400 outline-none transition focus:bg-white focus:border-[#3B82F6]"
               />
             </div>
           </div>
@@ -244,19 +244,19 @@ export default function SuperAdminOrganizationsPage() {
                           </div>
                           <div>
                             <div className="font-bold text-slate-850">{o.name}</div>
-                            <div className="text-[10px] font-mono font-bold text-[#FF7A00]">{o.organization_code || "—"}</div>
+                            <div className="text-[10px] font-mono font-bold text-[#3B82F6]">{o.organization_code || "—"}</div>
                           </div>
                         </div>
                       </td>
                        <td className="py-4 px-4">
-                        <span className="inline-flex items-center rounded bg-[#FF7A00]/10 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#FF7A00]">{o.organization_code || "—"}</span>
+                        <span className="inline-flex items-center rounded bg-[#3B82F6]/10 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#3B82F6]">{o.organization_code || "—"}</span>
                       </td>
                       <td className="py-4 px-4">
                         <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          o.subscription_plan?.toUpperCase() === "ENTERPRISE" ? "bg-indigo-50 text-indigo-600 border border-indigo-100" :
+                          o.subscription_plan?.toUpperCase() === "ENTERPRISE" ? "bg-blue-50 text-blue-600 border border-blue-100" :
                           o.subscription_plan?.toUpperCase() === "PROFESSIONAL" ? "bg-blue-50 text-blue-600 border border-blue-100" :
-                          o.subscription_plan?.toUpperCase() === "BASIC" ? "bg-[#FF7A00]/5 text-[#FF7A00] border border-[#FF7A00]/10" :
-                          o.subscription_plan?.toUpperCase() === "TRIAL" ? "bg-purple-50 text-purple-600 border border-purple-100" :
+                          o.subscription_plan?.toUpperCase() === "BASIC" ? "bg-[#3B82F6]/5 text-[#3B82F6] border border-[#3B82F6]/10" :
+                          o.subscription_plan?.toUpperCase() === "TRIAL" ? "bg-blue-50 text-blue-600 border border-blue-100" :
                           "bg-slate-50 text-slate-600 border border-slate-100"
                         }`}>
                           {o.subscription_plan}
@@ -292,8 +292,8 @@ export default function SuperAdminOrganizationsPage() {
           <div className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <div className="flex items-center gap-3">
-                <div className="h-10 w-10 bg-[#FF7A00]/10 rounded-2xl flex items-center justify-center">
-                  <Building className="h-5 w-5 text-[#FF7A00]" />
+                <div className="h-10 w-10 bg-[#3B82F6]/10 rounded-2xl flex items-center justify-center">
+                  <Building className="h-5 w-5 text-[#3B82F6]" />
                 </div>
                 <div>
                   <h3 className="text-lg font-bold text-slate-800">{workflowOrg.name}</h3>
@@ -311,7 +311,7 @@ export default function SuperAdminOrganizationsPage() {
               </div>
               <div>
                 <span className="text-slate-400 block text-xs">Org Code</span>
-                <span className="font-semibold text-[#FF7A00] font-mono">{workflowOrg.organization_code || "—"}</span>
+                <span className="font-semibold text-[#3B82F6] font-mono">{workflowOrg.organization_code || "—"}</span>
               </div>
               <div>
                 <span className="text-slate-400 block text-xs">Legacy Code</span>

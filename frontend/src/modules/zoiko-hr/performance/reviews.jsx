@@ -34,12 +34,12 @@ function SubNav() {
 }
 
 function StatusBadge({ status }) {
-  const m = { pending: "bg-yellow-100 text-yellow-800", in_progress: "bg-purple-100 text-purple-800", completed: "bg-green-100 text-green-800", approved: "bg-green-100 text-green-800" };
+  const m = { pending: "bg-yellow-100 text-yellow-800", in_progress: "bg-blue-100 text-blue-800", completed: "bg-green-100 text-green-800", approved: "bg-green-100 text-green-800" };
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[status] || "bg-gray-100 text-gray-800"}`}>{status?.replace(/_/g, " ")}</span>;
 }
 
 function FeedbackTypeBadge({ type }) {
-  const m = { peer: "bg-indigo-100 text-indigo-800", manager: "bg-orange-100 text-orange-800", self: "bg-teal-100 text-teal-800", "360": "bg-purple-100 text-purple-800" };
+  const m = { peer: "bg-blue-100 text-blue-800", manager: "bg-blue-100 text-blue-800", self: "bg-teal-100 text-teal-800", "360": "bg-blue-100 text-blue-800" };
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[type] || "bg-gray-100 text-gray-800"}`}>{type?.replace(/_/g, " ")}</span>;
 }
 
@@ -192,17 +192,17 @@ export default function PerformanceReviews() {
                 <p className="text-xs text-blue-600 font-medium">Pending</p>
                 <p className="text-2xl font-bold text-blue-700">{filteredReviews.filter((r) => r.status === "pending").length}</p>
               </div>
-              <div className="bg-purple-50 rounded-xl border border-purple-200 p-4">
-                <p className="text-xs text-purple-600 font-medium">In Progress</p>
-                <p className="text-2xl font-bold text-purple-700">{filteredReviews.filter((r) => r.status === "in_progress").length}</p>
+              <div className="bg-blue-50 rounded-xl border border-blue-200 p-4">
+                <p className="text-xs text-blue-600 font-medium">In Progress</p>
+                <p className="text-2xl font-bold text-blue-700">{filteredReviews.filter((r) => r.status === "in_progress").length}</p>
               </div>
               <div className="bg-green-50 rounded-xl border border-green-200 p-4">
                 <p className="text-xs text-green-600 font-medium">Completed</p>
                 <p className="text-2xl font-bold text-green-700">{filteredReviews.filter((r) => r.status === "completed" || r.status === "approved").length}</p>
               </div>
-              <div className="bg-orange-50 rounded-xl border border-orange-200 p-4">
-                <p className="text-xs text-orange-600 font-medium">Total</p>
-                <p className="text-2xl font-bold text-orange-700">{filteredReviews.length}</p>
+              <div className="bg-blue-50 rounded-xl border border-blue-200 p-4">
+                <p className="text-xs text-blue-600 font-medium">Total</p>
+                <p className="text-2xl font-bold text-blue-700">{filteredReviews.length}</p>
               </div>
             </div>
 
@@ -228,7 +228,7 @@ export default function PerformanceReviews() {
                       <td className="px-3 py-3">
                         <div className="flex gap-1 flex-wrap">
                           {r.status === "pending" && (
-                            <button onClick={() => handleStatusChange(r.id, "in_progress")} className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-purple-100 text-purple-700 rounded-md hover:bg-purple-200"><Send className="w-3 h-3" /> Start</button>
+                            <button onClick={() => handleStatusChange(r.id, "in_progress")} className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-blue-100 text-blue-700 rounded-md hover:bg-blue-200"><Send className="w-3 h-3" /> Start</button>
                           )}
                           {r.status === "in_progress" && (
                             <button onClick={() => handleStatusChange(r.id, "completed")} className="inline-flex items-center gap-1 text-xs px-2 py-1 bg-green-100 text-green-700 rounded-md hover:bg-green-200"><CheckCircle className="w-3 h-3" /> Complete</button>
@@ -296,7 +296,7 @@ export default function PerformanceReviews() {
                 {(fb.strengths || fb.improvements) && (
                   <div className="mt-3 grid grid-cols-2 gap-3 text-xs">
                     {fb.strengths && <div className="bg-green-50 rounded-lg p-2"><span className="font-medium text-green-700">Strengths:</span> {fb.strengths}</div>}
-                    {fb.improvements && <div className="bg-orange-50 rounded-lg p-2"><span className="font-medium text-orange-700">Improvements:</span> {fb.improvements}</div>}
+                    {fb.improvements && <div className="bg-blue-50 rounded-lg p-2"><span className="font-medium text-blue-700">Improvements:</span> {fb.improvements}</div>}
                   </div>
                 )}
               </div>

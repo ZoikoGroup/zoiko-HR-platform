@@ -6,10 +6,10 @@ import Footer from "../../landing/Footer";
 // ─── Color tokens (precisely extracted from screenshots) ──────────────────────
 const BG = "#E8E9EE";           // warm silver-grey page background
 const BLUE_DARK = "#192660";    // deep navy headings
-const BLUE_ACCENT = "#2040CC";  // royal blue eyebrows / tags / icons
-const BLUE_MID = "#2B4ACB";     // mid blue for icon boxes
-const BLUE_DEEP = "#172158";    // darkest navy for enterprise card
-const ORANGE = "#E07B2A";       // orange CTAs / accents
+const BLUE_ACCENT = "#3B82F6";  // royal blue eyebrows / tags / icons
+const BLUE_MID = "#F59E0B";     // mid blue for icon boxes
+const BLUE_DEEP = "#0A1128";    // darkest navy for enterprise card
+const ORANGE = "#3B82F6";       // orange CTAs / accents
 const TEXT_MID = "#3D4A6B";     // body text
 const TEXT_MUTED = "#6B7280";   // muted text
 const BORDER = "#D8DAE5";       // card borders
@@ -40,9 +40,9 @@ const bodyText = {
 
 const pillTag = {
   display: "inline-block", padding: "3px 10px", borderRadius: "20px",
-  background: "rgba(32,64,204,0.08)", color: BLUE_ACCENT,
+  background: "rgba(59,130,246,0.08)", color: BLUE_ACCENT,
   fontSize: "11px", fontWeight: "600",
-  border: "1px solid rgba(32,64,204,0.18)",
+  border: "1px solid rgba(59,130,246,0.18)",
 };
 
 const whiteCard = {
@@ -75,7 +75,7 @@ const ghostBtnWhite = {
 function PricingBadge({ label, tag = "Pricing" }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "6px 16px", marginBottom: 28, fontSize: 14, fontWeight: 500, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-      <span style={{ background: "#3B5BDB", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
+      <span style={{ background: "#3B82F6", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
       <span style={{ color: "#555" }}>{label}</span>
     </div>
   );
@@ -95,21 +95,21 @@ function Hero() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
     }}>
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 900 }}>
         <PricingBadge label="Product · Pillar · Workflow · Enterprise" />
         <h1 style={{
           fontSize: "clamp(32px,5vw,56px)", fontWeight: 800, lineHeight: 1.1,
-          color: "#0B1C3F", margin: "0 0 20px",
+          color: "#0A1128", margin: "0 0 20px",
         }}>
           Pricing that starts where<br />
-          your business needs <span style={{ color: "#E8850A" }}>control most.</span>
+          your business needs <span style={{ color: "#10B981" }}>control most.</span>
         </h1>
         <p style={{ fontSize: "16px", lineHeight: 1.7, color: "#4B5563", margin: "0 0 12px" }}>
           Zoiko One pricing is designed for flexible adoption. Start with one product,
@@ -120,7 +120,7 @@ function Hero() {
         </p>
         <div style={{ display: "flex", gap: "14px", justifyContent: "center", flexWrap: "wrap" }}>
           <button style={{
-            background: "linear-gradient(135deg, #E07B2A, #c9651a)",
+            background: "linear-gradient(135deg, #3B82F6, #2563EB)",
             color: "#fff", border: "none", borderRadius: 999,
             padding: "14px 32px", fontSize: 16, fontWeight: 600, cursor: "pointer",
           }}>Request Pricing →</button>
@@ -140,7 +140,7 @@ function Hero() {
 const philPoints = [
   { bg: ORANGE, emoji: "🎯", title: "Start focused", desc: "Begin with the product or workflow that solves the most urgent problem." },
   { bg: BLUE_ACCENT, emoji: "↗", title: "Expand cleanly", desc: "Add products, users, workflows and entities without rebuilding the model." },
-  { bg: "#3BADD4", emoji: "⚖", title: "Pay for fit", desc: "Pricing reflects products, users, complexity, entities and support needs." },
+  { bg: "#10B981", emoji: "⚖", title: "Pay for fit", desc: "Pricing reflects products, users, complexity, entities and support needs." },
   { bg: BLUE_DEEP, emoji: "↗", title: "Scale with control", desc: "Support broader governance, reporting and configuration as you grow." },
 ];
 
@@ -191,7 +191,7 @@ const pricingPaths = [
     cta: "Price a Pillar", ctaBg: "outline",
   },
   {
-    num: "③", numBg: "#3BADD4",
+    num: "③", numBg: "#10B981",
     title: "Workflow Pricing",
     sub: "Connect a real operating handoff across products.",
     detail: "HR→Payroll, Project→Cash, Spend→Stock, Documents→Compliance, Billing→Insights.",
@@ -260,7 +260,7 @@ const pillars = [
     link: "Request Money Pricing →", dark: false,
   },
   {
-    bg: "#3BADD4", emoji: "⊞",
+    bg: "#10B981", emoji: "⊞",
     title: "Work — Projects",
     desc: "Project users, client vs internal, budget/margin tracking, resource planning, billing connection.",
     link: "Request Work Pricing →", dark: false,
@@ -423,7 +423,7 @@ function PlanComparison() {
                   padding: "13px 18px", borderRadius: "50px", border: "none",
                   background: ORANGE, color: "white", fontSize: "13px",
                   fontWeight: "700", cursor: "pointer", fontFamily: FF, marginTop: "8px",
-                  boxShadow: "0 4px 14px rgba(224,123,42,0.4)",
+                  boxShadow: "0 4px 14px rgba(59,130,246,0.4)",
                 }
                 : { ...outlineBtn, marginTop: "8px", width: "100%" }
             }>{cta}</button>
@@ -551,9 +551,9 @@ function QuoteBuilder() {
                   style={{
                     ...pillTag,
                     padding: "7px 16px", cursor: "pointer",
-                    background: selectedPath.includes(t) ? BLUE_ACCENT : "rgba(32,64,204,0.06)",
+                    background: selectedPath.includes(t) ? BLUE_ACCENT : "rgba(59,130,246,0.06)",
                     color: selectedPath.includes(t) ? "white" : BLUE_ACCENT,
-                    border: selectedPath.includes(t) ? "none" : "1px solid rgba(32,64,204,0.2)",
+                    border: selectedPath.includes(t) ? "none" : "1px solid rgba(59,130,246,0.2)",
                     fontFamily: FF, fontSize: "13px",
                     transition: "all 0.15s",
                   }}>{t}</button>
@@ -572,9 +572,9 @@ function QuoteBuilder() {
                   style={{
                     ...pillTag,
                     padding: "7px 16px", cursor: "pointer",
-                    background: selectedNeeds.includes(t) ? BLUE_ACCENT : "rgba(32,64,204,0.06)",
+                    background: selectedNeeds.includes(t) ? BLUE_ACCENT : "rgba(59,130,246,0.06)",
                     color: selectedNeeds.includes(t) ? "white" : BLUE_ACCENT,
-                    border: selectedNeeds.includes(t) ? "none" : "1px solid rgba(32,64,204,0.2)",
+                    border: selectedNeeds.includes(t) ? "none" : "1px solid rgba(59,130,246,0.2)",
                     fontFamily: FF, fontSize: "13px",
                     transition: "all 0.15s",
                   }}>{t}</button>
@@ -596,7 +596,7 @@ function QuoteBuilder() {
             padding: "15px", borderRadius: "50px", border: "none",
             background: ORANGE, color: "white", fontSize: "15px",
             fontWeight: "700", cursor: "pointer", fontFamily: FF,
-            boxShadow: "0 6px 20px rgba(224,123,42,0.4)",
+            boxShadow: "0 6px 20px rgba(59,130,246,0.4)",
           }}>Request Pricing →</button>
 
           <p style={{ fontSize: "11px", color: TEXT_MUTED, textAlign: "center", margin: 0, lineHeight: "1.6" }}>
@@ -666,10 +666,10 @@ function BottomCTA() {
   return (
     <section style={{ ...wrap, paddingTop: "20px", paddingBottom: "80px" }}>
       <div style={{
-        background: "linear-gradient(130deg, #2a3db5 0%, #2348d4 45%, #1a7ae0 100%)",
+        background: "linear-gradient(130deg, #0A1128 0%, #111A33 100%)",
         borderRadius: "24px", padding: "64px 48px",
         textAlign: "center",
-        boxShadow: "0 16px 48px rgba(32,64,204,0.35)",
+        boxShadow: "0 16px 48px rgba(10,17,40,0.35)",
         position: "relative", overflow: "hidden",
       }}>
         <div style={{
@@ -697,7 +697,7 @@ function BottomCTA() {
               padding: "14px 28px", borderRadius: "50px", border: "none",
               background: ORANGE, color: "white", fontSize: "15px",
               fontWeight: "700", cursor: "pointer", fontFamily: FF,
-              boxShadow: "0 6px 20px rgba(224,123,42,0.5)",
+              boxShadow: "0 6px 20px rgba(59,130,246,0.5)",
             }}>Request Pricing</button>
             <button onClick={() => navigate("/get-demo")} style={ghostBtnWhite}>Get a Demo</button>
             <button style={ghostBtnWhite}>Explore Products</button>

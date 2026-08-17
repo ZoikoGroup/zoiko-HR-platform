@@ -28,8 +28,8 @@ function SubNav() {
 }
 
 const DEPARTMENT_COLORS = [
-  "bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500",
-  "bg-red-500", "bg-teal-500", "bg-cyan-500", "bg-indigo-500",
+  "bg-blue-500", "bg-green-500", "bg-blue-500", "bg-orange-500",
+  "bg-red-500", "bg-teal-500", "bg-cyan-500", "bg-blue-500",
 ];
 
 function TreeNode({ node, depth = 0 }) {
@@ -146,7 +146,7 @@ function OrgChart() {
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
           <h2 className="text-lg font-semibold text-gray-900 mb-4 flex items-center gap-2">
-            <MapPin className="w-5 h-5 text-purple-600" />
+            <MapPin className="w-5 h-5 text-blue-600" />
             Location Distribution
           </h2>
           {(!chart?.employees || chart.employees.filter((e) => e.location).length === 0) ? (
@@ -157,11 +157,11 @@ function OrgChart() {
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
               {chart.employees.filter((e) => e.location).map((emp) => (
-                <div key={emp.id} className="flex items-center gap-2 p-3 bg-purple-50 rounded-lg hover:bg-purple-100 transition-colors">
-                  <MapPin className="w-4 h-4 text-purple-600" />
+                <div key={emp.id} className="flex items-center gap-2 p-3 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
+                  <MapPin className="w-4 h-4 text-blue-600" />
                   <div>
-                    <p className="text-sm font-medium text-purple-900">{emp.name}</p>
-                    <p className="text-xs text-purple-600">{emp.location}</p>
+                    <p className="text-sm font-medium text-blue-900">{emp.name}</p>
+                    <p className="text-xs text-blue-600">{emp.location}</p>
                   </div>
                 </div>
               ))}

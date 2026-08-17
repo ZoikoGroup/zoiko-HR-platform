@@ -8,7 +8,7 @@ import Footer from "../../../landing/Footer";
 const siblings = [
   {
     letter: "V",
-    bg: "#f97316",
+    bg: "#3B82F6",
     name: "ZoikoVertex",
     desc: "CRM, sales, marketing and customer success — gets customers.",
     link: "Explore ZoikoVertex →",
@@ -16,7 +16,7 @@ const siblings = [
   },
   {
     letter: "S",
-    bg: "linear-gradient(135deg,#3b5bd5,#2d4fd6)",
+    bg: "linear-gradient(135deg,#10B981,#059669)",
     name: "ZoikoSuite",
     desc: "Accounting and bookkeeping — keeps the books while Zoiko One runs operations.",
     link: "Explore ZoikoSuite →",
@@ -24,7 +24,7 @@ const siblings = [
   },
   {
     letter: "Se",
-    bg: "linear-gradient(135deg,#22b5d4,#0ea5e9)",
+    bg: "linear-gradient(135deg,#0A1128,#111A33)",
     name: "Zoiko Sema",
     desc: "Communication and collaboration around operations.",
     link: "Explore Zoiko Sema →",
@@ -32,7 +32,7 @@ const siblings = [
   },
   {
     letter: "L",
-    bg: "linear-gradient(135deg,#6c5dd3,#7c6de3)",
+    bg: "linear-gradient(135deg,#F59E0B,#D97706)",
     name: "Zoiko Local",
     desc: "Telephony and business calling.",
     link: "Explore Zoiko Local →",
@@ -40,7 +40,7 @@ const siblings = [
   },
   {
     letter: "D",
-    bg: "#f97316",
+    bg: "#3B82F6",
     name: "Zoiko Digital",
     desc: "Web, app, cloud and managed digital services.",
     link: "Explore Zoiko Digital →",
@@ -48,7 +48,7 @@ const siblings = [
   },
   {
     letter: "logo",
-    bg: "linear-gradient(135deg,#f97316 0%,#3b82f6 100%)",
+    bg: "linear-gradient(135deg,#0A1128 0%,#3B82F6 100%)",
     name: "Zoiko One",
     desc: "The connected business-operations platform — this is the hero.",
     link: "Explore Zoiko One →",
@@ -103,15 +103,15 @@ const S = {
     border: "1.5px solid #d8d8e8", borderRadius: 50,
     padding: "8px 18px", marginBottom: 28,
     background: "rgba(255,255,255,0.85)",
-    fontSize: 13.5, color: "#3b2fb0", fontWeight: 500,
+    fontSize: 13.5, color: "#3B82F6", fontWeight: 500,
   },
-  badgeDiamond: { fontSize: 12, color: "#3b2fb0" },
+  badgeDiamond: { fontSize: 12, color: "#3B82F6" },
 
   heroH1: {
     fontSize: "clamp(32px,5vw,58px)", fontWeight: 800,
     lineHeight: 1.1, color: "#1a1a4e", marginBottom: 0,
   },
-  heroOrange: { color: "#f97316" },
+  heroOrange: { color: "#10B981" },
 
   heroSub: {
     fontSize: 16, color: "#666", lineHeight: 1.65,
@@ -123,7 +123,7 @@ const S = {
     gap: 16, flexWrap: "wrap",
   },
   btnOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 32px",
     fontSize: 15, fontWeight: 600, cursor: "pointer",
     display: "inline-flex", alignItems: "center", gap: 8,
@@ -139,7 +139,7 @@ const S = {
   ecoInner: { maxWidth: 1160, margin: "0 auto" },
 
   labelBlue: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
@@ -167,7 +167,7 @@ const S = {
   },
   /* featured Zoiko One card */
   ecoCardFeatured: {
-    background: "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 40%,#3a6fd8 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     border: "none", borderRadius: 16,
     padding: "20px 20px",
     display: "flex", flexDirection: "column",
@@ -197,7 +197,7 @@ const S = {
 
   cardLink: {
     background: "none", border: "none", cursor: "pointer",
-    fontSize: 13.5, fontWeight: 600, color: "#3b2fb0",
+    fontSize: 13.5, fontWeight: 600, color: "#3B82F6",
     padding: 0, textAlign: "left",
   },
   cardLinkFeatured: {
@@ -211,7 +211,7 @@ const S = {
   archInner: { maxWidth: 960, margin: "0 auto", textAlign: "center" },
 
   labelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     marginBottom: 16,
   },
@@ -240,7 +240,7 @@ function EcoCard({ s, onClick }) {
   // On hover every card (including featured) flips to the blue gradient
   const cardStyle = hovered || featured
     ? {
-        background: "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 40%,#3a6fd8 100%)",
+        background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
         border: "none",
         borderRadius: 16,
         padding: "20px 20px",
@@ -248,7 +248,7 @@ function EcoCard({ s, onClick }) {
         flexDirection: "column",
         cursor: "pointer",
         transition: "background 0.25s, box-shadow 0.25s",
-        boxShadow: hovered ? "0 6px 24px rgba(58,47,176,0.2)" : "none",
+        boxShadow: hovered ? "0 6px 24px rgba(10,17,40,0.25)" : "none",
       }
     : {
         border: "1.5px solid #eaeaea",
@@ -280,8 +280,8 @@ function EcoCard({ s, onClick }) {
       }}>
         {s.letter === "logo" ? (
           <svg width="20" height="20" viewBox="0 0 28 28" fill="none">
-            <path d="M9 23L21 5" stroke={isBlue ? "white" : "#f97316"} strokeWidth="3.5" strokeLinecap="round"/>
-            <path d="M9 5L9 23" stroke={isBlue ? "white" : "#2d4fd6"} strokeWidth="3.5" strokeLinecap="round"/>
+            <path d="M9 23L21 5" stroke={isBlue ? "white" : "#3B82F6"} strokeWidth="3.5" strokeLinecap="round"/>
+            <path d="M9 5L9 23" stroke={isBlue ? "white" : "#10B981"} strokeWidth="3.5" strokeLinecap="round"/>
           </svg>
         ) : (
           s.letter

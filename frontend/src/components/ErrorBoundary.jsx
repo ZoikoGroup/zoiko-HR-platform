@@ -37,7 +37,7 @@ export default class ErrorBoundary extends Component {
             )}
             <button
               onClick={this.handleReset}
-              className="mt-6 inline-flex items-center gap-2 rounded-full bg-gradient-to-r from-[#FF6B00] to-[#FF8C38] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:scale-105"
+              className="mt-6 inline-flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] px-6 py-3 text-sm font-semibold text-white shadow-lg transition hover:scale-105"
             >
               <RefreshCw className="h-4 w-4" />
               Back to Login

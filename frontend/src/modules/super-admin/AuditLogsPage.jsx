@@ -8,10 +8,10 @@ const ACTION_COLORS = {
   update: "bg-blue-50 text-blue-600 border border-blue-100",
   delete: "bg-red-50 text-red-600 border border-red-100",
   suspend: "bg-amber-50 text-amber-600 border border-amber-100",
-  activate: "bg-green-50 text-green-600 border border-green-100",
-  login: "bg-purple-50 text-purple-600 border border-purple-100",
+  activate: "bg-emerald-50 text-emerald-600 border border-emerald-100",
+  login: "bg-blue-50 text-blue-600 border border-blue-100",
   logout: "bg-slate-50 text-slate-600 border border-slate-100",
-  config_change: "bg-indigo-50 text-indigo-600 border border-indigo-100",
+  config_change: "bg-blue-50 text-blue-600 border border-blue-100",
 };
 
 export default function AuditLogsPage() {
@@ -63,7 +63,7 @@ export default function AuditLogsPage() {
           <h3 className="text-lg font-bold text-slate-800">Platform Audit Trail ({total})</h3>
           <div className="flex gap-3 items-center flex-wrap">
             <select value={actionFilter} onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
-              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#FF7A00]">
+              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]">
               <option value="">All Actions</option>
               <option value="create">Create</option>
               <option value="update">Update</option>
@@ -73,7 +73,7 @@ export default function AuditLogsPage() {
               <option value="config_change">Config Change</option>
             </select>
             <select value={entityFilter} onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
-              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#FF7A00]">
+              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]">
               <option value="">All Entities</option>
               <option value="Organization">Organization</option>
               <option value="Subscription">Subscription</option>

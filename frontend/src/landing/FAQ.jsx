@@ -1,18 +1,18 @@
 import { Rocket, Link2, Zap, ShieldCheck, TrendingUp } from "lucide-react";
 
 const steps = [
-  { icon: Rocket, title: "Start", desc: "Buy one product without platform overwhelm.", bg: "#1E1B4B" },
-  { icon: Link2, title: "Connect", desc: "Link products and integrations through Zoiko Connect.", bg: "#7C3AED" },
+  { icon: Rocket, title: "Start", desc: "Buy one product without platform overwhelm.", bg: "#0A1128" },
+  { icon: Link2, title: "Connect", desc: "Link products and integrations through Zoiko Connect.", bg: "#10B981" },
   { icon: Zap, title: "Automate", desc: "Reduce manual ops with approvals and workflows.", bg: "#3B82F6" },
-  { icon: ShieldCheck, title: "Govern", desc: "Improve control and audit readiness with Comply.", bg: "#F97316" },
-  { icon: TrendingUp, title: "Scale", desc: "Expand across teams, markets, products, and entities.", bg: "#F97316" },
+  { icon: ShieldCheck, title: "Govern", desc: "Improve control and audit readiness with Comply.", bg: "#F59E0B" },
+  { icon: TrendingUp, title: "Scale", desc: "Expand across teams, markets, products, and entities.", bg: "#10B981" },
 ];
 
 export default function FAQ() {
   return (
     <section className="bg-[#F8F7FC] py-20 md:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-12 text-center">
-        <p className="text-xs font-bold text-[#F97316] tracking-[0.15em] uppercase mb-4">
+        <p className="text-xs font-bold text-[#3B82F6] tracking-[0.15em] uppercase mb-4">
           Grow With The Platform
         </p>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-[#111827] leading-tight tracking-tight mb-4">

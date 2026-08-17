@@ -10,7 +10,7 @@ import {
   FileText,
   Users,
 } from "lucide-react";
-import logo from "../../assets/logo.png";
+import logo from "../../assets/zoikohr-logo-svg.svg";
 
 export default function RegistrationSuccessPage() {
   const navigate = useNavigate();
@@ -38,20 +38,20 @@ export default function RegistrationSuccessPage() {
         {/* Dot grid, faded toward the edges */}
         <div className="absolute inset-0 bg-[radial-gradient(#0000000f_1px,transparent_1px)] bg-[size:28px_28px] [mask-image:radial-gradient(ellipse_70%_60%_at_50%_35%,black,transparent)]" />
 
-        {/* Gradient orbs — indigo (brand) + warm orange (logo accent) */}
-        <div className="absolute -top-32 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-gradient-to-br from-indigo-200/60 via-violet-200/40 to-transparent blur-3xl" />
-        <div className="absolute -bottom-48 -left-24 h-[380px] w-[380px] rounded-full bg-gradient-to-tr from-orange-200/40 via-amber-100/30 to-transparent blur-3xl" />
-        <div className="absolute -bottom-32 -right-16 h-[320px] w-[320px] rounded-full bg-gradient-to-tl from-indigo-200/40 to-transparent blur-3xl" />
+        {/* Gradient orbs — navy/blue (brand) + emerald (accent) */}
+        <div className="absolute -top-32 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-gradient-to-br from-blue-200/60 via-emerald-200/40 to-transparent blur-3xl" />
+        <div className="absolute -bottom-48 -left-24 h-[380px] w-[380px] rounded-full bg-gradient-to-tr from-emerald-200/40 via-blue-100/30 to-transparent blur-3xl" />
+        <div className="absolute -bottom-32 -right-16 h-[320px] w-[320px] rounded-full bg-gradient-to-tl from-blue-200/40 to-transparent blur-3xl" />
 
         {/* Softly floating context icons */}
         <div className="absolute left-[12%] top-[18%] hidden animate-[float_7s_ease-in-out_infinite] rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm backdrop-blur-sm sm:block">
-          <Building2 size={18} className="text-indigo-400" />
+          <Building2 size={18} className="text-blue-400" />
         </div>
         <div className="absolute right-[14%] top-[28%] hidden animate-[float_8s_ease-in-out_infinite] rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm backdrop-blur-sm sm:block [animation-delay:1.2s]">
-          <Users size={18} className="text-orange-400" />
+          <Users size={18} className="text-emerald-400" />
         </div>
         <div className="absolute bottom-[16%] left-[16%] hidden animate-[float_9s_ease-in-out_infinite] rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm backdrop-blur-sm sm:block [animation-delay:2.4s]">
-          <FileText size={18} className="text-violet-400" />
+          <FileText size={18} className="text-blue-400" />
         </div>
         <div className="absolute bottom-[22%] right-[10%] hidden animate-[float_6.5s_ease-in-out_infinite] rounded-2xl border border-slate-200/70 bg-white/70 p-3 shadow-sm backdrop-blur-sm sm:block [animation-delay:0.6s]">
           <ShieldCheck size={18} className="text-emerald-400" />
@@ -140,7 +140,7 @@ export default function RegistrationSuccessPage() {
 
           <button
             onClick={() => navigate("/login")}
-            className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-medium text-white shadow-sm shadow-indigo-600/20 transition-colors hover:bg-indigo-700 focus:outline-none focus:ring-4 focus:ring-indigo-100"
+            className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[#3B82F6] px-4 py-3 text-sm font-medium text-white shadow-sm shadow-[#3B82F6]/20 transition-colors hover:bg-[#2563EB] focus:outline-none focus:ring-4 focus:ring-blue-100"
           >
             Go to login
             <ArrowRight size={16} />
@@ -149,7 +149,7 @@ export default function RegistrationSuccessPage() {
 
         <p className="mt-6 text-center text-xs text-slate-400">
           Wrong email?{" "}
-          <a href="#" className="font-medium text-indigo-600 hover:text-indigo-700">
+          <a href="#" className="font-medium text-[#3B82F6] hover:text-[#2563EB]">
             Contact support
           </a>
         </p>

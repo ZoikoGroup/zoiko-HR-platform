@@ -2664,6 +2664,34 @@ async def upload_document_version(
     )
 
 
+@hr_router.get(
+    "/documents/{document_id}/versions/{version_id}/file",
+    summary="Download / view a specific document version's file",
+    description="Serves the raw file for a historical version of a document, same as /documents/{id}/file.",
+    tags=["📄 HR Documents"],
+)
+def get_document_version_file(
+    document_id: int,
+    version_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    version_data = service.get_document_version_file(
+        db, document_id, version_id, organization_id=current_user.organization_id
+    )
+    file_path = version_data.get("file_path")
+    if not file_path or not _os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found on disk")
+    file_name = version_data.get("file_name") or _os.path.basename(file_path)
+    media_type = version_data.get("mime_type")
+    return FileResponse(
+        path=file_path,
+        media_type=media_type,
+        filename=file_name,
+        headers={"Content-Disposition": f'inline; filename="{file_name}"'},
+    )
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # DOCUMENT APPROVAL WORKFLOW ENDPOINTS
 # ════════════════════════════════════════════════════════════════════════════

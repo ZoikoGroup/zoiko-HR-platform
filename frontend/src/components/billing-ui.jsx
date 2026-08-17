@@ -753,7 +753,7 @@ export function ActivityTimeline({ entries = [], emptyMessage = "No activity rec
 const COMMUNICATION_STATUS_TONE = {
   delivered: "bg-emerald-100 text-emerald-700 border-emerald-200",
   sent: "bg-blue-100 text-blue-700 border-blue-200",
-  opened: "bg-violet-100 text-violet-700 border-violet-200",
+  opened: "bg-blue-100 text-blue-700 border-blue-200",
   failed: "bg-red-100 text-red-700 border-red-200",
   recorded: "bg-slate-100 text-slate-600 border-slate-200",
 };

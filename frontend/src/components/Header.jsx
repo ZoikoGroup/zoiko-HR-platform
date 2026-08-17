@@ -4,7 +4,7 @@ import { Link } from "react-router-dom";
 import UserMenu from "./UserMenu";
 import { useAuth } from "../context/AuthContext";
 import { ROLE_LABELS } from "../config/roles";
-import logo from "../assets/logo.png";
+import logo from "../assets/zoikohr-logo-svg.svg";
 
 /**
  * Header component for the app shell.
@@ -41,7 +41,7 @@ export default function Header({ onMenuClick, onSearch }) {
         {/* Branding */}
         <div className="flex items-center space-x-2">
           <Link to="/"><img src={logo} alt="Zoiko One" className="h-7 w-auto object-contain" /></Link>
-          <span className="ml-2 rounded-full bg-[#FF7A00]/10 border border-[#FF7A00]/25 px-2.5 py-0.5 text-xs font-semibold text-[#FF7A00]">
+          <span className="ml-2 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/25 px-2.5 py-0.5 text-xs font-semibold text-[#3B82F6]">
             {ROLE_LABELS[role] ?? "Super Admin"}
           </span>
         </div>

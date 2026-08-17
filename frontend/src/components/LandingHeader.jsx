@@ -1,18 +1,18 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { Menu, X, ChevronDown } from "lucide-react";
-import logo from "../assets/logo.png";
+import logo from "../assets/zoikohr-logo-svg.svg";
 import { useAuth } from "../context/AuthContext";
 
 const productLinks = [
-  { label: "Zoiko HR", href: "/products/zoiko-hr", desc: "People & lifecycle management", color: "#4F46E5" },
+  { label: "Zoiko HR", href: "/products/zoiko-hr", desc: "People & lifecycle management", color: "#3B82F6" },
   { label: "ZoikoTime", href: "/products/zoikotime", desc: "Time, attendance & shifts", color: "#0891B2" },
   { label: "Zoiko Payroll", href: "/payroll", desc: "Pay runs & filings", color: "#059669" },
-  { label: "Zoiko Billing", href: "/products/billing", desc: "Invoicing & collections", color: "#D97706" },
+  { label: "Zoiko Billing", href: "/products/billing", desc: "Invoicing & collections", color: "#3B82F6" },
   { label: "Zoiko Comply", href: "/products/comply", desc: "Compliance & governance", color: "#DC2626" },
-  { label: "Zoiko Insights", href: "/insights", desc: "Dashboards & analytics", color: "#7C3AED" },
+  { label: "Zoiko Insights", href: "/insights", desc: "Dashboards & analytics", color: "#10B981" },
   { label: "Zoiko Spend", href: "/products/spend", desc: "Procurement & spend management", color: "#0EA5E9" },
-  { label: "Zoiko Projects", href: "/projects", desc: "Projects, tasks & delivery", color: "#6366F1" },
+  { label: "Zoiko Projects", href: "/projects", desc: "Projects, tasks & delivery", color: "#10B981" },
   { label: "Zoiko Inventory", href: "/inventory", desc: "Stock & asset tracking", color: "#84CC16" },
   { label: "Zoiko Docs Pro", href: "/zoiko-docs", desc: "Document management & collaboration", color: "#06B6D4" },
 ];
@@ -92,16 +92,16 @@ export default function LandingHeader() {
         <div className="hidden lg:flex items-center gap-3">
           <Link
             to="/login"
-            className="px-[18px] py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg bg-white no-underline hover:border-orange-500 hover:text-orange-500 transition-all duration-200"
+            className="px-[18px] py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg bg-white no-underline hover:border-blue-500 hover:text-blue-500 transition-all duration-200"
           >
             {isAuthenticated ? "Dashboard" : "Sign In"}
           </Link>
           <Link
             to={isAuthenticated ? "/dashboard" : "/register"}
-            className="px-5 py-2 text-sm font-semibold text-white no-underline rounded-lg transition-all duration-200 hover:shadow-[0_6px_20px_rgba(255,107,0,0.5)]"
+            className="px-5 py-2 text-sm font-semibold text-white no-underline rounded-lg transition-all duration-200 hover:shadow-[0_6px_20px_rgba(59,130,246,0.5)]"
             style={{
-              background: "linear-gradient(135deg, #FF6B00, #FF8C38)",
-              boxShadow: "0 4px 14px rgba(255,107,0,0.35)",
+              background: "linear-gradient(135deg, #3B82F6, #60A5FA)",
+              boxShadow: "0 4px 14px rgba(59,130,246,0.35)",
             }}
           >
             {isAuthenticated ? "Go to Dashboard" : "Get Started Free"}
@@ -139,7 +139,7 @@ export default function LandingHeader() {
             </Link>
             <Link to="/register" onClick={() => setMobileOpen(false)}
               className="text-center py-2.5 rounded-lg text-sm font-semibold text-white no-underline"
-              style={{ background: "linear-gradient(135deg, #FF6B00, #FF8C38)" }}>
+              style={{ background: "linear-gradient(135deg, #3B82F6, #60A5FA)" }}>
               Get Started Free
             </Link>
           </div>

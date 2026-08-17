@@ -12,25 +12,26 @@ import {
 import { getHrDashboardStats, getHrEmployees, getDepartments, getAttendanceDashboard, getLeaveDashboard, getCompensationDashboard, getPerformanceDashboard } from "../../service/hrService";
 import { getOrganizationDetails } from "../../service/orgAdminService";
 import { pick, employeeName, employeeInitials } from "../../utils/fieldAccess";
+import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
-const VIOLET = "#5B3FE0";
-const AMBER = "#F5A340";
-const TEAL = "#0F9B8E";
-const RED = "#D6473C";
-const INK = "#181433";
-const INK_SOFT = "#4A4566";
-const VIOLET_100 = "#EDE9FE";
-const AMBER_100 = "#FDECD6";
-const TEAL_100 = "#DCF5F2";
-const RED_100 = "#FBE6E4";
-const LINE = "rgba(24,20,51,0.08)";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const EMERALD = "#10B981";
+const RED = "#EF4444";
+const INK = "#0A1128";
+const INK_SOFT = "#475569";
+const NAVY_100 = "#E0E7FF";
+const BLUE_100 = "#DBEAFE";
+const EMERALD_100 = "#D1FAE5";
+const RED_100 = "#FEE2E2";
+const LINE = "rgba(10,17,40,0.08)";
 
-const cardShadow = "0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)";
-const liftShadow = "0 4px 10px rgba(24,20,51,0.06), 0 20px 40px -20px rgba(59,46,138,0.25)";
+const cardShadow = "0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)";
+const liftShadow = "0 4px 10px rgba(10,17,40,0.06), 0 20px 40px -20px rgba(59,130,246,0.25)";
 
 function TrendBadge({ trend, label }) {
   const map = {
-    up: { color: TEAL, Icon: TrendingUp },
+    up: { color: EMERALD, Icon: TrendingUp },
     down: { color: RED, Icon: TrendingDown },
     flat: { color: INK_SOFT, Icon: Minus },
   };
@@ -66,10 +67,10 @@ function greeting() {
 }
 
 const quickActions = [
-  { icon: BarChart3, title: "Generate Report", from: VIOLET, to: "#3B2E8A" },
-  { icon: TrendingUp, title: "View Analytics", from: AMBER, to: "#E8862C" },
-  { icon: UserCog, title: "Manage Users", from: TEAL, to: "#0C7B70" },
-  { icon: Settings, title: "Settings", from: "#4C3AAE", to: "#1E1447" },
+  { icon: BarChart3, title: "Generate Report", from: BLUE, to: "#1E40AF" },
+  { icon: TrendingUp, title: "View Analytics", from: EMERALD, to: "#059669" },
+  { icon: UserCog, title: "Manage Users", from: NAVY, to: "#1A2744" },
+  { icon: Settings, title: "Settings", from: "#475569", to: "#334155" },
 ];
 
 export default function HrDashBoard() {
@@ -178,33 +179,33 @@ export default function HrDashBoard() {
     const hired = rec.hired ?? hrDashboard?.total_hired ?? null;
     if (applied == null) return [];
     return [
-      { stage: "Applied", count: applied, pct: 100, color: VIOLET },
-      ...(screened != null ? [{ stage: "Screened", count: screened, pct: Math.round((screened / applied) * 100), color: "#7A5CF0" }] : []),
-      ...(interviewed != null ? [{ stage: "Interview", count: interviewed, pct: Math.round((interviewed / applied) * 100), color: AMBER }] : []),
-      ...(offered != null ? [{ stage: "Offer", count: offered, pct: Math.round((offered / applied) * 100), color: TEAL }] : []),
-      ...(hired != null ? [{ stage: "Hired", count: hired, pct: Math.round((hired / applied) * 100), color: "#3B2E8A" }] : []),
+      { stage: "Applied", count: applied, pct: 100, color: BLUE },
+      ...(screened != null ? [{ stage: "Screened", count: screened, pct: Math.round((screened / applied) * 100), color: "#60A5FA" }] : []),
+      ...(interviewed != null ? [{ stage: "Interview", count: interviewed, pct: Math.round((interviewed / applied) * 100), color: EMERALD }] : []),
+      ...(offered != null ? [{ stage: "Offer", count: offered, pct: Math.round((offered / applied) * 100), color: NAVY }] : []),
+      ...(hired != null ? [{ stage: "Hired", count: hired, pct: Math.round((hired / applied) * 100), color: "#1E40AF" }] : []),
     ];
   }, [hrDashboard, performance]);
 
   const notifications = useMemo(() => {
     const items = [];
     if (pendingLeaves != null && pendingLeaves > 0) {
-      items.push({ icon: FileText, bg: AMBER_100, fg: "#E8862C", text: `${pendingLeaves} leave request(s) pending approval`, time: "Today" });
+      items.push({ icon: FileText, bg: BLUE_100, fg: BLUE, text: `${pendingLeaves} leave request(s) pending approval`, time: "Today" });
     }
     if (todayAttendance != null && todayAttendance > 0) {
-      items.push({ icon: CheckCircle2, bg: TEAL_100, fg: TEAL, text: `${todayAttendance} employee(s) checked in today`, time: "Today" });
+      items.push({ icon: CheckCircle2, bg: EMERALD_100, fg: EMERALD, text: `${todayAttendance} employee(s) checked in today`, time: "Today" });
     }
     if (openPositions != null && openPositions > 0) {
-      items.push({ icon: Target, bg: VIOLET_100, fg: VIOLET, text: `${openPositions} open position(s) awaiting candidates`, time: "Active" });
+      items.push({ icon: Target, bg: NAVY_100, fg: NAVY, text: `${openPositions} open position(s) awaiting candidates`, time: "Active" });
     }
     return items;
   }, [pendingLeaves, todayAttendance, openPositions]);
 
   const watchlist = useMemo(() => {
     if (!employees?.length) return [];
-    const statusColors = { "On Leave": AMBER, "Working": TEAL, "Absent": RED };
+    const statusColors = { "On Leave": BLUE, "Working": EMERALD, "Absent": RED };
     const grads = [
-      [TEAL, "#0C7B70"], [AMBER, "#E8862C"], ["#8B85AE", "#5F5885"],
+      [NAVY, "#1A2744"], [BLUE, "#2563EB"], ["#64748B", "#475569"],
     ];
     const leaveStatus = (e) =>
       pick(e, "status", "leave_status", "leaveStatus", "attendance_status");
@@ -220,7 +221,7 @@ export default function HrDashBoard() {
       return {
         initials, grad: grads[i % grads.length], name,
         dept: (typeof e.department === "object" ? e.department?.name : e.department) || (typeof e.dept === "object" ? e.dept?.name : e.dept) || pick(e, "department_name", "departmentName") || "—",
-        status, statusColor: statusColors[status] || TEAL,
+        status, statusColor: statusColors[status] || EMERALD,
         since: status === "On Leave" ? (pick(e, "leave_start", "leaveStart") || "Recent") : "—",
         attendance: pick(e, "attendance_rate", "attendanceRate", "attendance") ?? null,
       };
@@ -228,7 +229,7 @@ export default function HrDashBoard() {
   }, [employees]);
 
   return (
-    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F6F5FA", color: INK, minHeight: "calc(100vh - 4rem)" }}>
+    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
       {error && (
         <div className="mb-4 rounded-[14px] border p-4 text-sm" style={{ background: RED_100, borderColor: RED, color: RED }}>
           {error}
@@ -236,28 +237,7 @@ export default function HrDashBoard() {
       )}
 
       <div className="flex items-center gap-3 mb-4 pb-4" style={{ borderBottom: `1px solid ${LINE}` }}>
-        <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "#270b87" }}>
-          <svg viewBox="0 0 608.1 619.11" className="w-7 h-7">
-            <rect x="24.76" y="30.27" width="558.57" height="558.57" rx="127.12" ry="127.12" fill="#270b87"/>
-            <path fill="url(#grad1)" d="M383.03,121.69c0,93.43-76.04,169.47-169.47,169.47v-95.81c40.61,0,73.66-33.06,73.66-73.66h95.81Z"/>
-            <path fill="url(#grad2)" d="M377.18,225.86v271.55c-52.94,0-95.81-42.91-95.81-95.81v-101.69c40.25-12.15,74.27-38.87,95.81-74.05Z"/>
-            <path fill="url(#grad1)" d="M213.55,291.16v-95.81c40.61,0,73.66-33.06,73.66-73.66,0,0,32.7,86.49-73.66,169.47Z"/>
-            <path fill="url(#grad2)" d="M377.18,411.88v85.53c-52.94,0-95.81-42.91-95.81-95.81v-101.51c0,4.75,1.13,104.99,95.81,111.79Z"/>
-            <path fill="url(#grad3)" d="M377.18,225.86v271.55c-13.64,0-26.61-2.87-38.37-8.01v-219.89c15.16-12.22,28.17-26.96,38.37-43.65Z" opacity="0.51" style={{mixBlendMode:"screen"}}/>
-            <path fill="url(#grad3)" d="M383.03,121.69c0,93.43-76.04,169.47-169.47,169.47v-95.81s118.77,51.24,169.47-73.66Z" opacity="0.36" style={{mixBlendMode:"screen"}}/>
-            <defs>
-              <linearGradient id="grad1" x1="435.94" y1="123.97" x2="167.83" y2="257.43" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#00c5ff"/><stop offset="1" stopColor="#0070ff"/>
-              </linearGradient>
-              <linearGradient id="grad2" x1="293.19" y1="361.64" x2="380.16" y2="361.64" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#fc4600"/><stop offset="1" stopColor="#ffb900"/>
-              </linearGradient>
-              <linearGradient id="grad3" x1="356.68" y1="226.07" x2="359.39" y2="497.59" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#009cff"/><stop offset="1" stopColor="#000"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
+        <img src={zoikoIcon} alt="ZoikoHR" className="w-10 h-10" />
         <div>
           <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold" style={{ color: INK }}>{orgName}</p>
           <p className="text-[12px] font-medium" style={{ color: INK_SOFT }}>Organization ID · {orgId}</p>
@@ -266,15 +246,15 @@ export default function HrDashBoard() {
 
       {loading ? (
         <div className="flex items-center justify-center py-20">
-          <RefreshCw size={24} className="animate-spin" style={{ color: VIOLET }} />
+          <RefreshCw size={24} className="animate-spin" style={{ color: BLUE }} />
         </div>
       ) : (
         <>
           <div
             className="relative flex justify-between items-center gap-6 mb-[22px] rounded-[20px] px-[34px] py-[30px] text-white overflow-hidden"
-            style={{ background: `linear-gradient(120deg, #1E1447 0%, #3B2E8A 62%, #4C3AAE 100%)`, boxShadow: liftShadow }}
+            style={{ background: `linear-gradient(120deg, #0A1128 0%, #1A2744 62%, #1E3A5F 100%)`, boxShadow: liftShadow }}
           >
-            <div className="absolute rounded-full pointer-events-none" style={{ right: -60, top: -90, width: 280, height: 280, background: "radial-gradient(circle, rgba(245,163,64,0.35), transparent 70%)" }} />
+            <div className="absolute rounded-full pointer-events-none" style={{ right: -60, top: -90, width: 280, height: 280, background: "radial-gradient(circle, rgba(59,130,246,0.35), transparent 70%)" }} />
             <div className="z-[1]">
               <p className="text-[11.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.55)" }}>
                 {todayLabel()}
@@ -284,7 +264,7 @@ export default function HrDashBoard() {
                 {totalEmployees != null ? `${totalEmployees} total employees` : "Manage workforce"} — {deptCount != null ? `${deptCount} departments` : "all departments"}. HR operations at a glance.
               </p>
               <div className="flex gap-2.5 mt-[18px]">
-                <button className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold border-none cursor-pointer whitespace-nowrap" style={{ background: `linear-gradient(135deg,${AMBER},#E8862C)`, color: "#241000", boxShadow: `0 8px 20px -8px rgba(232,134,44,0.7)` }}>
+                <button className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold border-none cursor-pointer whitespace-nowrap" style={{ background: `linear-gradient(135deg,${BLUE},#2563EB)`, color: "#fff", boxShadow: `0 8px 20px -8px rgba(59,130,246,0.7)` }}>
                   ＋ Add Employee
                 </button>
                 <button className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
@@ -299,7 +279,7 @@ export default function HrDashBoard() {
               <div className="relative" style={{ width: 88, height: 88 }}>
                 <svg viewBox="0 0 88 88" className="w-full h-full">
                   <circle cx="44" cy="44" r="37" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="8" />
-                  <circle cx="44" cy="44" r="37" fill="none" stroke={AMBER} strokeWidth="8" strokeDasharray={`${2 * Math.PI * 37 * (healthScore ?? 0) / 100} ${2 * Math.PI * 37 * (100 - (healthScore ?? 0)) / 100}`} strokeLinecap="round" transform="rotate(-90 44 44)" />
+                  <circle cx="44" cy="44" r="37" fill="none" stroke={BLUE} strokeWidth="8" strokeDasharray={`${2 * Math.PI * 37 * (healthScore ?? 0) / 100} ${2 * Math.PI * 37 * (100 - (healthScore ?? 0)) / 100}`} strokeLinecap="round" transform="rotate(-90 44 44)" />
                 </svg>
                 <div className="absolute inset-0 flex items-center justify-center font-['Sora',system-ui,sans-serif] font-extrabold text-[19px] pointer-events-none">{healthScore != null ? `${healthScore}%` : "—"}</div>
               </div>
@@ -313,7 +293,7 @@ export default function HrDashBoard() {
           <div className="flex items-center justify-between gap-4 rounded-2xl px-4.5 py-3.5 mb-5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
             <div className="flex gap-2">
               {[RefreshCw, Filter, Download].map((Icon, i) => (
-                <button key={i} onClick={i === 0 ? handleRefresh : undefined} className="w-9 h-9 rounded-[9px] flex items-center justify-center" style={{ background: "#F6F5FA", border: `1px solid ${LINE}`, color: INK_SOFT }}>
+                <button key={i} onClick={i === 0 ? handleRefresh : undefined} className="w-9 h-9 rounded-[9px] flex items-center justify-center" style={{ background: "#F0F4F8", border: `1px solid ${LINE}`, color: INK_SOFT }}>
                   <Icon size={15} className={i === 0 && refreshing ? "animate-spin" : ""} />
                 </button>
               ))}
@@ -322,7 +302,7 @@ export default function HrDashBoard() {
               <span className="text-xs font-semibold mr-1" style={{ color: INK_SOFT }}>Quick Access:</span>
               {["Executive", "Department", "Operational", "Performance"].map((tab) => (
                 <button key={tab} onClick={() => setActiveTab(tab)} className="px-4 py-2 rounded-[9px] text-sm font-semibold transition"
-                  style={activeTab === tab ? { background: `linear-gradient(135deg, ${VIOLET}, #7A5CF0)`, color: "#fff", boxShadow: "0 6px 14px -4px rgba(91,63,224,0.5)" } : { color: INK_SOFT }}>
+                  style={activeTab === tab ? { background: `linear-gradient(135deg, ${BLUE}, #2563EB)`, color: "#fff", boxShadow: "0 6px 14px -4px rgba(59,130,246,0.5)" } : { color: INK_SOFT }}>
                   {tab}
                 </button>
               ))}
@@ -332,7 +312,7 @@ export default function HrDashBoard() {
           <div className="grid grid-cols-5 gap-4">
             <div className="rounded-2xl p-4.5 transition hover:-translate-y-0.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="flex items-center justify-between mb-3.5">
-                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: VIOLET_100, color: VIOLET }}><Users size={17} /></div>
+                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: BLUE_100, color: BLUE }}><Users size={17} /></div>
                 <TrendBadge trend={totalEmployees != null ? "up" : null} label={totalEmployees != null ? "active" : null} />
               </div>
               <div className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Total Employees</div>
@@ -341,7 +321,7 @@ export default function HrDashBoard() {
             </div>
             <div className="rounded-2xl p-4.5 transition hover:-translate-y-0.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="flex items-center justify-between mb-3.5">
-                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: AMBER_100, color: "#E8862C" }}><Building2 size={17} /></div>
+                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: EMERALD_100, color: EMERALD }}><Building2 size={17} /></div>
                 <TrendBadge trend={deptCount != null ? "flat" : null} label={deptCount != null ? String(deptCount) : null} />
               </div>
               <div className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Active Departments</div>
@@ -358,7 +338,7 @@ export default function HrDashBoard() {
             </div>
             <div className="rounded-2xl p-4.5 transition hover:-translate-y-0.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="flex items-center justify-between mb-3.5">
-                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: TEAL_100, color: TEAL }}><CheckCircle2 size={17} /></div>
+                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: EMERALD_100, color: EMERALD }}><CheckCircle2 size={17} /></div>
                 <TrendBadge trend={avgAttendance != null ? (avgAttendance >= 90 ? "up" : avgAttendance > 0 ? "down" : "flat") : null} label={avgAttendance != null ? `${avgAttendance}%` : null} />
               </div>
               <div className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Avg. Attendance</div>
@@ -367,7 +347,7 @@ export default function HrDashBoard() {
             </div>
             <div className="rounded-2xl p-4.5 transition hover:-translate-y-0.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="flex items-center justify-between mb-3.5">
-                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: VIOLET_100, color: VIOLET }}><Target size={17} /></div>
+                <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: NAVY_100, color: NAVY }}><Target size={17} /></div>
                 <TrendBadge trend={openPositions != null ? (openPositions > 0 ? "up" : "flat") : null} label={openPositions != null ? `${openPositions} open` : null} />
               </div>
               <div className="text-xs font-medium mb-1" style={{ color: INK_SOFT }}>Open Positions</div>
@@ -385,7 +365,7 @@ export default function HrDashBoard() {
                 <div className="flex gap-1.5">
                   {["Headcount", "Payroll"].map((v) => (
                     <button key={v} onClick={() => setDeptView(v)} className="text-xs font-semibold px-3 py-1.5 rounded-full"
-                      style={deptView === v ? { background: VIOLET, color: "#fff" } : { background: "#F6F5FA", color: INK_SOFT }}>
+                      style={deptView === v ? { background: BLUE, color: "#fff" } : { background: "#F0F4F8", color: INK_SOFT }}>
                       {v}
                     </button>
                   ))}
@@ -394,10 +374,10 @@ export default function HrDashBoard() {
               {deptData.length > 0 ? (
                 <ResponsiveContainer width="100%" height={220}>
                   <BarChart data={deptData}>
-                    <CartesianGrid vertical={false} stroke="rgba(24,20,51,0.05)" />
+                    <CartesianGrid vertical={false} stroke="rgba(10,17,40,0.05)" />
                     <XAxis dataKey="name" tick={{ fill: INK_SOFT, fontSize: 10.5 }} axisLine={false} tickLine={false} interval={0} angle={-10} textAnchor="end" height={50} />
                     <YAxis tick={{ fill: INK_SOFT, fontSize: 11 }} axisLine={false} tickLine={false} />
-                    <Bar dataKey="value" fill={VIOLET} radius={[7, 7, 0, 0]} maxBarSize={30} />
+                    <Bar dataKey="value" fill={BLUE} radius={[7, 7, 0, 0]} maxBarSize={30} />
                   </BarChart>
                 </ResponsiveContainer>
               ) : (
@@ -412,9 +392,9 @@ export default function HrDashBoard() {
               </div>
               <div className="flex flex-col items-center pt-1.5">
                 <ResponsiveContainer width={220} height={140}>
-                  <RadialBarChart innerRadius="75%" outerRadius="100%" data={[{ name: "Compliance", value: complianceScore ?? 0, fill: TEAL }]} startAngle={180} endAngle={0} barSize={16}>
+                  <RadialBarChart innerRadius="75%" outerRadius="100%" data={[{ name: "Compliance", value: complianceScore ?? 0, fill: EMERALD }]} startAngle={180} endAngle={0} barSize={16}>
                     <PolarAngleAxis type="number" domain={[0, 100]} tick={false} />
-                    <RadialBar dataKey="value" cornerRadius={8} background={{ fill: "rgba(15,155,142,0.12)" }} />
+                    <RadialBar dataKey="value" cornerRadius={8} background={{ fill: "rgba(16,185,129,0.12)" }} />
                   </RadialBarChart>
                 </ResponsiveContainer>
                 <div className="text-3xl font-extrabold -mt-16" style={{ fontFamily: "'Sora', sans-serif" }}>{complianceScore ?? "—"}%</div>

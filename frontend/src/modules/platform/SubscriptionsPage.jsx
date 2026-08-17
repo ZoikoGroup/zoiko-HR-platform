@@ -19,7 +19,7 @@ export default function SubscriptionsPage() {
       period: "/ user / month",
       description: "Advanced workflow automation and comprehensive payroll.",
       features: ["Unlimited users", "Full Zoiko HR & Payroll", "Shift scheduler", "Custom billing flows", "Standard compliance checks"],
-      badge: "bg-[#FF7A00]/10 text-[#FF7A00] border border-[#FF7A00]/20",
+      badge: "bg-[#3B82F6]/10 text-[#3B82F6] border border-[#3B82F6]/20",
       activeOrgs: "112 Organizations",
       featured: true
     },
@@ -29,7 +29,7 @@ export default function SubscriptionsPage() {
       period: "/ user / month",
       description: "Full suite integration with designated governance and WAF protection.",
       features: ["Custom user roles & controls", "Immutable audit trail", "Full API Gateway access", "WAF Block lists", "Priority 24/7 support", "Dedicated account manager"],
-      badge: "bg-indigo-50 text-indigo-700 border border-indigo-100",
+      badge: "bg-blue-50 text-blue-700 border border-blue-100",
       activeOrgs: "34 Organizations"
     }
   ];
@@ -55,11 +55,11 @@ export default function SubscriptionsPage() {
           <div 
             key={idx} 
             className={`rounded-3xl bg-white border p-6 flex flex-col justify-between transition relative ${
-              p.featured ? "border-[#FF7A00] shadow-[0_4px_30px_rgba(255,107,0,0.06)]" : "border-slate-200 shadow-sm"
+              p.featured ? "border-[#3B82F6] shadow-[0_4px_30px_rgba(59,130,246,0.06)]" : "border-slate-200 shadow-sm"
             }`}
           >
             {p.featured && (
-              <span className="absolute -top-3 left-6 rounded-full bg-[#FF7A00] px-3 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
+              <span className="absolute -top-3 left-6 rounded-full bg-[#3B82F6] px-3 py-0.5 text-[10px] font-bold text-white uppercase tracking-wider">
                 Popular
               </span>
             )}
@@ -80,7 +80,7 @@ export default function SubscriptionsPage() {
               <ul className="space-y-2 mb-6">
                 {p.features.map((f, i) => (
                   <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
-                    <CheckCircle2 className="h-4 w-4 text-[#FF7A00] flex-shrink-0 mt-0.5" />
+                    <CheckCircle2 className="h-4 w-4 text-[#3B82F6] flex-shrink-0 mt-0.5" />
                     <span>{f}</span>
                   </li>
                 ))}
@@ -89,7 +89,7 @@ export default function SubscriptionsPage() {
             
             <button className={`w-full rounded-full py-2.5 text-xs font-semibold transition ${
               p.featured 
-                ? "bg-[#FF7A00] hover:bg-[#e56e00] text-white shadow-[0_4px_12px_rgba(255,107,0,0.25)]" 
+                ? "bg-[#3B82F6] hover:bg-[#2563EB] text-white shadow-[0_4px_12px_rgba(59,130,246,0.25)]" 
                 : "border border-slate-200 hover:border-slate-350 bg-slate-50 text-slate-700 hover:bg-slate-100"
             }`}>
               Configure Plan
@@ -129,7 +129,7 @@ export default function SubscriptionsPage() {
                     </span>
                   </td>
                   <td className="py-4 px-4 text-right">
-                    <button className="p-1 text-slate-400 hover:text-[#FF7A00] transition" aria-label="Download invoice">
+                    <button className="p-1 text-slate-400 hover:text-[#3B82F6] transition" aria-label="Download invoice">
                       <Download className="h-4 w-4" />
                     </button>
                   </td>

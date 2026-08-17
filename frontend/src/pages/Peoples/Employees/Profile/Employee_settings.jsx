@@ -36,7 +36,7 @@ const PasswordField = ({ label, value, onChange, show, onToggle, placeholder }) 
         value={value}
         onChange={onChange}
         placeholder={placeholder || "••••••••"}
-        className="w-full border border-slate-200 dark:border-[#334155] rounded-xl pl-9 pr-10 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white dark:focus:bg-[#0f172a] transition"
+        className="w-full border border-slate-200 dark:border-[#334155] rounded-xl pl-9 pr-10 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition"
       />
       <button
         type="button"
@@ -138,7 +138,7 @@ export default function ChangePassword() {
     return (
       <EmployeePageShell title="Security Settings" subtitle="Profile">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 dark:text-[#94a3b8] font-medium">Loading settings...</span>
         </div>
       </EmployeePageShell>
@@ -169,8 +169,8 @@ export default function ChangePassword() {
         {/* Password Form */}
         <div className="bg-white dark:bg-[#1e293b] rounded-2xl shadow-sm border border-slate-100 dark:border-[#334155] p-6 mb-5">
           <div className="flex items-center gap-2 mb-5">
-            <div className="p-2 rounded-xl bg-indigo-50 dark:bg-indigo-500/20">
-              <Lock size={16} className="text-indigo-500" />
+            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-500/20">
+              <Lock size={16} className="text-blue-500" />
             </div>
             <h2 className="text-base font-bold text-slate-800 dark:text-[#f1f5f9]">Change Password</h2>
           </div>
@@ -257,7 +257,7 @@ export default function ChangePassword() {
           <button
             onClick={handleSubmit}
             disabled={saving}
-            className="mt-6 w-full py-3 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-bold rounded-xl transition shadow-sm shadow-indigo-200 flex items-center justify-center gap-2"
+            className="mt-6 w-full py-3 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-bold rounded-xl transition shadow-sm shadow-blue-200 flex items-center justify-center gap-2"
           >
             {saving ? <><Loader2 size={14} className="animate-spin" /> Updating...</> : "Update Password"}
           </button>
@@ -266,8 +266,8 @@ export default function ChangePassword() {
         {/* 2FA Section */}
         <div className="bg-white dark:bg-[#1e293b] rounded-2xl shadow-sm border border-slate-100 dark:border-[#334155] p-6">
           <div className="flex items-center gap-2 mb-1">
-            <div className="p-2 rounded-xl bg-violet-50 dark:bg-violet-500/20">
-              <ShieldCheck size={16} className="text-violet-500" />
+            <div className="p-2 rounded-xl bg-blue-50 dark:bg-blue-500/20">
+              <ShieldCheck size={16} className="text-blue-500" />
             </div>
             <h2 className="text-base font-bold text-slate-800 dark:text-[#f1f5f9]">Two-Factor Authentication</h2>
           </div>
@@ -281,7 +281,7 @@ export default function ChangePassword() {
 
           <div className="flex items-center justify-between p-4 bg-slate-50 dark:bg-[#0f172a] rounded-xl border border-slate-100 dark:border-[#334155]">
             <div className="flex items-center gap-3">
-              <Shield size={18} className={twoFA ? "text-violet-500" : "text-slate-300 dark:text-[#64748b]"} />
+              <Shield size={18} className={twoFA ? "text-blue-500" : "text-slate-300 dark:text-[#64748b]"} />
               <div>
                 <p className="text-sm font-semibold text-slate-800 dark:text-[#f1f5f9]">Authenticator App</p>
                 <p className="text-xs text-slate-400 dark:text-[#94a3b8] mt-0.5">
@@ -291,11 +291,11 @@ export default function ChangePassword() {
             </div>
 
             {saving ? (
-              <Loader2 size={18} className="text-indigo-500 animate-spin" />
+              <Loader2 size={18} className="text-blue-500 animate-spin" />
             ) : (
               <button
                 onClick={handleToggle2FA}
-                className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${twoFA ? "bg-violet-500" : "bg-slate-200 dark:bg-[#334155]"}`}
+                className={`relative w-12 h-6 rounded-full transition-colors duration-300 ${twoFA ? "bg-blue-500" : "bg-slate-200 dark:bg-[#334155]"}`}
                 aria-label="Toggle 2FA"
               >
                 <span
@@ -308,9 +308,9 @@ export default function ChangePassword() {
           </div>
 
           {twoFA && (
-            <div className="mt-4 p-4 bg-violet-50 dark:bg-violet-900/30 border border-violet-100 dark:border-violet-800 rounded-xl">
-              <p className="text-xs font-semibold text-violet-700 dark:text-violet-300 mb-1">✓ Two-factor authentication is active</p>
-              <p className="text-xs text-violet-500 dark:text-violet-400">
+            <div className="mt-4 p-4 bg-blue-50 dark:bg-blue-900/30 border border-blue-100 dark:border-blue-800 rounded-xl">
+              <p className="text-xs font-semibold text-blue-700 dark:text-blue-300 mb-1">✓ Two-factor authentication is active</p>
+              <p className="text-xs text-blue-500 dark:text-blue-400">
                 You'll be asked for a verification code each time you sign in from a new device.
               </p>
             </div>

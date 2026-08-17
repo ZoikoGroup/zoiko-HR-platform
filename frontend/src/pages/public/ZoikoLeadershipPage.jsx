@@ -6,56 +6,56 @@ import Footer from "../../landing/Footer";
 const leadership = [
   {
     initials: "CE",
-    bg: "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 100%)",
+    bg: "linear-gradient(135deg,#3B82F6 0%,#2563EB 100%)",
     role: "Chief Executive",
     tag: "Vision & strategy",
     desc: "Sets platform direction, commercial strategy and long-term company governance.",
   },
   {
     initials: "PR",
-    bg: "linear-gradient(135deg,#3b9ef5 0%,#22b5d4 100%)",
+    bg: "linear-gradient(135deg,#10B981 0%,#0A1128 100%)",
     role: "Chief Product",
     tag: "Product & design",
     desc: "Owns the five-pillar product architecture, roadmap and user experience.",
   },
   {
     initials: "EN",
-    bg: "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 100%)",
+    bg: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     role: "Chief Technology",
     tag: "Engineering & platform",
     desc: "Leads platform engineering, the shared spine, reliability and scale.",
   },
   {
     initials: "SE",
-    bg: "linear-gradient(135deg,#f97316 0%,#fb923c 100%)",
+    bg: "linear-gradient(135deg,#F59E0B 0%,#0A1128 100%)",
     role: "Chief Security",
     tag: "Security & trust",
     desc: "Owns security posture, responsible AI boundaries and trust governance.",
   },
   {
     initials: "RV",
-    bg: "linear-gradient(135deg,#6c5dd3 0%,#7c6de3 100%)",
+    bg: "linear-gradient(135deg,#3B82F6 0%,#2563EB 100%)",
     role: "Chief Revenue",
     tag: "Commercial growth",
     desc: "Leads sales, partnerships and commercial expansion.",
   },
   {
     initials: "CS",
-    bg: "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 100%)",
+    bg: "linear-gradient(135deg,#10B981 0%,#0A1128 100%)",
     role: "Customer Success",
     tag: "Implementation & support",
     desc: "Owns onboarding, implementation and customer outcomes.",
   },
   {
     initials: "FN",
-    bg: "linear-gradient(135deg,#3b9ef5 0%,#22b5d4 100%)",
+    bg: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     role: "Finance & Operations",
     tag: "Operating discipline",
     desc: "Runs finance, operations and corporate governance.",
   },
   {
     initials: "PE",
-    bg: "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 100%)",
+    bg: "linear-gradient(135deg,#F59E0B 0%,#0A1128 100%)",
     role: "People & Culture",
     tag: "Team & culture",
     desc: "Builds the team, culture and operating accountability model.",
@@ -64,32 +64,32 @@ const leadership = [
 
 const operatingModel = [
   {
-    Icon: "⚙️", bg: "linear-gradient(135deg,#2d4fd6,#3b5bd5)",
+    Icon: "⚙️", bg: "linear-gradient(135deg,#3B82F6,#2563EB)",
     title: "Product discipline",
     desc: "Clear architecture, guardrails and a focused roadmap.",
   },
   {
-    Icon: "💡", bg: "linear-gradient(135deg,#f97316,#fb923c)",
+    Icon: "💡", bg: "linear-gradient(135deg,#10B981,#0A1128)",
     title: "Security awareness",
     desc: "Security and responsible AI considered from the start.",
   },
   {
-    Icon: "🤝", bg: "linear-gradient(135deg,#3b9ef5,#22b5d4)",
+    Icon: "🤝", bg: "linear-gradient(135deg,#0A1128,#111A33)",
     title: "Customer outcomes",
     desc: "Implementation and support measured by real results.",
   },
   {
-    Icon: "🖥️", bg: "linear-gradient(135deg,#3b2fb0,#4a3fc0)",
+    Icon: "🖥️", bg: "linear-gradient(135deg,#F59E0B,#0A1128)",
     title: "Governance",
     desc: "Decision accountability and long-term platform trust.",
   },
   {
-    Icon: "📈", bg: "linear-gradient(135deg,#4a3fc0,#5b4fd8)",
+    Icon: "📈", bg: "linear-gradient(135deg,#3B82F6,#2563EB)",
     title: "Sustainable growth",
     desc: "Commercial expansion without compromising trust.",
   },
   {
-    Icon: "👥", bg: "linear-gradient(135deg,#3b2fb0,#2d1f9e)",
+    Icon: "👥", bg: "linear-gradient(135deg,#10B981,#0A1128)",
     title: "Team & culture",
     desc: "An accountable, mission-driven operating culture.",
   },
@@ -138,7 +138,7 @@ const S = {
     padding: "6px 16px 6px 6px", marginBottom: 28, background: "#fff",
   },
   badgePill: {
-    background: "#2d4fd6", color: "#fff",
+    background: "#3B82F6", color: "#fff",
     fontSize: 12, fontWeight: 700, borderRadius: 50, padding: "4px 12px",
   },
   badgeText: { fontSize: 14, color: "#333" },
@@ -147,7 +147,7 @@ const S = {
     fontSize: "clamp(32px,5vw,52px)", fontWeight: 800,
     lineHeight: 1.15, color: "#1a1a4e", marginBottom: 0,
   },
-  heroBlue: { color: "#3b9ef5" },
+  heroBlue: { color: "#3B82F6" },
 
   heroSub: {
     fontSize: 16, color: "#555", lineHeight: 1.65,
@@ -156,7 +156,7 @@ const S = {
 
   heroActions: { display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" },
   btnOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 30px",
     fontSize: 15, fontWeight: 600, cursor: "pointer",
     display: "inline-flex", alignItems: "center", gap: 8,
@@ -171,12 +171,12 @@ const S = {
   leadershipInner: { maxWidth: 1100, margin: "0 auto" },
 
   labelPurple: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
   labelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
@@ -202,7 +202,7 @@ const S = {
     fontSize: 16, fontWeight: 700, color: "#fff",
   },
   leaderRole: { fontSize: 14.5, fontWeight: 700, color: "#1a1a4e", marginBottom: 4 },
-  leaderTag: { fontSize: 12, fontWeight: 700, color: "#f97316", marginBottom: 10 },
+  leaderTag: { fontSize: 12, fontWeight: 700, color: "#10B981", marginBottom: 10 },
   leaderDesc: { fontSize: 12.5, color: "#888", lineHeight: 1.5 },
 
   modelSection: { padding: "80px 24px 100px", background: "#f5f5fb" },
@@ -223,7 +223,7 @@ const S = {
   ctaSection: { padding: "40px 28px 80px", background: "#f5f5fb" },
   ctaCard: {
     maxWidth: 1060, margin: "0 auto",
-    background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     borderRadius: 22, padding: "64px 48px", textAlign: "center",
   },
   ctaH2: {
@@ -233,7 +233,7 @@ const S = {
   ctaSub: { fontSize: 15, color: "rgba(255,255,255,0.78)", marginBottom: 32, lineHeight: 1.55 },
   ctaActions: { display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" },
   btnCtaOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "14px 28px",
     fontSize: 14.5, fontWeight: 700, cursor: "pointer",
   },

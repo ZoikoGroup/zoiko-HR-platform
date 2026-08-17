@@ -22,7 +22,7 @@ export default function ZoikoWorkflowPage() {
         title="Zoiko Workflow" 
         description="Design, orchestrate, and audit state machine workflows that connect human actions and service micro-events."
         action={
-          <button className="flex items-center gap-2 rounded-full bg-[#FF7A00] hover:bg-[#e56e00] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(255,122,0,0.3)]">
+          <button className="flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(59,130,246,0.3)]">
             <Plus className="h-4 w-4" /> Create Workflow
           </button>
         }
@@ -32,7 +32,7 @@ export default function ZoikoWorkflowPage() {
         {/* Workflows List */}
         <div className="lg:col-span-2 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <GitBranch className="h-5 w-5 text-[#FF7A00]" /> Active Orchestration Flows
+            <GitBranch className="h-5 w-5 text-[#3B82F6]" /> Active Orchestration Flows
           </h3>
           <div className="space-y-3">
             {workflows.map((w, idx) => (
@@ -60,12 +60,12 @@ export default function ZoikoWorkflowPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Workflow className="h-5 w-5 text-[#FF7A00]" /> Recent Activity
+              <Workflow className="h-5 w-5 text-[#3B82F6]" /> Recent Activity
             </h3>
             <div className="space-y-4">
               {recentRuns.map((r, idx) => (
                 <div key={idx} className="flex gap-3 p-3 rounded-2xl bg-slate-50 border border-slate-100">
-                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-orange-50 border border-orange-100 text-[#FF7A00]">
+                  <div className="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-[#3B82F6]">
                     <Play className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">

@@ -189,9 +189,9 @@ export default function CompensationBandsPage() {
               <span className="text-gray-400">Total: </span>
               <span className="font-bold text-gray-800">{stats.total}</span>
             </div>
-            <div className="bg-white px-4 py-2 border border-purple-100 rounded-lg shadow-sm text-sm">
+            <div className="bg-white px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm">
               <span className="text-gray-400">Highest Band Max: </span>
-              <span className="font-bold text-purple-600">${stats.highestMax.toLocaleString()}</span>
+              <span className="font-bold text-blue-600">${stats.highestMax.toLocaleString()}</span>
             </div>
           </div>
           <button

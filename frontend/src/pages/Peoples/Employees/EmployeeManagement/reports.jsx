@@ -95,7 +95,7 @@ export default function EmployeeReports() {
     switch (type) {
       case "employee_master": return "bg-blue-500";
       case "active_employees": return "bg-green-500";
-      case "department": return "bg-purple-500";
+      case "department": return "bg-blue-500";
       case "lifecycle": return "bg-orange-500";
       default: return "bg-gray-500";
     }
@@ -145,7 +145,7 @@ export default function EmployeeReports() {
           {[
             { type: "employee_master", icon: Users, color: "bg-blue-500", label: "Employee Master Report" },
             { type: "active_employees", icon: UserCheck, color: "bg-green-500", label: "Active Employees Report" },
-            { type: "department", icon: Building2, color: "bg-purple-500", label: "Department Report" },
+            { type: "department", icon: Building2, color: "bg-blue-500", label: "Department Report" },
             { type: "lifecycle", icon: Clock, color: "bg-orange-500", label: "Lifecycle Report" },
           ].map((report, idx) => {
             const Icon = report.icon;

@@ -13,16 +13,16 @@ import { useNavigate } from "react-router-dom";
 import LandingHeader from "../../landing/LandingHeader";
 import Footer from "../../landing/Footer";
 
-const NAVY = "#161B33";
+const NAVY = "#0A1128";
 const BODY = "#5B6373";
-const BLUE_BADGE = "#2B3FE0";
-const ORANGE = "#FF7A00";
-const ORANGE_DARK = "#E06800";
-const CARD_NAVY_TOP = "#1B2347";
-const CARD_NAVY_BOTTOM = "#10142A";
+const BLUE_BADGE = "#3B82F6";
+const ORANGE = "#3B82F6";
+const ORANGE_DARK = "#2563EB";
+const CARD_NAVY_TOP = "#0A1128";
+const CARD_NAVY_BOTTOM = "#111A33";
 const BORDER = "#E6E8EC";
-const ICON_NAVY = "#1E2A6A";
-const ICON_BLUE = "#3B7BE0";
+const ICON_NAVY = "#0A1128";
+const ICON_BLUE = "#3B82F6";
 
 const flowSteps = ["Time & attendance", "Exceptions", "Approved hours", "Payroll", "Billing", "Projects", "Insights"];
 const flowSeparators = ["arrow", "arrow", "arrow", "arrow", "arrow", "arrow"];
@@ -42,7 +42,7 @@ const capabilityCards = [
   },
   {
     icon: AlertTriangle,
-    iconBg: ORANGE,
+    iconBg: "#F59E0B",
     title: "Exceptions",
     desc: "Surface anomalies before hours are approved.",
   },
@@ -135,11 +135,11 @@ function Hero() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.35) 100%)",
     }}>
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.22) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 1200, textAlign: "left" }}>
@@ -155,7 +155,7 @@ function Hero() {
               color: NAVY, margin: "0 0 20px", letterSpacing: "-0.02em",
             }}>
               Time tracking for workforce accountability and{" "}
-              <span style={{ color: BLUE_BADGE }}>approved hours.</span>
+              <span style={{ color: "#10B981" }}>approved hours.</span>
             </h1>
 
             <p style={{ fontSize: "16px", lineHeight: 1.7, color: BODY, margin: "0 0 28px" }}>
@@ -166,11 +166,11 @@ function Hero() {
 
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
               <button onClick={() => navigate("/get-demo")} style={{
-                background: "linear-gradient(135deg, #FF8800, #FF5500)",
+                background: "#3B82F6",
                 color: "#fff", border: "none", borderRadius: 999,
                 padding: "14px 32px", fontSize: 16, fontWeight: 700, cursor: "pointer",
                 display: "flex", alignItems: "center", gap: 8,
-                boxShadow: "0 4px 16px rgba(255,85,0,0.45)",
+                boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
               }}>
                 Get a Demo <ArrowRight size={17} />
               </button>
@@ -194,7 +194,7 @@ function Hero() {
           </div>
 
           <div style={{
-            background: "linear-gradient(152.22deg, #1D0A5E 0%, #240C84 60%, #150844 100%)",
+            background: "linear-gradient(152.22deg, #0A1128 0%, #111A33 60%, #0A1128 100%)",
             borderRadius: 22,
             padding: "30px 28px 34px",
             color: "#fff",
@@ -206,7 +206,7 @@ function Hero() {
             <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 10, height: 100, marginBottom: 10 }}>
               {days.map((d, i) => (
                 <div key={i} style={{ display: "flex", flexDirection: "column", alignItems: "center", flex: 1 }}>
-                  <div style={{ width: "100%", height: dayHeights[i], borderRadius: 8, background: "linear-gradient(180deg, #5B8DF5 0%, #2A4FCB 100%)", opacity: dayHeights[i] < 20 ? 0.45 : 1 }} />
+                  <div style={{ width: "100%", height: dayHeights[i], borderRadius: 8, background: "linear-gradient(180deg, #3B82F6 0%, #2563EB 100%)", opacity: dayHeights[i] < 20 ? 0.45 : 1 }} />
                 </div>
               ))}
             </div>
@@ -387,7 +387,7 @@ function BottomCta() {
         style={{
           maxWidth: 1180,
           margin: "0 auto",
-          background: "linear-gradient(115deg, #1C2A8C 0%, #3F63D8 100%)",
+          background: "linear-gradient(115deg, #0A1128 0%, #111A33 100%)",
           borderRadius: 26,
           padding: "64px 40px",
           textAlign: "center",

@@ -60,7 +60,7 @@ export default function LeaveCalendar() {
     return (
       <EmployeePageShell title="Leave Calendar" subtitle="View your personal leave schedule and public holidays.">
         <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </EmployeePageShell>
     );
@@ -111,7 +111,7 @@ export default function LeaveCalendar() {
             holidays.map((h, i) => (
               <div key={h.id || i} className="flex justify-between items-center py-2.5 border-t border-gray-100 dark:border-[#334155]">
                 <p className="text-sm text-gray-900 dark:text-[#f1f5f9]">{h.name || h.title || h.holiday_name}</p>
-                <span className="text-xs font-semibold text-indigo-600 dark:text-indigo-400">
+                <span className="text-xs font-semibold text-blue-600 dark:text-blue-400">
                   {h.date
                     ? new Date(h.date).toLocaleDateString("en-US", { month: "short", day: "numeric" })
                     : h.month_day || h.date_str || "-"}

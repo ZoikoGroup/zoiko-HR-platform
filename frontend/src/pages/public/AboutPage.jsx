@@ -13,7 +13,7 @@ const styles = `
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     text-align: center; padding: 80px 24px; overflow: hidden;
     background-color: #f5f4f2;
-    background: linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%);
+    background: linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%);
   }
   .hero-badge {
     display: inline-flex; align-items: center; gap: 8px;
@@ -22,14 +22,14 @@ const styles = `
     margin-bottom: 28px; box-shadow: 0 1px 4px rgba(0,0,0,.08);
   }
   .badge-pill-navy {
-    background: #3B5BDB; color: #fff; font-size: 12px; font-weight: 700;
+    background: #3B82F6; color: #fff; font-size: 12px; font-weight: 700;
     padding: 2px 10px; border-radius: 999px;
   }
   .hero h1 {
     font-size: clamp(32px,5vw,56px); font-weight: 800; line-height: 1.1;
-    color: #0B1C3F; max-width: 1100px; margin: 0 auto 20px;
+    color: #0A1128; max-width: 1100px; margin: 0 auto 20px;
   }
-  .hero h1 .accent { color: #E8850A; }
+  .hero h1 .accent { color: #10B981; }
   .hero-sub {
     font-size: 16px; color: #4B5563; max-width: 680px; margin: 0 auto 26px; line-height: 1.7;
   }
@@ -40,7 +40,7 @@ const styles = `
 
   /* ── BUTTONS ── */
   .btn-primary {
-    background: linear-gradient(135deg, #F97316, #EA580C); color: #fff; border: none; border-radius: 999px;
+    background: linear-gradient(135deg, #3B82F6, #2563EB); color: #fff; border: none; border-radius: 999px;
     padding: 14px 32px; font-size: 16px; font-weight: 600; cursor: pointer;
     display: inline-flex; align-items: center; gap: 7px;
     font-family: 'Inter', sans-serif; transition: opacity .2s; white-space: nowrap;
@@ -54,12 +54,12 @@ const styles = `
   }
   .btn-outline:hover { background: rgba(255,255,255,0.9); }
   .btn-dark {
-    background: #2d1d8e; color: #fff; border: none; border-radius: 999px;
+    background: #0A1128; color: #fff; border: none; border-radius: 999px;
     padding: 13px 26px; font-size: 14px; font-weight: 600; cursor: pointer;
     font-family: 'Inter', sans-serif; transition: background .2s;
     display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
   }
-  .btn-dark:hover { background: #3a26ad; }
+  .btn-dark:hover { background: #111A33; }
   .btn-ghost {
     background: rgba(255,255,255,.15); color: #fff;
     border: 1.5px solid rgba(255,255,255,.3); border-radius: 999px;
@@ -75,29 +75,29 @@ const styles = `
   .ticker-pill {
     display: inline-flex; align-items: center; gap: 7px;
     background: #eef4ff; border-radius: 999px; padding: 8px 16px;
-    font-size: 12.5px; font-weight: 600; color: #2545c9;
+    font-size: 12.5px; font-weight: 600; color: #3B82F6;
   }
 
   /* ── GENERIC SECTION ── */
   .section { padding: 64px 52px; background: #fff; }
   .section-alt { background: #f7f7fd; }
   .section-dark {
-    background: linear-gradient(120deg, #2d1f9e 0%, #3b2db5 40%, #4f3bcc 70%, #5845d8 100%);
+    background: linear-gradient(120deg, #0A1128 0%, #0D1730 40%, #10182F 70%, #111A33 100%);
   }
   .eyebrow-orange {
     font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
-    color: #f97316; margin-bottom: 14px; text-align: center;
+    color: #3B82F6; margin-bottom: 14px; text-align: center;
   }
   .eyebrow-purple {
     font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
-    color: #5b5bd6; margin-bottom: 14px; text-align: center;
+    color: #3B82F6; margin-bottom: 14px; text-align: center;
   }
   .eyebrow-blue {
     font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
     color: #2563eb; margin-bottom: 14px; text-align: center;
   }
   .section-title {
-    font-size: 28px; font-weight: 800; color: #1a1a3e; text-align: center;
+    font-size: 28px; font-weight: 800; color: #0A1128; text-align: center;
     letter-spacing: -.5px; margin-bottom: 14px; line-height: 1.3;
   }
   .section-title-white { color: #fff; }
@@ -114,10 +114,10 @@ const styles = `
     max-width: 1080px; margin: 0 auto; align-items: center;
   }
   .split-left { text-align: left; }
-  .split-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: #f97316; margin-bottom: 14px; }
-  .split-title { font-size: 25px; font-weight: 800; color: #1a1a3e; line-height: 1.32; margin-bottom: 16px; letter-spacing: -.4px; }
+  .split-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: #3B82F6; margin-bottom: 14px; }
+  .split-title { font-size: 25px; font-weight: 800; color: #0A1128; line-height: 1.32; margin-bottom: 16px; letter-spacing: -.4px; }
   .split-desc { font-size: 13.5px; color: #555577; line-height: 1.65; margin-bottom: 12px; }
-  .split-desc .accent { color: #f97316; font-weight: 700; }
+  .split-desc .accent { color: #10B981; font-weight: 700; }
   .split-ctas { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 20px; }
 
   .stack-cards { display: flex; flex-direction: column; gap: 12px; }
@@ -127,7 +127,7 @@ const styles = `
   .sc-purple-mid   { background: #ece8fa; }
   .sc-orange-light { background: #fff3e8; }
   .sc-icon { width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; display: flex; align-items: center; justify-content: center; }
-  .sc-title { font-size: 14px; font-weight: 700; color: #1a1a3e; }
+  .sc-title { font-size: 14px; font-weight: 700; color: #0A1128; }
   .sc-desc  { font-size: 12px; color: #777799; margin-top: 2px; }
 
   /* ── WHY ZOIKO ONE EXISTS (problem table) ── */
@@ -139,7 +139,7 @@ const styles = `
   .pc-half { flex: 1; }
   .pc-half + .pc-half { padding-left: 18px; border-left: 1px solid #e4e4f0; margin-left: 18px; }
   .pc-label { font-size: 10.5px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #9999b3; margin-bottom: 8px; }
-  .pc-label.zoiko { color: #f97316; }
+  .pc-label.zoiko { color: #3B82F6; }
   .pc-text { font-size: 13px; color: #2a2a4a; line-height: 1.55; }
 
   /* ── PRODUCTS GRID (8 products) ── */
@@ -158,12 +158,12 @@ const styles = `
     border-color: #c8c8e0;
   }
   .product-card.featured {
-    background: linear-gradient(150deg, #2d1f9e 0%, #3b6fe0 100%);
+    background: linear-gradient(150deg, #0A1128 0%, #111A33 100%);
     border: none; color: #fff;
   }
   .product-card.featured:hover {
     transform: translateY(-3px);
-    box-shadow: 0 8px 24px rgba(45,31,158,.25);
+    box-shadow: 0 8px 24px rgba(10,17,40,.25);
   }
   .product-card.featured:hover .pcard-icon svg {
     animation: pulseCmd .6s ease-in-out infinite alternate;
@@ -176,7 +176,7 @@ const styles = `
     width: 38px; height: 38px; border-radius: 11px; display: flex;
     align-items: center; justify-content: center; margin-bottom: 14px;
   }
-  .pcard-name { font-size: 15px; font-weight: 700; color: #1a1a3e; margin-bottom: 8px; }
+  .pcard-name { font-size: 15px; font-weight: 700; color: #0A1128; margin-bottom: 8px; }
   .product-card.featured .pcard-name { color: #fff; }
   .pcard-desc { font-size: 12.5px; color: #777799; line-height: 1.5; margin-bottom: 12px; flex-grow: 1; }
   .product-card.featured .pcard-desc { color: rgba(255,255,255,.85); }
@@ -197,25 +197,25 @@ const styles = `
     background: #fff; border: 1.5px solid #e6e6f2; border-radius: 20px;
     padding: 28px 24px; text-align: left; position: relative;
   }
-  .buy-card.popular { border-color: #f97316; box-shadow: 0 8px 28px rgba(249,115,22,.12); }
+  .buy-card.popular { border-color: #3B82F6; box-shadow: 0 8px 28px rgba(59,130,246,.12); }
   .popular-badge {
     position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
-    background: #f97316; color: #fff; font-size: 10.5px; font-weight: 700;
+    background: #3B82F6; color: #fff; font-size: 10.5px; font-weight: 700;
     padding: 5px 16px; border-radius: 999px; white-space: nowrap;
   }
   .buy-num {
     width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center;
     justify-content: center; font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 14px;
   }
-  .bn-1 { background: #2d1d8e; }
-  .bn-2 { background: #f97316; }
+  .bn-1 { background: #0A1128; }
+  .bn-2 { background: #3B82F6; }
   .bn-3 { background: #2563eb; }
-  .buy-title { font-size: 18px; font-weight: 800; color: #1a1a3e; margin-bottom: 6px; }
+  .buy-title { font-size: 18px; font-weight: 800; color: #0A1128; margin-bottom: 6px; }
   .buy-sub { font-size: 12.5px; color: #888899; margin-bottom: 18px; }
   .buy-list { list-style: none; display: flex; flex-direction: column; gap: 9px; margin-bottom: 22px; }
   .buy-list li { font-size: 13px; color: #2a2a4a; display: flex; gap: 8px; align-items: flex-start; }
-  .buy-check { color: #f97316; font-weight: 700; flex-shrink: 0; }
-  .buy-tagline { text-align: center; font-size: 14.5px; font-weight: 700; color: #2d1d8e; }
+  .buy-check { color: #10B981; font-weight: 700; flex-shrink: 0; }
+  .buy-tagline { text-align: center; font-size: 14.5px; font-weight: 700; color: #0A1128; }
 
   /* ── GLOBAL READINESS (dark) ── */
   .global-grid {
@@ -245,13 +245,13 @@ const styles = `
     display: flex; align-items: center; justify-content: center; margin-bottom: 14px;
   }
   .trust-card.featured .trust-icon { background: rgba(255,255,255,.18); }
-  .trust-title { font-size: 14.5px; font-weight: 700; color: #1a1a3e; margin-bottom: 5px; }
+  .trust-title { font-size: 14.5px; font-weight: 700; color: #0A1128; margin-bottom: 5px; }
   .trust-card.featured .trust-title { color: #fff; }
   .trust-quote { font-size: 12px; font-style: italic; color: #999; margin-bottom: 10px; }
   .trust-card.featured .trust-quote { color: rgba(255,255,255,.7); }
   .trust-desc { font-size: 12.5px; color: #777799; line-height: 1.5; margin-bottom: 14px; }
   .trust-card.featured .trust-desc { color: rgba(255,255,255,.85); }
-  .trust-link { font-size: 12.5px; font-weight: 700; color: #5b5bd6; text-decoration: none; }
+  .trust-link { font-size: 12.5px; font-weight: 700; color: #3B82F6; text-decoration: none; }
   .trust-card.featured .trust-link { color: #fff; }
   .trust-footnote { text-align: center; font-size: 12.5px; color: #9999b3; }
 
@@ -259,13 +259,13 @@ const styles = `
   .cloud-label { font-size: 11px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: #aaaacc; text-align: center; margin-bottom: 18px; }
   .cloud-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; max-width: 1080px; margin: 0 auto 32px; }
   .cloud-card { background: #fff; border: 1px solid #e6e6f2; border-radius: 16px; padding: 20px; text-align: left; }
-  .cloud-tag { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #f97316; margin-bottom: 8px; }
-  .cloud-name { font-size: 14.5px; font-weight: 700; color: #1a1a3e; margin-bottom: 7px; }
+  .cloud-tag { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #3B82F6; margin-bottom: 8px; }
+  .cloud-name { font-size: 14.5px; font-weight: 700; color: #0A1128; margin-bottom: 7px; }
   .cloud-desc { font-size: 12px; color: #777799; line-height: 1.5; margin-bottom: 12px; }
-  .cloud-link { font-size: 12px; font-weight: 700; color: #5b5bd6; text-decoration: none; }
+  .cloud-link { font-size: 12px; font-weight: 700; color: #3B82F6; text-decoration: none; }
 
   .hero-pill-banner {
-    background: linear-gradient(110deg, #2d1d8e 0%, #3b6fe0 100%);
+    background: linear-gradient(110deg, #0A1128 0%, #111A33 100%);
     border-radius: 18px; padding: 20px 28px; display: flex; align-items: center; gap: 18px;
     max-width: 900px; margin: 0 auto 32px;
   }
@@ -279,34 +279,34 @@ const styles = `
 
   .infra-grid { display: grid; grid-template-columns: repeat(2,1fr); gap: 16px; max-width: 700px; margin: 0 auto; }
   .infra-card { background: #f4f4fa; border-radius: 16px; padding: 18px 20px; text-align: left; }
-  .infra-tag { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #5b5bd6; margin-bottom: 6px; }
-  .infra-name { font-size: 14px; font-weight: 700; color: #1a1a3e; margin-bottom: 6px; }
+  .infra-tag { font-size: 10px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: #3B82F6; margin-bottom: 6px; }
+  .infra-name { font-size: 14px; font-weight: 700; color: #0A1128; margin-bottom: 6px; }
   .infra-desc { font-size: 12px; color: #777799; line-height: 1.5; margin-bottom: 10px; }
-  .infra-link { font-size: 12px; font-weight: 700; color: #5b5bd6; text-decoration: none; }
+  .infra-link { font-size: 12px; font-weight: 700; color: #3B82F6; text-decoration: none; }
 
   /* ── COMPARISON TABLE ── */
   .compare-wrap { max-width: 940px; margin: 0 auto 36px; border-radius: 18px; overflow: hidden; border: 1px solid #e6e6f2; }
   .compare-head { display: grid; grid-template-columns: 1fr 1fr; }
   .ch-left { background: #f0f0f6; padding: 16px 24px; font-size: 13.5px; font-weight: 700; color: #555577; }
-  .ch-right { background: linear-gradient(90deg, #2d1d8e, #3b6fe0); padding: 16px 24px; font-size: 13.5px; font-weight: 700; color: #fff; }
+  .ch-right { background: linear-gradient(90deg, #0A1128, #111A33); padding: 16px 24px; font-size: 13.5px; font-weight: 700; color: #fff; }
   .compare-row { display: grid; grid-template-columns: 1fr 1fr; border-top: 1px solid #f0f0f6; }
   .cr-left { padding: 16px 24px; font-size: 12.5px; color: #777799; line-height: 1.55; }
-  .cr-right { padding: 16px 24px; font-size: 12.5px; color: #1a1a3e; line-height: 1.55; display: flex; gap: 8px; align-items: flex-start; }
-  .cr-check { color: #f97316; font-weight: 700; flex-shrink: 0; }
+  .cr-right { padding: 16px 24px; font-size: 12.5px; color: #0A1128; line-height: 1.55; display: flex; gap: 8px; align-items: flex-start; }
+  .cr-check { color: #10B981; font-weight: 700; flex-shrink: 0; }
 
   /* ── WHO IT'S FOR ── */
   .who-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 18px; max-width: 1000px; margin: 0 auto 30px; }
   .who-card { background: #fff; border: 1px solid #e6e6f2; border-radius: 16px; padding: 22px 20px; text-align: left; }
   .who-icon { width: 34px; height: 34px; border-radius: 10px; background: #2563eb; display: flex; align-items: center; justify-content: center; margin-bottom: 12px; }
-  .who-title { font-size: 14.5px; font-weight: 700; color: #1a1a3e; margin-bottom: 6px; }
+  .who-title { font-size: 14.5px; font-weight: 700; color: #0A1128; margin-bottom: 6px; }
   .who-desc { font-size: 12.5px; color: #777799; line-height: 1.5; margin-bottom: 12px; }
-  .who-chip { display: inline-block; background: #eef0ff; color: #3b3bcc; font-size: 11.5px; font-weight: 700; padding: 6px 12px; border-radius: 999px; }
+  .who-chip { display: inline-block; background: #eef0ff; color: #3B82F6; font-size: 11.5px; font-weight: 700; padding: 6px 12px; border-radius: 999px; }
 
   /* ── PHILOSOPHY ── */
   .philosophy-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 16px; max-width: 980px; margin: 0 auto; }
   .phil-card { background: #fff; border: 1px solid #e6e6f2; border-radius: 16px; padding: 22px 20px; text-align: left; }
-  .phil-num { font-size: 22px; font-weight: 800; color: #f97316; margin-bottom: 10px; }
-  .phil-title { font-size: 14.5px; font-weight: 700; color: #1a1a3e; margin-bottom: 6px; }
+  .phil-num { font-size: 22px; font-weight: 800; color: #3B82F6; margin-bottom: 10px; }
+  .phil-title { font-size: 14.5px; font-weight: 700; color: #0A1128; margin-bottom: 6px; }
   .phil-desc { font-size: 12.5px; color: #777799; line-height: 1.5; }
 
   /* ── FAQ ── */
@@ -315,13 +315,13 @@ const styles = `
   .faq-question {
     width: 100%; background: none; border: none; padding: 18px 24px;
     display: flex; align-items: center; justify-content: space-between;
-    font-size: 14.5px; font-weight: 700; color: #1a1a3e; cursor: pointer;
+    font-size: 14.5px; font-weight: 700; color: #0A1128; cursor: pointer;
     text-align: left; font-family: 'Inter', sans-serif; gap: 12px;
   }
   .faq-chevron {
     width: 30px; height: 30px; border-radius: 50%; background: #ececf8;
     display: flex; align-items: center; justify-content: center; flex-shrink: 0;
-    font-size: 13px; color: #5b5bd6; transition: transform .2s;
+    font-size: 13px; color: #3B82F6; transition: transform .2s;
   }
   .faq-chevron.open { transform: rotate(180deg); }
   .faq-answer { padding: 0 24px 18px; font-size: 13.5px; color: #666688; line-height: 1.6; border-top: 1px solid #f0f0f8; padding-top: 14px; }
@@ -329,10 +329,10 @@ const styles = `
   /* ── CTA BANNER ── */
   .cta-section { padding: 50px 52px 80px; background: #fff; }
   .cta-inner {
-    background: linear-gradient(120deg, #4f1fb0 0%, #5b5bd6 45%, #3b82f6 100%);
+    background: linear-gradient(120deg, #0A1128 0%, #111A33 45%, #3B82F6 100%);
     border-radius: 28px; padding: 56px 52px; text-align: center; max-width: 1100px; margin: 0 auto;
   }
-  .cta-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: #ffb98a; margin-bottom: 14px; }
+  .cta-eyebrow { font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase; color: #93C5FD; margin-bottom: 14px; }
   .cta-inner h2 { font-size: 30px; font-weight: 800; color: #fff; margin-bottom: 14px; letter-spacing: -.5px; line-height: 1.3; }
   .cta-inner p { font-size: 14.5px; color: rgba(255,255,255,.78); margin-bottom: 30px; max-width: 640px; margin-left: auto; margin-right: auto; line-height: 1.6; }
   .cta-btns { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; margin-bottom: 18px; }
@@ -352,18 +352,18 @@ const styles = `
    ICONS
 ════════════════════════════════════════════════════════════ */
 const I = {
-  Core: () => <svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9L12 2z" fill="white" fillOpacity=".95"/><circle cx="12" cy="11" r="2.6" fill="#5b5bd6"/></svg>,
+  Core: () => <svg width="18" height="18" viewBox="0 0 24 24"><path d="M12 2l8 4.5v9L12 20l-8-4.5v-9L12 2z" fill="white" fillOpacity=".95"/><circle cx="12" cy="11" r="2.6" fill="#3B82F6"/></svg>,
   Layers: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="7" stroke="white" strokeWidth="1.8"/><circle cx="12" cy="12" r="2.6" fill="white"/></svg>,
   Infra: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3l3.5 3.5L12 10l-3.5-3.5L12 3z" fill="white" fillOpacity=".95"/><path d="M12 14l3.5 3.5L12 21l-3.5-3.5L12 14z" fill="white" fillOpacity=".6"/></svg>,
   Cloud: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M7 17a4 4 0 010-8 5 5 0 019.6-1A4.5 4.5 0 0119 17H7z" fill="white" fillOpacity=".95"/></svg>,
   Check: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12l5 5L19 7" stroke="white" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"/></svg>,
-  Globe: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#2545c9" strokeWidth="1.8"/><path d="M3 12h18M12 3a14 14 0 010 18 14 14 0 010-18z" stroke="#2545c9" strokeWidth="1.5" fill="none"/></svg>,
-  Circle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#2545c9" strokeWidth="1.8"/></svg>,
-  Doc: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="11" height="14" rx="2" fill="none" stroke="#2545c9" strokeWidth="1.6"/></svg>,
-  Dollar: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#2545c9" strokeWidth="1.6"/><text x="12" y="16" textAnchor="middle" fill="#2545c9" fontSize="10" fontWeight="bold">$</text></svg>,
-  Shield: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke="#2545c9" strokeWidth="1.6" fill="none"/></svg>,
-  Lock: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#2545c9" strokeWidth="1.6"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#2545c9" strokeWidth="1.6" fill="none"/></svg>,
-  Arrow: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#2545c9" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+  Globe: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#3B82F6" strokeWidth="1.8"/><path d="M3 12h18M12 3a14 14 0 010 18 14 14 0 010-18z" stroke="#3B82F6" strokeWidth="1.5" fill="none"/></svg>,
+  Circle: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#3B82F6" strokeWidth="1.8"/></svg>,
+  Doc: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="11" height="14" rx="2" fill="none" stroke="#3B82F6" strokeWidth="1.6"/></svg>,
+  Dollar: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="#3B82F6" strokeWidth="1.6"/><text x="12" y="16" textAnchor="middle" fill="#3B82F6" fontSize="10" fontWeight="bold">$</text></svg>,
+  Shield: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M12 3l7 3v6c0 4.5-3 7.5-7 9-4-1.5-7-4.5-7-9V6l7-3z" stroke="#3B82F6" strokeWidth="1.6" fill="none"/></svg>,
+  Lock: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><rect x="5" y="11" width="14" height="9" rx="2" stroke="#3B82F6" strokeWidth="1.6"/><path d="M8 11V8a4 4 0 018 0v3" stroke="#3B82F6" strokeWidth="1.6" fill="none"/></svg>,
+  Arrow: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M13 6l6 6-6 6" stroke="#3B82F6" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>,
   People: (c="white") => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="9" cy="7" r="3" fill={c} fillOpacity=".9"/><circle cx="16" cy="7" r="3" fill={c} fillOpacity=".5"/><path d="M2 19c0-3.3 3.1-6 7-6s7 2.7 7 6" stroke={c} strokeWidth="1.8" fill="none"/></svg>,
   Clock: (c="white") => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke={c} strokeWidth="1.8"/><path d="M12 7v5l3 3" stroke={c} strokeWidth="1.8" strokeLinecap="round"/></svg>,
   DollarF: (c="white") => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke={c} strokeWidth="1.8" fillOpacity=".15"/><text x="12" y="16" textAnchor="middle" fill={c} fontSize="11" fontWeight="bold">$</text></svg>,
@@ -374,15 +374,15 @@ const I = {
   Cmd: () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><path d="M7 4a3 3 0 100 6h10a3 3 0 100-6 3 3 0 00-3 3v10a3 3 0 106 0 3 3 0 00-3-3H7a3 3 0 100 6 3 3 0 003-3V7a3 3 0 00-3-3z" stroke="white" strokeWidth="1.6" fill="none"/></svg>,
   Chat: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 5h16v10H8l-4 4V5z" fill="#3b82f6" fillOpacity=".9"/></svg>,
   Send: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 12l7-7 11 7-11 7-7-7z" fill="#3b82f6"/></svg>,
-  Mega: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 10v4l6 2V8l-6 2z" fill="#f97316"/><path d="M9 8l10-4v16L9 16V8z" fill="#f97316" fillOpacity=".7"/></svg>,
-  Browser: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="#f97316" strokeWidth="1.6" fill="none"/><path d="M3 8h18" stroke="#f97316" strokeWidth="1.6"/></svg>,
+  Mega: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 10v4l6 2V8l-6 2z" fill="#3B82F6"/><path d="M9 8l10-4v16L9 16V8z" fill="#3B82F6" fillOpacity=".7"/></svg>,
+  Browser: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="4" width="18" height="16" rx="2" stroke="#3B82F6" strokeWidth="1.6" fill="none"/><path d="M3 8h18" stroke="#3B82F6" strokeWidth="1.6"/></svg>,
   Briefcase: (c="#2563eb") => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="3" y="8" width="18" height="11" rx="2" fill={c} fillOpacity=".9"/><path d="M8 8V6a2 2 0 012-2h4a2 2 0 012 2v2" stroke={c} strokeWidth="1.6" fill="none"/></svg>,
   Wrench: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M14 4a4 4 0 00-5 5l-7 7 2 2 7-7a4 4 0 005-5l-2 2-2-2 2-2z" fill="white" fillOpacity=".9"/></svg>,
   TargetIcon: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="white" strokeWidth="1.8" fill="none" fillOpacity=".15"/><circle cx="12" cy="12" r="4" stroke="white" strokeWidth="1.8" fill="none"/><circle cx="12" cy="12" r="1.3" fill="white"/></svg>,
   Building: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><rect x="5" y="3" width="14" height="18" rx="1" fill="white" fillOpacity=".9"/></svg>,
   Service: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" fill="white" fillOpacity=".9"/></svg>,
   Gear: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="3" fill="white"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke="white" strokeWidth="1.8" strokeLinecap="round"/></svg>,
-  Coin: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#f97316" strokeWidth="1.8"/><path d="M12 7v10M9 9h4.5a1.5 1.5 0 110 3H10a1.5 1.5 0 100 3h4" stroke="#f97316" strokeWidth="1.5" fill="none"/></svg>,
+  Coin: () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="#F59E0B" strokeWidth="1.8"/><path d="M12 7v10M9 9h4.5a1.5 1.5 0 110 3H10a1.5 1.5 0 100 3h4" stroke="#F59E0B" strokeWidth="1.5" fill="none"/></svg>,
   GlobeWhite: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="9" stroke="white" strokeWidth="1.7"/><path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" stroke="white" strokeWidth="1.5" fill="none"/></svg>,
   DollarWhite: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="white" strokeWidth="1.6"/><text x="12" y="16" textAnchor="middle" fill="white" fontSize="10" fontWeight="bold">$</text></svg>,
   EntityDot: () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="8" stroke="white" strokeWidth="1.7"/><circle cx="12" cy="12" r="3" fill="white"/></svg>,
@@ -409,10 +409,10 @@ const tickerItems = [
 ];
 
 const stackData = [
-  { cls: "sc-purple-light", bg: "#5b5bd6", icon: <I.Core/>, title: "Core Products", desc: "Seven purchasable products" },
-  { cls: "sc-blue-light", bg: "#38bdf8", icon: <I.Layers/>, title: "Shared Layers", desc: "Capabilities inside the platform" },
-  { cls: "sc-purple-mid", bg: "#5b5bd6", icon: <I.Infra/>, title: "Infrastructure", desc: "ZoikoPay · ZoikoCoreX" },
-  { cls: "sc-orange-light", bg: "#f97316", icon: <I.Cloud/>, title: "Business Cloud", desc: "Adjacent standalone platforms" },
+  { cls: "sc-blue-light", bg: "#3B82F6", icon: <I.Core/>, title: "Core Products", desc: "Seven purchasable products" },
+  { cls: "sc-emerald-light", bg: "#10B981", icon: <I.Layers/>, title: "Shared Layers", desc: "Capabilities inside the platform" },
+  { cls: "sc-navy-mid", bg: "#0A1128", icon: <I.Infra/>, title: "Infrastructure", desc: "ZoikoPay · ZoikoCoreX" },
+  { cls: "sc-amber-light", bg: "#F59E0B", icon: <I.Cloud/>, title: "Business Cloud", desc: "Adjacent standalone platforms" },
 ];
 
 const problemCells = [
@@ -423,13 +423,13 @@ const problemCells = [
 ];
 
 const products = [
-  { name: "Zoiko HR", bg: "#5b5bd6", icon: I.People(), desc: "People records, onboarding, leave, documents and lifecycle.", quote: "Can I manage employees and HR records cleanly?", link: "Explore Zoiko HR", color: "#5b5bd6" },
-  { name: "ZoikoTime", bg: "#5b5bd6", icon: I.Clock(), desc: "Time tracking, attendance, shifts, scheduling and approvals.", quote: "Can I capture work for payroll, projects and billing?", link: "Explore ZoikoTime", color: "#5b5bd6" },
-  { name: "Zoiko Payroll", bg: "#f97316", icon: I.DollarF(), desc: "Pay runs, payslips, deductions, approvals and reporting.", quote: "Can I run payroll with control and audit confidence?", link: "Explore Zoiko Payroll", color: "#f97316" },
-  { name: "Zoiko Billing", bg: "#38bdf8", icon: I.DocF(), desc: "Invoices, recurring billing, collections and revenue dashboards.", quote: "Can I invoice faster and reduce revenue leakage?", link: "Explore Zoiko Billing", color: "#38bdf8" },
-  { name: "Zoiko Projects", bg: "#5b5bd6", icon: I.Grid(), desc: "Clients, projects, budgets, deliverables, utilization and billable work.", quote: "Can I connect work delivery to revenue?", link: "Explore Zoiko Projects", color: "#5b5bd6" },
-  { name: "Zoiko Comply", bg: "#1f1d5e", icon: I.CheckF(), desc: "Compliance calendars, evidence packs, audit logs and readiness.", quote: "Can I stay prepared across obligations and jurisdictions?", link: "Explore Zoiko Comply", color: "#1f1d5e" },
-  { name: "Zoiko Insights", bg: "#f97316", icon: I.Bar(), desc: "Dashboards, forecasting, operational intelligence and risk visibility.", quote: "Can leadership see what is happening in real time?", link: "Explore Zoiko Insights", color: "#f97316" },
+  { name: "Zoiko HR", bg: "#3B82F6", icon: I.People(), desc: "People records, onboarding, leave, documents and lifecycle.", quote: "Can I manage employees and HR records cleanly?", link: "Explore Zoiko HR", color: "#3B82F6" },
+  { name: "ZoikoTime", bg: "#10B981", icon: I.Clock(), desc: "Time tracking, attendance, shifts, scheduling and approvals.", quote: "Can I capture work for payroll, projects and billing?", link: "Explore ZoikoTime", color: "#10B981" },
+  { name: "Zoiko Payroll", bg: "#F59E0B", icon: I.DollarF(), desc: "Pay runs, payslips, deductions, approvals and reporting.", quote: "Can I run payroll with control and audit confidence?", link: "Explore Zoiko Payroll", color: "#F59E0B" },
+  { name: "Zoiko Billing", bg: "#3B82F6", icon: I.DocF(), desc: "Invoices, recurring billing, collections and revenue dashboards.", quote: "Can I invoice faster and reduce revenue leakage?", link: "Explore Zoiko Billing", color: "#3B82F6" },
+  { name: "Zoiko Projects", bg: "#0A1128", icon: I.Grid(), desc: "Clients, projects, budgets, deliverables, utilization and billable work.", quote: "Can I connect work delivery to revenue?", link: "Explore Zoiko Projects", color: "#0A1128" },
+  { name: "Zoiko Comply", bg: "#0A1128", icon: I.CheckF(), desc: "Compliance calendars, evidence packs, audit logs and readiness.", quote: "Can I stay prepared across obligations and jurisdictions?", link: "Explore Zoiko Comply", color: "#0A1128" },
+  { name: "Zoiko Insights", bg: "#10B981", icon: I.Bar(), desc: "Dashboards, forecasting, operational intelligence and risk visibility.", quote: "Can leadership see what is happening in real time?", link: "Explore Zoiko Insights", color: "#10B981" },
 ];
 
 const buyTiers = [

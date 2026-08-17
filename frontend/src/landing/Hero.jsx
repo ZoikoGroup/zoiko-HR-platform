@@ -14,7 +14,7 @@ function Badge({ label, tag = "Home" }) {
       boxShadow: "0 1px 4px rgba(0,0,0,0.08)"
     }}>
       <span style={{
-        background: "#3B5BDB", color: "#fff", borderRadius: 999,
+        background: "#3B82F6", color: "#fff", borderRadius: 999,
         padding: "2px 10px", fontSize: 12, fontWeight: 700
       }}>{tag}</span>
       <span style={{ color: "#555" }}>{label}</span>
@@ -36,23 +36,23 @@ export default function Hero() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.35) 100%)",
     }}>
       {/* center brightening + edge color pools */}
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.22) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 1100 }}>
         <Badge label="Nine core products + Docs Pro" />
         <h1 style={{
           fontSize: "clamp(32px,5vw,56px)", fontWeight: 800, lineHeight: 1.1,
-          color: "#0B1C3F", margin: "0 0 20px"
+          color: "#0A1128", margin: "0 0 20px"
         }}>
           Run people, time, payroll, billing, projects, compliance &{" "}
-          <span style={{ color: "#E8850A" }}>insights</span> — in one{" "}
-          <span style={{ color: "#1A3A8C" }}>connected platform.</span>
+          <span style={{ color: "#10B981" }}>insights</span> — in one{" "}
+          <span style={{ color: "#3B82F6" }}>connected platform.</span>
         </h1>
         <p style={{
           fontSize: "16px", lineHeight: 1.7, color: "#4B5563",
@@ -71,7 +71,7 @@ export default function Hero() {
           display: "flex", gap: "14px", justifyContent: "center", flexWrap: "wrap"
         }}>
           <button onClick={() => navigate("/get-demo")} style={{
-            background: "linear-gradient(135deg, #F97316, #EA580C)",
+            background: "#3B82F6",
             color: "#fff", border: "none", borderRadius: 999,
             padding: "14px 32px", fontSize: 16, fontWeight: 600, cursor: "pointer",
           }}>Get a Demo →</button>
@@ -91,13 +91,13 @@ export default function Hero() {
         gap: "24px", flexWrap: "wrap"
       }}>
         <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#6B7280" }}>
-          <ShieldCheck size={14} color="#1A3A8C" /> SOC 2 · ISO 27001 ready
+          <ShieldCheck size={14} color="#0A1128" /> SOC 2 · ISO 27001 ready
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#6B7280" }}>
-          <Globe2 size={14} color="#1A3A8C" /> Multi-currency · global ready
+          <Globe2 size={14} color="#0A1128" /> Multi-currency · global ready
         </span>
         <span style={{ display: "flex", alignItems: "center", gap: "6px", fontSize: "13px", color: "#6B7280" }}>
-          <Sparkles size={14} color="#1A3A8C" /> 99.9% uptime commitment
+          <Sparkles size={14} color="#0A1128" /> 99.9% uptime commitment
         </span>
       </div>
 
@@ -116,11 +116,11 @@ export default function Hero() {
         <div style={{
           display: "flex", alignItems: "center", justifyContent: "center",
           gap: "32px", flexWrap: "wrap", fontSize: "14px", fontWeight: 600,
-          color: "#A5B4FC", marginBottom: "16px"
+          color: "#3B82F6", marginBottom: "16px"
         }}>
           {trustLogos.map((l) => (
             <span key={l} style={{ display: "flex", alignItems: "center", gap: "6px" }}>
-              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#FBBF24", display: "inline-block" }} /> {l}
+              <span style={{ width: "6px", height: "6px", borderRadius: "50%", background: "#10B981", display: "inline-block" }} /> {l}
             </span>
           ))}
         </div>

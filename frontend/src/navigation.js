@@ -1,6 +1,5 @@
 import {
   Activity,
-  AlertTriangle,
   Award,
   BadgeCheck,
   BarChart3,
@@ -13,12 +12,8 @@ import {
   CalendarDays,
   CircleDollarSign,
   ClipboardCheck,
-  DollarSign,
-  Download,
-  RefreshCw,
   ClipboardList,
   Clock,
-  CreditCard,
   FileCheck2,
   FileText,
   GitBranch,
@@ -32,14 +27,13 @@ import {
   MapPin,
   MessageSquare,
   MinusCircle,
-  Network,
   Package,
   Percent,
   Phone,
+  Receipt,
   Plane,
   PlayCircle,
   PlusCircle,
-  Receipt,
   Search,
   Send,
   Shield,
@@ -49,7 +43,6 @@ import {
   Tags,
   Target,
   TrendingUp,
-  Undo2,
   User,
   UserCheck,
   UserCircle,
@@ -89,9 +82,9 @@ const platform = {
   ],
 };
 
-// Super Admin / Platform Owner
-const superAdmin = {
-  title: "SUPER ADMIN",
+// Super Admin / Platform Owner profile
+const superAdminProfile = {
+  title: "PROFILE",
   items: [
     {
       label: "Platform Owner",
@@ -102,15 +95,27 @@ const superAdmin = {
   ],
 };
 
-// Super Admin Dashboard Section
-const superAdminDashboard = {
-  title: "SUPER ADMIN",
+// ── Super Admin (Organization Owner) — per ZHR-COM-BILL-001 ──────────────────
+// Sidebar sections map to the spec's billing/subscription ownership model.
+// Separation of duties: HR Admin, IT Admin and Security Admin permission sets
+// remain separate — super_admin does NOT auto-inherit them.
+
+const superAdminBilling = {
+  title: "BILLING & SUBSCRIPTION",
   items: [
-    { label: "Dashboard", href: "/super-admin/dashboard", icon: LayoutDashboard },
-    { label: "Organizations", href: "/super-admin/organizations", icon: Building2 },
-    { label: "Audit Logs", href: "/super-admin/audit-logs", icon: FileTextIcon },
-    { label: "Platform Settings", href: "/super-admin/settings", icon: Settings },
-    { label: "Notification Center", href: "/super-admin/notifications", icon: Bell },
+    { label: "Overview", href: "/super-admin/billing", icon: LayoutDashboard },
+    { label: "Plans & Catalog", href: "/super-admin/billing/plans", icon: Package },
+    { label: "Discounts", href: "/super-admin/billing/discounts", icon: Percent },
+  ],
+};
+
+const superAdminPlatform = {
+  title: "PLATFORM",
+  items: [
+    { label: "Dashboard",                href: "/super-admin/dashboard",           icon: LayoutDashboard },
+    { label: "Organizations",            href: "/super-admin/organizations",       icon: Building2 },
+    { label: "Access & Role Management", href: "/super-admin/access",              icon: Shield },
+    { label: "Audit Logs",               href: "/super-admin/audit-logs",          icon: FileTextIcon },
   ],
 };
 
@@ -361,6 +366,7 @@ const hrAdminDashboard = {
   items: [
     { label: "Dashboard", href: "/hr-admin/dashboard", icon: LayoutDashboard },
     { label: "My Organization", href: "/hr-admin/my-organization", icon: Building2 },
+    { label: "Documents", href: "/hr-admin/documents", icon: FileText },
   ],
 };
 
@@ -375,10 +381,11 @@ const organizationAdminDashboard = {
 };
 
 export const sections = [
-  superAdminDashboard,
+  superAdminBilling,
+  superAdminPlatform,
+  superAdminProfile,
   organizationAdminDashboard,
   hrAdminDashboard,
-  superAdmin,
   platform,
   products,
   // Employee-only workspace section (filtered to role=employee by useFilteredNavigation)

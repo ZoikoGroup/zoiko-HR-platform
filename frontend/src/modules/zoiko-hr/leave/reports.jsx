@@ -13,7 +13,7 @@ const NAV_ITEMS = [
 
 const typeColors = {
   annual: "bg-blue-500", sick: "bg-pink-500", casual: "bg-orange-500", earned: "bg-teal-500",
-  maternity: "bg-purple-500", paternity: "bg-indigo-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
+  maternity: "bg-blue-500", paternity: "bg-blue-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
 };
 
 function SubNav() {

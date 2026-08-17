@@ -18,7 +18,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/recruitment"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
+            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -35,7 +35,7 @@ function formatDate(dateStr) {
 }
 
 function StatusBadge({ status }) {
-  const m = { draft: "bg-gray-100 text-gray-800", pending: "bg-yellow-100 text-yellow-800", approved: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800", accepted: "bg-blue-100 text-blue-800", countered: "bg-purple-100 text-purple-800", withdrawn: "bg-gray-100 text-gray-500" };
+  const m = { draft: "bg-gray-100 text-gray-800", pending: "bg-yellow-100 text-yellow-800", approved: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800", accepted: "bg-blue-100 text-blue-800", countered: "bg-blue-100 text-blue-800", withdrawn: "bg-gray-100 text-gray-500" };
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[status] || "bg-gray-100 text-gray-800"}`}>{status?.replace(/_/g, " ")}</span>;
 }
 
@@ -187,7 +187,7 @@ export default function OfferManagement() {
 
   if (loading) return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
 
-  if (error) return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Try Again</button></div></div></HRPage>;
+  if (error) return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div></div></HRPage>;
 
   return (
     <HRPage title="Offer Management" subtitle="Create and manage job offers">
@@ -195,7 +195,7 @@ export default function OfferManagement() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Offers</h1>
-          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
+          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
             <Plus className="w-4 h-4" /> New Offer
           </button>
         </div>
@@ -204,7 +204,7 @@ export default function OfferManagement() {
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search offers..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500" />
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
           </div>
           <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
             <option value="">All Statuses</option>
@@ -244,7 +244,7 @@ export default function OfferManagement() {
                   <td className="px-3 py-3 text-xs text-gray-400">{formatDate(o.created_at)}</td>
                   <td className="px-3 py-3">
                       <div className="flex gap-2 items-center">
-                        <button onClick={() => openEdit(o)} className="text-gray-400 hover:text-orange-600"><Edit2 className="w-4 h-4" /></button>
+                        <button onClick={() => openEdit(o)} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
                         <button onClick={() => handleDelete(o.id)} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                         {(o.status === "draft" || o.status === "pending") && <button onClick={() => handleAccept(o.id)} className="text-xs text-green-600 hover:text-green-800 font-medium">Accept</button>}
                         {(o.status === "draft" || o.status === "pending") && <button onClick={() => handleReject(o.id)} className="text-xs text-red-600 hover:text-red-800 font-medium">Reject</button>}
@@ -336,7 +336,7 @@ export default function OfferManagement() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-orange-600 rounded-lg hover:bg-orange-700">{editItem ? "Update" : "Create"}</button>
+              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Create"}</button>
             </div>
           </div>
         </div>

@@ -4,11 +4,11 @@ import { getLearningDashboard } from "../../../service/hrService";
 
 const KPI_CONFIG = [
   { key: "total_courses", label: "Total Courses", color: "text-blue-600" },
-  { key: "active_courses", label: "Active Courses", color: "text-indigo-600" },
+  { key: "active_courses", label: "Active Courses", color: "text-blue-600" },
   { key: "total_enrollments", label: "Total Enrollments", color: "text-yellow-600" },
   { key: "completed_enrollments", label: "Completed", color: "text-green-600" },
   { key: "completion_rate", label: "Completion Rate", color: "text-teal-600", suffix: "%" },
-  { key: "total_certifications", label: "Certifications", color: "text-purple-600" },
+  { key: "total_certifications", label: "Certifications", color: "text-blue-600" },
   { key: "total_skills", label: "Skills Tracked", color: "text-cyan-600" },
   { key: "avg_skill_level", label: "Avg Skill Level", color: "text-rose-600" },
   { key: "pending_assessments", label: "Pending Assessments", color: "text-orange-600" },

@@ -73,20 +73,20 @@ const IconTrust = () => (
    DATA
 ───────────────────────────────────────── */
 const roleFamilies = [
-  { Icon: IconBuild,      bg: "linear-gradient(135deg,#3b2fb0,#4a3fc0)", title: "Build",   desc: "Engineering across the platform, products and shared spine.", link: "View Build roles →" },
-  { Icon: IconDesign,     bg: "linear-gradient(135deg,#3b9ef5,#22b5d4)", title: "Design",  desc: "Product design, UX and the Zoiko One design system.", link: "View Design roles →" },
-  { Icon: IconMic,        bg: "linear-gradient(135deg,#f97316,#fb923c)", title: "Secure",  desc: "Security, trust, responsible AI and platform governance.", link: "View Security roles →" },
-  { Icon: IconSell,       bg: "linear-gradient(135deg,#6c5dd3,#7c6de3)", title: "Sell",    desc: "Sales, partnerships and commercial growth.", link: "View Sales roles →" },
-  { Icon: IconSupport,    bg: "linear-gradient(135deg,#3b9ef5,#22b5d4)", title: "Support", desc: "Customer support, success and enablement.", link: "View Support roles →" },
-  { Icon: IconImplement,  bg: "linear-gradient(135deg,#3b2fb0,#4a3fc0)", title: "Implement", desc: "Onboarding, implementation and migration.", link: "View Implementation roles →" },
-  { Icon: IconOperate,    bg: "linear-gradient(135deg,#3b2fb0,#4a3fc0)", title: "Operate", desc: "Finance, people, operations and corporate functions.", link: "View Operations roles →" },
-  { Icon: IconSparkle,    bg: "linear-gradient(135deg,#3b2fb0,#4a3fc0)", title: "Don't see a fit?", desc: "Join the talent community and we'll reach out.", link: "Join Talent Community →" },
+  { Icon: IconBuild,      bg: "linear-gradient(135deg,#0A1128,#111A33)", title: "Build",   desc: "Engineering across the platform, products and shared spine.", link: "View Build roles →" },
+  { Icon: IconDesign,     bg: "linear-gradient(135deg,#3B82F6,#2563EB)", title: "Design",  desc: "Product design, UX and the Zoiko One design system.", link: "View Design roles →" },
+  { Icon: IconMic,        bg: "linear-gradient(135deg,#10B981,#10B981)", title: "Secure",  desc: "Security, trust, responsible AI and platform governance.", link: "View Security roles →" },
+  { Icon: IconSell,       bg: "linear-gradient(135deg,#F59E0B,#F59E0B)", title: "Sell",    desc: "Sales, partnerships and commercial growth.", link: "View Sales roles →" },
+  { Icon: IconSupport,    bg: "linear-gradient(135deg,#3B82F6,#2563EB)", title: "Support", desc: "Customer support, success and enablement.", link: "View Support roles →" },
+  { Icon: IconImplement,  bg: "linear-gradient(135deg,#0A1128,#111A33)", title: "Implement", desc: "Onboarding, implementation and migration.", link: "View Implementation roles →" },
+  { Icon: IconOperate,    bg: "linear-gradient(135deg,#0A1128,#111A33)", title: "Operate", desc: "Finance, people, operations and corporate functions.", link: "View Operations roles →" },
+  { Icon: IconSparkle,    bg: "linear-gradient(135deg,#0A1128,#111A33)", title: "Don't see a fit?", desc: "Join the talent community and we'll reach out.", link: "Join Talent Community →" },
 ];
 
 const culture = [
-  { Icon: IconAccountable, bg: "linear-gradient(135deg,#2d4fd6,#3b5bd5)", title: "Accountable",      desc: "Clear ownership and outcomes over activity." },
-  { Icon: IconCustomer,    bg: "linear-gradient(135deg,#f97316,#fb923c)", title: "Customer-driven",  desc: "We build for real operating problems." },
-  { Icon: IconTrust,       bg: "linear-gradient(135deg,#3b2fb0,#4a3fc0)", title: "Trust-first",      desc: "Security and responsible AI are built in." },
+  { Icon: IconAccountable, bg: "linear-gradient(135deg,#3B82F6,#2563EB)", title: "Accountable",      desc: "Clear ownership and outcomes over activity." },
+  { Icon: IconCustomer,    bg: "linear-gradient(135deg,#10B981,#10B981)", title: "Customer-driven",  desc: "We build for real operating problems." },
+  { Icon: IconTrust,       bg: "linear-gradient(135deg,#0A1128,#111A33)", title: "Trust-first",      desc: "Security and responsible AI are built in." },
 ];
 
 const openRoles = [
@@ -143,7 +143,7 @@ const S = {
     padding: "6px 16px 6px 6px", marginBottom: 28, background: "#fff",
   },
   badgePill: {
-    background: "#2d4fd6", color: "#fff",
+    background: "#3B82F6", color: "#fff",
     fontSize: 12, fontWeight: 700, borderRadius: 50, padding: "4px 12px",
   },
   badgeText: { fontSize: 14, color: "#333" },
@@ -152,7 +152,7 @@ const S = {
     fontSize: "clamp(28px,4.2vw,44px)", fontWeight: 800,
     lineHeight: 1.2, color: "#1a1a4e", marginBottom: 0,
   },
-  heroOrange: { color: "#f97316" },
+  heroOrange: { color: "#10B981" },
 
   heroSub: {
     fontSize: 15, color: "#666", lineHeight: 1.6,
@@ -161,7 +161,7 @@ const S = {
 
   heroActions: { display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap", marginBottom: 22 },
   btnOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "14px 28px",
     fontSize: 15, fontWeight: 600, cursor: "pointer",
     display: "inline-flex", alignItems: "center", gap: 8,
@@ -174,7 +174,7 @@ const S = {
   footNote: {
     display: "inline-block",
     border: "1.5px solid #e0e0ee", borderRadius: 50,
-    padding: "8px 20px", fontSize: 13, color: "#5b4fc0",
+    padding: "8px 20px", fontSize: 13, color: "#3B82F6",
     background: "rgba(255,255,255,0.7)",
   },
 
@@ -182,12 +182,12 @@ const S = {
   rolesInner: { maxWidth: 1100, margin: "0 auto" },
 
   labelPurple: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
   labelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
@@ -211,7 +211,7 @@ const S = {
   roleDesc: { fontSize: 12.5, color: "#888", lineHeight: 1.5, marginBottom: 14 },
   roleLink: {
     background: "none", border: "none", cursor: "pointer",
-    fontSize: 12.5, fontWeight: 600, color: "#3b2fb0", padding: 0,
+    fontSize: 12.5, fontWeight: 600, color: "#3B82F6", padding: 0,
   },
 
   cultureSection: { padding: "80px 24px 100px", background: "#f5f5fb" },
@@ -247,7 +247,7 @@ const S = {
   },
   privacyLink: {
     display: "block", textAlign: "center",
-    fontSize: 13.5, fontWeight: 600, color: "#3b2fb0",
+    fontSize: 13.5, fontWeight: 600, color: "#3B82F6",
     textDecoration: "none", background: "none", border: "none", cursor: "pointer",
     margin: "0 auto",
   },
@@ -255,7 +255,7 @@ const S = {
   ctaSection: { padding: "40px 28px 80px", background: "#f5f5fb" },
   ctaCard: {
     maxWidth: 1060, margin: "0 auto",
-    background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+    background: "linear-gradient(135deg,#3B82F6 0%,#3B82F6 35%,#2563EB 70%,#2563EB 100%)",
     borderRadius: 22, padding: "64px 48px", textAlign: "center",
   },
   ctaH2: {
@@ -265,7 +265,7 @@ const S = {
   ctaSub: { fontSize: 15, color: "rgba(255,255,255,0.78)", marginBottom: 32, lineHeight: 1.55 },
   ctaActions: { display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" },
   btnCtaOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "14px 28px",
     fontSize: 14.5, fontWeight: 700, cursor: "pointer",
   },

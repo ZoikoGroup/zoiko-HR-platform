@@ -208,9 +208,9 @@ export default function Appraisals() {
                   <td className="px-3 py-3">
                     {a.recommendation ? (
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
-                        a.recommendation.includes("promotion") ? "bg-purple-100 text-purple-800" :
+                        a.recommendation.includes("promotion") ? "bg-blue-100 text-blue-800" :
                         a.recommendation === "bonus" ? "bg-yellow-100 text-yellow-800" :
-                        a.recommendation === "improvement_plan" ? "bg-orange-100 text-orange-800" : "bg-gray-100 text-gray-800"
+                        a.recommendation === "improvement_plan" ? "bg-blue-100 text-blue-800" : "bg-gray-100 text-gray-800"
                       }`}>
                         {a.recommendation === "promotion" && <TrendingUp className="w-3 h-3" />}
                         {a.recommendation === "bonus" && <DollarSign className="w-3 h-3" />}

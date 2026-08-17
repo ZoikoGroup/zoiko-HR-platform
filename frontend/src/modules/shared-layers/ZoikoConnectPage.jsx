@@ -20,13 +20,13 @@ export default function ZoikoConnectPage() {
         {/* Connected Channels */}
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Globe className="h-5 w-5 text-[#FF7A00]" /> Integrated Channels
+            <Globe className="h-5 w-5 text-[#3B82F6]" /> Integrated Channels
           </h3>
           <div className="space-y-3">
             {channels.map((c, idx) => (
               <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
                 <div className="flex items-center gap-3">
-                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-orange-50 border border-orange-100 text-[#FF7A00]">
+                  <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-blue-50 border border-blue-100 text-[#3B82F6]">
                     <c.icon className="h-5 w-5" />
                   </div>
                   <div>
@@ -48,7 +48,7 @@ export default function ZoikoConnectPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <ShieldCheck className="h-5 w-5 text-[#FF7A00]" /> Communication Metrics
+              <ShieldCheck className="h-5 w-5 text-[#3B82F6]" /> Communication Metrics
             </h3>
             <div className="space-y-4 text-xs font-medium text-slate-700">
               <div className="flex justify-between border-b border-slate-100 pb-2">

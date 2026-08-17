@@ -18,7 +18,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/recruitment"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
+            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -87,14 +87,14 @@ export default function RecruitmentDashboard() {
 
   if (loading) return <HRPage title="Recruitment Dashboard" subtitle="Hiring pipeline and recruitment metrics"><SubNav /><div className="p-6 text-center text-gray-400">Loading dashboard...</div></HRPage>;
 
-  if (error) return <HRPage title="Recruitment Dashboard" subtitle="Hiring pipeline and recruitment metrics"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Try Again</button></div></div></HRPage>;
+  if (error) return <HRPage title="Recruitment Dashboard" subtitle="Hiring pipeline and recruitment metrics"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div></div></HRPage>;
 
   const d = dash || {};
   const stages = [
     { label: "Applied", key: "applied", color: "bg-blue-500" },
-    { label: "Screening", key: "screening", color: "bg-indigo-500" },
-    { label: "Interview", key: "interview", color: "bg-purple-500" },
-    { label: "Offer", key: "offer", color: "bg-orange-500" },
+    { label: "Screening", key: "screening", color: "bg-blue-500" },
+    { label: "Interview", key: "interview", color: "bg-blue-500" },
+    { label: "Offer", key: "offer", color: "bg-blue-500" },
     { label: "Hired", key: "hired", color: "bg-green-500" },
     { label: "Rejected", key: "rejected", color: "bg-red-500" },
   ];
@@ -104,14 +104,14 @@ export default function RecruitmentDashboard() {
   const activity = d.recent_activity || [];
   const activityIcon = (status) => (
     status === "hired" ? <CheckCircle className="w-4 h-4 text-green-600" /> :
-    status === "offer" ? <FileCheck2 className="w-4 h-4 text-orange-600" /> :
-    status === "interview" ? <Calendar className="w-4 h-4 text-purple-600" /> :
+    status === "offer" ? <FileCheck2 className="w-4 h-4 text-blue-600" /> :
+    status === "interview" ? <Calendar className="w-4 h-4 text-blue-600" /> :
     <UserPlus className="w-4 h-4 text-blue-600" />
   );
   const activityIconBg = (status) => (
     status === "hired" ? "bg-green-100" :
-    status === "offer" ? "bg-orange-100" :
-    status === "interview" ? "bg-purple-100" : "bg-blue-100"
+    status === "offer" ? "bg-blue-100" :
+    status === "interview" ? "bg-blue-100" : "bg-blue-100"
   );
 
   return (
@@ -125,9 +125,9 @@ export default function RecruitmentDashboard() {
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          <StatsCard title="Active Candidates" value={d.active_candidates ?? 0} icon={Users} subtitle="In the pipeline" color="bg-orange-500" />
+          <StatsCard title="Active Candidates" value={d.active_candidates ?? 0} icon={Users} subtitle="In the pipeline" color="bg-blue-500" />
           <StatsCard title="Open Positions" value={d.total_open_positions ?? 0} icon={Briefcase} subtitle="Active requisitions" color="bg-blue-500" />
-          <StatsCard title="Scheduled Interviews" value={d.scheduled_interviews ?? 0} icon={Calendar} subtitle="Upcoming" color="bg-purple-500" />
+          <StatsCard title="Scheduled Interviews" value={d.scheduled_interviews ?? 0} icon={Calendar} subtitle="Upcoming" color="bg-blue-500" />
           <StatsCard title="Offers Extended" value={d.offers_extended ?? 0} icon={FileCheck2} subtitle="Pending or approved" color="bg-green-500" />
           <StatsCard title="Offers Accepted" value={d.offers_accepted ?? 0} icon={CheckCircle} subtitle="Candidates accepted" color="bg-yellow-500" />
           <StatsCard title="Avg. Time to Hire" value={d.time_to_hire ? `${d.time_to_hire} days` : "-"} icon={UserPlus} subtitle="From application to hire" color="bg-teal-500" />

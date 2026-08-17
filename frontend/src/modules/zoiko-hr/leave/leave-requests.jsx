@@ -20,7 +20,7 @@ const STATUS_COLORS = {
 
 const TYPE_COLORS = {
   annual: "bg-blue-500", sick: "bg-pink-500", casual: "bg-orange-500", earned: "bg-teal-500",
-  maternity: "bg-purple-500", paternity: "bg-indigo-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
+  maternity: "bg-blue-500", paternity: "bg-blue-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
 };
 
 const ITEMS_PER_PAGE = 8;
@@ -80,7 +80,7 @@ function StatCard({ title, value, icon: Icon, color, loading }) {
 function InitialsAvatar({ name }) {
   const parts = (name || "?").trim().split(" ");
   const initials = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0]?.[0] || "?";
-  const colors = ["bg-teal-500","bg-blue-500","bg-violet-500","bg-emerald-500","bg-amber-500","bg-rose-500"];
+  const colors = ["bg-teal-500","bg-blue-500","bg-blue-500","bg-emerald-500","bg-amber-500","bg-rose-500"];
   const idx = (name || "").charCodeAt(0) % colors.length;
   return (
     <div className={`w-8 h-8 ${colors[idx]} rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0`}>

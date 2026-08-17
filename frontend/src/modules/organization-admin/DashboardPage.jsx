@@ -2,28 +2,29 @@ import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
-import { Users, Building2, BadgeInfo, CalendarCheck, Activity, CreditCard, Wrench } from "lucide-react";
+import { Users, Building2, BadgeInfo, CalendarCheck, Activity, Wrench } from "lucide-react";
+import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
 const DashboardCharts = lazy(() => import("./DashboardCharts"));
 
-const VIOLET = "#5B3FE0";
-const AMBER = "#F5A340";
-const TEAL = "#0F9B8E";
-const RED = "#D6473C";
-const INK = "#181433";
-const INK_SOFT = "#4A4566";
-const VIOLET_100 = "#EDE9FE";
-const AMBER_100 = "#FDECD6";
-const TEAL_100 = "#DCF5F2";
-const RED_100 = "#FBE6E4";
-const LINE = "rgba(24,20,51,0.08)";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const EMERALD = "#10B981";
+const RED = "#EF4444";
+const INK = "#0A1128";
+const INK_SOFT = "#475569";
+const NAVY_100 = "#E0E7FF";
+const BLUE_100 = "#DBEAFE";
+const EMERALD_100 = "#D1FAE5";
+const RED_100 = "#FEE2E2";
+const LINE = "rgba(10,17,40,0.08)";
 const AVATAR_COLORS = [
-  `linear-gradient(135deg,${VIOLET},#7A5CF0)`,
-  `linear-gradient(135deg,${AMBER},#E8862C)`,
-  `linear-gradient(135deg,${TEAL},#0C7B70)`,
-  `linear-gradient(135deg,#8B85AE,#5F5885)`,
-  `linear-gradient(135deg,#7A5CF0,${VIOLET})`,
-  `linear-gradient(135deg,#D8D4EC,#B9B4CC)`,
+  `linear-gradient(135deg,${NAVY},#1A2744)`,
+  `linear-gradient(135deg,${BLUE},#2563EB)`,
+  `linear-gradient(135deg,${EMERALD},#059669)`,
+  `linear-gradient(135deg,#64748B,#475569)`,
+  `linear-gradient(135deg,#2563EB,${BLUE})`,
+  `linear-gradient(135deg,#CBD5E1,#94A3B8)`,
 ];
 
 
@@ -31,11 +32,6 @@ const AVATAR_COLORS = [
 function getInitials(name) {
   if (!name) return "U";
   return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-}
-
-function fmtCurrency(amount) {
-  if (amount == null) return "—";
-  return `$${Math.round(Number(amount)).toLocaleString("en-US")}`;
 }
 
 function todayLabel() {
@@ -54,7 +50,7 @@ function greeting() {
 
 const StatCard = React.memo(({ icon: Icon, iconBg, iconColor, label, value, sub, trendIcon: TrendIcon, trendLabel, trendColor, onClick }) => {
   return (
-    <div onClick={onClick} className="rounded-[14px] border bg-white p-5 shadow-[0_1px_2px_rgba(24,20,51,0.04),0_8px_24px_-12px_rgba(24,20,51,0.10)] hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(24,20,51,0.06),0_20px_40px_-20px_rgba(59,46,138,0.25)] hover:border-transparent transition-all duration-[180ms] cursor-pointer">
+      <div onClick={onClick} className="rounded-[14px] border bg-white p-5 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)] hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(10,17,40,0.06),0_20px_40px_-20px_rgba(59,130,246,0.25)] hover:border-transparent transition-all duration-[180ms] cursor-pointer">
       <div className="flex items-center justify-between mb-4">
         <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center text-[17px]" style={{ background: iconBg, color: iconColor }}>
           <Icon className="w-[18px] h-[18px]" strokeWidth={2.5} />
@@ -106,31 +102,29 @@ export default function OrgAdminDashboardPage() {
   const departments = stats?.departments ?? 9;
   const healthScore = totalEmployees > 0 ? Math.round((activeEmployees / totalEmployees) * 100) : 95;
 
-  const fmt = (val, key) => {
+  const fmt = (val) => {
     if (val === null || val === undefined) return "—";
-    if (key === "monthly_payroll") return fmtCurrency(val);
     return Number(val).toLocaleString();
   };
 
   const kpiRows = useMemo(() => [
     [
-      { key: "active_employees", label: "Active Employees", icon: Users, iconBg: VIOLET_100, iconColor: VIOLET, trend: "up", trendLabel: "100%", path: "/organization-admin/users" },
-      { key: "hr_admins", label: "HR Admins", icon: Building2, iconBg: TEAL_100, iconColor: TEAL, trend: "flat", trendLabel: null, path: "/organization-admin/users" },
-      { key: "departments", label: "Departments", icon: BadgeInfo, iconBg: AMBER_100, iconColor: AMBER, trend: "up", trendLabel: "2 new", path: "/zoiko-hr/departments" },
-      { key: "designations", label: "Designations", icon: BadgeInfo, iconBg: VIOLET_100, iconColor: VIOLET, trend: "flat", trendLabel: null, path: "/zoiko-hr/designations" },
+      { key: "active_employees", label: "Active Employees", icon: Users, iconBg: BLUE_100, iconColor: BLUE, trend: "up", trendLabel: "100%", path: "/organization-admin/users" },
+      { key: "hr_admins", label: "HR Admins", icon: Building2, iconBg: EMERALD_100, iconColor: EMERALD, trend: "flat", trendLabel: null, path: "/organization-admin/users" },
+      { key: "departments", label: "Departments", icon: BadgeInfo, iconBg: NAVY_100, iconColor: NAVY, trend: "up", trendLabel: "2 new", path: "/zoiko-hr/departments" },
+      { key: "designations", label: "Designations", icon: BadgeInfo, iconBg: BLUE_100, iconColor: BLUE, trend: "flat", trendLabel: null, path: "/zoiko-hr/designations" },
     ],
     [
-      { key: "pending_leave_requests", label: "Pending Leaves", icon: CalendarCheck, iconBg: AMBER_100, iconColor: AMBER, trend: "flat", trendLabel: "Clear", path: "/zoiko-hr/leave" },
+      { key: "pending_leave_requests", label: "Pending Leaves", icon: CalendarCheck, iconBg: NAVY_100, iconColor: NAVY, trend: "flat", trendLabel: "Clear", path: "/zoiko-hr/leave" },
       { key: "pending_approvals", label: "Pending Approvals", icon: Activity, iconBg: RED_100, iconColor: RED, trend: "flat", trendLabel: "Clear", path: "/zoiko-hr/documents/approvals" },
-      { key: "monthly_payroll", label: "Monthly Payroll", icon: CreditCard, iconBg: TEAL_100, iconColor: TEAL, trend: "flat", trendLabel: null, path: "/organization-admin/payroll-guidance" },
-      { key: "assets", label: "Assets", icon: Wrench, iconBg: VIOLET_100, iconColor: VIOLET, trend: "flat", trendLabel: null, path: "/organization-admin/assets" },
+      { key: "assets", label: "Assets", icon: Wrench, iconBg: BLUE_100, iconColor: BLUE, trend: "flat", trendLabel: null, path: "/organization-admin/assets" },
     ],
   ], []);
 
   const renderKpi = useCallback((kpi) => {
-    const val = loading ? "—" : stats ? fmt(stats[kpi.key], kpi.key) : "—";
+    const val = loading ? "—" : stats ? fmt(stats[kpi.key]) : "—";
     const TrendIcon = kpi.trend === "up" ? TrendingUp : kpi.trend === "down" ? TrendingDown : Minus;
-    const trendColor = kpi.trend === "up" ? TEAL : kpi.trend === "down" ? RED : INK_SOFT;
+    const trendColor = kpi.trend === "up" ? EMERALD : kpi.trend === "down" ? RED : INK_SOFT;
     return (
       <StatCard
         key={kpi.key}
@@ -149,7 +143,7 @@ export default function OrgAdminDashboardPage() {
   }, [loading, stats, totalEmployees, navigate]);
 
   return (
-    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F6F5FA", color: INK, minHeight: "calc(100vh - 4rem)" }}>
+    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
       {error && (
         <div className="mb-4 rounded-[14px] border p-4 text-sm" style={{ background: RED_100, borderColor: RED, color: RED }}>
           {error}
@@ -157,31 +151,7 @@ export default function OrgAdminDashboardPage() {
       )}
 
       <div className="flex items-center gap-3 mb-4 pb-4" style={{ borderBottom: `1px solid ${LINE}` }}>
-        <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ background: "#270b87" }}>
-          <svg viewBox="0 0 608.1 619.11" className="w-7 h-7">
-            <rect x="24.76" y="30.27" width="558.57" height="558.57" rx="127.12" ry="127.12" fill="#270b87"/>
-            <path fill="url(#favGrad1)" d="M383.03,121.69c0,93.43-76.04,169.47-169.47,169.47v-95.81c40.61,0,73.66-33.06,73.66-73.66h95.81Z"/>
-            <path fill="url(#favGrad2)" d="M377.18,225.86v271.55c-52.94,0-95.81-42.91-95.81-95.81v-101.69c40.25-12.15,74.27-38.87,95.81-74.05Z"/>
-            <path fill="url(#favGrad1)" d="M213.55,291.16v-95.81c40.61,0,73.66-33.06,73.66-73.66,0,0,32.7,86.49-73.66,169.47Z"/>
-            <path fill="url(#favGrad2)" d="M377.18,411.88v85.53c-52.94,0-95.81-42.91-95.81-95.81v-101.51c0,4.75,1.13,104.99,95.81,111.79Z"/>
-            <path fill="url(#favGrad3)" d="M377.18,225.86v271.55c-13.64,0-26.61-2.87-38.37-8.01v-219.89c15.16-12.22,28.17-26.96,38.37-43.65Z" opacity="0.51" style={{mixBlendMode:"screen"}}/>
-            <path fill="url(#favGrad3)" d="M383.03,121.69c0,93.43-76.04,169.47-169.47,169.47v-95.81s118.77,51.24,169.47-73.66Z" opacity="0.36" style={{mixBlendMode:"screen"}}/>
-            <defs>
-              <linearGradient id="favGrad1" x1="435.94" y1="123.97" x2="167.83" y2="257.43" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#00c5ff"/>
-                <stop offset="1" stopColor="#0070ff"/>
-              </linearGradient>
-              <linearGradient id="favGrad2" x1="293.19" y1="361.64" x2="380.16" y2="361.64" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#fc4600"/>
-                <stop offset="1" stopColor="#ffb900"/>
-              </linearGradient>
-              <linearGradient id="favGrad3" x1="356.68" y1="226.07" x2="359.39" y2="497.59" gradientUnits="userSpaceOnUse">
-                <stop offset="0" stopColor="#009cff"/>
-                <stop offset="1" stopColor="#000"/>
-              </linearGradient>
-            </defs>
-          </svg>
-        </div>
+        <img src={zoikoIcon} alt="ZoikoHR" className="w-10 h-10" />
         <div>
           <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold" style={{ color: INK }}>{orgName}</p>
           <p className="text-[12px] font-medium" style={{ color: INK_SOFT }}>Organization ID · {orgId}</p>
@@ -190,11 +160,11 @@ export default function OrgAdminDashboardPage() {
 
       <div
         className="relative flex justify-between items-center gap-6 mb-[22px] rounded-[20px] px-[34px] py-[30px] text-white overflow-hidden"
-        style={{ background: `linear-gradient(120deg, #1E1447 0%, #3B2E8A 62%, #4C3AAE 100%)`, boxShadow: "0 4px 10px rgba(24,20,51,0.06), 0 20px 40px -20px rgba(59,46,138,0.25)" }}
+        style={{ background: `linear-gradient(120deg, #0A1128 0%, #1A2744 62%, #1E3A5F 100%)`, boxShadow: "0 4px 10px rgba(10,17,40,0.06), 0 20px 40px -20px rgba(59,130,246,0.25)" }}
       >
           <div
             className="absolute rounded-full pointer-events-none"
-            style={{ right: -60, top: -90, width: 280, height: 280, background: "radial-gradient(circle, rgba(245,163,64,0.35), transparent 70%)" }}
+            style={{ right: -60, top: -90, width: 280, height: 280, background: "radial-gradient(circle, rgba(59,130,246,0.35), transparent 70%)" }}
           />
           <div className="z-[1]">
             <p className="text-[11.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.55)" }}>
@@ -202,17 +172,11 @@ export default function OrgAdminDashboardPage() {
             </p>
             <h1 className="font-['Sora',system-ui,sans-serif] text-[27px] font-bold tracking-[-0.01em] mt-2">{greeting()}, {displayName}</h1>
             <p className="mt-1.5 text-[14px] max-w-[520px]" style={{ color: "rgba(255,255,255,0.68)" }}>
-              {totalEmployees} total employees across {departments} departments. Payroll for July is on track and closes in 3 days.
+              {totalEmployees} total employees across {departments} departments.
             </p>
             <div className="flex gap-2.5 mt-[18px]">
-              <button onClick={() => navigate("/organization-admin/users")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold border-none cursor-pointer whitespace-nowrap" style={{ background: `linear-gradient(135deg,${AMBER},#E8862C)`, color: "#241000", boxShadow: `0 8px 20px -8px rgba(232,134,44,0.7)` }}>
+              <button onClick={() => navigate("/organization-admin/users")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold border-none cursor-pointer whitespace-nowrap" style={{ background: `linear-gradient(135deg,${BLUE},#2563EB)`, color: "#fff", boxShadow: `0 8px 20px -8px rgba(59,130,246,0.7)` }}>
                 ＋ Add Employee
-              </button>
-              <button onClick={() => navigate("/organization-admin/payroll-guidance")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
-                Payroll Guidance
-              </button>
-              <button onClick={() => navigate("/zoiko-hr/employee-management/reports")} className="btn hidden sm:flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
-                View Reports
               </button>
             </div>
           </div>
@@ -220,7 +184,7 @@ export default function OrgAdminDashboardPage() {
             <div className="relative" style={{ width: 88, height: 88 }}>
               <svg width="88" height="88" viewBox="0 0 88 88">
                 <circle cx="44" cy="44" r="37" fill="none" stroke="rgba(255,255,255,0.15)" strokeWidth="10" />
-                <circle cx="44" cy="44" r="37" fill="none" stroke={AMBER} strokeWidth="10"
+                <circle cx="44" cy="44" r="37" fill="none" stroke={BLUE} strokeWidth="10"
                   strokeDasharray={`${2 * Math.PI * 37 * healthScore / 100} ${2 * Math.PI * 37 * (100 - healthScore) / 100}`}
                   strokeLinecap="round" transform="rotate(-90 44 44)" />
               </svg>
@@ -228,20 +192,20 @@ export default function OrgAdminDashboardPage() {
             </div>
             <div>
               <p className="font-['Sora',system-ui,sans-serif] text-[14.5px] font-bold">Org Health Score</p>
-              <p className="text-[11px] font-semibold tracking-[0.04em]" style={{ color: "rgba(255,255,255,0.6)" }}>Attendance, payroll &amp; compliance combined</p>
+              <p className="text-[11px] font-semibold tracking-[0.04em]" style={{ color: "rgba(255,255,255,0.6)" }}>Attendance &amp; compliance combined</p>
             </div>
           </div>
         </div>
 
         <div className="flex items-baseline justify-between mb-[14px] mt-[30px]">
           <h2 className="font-['Sora',system-ui,sans-serif] text-[15.5px] font-bold tracking-[-0.01em]" style={{ color: INK }}>Key Metrics</h2>
-          <button onClick={() => navigate("/organization-admin/metrics")} className="text-[12.5px] font-semibold cursor-pointer" style={{ color: VIOLET }}>View all metrics →</button>
+          <button onClick={() => navigate("/organization-admin/metrics")} className="text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>View all metrics →</button>
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {kpiRows[0].map(renderKpi)}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
           {kpiRows[1].map(renderKpi)}
         </div>
 

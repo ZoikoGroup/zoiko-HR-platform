@@ -16,7 +16,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
+            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -31,12 +31,12 @@ const LEAVE_STATUSES = ["pending", "approved", "rejected", "cancelled"];
 const LEAVE_TYPE_COLORS = {
   annual: "bg-blue-100 text-blue-800",
   sick: "bg-red-100 text-red-800",
-  personal: "bg-purple-100 text-purple-800",
+  personal: "bg-blue-100 text-blue-800",
   maternity: "bg-pink-100 text-pink-800",
-  paternity: "bg-indigo-100 text-indigo-800",
+  paternity: "bg-blue-100 text-blue-800",
   bereavement: "bg-gray-100 text-gray-800",
   unpaid: "bg-yellow-100 text-yellow-800",
-  other: "bg-orange-100 text-orange-800",
+  other: "bg-blue-100 text-blue-800",
 };
 
 const STATUS_COLORS = {
@@ -221,7 +221,7 @@ export default function LeaveManagement() {
       <HRPage title="Leave Management" subtitle="Manage employee leave requests and balances">
         <SubNav />
         <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-3 text-gray-500">Loading leave requests...</span>
         </div>
       </HRPage>
@@ -253,7 +253,7 @@ export default function LeaveManagement() {
 
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Leave Requests</h1>
-          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
+          <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
             <Plus className="w-4 h-4" /> New Leave Request
           </button>
         </div>
@@ -262,7 +262,7 @@ export default function LeaveManagement() {
           <div className="relative flex-1 min-w-[180px] max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search by employee name..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500" />
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
           </div>
           <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
             className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
@@ -298,7 +298,7 @@ export default function LeaveManagement() {
               </thead>
               <tbody>
                 {paged.map((r) => (
-                  <tr key={r.id} className="border-b border-gray-50 hover:bg-orange-50/50 text-sm">
+                  <tr key={r.id} className="border-b border-gray-50 hover:bg-blue-50/50 text-sm">
                     <td className="px-3 py-3 font-medium text-gray-900">{r.employee_name || r.employee || "Employee #" + r.employee_id}</td>
                     <td className="px-3 py-3"><LeaveTypeBadge type={r.leave_type} /></td>
                     <td className="px-3 py-3 text-gray-700">{formatDate(r.start_date)}</td>
@@ -314,7 +314,7 @@ export default function LeaveManagement() {
                             <button onClick={() => handleReview(r.id, "rejected")} className="p-1 text-red-500 hover:bg-red-50 rounded" title="Reject"><X className="w-4 h-4" /></button>
                           </>
                         )}
-                        <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-orange-600 rounded hover:bg-orange-50" title="Edit"><Pencil className="w-4 h-4" /></button>
+                        <button onClick={() => openEdit(r)} className="p-1 text-gray-400 hover:text-blue-600 rounded hover:bg-blue-50" title="Edit"><Pencil className="w-4 h-4" /></button>
                         <button onClick={() => handleDelete(r.id)} className="p-1 text-gray-400 hover:text-red-600 rounded hover:bg-red-50" title="Delete"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </td>
@@ -346,7 +346,7 @@ export default function LeaveManagement() {
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Employee ID *</label>
                   <input type="number" value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
-                    className={`w-full border ${formErrors.employee_id ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500`} />
+                    className={`w-full border ${formErrors.employee_id ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
                   {formErrors.employee_id && <p className="text-red-500 text-xs mt-1">{formErrors.employee_id}</p>}
                 </div>
                 <div>
@@ -360,13 +360,13 @@ export default function LeaveManagement() {
                   <div>
                     <label className="text-xs text-gray-500 font-medium">Start Date *</label>
                     <input type="date" value={form.start_date} onChange={(e) => setForm({ ...form, start_date: e.target.value })}
-                      className={`w-full border ${formErrors.start_date ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500`} />
+                      className={`w-full border ${formErrors.start_date ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
                     {formErrors.start_date && <p className="text-red-500 text-xs mt-1">{formErrors.start_date}</p>}
                   </div>
                   <div>
                     <label className="text-xs text-gray-500 font-medium">End Date *</label>
                     <input type="date" value={form.end_date} onChange={(e) => setForm({ ...form, end_date: e.target.value })}
-                      className={`w-full border ${formErrors.end_date ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-orange-500`} />
+                      className={`w-full border ${formErrors.end_date ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
                     {formErrors.end_date && <p className="text-red-500 text-xs mt-1">{formErrors.end_date}</p>}
                   </div>
                 </div>
@@ -379,7 +379,7 @@ export default function LeaveManagement() {
               <div className="flex justify-end gap-2 mt-6">
                 <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
                 <button onClick={handleSubmit} disabled={submitting}
-                  className="px-4 py-2 text-sm text-white bg-orange-600 rounded-lg hover:bg-orange-700 disabled:bg-orange-400">
+                  className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-400">
                   {submitting ? "Saving..." : editItem ? "Update" : "Create"}
                 </button>
               </div>

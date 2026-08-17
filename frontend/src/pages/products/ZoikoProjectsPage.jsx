@@ -12,10 +12,10 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-const NAVY = "#0B1C3F";
-const BLUE = "#1A3A8C";
-const LIGHT_BLUE = "#4A9FE4";
-const ORANGE = "#FF8C00";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const LIGHT_BLUE = "#3B82F6";
+const ORANGE = "#3B82F6";
 const WHITE = "#FFFFFF";
 const OFF_WHITE = "#f8fafc";
 const GRAY = "#6B7280";
@@ -87,13 +87,13 @@ const problemCards = [
   },
   {
     icon: FileText,
-    iconBg: ORANGE,
+    iconBg: "#10B981",
     title: "Billing readiness",
     desc: "Turn delivered work into billable revenue.",
   },
   {
     icon: ArrowLeftRight,
-    iconBg: ORANGE,
+    iconBg: "#F59E0B",
     title: "Project spend",
     desc: "Tie purchases and vendor costs to projects.",
   },
@@ -181,11 +181,11 @@ export default function ZoikoProjectsPage() {
         padding: "80px 24px",
         overflow: "hidden",
         backgroundColor: "#f5f4f2",
-        background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+        background: "linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.35) 100%)",
       }}>
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+          background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.22) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
           pointerEvents: "none",
         }} />
         <div style={{ position: "relative", zIndex: 1, maxWidth: 1200 }}>
@@ -213,11 +213,11 @@ export default function ZoikoProjectsPage() {
 
           <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
             <button style={{
-              background: "linear-gradient(135deg, #FF8800, #FF5500)",
+              background: "#3B82F6",
               color: "#fff", border: "none", borderRadius: 999,
               padding: "14px 32px", fontSize: 16, fontWeight: 700, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 8,
-              boxShadow: "0 4px 16px rgba(255,85,0,0.45)",
+              boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
             }}>
               Get a Demo <ArrowRight size={17} />
             </button>
@@ -333,10 +333,10 @@ export default function ZoikoProjectsPage() {
       {/* BOTTOM CTA */}
       <section style={{ ...wrap, paddingTop: "20px", paddingBottom: "80px" }}>
         <div style={{
-          background: `linear-gradient(135deg, ${BLUE} 0%, #1e40af 100%)`,
+          background: "linear-gradient(135deg, #0A1128 0%, #111A33 100%)",
           borderRadius: "24px", padding: "64px 48px",
           textAlign: "center",
-          boxShadow: "0 16px 48px rgba(26,58,140,0.35)",
+          boxShadow: "0 16px 48px rgba(10,17,40,0.35)",
           position: "relative", overflow: "hidden",
         }}>
           <div style={{
@@ -364,7 +364,7 @@ export default function ZoikoProjectsPage() {
                 padding: "14px 28px", borderRadius: "50px", border: "none",
                 background: ORANGE, color: "white", fontSize: "15px",
                 fontWeight: "700", cursor: "pointer", fontFamily: FF,
-                boxShadow: "0 6px 20px rgba(255,140,0,0.5)",
+                boxShadow: "0 6px 20px rgba(59,130,246,0.5)",
               }}>Get a Demo</button>
               <button style={{
                 padding: "13px 24px", borderRadius: "50px",

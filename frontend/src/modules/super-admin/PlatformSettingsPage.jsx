@@ -74,7 +74,7 @@ export default function PlatformSettingsPage() {
         title="Platform Settings"
         description="Global platform configuration settings."
         action={
-          <button onClick={openCreate} className="flex items-center gap-2 rounded-full bg-[#FF7A00] hover:bg-[#e56e00] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(255,122,0,0.3)]">
+          <button onClick={openCreate} className="flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(59,130,246,0.3)]">
             <Plus className="h-4 w-4" /> Add Setting
           </button>
         }
@@ -101,7 +101,7 @@ export default function PlatformSettingsPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <code className="text-sm text-slate-600 max-w-[200px] truncate">{s.value}</code>
-                    <button onClick={() => openEdit(s)} className="p-1.5 hover:text-[#FF7A00] hover:bg-white rounded-lg transition text-slate-400"><Edit3 className="h-4 w-4" /></button>
+                    <button onClick={() => openEdit(s)} className="p-1.5 hover:text-[#3B82F6] hover:bg-white rounded-lg transition text-slate-400"><Edit3 className="h-4 w-4" /></button>
                   </div>
                 </div>
               ))}
@@ -124,33 +124,33 @@ export default function PlatformSettingsPage() {
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Key</label>
                   <input type="text" value={form.key}
                     onChange={(e) => setForm(f => ({ ...f, key: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00]" />
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6]" />
                 </div>
               )}
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Value</label>
                 <textarea value={form.value} rows={3}
                   onChange={(e) => setForm(f => ({ ...f, value: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00]" />
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6]" />
               </div>
               <div>
                 <label className="block text-sm font-semibold text-slate-700 mb-1">Description</label>
                 <input type="text" value={form.description}
                   onChange={(e) => setForm(f => ({ ...f, description: e.target.value }))}
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00]" />
+                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6]" />
               </div>
               {creating && (
                 <div>
                   <label className="block text-sm font-semibold text-slate-700 mb-1">Category</label>
                   <input type="text" value={form.category}
                     onChange={(e) => setForm(f => ({ ...f, category: e.target.value }))}
-                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00]" />
+                    className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6]" />
                 </div>
               )}
             </div>
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => { setEditingSetting(null); setCreating(false); }} className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#FF7A00] text-white text-sm font-semibold hover:bg-[#e56e00]"><Save className="h-4 w-4" /> Save</button>
+              <button onClick={handleSave} className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB]"><Save className="h-4 w-4" /> Save</button>
             </div>
           </div>
         </div>

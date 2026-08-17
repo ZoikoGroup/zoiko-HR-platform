@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { ArrowRight } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
-import logo from "../assets/logo.png";
+import logo from "../assets/zoikohr-logo-svg.svg";
 
 const NAVY = "#161B33";
 const BODY = "#5B6373";
@@ -27,7 +27,7 @@ const dropdownStyles = `
     user-select: none;
     font-family: inherit;
   }
-  .dropdown-trigger:hover { color: #4F46E5; }
+  .dropdown-trigger:hover { color: #3B82F6; }
   .dropdown-trigger .chevron {
     font-size: 11px;
     transition: transform 0.2s;
@@ -111,11 +111,11 @@ const dropdownStyles = `
     white-space: pre-line;
   }
 
-  .bg-purple      { background: #5b5bd6; }
-  .bg-dark-purple { background: #2d2a6e; }
-  .bg-orange      { background: #f97316; }
-  .bg-blue-light  { background: #38bdf8; }
-  .bg-navy        { background: #1a1a3e; }
+  .bg-purple      { background: #3B82F6; }
+  .bg-dark-purple { background: #0A1128; }
+  .bg-orange      { background: #10B981; }
+  .bg-blue-light  { background: #F59E0B; }
+  .bg-navy        { background: #0A1128; }
   .bg-orange-mid  { background: #f59e0b; }
 `;
 
@@ -145,9 +145,9 @@ const IconPayroll = () => (
 const IconBilling = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
     <rect x="4" y="3" width="13" height="16" rx="2" fill="white" fillOpacity="0.85"/>
-    <rect x="7" y="7" width="7" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="7" y="10" width="7" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="7" y="13" width="5" height="1.5" rx="0.75" fill="#f97316"/>
+    <rect x="7" y="7" width="7" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="7" y="10" width="7" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="7" y="13" width="5" height="1.5" rx="0.75" fill="#10B981"/>
   </svg>
 );
 
@@ -171,7 +171,7 @@ const IconProjects = () => (
 const IconInventory = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="12" r="6" fill="white" fillOpacity="0.9"/>
-    <circle cx="12" cy="12" r="2.5" fill="#5b5bd6"/>
+    <circle cx="12" cy="12" r="2.5" fill="#3B82F6"/>
   </svg>
 );
 
@@ -192,10 +192,10 @@ const IconInsights = () => (
 const IconDocs = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
     <rect x="5" y="3" width="11" height="14" rx="2" fill="white" fillOpacity="0.9"/>
-    <rect x="8" y="7"  width="5" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="8" y="10" width="5" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="8" y="13" width="3" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="13" y="10" width="5" height="8" rx="1.5" fill="#f97316" fillOpacity="0.8"/>
+    <rect x="8" y="7"  width="5" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="8" y="10" width="5" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="8" y="13" width="3" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="13" y="10" width="5" height="8" rx="1.5" fill="#10B981" fillOpacity="0.8"/>
   </svg>
 );
 
@@ -244,7 +244,7 @@ export default function LandingHeader() {
   return (
     <>
       <style>{dropdownStyles}</style>
-      <header className="sticky top-0 z-50 bg-gradient-to-b from-[#F1EEFC] to-white border-b border-[#E2E4EF] rounded-b-xl">
+      <header className="sticky top-0 z-50 bg-white border-b border-[#E2E4EF] rounded-b-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 h-16">
           <a href="https://zoikoone.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 shrink-0 no-underline">
             <img src={logo} alt="Zoiko One" style={{ height: "36px", width: "auto", objectFit: "contain" }} />
@@ -253,7 +253,7 @@ export default function LandingHeader() {
           <div className="hidden md:flex items-center gap-6 text-sm font-medium text-[#2A2F55] overflow-visible">
             {navLinks.map((l) => {
               if (l === "Home") {
-                return <Link key={l} to="/" className="hover:text-[#4F46E5] transition-colors no-underline">{l}</Link>;
+                return <Link key={l} to="/" className="hover:text-[#3B82F6] transition-colors no-underline">{l}</Link>;
               }
               if (l === "Products") {
                 return (
@@ -291,19 +291,19 @@ export default function LandingHeader() {
                 );
               }
               if (l === "Solutions") {
-                return <Link key={l} to="/solutions" className="hover:text-[#4F46E5] transition-colors no-underline">{l}</Link>;
+                return <Link key={l} to="/solutions" className="hover:text-[#3B82F6] transition-colors no-underline">{l}</Link>;
               }
               if (l === "Pricing") {
-                return <Link key={l} to="/pricing" className="hover:text-[#4F46E5] transition-colors no-underline">{l}</Link>;
+                return <Link key={l} to="/pricing" className="hover:text-[#3B82F6] transition-colors no-underline">{l}</Link>;
               }
               if (l === "Resources") {
-                return <Link key={l} to="/resources" className="hover:text-[#4F46E5] transition-colors no-underline">{l}</Link>;
+                return <Link key={l} to="/resources" className="hover:text-[#3B82F6] transition-colors no-underline">{l}</Link>;
               }
               if (l === "About") {
-                return <Link key={l} to="/about" className="hover:text-[#4F46E5] transition-colors no-underline">{l}</Link>;
+                return <Link key={l} to="/about" className="hover:text-[#3B82F6] transition-colors no-underline">{l}</Link>;
               }
               return (
-                <a key={l} href={l === "Platform" ? "/platform" : "/"} className="hover:text-[#4F46E5] transition-colors">
+                <a key={l} href={l === "Platform" ? "/platform" : "/"} className="hover:text-[#3B82F6] transition-colors">
                   {l}
                 </a>
               );
@@ -311,10 +311,10 @@ export default function LandingHeader() {
           </div>
 
           <div className="flex items-center gap-4 text-sm font-semibold">
-            <Link to="/login" className="text-[#1E1B4B] no-underline">
+            <Link to="/login" className="text-[#0A1128] no-underline">
               Sign In
             </Link>
-            <button onClick={() => navigate("/get-demo")} className="inline-flex items-center gap-1 bg-[#F97316] hover:bg-[#EA580C] text-white rounded-full px-5 py-2.5 shadow-md shadow-orange-200 transition-all duration-200">
+            <button onClick={() => navigate("/get-demo")} className="inline-flex items-center gap-1 bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-full px-5 py-2.5 shadow-md shadow-blue-200 transition-all duration-200">
               Get a Demo <ArrowRight size={15} />
             </button>
           </div>

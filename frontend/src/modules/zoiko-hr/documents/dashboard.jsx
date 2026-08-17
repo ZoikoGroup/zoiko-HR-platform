@@ -23,8 +23,8 @@ const StatusBadge = ({ status }) => {
   );
 };
 const CAT_COLORS = {
-  company:  "bg-indigo-50 text-indigo-700 border-indigo-200",
-  employee: "bg-violet-50 text-violet-700 border-violet-200",
+  company:  "bg-blue-50 text-blue-700 border-blue-200",
+  employee: "bg-emerald-50 text-emerald-700 border-emerald-200",
   contract: "bg-cyan-50 text-cyan-700 border-cyan-200",
   policy:   "bg-teal-50 text-teal-700 border-teal-200",
 };
@@ -89,7 +89,7 @@ export default function DocumentsDashboard() {
   const expiring = stats?.expiring_soon || [];
 
   const statCards = [
-    { label: "Total Documents", value: total,    Icon: FileText,      bg: "bg-indigo-50",  text: "text-indigo-600",  border: "border-l-4 border-indigo-500"  },
+    { label: "Total Documents", value: total,    Icon: FileText,      bg: "bg-blue-50",  text: "text-blue-600",  border: "border-l-4 border-blue-500"  },
     { label: "Pending Review",  value: pending,  Icon: Clock,         bg: "bg-amber-50",   text: "text-amber-600",   border: "border-l-4 border-amber-500"   },
     { label: "Approved",        value: approved, Icon: CheckCircle,   bg: "bg-emerald-50", text: "text-emerald-600", border: "border-l-4 border-emerald-500" },
     { label: "Rejected",        value: rejected, Icon: XCircle,       bg: "bg-rose-50",    text: "text-rose-600",    border: "border-l-4 border-rose-500"    },
@@ -102,11 +102,11 @@ export default function DocumentsDashboard() {
   return (
     <HRPage title="Documents Overview">
       <div className="space-y-8 pb-10">
-        <div className="bg-gradient-to-r from-indigo-600 to-violet-600 rounded-2xl p-6 text-white flex items-center justify-between">
+        <div className="bg-gradient-to-r from-[#0A1128] to-[#111A33] rounded-2xl p-6 text-white flex items-center justify-between">
           <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-indigo-200 mb-1">Document Control</p>
+            <p className="text-xs font-semibold uppercase tracking-widest text-blue-300 mb-1">Document Control</p>
             <h2 className="text-2xl font-bold">Documents Overview</h2>
-            <p className="text-sm text-indigo-200 mt-1">
+            <p className="text-sm text-blue-200 mt-1">
               {total} documents across {categories.length} {categories.length === 1 ? "category" : "categories"}.
               {pending > 0 && (
                 <span className="ml-2 bg-white/20 rounded px-2 py-0.5 text-xs font-semibold">{pending} awaiting approval</span>
@@ -120,7 +120,7 @@ export default function DocumentsDashboard() {
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
-            <svg className="animate-spin h-8 w-8 text-indigo-500" viewBox="0 0 24 24" fill="none">
+            <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
@@ -242,7 +242,7 @@ export default function DocumentsDashboard() {
                               <span className="text-slate-400">{count} ({pct}%)</span>
                             </div>
                             <div className="w-full h-2 bg-gray-100 rounded-full overflow-hidden">
-                              <div className="h-full bg-indigo-500 rounded-full" style={{ width: `${pct}%` }} />
+                              <div className="h-full bg-blue-500 rounded-full" style={{ width: `${pct}%` }} />
                             </div>
                           </div>
                         );

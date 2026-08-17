@@ -112,13 +112,13 @@ export default function OrgAdminAssetRequestsPage() {
             placeholder="Search by employee, asset type..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+          className="px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
         >
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
@@ -131,7 +131,7 @@ export default function OrgAdminAssetRequestsPage() {
 
       {loading && requests.length === 0 ? (
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 font-medium">Loading requests...</span>
         </div>
       ) : filtered.length === 0 ? (

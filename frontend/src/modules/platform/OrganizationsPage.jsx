@@ -26,7 +26,7 @@ export default function OrganizationsPage() {
         title="Organizations" 
         description="Provision, manage, suspend, or configure licenses for customer organizational environments."
         action={
-          <button className="flex items-center gap-2 rounded-full bg-[#FF7A00] hover:bg-[#e56e00] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(255,122,0,0.3)]">
+          <button className="flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(59,130,246,0.3)]">
             <Plus className="h-4 w-4" /> Provision Org
           </button>
         }
@@ -43,7 +43,7 @@ export default function OrganizationsPage() {
               placeholder="Search organizations, industries, tiers..." 
               value={searchTerm}
               onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full rounded-full border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-800 placeholder-slate-400 outline-none transition focus:bg-white focus:border-[#FF7A00]"
+              className="w-full rounded-full border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-800 placeholder-slate-400 outline-none transition focus:bg-white focus:border-[#3B82F6]"
             />
           </div>
         </div>
@@ -78,10 +78,10 @@ export default function OrganizationsPage() {
                   <td className="py-4 px-4 text-slate-700">{o.industry}</td>
                   <td className="py-4 px-4">
                     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                      o.tier === "Enterprise" ? "bg-indigo-50 text-indigo-600 border border-indigo-100" :
+                      o.tier === "Enterprise" ? "bg-blue-50 text-blue-600 border border-blue-100" :
                       o.tier === "Business" ? "bg-blue-50 text-blue-600 border border-blue-100" :
-                      o.tier === "Starter" ? "bg-[#FF7A00]/5 text-[#FF7A00] border border-[#FF7A00]/10" :
-                      "bg-purple-50 text-purple-600 border border-purple-100"
+                      o.tier === "Starter" ? "bg-[#3B82F6]/5 text-[#3B82F6] border border-[#3B82F6]/10" :
+                      "bg-blue-50 text-blue-600 border border-blue-100"
                     }`}>
                       {o.tier}
                     </span>
@@ -97,7 +97,7 @@ export default function OrganizationsPage() {
                   </td>
                   <td className="py-4 px-4 text-right">
                     <div className="flex justify-end gap-2 text-slate-400">
-                      <button className="p-1.5 hover:text-[#FF7A00] hover:bg-slate-50 rounded-lg transition" aria-label="Edit license"><Edit className="h-4 w-4" /></button>
+                      <button className="p-1.5 hover:text-[#3B82F6] hover:bg-slate-50 rounded-lg transition" aria-label="Edit license"><Edit className="h-4 w-4" /></button>
                       <button className={`p-1.5 rounded-lg transition ${o.status === "Active" ? "hover:text-red-500 hover:bg-red-50" : "hover:text-emerald-500 hover:bg-emerald-50"}`} aria-label="Toggle status">
                         {o.status === "Active" ? <ShieldAlert className="h-4 w-4" /> : <CheckCircle className="h-4 w-4" />}
                       </button>
