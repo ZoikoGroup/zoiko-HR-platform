@@ -63,7 +63,7 @@ export default function TrustCenter() {
 
 const styles = {
   section: {
-    backgroundColor: "#1A2560",
+    backgroundColor: "#0A1128",
     padding: "96px 24px",
     fontFamily: "'Inter', sans-serif",
   },
@@ -80,7 +80,7 @@ const styles = {
     fontSize: "11px",
     fontWeight: 600,
     letterSpacing: "0.12em",
-    color: "#F97316",
+    color: "#3B82F6",
     textTransform: "uppercase",
     marginBottom: "16px",
   },
@@ -105,7 +105,7 @@ const styles = {
   btnPrimary: {
     display: "inline-block",
     padding: "12px 24px",
-    backgroundColor: "#F97316",
+    backgroundColor: "#3B82F6",
     color: "#fff",
     borderRadius: "999px",
     fontWeight: 600,

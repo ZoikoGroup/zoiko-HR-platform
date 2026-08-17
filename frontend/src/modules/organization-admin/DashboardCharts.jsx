@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { LineChart, Line, BarChart, Bar, Cell, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
+import { LineChart, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 
 const VIOLET = "#5B3FE0";
 const AMBER = "#F5A340";
@@ -21,11 +21,6 @@ const AVATAR_COLORS = [
   `linear-gradient(135deg,#D8D4EC,#B9B4CC)`,
 ];
 
-function fmtCurrency(amount) {
-  if (amount == null) return "\u2014";
-  return `$${Number(amount).toLocaleString()}`;
-}
-
 function avatarBg(index) {
   return AVATAR_COLORS[index % AVATAR_COLORS.length];
 }
@@ -37,7 +32,6 @@ export default function DashboardCharts({ stats, loading, totalEmployees, depart
   const attendanceData = stats?.attendance_trend || [];
   const approvalData = stats?.recent_approvals || [];
   const deptData = stats?.department_headcount || [];
-  const payrollData = stats?.payroll_by_department || [];
   const employeeData = stats?.recent_employees || [];
 
   return (
@@ -95,7 +89,7 @@ export default function DashboardCharts({ stats, loading, totalEmployees, depart
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-[18px] mt-[18px]">
+      <div className="mt-[18px]">
         <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(24,20,51,0.04),0_8px_24px_-12px_rgba(24,20,51,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
           <div className="mb-[18px]">
             <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Headcount by Department</h3>
@@ -113,26 +107,6 @@ export default function DashboardCharts({ stats, loading, totalEmployees, depart
               </div>
             );
           })}
-        </div>
-
-        <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(24,20,51,0.04),0_8px_24px_-12px_rgba(24,20,51,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-          <div className="mb-[18px]">
-            <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Payroll Distribution</h3>
-            <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>{fmtCurrency(stats?.monthly_payroll)} allocated across departments this month</p>
-          </div>
-          <ResponsiveContainer width="100%" height={150}>
-            <BarChart data={payrollData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="rgba(24,20,51,0.05)" />
-              <XAxis dataKey="dept" tick={{ fontSize: 11, fill: INK_SOFT }} axisLine={false} tickLine={false} />
-              <YAxis tick={{ fontSize: 11, fill: INK_SOFT }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v / 1000}k`} />
-              <Tooltip formatter={(v) => [`$${Number(v).toLocaleString()}`, "Payroll"]} />
-              <Bar dataKey="amount" radius={[8, 8, 0, 0]} maxBarSize={38}>
-                {payrollData.map((_, idx) => (
-                  <Cell key={idx} fill={avatarBg(idx)} />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
         </div>
       </div>
 

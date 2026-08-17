@@ -6,8 +6,8 @@ import Footer from "../../landing/Footer";
 
 const BG = "#EDEEF2";
 const BLUE_DARK = "#192660";
-const BLUE_ACCENT = "#2040CC";
-const ORANGE = "#E87E2B";
+const BLUE_ACCENT = "#3B82F6";
+const ORANGE = "#3B82F6";
 const TEXT_MID = "#374151";
 const TEXT_MUTED = "#6B7280";
 
@@ -24,8 +24,8 @@ const sectionWrap = {
 };
 const pillTag = (color = BLUE_ACCENT) => ({
   display: "inline-block", padding: "3px 10px", borderRadius: "20px",
-  background: "rgba(32,64,204,0.08)", color: color,
-  fontSize: "11px", fontWeight: "600", border: `1px solid rgba(32,64,204,0.2)`,
+  background: "rgba(59,130,246,0.08)", color: color,
+  fontSize: "11px", fontWeight: "600", border: `1px solid rgba(59,130,246,0.2)`,
 });
 const card = {
   background: "white", borderRadius: "16px", border: "1px solid #E5E7EB",
@@ -35,7 +35,7 @@ const card = {
 function Badge({ label, tag = "Solutions" }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "6px 16px", marginBottom: 28, fontSize: 14, fontWeight: 500, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-      <span style={{ background: "#3B5BDB", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
+      <span style={{ background: "#3B82F6", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
       <span style={{ color: "#555" }}>{label}</span>
     </div>
   );
@@ -66,10 +66,10 @@ function HeroSection() {
         <Badge label="Find your fit by business, team or challenge" />
         <h1 style={{
           fontSize: "clamp(32px,5vw,56px)", fontWeight: 800, lineHeight: 1.1,
-          color: "#0B1C3F", margin: "0 0 20px",
+          color: "#0A1128", margin: "0 0 20px",
         }}>
           Find the Zoiko One setup<br />
-          that fits <span style={{ color: "#E8850A" }}>your business.</span>
+          that fits <span style={{ color: "#10B981" }}>your business.</span>
         </h1>
         <p style={{ fontSize: "16px", lineHeight: 1.7, color: "#4B5563", margin: "0 0 12px" }}>
           Route by business type, team, challenge or growth stage — then start with one product, one workflow, one pillar or the full platform.
@@ -79,7 +79,7 @@ function HeroSection() {
         </p>
         <div style={{ display: "flex", gap: "14px", justifyContent: "center", flexWrap: "wrap" }}>
           <button style={{
-            background: "linear-gradient(135deg, #E07B2A, #c9651a)",
+            background: "linear-gradient(135deg, #3B82F6, #2563EB)",
             color: "#fff", border: "none", borderRadius: 999,
             padding: "14px 32px", fontSize: 16, fontWeight: 600, cursor: "pointer",
           }}>Find Your Solution →</button>
@@ -97,19 +97,19 @@ function HeroSection() {
 
 const bizTypes = [
   {
-    emoji: "🧩", color: "#3B5BDB",
+    emoji: "🧩", color: "#3B82F6",
     title: "Services Businesses",
     tags: ["People", "Money", "Work", "Control"],
     desc: "Run service delivery, people, time, projects, billing, documents and reporting through one connected platform.",
   },
   {
-    emoji: "🎯", color: "#E87E2B",
+    emoji: "🎯", color: "#10B981",
     title: "Agencies",
     tags: ["Time", "Projects", "Billing", "Docs Pro"],
     desc: "Connect client work, resources, time, budgets, approvals, billing, documents and margins.",
   },
   {
-    emoji: "🛍️", color: "#7C3AED",
+    emoji: "🛍️", color: "#0A1128",
     title: "Retail Businesses",
     tags: ["HR", "Time", "Spend", "Inventory"],
     desc: "Manage staff, schedules, stock, purchases, vendors, documents and reporting across locations.",
@@ -321,7 +321,7 @@ function GuidedBuilder() {
                     padding: "16px 18px", borderRadius: "10px", textAlign: "left",
                     border: answers[step] === opt
                       ? `2px solid ${BLUE_ACCENT}` : "1.5px solid #E5E7EB",
-                    background: answers[step] === opt ? "rgba(32,64,204,0.05)" : "white",
+                    background: answers[step] === opt ? "rgba(59,130,246,0.05)" : "white",
                     fontSize: "14px", fontWeight: "600", color: BLUE_DARK,
                     cursor: "pointer", fontFamily: "inherit",
                     transition: "all 0.15s",
@@ -426,7 +426,7 @@ function OutcomeBundles() {
 
         <div style={{
           ...card,
-          background: "linear-gradient(140deg, #2040CC 0%, #3B5BDB 60%, #1a85f5 100%)",
+          background: "linear-gradient(140deg, #3B82F6 0%, #3B82F6 60%, #2563EB 100%)",
           border: "none",
         }}>
           <p style={{ ...eyebrowStyle, color: "rgba(255,255,255,0.7)", margin: 0 }}>FULL PLATFORM</p>
@@ -439,7 +439,7 @@ function OutcomeBundles() {
             border: "none", background: ORANGE,
             fontSize: "14px", fontWeight: "700", color: "white",
             cursor: "pointer", fontFamily: "inherit",
-            boxShadow: "0 4px 16px rgba(232,126,43,0.45)",
+            boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
           }}>Talk to Sales</button>
         </div>
       </div>
@@ -494,10 +494,10 @@ function BottomCTA() {
   return (
     <section style={{ ...sectionWrap, paddingTop: "20px", paddingBottom: "80px" }}>
       <div style={{
-        background: "linear-gradient(130deg, #2C3E9E 0%, #2040CC 40%, #1a6fd4 100%)",
+        background: "linear-gradient(130deg, #3B82F6 0%, #3B82F6 40%, #2563EB 100%)",
         borderRadius: "24px", padding: "60px 48px",
         textAlign: "center",
-        boxShadow: "0 12px 40px rgba(32,64,204,0.3)",
+        boxShadow: "0 12px 40px rgba(59,130,246,0.3)",
       }}>
         <h2 style={{
           fontSize: "clamp(24px, 3.5vw, 38px)", fontWeight: "800",
@@ -513,7 +513,7 @@ function BottomCTA() {
             padding: "14px 28px", borderRadius: "50px", border: "none",
             background: ORANGE, color: "white", fontSize: "15px",
             fontWeight: "700", cursor: "pointer",
-            boxShadow: "0 6px 20px rgba(232,126,43,0.5)",
+            boxShadow: "0 6px 20px rgba(59,130,246,0.5)",
           }}>Find Your Solution</button>
           <button onClick={() => navigate("/get-demo")} style={{
             padding: "14px 28px", borderRadius: "50px",

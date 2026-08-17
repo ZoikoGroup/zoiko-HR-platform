@@ -4,7 +4,7 @@ import { getDocuments } from "../../../../service/employee";
 
 const statusColor = {
   Available: { color: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
-  Submitted: { color: "text-indigo-700 dark:text-indigo-300", bg: "bg-indigo-50 dark:bg-indigo-900/30" },
+  Submitted: { color: "text-blue-700 dark:text-blue-300", bg: "bg-blue-50 dark:bg-blue-900/30" },
   Pending: { color: "text-amber-700 dark:text-amber-300", bg: "bg-amber-50 dark:bg-amber-900/30" },
 };
 
@@ -77,9 +77,9 @@ export default function TaxCompliance() {
       {!error && (
         <>
           {/* Info Banner */}
-          <div className="mb-6 px-5 py-4 rounded-xl bg-indigo-50 dark:bg-indigo-900/30 border border-indigo-200 dark:border-indigo-800 flex items-center gap-3">
+          <div className="mb-6 px-5 py-4 rounded-xl bg-blue-50 dark:bg-blue-900/30 border border-blue-200 dark:border-blue-800 flex items-center gap-3">
             <span className="text-lg">&#x2139;&#xFE0F;</span>
-            <p className="text-sm text-indigo-800 dark:text-indigo-300 m-0">
+            <p className="text-sm text-blue-800 dark:text-blue-300 m-0">
               Form 16 for FY 2025-26 will be available by July 15, 2026. Please consult your tax advisor for filing.
             </p>
           </div>

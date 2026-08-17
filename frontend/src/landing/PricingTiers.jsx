@@ -56,7 +56,7 @@ export default function PricingTiers() {
     <section className="bg-[#F8F7FC] py-20 md:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-12">
         <div className="text-center mb-14">
-          <p className="text-xs font-bold text-[#F97316] tracking-[0.15em] uppercase mb-4">
+          <p className="text-xs font-bold text-[#3B82F6] tracking-[0.15em] uppercase mb-4">
             Pricing
           </p>
           <h2 className="text-3xl sm:text-4xl font-extrabold text-[#111827] leading-tight tracking-tight mb-4">
@@ -74,10 +74,10 @@ export default function PricingTiers() {
           {tiers.map((t) => (
             <div
               key={t.title}
-              className={`relative rounded-2xl p-7 bg-white shadow-sm border border-gray-100 transition-all duration-200 hover:scale-[1.02] hover:shadow-md hover:border-[#F97316]`}
+              className={`relative rounded-2xl p-7 bg-white shadow-sm border border-gray-100 transition-all duration-200 hover:scale-[1.02] hover:shadow-md hover:border-[#3B82F6]`}
             >
               {t.popular && (
-                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#F97316] text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">
+                <span className="absolute -top-3 left-1/2 -translate-x-1/2 bg-[#3B82F6] text-white text-[10px] font-bold px-3 py-1 rounded-full uppercase tracking-wider">
                   Most Popular
                 </span>
               )}
@@ -86,7 +86,7 @@ export default function PricingTiers() {
               <p className="text-sm text-[#6B7280] leading-relaxed mb-5">{t.desc}</p>
 
               <div className="mb-1">
-                <span className="text-3xl font-extrabold text-[#1E1B4B]">{t.price}</span>
+                <span className="text-3xl font-extrabold text-[#0A1128]">{t.price}</span>
                 {t.priceNote && (
                   <span className="text-sm text-[#9CA3AF] ml-1">{t.priceNote}</span>
                 )}
@@ -96,24 +96,24 @@ export default function PricingTiers() {
               <ul className="flex flex-col gap-2.5 mb-6">
                 {t.bullets.map((b) => (
                   <li key={b} className="flex items-start gap-2.5">
-                    <Check size={14} className="text-[#4F46E5] mt-0.5 shrink-0" />
+                    <Check size={14} className="text-[#3B82F6] mt-0.5 shrink-0" />
                     <span className="text-sm text-[#374151]">{b}</span>
                   </li>
                 ))}
               </ul>
 
               {t.variant === "outline" && (
-                <button className="w-full inline-flex items-center justify-center gap-2 bg-white text-[#374151] font-semibold px-5 py-3 rounded-full text-sm border border-gray-200 hover:border-[#1E1B4B] hover:text-[#1E1B4B] transition-all duration-200">
+                <button className="w-full inline-flex items-center justify-center gap-2 bg-white text-[#374151] font-semibold px-5 py-3 rounded-full text-sm border border-gray-200 hover:border-[#0A1128] hover:text-[#0A1128] transition-all duration-200">
                   {t.cta}
                 </button>
               )}
               {t.variant === "accent" && (
-                <button className="w-full inline-flex items-center justify-center gap-2 bg-gradient-to-r from-[#F97316] to-[#FB923C] hover:from-[#EA580C] hover:to-[#F97316] text-white font-bold px-5 py-3 rounded-full text-sm shadow-lg shadow-orange-200 transition-all duration-200">
+                <button className="w-full inline-flex items-center justify-center gap-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold px-5 py-3 rounded-full text-sm shadow-lg shadow-blue-200 transition-all duration-200">
                   {t.cta}
                 </button>
               )}
               {t.variant === "dark" && (
-                <button className="w-full inline-flex items-center justify-center gap-2 bg-[#1E1B4B] hover:bg-[#2D2A6B] text-white font-bold px-5 py-3 rounded-full text-sm transition-all duration-200">
+                <button className="w-full inline-flex items-center justify-center gap-2 bg-[#0A1128] hover:bg-[#111A33] text-white font-bold px-5 py-3 rounded-full text-sm transition-all duration-200">
                   {t.cta}
                 </button>
               )}

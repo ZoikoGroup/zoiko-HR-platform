@@ -207,7 +207,7 @@ export default function TravelExpenses() {
                 </div>
 
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-5">
-              <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-purple-500" /> Allocation Breakdown</h2>
+              <h2 className="text-sm font-bold text-gray-900 mb-4 flex items-center gap-2"><BarChart3 className="w-4 h-4 text-blue-500" /> Allocation Breakdown</h2>
               <div className="space-y-4">
                 {Object.keys(categoryData).length === 0 ? (
                   <p className="text-center py-6 text-gray-400 text-sm">No expense data to categorize.</p>

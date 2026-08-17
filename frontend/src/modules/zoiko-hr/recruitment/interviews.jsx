@@ -18,7 +18,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/recruitment"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
+            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -34,7 +34,7 @@ function formatDate(dateStr) {
 }
 
 function TypeBadge({ type }) {
-  const m = { phone: "bg-blue-100 text-blue-800", video: "bg-purple-100 text-purple-800", in_person: "bg-green-100 text-green-800", "in-person": "bg-green-100 text-green-800" };
+  const m = { phone: "bg-blue-100 text-blue-800", video: "bg-blue-100 text-blue-800", in_person: "bg-green-100 text-green-800", "in-person": "bg-green-100 text-green-800" };
   return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${m[type] || "bg-gray-100 text-gray-800"}`}>{type?.replace(/_/g, " ")}</span>;
 }
 
@@ -168,7 +168,7 @@ export default function Interviews() {
 
   if (loading) return <HRPage title="Interviews" subtitle="Pipeline and schedule management"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
 
-  if (error) return <HRPage title="Interviews" subtitle="Pipeline and schedule management"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Try Again</button></div></div></HRPage>;
+  if (error) return <HRPage title="Interviews" subtitle="Pipeline and schedule management"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div></div></HRPage>;
 
   return (
     <HRPage title="Interviews" subtitle="Pipeline and schedule management">
@@ -176,11 +176,11 @@ export default function Interviews() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div className="flex gap-1">
-            <button onClick={() => { setTab("pipeline"); setPage(1); }} className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === "pipeline" ? "bg-orange-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>Pipeline</button>
-            <button onClick={() => { setTab("schedule"); setPage(1); }} className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === "schedule" ? "bg-orange-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>Schedule</button>
+            <button onClick={() => { setTab("pipeline"); setPage(1); }} className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === "pipeline" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>Pipeline</button>
+            <button onClick={() => { setTab("schedule"); setPage(1); }} className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === "schedule" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>Schedule</button>
           </div>
           {tab === "schedule" && (
-            <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
+            <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
               <Plus className="w-4 h-4" /> Schedule Interview
             </button>
           )}
@@ -210,9 +210,9 @@ export default function Interviews() {
                           </div>
                           {c.feedback && <p className="text-xs text-gray-500 mt-1 italic truncate">"{c.feedback}"</p>}
                           <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
-                            <button onClick={() => moveCandidate(c.id, stage, -1)} disabled={PIPELINE_STAGES.indexOf(stage) === 0} className="text-xs text-gray-400 hover:text-orange-600 disabled:opacity-20 p-1"><ChevronLeft className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => moveCandidate(c.id, stage, -1)} disabled={PIPELINE_STAGES.indexOf(stage) === 0} className="text-xs text-gray-400 hover:text-blue-600 disabled:opacity-20 p-1"><ChevronLeft className="w-3.5 h-3.5" /></button>
                             <span className="text-[10px] text-gray-300">move</span>
-                            <button onClick={() => moveCandidate(c.id, stage, 1)} disabled={PIPELINE_STAGES.indexOf(stage) === PIPELINE_STAGES.length - 1} className="text-xs text-gray-400 hover:text-orange-600 disabled:opacity-20 p-1"><ChevronRightIcon className="w-3.5 h-3.5" /></button>
+                            <button onClick={() => moveCandidate(c.id, stage, 1)} disabled={PIPELINE_STAGES.indexOf(stage) === PIPELINE_STAGES.length - 1} className="text-xs text-gray-400 hover:text-blue-600 disabled:opacity-20 p-1"><ChevronRightIcon className="w-3.5 h-3.5" /></button>
                           </div>
                         </div>
                       ))
@@ -230,7 +230,7 @@ export default function Interviews() {
               <div className="relative flex-1 max-w-xs">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input type="text" placeholder="Search events..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                  className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500" />
+                  className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
               </div>
               <select value={typeFilter} onChange={(e) => { setTypeFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
                 <option value="">All Types</option>
@@ -268,11 +268,11 @@ export default function Interviews() {
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex gap-2 items-center">
-                          <button onClick={() => openEdit(e)} className="text-gray-400 hover:text-orange-600"><Edit2 className="w-4 h-4" /></button>
+                          <button onClick={() => openEdit(e)} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
                           {e.status !== "cancelled" && e.status !== "completed" && (
                             <>
                               <button onClick={() => handleCancel(e.id)} className="text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>
-                              <button onClick={() => handleAddFeedback(e.id)} className="text-xs text-orange-600 hover:text-orange-800 font-medium">Feedback</button>
+                              <button onClick={() => handleAddFeedback(e.id)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Feedback</button>
                             </>
                           )}
                         </div>
@@ -356,7 +356,7 @@ export default function Interviews() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-orange-600 rounded-lg hover:bg-orange-700">{editItem ? "Update" : "Create"}</button>
+              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Create"}</button>
             </div>
           </div>
         </div>

@@ -26,7 +26,7 @@ export default function ZoikoIdPage() {
         {/* SSO Providers */}
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-[#FF7A00]" /> Identity Providers (IdP)
+            <Shield className="h-5 w-5 text-[#3B82F6]" /> Identity Providers (IdP)
           </h3>
           <div className="space-y-3">
             {providers.map((p, idx) => (
@@ -49,7 +49,7 @@ export default function ZoikoIdPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Lock className="h-5 w-5 text-[#FF7A00]" /> Password & MFA Policies
+              <Lock className="h-5 w-5 text-[#3B82F6]" /> Password & MFA Policies
             </h3>
             <div className="space-y-4 text-xs font-medium text-slate-700">
               <div className="flex justify-between border-b border-slate-100 pb-2">
@@ -79,7 +79,7 @@ export default function ZoikoIdPage() {
       {/* Active Identity Sessions */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-          <Key className="h-5 w-5 text-[#FF7A00]" /> Active Auth Sessions
+          <Key className="h-5 w-5 text-[#3B82F6]" /> Active Auth Sessions
         </h3>
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse">

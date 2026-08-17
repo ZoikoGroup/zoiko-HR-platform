@@ -33,8 +33,8 @@ const statusColors = {
 };
 
 const colorMap = {
-  indigo: "bg-indigo-50 text-indigo-600 border-indigo-100",
-  violet: "bg-violet-50 text-violet-600 border-violet-100",
+  blue: "bg-blue-50 text-blue-600 border-blue-100",
+  blue: "bg-blue-50 text-blue-600 border-blue-100",
   emerald: "bg-emerald-50 text-emerald-600 border-emerald-100",
   amber: "bg-amber-50 text-amber-600 border-amber-100",
 };
@@ -54,7 +54,7 @@ const priorityConfig = {
 
 const emptyForm = { assetType: "", reason: "", priority: "Medium" };
 
-const assetColors = ["indigo", "violet", "emerald", "amber"];
+const assetColors = ["blue", "blue", "emerald", "amber"];
 
 export default function AssetDetails() {
   const [showModal, setShowModal] = useState(false);
@@ -149,7 +149,7 @@ export default function AssetDetails() {
     return (
       <EmployeePageShell title="Asset Details" subtitle="Profile">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 dark:text-[#94a3b8] font-medium">Loading asset details...</span>
         </div>
       </EmployeePageShell>
@@ -166,7 +166,7 @@ export default function AssetDetails() {
           </div>
           <button
             onClick={() => setShowModal(true)}
-            className="flex items-center gap-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 rounded-xl transition shadow-sm shadow-indigo-200"
+            className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2.5 rounded-xl transition shadow-sm shadow-blue-200"
           >
             <Plus size={16} /> Request Asset
           </button>
@@ -306,7 +306,7 @@ export default function AssetDetails() {
                 <label className="text-xs font-semibold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wide block mb-1.5">Asset Type</label>
                 <div className="relative">
                   <select
-                    className={`w-full appearance-none border rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white dark:focus:bg-[#0f172a] transition pr-8 ${errors.assetType ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`}
+                    className={`w-full appearance-none border rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition pr-8 ${errors.assetType ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`}
                     value={form.assetType}
                     onChange={(e) => setForm((p) => ({ ...p, assetType: e.target.value }))}
                   >
@@ -322,7 +322,7 @@ export default function AssetDetails() {
                 <label className="text-xs font-semibold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wide block mb-1.5">Reason for Request</label>
                 <textarea
                   rows={3}
-                  className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white dark:focus:bg-[#0f172a] transition resize-none ${errors.reason ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`}
+                  className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition resize-none ${errors.reason ? "border-red-300" : "border-slate-200 dark:border-[#334155]"}`}
                   placeholder="Describe why you need this asset..."
                   value={form.reason}
                   onChange={(e) => setForm((p) => ({ ...p, reason: e.target.value }))}
@@ -359,7 +359,7 @@ export default function AssetDetails() {
               <button
                 onClick={handleSubmit}
                 disabled={submitting}
-                className="flex-1 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white text-sm font-semibold transition shadow-sm shadow-indigo-200 flex items-center justify-center gap-2"
+                className="flex-1 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm font-semibold transition shadow-sm shadow-blue-200 flex items-center justify-center gap-2"
               >
                 {submitting ? <><Loader2 size={14} className="animate-spin" /> Submitting...</> : "Submit Request"}
               </button>

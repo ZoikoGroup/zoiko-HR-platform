@@ -121,8 +121,8 @@ function EcoFooterCard({ card }) {
         textAlign: "left",
         background: linkable
           ? hovered
-            ? "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 40%,#3a6fd8 100%)"
-            : "#f97316"
+            ? "linear-gradient(135deg,#0A1128 0%,#111A33 100%)"
+            : "#3B82F6"
           : hovered
             ? "rgba(255,255,255,0.08)"
             : "transparent",
@@ -278,7 +278,7 @@ export default function Footer() {
 
 const styles = {
   root: {
-    backgroundColor: "#110d2e",
+    backgroundColor: "#0A1128",
     color: "#ffffff",
     fontFamily: "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
     width: "100%",
@@ -291,7 +291,7 @@ const styles = {
   ctaBanner: {
     maxWidth: "1100px",
     margin: "0 auto",
-    background: "linear-gradient(135deg, #3a2caa 0%, #4a6fd8 60%, #4a99e8 100%)",
+    background: "linear-gradient(135deg, #0A1128 0%, #111A33 100%)",
     borderRadius: "18px",
     padding: "36px 48px",
     display: "flex",
@@ -324,7 +324,7 @@ const styles = {
     flexShrink: "0",
   },
   btnDemo: {
-    background: "linear-gradient(135deg, #f97316, #fb923c)",
+    background: "#3B82F6",
     color: "#ffffff",
     border: "none",
     borderRadius: "50px",
@@ -376,7 +376,7 @@ const styles = {
     width: "36px",
     height: "36px",
     borderRadius: "8px",
-    background: "linear-gradient(135deg, #f97316 40%, #3b82f6 100%)",
+    background: "linear-gradient(135deg, #3B82F6 40%, #0A1128 100%)",
     display: "flex",
     alignItems: "center",
     justifyContent: "center",
@@ -421,7 +421,7 @@ const styles = {
   navColTitle: {
     fontSize: "11.5px",
     fontWeight: "700",
-    color: "#f97316",
+    color: "#3B82F6",
     textTransform: "uppercase",
     letterSpacing: "0.08em",
     marginBottom: "14px",
@@ -455,7 +455,7 @@ const styles = {
   sectionLabel: {
     fontSize: "11.5px",
     fontWeight: "700",
-    color: "#f97316",
+    color: "#3B82F6",
     textTransform: "uppercase",
     letterSpacing: "0.1em",
     marginBottom: "18px",
@@ -498,8 +498,8 @@ const styles = {
     background: "transparent",
   },
   ecoCardActive: {
-    background: "#f97316",
-    borderColor: "#f97316",
+    background: "#3B82F6",
+    borderColor: "#3B82F6",
   },
   ecoCardName: {
     fontSize: "13px",

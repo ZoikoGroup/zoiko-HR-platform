@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
-import { Users, Building2, BadgeInfo, CalendarCheck, Activity, CreditCard, Wrench } from "lucide-react";
+import { Users, Building2, BadgeInfo, CalendarCheck, Activity, Wrench } from "lucide-react";
 
 const DashboardCharts = lazy(() => import("./DashboardCharts"));
 
@@ -31,11 +31,6 @@ const AVATAR_COLORS = [
 function getInitials(name) {
   if (!name) return "U";
   return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
-}
-
-function fmtCurrency(amount) {
-  if (amount == null) return "—";
-  return `$${Math.round(Number(amount)).toLocaleString("en-US")}`;
 }
 
 function todayLabel() {
@@ -106,9 +101,8 @@ export default function OrgAdminDashboardPage() {
   const departments = stats?.departments ?? 9;
   const healthScore = totalEmployees > 0 ? Math.round((activeEmployees / totalEmployees) * 100) : 95;
 
-  const fmt = (val, key) => {
+  const fmt = (val) => {
     if (val === null || val === undefined) return "—";
-    if (key === "monthly_payroll") return fmtCurrency(val);
     return Number(val).toLocaleString();
   };
 
@@ -122,13 +116,12 @@ export default function OrgAdminDashboardPage() {
     [
       { key: "pending_leave_requests", label: "Pending Leaves", icon: CalendarCheck, iconBg: AMBER_100, iconColor: AMBER, trend: "flat", trendLabel: "Clear", path: "/zoiko-hr/leave" },
       { key: "pending_approvals", label: "Pending Approvals", icon: Activity, iconBg: RED_100, iconColor: RED, trend: "flat", trendLabel: "Clear", path: "/zoiko-hr/documents/approvals" },
-      { key: "monthly_payroll", label: "Monthly Payroll", icon: CreditCard, iconBg: TEAL_100, iconColor: TEAL, trend: "flat", trendLabel: null, path: "/organization-admin/payroll-guidance" },
       { key: "assets", label: "Assets", icon: Wrench, iconBg: VIOLET_100, iconColor: VIOLET, trend: "flat", trendLabel: null, path: "/organization-admin/assets" },
     ],
   ], []);
 
   const renderKpi = useCallback((kpi) => {
-    const val = loading ? "—" : stats ? fmt(stats[kpi.key], kpi.key) : "—";
+    const val = loading ? "—" : stats ? fmt(stats[kpi.key]) : "—";
     const TrendIcon = kpi.trend === "up" ? TrendingUp : kpi.trend === "down" ? TrendingDown : Minus;
     const trendColor = kpi.trend === "up" ? TEAL : kpi.trend === "down" ? RED : INK_SOFT;
     return (
@@ -202,17 +195,11 @@ export default function OrgAdminDashboardPage() {
             </p>
             <h1 className="font-['Sora',system-ui,sans-serif] text-[27px] font-bold tracking-[-0.01em] mt-2">{greeting()}, {displayName}</h1>
             <p className="mt-1.5 text-[14px] max-w-[520px]" style={{ color: "rgba(255,255,255,0.68)" }}>
-              {totalEmployees} total employees across {departments} departments. Payroll for July is on track and closes in 3 days.
+              {totalEmployees} total employees across {departments} departments.
             </p>
             <div className="flex gap-2.5 mt-[18px]">
               <button onClick={() => navigate("/organization-admin/users")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold border-none cursor-pointer whitespace-nowrap" style={{ background: `linear-gradient(135deg,${AMBER},#E8862C)`, color: "#241000", boxShadow: `0 8px 20px -8px rgba(232,134,44,0.7)` }}>
                 ＋ Add Employee
-              </button>
-              <button onClick={() => navigate("/organization-admin/payroll-guidance")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
-                Payroll Guidance
-              </button>
-              <button onClick={() => navigate("/zoiko-hr/employee-management/reports")} className="btn hidden sm:flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
-                View Reports
               </button>
             </div>
           </div>
@@ -228,7 +215,7 @@ export default function OrgAdminDashboardPage() {
             </div>
             <div>
               <p className="font-['Sora',system-ui,sans-serif] text-[14.5px] font-bold">Org Health Score</p>
-              <p className="text-[11px] font-semibold tracking-[0.04em]" style={{ color: "rgba(255,255,255,0.6)" }}>Attendance, payroll &amp; compliance combined</p>
+              <p className="text-[11px] font-semibold tracking-[0.04em]" style={{ color: "rgba(255,255,255,0.6)" }}>Attendance &amp; compliance combined</p>
             </div>
           </div>
         </div>
@@ -241,7 +228,7 @@ export default function OrgAdminDashboardPage() {
           {kpiRows[0].map(renderKpi)}
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mt-4">
           {kpiRows[1].map(renderKpi)}
         </div>
 

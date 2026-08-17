@@ -38,8 +38,8 @@ function fmtEmpType(t) {
 
 const InfoRow = ({ icon: Icon, label, value }) => (
   <div className="flex items-start gap-3 py-3 border-b border-slate-100 dark:border-[#334155] last:border-0">
-    <div className="mt-0.5 p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/20">
-      <Icon size={15} className="text-indigo-500" />
+    <div className="mt-0.5 p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/20">
+      <Icon size={15} className="text-blue-500" />
     </div>
     <div>
       <p className="text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide">{label}</p>
@@ -50,8 +50,8 @@ const InfoRow = ({ icon: Icon, label, value }) => (
 
 const InputRow = ({ icon: Icon, label, name, value, onChange, type = "text", placeholder = "N/A" }) => (
   <div className="flex items-start gap-3 py-3 border-b border-slate-100 dark:border-[#334155] last:border-0">
-    <div className="mt-0.5 p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/20">
-      <Icon size={15} className="text-indigo-500" />
+    <div className="mt-0.5 p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/20">
+      <Icon size={15} className="text-blue-500" />
     </div>
     <div className="flex-1">
       <p className="text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide mb-1">{label}</p>
@@ -61,7 +61,7 @@ const InputRow = ({ icon: Icon, label, name, value, onChange, type = "text", pla
         value={value ?? ""}
         onChange={onChange}
         placeholder={placeholder}
-        className="w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#334155] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+        className="w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#334155] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
       />
     </div>
   </div>
@@ -69,8 +69,8 @@ const InputRow = ({ icon: Icon, label, name, value, onChange, type = "text", pla
 
 const SelectRow = ({ icon: Icon, label, name, value, onChange, options }) => (
   <div className="flex items-start gap-3 py-3 border-b border-slate-100 dark:border-[#334155] last:border-0">
-    <div className="mt-0.5 p-1.5 rounded-lg bg-indigo-50 dark:bg-indigo-500/20">
-      <Icon size={15} className="text-indigo-500" />
+    <div className="mt-0.5 p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/20">
+      <Icon size={15} className="text-blue-500" />
     </div>
     <div className="flex-1">
       <p className="text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide mb-1">{label}</p>
@@ -78,7 +78,7 @@ const SelectRow = ({ icon: Icon, label, name, value, onChange, options }) => (
         name={name}
         value={value ?? ""}
         onChange={onChange}
-        className="w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#334155] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400"
+        className="w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#334155] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
       >
         <option value="">N/A</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -278,7 +278,7 @@ export default function EmployeeProfile() {
     return (
       <EmployeePageShell title="Employee Profile" subtitle="Employees">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 dark:text-[#94a3b8] font-medium">Loading profile...</span>
         </div>
       </EmployeePageShell>
@@ -316,11 +316,11 @@ export default function EmployeeProfile() {
         {/* Sidebar */}
         <aside className="space-y-4">
           <div className="bg-white dark:bg-[#1e293b] rounded-2xl shadow-sm border border-slate-100 dark:border-[#334155] p-6 flex flex-col items-center text-center">
-            <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-indigo-400 to-violet-500 flex items-center justify-center shadow-lg mb-4">
+            <div className="w-24 h-24 rounded-2xl bg-gradient-to-br from-blue-400 to-blue-500 flex items-center justify-center shadow-lg mb-4">
               <span className="text-3xl font-bold text-white">{initials}</span>
             </div>
             <h2 className="text-lg font-bold text-slate-800 dark:text-[#f1f5f9]">{fn} {ln}</h2>
-            <p className="text-sm text-indigo-600 font-medium mt-0.5">{v(p, "designationName", "title", "jobTitle", "job_title")}</p>
+            <p className="text-sm text-blue-600 font-medium mt-0.5">{v(p, "designationName", "title", "jobTitle", "job_title")}</p>
             <span className="mt-3 inline-flex items-center gap-1.5 text-xs bg-slate-100 dark:bg-[#0f172a] text-slate-600 dark:text-[#94a3b8] px-3 py-1 rounded-full font-medium">
               <Building2 size={12} /> {v(p, "departmentName") || v(p, "department", "name") || "N/A"}
             </span>
@@ -361,12 +361,12 @@ export default function EmployeeProfile() {
                 key={tab}
                 onClick={() => setActiveTab(i)}
                 className={`flex-1 py-4 text-sm font-semibold transition-colors relative ${
-                  activeTab === i ? "text-indigo-600" : "text-slate-400 dark:text-[#94a3b8] hover:text-slate-600 dark:hover:text-[#cbd5e1]"
+                  activeTab === i ? "text-blue-600" : "text-slate-400 dark:text-[#94a3b8] hover:text-slate-600 dark:hover:text-[#cbd5e1]"
                 }`}
               >
                 {tab}
                 {activeTab === i && (
-                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-indigo-500 rounded-t" />
+                  <span className="absolute bottom-0 left-0 right-0 h-0.5 bg-blue-500 rounded-t" />
                 )}
               </button>
             ))}
@@ -374,7 +374,7 @@ export default function EmployeeProfile() {
               {!editing ? (
                 <button
                   onClick={startEdit}
-                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-indigo-600 bg-indigo-50 dark:bg-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/30 border border-indigo-200 dark:border-indigo-800 rounded-lg transition-colors"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-600 bg-blue-50 dark:bg-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/30 border border-blue-200 dark:border-blue-800 rounded-lg transition-colors"
                 >
                   <Pencil size={12} /> Edit
                 </button>
@@ -685,7 +685,7 @@ export default function EmployeeProfile() {
             <button
               onClick={handleSave}
               disabled={saving}
-              className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 border border-indigo-600 rounded-lg transition-colors disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 px-5 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 border border-blue-600 rounded-lg transition-colors disabled:opacity-50"
             >
               {saving ? <Loader2 size={14} className="animate-spin" /> : <Save size={14} />}
               {saving ? "Saving..." : "Save Changes"}

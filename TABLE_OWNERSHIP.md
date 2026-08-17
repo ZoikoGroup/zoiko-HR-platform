@@ -1,6 +1,6 @@
 # TABLE_OWNERSHIP.md
 
-99 tables owned by the standalone HR platform. `super_admin_*` = platform-level; everything else = per-organization. Monolith product tables (billing/spend/inventory/operations/payroll/comply/governance/insights/zoikotime) are intentionally absent.
+112 tables owned by the standalone HR platform. `super_admin_*` = platform-level; everything else = per-organization.
 
 ## Organizations & Core HR (11)
 - `organizations`
@@ -133,11 +133,22 @@
 - `super_admin_support_tickets`
 - `super_admin_approval_history`
 
+## Billing & Subscription (13)
+- `billing_plans`
+- `billing_subscriptions`
+- `billing_worker_states`
+- `billable_workforce_snapshots`
+- `billing_entitlement_snapshots`
+- `organization_evaluations`
+- `billing_conversions`
+- `billing_discounts`
+- `billing_audit_logs`
+
 ## Frontend module ↔ backend ownership
 | Frontend module | Backend router |
 |---|---|
 | `platform` | `hr` / `employee` (auth) |
-| `super-admin` | `super_admin` |
+| `super-admin` | `super_admin` + `billing` |
 | `organization-admin` | `hr` (org config, dashboard stats) |
 | `hr-admin` | `hr` + `employee` |
 | `zoiko-hr` | `hr` |

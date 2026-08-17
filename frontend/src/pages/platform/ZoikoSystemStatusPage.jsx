@@ -22,7 +22,7 @@ const uptimeBars = Array.from({ length: 90 }, (_, i) => {
 
 const STATUS_CONFIG = {
   operational:  { label: "Operational",           dot: "#22c55e", bg: "#f0fdf4", text: "#15803d" },
-  degraded:     { label: "Degraded performance",  dot: "#f97316", bg: "#fff7ed", text: "#c2410c" },
+  degraded:     { label: "Degraded performance",  dot: "#3b82f6", bg: "#eff6ff", text: "#1d4ed8" },
   maintenance:  { label: "Maintenance Jun 22",    dot: "#3b82f6", bg: "#eff6ff", text: "#1d4ed8" },
 };
 
@@ -78,7 +78,7 @@ const S = {
   },
   healthInner: { maxWidth: 780, margin: "0 auto" },
   labelBlue: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 14,
   },
@@ -110,7 +110,7 @@ const S = {
     display: "grid", gridTemplateColumns: "1fr 1fr", gap: 48,
   },
   colLabel: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     marginBottom: 12,
   },
@@ -123,7 +123,7 @@ const S = {
   incidentCard: {
     background: "#fff",
     border: "1.5px solid #eaeaea",
-    borderLeft: "4px solid #f97316",
+    borderLeft: "4px solid #3b82f6",
     borderRadius: 12,
     padding: "20px 20px",
     marginBottom: 20,
@@ -160,7 +160,7 @@ const S = {
   ctaSection: { padding: "40px 28px 60px", background: "#f5f5fb" },
   ctaCard: {
     maxWidth: 960, margin: "0 auto",
-    background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     borderRadius: 22, padding: "64px 48px", textAlign: "center",
   },
   ctaH2: {
@@ -173,7 +173,7 @@ const S = {
   },
   ctaActions: { display: "flex", justifyContent: "center", gap: 12, flexWrap: "wrap" },
   btnCtaOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "14px 28px",
     fontSize: 14.5, fontWeight: 700, cursor: "pointer",
   },

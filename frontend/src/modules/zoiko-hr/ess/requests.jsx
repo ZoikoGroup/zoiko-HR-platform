@@ -77,8 +77,8 @@ export default function EssLearning() {
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white rounded-xl border border-gray-200 p-4 flex items-center gap-3">
-            <div className="p-2.5 rounded-lg bg-indigo-50">
-              <BookOpen className="w-5 h-5 text-indigo-600" />
+            <div className="p-2.5 rounded-lg bg-blue-50">
+              <BookOpen className="w-5 h-5 text-blue-600" />
             </div>
             <div>
               <p className="text-2xl font-bold text-gray-900">{total}</p>
@@ -120,7 +120,7 @@ export default function EssLearning() {
         {/* Content */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-gray-400">
-            <Loader2 className="w-8 h-8 animate-spin text-indigo-500" />
+            <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
             <span className="text-sm font-medium">Loading courses...</span>
           </div>
         ) : error ? (
@@ -142,8 +142,8 @@ export default function EssLearning() {
             {filtered.map(course => (
               <div key={course.id} className="bg-white rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition-all p-5">
                 <div className="flex items-start gap-3 mb-3">
-                  <div className={`p-2.5 rounded-lg ${course.completion_status === "completed" ? "bg-emerald-50" : "bg-indigo-50"}`}>
-                    <BookOpen className={`w-5 h-5 ${course.completion_status === "completed" ? "text-emerald-600" : "text-indigo-600"}`} />
+                  <div className={`p-2.5 rounded-lg ${course.completion_status === "completed" ? "bg-emerald-50" : "bg-blue-50"}`}>
+                    <BookOpen className={`w-5 h-5 ${course.completion_status === "completed" ? "text-emerald-600" : "text-blue-600"}`} />
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-bold text-gray-900 truncate">{course.title || course.name}</p>

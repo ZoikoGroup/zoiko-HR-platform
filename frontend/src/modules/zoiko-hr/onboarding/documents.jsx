@@ -38,8 +38,8 @@ const STATUS_COLORS = {
 
 const CATEGORY_COLORS = {
   id_proof: "bg-blue-100 text-blue-700",
-  offer_letter: "bg-indigo-100 text-indigo-700",
-  nda: "bg-purple-100 text-purple-700",
+  offer_letter: "bg-[#0A1128]/10 text-[#0A1128]",
+  nda: "bg-amber-100 text-amber-700",
   education_certificates: "bg-cyan-100 text-cyan-700",
   experience_letters: "bg-teal-100 text-teal-700",
   bank_details: "bg-emerald-100 text-emerald-700",

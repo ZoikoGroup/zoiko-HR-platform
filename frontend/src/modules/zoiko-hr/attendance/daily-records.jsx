@@ -17,7 +17,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
+            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -31,9 +31,9 @@ const ITEMS_PER_PAGE = 15;
 const STATUS_COLORS = {
   present: "bg-emerald-100 text-emerald-800 border-emerald-200",
   absent: "bg-red-100 text-red-800 border-red-200",
-  late: "bg-orange-100 text-orange-800 border-orange-200",
+  late: "bg-blue-100 text-blue-800 border-blue-200",
   on_leave: "bg-blue-100 text-blue-800 border-blue-200",
-  remote: "bg-purple-100 text-purple-800 border-purple-200",
+  remote: "bg-blue-100 text-blue-800 border-blue-200",
   half_day: "bg-yellow-100 text-yellow-800 border-yellow-200",
   holiday: "bg-pink-100 text-pink-800 border-pink-200",
   weekend: "bg-gray-100 text-gray-800 border-gray-200",
@@ -223,7 +223,7 @@ export default function DailyRecords() {
               className="flex justify-center items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 bg-gray-50 rounded-xl hover:bg-gray-100 text-sm font-bold transition-colors">
               <Download className="w-4 h-4" /> Excel
             </button>
-            <button onClick={openCreate} className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-sm font-bold shadow transition-colors">
+            <button onClick={openCreate} className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow transition-colors">
               <Plus className="w-4 h-4" /> Add Record
             </button>
           </div>
@@ -235,12 +235,12 @@ export default function DailyRecords() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search employee or department..." value={search}
               onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 shadow-sm" />
+              className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm" />
           </div>
           <div className="relative w-full sm:w-auto">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <select value={filters.status} onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setCurrentPage(1); }}
-              className="w-full sm:w-auto pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 appearance-none shadow-sm cursor-pointer">
+              className="w-full sm:w-auto pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none shadow-sm cursor-pointer">
               <option value="">All Statuses</option>
               {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
             </select>
@@ -248,14 +248,14 @@ export default function DailyRecords() {
           <div className="relative w-full sm:w-auto">
             <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <select value={filters.department} onChange={(e) => { setFilters({ ...filters, department: e.target.value }); setCurrentPage(1); }}
-              className="w-full sm:w-auto pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 appearance-none shadow-sm cursor-pointer">
+              className="w-full sm:w-auto pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none shadow-sm cursor-pointer">
               <option value="">All Departments</option>
               {departments.map((d) => (<option key={d} value={d}>{d}</option>))}
             </select>
           </div>
           <div className="relative w-full sm:w-auto flex-1 md:flex-none max-w-[200px]">
             <input type="date" value={filters.date} onChange={(e) => { setFilters({ ...filters, date: e.target.value }); setCurrentPage(1); }}
-              className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 shadow-sm" />
+              className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm" />
           </div>
         </div>
 
@@ -263,13 +263,13 @@ export default function DailyRecords() {
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
           {loading ? (
             <div className="flex flex-col justify-center items-center py-24">
-              <Loader2 className="w-8 h-8 animate-spin text-orange-500 mb-4" />
+              <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
               <p className="text-sm font-bold text-gray-500">Loading attendance records...</p>
             </div>
           ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-24 text-center px-4">
-              <div className="w-16 h-16 bg-orange-50 rounded-full flex items-center justify-center mb-4">
-                <UserX className="w-8 h-8 text-orange-300" />
+              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
+                <UserX className="w-8 h-8 text-blue-300" />
               </div>
               <p className="text-lg font-bold text-gray-800 mb-1">No records found</p>
               <p className="text-sm text-gray-500 max-w-sm">
@@ -292,7 +292,7 @@ export default function DailyRecords() {
                 </thead>
                 <tbody className="divide-y divide-gray-50">
                   {paginated.map((r) => (
-                    <tr key={r.id} className="hover:bg-orange-50/30 transition-colors group">
+                    <tr key={r.id} className="hover:bg-blue-50/30 transition-colors group">
                       <td className="py-3.5 px-5">
                         <div className="font-bold text-gray-900">{r.employee_name || r.employee || "Employee #" + r.id}</div>
                       </td>
@@ -303,7 +303,7 @@ export default function DailyRecords() {
                       <td className="py-3.5 px-5"><StatusBadge status={r.status} /></td>
                       <td className="py-3.5 px-5 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openEdit(r)} className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors" title="Edit">
+                          <button onClick={() => openEdit(r)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit">
                             <Pencil className="w-4 h-4" />
                           </button>
                           <button onClick={() => handleDelete(r.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
@@ -332,7 +332,7 @@ export default function DailyRecords() {
                 if (p === 1 || p === Math.ceil(filtered.length / ITEMS_PER_PAGE) || Math.abs(currentPage - p) <= 1) {
                   return (
                     <button key={p} onClick={() => setCurrentPage(p)}
-                      className={`px-4 py-2 text-sm font-bold border rounded-xl transition-colors ${p === currentPage ? "bg-orange-600 text-white border-orange-600 shadow-sm" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
+                      className={`px-4 py-2 text-sm font-bold border rounded-xl transition-colors ${p === currentPage ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
                       {p}
                     </button>
                   );
@@ -367,7 +367,7 @@ export default function DailyRecords() {
                   <div>
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">Employee <span className="text-red-500">*</span></label>
                     <select value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors">
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors">
                       <option value="">Select an employee...</option>
                       {employees.map((emp) => (
                         <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name} ({emp.email})</option>
@@ -380,13 +380,13 @@ export default function DailyRecords() {
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Date <span className="text-red-500">*</span></label>
                       <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors" />
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors" />
                       {formErrors.date && <p className="text-red-500 text-xs font-bold mt-1.5">{formErrors.date}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Status</label>
                       <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium capitalize focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors">
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors">
                         {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
                       </select>
                     </div>
@@ -396,12 +396,12 @@ export default function DailyRecords() {
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Check In</label>
                       <input type="datetime-local" value={form.check_in} onChange={(e) => setForm({ ...form, check_in: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors" />
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors" />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Check Out</label>
                       <input type="datetime-local" value={form.check_out} onChange={(e) => setForm({ ...form, check_out: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors" />
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors" />
                     </div>
                   </div>
                   
@@ -409,7 +409,7 @@ export default function DailyRecords() {
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">Notes / Remarks</label>
                     <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
                       placeholder="Optional remarks about this record..."
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors resize-none" />
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors resize-none" />
                   </div>
                 </form>
               </div>
@@ -420,7 +420,7 @@ export default function DailyRecords() {
                   Cancel
                 </button>
                 <button type="submit" form="record-form" disabled={submitting} 
-                  className="flex justify-center items-center gap-2 min-w-[120px] px-5 py-2.5 text-sm font-bold bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white rounded-xl transition-colors shadow-sm">
+                  className="flex justify-center items-center gap-2 min-w-[120px] px-5 py-2.5 text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl transition-colors shadow-sm">
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                   {submitting ? "Saving..." : editRecord ? "Update Record" : "Create Record"}
                 </button>

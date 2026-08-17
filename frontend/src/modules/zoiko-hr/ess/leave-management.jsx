@@ -43,8 +43,8 @@ const LEAVE_TYPES = [
   { value: "sick", label: "Sick Leave", color: "bg-pink-500 text-white" },
   { value: "casual", label: "Casual Leave", color: "bg-orange-500 text-white" },
   { value: "unpaid", label: "Unpaid Leave", color: "bg-gray-500 text-white" },
-  { value: "maternity", label: "Maternity Leave", color: "bg-purple-500 text-white" },
-  { value: "paternity", label: "Paternity Leave", color: "bg-indigo-500 text-white" },
+  { value: "maternity", label: "Maternity Leave", color: "bg-blue-500 text-white" },
+  { value: "paternity", label: "Paternity Leave", color: "bg-blue-500 text-white" },
 ];
 
 const STATUS_META = {
@@ -153,7 +153,7 @@ export default function EssLeaveManagement() {
       <div className="space-y-6">
         
         {/* Header Hero Section */}
-        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 rounded-2xl p-6 shadow-lg text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-2xl p-6 shadow-lg text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-extrabold leading-tight">My Leave Management</h1>
             <p className="text-blue-100 text-sm mt-1">Submit new leave requests and track your request history.</p>
@@ -269,7 +269,7 @@ export default function EssLeaveManagement() {
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden">
-              <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-4 flex justify-between items-center text-white">
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-4 flex justify-between items-center text-white">
                 <h2 className="text-lg font-bold">Apply for Leave</h2>
                 <button onClick={() => { setShowModal(false); setFormError(null); }} className="text-blue-100 hover:text-white transition-colors text-2xl leading-none">&times;</button>
               </div>

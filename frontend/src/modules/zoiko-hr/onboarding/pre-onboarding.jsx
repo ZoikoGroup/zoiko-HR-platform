@@ -7,8 +7,8 @@ const PRE_STATUSES = ["offer_sent", "offer_accepted", "pre_joining"];
 
 const STATUS_BADGES = {
   offer_sent: "bg-blue-100 text-blue-800",
-  offer_accepted: "bg-indigo-100 text-indigo-800",
-  pre_joining: "bg-purple-100 text-purple-800",
+  offer_accepted: "bg-emerald-100 text-emerald-800",
+  pre_joining: "bg-blue-100 text-blue-800",
 };
 
 const STATUS_LABELS = {
@@ -263,11 +263,11 @@ export default function PreOnboarding() {
           </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2">
             <p className="text-xs text-gray-400">Offer Accepted</p>
-            <p className="text-lg font-bold text-indigo-600">{stats.offer_accepted}</p>
+            <p className="text-lg font-bold text-emerald-600">{stats.offer_accepted}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2">
             <p className="text-xs text-gray-400">Pre-Joining</p>
-            <p className="text-lg font-bold text-purple-600">{stats.pre_joining}</p>
+            <p className="text-lg font-bold text-blue-600">{stats.pre_joining}</p>
           </div>
         </div>
 
@@ -340,7 +340,7 @@ export default function PreOnboarding() {
                             <>
                               <button
                                 onClick={() => handleAcceptOffer(r)}
-                                className="text-indigo-600 hover:text-indigo-800 text-xs font-medium px-1"
+                                className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1"
                               >
                                 Accept Offer
                               </button>
@@ -356,7 +356,7 @@ export default function PreOnboarding() {
                             <>
                               <button
                                 onClick={() => handleMoveToPreJoining(r)}
-                                className="text-purple-600 hover:text-purple-800 text-xs font-medium px-1"
+                                className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1"
                               >
                                 Start Pre-Joining
                               </button>

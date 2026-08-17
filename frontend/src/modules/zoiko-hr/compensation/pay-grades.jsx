@@ -195,9 +195,9 @@ export default function PayGradesPage() {
               <span className="text-gray-400">Total: </span>
               <span className="font-bold text-gray-800">{stats.total}</span>
             </div>
-            <div className="bg-white px-4 py-2 border border-purple-100 rounded-lg shadow-sm text-sm">
+            <div className="bg-white px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm">
               <span className="text-gray-400">Avg Range: </span>
-              <span className="font-bold text-purple-600">${stats.avgRange.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+              <span className="font-bold text-blue-600">${stats.avgRange.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
             </div>
           </div>
           <button

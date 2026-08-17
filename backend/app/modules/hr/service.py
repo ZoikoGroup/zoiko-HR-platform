@@ -116,10 +116,40 @@ from app.modules.employee.service import (
 
 
 # Predefined role-based permissions
+# Must stay in sync with app.core.dependencies.ROLE_PERMISSIONS.
 ROLE_PERMISSIONS = {
-    "super_admin": ["all", "manage_platforms", "manage_organizations", "view_reports", "manage_users"],
-    "admin": ["manage_organization", "manage_users", "view_payroll", "manage_hr", "manage_departments", "manage_employees", "manage_attendance", "manage_leave", "manage_assets", "manage_learning", "manage_performance", "manage_recruitment", "manage_ess", "manage_travel", "manage_compliance"],
-    "hr_admin": ["manage_hr", "manage_departments", "manage_employees", "manage_attendance", "manage_leave", "manage_assets", "manage_learning", "manage_performance", "manage_recruitment", "manage_ess", "manage_travel", "manage_compliance"],
+    "super_admin": [
+        "all",
+        "manage_platforms", "manage_organizations", "view_reports", "manage_users",
+        "manage_billing", "view_billing", "manage_payment_methods",
+        "manage_plan", "view_plan_usage",
+        "request_refund", "manage_discounts", "manage_addons",
+        "cancel_subscription",
+        "view_invoices",
+        "manage_workforce", "view_delinquency",
+        "manage_modules",
+        "manage_access",
+    ],
+    "admin": [
+        "manage_organization", "manage_users", "view_payroll",
+        "manage_hr", "manage_departments", "manage_employees",
+        "manage_attendance", "manage_leave", "manage_assets",
+        "manage_learning", "manage_performance", "manage_recruitment",
+        "manage_ess", "manage_travel", "manage_compliance",
+    ],
+    "billing_admin": [
+        "manage_billing", "view_billing", "manage_payment_methods",
+        "manage_plan", "view_plan_usage",
+        "request_refund", "manage_discounts", "manage_addons",
+        "cancel_subscription",
+        "view_invoices",
+    ],
+    "hr_admin": [
+        "manage_hr", "manage_departments", "manage_employees",
+        "manage_attendance", "manage_leave", "manage_assets",
+        "manage_learning", "manage_performance", "manage_recruitment",
+        "manage_ess", "manage_travel", "manage_compliance",
+    ],
     "manager": ["view_subordinates", "approve_attendance", "approve_leave", "manage_performance"],
     "employee": ["view_profile", "request_leave", "clock_in_out", "view_assets", "ess"],
 }
@@ -1004,15 +1034,22 @@ def get_org_admin_dashboard_stats(db: Session, organization_id: int) -> dict:
         Employee.role == UserRole.EMPLOYEE
     ).count()
 
+    trend_start = today - timedelta(days=13)
+    trend_counts = dict(
+        db.query(AttendanceRecord.date, func.count(AttendanceRecord.id))
+        .filter(
+            AttendanceRecord.organization_id == organization_id,
+            AttendanceRecord.date >= trend_start,
+            AttendanceRecord.date <= today,
+            AttendanceRecord.status.in_([AttendanceStatus.PRESENT, AttendanceStatus.REMOTE, AttendanceStatus.HALF_DAY])
+        )
+        .group_by(AttendanceRecord.date)
+        .all()
+    )
     attendance_trend = []
     for i in range(13, -1, -1):
         d = today - timedelta(days=i)
-        count = db.query(func.count(AttendanceRecord.id)).filter(
-            AttendanceRecord.organization_id == organization_id,
-            AttendanceRecord.date == d,
-            AttendanceRecord.status.in_([AttendanceStatus.PRESENT, AttendanceStatus.REMOTE, AttendanceStatus.HALF_DAY])
-        ).scalar() or 0
-        attendance_trend.append({"day": d.strftime("%b %d"), "present": count})
+        attendance_trend.append({"day": d.strftime("%b %d"), "present": trend_counts.get(d, 0)})
 
     dept_payroll = db.query(
         Department.name,
@@ -4717,24 +4754,25 @@ def delete_designation(db: Session, designation_id: int, organization_id: int) -
 # HR DOCUMENT SERVICE
 # ════════════════════════════════════════════════════════════════════════════════
 
-def _hr_doc_file_url(file_path: Optional[str]) -> Optional[str]:
-    if not file_path:
+def _hr_doc_file_url(document_id: Optional[int], file_path: Optional[str]) -> Optional[str]:
+    """
+    URL for fetching a document's file. Points at the authenticated
+    /hr/documents/{id}/file route (relative — no host/port baked in) rather
+    than a static-file-mount path: no such mount is registered on this
+    backend, so a URL built that way 404s. This route requires a Bearer
+    token, so it must be fetched with JS (fetch + Authorization header),
+    not used directly as an <a href>/<img src>.
+    """
+    if not file_path or not document_id:
         return None
-    _base_url = os.environ.get("API_BASE_URL", "http://localhost:8000")
-    norm = file_path.replace(os.sep, "/")
-    # Map disk path to the static-mount URL.  Files are stored under
-    # {UPLOAD_BASE_DIR}/hr_documents/ or /{UPLOAD_BASE_DIR}/onboarding_documents/
-    # and served via /uploads/hr_documents or /uploads/onboarding_documents.
-    for prefix in ("hr_documents", "onboarding_documents"):
-        marker = f"/{prefix}/"
-        idx = norm.find(marker)
-        if idx != -1:
-            return f"{_base_url}/uploads/{norm[idx + 1:]}"
-    # Fallback – try to strip everything before the last "uploads/" segment
-    uploads_idx = norm.find("/uploads/")
-    if uploads_idx != -1:
-        return f"{_base_url}{norm[uploads_idx:]}"
-    return f"{_base_url}/{norm}"
+    return f"/hr/documents/{document_id}/file"
+
+
+def _hr_doc_version_file_url(document_id: Optional[int], version_id: Optional[int], file_path: Optional[str]) -> Optional[str]:
+    """Same as _hr_doc_file_url, for a specific historical version's file."""
+    if not file_path or not document_id or not version_id:
+        return None
+    return f"/hr/documents/{document_id}/versions/{version_id}/file"
 
 
 def get_hr_documents(
@@ -4839,7 +4877,7 @@ def get_hr_documents(
         else:
             d["uploader_name"] = None
 
-        d["file_url"] = _hr_doc_file_url(doc.file_path)
+        d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
 
         result.append(d)
 
@@ -4900,7 +4938,7 @@ def upload_hr_document(
     db.refresh(doc)
     d = doc.__dict__.copy()
     d.pop("_sa_instance_state", None)
-    d["file_url"] = _hr_doc_file_url(doc.file_path)
+    d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
     return d
 
 
@@ -4924,7 +4962,7 @@ def update_hr_document(db: Session, document_id: int, data, organization_id: int
     db.refresh(doc)
     d = doc.__dict__.copy()
     d.pop("_sa_instance_state", None)
-    d["file_url"] = _hr_doc_file_url(doc.file_path)
+    d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
     return d
 
 
@@ -4959,7 +4997,7 @@ def update_hr_document_status(db: Session, document_id: int, data, organization_
     db.refresh(doc)
     d = doc.__dict__.copy()
     d.pop("_sa_instance_state", None)
-    d["file_url"] = _hr_doc_file_url(doc.file_path)
+    d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
     return d
 
 
@@ -5025,7 +5063,7 @@ def get_hr_document_by_id(db: Session, document_id: int, organization_id: Option
         d["uploader_name"] = f"{uploader.first_name} {uploader.last_name}" if uploader else None
     else:
         d["uploader_name"] = None
-    d["file_url"] = _hr_doc_file_url(doc.file_path)
+    d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
     return d
 
 
@@ -5104,7 +5142,7 @@ def get_document_versions(db: Session, document_id: int, organization_id: int) -
     for v in versions:
         entry = v.__dict__.copy()
         entry.pop("_sa_instance_state", None)
-        entry["file_url"] = _hr_doc_file_url(v.file_path)
+        entry["file_url"] = _hr_doc_version_file_url(v.document_id, v.id, v.file_path)
         if v.uploaded_by:
             uploader = db.query(Employee).filter(Employee.id == v.uploaded_by).first()
             entry["uploader_name"] = f"{uploader.first_name} {uploader.last_name}" if uploader else None
@@ -5112,6 +5150,31 @@ def get_document_versions(db: Session, document_id: int, organization_id: int) -
             entry["uploader_name"] = None
         result.append(entry)
     return result
+
+
+def get_document_version_file(db: Session, document_id: int, version_id: int, organization_id: int) -> dict:
+    from app.modules.hr.models import HrDocument, HrDocumentVersion
+
+    doc = db.query(HrDocument).filter(
+        HrDocument.id == document_id,
+        HrDocument.organization_id == organization_id,
+        HrDocument.is_deleted == False,
+    ).first()
+    if not doc:
+        raise NotFoundException("HrDocument", document_id)
+
+    version = db.query(HrDocumentVersion).filter(
+        HrDocumentVersion.id == version_id,
+        HrDocumentVersion.document_id == document_id,
+    ).first()
+    if not version:
+        raise NotFoundException("HrDocumentVersion", version_id)
+
+    return {
+        "file_path": version.file_path,
+        "file_name": version.file_name,
+        "mime_type": version.mime_type,
+    }
 
 
 def create_document_version(
@@ -5156,7 +5219,7 @@ def create_document_version(
 
     result = version.__dict__.copy()
     result.pop("_sa_instance_state", None)
-    result["file_url"] = _hr_doc_file_url(version.file_path)
+    result["file_url"] = _hr_doc_version_file_url(version.document_id, version.id, version.file_path)
     return result
 
 
@@ -5506,7 +5569,7 @@ def upload_hr_document_with_approval(
 
     d = doc.__dict__.copy()
     d.pop("_sa_instance_state", None)
-    d["file_url"] = _hr_doc_file_url(doc.file_path)
+    d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
     return d
 
 
@@ -5625,7 +5688,7 @@ def get_my_assigned_documents(db: Session, employee_id: int, organization_id: in
         d["document_id"] = doc.id
         d["document_title"] = doc.title
         d["document_category"] = doc.category.value if doc.category else None
-        d["file_url"] = _hr_doc_file_url(doc.file_path)
+        d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
         d["file_name"] = doc.file_name
         d["status"] = str(assn.status.value) if hasattr(assn.status, "value") else str(assn.status)
         d["acknowledged_at"] = assn.acknowledged_at.isoformat() if assn.acknowledged_at else None

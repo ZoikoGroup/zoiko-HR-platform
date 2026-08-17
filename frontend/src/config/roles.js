@@ -36,24 +36,25 @@ export const ROLE_CREATION_RULES = {
 //   projects=/projects, comply=/comply, insights=/insights, spend=/spend, inventory=/inventory
 export const ROLE_ALLOWED_PREFIXES = {
   [ROLES.SUPER_ADMIN]: [
+    // ── Billing & Subscription (ZHR-COM-BILL-001 Section 19 — Organization Owner) ──
+    "/super-admin/billing",
+    "/super-admin/billing/plans",
+    "/super-admin/billing/discounts",
+    // ── Platform administration ──
     "/super-admin/dashboard",
     "/super-admin/organizations",
-    "/super-admin/products",
-    "/super-admin/subscriptions",
-    "/super-admin/users",
-    "/super-admin/analytics",
+    "/super-admin/access",
     "/super-admin/audit-logs",
-    "/super-admin/system-health",
     "/super-admin/settings",
     "/super-admin/notifications",
-    "/super-admin/security-events",
-    "/super-admin/support-tickets",
-    "/super-admin/approvals",
+    // ── Shared & platform ──
     "/dashboard",
     "/organizations",
     "/subscriptions",
     "/shared/",
-    // ── All product paths ──
+    "/admin-profile",
+    "/settings/",
+    // ── Read-only product paths (view-only; no HR/IT/Security admin writes) ──
     "/zoiko-hr",
     "/zoikotime",
     "/payroll",
@@ -63,15 +64,6 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/insights",
     "/spend",
     "/inventory",
-    // ── Governance & settings ──
-    "/roles",
-    "/security-center",
-    "/trust-center",
-    "/audit-center",
-    "/compliance-center",
-    "/operations",
-    "/admin-profile",
-    "/settings/",
   ],
 
   // Organization Admin – sees ALL product navigation the org has subscribed to

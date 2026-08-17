@@ -1,9 +1,9 @@
 import { ArrowRight, Quote } from "lucide-react";
 
 const stats = [
-  { value: "-61%", label: "Less time spent on reconciliation", color: "#F97316" },
+  { value: "-61%", label: "Less time spent on reconciliation", color: "#10B981" },
   { value: "+18%", label: "Improvement in billable utilization", color: "#3B82F6" },
-  { value: "4→1", label: "Tools consolidated onto one platform", color: "#F97316" },
+  { value: "4→1", label: "Tools consolidated onto one platform", color: "#0A1128" },
 ];
 
 export default function ComparisonTable() {
@@ -18,9 +18,9 @@ export default function ComparisonTable() {
         </h2>
 
         <div className="grid md:grid-cols-2 gap-6 mb-10 text-left">
-          <div className="rounded-2xl p-7 bg-gradient-to-br from-[#312E81] to-[#4338CA] text-white flex flex-col justify-between">
+          <div className="rounded-2xl p-7 bg-gradient-to-br from-[#0A1128] to-[#111A33] text-white flex flex-col justify-between">
             <div>
-              <Quote size={24} className="text-[#FB923C] mb-3" />
+              <Quote size={24} className="text-[#10B981] mb-3" />
               <p className="text-base leading-relaxed mb-6">
                 We replaced four disconnected tools with one connected platform. Payroll,
                 billing, and project margin finally agree — and our month-end close is days
@@ -28,7 +28,7 @@ export default function ComparisonTable() {
               </p>
             </div>
             <div className="flex items-center gap-3">
-              <span className="w-9 h-9 rounded-full bg-[#F97316] flex items-center justify-center text-xs font-bold">
+              <span className="w-9 h-9 rounded-full bg-[#3B82F6] flex items-center justify-center text-xs font-bold">
                 RM
               </span>
               <div>
@@ -53,7 +53,7 @@ export default function ComparisonTable() {
           </div>
         </div>
 
-        <button className="inline-flex items-center gap-2 bg-white text-[#1E1B4B] font-semibold px-6 py-3 rounded-full text-sm border border-gray-200 shadow-sm transition-all duration-200 hover:border-[#3B82F6] hover:text-[#3B82F6]">
+        <button className="inline-flex items-center gap-2 bg-white text-[#0A1128] font-semibold px-6 py-3 rounded-full text-sm border border-gray-200 shadow-sm transition-all duration-200 hover:border-[#3B82F6] hover:text-[#3B82F6]">
           Read Customer Stories
         </button>
       </div>

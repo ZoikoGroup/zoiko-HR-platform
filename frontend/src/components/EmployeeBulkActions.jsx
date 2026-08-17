@@ -207,7 +207,7 @@ export default function EmployeeBulkActions({ employees = [], onImport }) {
                 Upload an Excel or CSV file matching the{" "}
                 <button
                   onClick={handleDownloadTemplate}
-                  className="font-medium text-indigo-600 hover:underline"
+                  className="font-medium text-[#3B82F6] hover:underline"
                 >
                   import template
                 </button>
@@ -228,14 +228,14 @@ export default function EmployeeBulkActions({ employees = [], onImport }) {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 py-6 text-sm text-gray-500 hover:border-indigo-300 hover:text-indigo-600 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 py-6 text-sm text-gray-500 hover:border-blue-300 hover:text-[#3B82F6] disabled:opacity-50"
               >
                 <Upload className="h-4 w-4" />
                 {selectedFile ? selectedFile.name : "Choose an Excel or CSV file"}
               </button>
 
               {selectedFile && !importResult && !importing && (
-                <div className="mt-4 rounded-lg border border-indigo-100 bg-indigo-50 p-3 text-sm text-indigo-700">
+                <div className="mt-4 rounded-lg border border-blue-100 bg-blue-50 p-3 text-sm text-blue-700">
                   <span className="font-medium">{selectedFile.name}</span> selected
                 </div>
               )}
@@ -292,7 +292,7 @@ export default function EmployeeBulkActions({ employees = [], onImport }) {
                 <button
                   onClick={handleConfirmImport}
                   disabled={!selectedFile || importing}
-                  className="rounded-lg bg-indigo-600 px-4 py-2 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2563EB] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {importing ? "Importing..." : "Import"}
                 </button>

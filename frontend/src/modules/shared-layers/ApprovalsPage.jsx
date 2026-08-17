@@ -61,7 +61,7 @@ export default function ApprovalsPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Award className="h-5 w-5 text-[#FF7A00]" /> Recent Decisions
+              <Award className="h-5 w-5 text-[#3B82F6]" /> Recent Decisions
             </h3>
             <div className="space-y-4">
               {processedApprovals.map((p, idx) => (

@@ -31,12 +31,12 @@ const styles = `
   .hero-badge {
     display: inline-flex; align-items: center; gap: 8px;
     background: #fff; border: 1px solid #ddd; border-radius: 999px;
-    padding: 6px 18px 6px 6px; font-size: 14px; font-weight: 500; color: #1a1a3e;
+    padding: 6px 18px 6px 6px; font-size: 14px; font-weight: 500; color: #3B82F6;
     margin-bottom: 30px; box-shadow: 0 1px 6px rgba(0,0,0,.06);
     position: relative; z-index: 1;
   }
   .badge-pill-navy {
-    background: #2d1d8e; color: #fff; font-size: 12px; font-weight: 700;
+    background: #0A1128; color: #fff; font-size: 12px; font-weight: 700;
     padding: 3px 13px; border-radius: 999px;
   }
 
@@ -59,19 +59,19 @@ const styles = `
 
   /* ── BUTTONS ── */
   .btn-primary {
-    background: #f97316; color: #fff; border: none; border-radius: 999px;
+    background: #3B82F6; color: #fff; border: none; border-radius: 999px;
     padding: 15px 30px; font-size: 15px; font-weight: 600; cursor: pointer;
     display: inline-flex; align-items: center; gap: 8px;
     font-family: 'Inter', sans-serif; transition: background .2s;
   }
-  .btn-primary:hover { background: #ea6a0a; }
+  .btn-primary:hover { background: #2563EB; }
 
   .btn-outline {
-    background: #fff; color: #1a1a3e; border: 1.5px solid #d0d0e0;
+    background: #fff; color: #3B82F6; border: 1.5px solid #d0d0e0;
     border-radius: 999px; padding: 15px 30px; font-size: 15px; font-weight: 600;
     cursor: pointer; font-family: 'Inter', sans-serif; transition: border-color .2s;
   }
-  .btn-outline:hover { border-color: #1a1a3e; }
+  .btn-outline:hover { border-color: #2563EB; }
 
   .btn-ghost {
     background: rgba(255,255,255,.15); color: #fff;
@@ -86,15 +86,15 @@ const styles = `
 
   .eyebrow-orange {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #f97316; margin-bottom: 18px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 18px;
   }
   .eyebrow-purple {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #5b5bd6; margin-bottom: 16px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 16px;
   }
 
   .section-title {
-    font-size: 34px; font-weight: 800; color: #1a1a3e;
+    font-size: 34px; font-weight: 800; color: #3B82F6;
     letter-spacing: -.6px; margin-bottom: 36px; line-height: 1.2;
   }
   .section-title-white {
@@ -110,9 +110,9 @@ const styles = `
   .w-step { display: flex; align-items: center; }
   .step-pill {
     background: #fff; border: 1px solid #e0e0ee; border-radius: 999px;
-    padding: 8px 16px; font-size: 13.5px; font-weight: 600; color: #1a1a3e; white-space: nowrap;
+    padding: 8px 16px; font-size: 13.5px; font-weight: 600; color: #3B82F6; white-space: nowrap;
   }
-  .step-arrow { color: #f97316; font-size: 16px; margin: 0 8px; line-height: 1; }
+  .step-arrow { color: #3B82F6; font-size: 16px; margin: 0 8px; line-height: 1; }
 
   /* ── CONTROL PRODUCTS ── */
   .products-section { padding: 80px 52px; background: #f7f7fd; text-align: center; }
@@ -128,14 +128,14 @@ const styles = `
     width: 52px; height: 52px; border-radius: 15px;
     display: flex; align-items: center; justify-content: center; margin-bottom: 18px;
   }
-  .bg-dark-navy { background: #1f1d5e; }
-  .bg-orange { background: #f97316; }
-  .bg-purple { background: #5b5bd6; }
+  .bg-dark-navy { background: #0A1128; }
+  .bg-orange { background: #F59E0B; }
+  .bg-purple { background: #10B981; }
 
-  .prod-name { font-size: 16px; font-weight: 700; color: #1a1a3e; margin-bottom: 8px; }
+  .prod-name { font-size: 16px; font-weight: 700; color: #3B82F6; margin-bottom: 8px; }
   .prod-desc { font-size: 14px; color: #777799; line-height: 1.55; margin-bottom: 16px; }
   .prod-link {
-    font-size: 14px; font-weight: 600; color: #5b5bd6;
+    font-size: 14px; font-weight: 600; color: #3B82F6;
     text-decoration: none; display: inline-flex; align-items: center; gap: 5px;
   }
   .prod-link:hover { text-decoration: underline; }
@@ -143,7 +143,7 @@ const styles = `
   /* ── SHARED LAYERS ── */
   .shared-layers {
     padding: 64px 52px 120px;
-    background: linear-gradient(123.9deg, #1D0A5E 0%, #240C84 60%, #150844 100%);
+    background: linear-gradient(123.9deg, #0A1128 0%, #111A33 100%);
     text-align: center;
   }
   .layers-pills { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
@@ -162,10 +162,10 @@ const styles = `
   .problem-left { text-align: left; }
   .problem-eyebrow {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #5b5bd6; margin-bottom: 16px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 16px;
   }
   .problem-title {
-    font-size: 28px; font-weight: 800; color: #1a1a3e;
+    font-size: 28px; font-weight: 800; color: #3B82F6;
     letter-spacing: -.5px; line-height: 1.25; margin-bottom: 18px;
   }
   .problem-desc { font-size: 14.5px; color: #555577; line-height: 1.65; }
@@ -181,16 +181,16 @@ const styles = `
     width: 44px; height: 44px; border-radius: 13px;
     display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
   }
-  .bg-amber { background: linear-gradient(135deg,#f97316,#fb923c); }
-  .bg-grad-blue { background: linear-gradient(135deg,#f97316,#38bdf8); }
+  .bg-amber { background: linear-gradient(135deg,#F59E0B,#FBBF24); }
+  .bg-grad-blue { background: linear-gradient(135deg,#3B82F6,#2563EB); }
 
-  .prob-title { font-size: 14.5px; font-weight: 700; color: #1a1a3e; margin-bottom: 6px; }
+  .prob-title { font-size: 14.5px; font-weight: 700; color: #3B82F6; margin-bottom: 6px; }
   .prob-desc  { font-size: 13px; color: #777799; line-height: 1.5; }
 
   /* ── CTA BANNER ── */
   .cta-section { padding: 40px 52px 80px; background: #fff; }
   .cta-inner {
-    background: linear-gradient(120deg, #4f1fb0 0%, #5b5bd6 45%, #3b82f6 100%);
+    background: linear-gradient(120deg, #0A1128 0%, #111A33 100%);
     border-radius: 28px; padding: 60px 52px; text-align: center;
     max-width: 1100px; margin: 0 auto;
   }
@@ -226,14 +226,14 @@ const IconBar = () => (
 const IconDoc = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
     <rect x="5" y="3" width="11" height="14" rx="2" fill="white" fillOpacity=".9"/>
-    <rect x="9" y="7"  width="3" height="3" rx=".5" fill="#1f1d5e"/>
+    <rect x="9" y="7"  width="3" height="3" rx=".5" fill="#0A1128"/>
   </svg>
 );
 const IconWarning = () => (
   <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
     <path d="M12 4l9 16H3L12 4z" fill="white" fillOpacity=".95"/>
-    <rect x="11" y="10" width="2" height="5" rx="1" fill="#f97316"/>
-    <circle cx="12" cy="17" r="1.2" fill="#f97316"/>
+    <rect x="11" y="10" width="2" height="5" rx="1" fill="#F59E0B"/>
+    <circle cx="12" cy="17" r="1.2" fill="#F59E0B"/>
   </svg>
 );
 const IconPerson = () => (

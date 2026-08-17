@@ -117,9 +117,9 @@ export default function TravelDashboard() {
               <div className="flex justify-between items-start">
                 <div>
                   <p className="text-xs font-bold uppercase tracking-wider text-gray-400">Disbursed Expenses</p>
-                  <p className="text-3xl font-black text-purple-600 mt-2">{formatCurrency(data.totalExpenses)}</p>
+                  <p className="text-3xl font-black text-blue-600 mt-2">{formatCurrency(data.totalExpenses)}</p>
                 </div>
-                <div className="p-3 bg-purple-50 text-purple-600 rounded-xl"><Landmark className="w-5 h-5" /></div>
+                <div className="p-3 bg-blue-50 text-blue-600 rounded-xl"><Landmark className="w-5 h-5" /></div>
               </div>
             </div>
           </div>
@@ -156,7 +156,7 @@ export default function TravelDashboard() {
             </div>
 
             <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-6">
-              <h3 className="text-md font-bold text-gray-900 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4 text-purple-500" /> Expense Aggregations</h3>
+              <h3 className="text-md font-bold text-gray-900 mb-4 flex items-center gap-2"><PieChart className="w-4 h-4 text-blue-500" /> Expense Aggregations</h3>
               <div className="space-y-4">
                 {Object.keys(data.expenseSummary.byCategory).length === 0 ? (
                   <p className="text-sm text-gray-400 text-center py-10">No structured classifications found.</p>

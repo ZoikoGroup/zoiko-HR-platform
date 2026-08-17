@@ -15,8 +15,8 @@ function CourseCard({ course, assessments, attempts, onStartQuiz }) {
       <div className="p-5">
         <div className="flex items-start justify-between mb-3">
           <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-lg ${status === "completed" ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-indigo-50 dark:bg-indigo-900/30"}`}>
-              <BookOpen className={`w-5 h-5 ${status === "completed" ? "text-emerald-600 dark:text-emerald-400" : "text-indigo-600 dark:text-indigo-400"}`} />
+            <div className={`p-2.5 rounded-lg ${status === "completed" ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-blue-50 dark:bg-blue-900/30"}`}>
+              <BookOpen className={`w-5 h-5 ${status === "completed" ? "text-emerald-600 dark:text-emerald-400" : "text-blue-600 dark:text-blue-400"}`} />
             </div>
             <div>
               <h3 className="text-sm font-bold text-gray-900 dark:text-[#f1f5f9]">{course.course_name || course.title || course.name}</h3>
@@ -48,7 +48,7 @@ function CourseCard({ course, assessments, attempts, onStartQuiz }) {
         {hasQuiz && status !== "completed" && (
           <button
             onClick={() => onStartQuiz(course, assessments)}
-            className="w-full flex items-center justify-center gap-1.5 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-semibold transition-colors"
+            className="w-full flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
           >
             <FileText size={13} /> Take Quiz <ChevronRight size={13} />
           </button>
@@ -86,7 +86,7 @@ function QuizModal({ course, assessments, onClose }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-            <FileText className="w-4 h-4 text-indigo-600" /> {course.title || "Quiz"}
+            <FileText className="w-4 h-4 text-blue-600" /> {course.title || "Quiz"}
           </h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-gray-400 hover:text-gray-600">
             <AlertCircle className="w-5 h-5" />
@@ -138,7 +138,7 @@ function QuizModal({ course, assessments, onClose }) {
                       return (
                         <label key={oi} className={`flex items-center gap-3 p-3 rounded-lg border cursor-pointer transition ${
                           answers[q.id] === optValue
-                            ? "border-indigo-300 bg-indigo-50"
+                            ? "border-blue-300 bg-blue-50"
                             : "border-slate-200 bg-white hover:border-slate-300"
                         }`}>
                           <input
@@ -147,7 +147,7 @@ function QuizModal({ course, assessments, onClose }) {
                             value={optValue}
                             checked={answers[q.id] === optValue}
                             onChange={() => handleAnswer(q.id, optValue)}
-                            className="w-4 h-4 text-indigo-600"
+                            className="w-4 h-4 text-blue-600"
                           />
                           <span className="text-sm text-gray-700">{typeof opt === "string" ? opt : opt.label || opt}</span>
                         </label>
@@ -168,7 +168,7 @@ function QuizModal({ course, assessments, onClose }) {
             <button
               onClick={handleSubmit}
               disabled={Object.keys(answers).length < filteredQuestions.length}
-              className="px-6 py-2 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-sm font-semibold transition-colors"
+              className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-semibold transition-colors"
             >
               Submit Quiz
             </button>
@@ -280,7 +280,7 @@ export default function EmployeeLearning() {
     return (
       <EmployeePageShell title="Learning" subtitle="Access your courses, take quizzes, and earn badges.">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-gray-500 dark:text-[#94a3b8] font-medium">Loading learning modules...</span>
         </div>
       </EmployeePageShell>
@@ -298,7 +298,7 @@ export default function EmployeeLearning() {
       <div className="space-y-6">
         {/* Stats */}
         <div className="grid grid-cols-3 gap-4">
-          <StatCard label="Courses" value={courses.length} accentColor="text-indigo-600 dark:text-indigo-400" />
+          <StatCard label="Courses" value={courses.length} accentColor="text-blue-600 dark:text-blue-400" />
           <StatCard label="Completed" value={completedCount} accentColor="text-emerald-600 dark:text-emerald-400" />
           <StatCard label="Badges Earned" value={Object.values(attemptsMap).flat().filter(a => a.status === "passed").length} accentColor="text-amber-600 dark:text-amber-400" />
         </div>
@@ -307,15 +307,15 @@ export default function EmployeeLearning() {
         {programs.length > 0 && (
           <div>
             <h3 className="text-sm font-bold text-gray-800 dark:text-[#f1f5f9] mb-3 flex items-center gap-2">
-              <BookOpen size={15} className="text-indigo-500" />
+              <BookOpen size={15} className="text-blue-500" />
               Training Programs
             </h3>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {programs.map(p => (
                 <div key={p.id} className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-200 dark:border-[#334155] shadow-sm hover:shadow-md transition-all p-5">
                   <div className="flex items-center gap-3 mb-2">
-                    <div className="p-2 rounded-lg bg-indigo-50 dark:bg-indigo-900/30">
-                      <BookOpen className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                    <div className="p-2 rounded-lg bg-blue-50 dark:bg-blue-900/30">
+                      <BookOpen className="w-4 h-4 text-blue-600 dark:text-blue-400" />
                     </div>
                     <div>
                       <p className="text-sm font-bold text-gray-900 dark:text-[#f1f5f9]">{p.name}</p>
@@ -333,7 +333,7 @@ export default function EmployeeLearning() {
                   </div>
                   {p.resource_link && (
                     <a href={p.resource_link} target="_blank" rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:text-indigo-800">
+                      className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800">
                       Open Resource &rarr;
                     </a>
                   )}
@@ -350,14 +350,14 @@ export default function EmployeeLearning() {
             placeholder="Search courses..."
             value={search}
             onChange={e => setSearch(e.target.value)}
-            className="w-full pl-4 pr-4 py-2 border border-gray-200 dark:border-[#334155] dark:bg-[#1e293b] dark:text-[#f1f5f9] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+            className="w-full pl-4 pr-4 py-2 border border-gray-200 dark:border-[#334155] dark:bg-[#1e293b] dark:text-[#f1f5f9] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
           />
         </div>
 
         {employeeDept && (
           <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-[#94a3b8]">
             <span className="text-xs font-semibold text-gray-400 dark:text-[#94a3b8] uppercase tracking-wide">Department:</span>
-            <span className="px-2.5 py-1 rounded-full bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300 text-xs font-semibold capitalize">{employeeDept}</span>
+            <span className="px-2.5 py-1 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-xs font-semibold capitalize">{employeeDept}</span>
           </div>
         )}
 

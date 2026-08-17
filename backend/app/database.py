@@ -10,7 +10,7 @@ import logging
 import os
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, exc, inspect
+from sqlalchemy import create_engine, exc
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
@@ -71,6 +71,7 @@ Base = declarative_base()
 import app.modules.employee.models  # noqa: F401,E402
 import app.modules.hr.models  # noqa: F401,E402
 import app.modules.super_admin.models  # noqa: F401,E402
+import app.modules.billing.models  # noqa: F401,E402
 
 
 def initialize_database() -> None:
@@ -86,18 +87,20 @@ def initialize_database() -> None:
         logger.error("Database initialization failed: %s", exc_info)
         raise
 
-
-# -- 4. Table names helper ------------------------------------------------------
-def get_table_names() -> list[str]:
+    # Backfill: map existing plan_code strings to plan_id FKs
     try:
-        inspector = inspect(engine)
-        return inspector.get_table_names()
-    except exc.SQLAlchemyError as exc_info:
-        logger.warning("Could not inspect database tables: %s", exc_info)
-        return []
+        from app.modules.billing.service import backfill_plan_ids
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        count = backfill_plan_ids(db)
+        if count:
+            logger.info("Billing backfill: updated %d subscriptions with plan_id.", count)
+        db.close()
+    except Exception as exc_info:
+        logger.warning("Billing backfill skipped: %s", exc_info)
 
 
-# -- 5. Session dependency -------------------------------------------------------
+# -- 4. Session dependency -------------------------------------------------------
 def get_db():
     db = SessionLocal()
     try:

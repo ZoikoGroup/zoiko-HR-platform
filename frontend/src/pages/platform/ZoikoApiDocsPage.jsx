@@ -66,37 +66,37 @@ const IconDoc = ({ size = 22 }) => (
 ───────────────────────────────────────── */
 const docCards = [
   {
-    Icon: IconBraces, bg: "#22b5d4",
+    Icon: IconBraces, bg: "#3B82F6",
     title: "API Reference",
     desc: "Endpoints, methods, request and response formats, parameters, pagination, errors and examples.",
     link: "Open API Reference →",
   },
   {
-    Icon: IconKey, bg: "#3b2fb0",
+    Icon: IconKey, bg: "#10B981",
     title: "Authentication",
     desc: "Tokens, scopes and how integrations stay within approved permission boundaries.",
     link: "Auth Guide →",
   },
   {
-    Icon: IconBolt, bg: "#f97316",
+    Icon: IconBolt, bg: "#0A1128",
     title: "Webhooks & Events",
     desc: "Secure, verified, rate-aware event delivery governed by workspace configuration.",
     link: "Webhooks →",
   },
   {
-    Icon: IconGrid, bg: "#4a3fc0",
+    Icon: IconGrid, bg: "#F59E0B",
     title: "Sandbox",
     desc: "Test against a safe environment before going live.",
     link: "Access Sandbox →",
   },
   {
-    Icon: IconCopy, bg: "#3b5bd5",
+    Icon: IconCopy, bg: "#3B82F6",
     title: "SDKs & Connectors",
     desc: "Libraries and approved connectors for common stacks.",
     link: "View SDKs →",
   },
   {
-    Icon: IconPie, bg: "#4a3fc0",
+    Icon: IconPie, bg: "#10B981",
     title: "API Status",
     desc: "Live API availability and incident communication.",
     link: "View Status →",
@@ -105,22 +105,22 @@ const docCards = [
 
 const principles = [
   {
-    Icon: IconKey, bg: "#3b2fb0",
+    Icon: IconKey, bg: "#3B82F6",
     title: "Permission-aware",
     desc: "Every call respects roles, scopes and workspace settings.",
   },
   {
-    Icon: IconLock, bg: "#22b5d4",
+    Icon: IconLock, bg: "#10B981",
     title: "Secure by default",
     desc: "Token-based auth with scoped access and safe handling.",
   },
   {
-    Icon: IconArrows, bg: "#6c5dd3",
+    Icon: IconArrows, bg: "#0A1128",
     title: "Workflow-respecting",
     desc: "API actions honor approvals and policy — no bypass.",
   },
   {
-    Icon: IconDoc, bg: "#3b2fb0",
+    Icon: IconDoc, bg: "#F59E0B",
     title: "Architecture-aligned",
     desc: "Organized around pillars, products and the shared spine.",
   },
@@ -204,13 +204,13 @@ const S = {
     padding: "80px 24px",
     overflow: "hidden",
     backgroundColor: "#f5f4f2",
-    background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+    background: "linear-gradient(120deg, rgba(16,185,129,0.22) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.30) 100%)",
   },
   heroInner: { position: "relative", zIndex: 1, maxWidth: 1200, textAlign: "left" },
   heroGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 56, alignItems: "center" },
   blobTR: {
     position: "absolute", inset: 0,
-    background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+    background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.20) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.24) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
     pointerEvents: "none",
   },
   heroLeft: { position: "relative", zIndex: 1, maxWidth: 480 },
@@ -223,7 +223,7 @@ const S = {
     fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
   },
   badgePill: {
-    background: "#1A3A8C", color: "#fff",
+    background: "#3B82F6", color: "#fff",
     borderRadius: 999, padding: "2px 10px",
     fontSize: 12, fontWeight: 700,
   },
@@ -243,7 +243,7 @@ const S = {
   },
   heroActions: { display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" },
   btnOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "14px 28px",
     fontSize: 15, fontWeight: 600, cursor: "pointer",
     display: "inline-flex", alignItems: "center", gap: 8,
@@ -274,13 +274,13 @@ const S = {
   docHubSection: { padding: "100px 24px", background: "#ffffff" },
   docHubInner: { maxWidth: 1100, margin: "0 auto" },
   labelBlue: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
     fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
   },
   labelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
     fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
@@ -311,7 +311,7 @@ const S = {
     fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
   },
   cardLink: {
-    fontSize: 13.5, fontWeight: 600, color: "#3b2fb0",
+    fontSize: 13.5, fontWeight: 600, color: "#3B82F6",
     background: "none", border: "none", cursor: "pointer",
     padding: 0, textAlign: "left",
     fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",
@@ -330,7 +330,7 @@ const S = {
   ctaSection: { padding: "60px 28px 80px", background: "#f5f5fb" },
   ctaCard: {
     maxWidth: 1060, margin: "0 auto",
-    background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     borderRadius: 22, padding: "72px 48px", textAlign: "center",
   },
   ctaH2: {
@@ -345,7 +345,7 @@ const S = {
   },
   ctaActions: { display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" },
   btnCtaOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 32px",
     fontSize: 15, fontWeight: 700, cursor: "pointer",
     fontFamily: "-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif",

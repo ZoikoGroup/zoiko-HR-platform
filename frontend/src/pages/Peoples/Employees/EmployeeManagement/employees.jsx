@@ -54,8 +54,8 @@ const EMPLOYMENT_TYPE_OPTIONS = [
 ];
 
 const DEPARTMENT_COLORS = [
-  "bg-blue-500", "bg-green-500", "bg-purple-500", "bg-orange-500",
-  "bg-red-500", "bg-teal-500", "bg-cyan-500", "bg-indigo-500",
+  "bg-blue-500", "bg-green-500", "bg-blue-500", "bg-orange-500",
+  "bg-red-500", "bg-teal-500", "bg-cyan-500", "bg-blue-500",
 ];
 
 const ITEMS_PER_PAGE = 10;
@@ -560,7 +560,7 @@ export default function Employees() {
                         </button>
                       </td>
                       <td className="px-3 py-3">
-                        <span className="text-xs font-mono font-bold text-indigo-600 bg-indigo-50 px-2 py-1 rounded-md">{e.employeeId || e.employee_id}</span>
+                        <span className="text-xs font-mono font-bold text-blue-600 bg-blue-50 px-2 py-1 rounded-md">{e.employeeId || e.employee_id}</span>
                       </td>
                       <td className="px-3 py-3">
                         <p className="text-sm font-medium text-gray-900">{(e.firstName || e.first_name)
@@ -923,12 +923,12 @@ export default function Employees() {
                 <p className="text-xl font-bold text-blue-600">{importResult.updated}</p>
                 <p className="text-xs text-gray-500">Updated</p>
               </div>
-              <div className="bg-purple-50 rounded-lg p-2 text-center">
-                <p className="text-xl font-bold text-purple-600">{importResult.departments_created || 0}</p>
+              <div className="bg-blue-50 rounded-lg p-2 text-center">
+                <p className="text-xl font-bold text-blue-600">{importResult.departments_created || 0}</p>
                 <p className="text-xs text-gray-500">Departments Created</p>
               </div>
-              <div className="bg-indigo-50 rounded-lg p-2 text-center">
-                <p className="text-xl font-bold text-indigo-600">{importResult.designations_created || 0}</p>
+              <div className="bg-blue-50 rounded-lg p-2 text-center">
+                <p className="text-xl font-bold text-blue-600">{importResult.designations_created || 0}</p>
                 <p className="text-xs text-gray-500">Designations Created</p>
               </div>
               <div className="bg-yellow-50 rounded-lg p-2 text-center">

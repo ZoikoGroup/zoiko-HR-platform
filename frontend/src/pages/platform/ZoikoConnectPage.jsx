@@ -3,10 +3,10 @@ import { useNavigate } from "react-router-dom";
 import LandingHeader from "../../landing/LandingHeader";
 import Footer from "../../landing/Footer";
 
-const NAVY = "#0B1C3F";
-const BLUE = "#1A3A8C";
-const LIGHT_BLUE = "#4A9FE4";
-const ORANGE = "#E8850A";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const LIGHT_BLUE = "#10B981";
+const ORANGE = "#3B82F6";
 const WHITE = "#FFFFFF";
 const OFF_WHITE = "#f8fafc";
 const GRAY = "#6B7280";
@@ -39,9 +39,9 @@ const bodyText = {
 
 const pillTag = {
   display: "inline-block", padding: "3px 10px", borderRadius: "20px",
-  background: "rgba(232,133,10,0.08)", color: ORANGE,
+  background: "rgba(59,130,246,0.08)", color: ORANGE,
   fontSize: "11px", fontWeight: "600",
-  border: "1px solid rgba(232,133,10,0.18)",
+  border: "1px solid rgba(59,130,246,0.18)",
 };
 
 const whiteCard = {
@@ -117,16 +117,16 @@ const IconCopySmall = () => (
    DATA
 ───────────────────────────────────────── */
 const integrationTypes = [
-  { Icon: IconBraces,   bg: "#3b9ef5",  title: "APIs",               desc: "Build on documented, permission-aware endpoints." },
-  { Icon: IconArrowDown,bg: "#3b2fb0",  title: "Imports & exports",  desc: "Move data in and out under controlled access." },
-  { Icon: IconCopy,     bg: "#4a3fc0",  title: "Connectors",         desc: "Approved connections to common systems." },
-  { Icon: IconBolt,     bg: "#f97316",  title: "Workflow triggers",   desc: "Let external events drive governed workflows." },
+  { Icon: IconBraces,   bg: "#3B82F6",  title: "APIs",               desc: "Build on documented, permission-aware endpoints." },
+  { Icon: IconArrowDown,bg: "#10B981",  title: "Imports & exports",  desc: "Move data in and out under controlled access." },
+  { Icon: IconCopy,     bg: "#0A1128",  title: "Connectors",         desc: "Approved connections to common systems." },
+  { Icon: IconBolt,     bg: "#F59E0B",  title: "Workflow triggers",   desc: "Let external events drive governed workflows." },
 ];
 
 const useCases = [
-  { Icon: IconUsers,      bg: "#5c4dd6", title: "Identity & directory",    desc: "Sync users and access with your identity provider via SSO." },
-  { Icon: IconDollar,     bg: "#f97316", title: "Payments & finance",      desc: "Connect money movement and financial truth through ZoikoPay and ZoikoCoreX." },
-  { Icon: IconCopySmall,  bg: "#22b5d4", title: "Operational systems",     desc: "Link the tools your teams already rely on to reduce re-keying." },
+  { Icon: IconUsers,      bg: "#3B82F6", title: "Identity & directory",    desc: "Sync users and access with your identity provider via SSO." },
+  { Icon: IconDollar,     bg: "#10B981", title: "Payments & finance",      desc: "Connect money movement and financial truth through ZoikoPay and ZoikoCoreX." },
+  { Icon: IconCopySmall,  bg: "#0A1128", title: "Operational systems",     desc: "Link the tools your teams already rely on to reduce re-keying." },
 ];
 
 const connectTags = ["APIs", "Webhooks", "Imports", "Exports", "Connectors", "Workflow triggers", "Identity / SSO", "Data sync"];
@@ -148,11 +148,11 @@ function Hero() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.22) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.30) 100%)",
     }}>
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.20) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.24) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 1200, textAlign: "left" }}>
@@ -180,11 +180,11 @@ function Hero() {
 
             <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
               <button onClick={() => navigate("/get-demo")} style={{
-                background: "linear-gradient(135deg, #FF8800, #FF5500)",
+                background: "#3B82F6",
                 color: "#fff", border: "none", borderRadius: 999,
                 padding: "14px 32px", fontSize: 16, fontWeight: 700, cursor: "pointer",
                 display: "flex", alignItems: "center", gap: 8,
-                boxShadow: "0 4px 16px rgba(255,85,0,0.45)",
+                boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
               }}>
                 Explore API Documentation
               </button>
@@ -201,7 +201,7 @@ function Hero() {
 
           <div
             style={{
-              background: "linear-gradient(145deg,#2d1b8e 0%,#3a2fba 50%,#1e1565 100%)",
+              background: "linear-gradient(145deg,#0A1128 0%,#111A33 100%)",
               borderRadius: 24,
               padding: "40px 36px",
               width: "100%",
@@ -215,7 +215,7 @@ function Hero() {
           >
             <div
               style={{
-                background: "#f97316",
+                background: "#3B82F6",
                 color: "#fff",
                 fontSize: 15,
                 fontWeight: 700,
@@ -263,13 +263,13 @@ const sectionH2 = {
 };
 
 const labelBlue = {
-  fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+  fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
   textTransform: "uppercase", letterSpacing: "0.12em",
   textAlign: "center", marginBottom: 16,
 };
 
 const labelOrange = {
-  fontSize: 11.5, fontWeight: 700, color: "#f97316",
+  fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
   textTransform: "uppercase", letterSpacing: "0.12em",
   textAlign: "center", marginBottom: 16,
 };
@@ -336,7 +336,7 @@ export default function ZoikoConnectPage() {
       <section style={{ padding: "60px 28px 80px", background: OFF_WHITE, fontFamily: FF }}>
         <div style={{
           maxWidth: 1060, margin: "0 auto",
-          background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+          background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
           borderRadius: 22, padding: "72px 48px", textAlign: "center",
         }}>
           <h2 style={{
@@ -353,7 +353,7 @@ export default function ZoikoConnectPage() {
           </p>
           <div style={{ display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" }}>
             <button style={{
-              background: "#f97316", color: "#fff", border: "none",
+              background: "#3B82F6", color: "#fff", border: "none",
               borderRadius: 50, padding: "15px 32px",
               fontSize: 15, fontWeight: 700, cursor: "pointer",
             }}>

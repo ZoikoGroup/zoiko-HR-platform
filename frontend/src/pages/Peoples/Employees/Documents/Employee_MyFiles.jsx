@@ -54,11 +54,11 @@ function formatDate(iso) {
 function fileTypeColor(filename) {
   const ext = ((filename || "").split(".").pop() || "").toLowerCase();
   const map = {
-    pdf: "#DC2626", jpg: "#7C3AED", jpeg: "#7C3AED", png: "#7C3AED",
+    pdf: "#DC2626", jpg: "#3B82F6", jpeg: "#3B82F6", png: "#3B82F6",
     doc: "#2563EB", docx: "#2563EB", xls: "#059669", xlsx: "#059669",
     csv: "#D97706", txt: "#6B7280",
   };
-  return map[ext] || "#4F46E5";
+  return map[ext] || "#3B82F6";
 }
 
 // ── main component ────────────────────────────────────────────────────────
@@ -259,12 +259,12 @@ export default function MyFiles() {
           {/* header */}
           <div
             className="px-8 pt-8 pb-6 border-b border-gray-100"
-            style={{ background: "linear-gradient(135deg, #F8F5FF 0%, #EEF2FF 100%)" }}
+            style={{ background: "linear-gradient(135deg, #EFF6FF 0%, #EEF2FF 100%)" }}
           >
             <div className="flex items-center gap-4">
               <div
                 className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #6C3BFF, #4F46E5)" }}
+                style={{ background: "linear-gradient(135deg, #3B82F6, #3B82F6)" }}
               >
                 <CloudUpload size={22} className="text-white" />
               </div>
@@ -290,9 +290,9 @@ export default function MyFiles() {
                 onClick={() => inputRef.current?.click()}
                 className="relative flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-200"
                 style={{
-                  borderColor: dragActive ? "#6C3BFF" : "#D1D5DB",
+                  borderColor: dragActive ? "#3B82F6" : "#D1D5DB",
                   background: dragActive
-                    ? "linear-gradient(135deg, #F3EEFF 0%, #EEF2FF 100%)"
+                    ? "linear-gradient(135deg, #DBEAFE 0%, #EEF2FF 100%)"
                     : "#FAFAFA",
                   minHeight: "220px",
                 }}
@@ -300,13 +300,13 @@ export default function MyFiles() {
                 <div
                   className="w-20 h-20 rounded-full flex items-center justify-center transition-transform duration-200"
                   style={{
-                    background: dragActive ? "#6C3BFF22" : "#F3F4F6",
+                    background: dragActive ? "#3B82F622" : "#F3F4F6",
                     transform: dragActive ? "scale(1.12)" : "scale(1)",
                   }}
                 >
                   <UploadCloud
                     size={36}
-                    style={{ color: dragActive ? "#6C3BFF" : "#9CA3AF" }}
+                    style={{ color: dragActive ? "#3B82F6" : "#9CA3AF" }}
                   />
                 </div>
 
@@ -317,7 +317,7 @@ export default function MyFiles() {
                   <p className="text-sm text-gray-400 dark:text-[#94a3b8] mt-1">or</p>
                   <span
                     className="inline-block mt-2 px-5 py-2 rounded-xl text-sm font-semibold text-white"
-                    style={{ background: "linear-gradient(135deg, #6C3BFF, #4F46E5)" }}
+                    style={{ background: "linear-gradient(135deg, #3B82F6, #3B82F6)" }}
                   >
                     Browse Files
                   </span>
@@ -338,7 +338,7 @@ export default function MyFiles() {
             ) : (
               <div
                 className="flex items-center gap-4 px-5 py-4 rounded-2xl border"
-                style={{ background: "#F8F5FF", borderColor: "#C4B5FD" }}
+                style={{ background: "#EFF6FF", borderColor: "#93C5FD" }}
               >
                 <div
                   className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
@@ -370,7 +370,7 @@ export default function MyFiles() {
               <select
                 value={docType}
                 onChange={(e) => setDocType(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-[#334155] text-sm bg-white dark:bg-[#0f172a] focus:outline-none focus:ring-2 focus:ring-indigo-400 text-gray-800 dark:text-[#e2e8f0]"
+                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-[#334155] text-sm bg-white dark:bg-[#0f172a] focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 dark:text-[#e2e8f0]"
               >
                 {DOC_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
@@ -396,10 +396,10 @@ export default function MyFiles() {
               className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl text-sm font-semibold text-white transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 background: selectedFile && !uploading
-                  ? "linear-gradient(135deg, #6C3BFF, #4F46E5)"
-                  : "#A5B4FC",
+                  ? "linear-gradient(135deg, #3B82F6, #3B82F6)"
+                  : "#93C5FD",
                 boxShadow: selectedFile && !uploading
-                  ? "0 4px 20px rgba(108, 59, 255, 0.35)"
+                  ? "0 4px 20px rgba(59, 130, 246, 0.35)"
                   : "none",
               }}
             >
@@ -428,14 +428,14 @@ export default function MyFiles() {
             <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9]">
               Your Uploaded Files
               {uploads.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 dark:bg-indigo-900/30 text-indigo-700 dark:text-indigo-300">
+                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
                   {uploads.length}
                 </span>
               )}
             </h3>
             <button
               onClick={loadUploads}
-              className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-[#94a3b8] hover:text-indigo-600 dark:hover:text-indigo-400 transition font-medium px-3 py-1.5 rounded-lg hover:bg-indigo-50 dark:hover:bg-indigo-900/20"
+              className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-[#94a3b8] hover:text-blue-600 dark:hover:text-blue-400 transition font-medium px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20"
             >
               <RefreshCw size={12} />
               Refresh
@@ -444,7 +444,7 @@ export default function MyFiles() {
 
           {loading ? (
             <div className="flex items-center justify-center gap-3 py-14 text-gray-400 dark:text-[#94a3b8]">
-              <RefreshCw size={18} className="animate-spin text-indigo-400" />
+              <RefreshCw size={18} className="animate-spin text-blue-400" />
               <span className="text-sm">Loading your files&hellip;</span>
             </div>
           ) : fetchError ? (
@@ -480,7 +480,7 @@ export default function MyFiles() {
                 return (
                   <div
                     key={f.id || name}
-                    className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-[#1e293b] rounded-2xl border border-gray-100 dark:border-[#334155] shadow-sm hover:shadow-md hover:border-indigo-100 dark:hover:border-indigo-800 transition-all duration-200"
+                    className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-[#1e293b] rounded-2xl border border-gray-100 dark:border-[#334155] shadow-sm hover:shadow-md hover:border-blue-100 dark:hover:border-blue-800 transition-all duration-200"
                     style={{ opacity: isDeleting ? 0.5 : 1 }}
                   >
                     {/* file type icon */}
@@ -516,7 +516,7 @@ export default function MyFiles() {
                         href={downloadUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-[#334155] text-gray-400 dark:text-[#64748b] hover:text-indigo-600 dark:hover:text-indigo-400 hover:border-indigo-300 dark:hover:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-all flex-shrink-0"
+                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-[#334155] text-gray-400 dark:text-[#64748b] hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all flex-shrink-0"
                         title="Download"
                       >
                         <Download size={15} />

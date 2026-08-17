@@ -4,9 +4,9 @@ import LandingHeader from "../../landing/LandingHeader";
 import Footer from "../../landing/Footer";
 
 // ─── Color tokens ─────────────────────────────────────────────────────────────
-const NAVY = "#0B1C3F";
-const BLUE = "#1A3A8C";
-const ORANGE = "#E8850A";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const ORANGE = "#3B82F6";
 const WHITE = "#FFFFFF";
 const OFF_WHITE = "#f8fafc";
 const GRAY = "#6B7280";
@@ -39,9 +39,9 @@ const bodyText = {
 
 const pillTag = {
   display: "inline-block", padding: "3px 10px", borderRadius: "20px",
-  background: "rgba(232,133,10,0.08)", color: ORANGE,
+  background: "rgba(59,130,246,0.08)", color: ORANGE,
   fontSize: "11px", fontWeight: "600",
-  border: "1px solid rgba(232,133,10,0.18)",
+  border: "1px solid rgba(59,130,246,0.18)",
 };
 
 const whiteCard = {
@@ -74,7 +74,7 @@ const ghostBtnWhite = {
 function PlatformBadge({ label, tag = "Platform" }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "6px 16px", marginBottom: 28, fontSize: 14, fontWeight: 500, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-      <span style={{ background: "#3B5BDB", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
+      <span style={{ background: "#3B82F6", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
       <span style={{ color: "#555" }}>{label}</span>
     </div>
   );
@@ -94,21 +94,21 @@ function Hero() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
     }}>
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 900 }}>
         <PlatformBadge label="Nine core products + Docs Pro" />
         <h1 style={{
           fontSize: "clamp(32px,5vw,56px)", fontWeight: 800, lineHeight: 1.1,
-          color: "#0B1C3F", margin: "0 0 20px",
+          color: "#0A1128", margin: "0 0 20px",
         }}>
           One platform to run people, money, work, supply and{" "}
-          <span style={{ color: "#E8850A" }}>control.</span>
+          <span style={{ color: "#10B981" }}>control.</span>
         </h1>
         <p style={{ fontSize: "16px", lineHeight: 1.7, color: "#4B5563", margin: "0 0 12px" }}>
           Zoiko One connects the core operations of a modern business through one governed business-operations platform — HR, time, payroll, billing, spend, projects, inventory, compliance, documents, approvals, workflows, insights and AI assistance in one shared operating system.
@@ -118,12 +118,12 @@ function Hero() {
         </p>
         <div style={{ display: "flex", gap: "14px", justifyContent: "center", flexWrap: "wrap" }}>
           <button onClick={() => navigate("/get-demo")} style={{
-            background: "linear-gradient(135deg, #E07B2A, #c9651a)",
+            background: "linear-gradient(135deg, #3B82F6, #2563EB)",
             color: "#fff", border: "none", borderRadius: 999,
             padding: "14px 32px", fontSize: 16, fontWeight: 600, cursor: "pointer",
           }}>Get a Demo →</button>
           <button style={{
-            background: "rgba(255,255,255,0.75)", color: "#1a1a2e",
+            background: "rgba(255,255,255,0.75)", color: "#0A1128",
             border: "1.5px solid rgba(0,0,0,0.12)", borderRadius: 999,
             padding: "14px 32px", fontSize: 16, fontWeight: 600, cursor: "pointer",
             backdropFilter: "blur(4px)",
@@ -177,9 +177,9 @@ function Problem() {
 // ─── 3. FIVE-PILLAR OPERATING MODEL ───────────────────────────────────────────
 const pillars = [
   { bg: BLUE, icon: "👥", label: "PEOPLE", title: "People", desc: "Manage, track and pay the people who run the business.", tags: ["HR", "Time", "Payroll"] },
-  { bg: ORANGE, icon: "$", label: "MONEY", title: "Money", desc: "Control money in, money out, billing and vendor spend.", tags: ["Billing", "Spend"] },
-  { bg: "#3B82F6", icon: "⊞", label: "WORK", title: "Work", desc: "Plan, deliver and monitor projects, budgets, margins and milestones.", tags: ["Projects"] },
-  { bg: "#6366F1", icon: "◈", label: "SUPPLY", title: "Supply", desc: "Manage stock, locations, goods movement, receiving and valuation.", tags: ["Inventory"] },
+  { bg: "#F59E0B", icon: "$", label: "MONEY", title: "Money", desc: "Control money in, money out, billing and vendor spend.", tags: ["Billing", "Spend"] },
+  { bg: "#10B981", icon: "⊞", label: "WORK", title: "Work", desc: "Plan, deliver and monitor projects, budgets, margins and milestones.", tags: ["Projects"] },
+  { bg: "#3B82F6", icon: "◈", label: "SUPPLY", title: "Supply", desc: "Manage stock, locations, goods movement, receiving and valuation.", tags: ["Inventory"] },
   { bg: NAVY, icon: "✓", label: "CONTROL", title: "Control", desc: "Govern compliance, evidence, risk, dashboards and intelligence.", tags: ["Comply", "Insights"] },
 ];
 
@@ -345,12 +345,12 @@ function Governance() {
 
 // ─── 7. MONEY ARCHITECTURE ────────────────────────────────────────────────────
 const moneyItems = [
-  { icon: "⊟", title: "Billing → money in", desc: "Invoices, subscriptions and revenue records.", bg: ORANGE },
-  { icon: "$", title: "Payroll → money to people", desc: "Approved pay runs from HR and time data.", bg: "#3B82F6" },
-  { icon: "⇄", title: "Spend → money to vendors", desc: "Requests, POs, supplier invoices and AP.", bg: ORANGE },
-  { icon: "◈", title: "Inventory → money in goods", desc: "Stock value, receiving and movement.", bg: BLUE },
+  { icon: "⊟", title: "Billing → money in", desc: "Invoices, subscriptions and revenue records.", bg: "#3B82F6" },
+  { icon: "$", title: "Payroll → money to people", desc: "Approved pay runs from HR and time data.", bg: "#10B981" },
+  { icon: "⇄", title: "Spend → money to vendors", desc: "Requests, POs, supplier invoices and AP.", bg: "#0A1128" },
+  { icon: "◈", title: "Inventory → money in goods", desc: "Stock value, receiving and movement.", bg: "#F59E0B" },
   { icon: "→", title: "ZoikoPay → moves money", desc: "Settlement and money movement support.", bg: "#3B82F6" },
-  { icon: "◆", title: "ZoikoCoreX → financial truth", desc: "Ledger-grade governed traceability.", bg: BLUE },
+  { icon: "◆", title: "ZoikoCoreX → financial truth", desc: "Ledger-grade governed traceability.", bg: "#10B981" },
 ];
 
 function MoneyArchitecture() {
@@ -381,7 +381,7 @@ function MoneyArchitecture() {
             <a href="#" style={{ color: BLUE, fontWeight: 600, fontSize: "14px", textDecoration: "none" }}>Explore Zoiko Connect →</a>
           </div>
           <div style={{ ...whiteCard }}>
-            <div style={iconBox(ORANGE)}><span style={{ color: "#fff", fontWeight: 800 }}>⤢</span></div>
+            <div style={iconBox("#10B981")}><span style={{ color: "#fff", fontWeight: 800 }}>⤢</span></div>
             <h3 style={{ fontSize: "18px", fontWeight: 800, color: NAVY, margin: "12px 0 8px" }}>Start small. Expand with control.</h3>
             <p style={{ fontSize: "14px", color: SUBTLE_TEXT, marginBottom: "12px" }}>Begin with one product, one pillar or one urgent workflow, then activate more products on the same shared spine.</p>
             <a href="#" style={{ color: BLUE, fontWeight: 600, fontSize: "14px", textDecoration: "none" }}>Plan Your Rollout →</a>

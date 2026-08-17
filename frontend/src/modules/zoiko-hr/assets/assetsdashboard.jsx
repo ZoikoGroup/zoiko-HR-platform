@@ -21,8 +21,8 @@ function StatCard({ title, value, icon: Icon }) {
         <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">{title}</p>
         <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
       </div>
-      <div className="w-10 h-10 rounded-lg bg-amber-50 flex items-center justify-center">
-        <Icon size={20} className="text-amber-600" />
+      <div className="w-10 h-10 rounded-lg bg-blue-50 flex items-center justify-center">
+        <Icon size={20} className="text-blue-600" />
       </div>
     </div>
   );
@@ -52,7 +52,7 @@ function OverviewTab({ dashboard }) {
   const maxStatus = Math.max(...status_breakdown.map((s) => s.count), 1);
 
   const statusBarColors = {
-    assigned: "bg-blue-500", available: "bg-green-500", maintenance: "bg-orange-500", retired: "bg-gray-500", lost: "bg-red-500",
+    assigned: "bg-blue-500", available: "bg-green-500", maintenance: "bg-amber-500", retired: "bg-gray-500", lost: "bg-red-500",
   };
 
   return (
@@ -76,14 +76,14 @@ function OverviewTab({ dashboard }) {
                 const Icon = categoryIcons[item.category] || Package;
                 return (
                   <div key={item.category} className="flex items-center gap-3">
-                    <div className="p-1.5 bg-amber-50 rounded-lg"><Icon size={16} className="text-amber-600" /></div>
+                    <div className="p-1.5 bg-blue-50 rounded-lg"><Icon size={16} className="text-blue-600" /></div>
                     <div className="flex-1">
                       <div className="flex justify-between text-sm mb-1">
                         <span className="font-medium text-gray-700">{item.category}</span>
                         <span className="text-gray-500">{item.count}</span>
                       </div>
                       <div className="w-full bg-gray-100 rounded-full h-2">
-                        <div className="bg-amber-500 rounded-full h-2 transition-all" style={{ width: `${(item.count / maxCategory) * 100}%` }} />
+                        <div className="bg-blue-500 rounded-full h-2 transition-all" style={{ width: `${(item.count / maxCategory) * 100}%` }} />
                       </div>
                     </div>
                   </div>

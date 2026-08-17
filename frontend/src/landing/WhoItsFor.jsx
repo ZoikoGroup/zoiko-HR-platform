@@ -15,9 +15,9 @@ const tabs = [
     ],
     tags: ["Billing", "Payroll", "Projects", "Insights"],
     metrics: [
-      { label: "Reconciliation time", value: "-61%", color: "#F97316" },
-      { label: "Days sales outstanding", value: "-9 days", color: "#2B4EFF" },
-      { label: "Forecast confidence", value: "High", color: "#1A1A2E" },
+      { label: "Reconciliation time", value: "-61%", color: "#10B981" },
+      { label: "Days sales outstanding", value: "-9 days", color: "#3B82F6" },
+      { label: "Forecast confidence", value: "High", color: "#0A1128" },
     ],
   },
   {
@@ -34,9 +34,9 @@ const tabs = [
     ],
     tags: ["People", "Payroll", "Time", "Compliance"],
     metrics: [
-      { label: "Admin time saved", value: "-40%", color: "#F97316" },
-      { label: "Payroll errors", value: "~Zero", color: "#2B4EFF" },
-      { label: "Compliance risk", value: "Low", color: "#1A1A2E" },
+      { label: "Admin time saved", value: "-40%", color: "#10B981" },
+      { label: "Payroll errors", value: "~Zero", color: "#3B82F6" },
+      { label: "Compliance risk", value: "Low", color: "#0A1128" },
     ],
   },
   {
@@ -53,9 +53,9 @@ const tabs = [
     ],
     tags: ["Projects", "Billing", "Time", "Insights"],
     metrics: [
-      { label: "Invoicing time", value: "-55%", color: "#F97316" },
-      { label: "Revenue leakage", value: "Eliminated", color: "#2B4EFF" },
-      { label: "Margin visibility", value: "Live", color: "#1A1A2E" },
+      { label: "Invoicing time", value: "-55%", color: "#10B981" },
+      { label: "Revenue leakage", value: "Eliminated", color: "#3B82F6" },
+      { label: "Margin visibility", value: "Live", color: "#0A1128" },
     ],
   },
   {
@@ -72,9 +72,9 @@ const tabs = [
     ],
     tags: ["Payroll", "Compliance", "Insights", "Billing"],
     metrics: [
-      { label: "Reporting time", value: "-70%", color: "#F97316" },
-      { label: "Audit readiness", value: "Always", color: "#2B4EFF" },
-      { label: "Entity coverage", value: "Full", color: "#1A1A2E" },
+      { label: "Reporting time", value: "-70%", color: "#10B981" },
+      { label: "Audit readiness", value: "Always", color: "#3B82F6" },
+      { label: "Entity coverage", value: "Full", color: "#0A1128" },
     ],
   },
 ];
@@ -176,7 +176,7 @@ const styles = {
     fontSize: "11px",
     fontWeight: 600,
     letterSpacing: "0.12em",
-    color: "#F97316",
+    color: "#3B82F6",
     textTransform: "uppercase",
     marginBottom: "16px",
   },
@@ -212,7 +212,7 @@ const styles = {
     transition: "all 0.2s ease",
   },
   tabActive: {
-    backgroundColor: "#1A2560",
+    backgroundColor: "#0A1128",
     color: "#FFFFFF",
   },
   tabInactive: {
@@ -259,7 +259,7 @@ const styles = {
     fontWeight: 500,
   },
   checkIcon: {
-    color: "#F97316",
+    color: "#10B981",
     fontWeight: 700,
     fontSize: "13px",
   },

@@ -108,10 +108,10 @@ export default function EmployeeManagementDashboard() {
           <StatCard label="Total Employees" value={d.total_employees ?? 0} icon={Users} iconBg="#3B82F6" />
           <StatCard label="Active Employees" value={d.active_employees ?? 0} icon={UserCheck} iconBg="#10B981" />
           <StatCard label="Inactive Employees" value={d.inactive_employees ?? 0} icon={AlertCircle} iconBg="#EF4444" />
-          <StatCard label="On Probation" value={d.on_probation ?? 0} icon={Clock} iconBg="#F97316" />
-          <StatCard label="New Hires This Month" value={d.new_hires_this_month ?? 0} icon={TrendingUp} iconBg="#8B5CF6" />
+          <StatCard label="On Probation" value={d.on_probation ?? 0} icon={Clock} iconBg="#3B82F6" />
+          <StatCard label="New Hires This Month" value={d.new_hires_this_month ?? 0} icon={TrendingUp} iconBg="#3B82F6" />
           <StatCard label="Exits This Month" value={d.exits_this_month ?? 0} icon={AlertCircle} iconBg="#EC4899" />
-          <StatCard label="Department Count" value={d.department_distribution?.length ?? 0} icon={Building2} iconBg="#6366F1" />
+          <StatCard label="Department Count" value={d.department_distribution?.length ?? 0} icon={Building2} iconBg="#3B82F6" />
           <StatCard label="Designation Count" value={d.designation_distribution?.length ?? 0} icon={Award} iconBg="#14B8A6" />
         </div>
 
@@ -180,7 +180,7 @@ export default function EmployeeManagementDashboard() {
                     label={loc.location}
                     value={loc.count}
                     total={d.total_employees}
-                    color="bg-purple-500"
+                    color="bg-blue-500"
                   />
                 ))}
               </div>
@@ -199,7 +199,7 @@ export default function EmployeeManagementDashboard() {
               <div className="space-y-3">
                 {d.lifecycle_events?.map((event, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-2 hover:bg-gray-50 rounded-lg transition-colors">
-                    <div className={`w-2 h-2 rounded-full ${event.event_type === "probation_end" ? "bg-orange-500" : event.event_type === "confirmation" ? "bg-green-500" : event.event_type === "promotion" ? "bg-blue-500" : event.event_type === "transfer" ? "bg-purple-500" : event.event_type === "resignation" ? "bg-red-500" : "bg-gray-500"}`} />
+                    <div className={`w-2 h-2 rounded-full ${event.event_type === "probation_end" ? "bg-orange-500" : event.event_type === "confirmation" ? "bg-green-500" : event.event_type === "promotion" ? "bg-blue-500" : event.event_type === "transfer" ? "bg-blue-500" : event.event_type === "resignation" ? "bg-red-500" : "bg-gray-500"}`} />
                     <div className="flex-1">
                       <p className="text-sm font-medium text-gray-900">{event.event_type.replace(/_/g, " ").replace(/^./, c => c.toUpperCase())}</p>
                       <p className="text-xs text-gray-500">{event.employee_name} • {event.event_date}</p>

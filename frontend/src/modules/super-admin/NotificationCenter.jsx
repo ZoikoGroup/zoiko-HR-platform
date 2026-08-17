@@ -99,7 +99,7 @@ export default function NotificationCenter() {
               onClick={() => { setFilter(f); setPage(1); }}
               className={`rounded-xl border px-4 py-2 text-sm font-medium transition ${
                 filter === f
-                  ? "border-[#FF7A00] bg-[#FF7A00]/5 text-[#FF7A00]"
+                  ? "border-[#3B82F6] bg-[#3B82F6]/5 text-[#3B82F6]"
                   : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
               }`}
             >
@@ -109,7 +109,7 @@ export default function NotificationCenter() {
         </div>
         <button
           onClick={() => setShowCreate(!showCreate)}
-          className="inline-flex items-center gap-2 rounded-xl bg-[#FF7A00] px-4 py-2 text-sm font-medium text-white hover:bg-orange-600 transition"
+          className="inline-flex items-center gap-2 rounded-xl bg-[#3B82F6] px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 transition"
         >
           <Send className="h-4 w-4" /> New Notification
         </button>
@@ -125,7 +125,7 @@ export default function NotificationCenter() {
                 required
                 value={form.title}
                 onChange={(e) => setForm({ ...form, title: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#FF7A00] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none"
                 placeholder="Notification title"
               />
             </div>
@@ -136,7 +136,7 @@ export default function NotificationCenter() {
                 rows={3}
                 value={form.message}
                 onChange={(e) => setForm({ ...form, message: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#FF7A00] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none"
                 placeholder="Notification message"
               />
             </div>
@@ -145,7 +145,7 @@ export default function NotificationCenter() {
               <select
                 value={form.notification_type}
                 onChange={(e) => setForm({ ...form, notification_type: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#FF7A00] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none"
               >
                 <option value="info">Info</option>
                 <option value="warning">Warning</option>
@@ -158,7 +158,7 @@ export default function NotificationCenter() {
               <select
                 value={form.priority}
                 onChange={(e) => setForm({ ...form, priority: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#FF7A00] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none"
               >
                 <option value="low">Low</option>
                 <option value="normal">Normal</option>
@@ -171,7 +171,7 @@ export default function NotificationCenter() {
               <input
                 value={form.target_org_id}
                 onChange={(e) => setForm({ ...form, target_org_id: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#FF7A00] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none"
                 placeholder="Leave empty for all"
               />
             </div>
@@ -180,13 +180,13 @@ export default function NotificationCenter() {
               <input
                 value={form.target_user_id}
                 onChange={(e) => setForm({ ...form, target_user_id: e.target.value })}
-                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#FF7A00] focus:outline-none"
+                className="w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none"
                 placeholder="Leave empty for all"
               />
             </div>
           </div>
           <div className="mt-4 flex gap-2">
-            <button type="submit" className="rounded-xl bg-[#FF7A00] px-6 py-2.5 text-sm font-medium text-white hover:bg-orange-600 transition">Send</button>
+            <button type="submit" className="rounded-xl bg-[#3B82F6] px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition">Send</button>
             <button type="button" onClick={() => setShowCreate(false)} className="rounded-xl border border-slate-200 px-6 py-2.5 text-sm font-medium text-slate-600 hover:bg-slate-50 transition">Cancel</button>
           </div>
         </form>
@@ -195,7 +195,7 @@ export default function NotificationCenter() {
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
           <div className="flex items-center justify-center py-20 text-slate-400">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF7A00] border-t-transparent" />
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
           </div>
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400">
@@ -206,7 +206,7 @@ export default function NotificationCenter() {
         ) : (
           <div className="divide-y divide-slate-100">
             {notifications.map((n) => (
-              <div key={n.id} className={`flex items-start gap-4 px-6 py-4 transition hover:bg-slate-50 ${!n.is_read ? "bg-[#FF7A00]/[0.02]" : ""}`}>
+              <div key={n.id} className={`flex items-start gap-4 px-6 py-4 transition hover:bg-slate-50 ${!n.is_read ? "bg-[#3B82F6]/[0.02]" : ""}`}>
                 <div className="flex h-10 w-10 items-center justify-center rounded-full bg-slate-100">
                   {priorityIcon(n.priority)}
                 </div>
@@ -225,7 +225,7 @@ export default function NotificationCenter() {
                 </div>
                 <div className="flex gap-1">
                   {!n.is_read ? (
-                    <button onClick={() => handleMarkRead(n.id)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#FF7A00] transition" title="Mark as read">
+                    <button onClick={() => handleMarkRead(n.id)} className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-[#3B82F6] transition" title="Mark as read">
                       <MailOpen className="h-4 w-4" />
                     </button>
                   ) : (

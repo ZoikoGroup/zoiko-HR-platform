@@ -575,7 +575,7 @@ export const exportWfPdf = (reportType = "workforce_summary") =>
 // ── DOCUMENTS ──────────────────────────────────────────────────────────────
 // NOTE: api.js uses raw fetch and resolves to the parsed JSON body directly
 // (not an axios-style { data, status, headers } envelope). Every document
-// component (employee-documents.jsx, company-documents.jsx, dashboard.jsx,
+// component (EmployeeDocumentsPage.jsx, company-documents.jsx, dashboard.jsx,
 // approvals.jsx, settings.jsx) was written expecting `res.data`, so we wrap
 // the result here to match that shape without having to touch 5 files.
 
@@ -599,6 +599,33 @@ export const getDocuments = (params = {}) => {
 // Get a single document by ID
 export const getDocumentById = (documentId) =>
   api.get(`/hr/documents/${documentId}`).then(data => ({ data }));
+
+async function fetchDocumentFile(path, fallbackName) {
+  const { getAccessToken, API_BASE_URL: base } = await import("./api");
+  const token = getAccessToken();
+  const res = await fetch(`${base}${path}`, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!res.ok) throw new Error(`Failed to load document: ${res.status}`);
+  const blob = await res.blob();
+  const disposition = res.headers.get("Content-Disposition") || "";
+  const match = disposition.match(/filename="?([^"]+)"?/);
+  const filename = match ? match[1] : fallbackName;
+  return { blob, filename };
+}
+
+/**
+ * Fetch the raw file for a document (for viewing/downloading in the browser).
+ * Returns { blob, filename } — build an object URL from `blob` to preview or
+ * save it, since the endpoint requires an Authorization header a plain
+ * <a href> / window.open can't attach.
+ */
+export const getDocumentFile = (documentId) =>
+  fetchDocumentFile(`/hr/documents/${documentId}/file`, `document-${documentId}`);
+
+/** Same as getDocumentFile, but for one historical version of a document. */
+export const getDocumentVersionFile = (documentId, versionId) =>
+  fetchDocumentFile(`/hr/documents/${documentId}/versions/${versionId}/file`, `document-${documentId}-v${versionId}`);
 
 /**
  * Upload a new document (multipart/form-data).

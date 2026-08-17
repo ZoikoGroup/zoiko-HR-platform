@@ -6,7 +6,7 @@ import { getLeaveBalances, getLeaveRequests } from "../../../../service/employee
 import { getStoredUser } from "../../../../service/api";
 
 const colorToAccent = {
-  "#4F46E5": "text-indigo-600 dark:text-indigo-400",
+  "#3B82F6": "text-blue-600 dark:text-blue-400",
   "#059669": "text-emerald-600 dark:text-emerald-400",
   "#0EA5E9": "text-sky-600 dark:text-sky-400",
   "#DC2626": "text-red-600 dark:text-red-400",
@@ -74,7 +74,7 @@ export default function MyLeave() {
         remaining: b.remaining_days ?? b.remaining ?? ((b.total_days || b.total || 0) - (b.used_days || b.used || 0)),
         color:
           (b.leave_type || b.type || "").includes("Annual")
-            ? "#4F46E5"
+            ? "#3B82F6"
             : (b.leave_type || b.type || "").includes("Sick")
               ? "#059669"
               : (b.leave_type || b.type || "").includes("Casual")
@@ -90,7 +90,7 @@ export default function MyLeave() {
     return (
       <EmployeePageShell title="My Leave" subtitle="View your leave balances and request history.">
         <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </EmployeePageShell>
     );

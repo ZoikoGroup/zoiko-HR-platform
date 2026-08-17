@@ -128,7 +128,7 @@ export default function DepartmentDashboard() {
     { title: "Inactive",             value: stats.inactive,                                        icon: XCircle,          color: "bg-gray-100",  subtitle: stats.inactive === 0 ? "All departments active" : `${((stats.inactive / Math.max(stats.total, 1)) * 100).toFixed(0)}% of total` },
     { title: "Total Employees",      value: stats.totalEmp.toLocaleString(),                       icon: Users,            color: "bg-blue-50",  subtitle: `${stats.totalEmp > 0 ? (stats.totalEmp / Math.max(stats.active, 1)).toFixed(1) : 0} avg per dept` },
     { title: "Budget Utilization",   value: `${stats.utilPct}%`,                                    icon: TrendingUp,       color: "bg-amber-50", subtitle: `$${(stats.totalSpent / 1_000_000).toFixed(1)}M / $${(stats.totalBudget / 1_000_000).toFixed(1)}M` },
-    { title: "Depts with Head",      value: `${stats.withHead} / ${stats.total}`,                   icon: UserCheck,        color: "bg-purple-50", subtitle: stats.withHead === stats.total ? "All departments staffed" : `${stats.total - stats.withHead} unfilled` },
+    { title: "Depts with Head",      value: `${stats.withHead} / ${stats.total}`,                   icon: UserCheck,        color: "bg-blue-50", subtitle: stats.withHead === stats.total ? "All departments staffed" : `${stats.total - stats.withHead} unfilled` },
   ];
 
   /* ── Loading / Error ── */

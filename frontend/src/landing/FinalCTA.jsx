@@ -6,7 +6,7 @@ export default function FinalCTA() {
   return (
     <section className="bg-[#F8F7FC] py-20 md:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-12">
-        <div className="rounded-3xl p-10 md:p-14 bg-gradient-to-br from-[#312E81] via-[#4338CA] to-[#3B82F6] text-center shadow-2xl">
+        <div className="rounded-3xl p-10 md:p-14 bg-gradient-to-br from-[#0A1128] to-[#111A33] text-center shadow-2xl">
           <h2 className="text-2xl md:text-3xl font-extrabold text-white leading-tight tracking-tight mb-4">
             Ready to run your business in one
             <br />
@@ -18,7 +18,7 @@ export default function FinalCTA() {
           </p>
 
           <div className="flex items-center justify-center gap-4 flex-wrap mb-4">
-            <button onClick={() => navigate("/get-demo")} className="inline-flex items-center gap-2 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold px-6 py-3 rounded-full text-sm shadow-lg shadow-orange-500/30 transition-all duration-200 hover:scale-[1.03]">
+            <button onClick={() => navigate("/get-demo")} className="inline-flex items-center gap-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold px-6 py-3 rounded-full text-sm shadow-lg shadow-blue-500/30 transition-all duration-200 hover:scale-[1.03]">
               Get a Demo <ArrowRight size={16} />
             </button>
             <button onClick={() => navigate("/pricing")} className="inline-flex items-center gap-2 bg-white/15 hover:bg-white/25 text-white font-semibold px-6 py-3 rounded-full text-sm transition-all duration-200">
