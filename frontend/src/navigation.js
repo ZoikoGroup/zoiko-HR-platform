@@ -377,7 +377,6 @@ const organizationAdminDashboard = {
   items: [
     { label: "Dashboard", href: "/organization-admin/dashboard", icon: LayoutDashboard },
     { label: "My Organization", href: "/organization-admin/organization", icon: Building2 },
-    { label: "Documents", href: "/zoiko-hr/documents", icon: FileText },
     { label: "Payroll Guidance", href: "/organization-admin/payroll-guidance", icon: BookOpen, badge: "Payroll" },
   ],
 };

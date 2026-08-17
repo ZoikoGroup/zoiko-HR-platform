@@ -466,19 +466,19 @@ export default function OrgAdminUserManagementPage() {
   });
 
   const gradPairs = [
-    ['#5B3FE0','#7A5CF0'], ['#F5A340','#E8862C'], ['#0F9B8E','#0C7B70'],
-    ['#8B85AE','#5F5885'], ['#4C3AAE','#1E1447'], ['#7A5CF0','#3B2E8A']
+    ['#3B82F6','#1E40AF'], ['#10B981','#059669'], ['#0A1128','#1A2744'],
+    ['#64748B','#475569'], ['#1E40AF','#0A1128'], ['#60A5FA','#3B82F6']
   ];
 
   return (
-    <div style={{ fontFamily:'Inter, sans-serif', color:'#181433' }}>
+    <div style={{ fontFamily:'Inter, sans-serif', color:'#0A1128' }}>
 
       {/* Hero */}
       <div style={{
-        background:'linear-gradient(120deg,#1E1447 0%,#3B2E8A 55%,#4C3AAE 100%)',
+        background:'linear-gradient(120deg,#0A1128 0%,#1A2744 55%,#1E3A5F 100%)',
         borderRadius:20, padding:'28px 32px', display:'flex', justifyContent:'space-between',
         alignItems:'center', gap:24, color:'#fff', position:'relative', overflow:'hidden',
-        boxShadow:'0 4px 10px rgba(24,20,51,0.06), 0 20px 40px -20px rgba(59,46,138,0.25)',
+        boxShadow:'0 4px 10px rgba(10,17,40,0.06), 0 20px 40px -20px rgba(59,130,246,0.25)',
         marginBottom:20
       }}>
         <div style={{ position:'relative', zIndex:1 }}>
@@ -497,8 +497,8 @@ export default function OrgAdminUserManagementPage() {
           style={{
             padding:'12px 22px', borderRadius:12, fontSize:14, fontWeight:700, cursor:'pointer', border:'none',
             display:'flex', alignItems:'center', gap:8, whiteSpace:'nowrap', zIndex:1,
-            background:'linear-gradient(135deg,#F5A340,#E8862C)', color:'#241000',
-            boxShadow:'0 8px 20px -8px rgba(232,134,44,0.7)'
+            background:'linear-gradient(135deg,#3B82F6,#2563EB)', color:'#fff',
+            boxShadow:'0 8px 20px -8px rgba(59,130,246,0.7)'
           }}
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="M12 5v14M5 12h14"/></svg>
@@ -511,12 +511,12 @@ export default function OrgAdminUserManagementPage() {
         <div style={{
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           padding:'14px 18px', marginBottom:16, borderRadius:12,
-          background:'#FBE6E4', border:'1px solid #F5C6C2', fontSize:13.5, fontWeight:600, color:'#D6473C'
+          background:'#FEE2E2', border:'1px solid #FECACA', fontSize:13.5, fontWeight:600, color:'#EF4444'
         }}>
           <span>{loadError}</span>
           <button
             onClick={fetchUsers}
-            style={{ background:'#D6473C', color:'#fff', border:'none', borderRadius:8, padding:'8px 14px', fontSize:12.5, fontWeight:700, cursor:'pointer' }}
+            style={{ background:'#EF4444', color:'#fff', border:'none', borderRadius:8, padding:'8px 14px', fontSize:12.5, fontWeight:700, cursor:'pointer' }}
           >
             Retry
           </button>
@@ -526,10 +526,10 @@ export default function OrgAdminUserManagementPage() {
         <div style={{
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           padding:'14px 18px', marginBottom:16, borderRadius:12,
-          background: notice.type === 'success' ? '#DCF5F2' : '#EDE9FE',
-          border: `1px solid ${notice.type === 'success' ? '#A9E6DD' : '#D6CBF9'}`,
+          background: notice.type === 'success' ? '#D1FAE5' : '#DBEAFE',
+          border: `1px solid ${notice.type === 'success' ? '#A7F3D0' : '#BFDBFE'}`,
           fontSize:13.5, fontWeight:600,
-          color: notice.type === 'success' ? '#0F7B6E' : '#5B3FE0'
+          color: notice.type === 'success' ? '#059669' : '#3B82F6'
         }}>
           <span>{notice.message}</span>
           <button
@@ -546,24 +546,24 @@ export default function OrgAdminUserManagementPage() {
       <div style={{ display:'flex', gap:12, marginBottom:20 }}>
         <button onClick={handleDownloadTemplate} className="tool-btn" style={{
           display:'flex', alignItems:'center', gap:9, padding:'11px 18px', borderRadius:12,
-          background:'#fff', border:'1px solid rgba(24,20,51,0.08)', fontSize:13.5, fontWeight:600,
-          color:'#181433', cursor:'pointer', boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)'
+          background:'#fff', border:'1px solid rgba(10,17,40,0.08)', fontSize:13.5, fontWeight:600,
+          color:'#0A1128', cursor:'pointer', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)'
         }}>
           <FileDown size={15} style={{ opacity:0.75 }} />
           Download Template
         </button>
         <button onClick={() => setModalOpen(true)} className="tool-btn" style={{
           display:'flex', alignItems:'center', gap:9, padding:'11px 18px', borderRadius:12,
-          background:'#fff', border:'1px solid rgba(24,20,51,0.08)', fontSize:13.5, fontWeight:600,
-          color:'#181433', cursor:'pointer', boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)'
+          background:'#fff', border:'1px solid rgba(10,17,40,0.08)', fontSize:13.5, fontWeight:600,
+          color:'#0A1128', cursor:'pointer', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)'
         }}>
           <Upload size={15} style={{ opacity:0.75 }} />
           Import Users
         </button>
         <button onClick={handleExport} className="tool-btn" style={{
           display:'flex', alignItems:'center', gap:9, padding:'11px 18px', borderRadius:12,
-          background:'#fff', border:'1px solid rgba(24,20,51,0.08)', fontSize:13.5, fontWeight:600,
-          color:'#181433', cursor:'pointer', boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)'
+          background:'#fff', border:'1px solid rgba(10,17,40,0.08)', fontSize:13.5, fontWeight:600,
+          color:'#0A1128', cursor:'pointer', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)'
         }}>
           <Download size={15} style={{ opacity:0.75 }} />
           Export CSV
@@ -573,20 +573,20 @@ export default function OrgAdminUserManagementPage() {
       {/* Stat cards */}
       <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:22 }}>
         {[
-          { label:'Total Users', value:total, color:'#5B3FE0', bg:'#EDE9FE', icon:Users },
-          { label:'Active', value:active, color:'#0F9B8E', bg:'#DCF5F2', icon:UserCheck },
-          { label:'Inactive', value:inactive, color:'#D6473C', bg:'#FBE6E4', icon:UserX },
+          { label:'Total Users', value:total, color:'#3B82F6', bg:'#DBEAFE', icon:Users },
+          { label:'Active', value:active, color:'#10B981', bg:'#D1FAE5', icon:UserCheck },
+          { label:'Inactive', value:inactive, color:'#EF4444', bg:'#FEE2E2', icon:UserX },
         ].map((s) => (
           <div key={s.label} style={{
-            background:'#fff', border:'1px solid rgba(24,20,51,0.08)', borderRadius:14,
-            padding:'20px 22px', boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)',
+            background:'#fff', border:'1px solid rgba(10,17,40,0.08)', borderRadius:14,
+            padding:'20px 22px', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)',
             display:'flex', alignItems:'center', justifyContent:'space-between'
           }}>
             <div>
-              <div style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', color:'#4A4566', textTransform:'uppercase', marginBottom:10 }}>
+              <div style={{ fontSize:11, fontWeight:700, letterSpacing:'0.08em', color:'#475569', textTransform:'uppercase', marginBottom:10 }}>
                 {s.label}
               </div>
-              <div style={{ fontSize:30, fontWeight:800, letterSpacing:'-0.01em', fontFamily:'JetBrains Mono,monospace', fontVariantNumeric:'tabular-nums', color:s.label==='Active'?'#0F9B8E':s.label==='Inactive'?'#D6473C':'#181433' }}>
+              <div style={{ fontSize:30, fontWeight:800, letterSpacing:'-0.01em', fontFamily:'JetBrains Mono,monospace', fontVariantNumeric:'tabular-nums', color:s.label==='Active'?'#10B981':s.label==='Inactive'?'#EF4444':'#0A1128' }}>
                 {s.value}
               </div>
             </div>
@@ -601,16 +601,16 @@ export default function OrgAdminUserManagementPage() {
       <div style={{ display:'flex', gap:12, marginBottom:18 }}>
         <div style={{
           flex:1, display:'flex', alignItems:'center', gap:10, background:'#fff',
-          border:'1px solid rgba(24,20,51,0.08)', borderRadius:12, padding:'12px 16px',
-          boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)'
+          border:'1px solid rgba(10,17,40,0.08)', borderRadius:12, padding:'12px 16px',
+          boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)'
         }}>
-          <Search size={15} color="#A7A2C0" />
+          <Search size={15} color="#94A3B8" />
           <input
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search by name, email…"
-            style={{ border:'none', outline:'none', fontSize:13.5, width:'100%', fontFamily:'Inter', background:'transparent', color:'#181433' }}
+            style={{ border:'none', outline:'none', fontSize:13.5, width:'100%', fontFamily:'Inter', background:'transparent', color:'#0A1128' }}
           />
         </div>
         {[
@@ -619,17 +619,17 @@ export default function OrgAdminUserManagementPage() {
         ].map((sel) => (
           <div key={sel.options[0]} style={{
             display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, minWidth:160,
-            background:'#fff', border:'1px solid rgba(24,20,51,0.08)', borderRadius:12, padding:'12px 16px',
-            fontSize:13, fontWeight:600, color:'#181433', boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)', cursor:'pointer'
+            background:'#fff', border:'1px solid rgba(10,17,40,0.08)', borderRadius:12, padding:'12px 16px',
+            fontSize:13, fontWeight:600, color:'#0A1128', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)', cursor:'pointer'
           }}>
             <select
               value={sel.val}
               onChange={(e) => sel.set(e.target.value)}
-              style={{ border:'none', outline:'none', width:'100%', background:'transparent', fontSize:13, fontWeight:600, color:'#181433', fontFamily:'Inter', cursor:'pointer' }}
+              style={{ border:'none', outline:'none', width:'100%', background:'transparent', fontSize:13, fontWeight:600, color:'#0A1128', fontFamily:'Inter', cursor:'pointer' }}
             >
               {sel.options.map((o) => <option key={o}>{o}</option>)}
             </select>
-            <ChevronDown size={13} color="#4A4566" />
+            <ChevronDown size={13} color="#475569" />
           </div>
         ))}
       </div>
@@ -639,19 +639,19 @@ export default function OrgAdminUserManagementPage() {
         <div style={{
           display:'flex', alignItems:'center', justifyContent:'space-between', gap:12,
           padding:'12px 18px', marginBottom:12,
-          background:'#FBE6E4', border:'1px solid #F5C6C2', borderRadius:12,
-          fontSize:13.5, fontWeight:600, color:'#D6473C'
+          background:'#FEE2E2', border:'1px solid #FECACA', borderRadius:12,
+          fontSize:13.5, fontWeight:600, color:'#EF4444'
         }}>
           <span>{selectedIds.size} user(s) selected</span>
           <button
             onClick={handleBulkDelete}
             style={{
               display:'flex', alignItems:'center', gap:8, padding:'9px 18px', borderRadius:10,
-              background:'#D6473C', color:'#fff', fontWeight:700, fontSize:13, border:'none',
+              background:'#EF4444', color:'#fff', fontWeight:700, fontSize:13, border:'none',
               cursor:'pointer', transition:'.13s ease',
             }}
-            onMouseEnter={(e) => e.currentTarget.style.background='#B33A30'}
-            onMouseLeave={(e) => e.currentTarget.style.background='#D6473C'}
+            onMouseEnter={(e) => e.currentTarget.style.background='#DC2626'}
+            onMouseLeave={(e) => e.currentTarget.style.background='#EF4444'}
           >
             <Trash2 size={14} />
             Delete Selected
@@ -661,25 +661,25 @@ export default function OrgAdminUserManagementPage() {
 
       {/* Table */}
       <div style={{
-        background:'#fff', border:'1px solid rgba(24,20,51,0.08)', borderRadius:20,
-        boxShadow:'0 1px 2px rgba(24,20,51,0.04), 0 8px 24px -12px rgba(24,20,51,0.10)', overflow:'hidden'
+        background:'#fff', border:'1px solid rgba(10,17,40,0.08)', borderRadius:20,
+        boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)', overflow:'hidden'
       }}>
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>
-            <tr style={{ background:'#F6F5FA' }}>
-              <th style={{ width:40, padding:'15px 10px 15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
+            <tr style={{ background:'#F0F4F8' }}>
+              <th style={{ width:40, padding:'15px 10px 15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                 <input
                   type="checkbox"
                   checked={filtered.length > 0 && selectedIds.size === filtered.length}
                   onChange={toggleSelectAll}
-                  style={{ accentColor:'#5B3FE0', cursor:'pointer', width:15, height:15 }}
+                  style={{ accentColor:'#3B82F6', cursor:'pointer', width:15, height:15 }}
                 />
               </th>
               {['User','Email','Role','Job Title','Status','Actions'].map((h) => (
                 <th key={h} style={{
                   textAlign:h==='Actions'?'right':'left', fontSize:10.5, textTransform:'uppercase',
-                  letterSpacing:'0.07em', color:'#4A4566', fontWeight:700, padding:'15px 18px',
-                  borderBottom:'1px solid rgba(24,20,51,0.08)'
+                  letterSpacing:'0.07em', color:'#475569', fontWeight:700, padding:'15px 18px',
+                  borderBottom:'1px solid rgba(10,17,40,0.08)'
                 }}>{h}</th>
               ))}
             </tr>
@@ -689,18 +689,18 @@ export default function OrgAdminUserManagementPage() {
               const g = gradPairs[i % gradPairs.length];
               return (
                 <tr key={u.id} style={{ transition:'background .12s ease' }}
-                  onMouseEnter={(e) => e.currentTarget.style.background='#FBFAFE'}
+                  onMouseEnter={(e) => e.currentTarget.style.background='#F0F7FF'}
                   onMouseLeave={(e) => e.currentTarget.style.background='transparent'}
                 >
-                  <td style={{ width:40, padding:'15px 10px 15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
+                  <td style={{ width:40, padding:'15px 10px 15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <input
                       type="checkbox"
                       checked={selectedIds.has(u.id)}
                       onChange={() => toggleSelect(u.id)}
-                      style={{ accentColor:'#5B3FE0', cursor:'pointer', width:15, height:15 }}
+                      style={{ accentColor:'#3B82F6', cursor:'pointer', width:15, height:15 }}
                     />
                   </td>
-                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <div style={{ display:'flex', alignItems:'center', gap:12 }}>
                       <div style={{
                         width:38, height:38, borderRadius:11, flexShrink:0,
@@ -711,38 +711,38 @@ export default function OrgAdminUserManagementPage() {
                         {initials(u.name)}
                       </div>
                       <div>
-                        <div style={{ fontWeight:600, fontSize:13.5, color:'#181433' }}>{u.name}</div>
-                        {u.displayId && <div style={{ fontSize:11, color:'#4A4566', marginTop:1 }}>{u.displayId}</div>}
+                        <div style={{ fontWeight:600, fontSize:13.5, color:'#0A1128' }}>{u.name}</div>
+                        {u.displayId && <div style={{ fontSize:11, color:'#475569', marginTop:1 }}>{u.displayId}</div>}
                       </div>
                     </div>
                   </td>
-                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:8, color:'#4A4566' }}>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
+                    <div style={{ display:'flex', alignItems:'center', gap:8, color:'#475569' }}>
                       <Mail size={14} />
                       {u.email}
                     </div>
                   </td>
-                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <span style={{
                       display:'inline-flex', alignItems:'center', padding:'5px 12px', borderRadius:100,
-                      fontSize:11.5, fontWeight:700, background:'#EDE9FE', color:'#5B3FE0'
+                      fontSize:11.5, fontWeight:700, background:'#DBEAFE', color:'#3B82F6'
                     }}>
                       {u.role}
                     </span>
                   </td>
-                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)', color:'#4A4566' }}>{u.title}</td>
-                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)', color:'#475569' }}>{u.title}</td>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <span style={{
                       display:'inline-flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:100,
                       fontSize:11.5, fontWeight:700,
-                      background:u.status==='Active'?'#DCF5F2':'#FBE6E4',
-                      color:u.status==='Active'?'#0F9B8E':'#D6473C'
+                      background:u.status==='Active'?'#D1FAE5':'#FEE2E2',
+                      color:u.status==='Active'?'#10B981':'#EF4444'
                     }}>
                       <span style={{ width:6, height:6, borderRadius:'50%', background:'currentColor' }} />
                       {u.status}
                     </span>
                   </td>
-                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(24,20,51,0.08)' }}>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
                       {[
                         { icon:Pencil, label:'Edit', cls:'edit', onClick:() => openEdit(u) },
@@ -759,20 +759,20 @@ export default function OrgAdminUserManagementPage() {
                           title={a.label}
                           style={{
                             width:32, height:32, borderRadius:9, display:'flex', alignItems:'center',
-                            justifyContent:'center', cursor:'pointer', color:'#4A4566',
+                            justifyContent:'center', cursor:'pointer', color:'#475569',
                             background:'transparent', border:'1px solid transparent',
                             transition:'.13s ease', fontSize:'inherit'
                           }}
                           onMouseEnter={(e) => {
-                            e.currentTarget.style.background='#F6F5FA';
-                            e.currentTarget.style.borderColor='rgba(24,20,51,0.08)';
-                            if (a.cls==='edit') e.currentTarget.style.color='#5B3FE0';
-                            if (a.cls==='del') { e.currentTarget.style.background='#FBE6E4'; e.currentTarget.style.color='#D6473C'; }
+                            e.currentTarget.style.background='#F0F4F8';
+                            e.currentTarget.style.borderColor='rgba(10,17,40,0.08)';
+                            if (a.cls==='edit') e.currentTarget.style.color='#3B82F6';
+                            if (a.cls==='del') { e.currentTarget.style.background='#FEE2E2'; e.currentTarget.style.color='#EF4444'; }
                           }}
                           onMouseLeave={(e) => {
                             e.currentTarget.style.background='transparent';
                             e.currentTarget.style.borderColor='transparent';
-                            e.currentTarget.style.color='#4A4566';
+                            e.currentTarget.style.color='#475569';
                           }}
                         >
                           <a.icon size={14} />
@@ -785,7 +785,7 @@ export default function OrgAdminUserManagementPage() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ padding:'15px 18px', textAlign:'center', fontSize:13.5, color:'#A7A2C0' }}>
+                <td colSpan={7} style={{ padding:'15px 18px', textAlign:'center', fontSize:13.5, color:'#94A3B8' }}>
                   No users match your filters.
                 </td>
               </tr>
@@ -794,16 +794,16 @@ export default function OrgAdminUserManagementPage() {
         </table>
         <div style={{
           display:'flex', alignItems:'center', justifyContent:'space-between', padding:'16px 18px',
-          borderTop:'1px solid rgba(24,20,51,0.08)', fontSize:12.5, color:'#4A4566'
+          borderTop:'1px solid rgba(10,17,40,0.08)', fontSize:12.5, color:'#475569'
         }}>
-          <div>Showing <b style={{ color:'#181433' }}>1–{filtered.length}</b> of <b style={{ color:'#181433' }}>{total}</b> users</div>
+          <div>Showing <b style={{ color:'#0A1128' }}>1–{filtered.length}</b> of <b style={{ color:'#0A1128' }}>{total}</b> users</div>
           <div style={{ display:'flex', gap:6 }}>
             {[1,2,3].map((p) => (
               <div key={p} style={{
-                width:32, height:32, borderRadius:8, border:'1px solid rgba(24,20,51,0.08)',
-                background:p===1?'#5B3FE0':'#fff', display:'flex', alignItems:'center',
+                width:32, height:32, borderRadius:8, border:'1px solid rgba(10,17,40,0.08)',
+                background:p===1?'#3B82F6':'#fff', display:'flex', alignItems:'center',
                 justifyContent:'center', fontSize:12.5, fontWeight:600, cursor:'pointer',
-                color:p===1?'#fff':'#4A4566'
+                color:p===1?'#fff':'#475569'
               }}>{p}</div>
             ))}
           </div>
@@ -827,7 +827,7 @@ export default function OrgAdminUserManagementPage() {
                 Upload an Excel or CSV file matching the{" "}
                 <button
                   onClick={handleDownloadTemplate}
-                  className="font-medium text-[#5B3FE0] hover:underline"
+                  className="font-medium text-[#3B82F6] hover:underline"
                 >
                   import template
                 </button>
@@ -845,14 +845,14 @@ export default function OrgAdminUserManagementPage() {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={importing}
-                className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 py-6 text-sm text-gray-500 hover:border-[#7A5CF0] hover:text-[#5B3FE0] disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-2 rounded-lg border-2 border-dashed border-gray-200 py-6 text-sm text-gray-500 hover:border-[#60A5FA] hover:text-[#3B82F6] disabled:opacity-50"
               >
                 <Upload className="h-4 w-4" />
                 {selectedFile ? selectedFile.name : "Choose an Excel or CSV file"}
               </button>
 
               {selectedFile && !importResult && !importing && (
-                <div className="mt-4 rounded-lg border border-[#EDE9FE] bg-[#EDE9FE] p-3 text-sm text-[#5B3FE0]">
+                <div className="mt-4 rounded-lg border border-[#DBEAFE] bg-[#DBEAFE] p-3 text-sm text-[#3B82F6]">
                   <span className="font-medium">{selectedFile.name}</span> selected
                 </div>
               )}
@@ -909,7 +909,7 @@ export default function OrgAdminUserManagementPage() {
                 <button
                   onClick={handleConfirmImport}
                   disabled={!selectedFile || importing}
-                  className="rounded-lg bg-[#5B3FE0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4C3AAE] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {importing ? "Importing..." : "Import"}
                 </button>
@@ -945,8 +945,8 @@ export default function OrgAdminUserManagementPage() {
                     type="text"
                     value={formData.first_name}
                     onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#EDE9FE] ${
-                      formErrors.first_name ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#7A5CF0]"
+                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
+                      formErrors.first_name ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
                     }`}
                     placeholder="John"
                   />
@@ -960,8 +960,8 @@ export default function OrgAdminUserManagementPage() {
                     type="text"
                     value={formData.last_name}
                     onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#EDE9FE] ${
-                      formErrors.last_name ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#7A5CF0]"
+                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
+                      formErrors.last_name ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
                     }`}
                     placeholder="Doe"
                   />
@@ -977,8 +977,8 @@ export default function OrgAdminUserManagementPage() {
                   type="email"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#EDE9FE] ${
-                    formErrors.email ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#7A5CF0]"
+                  className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
+                    formErrors.email ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
                   }`}
                   placeholder="john.doe@company.com"
                 />
@@ -994,8 +994,8 @@ export default function OrgAdminUserManagementPage() {
                     <select
                       value={formData.role}
                       onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                      className={`w-full appearance-none rounded-lg border px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#EDE9FE] ${
-                        formErrors.role ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#7A5CF0]"
+                      className={`w-full appearance-none rounded-lg border px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
+                        formErrors.role ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
                       }`}
                     >
                       <option value="employee">Employee</option>
@@ -1012,7 +1012,7 @@ export default function OrgAdminUserManagementPage() {
                     type="text"
                     value={formData.phone}
                     onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#7A5CF0] focus:outline-none focus:ring-2 focus:ring-[#EDE9FE]"
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]"
                     placeholder="+1-555-0100"
                   />
                 </div>
@@ -1024,7 +1024,7 @@ export default function OrgAdminUserManagementPage() {
                   type="text"
                   value={formData.job_title}
                   onChange={(e) => setFormData({ ...formData, job_title: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#7A5CF0] focus:outline-none focus:ring-2 focus:ring-[#EDE9FE]"
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]"
                   placeholder="Software Engineer"
                 />
               </div>
@@ -1040,7 +1040,7 @@ export default function OrgAdminUserManagementPage() {
                 <button
                   type="submit"
                   disabled={submitting}
-                  className="rounded-lg bg-[#5B3FE0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4C3AAE] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF] disabled:cursor-not-allowed disabled:opacity-40"
                 >
                   {submitting ? "Creating..." : "Create User"}
                 </button>
@@ -1080,7 +1080,7 @@ export default function OrgAdminUserManagementPage() {
             <div className="flex justify-end border-t border-gray-100 px-5 py-4">
               <button
                 onClick={() => { setCreatedPassword(null); setShowPassword(false); }}
-                className="rounded-lg bg-[#5B3FE0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4C3AAE]"
+                className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF]"
               >
                 Done
               </button>
@@ -1109,7 +1109,7 @@ export default function OrgAdminUserManagementPage() {
               <button
                 onClick={handleResetPassword}
                 disabled={resetting}
-                className="rounded-lg bg-[#5B3FE0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4C3AAE] disabled:cursor-not-allowed disabled:opacity-40"
+                className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 {resetting ? "Resetting..." : "Reset Password"}
               </button>
@@ -1161,13 +1161,13 @@ export default function OrgAdminUserManagementPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">First Name <span className="text-red-500">*</span></label>
                   <input type="text" value={editForm.first_name} onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#EDE9FE] ${editErrors.first_name ? "border-red-300" : "border-gray-200 focus:border-[#7A5CF0]"}`} />
+                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${editErrors.first_name ? "border-red-300" : "border-gray-200 focus:border-[#3B82F6]"}`} />
                   {editErrors.first_name && <p className="mt-1 text-xs text-red-500">{editErrors.first_name}</p>}
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Last Name <span className="text-red-500">*</span></label>
                   <input type="text" value={editForm.last_name} onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#EDE9FE] ${editErrors.last_name ? "border-red-300" : "border-gray-200 focus:border-[#7A5CF0]"}`} />
+                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${editErrors.last_name ? "border-red-300" : "border-gray-200 focus:border-[#3B82F6]"}`} />
                   {editErrors.last_name && <p className="mt-1 text-xs text-red-500">{editErrors.last_name}</p>}
                 </div>
               </div>
@@ -1176,7 +1176,7 @@ export default function OrgAdminUserManagementPage() {
                   <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
                   <div className="relative">
                       <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                        className="w-full appearance-none rounded-lg border border-gray-200 px-3 py-2.5 pr-10 text-sm focus:border-[#7A5CF0] focus:outline-none focus:ring-2 focus:ring-[#EDE9FE]">
+                        className="w-full appearance-none rounded-lg border border-gray-200 px-3 py-2.5 pr-10 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]">
                         <option value="employee">Employee</option>
                         <option value="admin">Admin</option>
                         <option value="hr_admin">HR Admin</option>
@@ -1187,19 +1187,19 @@ export default function OrgAdminUserManagementPage() {
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
                   <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#7A5CF0] focus:outline-none focus:ring-2 focus:ring-[#EDE9FE]" placeholder="+1-555-0100" />
+                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]" placeholder="+1-555-0100" />
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
                 <input type="text" value={editForm.job_title} onChange={(e) => setEditForm({ ...editForm, job_title: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#7A5CF0] focus:outline-none focus:ring-2 focus:ring-[#EDE9FE]" placeholder="Software Engineer" />
+                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]" placeholder="Software Engineer" />
               </div>
               <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
                 <button type="button" onClick={() => setEditModal(null)}
                   className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
                 <button type="submit" disabled={saving}
-                  className="rounded-lg bg-[#5B3FE0] px-4 py-2 text-sm font-semibold text-white hover:bg-[#4C3AAE] disabled:cursor-not-allowed disabled:opacity-40">
+                  className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF] disabled:cursor-not-allowed disabled:opacity-40">
                   {saving ? "Saving..." : "Save Changes"}
                 </button>
               </div>
