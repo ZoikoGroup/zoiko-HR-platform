@@ -292,9 +292,9 @@ export default function LeaveCalendar() {
       {showHolidayModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4">
           <div className="bg-white rounded-3xl shadow-2xl w-full max-w-md overflow-hidden">
-            <div className="bg-gradient-to-r from-teal-500 to-emerald-500 px-6 py-4 flex justify-between items-center text-white">
+            <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] px-6 py-4 flex justify-between items-center text-white">
               <h2 className="text-lg font-bold">Add Company Holiday</h2>
-              <button onClick={() => { setShowHolidayModal(false); setHolidayError(null); }} className="text-teal-50 hover:text-white transition-colors text-2xl leading-none">&times;</button>
+              <button onClick={() => { setShowHolidayModal(false); setHolidayError(null); }} className="text-blue-100 hover:text-white transition-colors text-2xl leading-none">&times;</button>
             </div>
             <form onSubmit={handleAddHoliday} className="p-6 space-y-5">
               {holidayError && <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-xl flex items-center gap-2"><AlertCircle className="w-4 h-4" />{holidayError}</div>}

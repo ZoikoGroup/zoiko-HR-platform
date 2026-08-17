@@ -149,7 +149,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
   );
 
   return (
-    <div className="min-h-screen bg-[#F5F4FB] p-4 font-sans">
+    <div className="min-h-screen bg-[#F0F4F8] p-4 font-sans">
       <PageHeader
         title="Employee Documents"
         description="Upload and manage payslips, contracts, tax & compliance documents for employees"
