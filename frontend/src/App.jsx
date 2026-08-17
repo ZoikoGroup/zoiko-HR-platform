@@ -194,7 +194,8 @@ const ZoikoConnectPageModule = lazy(() => import("./modules/shared-layers/ZoikoC
 const DocumentsPage = lazy(() => import("./modules/shared-layers/DocumentsPage"));
 const ApprovalsPage = lazy(() => import("./modules/shared-layers/ApprovalsPage"));
 const ExpensesPage = lazy(() => import("./modules/shared-layers/ExpensesPage"));
-const AiAssistancePage = lazy(() => import("./modules/shared-layers/AiAssistancePage"));
+const AdminKnowledgePage = lazy(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
+const AssistantLauncher = lazy(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
 const UserManagementPage = lazy(() => import("./modules/settings/UserManagementPage"));
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -246,7 +247,6 @@ const routeOverrides = {
   "/shared/documents": <DocumentsPage />,
   "/shared/approvals": <ApprovalsPage />,
   "/shared/expenses": <ExpensesPage />,
-  "/shared/ai-assistance": <AiAssistancePage />,
   "/zoiko-hr": <ZoikoHRModule />,
   // Departments
   "/zoiko-hr/departments": <ZoikoHRDepartmentsDashboard />,
@@ -375,6 +375,7 @@ const routeOverrides = {
   "/hr-admin/documents": <DocumentsDashboard />,
   "/hr-admin/reports": <ZoikoHRReports />,
   "/hr-admin/settings": <UserManagementPage />,
+  "/hr-admin/assistant-knowledge": <AdminKnowledgePage />,
   // Super Admin
   "/super-admin/dashboard": <SuperAdminDashboardPage />,
   "/super-admin/organizations": <SuperAdminOrganizationsPage />,
@@ -501,6 +502,9 @@ export default function App() {
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
+      </Suspense>
+      <Suspense fallback={null}>
+        <AssistantLauncher />
       </Suspense>
     </>
   );

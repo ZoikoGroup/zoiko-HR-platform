@@ -23,3 +23,8 @@ openpyxl
 email-validator
 psycopg2-binary
 certifi>=2024.2.2
+
+# ── Assistant (HR chatbot) ────────────────────────────────────────────────
+groq>=0.11.0
+fastembed>=0.3.6
+pgvector>=0.3.4

@@ -77,5 +77,12 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "Info@zoikoone.com"
     SMTP_USE_TLS: str = "true"
 
+    # ── Assistant / LLM (app/modules/assistant) ─────────────────────────────
+    # Groq is the chat-completion provider (llm_client.py); embeddings are a
+    # separate local model (embeddings.py) since Groq has no embeddings API.
+    GROQ_API_KEY: str = Field(default="", validation_alias="HR_GROQ_API_KEY")
+    GROQ_MODEL: str = Field(default="llama-3.3-70b-versatile", validation_alias="HR_GROQ_MODEL")
+    EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
+
 
 settings = Settings()

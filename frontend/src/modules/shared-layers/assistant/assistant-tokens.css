@@ -1,0 +1,67 @@
+/*
+  Assistant design tokens (UI/UX Figma spec, Section 5 — "Figma variables
+  must use semantic aliases... product frames should not hard-code raw
+  color values where a semantic token exists").
+
+  Values alias the existing Zoiko HR visual language (the #FF7A00 accent
+  and slate/amber/emerald/rose palette already used across the app) rather
+  than introducing a new visual identity — the spec explicitly says the
+  chatbot must inherit the host design system, not fork it. Components
+  reference --zhr-* variables (via Tailwind arbitrary-value classes) so the
+  palette can be retuned centrally without touching component markup.
+*/
+
+:root {
+  /* Surface */
+  --zhr-surface-canvas: #ffffff;
+  --zhr-surface-panel: #f8fafc;   /* slate-50 */
+  --zhr-surface-overlay: #ffffff;
+  --zhr-surface-elevated: #ffffff;
+
+  /* Text */
+  --zhr-text-primary: #1e293b;    /* slate-800 */
+  --zhr-text-secondary: #475569;  /* slate-600 */
+  --zhr-text-muted: #94a3b8;      /* slate-400 */
+  --zhr-text-inverse: #ffffff;
+  --zhr-text-danger: #dc2626;     /* red-600 */
+
+  /* Border */
+  --zhr-border-default: #e2e8f0;  /* slate-200 */
+  --zhr-border-strong: #cbd5e1;   /* slate-300 */
+  --zhr-border-focus: #ff7a00;
+  --zhr-border-danger: #fca5a5;   /* red-300 */
+
+  /* Action */
+  --zhr-action-primary: #ff7a00;
+  --zhr-action-primary-hover: #e56e00;
+  --zhr-action-secondary: #f1f5f9; /* slate-100 */
+  --zhr-action-destructive: #dc2626;
+  --zhr-action-disabled: #cbd5e1;
+
+  /* Evidence states (WF-05/13, Section 13) */
+  --zhr-evidence-grounded-bg: #f8fafc;
+  --zhr-evidence-grounded-border: #f1f5f9;
+  --zhr-evidence-grounded-text: #1e293b;
+  --zhr-evidence-partial-bg: #fffbeb;   /* amber-50 */
+  --zhr-evidence-partial-border: #fef3c7;
+  --zhr-evidence-partial-text: #92400e; /* amber-800 */
+  --zhr-evidence-conflict-bg: #fffbeb;
+  --zhr-evidence-conflict-border: #fef3c7;
+  --zhr-evidence-conflict-text: #b45309; /* amber-700 */
+  --zhr-evidence-unavailable-bg: #f1f5f9;
+  --zhr-evidence-unavailable-border: #e2e8f0;
+  --zhr-evidence-unavailable-text: #334155; /* slate-700 */
+
+  /* Elevation */
+  --zhr-elevation-panel: 0 20px 40px -12px rgba(15, 23, 42, 0.18);
+  --zhr-elevation-modal: 0 24px 48px -12px rgba(15, 23, 42, 0.28);
+
+  /* Radius */
+  --zhr-radius-control: 9999px;
+  --zhr-radius-card: 1rem;
+  --zhr-radius-panel: 1.5rem;
+
+  /* Size */
+  --zhr-panel-width: 420px;
+  --zhr-control-min-target: 44px;
+}

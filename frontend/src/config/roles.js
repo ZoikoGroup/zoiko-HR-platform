@@ -94,6 +94,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
+    "/shared/",
   ],
 
   // HR Admin – Zoiko HR product + dedicated /hr-admin routes + shared product access
