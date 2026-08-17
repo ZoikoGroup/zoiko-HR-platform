@@ -6,11 +6,11 @@ import Footer from "../../landing/Footer";
 // ─── Color tokens ─────────────────────────────────────────────────────────────
 const BG          = "#E8E9EE";   // warm silver-grey page bg
 const BLUE_DARK   = "#192660";   // deep navy headings
-const BLUE_ACCENT = "#2040CC";   // royal blue eyebrows / links
-const BLUE_MID    = "#2B4ACB";   // mid blue icon boxes
-const BLUE_DEEP   = "#172158";   // darkest navy
-const BLUE_CARD   = "#1E3AB8";   // resource card blue bg
-const ORANGE      = "#E07B2A";   // orange CTAs / accents
+const BLUE_ACCENT = "#3B82F6";   // royal blue eyebrows / links
+const BLUE_MID    = "#3B82F6";   // mid blue icon boxes
+const BLUE_DEEP   = "#0A1128";   // darkest navy
+const BLUE_CARD   = "#0A1128";   // resource card blue bg
+const ORANGE      = "#3B82F6";   // orange CTAs / accents
 const TEXT_MID    = "#3D4A6B";   // body text
 const TEXT_MUTED  = "#6B7280";   // muted
 const BORDER      = "#D8DAE5";   // card borders
@@ -22,7 +22,7 @@ const wrap = { padding: "80px 6vw", background: BG, fontFamily: FF };
 function Badge({ label, tag = "Resources" }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "6px 16px", marginBottom: 28, fontSize: 14, fontWeight: 500, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-      <span style={{ background: "#3B5BDB", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
+      <span style={{ background: "#3B82F6", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>{tag}</span>
       <span style={{ color: "#555" }}>{label}</span>
     </div>
   );
@@ -73,22 +73,22 @@ function HeroSection() {
       padding: "80px 24px",
       overflow: "hidden",
       backgroundColor: "#f5f4f2",
-      background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+      background: "linear-gradient(120deg, rgba(16,185,129,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
     }}>
       <div style={{
         position: "absolute", inset: 0,
-        background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+        background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
         pointerEvents: "none",
       }} />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 1100 }}>
         <Badge label="An enablement center, not a blog" />
         <h1 style={{
           fontSize: "clamp(32px,5vw,56px)", fontWeight: 800,
-          lineHeight: 1.1, color: "#0B1C3F",
+          lineHeight: 1.1, color: "#0A1128",
           margin: "0 auto 20px", maxWidth: "1000px",
         }}>
           Resources to help you understand,<br />
-          implement, and <span style={{ color: "#E8850A" }}>scale Zoiko One.</span>
+          implement, and <span style={{ color: "#10B981" }}>scale Zoiko One.</span>
         </h1>
         <p style={{
           fontSize: "16px", lineHeight: 1.7, color: "#4B5563",
@@ -99,7 +99,7 @@ function HeroSection() {
         </p>
         <div style={{ display: "flex", gap: "14px", justifyContent: "center", flexWrap: "wrap", marginTop: "28px" }}>
           <button style={{
-            background: "linear-gradient(135deg, #E07B2A, #c9651a)",
+            background: "linear-gradient(135deg, #3B82F6, #2563EB)",
             color: "#fff", border: "none", borderRadius: 999,
             padding: "14px 32px", fontSize: 16, fontWeight: 600, cursor: "pointer",
           }}>Explore Resources →</button>
@@ -148,7 +148,7 @@ const sixWays = [
     link: "View Developer Resources →",
   },
   {
-    emoji: "💬", bg: "#3BADD4",
+    emoji: "💬", bg: "#10B981",
     title: "Get Help",
     desc: "Support articles, FAQs, setup guidance and user assistance.",
     link: "Visit Help Center →",
@@ -186,7 +186,7 @@ function SixWays() {
 // ─── 3. FEATURED RESOURCES (3×2 card grid) ───────────────────────────────────
 const featured = [
   {
-    thumbBg: "linear-gradient(135deg, #1E3AB8 0%, #2B4ACB 100%)",
+    thumbBg: "linear-gradient(135deg, #0A1128 0%, #3B82F6 100%)",
     thumbEmoji: "📕",
     tag: "GUIDE", tagColor: ORANGE,
     title: "The Zoiko One Buyer Guide",
@@ -194,7 +194,7 @@ const featured = [
     link: "Read Buyer Guide →",
   },
   {
-    thumbBg: `linear-gradient(135deg, ${ORANGE} 0%, #f0952e 100%)`,
+    thumbBg: `linear-gradient(135deg, ${ORANGE} 0%, #2563EB 100%)`,
     thumbEmoji: "🎯",
     tag: "INTERACTIVE TOOL", tagColor: ORANGE,
     title: "Product Fit Quiz",
@@ -202,7 +202,7 @@ const featured = [
     link: "Find My Product Fit →",
   },
   {
-    thumbBg: "linear-gradient(135deg, #2B4ACB 0%, #1a7ae0 100%)",
+    thumbBg: "linear-gradient(135deg, #3B82F6 0%, #2563EB 100%)",
     thumbEmoji: "✅",
     tag: "CHECKLIST", tagColor: ORANGE,
     title: "Implementation Readiness Checklist",
@@ -210,7 +210,7 @@ const featured = [
     link: "Download Checklist →",
   },
   {
-    thumbBg: "linear-gradient(135deg, #1E3AB8 0%, #2B4ACB 100%)",
+    thumbBg: "linear-gradient(135deg, #0A1128 0%, #3B82F6 100%)",
     thumbEmoji: "⇄",
     tag: "PLAYBOOK", tagColor: ORANGE,
     title: "Workflow Playbook: HR to Payroll",
@@ -218,7 +218,7 @@ const featured = [
     link: "View Playbook →",
   },
   {
-    thumbBg: "linear-gradient(135deg, #3BADD4 0%, #2B8ECC 100%)",
+    thumbBg: "linear-gradient(135deg, #10B981 0%, #059669 100%)",
     thumbEmoji: "💰",
     tag: "PLAYBOOK", tagColor: ORANGE,
     title: "Workflow Playbook: Project to Cash",
@@ -226,7 +226,7 @@ const featured = [
     link: "View Playbook →",
   },
   {
-    thumbBg: "linear-gradient(135deg, #172158 0%, #1E3AB8 100%)",
+    thumbBg: "linear-gradient(135deg, #0A1128 0%, #111A33 100%)",
     thumbEmoji: "🛡",
     tag: "TRUST RESOURCE", tagColor: ORANGE,
     title: "Trust Center Overview",
@@ -344,10 +344,10 @@ function LearnZoikoOne() {
 const products = [
   { bg: BLUE_MID,   emoji: "👥", name: "Zoiko HR",       tags: "Records · onboarding · documents" },
   { bg: BLUE_MID,   emoji: "⏱",  name: "ZoikoTime",      tags: "Time · attendance · timesheets" },
-  { bg: "#3BADD4",  emoji: "$",   name: "Zoiko Payroll",  tags: "Pay runs · payslips · evidence" },
+  { bg: "#10B981",  emoji: "$",   name: "Zoiko Payroll",  tags: "Pay runs · payslips · evidence" },
   { bg: ORANGE,     emoji: "▣",  name: "Zoiko Billing",  tags: "Invoices · subscriptions · revenue" },
   { bg: ORANGE,     emoji: "—",  name: "Zoiko Spend",    tags: "POs · supplier invoices · AP" },
-  { bg: "#3BADD4",  emoji: "⊞",  name: "Zoiko Projects", tags: "Budgets · margins · delivery" },
+  { bg: "#10B981",  emoji: "⊞",  name: "Zoiko Projects", tags: "Budgets · margins · delivery" },
   { bg: BLUE_ACCENT,emoji: "◉",  name: "Zoiko Inventory",tags: "Stock · receiving · valuation" },
   { bg: BLUE_DEEP,  emoji: "✓",  name: "Zoiko Comply",   tags: "Controls · evidence · audits" },
   { bg: BLUE_DEEP,  emoji: "📊", name: "Zoiko Insights", tags: "Dashboards · risk · forecasts" },
@@ -402,10 +402,10 @@ function BottomCTA() {
   return (
     <section style={{ ...wrap, paddingTop: "20px", paddingBottom: "80px" }}>
       <div style={{
-        background: "linear-gradient(130deg, #2a3db5 0%, #2348d4 45%, #1a7ae0 100%)",
+        background: "linear-gradient(130deg, #0A1128 0%, #111A33 100%)",
         borderRadius: "24px", padding: "64px 48px",
         textAlign: "center",
-        boxShadow: "0 16px 48px rgba(32,64,204,0.35)",
+        boxShadow: "0 16px 48px rgba(10,17,40,0.35)",
         position: "relative", overflow: "hidden",
       }}>
         {/* Decorative concentric wave lines — pure CSS */}
@@ -440,7 +440,7 @@ function BottomCTA() {
               padding: "14px 28px", borderRadius: "50px", border: "none",
               background: ORANGE, color: "white", fontSize: "15px",
               fontWeight: "700", cursor: "pointer", fontFamily: FF,
-              boxShadow: "0 6px 20px rgba(224,123,42,0.5)",
+              boxShadow: "0 6px 20px rgba(59,130,246,0.5)",
             }}>Get a Demo</button>
             <button style={ghostBtnWhite}>Find My Product Fit</button>
             <button style={ghostBtnWhite}>Request Pricing</button>

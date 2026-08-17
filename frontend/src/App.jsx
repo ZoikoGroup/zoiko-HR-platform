@@ -13,7 +13,7 @@ function PagePlaceholderFallback({ title, path, badge }) {
       </div>
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <p className="text-sm text-slate-600">Route: <span className="font-semibold text-slate-800">{path ?? "unknown"}</span></p>
-        {badge && <p className="mt-2 text-sm text-slate-600">Badge: <span className="font-semibold text-[#FF7A00]">{badge}</span></p>}
+        {badge && <p className="mt-2 text-sm text-slate-600">Badge: <span className="font-semibold text-[#3B82F6]">{badge}</span></p>}
         <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-500">
           Module page ready for implementation.
         </div>
@@ -25,7 +25,7 @@ function PagePlaceholderFallback({ title, path, badge }) {
 function ModuleSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#FF7A00]" />
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#3B82F6]" />
     </div>
   );
 }
@@ -131,7 +131,6 @@ const AssetReports = lazy(() => import("./modules/zoiko-hr/assets/reports"));
 const AssetSettings = lazy(() => import("./modules/zoiko-hr/assets/settings"));
 
 const DocumentsDashboard = lazy(() => import("./modules/zoiko-hr/documents/dashboard.jsx"));
-const EmployeeDocuments = lazy(() => import("./modules/zoiko-hr/documents/employee-documents.jsx"));
 const CompanyDocuments = lazy(() => import("./modules/zoiko-hr/documents/company-documents.jsx"));
 const ApprovalWorkflow = lazy(() => import("./modules/zoiko-hr/documents/approvals.jsx"));
 
@@ -182,6 +181,9 @@ const SuperAdminAuditLogsPage = lazy(() => import("./modules/super-admin/AuditLo
 const SuperAdminPlatformSettingsPage = lazy(() => import("./modules/super-admin/PlatformSettingsPage"));
 const NotificationCenter = lazy(() => import("./modules/super-admin/NotificationCenter"));
 const OrganizationDetailPage = lazy(() => import("./modules/super-admin/OrganizationDetailPage"));
+const SuperAdminBillingOverviewPage = lazy(() => import("./modules/super-admin/BillingOverviewPage"));
+const SuperAdminBillingPlansPage = lazy(() => import("./modules/super-admin/BillingPlansPage"));
+const SuperAdminBillingDiscountsPage = lazy(() => import("./modules/super-admin/BillingDiscountsPage"));
 
 const DashboardPage = lazy(() => import("./modules/platform/DashboardPage"));
 const OrganizationsPage = lazy(() => import("./modules/platform/OrganizationsPage"));
@@ -339,7 +341,6 @@ const routeOverrides = {
   "/zoiko-hr/performance/analytics": <PerformanceAnalytics />,
   // Documents
   "/zoiko-hr/documents": <DocumentsDashboard />,
-  "/zoiko-hr/documents/employee-documents": <EmployeeDocuments />,
   "/zoiko-hr/documents/company-documents": <CompanyDocuments />,
   "/zoiko-hr/documents/approvals": <ApprovalWorkflow />,
   "/zoiko-hr/documents/employee-upload": <OrgAdminEmployeeDocumentsPage />,
@@ -382,6 +383,11 @@ const routeOverrides = {
   "/super-admin/audit-logs": <SuperAdminAuditLogsPage />,
   "/super-admin/settings": <SuperAdminPlatformSettingsPage />,
   "/super-admin/notifications": <NotificationCenter />,
+
+  // Super Admin — Billing & Subscription
+  "/super-admin/billing": <SuperAdminBillingOverviewPage />,
+  "/super-admin/billing/plans": <SuperAdminBillingPlansPage />,
+  "/super-admin/billing/discounts": <SuperAdminBillingDiscountsPage />,
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMPLOYEE WORKSPACE — /employee/* routes (role: employee only)

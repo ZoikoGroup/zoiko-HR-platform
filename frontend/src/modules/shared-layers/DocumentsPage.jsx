@@ -72,7 +72,7 @@ export default function DocumentsPage() {
         title="Documents" 
         description="Access and manage files, HR handbooks, corporate guidelines, and secure document vaults."
         action={
-          <button className="flex items-center gap-2 rounded-full bg-[#FF7A00] hover:bg-[#e56e00] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(255,122,0,0.3)]">
+          <button className="flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(59,130,246,0.3)]">
             <Plus className="h-4 w-4" /> Add Document
           </button>
         }
@@ -83,14 +83,14 @@ export default function DocumentsPage() {
         <div className="lg:col-span-2 rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-2">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <FolderOpen className="h-5 w-5 text-[#FF7A00]" /> Document Repository
+              <FolderOpen className="h-5 w-5 text-[#3B82F6]" /> Document Repository
             </h3>
             <div className="relative max-w-xs w-full">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
               <input 
                 type="text" 
                 placeholder="Filter files..." 
-                className="w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-4 text-xs text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#FF7A00]"
+                className="w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-4 text-xs text-slate-800 placeholder-slate-400 outline-none focus:bg-white focus:border-[#3B82F6]"
               />
             </div>
           </div>
@@ -138,7 +138,7 @@ export default function DocumentsPage() {
                       <td className="py-4 px-4 text-slate-500">{doc.updated}</td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-1">
-                          <button onClick={() => handleDownload(doc.id)} className="p-1 text-slate-400 hover:text-[#FF7A00] transition" aria-label="Download document">
+                          <button onClick={() => handleDownload(doc.id)} className="p-1 text-slate-400 hover:text-[#3B82F6] transition" aria-label="Download document">
                             <Download className="h-4 w-4" />
                           </button>
                           <button onClick={() => handleDelete(doc.id)} className="p-1 text-slate-400 hover:text-red-500 transition" aria-label="Delete document">
@@ -160,7 +160,7 @@ export default function DocumentsPage() {
             <h3 className="text-lg font-bold text-slate-800 mb-4">Upload Box</h3>
             <p className="text-xs text-slate-500 mb-5 leading-relaxed">Drag and drop file documents, handbooks, reports, or invoices to securely upload them.</p>
             <input type="file" id="file-upload" className="hidden" onChange={handleUpload} disabled={uploading} />
-            <label htmlFor="file-upload" className="border-2 border-dashed border-slate-200 hover:border-[#FF7A00]/50 rounded-2xl p-8 flex flex-col items-center justify-center bg-slate-50/50 cursor-pointer transition">
+            <label htmlFor="file-upload" className="border-2 border-dashed border-slate-200 hover:border-[#3B82F6]/50 rounded-2xl p-8 flex flex-col items-center justify-center bg-slate-50/50 cursor-pointer transition">
               <UploadCloud className="h-10 w-10 text-slate-400 mb-3" />
               <p className="text-xs font-bold text-slate-700">Click to upload file</p>
               <p className="text-[10px] text-slate-400 mt-1">PDF, DOCX, XLSX, SQL (Max 20MB)</p>

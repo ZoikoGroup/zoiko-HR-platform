@@ -3,14 +3,17 @@ import { useParams, useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import {
   AlertTriangle, Building, Calendar, ChevronLeft, FileText, ShieldAlert,
-  Activity, Users, CheckCircle, XCircle,
+  Activity, Users, CheckCircle, XCircle, CreditCard, ArrowUpRight, ArrowDownRight, X,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import { billingService } from "../../service/billingService";
+import { useAuth } from "../../context/AuthContext";
+import { ROLES } from "../../config/roles";
 
 const STATUS_BADGE = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
   suspended: "bg-slate-50 text-slate-700 border-slate-200",
-  deactivated: "bg-purple-50 text-purple-700 border-purple-200",
+  deactivated: "bg-blue-50 text-blue-700 border-blue-200",
   rejected: "bg-red-50 text-red-700 border-red-200",
   on_hold: "bg-amber-50 text-amber-700 border-amber-200",
 };
@@ -26,6 +29,8 @@ function StatusBadge({ status }) {
 export default function OrganizationDetailPage() {
   const { orgId } = useParams();
   const navigate = useNavigate();
+  const { role } = useAuth();
+  const isSuperAdmin = role === ROLES.SUPER_ADMIN;
   const [org, setOrg] = useState(null);
   const [auditLogs, setAuditLogs] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -33,6 +38,10 @@ export default function OrganizationDetailPage() {
   const [actionLoading, setActionLoading] = useState(null);
   const [statusModal, setStatusModal] = useState(null);
   const [statusReason, setStatusReason] = useState("");
+  const [subscription, setSubscription] = useState(null);
+  const [evaluations, setEvaluations] = useState([]);
+  const [conversions, setConversions] = useState([]);
+  const [billingLoading, setBillingLoading] = useState(true);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -44,6 +53,26 @@ export default function OrganizationDetailPage() {
         const auditData = await superAdminService.getAuditLogs({ page_size: 20 });
         setAuditLogs(auditData.logs || []);
       } catch { setAuditLogs([]); }
+
+      // Load billing data
+      setBillingLoading(true);
+      try {
+        const [subData, evalData, convData] = await Promise.all([
+          billingService.getSubscription(orgId),
+          billingService.getEvaluations(orgId).catch(() => ({ list: [] })),
+          billingService.getConversions(orgId).catch(() => ({ list: [] })),
+        ]);
+        setSubscription(subData);
+        setEvaluations(evalData.list || []);
+        setConversions(convData.list || []);
+      } catch {
+        // Billing endpoints may not have data yet — that's ok
+        setSubscription(null);
+        setEvaluations([]);
+        setConversions([]);
+      } finally {
+        setBillingLoading(false);
+      }
     } catch (e) {
       console.error("Failed to load org details", e);
       setError(e.message || "Failed to load organization details.");
@@ -84,7 +113,7 @@ export default function OrganizationDetailPage() {
       <div className="space-y-6 font-sans">
         <PageHeader title="Organization Details" description="Loading..." />
         <div className="flex items-center justify-center py-20 text-slate-400">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#FF7A00] border-t-transparent" />
+          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
         </div>
       </div>
     );
@@ -124,8 +153,8 @@ export default function OrganizationDetailPage() {
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <div className="h-16 w-16 bg-[#FF7A00]/10 rounded-2xl flex items-center justify-center">
-                  <Building className="h-8 w-8 text-[#FF7A00]" />
+                <div className="h-16 w-16 bg-[#3B82F6]/10 rounded-2xl flex items-center justify-center">
+                  <Building className="h-8 w-8 text-[#3B82F6]" />
                 </div>
                 <div>
                   <h2 className="text-xl font-bold text-slate-800">{org.name}</h2>
@@ -149,7 +178,7 @@ export default function OrganizationDetailPage() {
                   setStatusModal({ status: target, label: option.label });
                   setStatusReason("");
                 }}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-[#FF7A00] cursor-pointer"
+                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-[#3B82F6] cursor-pointer"
               >
                 <option value="">Change status...</option>
                 {statusOptions.map((o) => (
@@ -182,7 +211,7 @@ export default function OrganizationDetailPage() {
             <h3 className="text-lg font-bold text-slate-800 mb-4">Organization Profile</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-sm">
               <div><span className="text-slate-400 block text-xs">Name</span><span className="font-semibold text-slate-700">{org.name}</span></div>
-              <div><span className="text-slate-400 block text-xs">Organization Code</span><span className="font-mono text-xs font-semibold text-[#FF7A00]">{org.organization_code || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Organization Code</span><span className="font-mono text-xs font-semibold text-[#3B82F6]">{org.organization_code || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Status</span><StatusBadge status={org.status} /></div>
               <div><span className="text-slate-400 block text-xs">Admin Contact</span><span className="font-semibold text-slate-700">{org.admin_name || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Admin Email</span><span className="font-semibold text-slate-700">{org.admin_email || "—"}</span></div>
@@ -195,6 +224,99 @@ export default function OrganizationDetailPage() {
               <div><span className="text-slate-400 block text-xs">Domain</span><span className="font-semibold text-slate-700">{org.domain || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Created At</span><span className="font-semibold text-slate-700">{org.created_at ? new Date(org.created_at).toLocaleString() : "—"}</span></div>
             </div>
+          </div>
+
+          {/* Billing Section */}
+          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
+            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-[#3B82F6]" />
+              Billing & Subscription
+            </h3>
+            {billingLoading ? (
+              <div className="text-center py-6 text-slate-400 text-sm">Loading billing data...</div>
+            ) : !subscription ? (
+              <div className="text-center py-6 text-slate-400 text-sm">No billing data available</div>
+            ) : (
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                    <p className="text-xs text-slate-400">Classification</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1 capitalize">{subscription.billing_classification || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                    <p className="text-xs text-slate-400">Status</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1 capitalize">{subscription.status || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                    <p className="text-xs text-slate-400">Plan</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{subscription.plan_code?.toUpperCase() || "—"}</p>
+                  </div>
+                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                    <p className="text-xs text-slate-400">Workforce</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{subscription.quantity ?? "—"}</p>
+                  </div>
+                </div>
+
+                {subscription.billing_cycle && (
+                  <div className="text-xs text-slate-500">
+                    Billing cycle: <span className="font-semibold">{subscription.billing_cycle}</span>
+                    {subscription.renewal_anchor_date && <> · Renewal: <span className="font-semibold">{new Date(subscription.renewal_anchor_date).toLocaleDateString()}</span></>}
+                  </div>
+                )}
+
+                {isSuperAdmin && (subscription.status === "active" || subscription.status === "evaluation") && (
+                  <div className="flex gap-2 pt-2">
+                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold border border-blue-100 hover:bg-blue-100 transition">
+                      <ArrowUpRight className="h-3 w-3" /> Upgrade
+                    </button>
+                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-amber-50 text-amber-600 text-xs font-semibold border border-amber-100 hover:bg-amber-100 transition">
+                      <ArrowDownRight className="h-3 w-3" /> Downgrade
+                    </button>
+                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-xs font-semibold border border-red-100 hover:bg-red-100 transition">
+                      <X className="h-3 w-3" /> Cancel
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Evaluations */}
+            {evaluations.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <h4 className="text-sm font-bold text-slate-700 mb-2">Evaluations</h4>
+                <div className="space-y-2">
+                  {evaluations.map((ev) => (
+                    <div key={ev.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-sm">
+                      <div>
+                        <span className="font-semibold text-slate-700">Status: {ev.status}</span>
+                        <span className="ml-2 text-xs text-slate-400">· Ends: {new Date(ev.evaluation_ends_at).toLocaleDateString()}</span>
+                      </div>
+                      <span className="text-xs text-slate-400">{ev.data_classification}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Conversion History */}
+            {conversions.length > 0 && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <h4 className="text-sm font-bold text-slate-700 mb-2">Conversion History</h4>
+                <div className="space-y-2">
+                  {conversions.map((c) => (
+                    <div key={c.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-sm">
+                      <div>
+                        <span className="font-semibold text-slate-700">Catalog v{c.catalog_version}</span>
+                        <span className="ml-2 text-xs text-slate-400">· {c.quantity_basis}</span>
+                      </div>
+                      <div className="text-xs text-slate-400">
+                        {new Date(c.commercial_effective_at).toLocaleDateString()} · {c.approver}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
@@ -227,8 +349,8 @@ export default function OrganizationDetailPage() {
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-[#FF7A00]/10 flex items-center justify-center">
-                <ShieldAlert className="h-5 w-5 text-[#FF7A00]" />
+              <div className="h-10 w-10 rounded-full bg-[#3B82F6]/10 flex items-center justify-center">
+                <ShieldAlert className="h-5 w-5 text-[#3B82F6]" />
               </div>
               <h3 className="text-lg font-bold text-slate-800">Change Organization Status</h3>
             </div>
@@ -240,13 +362,13 @@ export default function OrganizationDetailPage() {
               value={statusReason}
               onChange={(e) => setStatusReason(e.target.value)}
               placeholder="Optional reason for this status change..."
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00] min-h-[80px] resize-y"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] min-h-[80px] resize-y"
             />
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => setStatusModal(null)}
                 className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
               <button onClick={handleStatusChange} disabled={actionLoading === "status"}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#FF7A00] text-white text-sm font-semibold hover:bg-[#E66E00] disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB] disabled:opacity-50">
                 {actionLoading === "status" ? "Updating..." : `Change to ${statusModal.label}`}
               </button>
             </div>

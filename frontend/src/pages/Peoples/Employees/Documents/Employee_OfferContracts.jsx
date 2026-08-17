@@ -5,7 +5,7 @@ import { API_BASE_URL } from "../../../../service/api";
 import { Download, Check, X, Clock, AlertCircle, MessageSquare } from "lucide-react";
 
 const typeColor = {
-  Offer: { color: "#4F46E5", bg: "#EEF2FF" },
+  Offer: { color: "#3B82F6", bg: "#EFF6FF" },
   Contract: { color: "#059669", bg: "#ECFDF5" },
   Legal: { color: "#DC2626", bg: "#FEF2F2" },
   Appraisal: { color: "#D97706", bg: "#FFFBEB" },
@@ -111,7 +111,7 @@ export default function OfferContracts() {
             <div className="text-center py-12 text-gray-500 dark:text-[#94a3b8]">No offer/contracts found.</div>
           ) : (
             items.map((d) => {
-              const colors = typeColor[d.type] || { color: "#4F46E5", bg: "#EEF2FF" };
+              const colors = typeColor[d.type] || { color: "#3B82F6", bg: "#EEF2FF" };
               const raw = d.raw || {};
               const statusMeta = STATUS_META[raw.status];
               const url = getDownloadUrl(raw);

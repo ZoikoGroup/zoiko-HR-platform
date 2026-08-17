@@ -21,7 +21,7 @@ const ALL_ROLE_OPTIONS = [
 ];
 
 const ROLE_BADGES = {
-  admin: "bg-purple-100 text-purple-800 ring-purple-200",
+  admin: "bg-blue-100 text-blue-800 ring-blue-200",
   hr_admin: "bg-blue-100 text-blue-800 ring-blue-200",
   employee: "bg-green-100 text-green-800 ring-green-200",
 };
@@ -360,11 +360,11 @@ export default function UserManagementPage() {
   };
 
   const stats = isSuperAdmin ? [
-    { label: "Total Org Admins", value: total, color: "text-indigo-600", bg: "bg-indigo-50", icon: Users },
+    { label: "Total Org Admins", value: total, color: "text-blue-600", bg: "bg-blue-50", icon: Users },
     { label: "Active", value: users.filter((u) => u.is_active !== false).length, color: "text-emerald-600", bg: "bg-emerald-50", icon: UserCheck },
     { label: "Inactive", value: users.filter((u) => u.is_active === false).length, color: "text-red-500", bg: "bg-red-50", icon: UserX },
   ] : [
-    { label: "Total Users", value: users.length, color: "text-indigo-600", bg: "bg-indigo-50", icon: Users },
+    { label: "Total Users", value: users.length, color: "text-blue-600", bg: "bg-blue-50", icon: Users },
     { label: "Active", value: users.filter((u) => u.is_active !== false).length, color: "text-emerald-600", bg: "bg-emerald-50", icon: UserCheck },
     { label: "Inactive", value: users.filter((u) => u.is_active === false).length, color: "text-red-500", bg: "bg-red-50", icon: UserX },
   ];
@@ -534,7 +534,7 @@ export default function UserManagementPage() {
                         <tr key={u.id} className="hover:bg-gray-50/50 transition-colors group">
                           <td className="px-5 py-4">
                             <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-xl flex items-center justify-center shadow-sm ring-2 ring-white">
+                              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm ring-2 ring-white">
                                 <span className="text-white font-semibold text-sm">{u.first_name?.charAt(0)}{u.last_name?.charAt(0)}</span>
                               </div>
                               <div>

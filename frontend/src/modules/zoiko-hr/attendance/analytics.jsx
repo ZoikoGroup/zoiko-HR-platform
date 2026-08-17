@@ -17,7 +17,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
+            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -255,7 +255,7 @@ export default function AttendanceAnalytics() {
             <div className="relative">
               <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input type="month" value={dateRange} onChange={(e) => setDateRange(e.target.value)}
-                className="pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors cursor-pointer" />
+                className="pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer" />
             </div>
             <button onClick={handleExport}
               className="flex justify-center items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-sm font-bold shadow-sm transition-colors">
@@ -279,9 +279,9 @@ export default function AttendanceAnalytics() {
         )}
 
         {analyticsLoading && (
-          <div className="flex justify-center items-center py-2 bg-orange-50/50 rounded-xl border border-orange-100">
-            <Loader2 className="w-5 h-5 animate-spin text-orange-500" />
-            <span className="ml-2 text-sm font-bold text-orange-700">Syncing latest data...</span>
+          <div className="flex justify-center items-center py-2 bg-blue-50/50 rounded-xl border border-blue-100">
+            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
+            <span className="ml-2 text-sm font-bold text-blue-700">Syncing latest data...</span>
           </div>
         )}
 
@@ -298,7 +298,7 @@ export default function AttendanceAnalytics() {
               <BarChart3 className="w-5 h-5 text-gray-400" />
             </div>
             {loading ? (
-              <div className="flex-1 flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div>
+              <div className="flex-1 flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
             ) : trendChart.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center min-h-[220px] text-gray-400">
                 <BarChart3 className="w-10 h-10 mb-2 opacity-50" />
@@ -338,7 +338,7 @@ export default function AttendanceAnalytics() {
               <Clock className="w-5 h-5 text-gray-400" />
             </div>
             {loading ? (
-              <div className="flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div>
+              <div className="flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
             ) : shiftEfficiency.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[220px] text-gray-400">
                 <Clock className="w-10 h-10 mb-2 opacity-50" />
@@ -347,8 +347,8 @@ export default function AttendanceAnalytics() {
             ) : (
               <div className="space-y-6">
                 {shiftEfficiency.map((s) => {
-                  const effColor = s.efficiency >= 80 ? "text-emerald-600" : s.efficiency >= 60 ? "text-orange-600" : "text-red-600";
-                  const barColor = s.efficiency >= 80 ? "bg-emerald-500" : s.efficiency >= 60 ? "bg-orange-500" : "bg-red-500";
+                  const effColor = s.efficiency >= 80 ? "text-emerald-600" : s.efficiency >= 60 ? "text-amber-600" : "text-red-600";
+                  const barColor = s.efficiency >= 80 ? "bg-emerald-500" : s.efficiency >= 60 ? "bg-amber-500" : "bg-red-500";
                   return (
                     <div key={s.shift}>
                       <div className="flex justify-between items-center mb-2">
@@ -375,7 +375,7 @@ export default function AttendanceAnalytics() {
               <Building2 className="w-5 h-5 text-gray-400" />
             </div>
             {loading ? (
-              <div className="flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div>
+              <div className="flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
             ) : departmentStats.length === 0 ? (
               <div className="flex flex-col items-center justify-center min-h-[220px] text-gray-400">
                 <Users className="w-10 h-10 mb-2 opacity-50" />
@@ -384,8 +384,8 @@ export default function AttendanceAnalytics() {
             ) : (
               <div className="grid grid-cols-1 gap-4">
                 {departmentStats.map((d, i) => {
-                  const rateColor = d.attendanceRate >= 80 ? "text-emerald-600" : d.attendanceRate >= 60 ? "text-orange-600" : "text-red-600";
-                  const barColor = d.attendanceRate >= 80 ? "bg-emerald-500" : d.attendanceRate >= 60 ? "bg-orange-500" : "bg-red-500";
+                  const rateColor = d.attendanceRate >= 80 ? "text-emerald-600" : d.attendanceRate >= 60 ? "text-amber-600" : "text-red-600";
+                  const barColor = d.attendanceRate >= 80 ? "bg-emerald-500" : d.attendanceRate >= 60 ? "bg-amber-500" : "bg-red-500";
                   return (
                     <div key={d.department + i} className="p-4 bg-gray-50 border border-gray-100 rounded-xl hover:shadow-md transition-shadow">
                       <div className="flex items-center justify-between mb-3">
@@ -398,7 +398,7 @@ export default function AttendanceAnalytics() {
                       <div className="flex items-center justify-between mt-3 text-xs font-bold">
                         <span className="text-emerald-600 bg-emerald-50 px-2 py-1 rounded">Present: {d.present}</span>
                         <span className="text-red-600 bg-red-50 px-2 py-1 rounded">Absent: {d.absent}</span>
-                        <span className="text-orange-600 bg-orange-50 px-2 py-1 rounded">Late: {d.late}</span>
+                        <span className="text-amber-600 bg-amber-50 px-2 py-1 rounded">Late: {d.late}</span>
                       </div>
                     </div>
                   );
@@ -413,7 +413,7 @@ export default function AttendanceAnalytics() {
               <Sun className="w-5 h-5 text-gray-400" />
             </div>
             {loading ? (
-              <div className="flex-1 flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div>
+              <div className="flex-1 flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
             ) : overtimeAnalytics.length === 0 ? (
               <div className="flex-1 flex flex-col items-center justify-center min-h-[220px] text-gray-400">
                 <Sun className="w-10 h-10 mb-2 opacity-50" />
@@ -425,9 +425,9 @@ export default function AttendanceAnalytics() {
                   const pct = maxOvertime > 0 ? (d.hours / maxOvertime) * 100 : 0;
                   return (
                     <div key={d.month} className="flex-1 flex flex-col items-center gap-2 group">
-                      <span className="text-[10px] font-extrabold text-orange-600 opacity-0 group-hover:opacity-100 transition-opacity">{d.hours}h</span>
-                      <div className="w-full bg-orange-100 rounded-t-lg relative overflow-hidden" style={{ height: `${Math.max(pct, 2)}%` }}>
-                        <div className="absolute bottom-0 w-full bg-gradient-to-t from-orange-500 to-orange-400 rounded-t-lg transition-all duration-500" style={{ height: '100%' }} />
+                      <span className="text-[10px] font-extrabold text-amber-600 opacity-0 group-hover:opacity-100 transition-opacity">{d.hours}h</span>
+                      <div className="w-full bg-amber-100 rounded-t-lg relative overflow-hidden" style={{ height: `${Math.max(pct, 2)}%` }}>
+                        <div className="absolute bottom-0 w-full bg-gradient-to-t from-amber-500 to-amber-400 rounded-t-lg transition-all duration-500" style={{ height: '100%' }} />
                       </div>
                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-wide">{d.month}</span>
                     </div>
@@ -444,7 +444,7 @@ export default function AttendanceAnalytics() {
             <h2 className="text-lg font-bold text-gray-900">Detailed Department Summary</h2>
           </div>
           {loading ? (
-            <div className="flex justify-center items-center py-16"><Loader2 className="w-8 h-8 animate-spin text-orange-400" /></div>
+            <div className="flex justify-center items-center py-16"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
           ) : departmentStats.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-16 text-gray-400">
               <Building2 className="w-10 h-10 mb-2 opacity-30" />
@@ -465,14 +465,14 @@ export default function AttendanceAnalytics() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {departmentStats.map((d, i) => {
-                    const rateColor = d.attendanceRate >= 80 ? "text-emerald-600 bg-emerald-50" : d.attendanceRate >= 60 ? "text-orange-600 bg-orange-50" : "text-red-600 bg-red-50";
+                    const rateColor = d.attendanceRate >= 80 ? "text-emerald-600 bg-emerald-50" : d.attendanceRate >= 60 ? "text-amber-600 bg-amber-50" : "text-red-600 bg-red-50";
                     return (
                       <tr key={d.department + i} className="hover:bg-gray-50 transition-colors">
                         <td className="px-5 py-3.5 text-sm font-bold text-gray-900">{d.department}</td>
                         <td className="px-5 py-3.5 text-sm font-bold text-gray-600">{d.total || 0}</td>
                         <td className="px-5 py-3.5 text-sm font-bold text-emerald-600">{d.present}</td>
                         <td className="px-5 py-3.5 text-sm font-bold text-red-600">{d.absent}</td>
-                        <td className="px-5 py-3.5 text-sm font-bold text-orange-600">{d.late}</td>
+                        <td className="px-5 py-3.5 text-sm font-bold text-amber-600">{d.late}</td>
                         <td className="px-5 py-3.5 text-right">
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-md text-sm font-extrabold ${rateColor}`}>
                             {d.attendanceRate}%

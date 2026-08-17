@@ -17,7 +17,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
+            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -31,7 +31,7 @@ const TYPE_OPTIONS = ["Public", "Company", "Optional"];
 const TYPE_COLORS = {
   Public: "bg-red-100 text-red-800 border-red-200",
   Company: "bg-blue-100 text-blue-800 border-blue-200",
-  Optional: "bg-purple-100 text-purple-800 border-purple-200",
+  Optional: "bg-blue-100 text-blue-800 border-blue-200",
 };
 
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
@@ -193,8 +193,8 @@ export default function Holidays() {
 
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
           <div className="flex items-center gap-3">
-            <div className="w-12 h-12 bg-orange-50 rounded-xl flex items-center justify-center">
-              <CalendarIcon className="w-6 h-6 text-orange-600" />
+            <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center">
+              <CalendarIcon className="w-6 h-6 text-blue-600" />
             </div>
             <div>
               <h1 className="text-xl font-extrabold text-gray-900">Holidays</h1>
@@ -204,11 +204,11 @@ export default function Holidays() {
           <div className="flex items-center gap-3">
             <div className="flex bg-gray-100 rounded-xl p-1">
               <button onClick={() => setView("calendar")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "calendar" ? "bg-white text-orange-600 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "calendar" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
                 <CalendarDays className="w-4 h-4" /> Calendar
               </button>
               <button onClick={() => setView("list")}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "list" ? "bg-white text-orange-600 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "list" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>
                 <List className="w-4 h-4" /> List
               </button>
             </div>
@@ -217,7 +217,7 @@ export default function Holidays() {
               <Upload className="w-4 h-4" /> Import
             </button>
             <button onClick={openCreate}
-              className="flex items-center gap-2 px-5 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl text-sm font-bold shadow transition-colors">
+              className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow transition-colors">
               <Plus className="w-4 h-4" /> Add Holiday
             </button>
           </div>
@@ -225,17 +225,17 @@ export default function Holidays() {
 
         {loading ? (
           <div className="bg-white rounded-2xl border border-gray-100 p-12 flex flex-col items-center justify-center min-h-[400px]">
-            <Loader2 className="w-10 h-10 animate-spin text-orange-500 mb-4" />
+            <Loader2 className="w-10 h-10 animate-spin text-blue-500 mb-4" />
             <span className="text-sm font-bold text-gray-500">Loading calendar data...</span>
           </div>
         ) : view === "calendar" ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
             <div className="flex items-center justify-between p-5 border-b border-gray-100 bg-gray-50/50">
-              <button onClick={prevMonth} className="p-2 text-gray-500 hover:text-orange-600 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm">
+              <button onClick={prevMonth} className="p-2 text-gray-500 hover:text-blue-600 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm">
                 <ChevronLeft className="w-5 h-5" />
               </button>
               <h2 className="text-xl font-extrabold text-gray-900">{MONTHS[currentMonth]} {currentYear}</h2>
-              <button onClick={nextMonth} className="p-2 text-gray-500 hover:text-orange-600 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm">
+              <button onClick={nextMonth} className="p-2 text-gray-500 hover:text-blue-600 rounded-xl hover:bg-white border border-transparent hover:border-gray-200 transition-all shadow-sm">
                 <ChevronRight className="w-5 h-5" />
               </button>
             </div>
@@ -254,9 +254,9 @@ export default function Holidays() {
                 const dayHolidays = calendarData.holidayMap[day] || [];
                 const isToday = day === new Date().getDate() && currentMonth === new Date().getMonth() && currentYear === new Date().getFullYear();
                 return (
-                  <div key={day} className={`bg-white min-h-[120px] p-2 hover:bg-gray-50 transition-colors ${isToday ? "ring-2 ring-inset ring-orange-400 bg-orange-50/10" : ""}`}>
+                  <div key={day} className={`bg-white min-h-[120px] p-2 hover:bg-gray-50 transition-colors ${isToday ? "ring-2 ring-inset ring-blue-400 bg-blue-50/10" : ""}`}>
                     <div className="flex justify-between items-start mb-2">
-                      <span className={`text-sm font-bold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? "bg-orange-500 text-white" : "text-gray-700"}`}>{day}</span>
+                      <span className={`text-sm font-bold w-7 h-7 flex items-center justify-center rounded-full ${isToday ? "bg-blue-500 text-white" : "text-gray-700"}`}>{day}</span>
                     </div>
                     <div className="space-y-1.5">
                       {dayHolidays.slice(0, 3).map((h, idx) => (
@@ -280,8 +280,8 @@ export default function Holidays() {
             {/* Legend */}
             <div className="p-4 flex items-center gap-6 bg-white justify-center">
               {TYPE_OPTIONS.map((type) => (
-                <div key={type} className="flex items-center gap-2">
-                  <div className={`w-3 h-3 rounded-full ${type === 'Public' ? 'bg-red-400' : type === 'Company' ? 'bg-blue-400' : 'bg-purple-400'}`} />
+                  <div key={type} className="flex items-center gap-2">
+                  <div className={`w-3 h-3 rounded-full ${type === 'Public' ? 'bg-red-400' : type === 'Company' ? 'bg-blue-400' : 'bg-blue-400'}`} />
                   <span className="text-xs font-bold text-gray-600 uppercase tracking-wider">{type}</span>
                 </div>
               ))}
@@ -303,7 +303,7 @@ export default function Holidays() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {holidays.map((h) => (
-                    <tr key={h.id} className="hover:bg-orange-50/50 transition-colors group">
+                    <tr key={h.id} className="hover:bg-blue-50/50 transition-colors group">
                       <td className="px-5 py-3.5 text-sm font-bold text-gray-900">{h.name}</td>
                       <td className="px-5 py-3.5 text-sm font-semibold text-gray-700">{formatDate(h.date)}</td>
                       <td className="px-5 py-3.5">
@@ -315,7 +315,7 @@ export default function Holidays() {
                       <td className="px-5 py-3.5 text-sm font-medium text-gray-500 max-w-[200px] truncate">{h.description || "-"}</td>
                       <td className="px-5 py-3.5 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openEdit(h)} className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-colors" title="Edit">
+                          <button onClick={() => openEdit(h)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit">
                             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" /></svg>
                           </button>
                           <button onClick={() => handleDelete(h.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
@@ -340,9 +340,9 @@ export default function Holidays() {
         {showModal && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="bg-gradient-to-r from-orange-600 to-red-600 px-6 py-5 flex justify-between items-center">
+              <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-5 flex justify-between items-center">
                 <h2 className="text-lg font-bold text-white">{editHoliday ? "Edit Holiday" : "Add Holiday"}</h2>
-                <button onClick={() => setShowModal(false)} className="text-orange-200 hover:text-white transition-colors">
+                <button onClick={() => setShowModal(false)} className="text-blue-200 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
@@ -357,7 +357,7 @@ export default function Holidays() {
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">Holiday Name <span className="text-red-500">*</span></label>
                     <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
                       placeholder="e.g. New Year's Day"
-                      className={`w-full bg-gray-50 border ${formErrors.name ? "border-red-400" : "border-gray-200"} rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors`} />
+                      className={`w-full bg-gray-50 border ${formErrors.name ? "border-red-400" : "border-gray-200"} rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors`} />
                     {formErrors.name && <p className="text-red-500 text-xs font-bold mt-1.5">{formErrors.name}</p>}
                   </div>
                   
@@ -365,13 +365,13 @@ export default function Holidays() {
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Date <span className="text-red-500">*</span></label>
                       <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-                        className={`w-full bg-gray-50 border ${formErrors.date ? "border-red-400" : "border-gray-200"} rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors`} />
+                        className={`w-full bg-gray-50 border ${formErrors.date ? "border-red-400" : "border-gray-200"} rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors`} />
                       {formErrors.date && <p className="text-red-500 text-xs font-bold mt-1.5">{formErrors.date}</p>}
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Holiday Type</label>
                       <select value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors">
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors">
                         {TYPE_OPTIONS.map((v) => (<option key={v} value={v}>{v}</option>))}
                       </select>
                     </div>
@@ -381,12 +381,12 @@ export default function Holidays() {
                     <label className="block text-sm font-bold text-gray-700 mb-1.5">Description / Remarks</label>
                     <textarea rows={2} value={form.description} onChange={(e) => setForm({ ...form, description: e.target.value })}
                       placeholder="Optional details..."
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors resize-none" />
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors resize-none" />
                   </div>
                   
                   <div className="flex items-center gap-3 bg-gray-50 p-3.5 rounded-xl border border-gray-200">
                     <input type="checkbox" id="recurring" checked={form.is_recurring} onChange={(e) => setForm({ ...form, is_recurring: e.target.checked })}
-                      className="w-4 h-4 text-orange-600 border-gray-300 rounded focus:ring-orange-500 cursor-pointer" />
+                      className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500 cursor-pointer" />
                     <label htmlFor="recurring" className="text-sm font-bold text-gray-700 cursor-pointer">Make this holiday recur annually</label>
                   </div>
                 </form>
@@ -398,7 +398,7 @@ export default function Holidays() {
                   Cancel
                 </button>
                 <button type="submit" form="holiday-form" disabled={submitting} 
-                  className="flex justify-center items-center gap-2 min-w-[130px] px-5 py-2.5 text-sm font-bold bg-orange-600 hover:bg-orange-700 disabled:bg-orange-400 text-white rounded-xl transition-colors shadow-sm">
+                  className="flex justify-center items-center gap-2 min-w-[130px] px-5 py-2.5 text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl transition-colors shadow-sm">
                   {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
                   {submitting ? "Saving..." : editHoliday ? "Update Holiday" : "Save Holiday"}
                 </button>
@@ -419,7 +419,7 @@ export default function Holidays() {
               <div className="p-6">
                 <p className="text-sm text-gray-600 font-medium mb-3">Paste a JSON array of holidays to bulk import.</p>
                 <textarea rows={8} value={importData} onChange={(e) => setImportData(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 transition-colors"
+                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
                   placeholder='[&#10;  {"name":"New Year","date":"2026-01-01","type":"Public"}&#10;]' />
               </div>
               <div className="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 mt-auto">

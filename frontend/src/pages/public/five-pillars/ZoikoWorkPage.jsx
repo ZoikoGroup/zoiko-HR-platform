@@ -32,12 +32,12 @@ const styles = `
     display: inline-flex; align-items: center; gap: 8px;
     background: rgba(255,255,255,0.92); border-radius: 999px;
     padding: 6px 16px; margin-bottom: 28px;
-    font-size: 14px; font-weight: 500; color: #1a1a3e;
+    font-size: 14px; font-weight: 500; color: #3B82F6;
     box-shadow: 0 1px 4px rgba(0,0,0,.08);
     position: relative; z-index: 1;
   }
   .badge-pill-blue {
-    background: #38bdf8; color: #fff; border-radius: 999px;
+    background: #3B82F6; color: #fff; border-radius: 999px;
     padding: 2px 10px; font-size: 12px; font-weight: 700;
   }
 
@@ -51,7 +51,7 @@ const styles = `
     color: #0B1C3F; margin: 0 0 20px; text-align: center;
     vertical-align: middle;
   }
-  .hero h1 .accent { color: #38bdf8; }
+  .hero h1 .accent { color: #10B981; }
 
   .hero-sub {
     font-size: 16px; line-height: 1.7; color: #4B5563;
@@ -61,46 +61,46 @@ const styles = `
 
   /* ── BUTTONS ── */
   .btn-primary {
-    background: #f97316; color: #fff; border: none; border-radius: 999px;
+    background: #3B82F6; color: #fff; border: none; border-radius: 999px;
     padding: 15px 30px; font-size: 15px; font-weight: 600; cursor: pointer;
     display: inline-flex; align-items: center; gap: 8px;
     font-family: 'Inter', sans-serif; transition: background .2s;
   }
-  .btn-primary:hover { background: #ea6a0a; }
+  .btn-primary:hover { background: #2563EB; }
 
   .btn-outline {
-    background: #fff; color: #1a1a3e; border: 1.5px solid #d0d0e0;
+    background: #fff; color: #3B82F6; border: 1.5px solid #d0d0e0;
     border-radius: 999px; padding: 15px 30px; font-size: 15px; font-weight: 600;
     cursor: pointer; font-family: 'Inter', sans-serif; transition: border-color .2s;
   }
-  .btn-outline:hover { border-color: #1a1a3e; }
+  .btn-outline:hover { border-color: #2563EB; }
 
   .btn-dark-full {
-    background: #2d1d8e; color: #fff; border: none; border-radius: 999px;
+    background: #3B82F6; color: #fff; border: none; border-radius: 999px;
     padding: 16px 32px; font-size: 15px; font-weight: 600; cursor: pointer;
     font-family: 'Inter', sans-serif; transition: background .2s;
     display: block; width: 100%; text-align: center;
   }
-  .btn-dark-full:hover { background: #3a26ad; }
+  .btn-dark-full:hover { background: #2563EB; }
 
   /* ── WORKFLOW ── */
   .workflow { padding: 80px 52px 70px; background: #fff; text-align: center; }
 
   .eyebrow-orange {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #f97316; margin-bottom: 18px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 18px;
   }
   .eyebrow-purple {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #5b5bd6; margin-bottom: 18px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 18px;
   }
   .eyebrow-blue {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #38bdf8; margin-bottom: 18px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 18px;
   }
 
   .section-title {
-    font-size: 36px; font-weight: 800; color: #1a1a3e;
+    font-size: 36px; font-weight: 800; color: #3B82F6;
     letter-spacing: -.7px; margin-bottom: 40px; line-height: 1.2;
   }
   .section-title-white {
@@ -116,9 +116,9 @@ const styles = `
   .w-step { display: flex; align-items: center; }
   .step-pill {
     background: #fff; border: 1px solid #e0e0ee; border-radius: 999px;
-    padding: 9px 18px; font-size: 13.5px; font-weight: 700; color: #1a1a3e; white-space: nowrap;
+    padding: 9px 18px; font-size: 13.5px; font-weight: 700; color: #3B82F6; white-space: nowrap;
   }
-  .step-arrow { color: #f97316; font-size: 16px; margin: 0 8px; line-height: 1; }
+  .step-arrow { color: #3B82F6; font-size: 16px; margin: 0 8px; line-height: 1; }
 
   /* ── THE PROBLEM ── */
   .problem { padding: 80px 52px; background: #f7f7fd; }
@@ -129,10 +129,10 @@ const styles = `
   .problem-left { text-align: left; }
   .problem-eyebrow {
     font-size: 11px; font-weight: 700; letter-spacing: 2px;
-    text-transform: uppercase; color: #5b5bd6; margin-bottom: 16px;
+    text-transform: uppercase; color: #3B82F6; margin-bottom: 16px;
   }
   .problem-title {
-    font-size: 30px; font-weight: 800; color: #1a1a3e;
+    font-size: 30px; font-weight: 800; color: #3B82F6;
     letter-spacing: -.6px; line-height: 1.25; margin-bottom: 18px;
   }
   .problem-desc { font-size: 14.5px; color: #555577; line-height: 1.65; margin-bottom: 28px; }
@@ -148,13 +148,13 @@ const styles = `
     width: 44px; height: 44px; border-radius: 13px;
     display: flex; align-items: center; justify-content: center; margin-bottom: 16px;
   }
-  .prob-title { font-size: 14.5px; font-weight: 700; color: #1a1a3e; margin-bottom: 6px; }
+  .prob-title { font-size: 14.5px; font-weight: 700; color: #3B82F6; margin-bottom: 6px; }
   .prob-desc  { font-size: 13px; color: #777799; line-height: 1.5; }
 
   /* ── SHARED LAYERS ── */
   .shared-layers {
     padding: 64px 52px;
-    background: linear-gradient(120deg, #2d1f9e 0%, #3b2db5 40%, #4f3bcc 70%, #5845d8 100%);
+    background: linear-gradient(120deg, #0A1128 0%, #111A33 100%);
     text-align: center;
   }
   .layers-pills { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
@@ -178,11 +178,11 @@ const styles = `
     width: 50px; height: 50px; border-radius: 14px;
     display: flex; align-items: center; justify-content: center; margin-bottom: 18px;
   }
-  .bg-purple { background: #5b5bd6; }
-  .bg-orange { background: #f97316; }
-  .bg-dark-navy { background: #1f1d5e; }
+  .bg-purple { background: #10B981; }
+  .bg-orange { background: #F59E0B; }
+  .bg-dark-navy { background: #0A1128; }
 
-  .connect-title { font-size: 16px; font-weight: 700; color: #1a1a3e; margin-bottom: 8px; }
+  .connect-title { font-size: 16px; font-weight: 700; color: #3B82F6; margin-bottom: 8px; }
   .connect-desc  { font-size: 14px; color: #777799; line-height: 1.55; }
 
   @media (max-width: 820px) {

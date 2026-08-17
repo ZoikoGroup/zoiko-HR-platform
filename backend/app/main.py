@@ -7,6 +7,7 @@ Only HR modules are registered:
   - auth + employee management  (app.modules.employee)
   - HR module + sub-modules      (app.modules.hr)
   - Super Admin                  (app.modules.super_admin)
+  - Billing & Subscription       (app.modules.billing)
 
 The schema is created on boot via Base.metadata.create_all (create_all is
 additive-only and safe for the platform's own dedicated database).
@@ -22,7 +23,7 @@ from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
-from app.database import engine, Base, initialize_database, get_table_names
+from app.database import engine, Base, initialize_database
 from app.core.exceptions import (
     ZoikoException,
     zoiko_exception_handler,
@@ -38,10 +39,7 @@ logger = logging.getLogger("zoiko.hr")
 async def lifespan(application: FastAPI):
     # create_all is additive-only and never alters existing tables/columns.
     initialize_database()
-    try:
-        logger.info("[startup] Tables ready: %s", get_table_names())
-    except Exception as e:
-        logger.warning("[startup] Could not list tables: %s", e)
+    logger.info("[startup] Tables ready: %s", sorted(Base.metadata.tables.keys()))
     yield
 
 
@@ -76,6 +74,12 @@ app.add_middleware(
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["Authorization", "Content-Type", "Accept"],
+    # Content-Disposition isn't on the CORS response-header safelist, so
+    # without this, frontend `fetch()` calls against /hr/documents/{id}/file
+    # (frontend and backend run on different origins/ports) can never read
+    # the real filename off the response — every document view/download
+    # silently falls back to a generic "document-{id}" name.
+    expose_headers=["Content-Disposition"],
 )
 
 app.state.limiter = limiter
@@ -105,6 +109,7 @@ recruitment_router = _safe_import(lambda: __import__("app.modules.hr.recruitment
 workforce_router   = _safe_import(lambda: __import__("app.modules.hr.workforce_router", fromlist=["workforce_router"]).workforce_router, "hr.workforce_router")
 org_config_router  = _safe_import(lambda: __import__("app.modules.hr.org_config_router", fromlist=["org_config_router"]).org_config_router, "hr.org_config_router")
 super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.router", fromlist=["router"]).router, "super_admin.router")
+billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
 
 app.include_router(auth_router)
 app.include_router(employee_router)
@@ -116,6 +121,7 @@ app.include_router(recruitment_router)
 app.include_router(workforce_router)
 app.include_router(org_config_router)
 app.include_router(super_admin_router)
+app.include_router(billing_router)
 
 
 @app.get("/", include_in_schema=False, tags=["Meta"])

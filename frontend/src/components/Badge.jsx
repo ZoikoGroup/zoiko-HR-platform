@@ -8,20 +8,20 @@ import React from 'react';
  */
 export default function Badge({ variant, value }) {
   const statusColors = {
-    pending: 'bg-yellow-100 text-yellow-800',
-    approved: 'bg-green-100 text-green-800',
+    pending: 'bg-amber-100 text-amber-800',
+    approved: 'bg-emerald-100 text-emerald-800',
     rejected: 'bg-red-100 text-red-800',
     cancelled: 'bg-gray-100 text-gray-500',
   };
   const typeColors = {
     annual: 'bg-blue-100 text-blue-800',
     sick: 'bg-red-100 text-red-800',
-    personal: 'bg-purple-100 text-purple-800',
+    personal: 'bg-emerald-100 text-emerald-800',
     maternity: 'bg-pink-100 text-pink-800',
-    paternity: 'bg-indigo-100 text-indigo-800',
+    paternity: 'bg-sky-100 text-sky-800',
     bereavement: 'bg-gray-100 text-gray-800',
-    unpaid: 'bg-yellow-100 text-yellow-800',
-    other: 'bg-orange-100 text-orange-800',
+    unpaid: 'bg-amber-100 text-amber-800',
+    other: 'bg-amber-100 text-amber-800',
   };
   const colorClass = variant === 'status' ? statusColors[value] : typeColors[value] || 'bg-gray-100 text-gray-800';
   return (

@@ -111,7 +111,7 @@ export default function PerformanceAnalytics() {
     { name: "Avg Performance Score", value: d.avg_performance_score ?? 0, fill: "#3B82F6" },
     { name: "Goal Completion Rate", value: d.goal_completion_rate ?? 0, fill: "#10B981" },
     { name: "Review Completion Rate", value: d.review_completion_rate ?? 0, fill: "#F59E0B" },
-    { name: "Avg Rating", value: d.avg_rating ?? 0, fill: "#8B5CF6" },
+    { name: "Avg Rating", value: d.avg_rating ?? 0, fill: "#0A1128" },
   ] : [];
 
   const pieData = hasData ? [
@@ -164,10 +164,10 @@ export default function PerformanceAnalytics() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             <StatsCard title="Avg Performance Score" value={`${d.avg_performance_score ?? 0}%`} icon={TrendingUp} subtitle="Across all reviews" color="bg-blue-500" />
             <StatsCard title="Goal Completion" value={`${d.goal_completion_rate ?? 0}%`} icon={Target} subtitle="Goals completed" color="bg-green-500" />
-            <StatsCard title="Review Completion" value={`${d.review_completion_rate ?? 0}%`} icon={CheckCircle} subtitle="Reviews completed" color="bg-orange-500" />
-            <StatsCard title="Avg Rating" value={d.avg_rating ? `${d.avg_rating}/5` : "0/5"} icon={Star} subtitle="Across all reviews" color="bg-purple-500" />
-            <StatsCard title="Total Reviews" value={d.total_reviews ?? 0} icon={FileText} subtitle={`${d.completed_reviews ?? 0} completed`} color="bg-indigo-500" />
-            <StatsCard title="Total Goals" value={d.total_goals ?? 0} icon={Target} subtitle={`${d.completed_goals ?? 0} completed`} color="bg-teal-500" />
+            <StatsCard title="Review Completion" value={`${d.review_completion_rate ?? 0}%`} icon={CheckCircle} subtitle="Reviews completed" color="bg-blue-500" />
+            <StatsCard title="Avg Rating" value={d.avg_rating ? `${d.avg_rating}/5` : "0/5"} icon={Star} subtitle="Across all reviews" color="bg-blue-500" />
+            <StatsCard title="Total Reviews" value={d.total_reviews ?? 0} icon={FileText} subtitle={`${d.completed_reviews ?? 0} completed`} color="bg-blue-500" />
+            <StatsCard title="Total Goals" value={d.total_goals ?? 0} icon={Target} subtitle={`${d.completed_goals ?? 0} completed`} color="bg-blue-500" />
             <StatsCard title="Feedback Items" value={d.feedback_count ?? 0} icon={FileText} color="bg-cyan-500" />
             <StatsCard title="Total Appraisals" value={d.total_appraisals ?? 0} icon={Users} color="bg-rose-500" />
           </div>

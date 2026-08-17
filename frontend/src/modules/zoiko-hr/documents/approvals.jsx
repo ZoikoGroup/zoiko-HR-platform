@@ -5,12 +5,14 @@ import {
   FileText
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
+import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
+import { useDocumentFile } from "../../../hooks/useDocumentFile";
+import { fmtDate, fmtDateTime } from "../../../utils/documents";
 import {
   getDocuments, updateDocumentStatus,
   getPendingApprovals, approveDocument, rejectDocument,
   getApprovalAuditLog
 } from "../../../service/hrService";
-import { API_BASE_URL } from "../../../service/api";
 
 const STATUS_META = {
   pending:  { label: "Pending",  bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-500"  },
@@ -29,8 +31,8 @@ const StatusBadge = ({ status }) => {
   );
 };
 const CAT_COLORS = {
-  company:  "bg-indigo-50 text-indigo-700 border-indigo-200",
-  employee: "bg-violet-50 text-violet-700 border-violet-200",
+  company:  "bg-blue-50 text-blue-700 border-blue-200",
+  employee: "bg-emerald-50 text-emerald-700 border-emerald-200",
   contract: "bg-cyan-50 text-cyan-700 border-cyan-200",
   policy:   "bg-teal-50 text-teal-700 border-teal-200",
 };
@@ -42,17 +44,6 @@ const CategoryPill = ({ category }) => {
     </span>
   );
 };
-const fmtDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-};
-const fmtDateTime = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleString(undefined, { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
-};
-
 const ROLE_LABELS = { manager: "Manager", hr_admin: "HR Admin", admin: "Org Admin" };
 const STATUS_FILTERS = ["all", "pending", "approved", "rejected", "expired"];
 
@@ -133,11 +124,11 @@ export default function Approvals() {
     }
   };
 
-  const getDownloadUrl = (d) => {
-    if (d.file_url) return d.file_url;
-    if (d.file_path) return `${API_BASE_URL}/${d.file_path.replace(/\\/g, "/")}`;
-    return null;
-  };
+  const { preview, busyId, fileError, view, closePreview, downloadFromPreview } = useDocumentFile();
+
+  useEffect(() => {
+    if (fileError) showToast("error", fileError);
+  }, [fileError]);
 
   const filtered = (activeTab === "pending" ? pendingApprovals : docs)
     .filter(d => activeTab !== "all" || statusFilter === "all" || d.status === statusFilter)
@@ -179,8 +170,8 @@ export default function Approvals() {
       <div className="flex items-center justify-between mb-2">
         <h3 className="text-sm font-bold text-slate-700 uppercase tracking-wide">Audit Trail</h3>
         {selectedDocId && (
-          <button onClick={() => setSelectedDocId(null)}
-            className="text-xs text-indigo-600 hover:text-indigo-800 font-semibold">Clear filter</button>
+              <button onClick={() => setSelectedDocId(null)}
+            className="text-xs text-blue-600 hover:text-blue-800 font-semibold">Clear filter</button>
         )}
       </div>
       {auditLog.length === 0 && selectedDocId ? (
@@ -200,12 +191,12 @@ export default function Approvals() {
               <div className={`p-1.5 rounded-lg shrink-0 ${
                 log.action === "approved" ? "bg-emerald-50" :
                 log.action === "rejected" ? "bg-rose-50" :
-                log.action === "skipped" ? "bg-slate-50" : "bg-indigo-50"
+                log.action === "skipped" ? "bg-slate-50" : "bg-blue-50"
               }`}>
                 {log.action === "approved" ? <Check className="w-3.5 h-3.5 text-emerald-600" /> :
                  log.action === "rejected" ? <X className="w-3.5 h-3.5 text-rose-600" /> :
                  log.action === "skipped" ? <SkipForward className="w-3.5 h-3.5 text-slate-400" /> :
-                 <FileText className="w-3.5 h-3.5 text-indigo-600" />}
+                                   <FileText className="w-3.5 h-3.5 text-blue-600" />}
               </div>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2 flex-wrap">
@@ -251,11 +242,11 @@ export default function Approvals() {
         </div>
 
         {/* Workflow info banner */}
-        <div className="bg-indigo-50 border border-indigo-200 rounded-xl p-4 flex items-start gap-3">
-          <Shield className="w-5 h-5 text-indigo-600 shrink-0 mt-0.5" />
+        <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
+          <Shield className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-indigo-800">Approval Chain: Manager → HR Admin → Org Admin</p>
-            <p className="text-xs text-indigo-600 mt-0.5">
+            <p className="text-sm font-semibold text-blue-800">Approval Chain: Manager → HR Admin → Org Admin</p>
+            <p className="text-xs text-blue-600 mt-0.5">
               Org Admin and HR Admin approvals instantly approve the document, skipping remaining chain steps.
               Managers approve only their step.
             </p>
@@ -283,7 +274,7 @@ export default function Approvals() {
           {tabs.map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
-                activeTab === tab.key ? "bg-indigo-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
+                activeTab === tab.key ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
               }`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
             </button>
@@ -297,20 +288,20 @@ export default function Approvals() {
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input type="text" placeholder="Search documents…" value={search}
                 onChange={e => setSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
             </div>
             <div className="relative max-w-[200px]">
               <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
               <input type="text" placeholder="Search by Employee ID…" value={empIdSearch}
                 onChange={e => setEmpIdSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono" />
+                className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-mono" />
             </div>
             {activeTab === "all" && (
               <div className="flex gap-2 flex-wrap">
                 {STATUS_FILTERS.map(s => (
                   <button key={s} onClick={() => setStatusFilter(s)}
                     className={`px-3 py-2 rounded-lg text-xs font-semibold capitalize transition-colors ${
-                      statusFilter === s ? "bg-indigo-600 text-white shadow-sm" : "bg-white border border-gray-200 text-slate-600 hover:bg-gray-50"
+                      statusFilter === s ? "bg-blue-600 text-white shadow-sm" : "bg-white border border-gray-200 text-slate-600 hover:bg-gray-50"
                     }`}>{s === "all" ? "All" : s}</button>
                 ))}
               </div>
@@ -321,7 +312,7 @@ export default function Approvals() {
         {/* Content */}
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
-            <svg className="animate-spin h-8 w-8 text-indigo-500" viewBox="0 0 24 24" fill="none">
+            <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
@@ -338,7 +329,7 @@ export default function Approvals() {
         ) : (
           <div className="space-y-3">
             {filtered.map(d => {
-              const url = getDownloadUrl(d);
+              const docId = d.document_id || d.id;
               const isProcessing = processingId === d.id;
               const isPendingItem = isStep(d);
 
@@ -365,8 +356,8 @@ export default function Approvals() {
 
                       {isPendingItem && (
                         <div className="flex items-center gap-1.5 mt-1">
-                          <UserCheck className="w-3.5 h-3.5 text-indigo-500" />
-                          <span className="text-xs text-indigo-600 font-medium">
+                          <UserCheck className="w-3.5 h-3.5 text-blue-500" />
+                          <span className="text-xs text-blue-600 font-medium">
                             Step {d.step_order}: {ROLE_LABELS[d.required_role] || d.required_role}
                           </span>
                         </div>
@@ -375,7 +366,7 @@ export default function Approvals() {
                       {(d.employee_name || d.uploader_name) && (
                         <p className="text-xs text-slate-600 mt-1">
                           <strong>Employee:</strong> {d.employee_name || d.uploader_name}
-                          {d.employee_id_str && <span className="font-mono text-indigo-500 ml-2">{d.employee_id_str}</span>}
+                          {d.employee_id_str && <span className="font-mono text-blue-500 ml-2">{d.employee_id_str}</span>}
                         </p>
                       )}
 
@@ -403,12 +394,10 @@ export default function Approvals() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
-                    {url && (
-                      <a href={url} target="_blank" rel="noopener noreferrer"
-                        className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
-                        <Eye className="w-4 h-4" /> View
-                      </a>
-                    )}
+                    <button onClick={() => view(docId)} disabled={busyId === docId}
+                      className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50">
+                      {busyId === docId ? <Loader2 className="w-4 h-4 animate-spin" /> : <Eye className="w-4 h-4" />} View
+                    </button>
                     <button onClick={() => loadAuditLog(d.document_id || d.id)}
                       className="flex items-center gap-1.5 px-3 py-2 text-sm font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">
                       <History className="w-4 h-4" /> Audit
@@ -486,7 +475,7 @@ export default function Approvals() {
                 <textarea rows={3} value={actionModal.feedback}
                   onChange={e => setActionModal({ ...actionModal, feedback: e.target.value, feedbackError: false })}
                   placeholder={actionModal.newStatus === "approved" ? "Optional note..." : "Provide a reason for rejection..."}
-                  className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:border-indigo-400 focus:bg-white transition resize-none ${actionModal.feedbackError ? "border-rose-400 bg-rose-50 focus:ring-rose-300" : "border-gray-200 bg-slate-50 focus:ring-indigo-300"}`} />
+                  className={`w-full border rounded-xl px-3 py-2.5 text-sm text-slate-800 outline-none focus:ring-2 focus:border-blue-400 focus:bg-white transition resize-none ${actionModal.feedbackError ? "border-rose-400 bg-rose-50 focus:ring-rose-300" : "border-gray-200 bg-slate-50 focus:ring-blue-300"}`} />
                 {actionModal.feedbackError && <p className="text-xs text-rose-600 mt-1 flex items-center gap-1"><AlertCircle className="w-3 h-3" /> Feedback required when rejecting.</p>}
               </div>
             </div>
@@ -507,6 +496,8 @@ export default function Approvals() {
           {toast.message}
         </div>
       )}
+
+      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
     </HRPage>
   );
 }

@@ -29,7 +29,7 @@ export default function WhatItIs() {
   return (
     <section className="bg-[#F8F7FC] py-20 md:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-12 text-center">
-        <p className="text-xs font-bold text-[#F97316] tracking-[0.15em] uppercase mb-4">
+        <p className="text-xs font-bold text-[#3B82F6] tracking-[0.15em] uppercase mb-4">
           The Operations Problem
         </p>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-[#111827] leading-tight tracking-tight mb-4">
@@ -48,14 +48,14 @@ export default function WhatItIs() {
               key={p.title}
               className="rounded-2xl p-6 border border-gray-100 shadow-sm bg-white transition-all duration-200 hover:shadow-md hover:-translate-y-0.5"
             >
-              <p.icon size={20} className="text-[#F97316] mb-3" />
+              <p.icon size={20} className="text-[#F59E0B] mb-3" />
               <h3 className="text-sm font-bold text-[#111827] mb-1.5">{p.title}</h3>
               <p className="text-xs text-[#6B7280] leading-relaxed">{p.desc}</p>
             </div>
           ))}
         </div>
 
-        <button onClick={() => navigate("/how-it-works")} className="inline-flex items-center gap-2 bg-[#1E1B4B] hover:bg-[#2D2A6B] text-white font-bold px-7 py-3.5 rounded-full text-sm transition-all duration-200 hover:scale-[1.03]">
+        <button onClick={() => navigate("/how-it-works")} className="inline-flex items-center gap-2 bg-[#0A1128] hover:bg-[#111A33] text-white font-bold px-7 py-3.5 rounded-full text-sm transition-all duration-200 hover:scale-[1.03]">
           See How Zoiko One Works <ArrowRight size={16} />
         </button>
       </div>

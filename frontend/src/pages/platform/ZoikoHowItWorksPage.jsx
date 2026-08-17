@@ -82,19 +82,19 @@ const workflows = [
 const scaleCards = [
   {
     n: "①",
-    bg: "linear-gradient(135deg,#f97316 0%,#fb923c 100%)",
+    bg: "#3B82F6",
     title: "Start with one",
     desc: "One product or one urgent workflow.",
   },
   {
     n: "②",
-    bg: "linear-gradient(135deg,#3b5bd5 0%,#4a6fd8 100%)",
+    bg: "#10B981",
     title: "Add a pillar",
     desc: "Activate a complete operating area.",
   },
   {
     n: "③",
-    bg: "linear-gradient(135deg,#6c5dd3 0%,#7b6de0 100%)",
+    bg: "#0A1128",
     title: "Scale the platform",
     desc: "Connect all five pillars with governance.",
   },
@@ -126,12 +126,12 @@ const S = {
     padding: "80px 24px",
     overflow: "hidden",
     backgroundColor: "#f5f4f2",
-    background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+    background: "linear-gradient(120deg, rgba(16,185,129,0.22) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.30) 100%)",
   },
   heroOverlay: {
     position: "absolute",
     inset: 0,
-    background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+    background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.20) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.24) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
     pointerEvents: "none",
   },
   heroInner: {
@@ -151,7 +151,7 @@ const S = {
     background: "#fff",
   },
   platformPill: {
-    background: "#3b5bdb",
+    background: "#3B82F6",
     color: "#fff",
     fontSize: 12,
     fontWeight: 700,
@@ -170,7 +170,7 @@ const S = {
     color: "#0B1C3F",
     margin: "0 0 20px",
   },
-  heroOrange: { color: "#f97316" },
+  heroOrange: { color: "#10B981" },
   heroSub: {
     fontSize: 16,
     color: "#4B5563",
@@ -185,7 +185,7 @@ const S = {
     flexWrap: "wrap",
   },
   btnOrange: {
-    background: "linear-gradient(135deg, #F97316, #EA580C)",
+    background: "#3B82F6",
     color: "#fff",
     border: "none",
     borderRadius: 999,
@@ -219,7 +219,7 @@ const S = {
   sectionLabelOrange: {
     fontSize: 11.5,
     fontWeight: 700,
-    color: "#f97316",
+    color: "#3B82F6",
     textTransform: "uppercase",
     letterSpacing: "0.12em",
     textAlign: "center",
@@ -228,7 +228,7 @@ const S = {
   sectionLabelPurple: {
     fontSize: 11.5,
     fontWeight: 700,
-    color: "#4a3fc0",
+    color: "#3B82F6",
     textTransform: "uppercase",
     letterSpacing: "0.12em",
     textAlign: "center",
@@ -318,7 +318,7 @@ const S = {
     whiteSpace: "nowrap",
   },
   stepArrow: {
-    color: "#f97316",
+    color: "#3B82F6",
     fontSize: 16,
     fontWeight: 700,
     padding: "0 10px",
@@ -403,11 +403,11 @@ export default function ZoikoHowItWorksPage() {
           <div style={S.mechanicsRows}>
             {mechanics.map((m) => {
               const bgs = [
-                "linear-gradient(135deg,#4a3fc0 0%,#5b4fd8 100%)",
-                "linear-gradient(135deg,#3b5bd5 0%,#4a6fd8 100%)",
-                "linear-gradient(135deg,#5040c8 0%,#6050d8 100%)",
-                "linear-gradient(135deg,#4535b8 0%,#5545cc 100%)",
-                "linear-gradient(135deg,#3b2fb0 0%,#4a3fc0 100%)",
+                "#3B82F6",
+                "#10B981",
+                "#0A1128",
+                "#F59E0B",
+                "#3B82F6",
               ];
               return (
                 <div key={m.n} style={S.mechRow}>

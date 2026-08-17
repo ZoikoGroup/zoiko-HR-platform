@@ -110,14 +110,14 @@ export default function TravelRequests() {
             <div />
             <button
               onClick={() => setShowForm(!showForm)}
-              className="px-5 py-2.5 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 transition-colors"
+              className="px-5 py-2.5 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 transition-colors"
             >
               + New Request
             </button>
           </div>
 
           {showForm && (
-            <form onSubmit={handleSubmit} className="p-6 rounded-xl bg-white dark:bg-[#1e293b] border-2 border-indigo-600">
+            <form onSubmit={handleSubmit} className="p-6 rounded-xl bg-white dark:bg-[#1e293b] border-2 border-blue-600">
               <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9] mb-4">New Travel Request</h3>
               {formError && (
                 <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg text-sm">{formError}</div>
@@ -131,7 +131,7 @@ export default function TravelRequests() {
                     value={form.destination}
                     onChange={(e) => setForm((f) => ({ ...f, destination: e.target.value }))}
                     required
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -142,7 +142,7 @@ export default function TravelRequests() {
                     value={form.purpose}
                     onChange={(e) => setForm((f) => ({ ...f, purpose: e.target.value }))}
                     required
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -152,7 +152,7 @@ export default function TravelRequests() {
                     value={form.from}
                     onChange={(e) => setForm((f) => ({ ...f, from: e.target.value }))}
                     required
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
                 <div>
@@ -162,7 +162,7 @@ export default function TravelRequests() {
                     value={form.to}
                     onChange={(e) => setForm((f) => ({ ...f, to: e.target.value }))}
                     required
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-transparent"
+                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                 </div>
               </div>
@@ -177,7 +177,7 @@ export default function TravelRequests() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-semibold hover:bg-indigo-700 disabled:opacity-50 cursor-pointer transition-colors"
+                  className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50 cursor-pointer transition-colors"
                 >
                   {saving ? "Submitting..." : "Submit"}
                 </button>

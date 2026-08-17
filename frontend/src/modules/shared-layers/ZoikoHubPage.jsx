@@ -27,7 +27,7 @@ export default function ZoikoHubPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Database className="h-5 w-5 text-[#FF7A00]" /> Integrated Applications
+              <Database className="h-5 w-5 text-[#3B82F6]" /> Integrated Applications
             </h3>
             <button className="flex items-center gap-1 text-xs text-slate-400 hover:text-slate-700 transition">
               <RefreshCw className="h-3.5 w-3.5" /> Refresh
@@ -54,14 +54,14 @@ export default function ZoikoHubPage() {
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
           <div>
             <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Webhook className="h-5 w-5 text-[#FF7A00]" /> Webhook Endpoints
+              <Webhook className="h-5 w-5 text-[#3B82F6]" /> Webhook Endpoints
             </h3>
             <div className="space-y-4">
               {webhooks.map((w, idx) => (
                 <div key={idx} className="p-3.5 rounded-2xl bg-slate-50 border border-slate-100">
                   <p className="text-xs font-bold text-slate-800 truncate font-mono">{w.url}</p>
                   <div className="mt-2 flex items-center justify-between">
-                    <span className="text-[10px] text-slate-500 font-medium">Event: <code className="bg-orange-50/50 px-1 py-0.5 border border-orange-100 text-[#FF7A00] font-mono">{w.event}</code></span>
+                    <span className="text-[10px] text-slate-500 font-medium">Event: <code className="bg-blue-50/50 px-1 py-0.5 border border-blue-100 text-[#3B82F6] font-mono">{w.event}</code></span>
                     <span className="text-[10px] font-bold text-emerald-600 bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded-full">{w.status}</span>
                   </div>
                 </div>

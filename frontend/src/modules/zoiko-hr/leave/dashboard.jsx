@@ -13,12 +13,12 @@ const NAV_ITEMS = [
 
 const typeColors = {
   annual: "bg-blue-500", sick: "bg-pink-500", casual: "bg-orange-500", earned: "bg-teal-500",
-  maternity: "bg-purple-500", paternity: "bg-indigo-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
+  maternity: "bg-blue-500", paternity: "bg-blue-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
 };
 
 const typeIconColors = {
   annual: "text-blue-600 bg-blue-50", sick: "text-pink-600 bg-pink-50", casual: "text-orange-600 bg-orange-50",
-  earned: "text-teal-600 bg-teal-50", maternity: "text-purple-600 bg-purple-50", paternity: "text-indigo-600 bg-indigo-50",
+  earned: "text-teal-600 bg-teal-50", maternity: "text-blue-600 bg-blue-50", paternity: "text-blue-600 bg-blue-50",
   unpaid: "text-gray-600 bg-gray-100", study: "text-cyan-600 bg-cyan-50", emergency: "text-red-600 bg-red-50",
 };
 
@@ -50,7 +50,7 @@ const STAT_CONFIG = [
   { key: "approved_requests",title: "Approved",       icon: CheckCircle,   gradient: "from-emerald-500 to-emerald-600", light: "bg-emerald-50", text: "text-emerald-600" },
   { key: "rejected_requests",title: "Rejected",       icon: XCircle,       gradient: "from-red-500 to-red-600",    light: "bg-red-50",    text: "text-red-600"    },
   { key: "total_days_taken", title: "Total Days",     icon: CalendarDays,  gradient: "from-blue-500 to-blue-600",   light: "bg-blue-50",   text: "text-blue-600"   },
-  { key: "approvalRate",     title: "Approval Rate",  icon: BarChart3,      gradient: "from-violet-500 to-violet-600", light: "bg-violet-50", text: "text-violet-600" },
+  { key: "approvalRate",     title: "Approval Rate",  icon: BarChart3,      gradient: "from-blue-500 to-blue-600", light: "bg-blue-50", text: "text-blue-600" },
 ];
 
 function StatCard({ title, value, icon: Icon, gradient, light, text, loading }) {
@@ -91,7 +91,7 @@ function SkeletonRow() {
 function InitialsAvatar({ name, size = "sm" }) {
   const parts = (name || "?").trim().split(" ");
   const initials = parts.length >= 2 ? parts[0][0] + parts[parts.length - 1][0] : parts[0]?.[0] || "?";
-  const colors = ["bg-teal-500","bg-blue-500","bg-violet-500","bg-emerald-500","bg-amber-500","bg-rose-500"];
+  const colors = ["bg-teal-500","bg-blue-500","bg-blue-500","bg-emerald-500","bg-amber-500","bg-rose-500"];
   const idx = (name || "").charCodeAt(0) % colors.length;
   const sz = size === "sm" ? "w-7 h-7 text-xs" : "w-9 h-9 text-sm";
   return (
@@ -373,14 +373,14 @@ export default function LeaveDashboard() {
           {/* Team Availability */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
             <div className="flex items-center gap-2 mb-5">
-              <div className="p-2 bg-violet-50 rounded-xl"><Users className="w-4 h-4 text-violet-600" /></div>
+              <div className="p-2 bg-blue-50 rounded-xl"><Users className="w-4 h-4 text-blue-600" /></div>
               <h2 className="text-base font-bold text-gray-900">Team Availability</h2>
             </div>
             <div className="space-y-5">
               {[
                 { label: "Working", value: teamOverview.working, color: "bg-emerald-500", textColor: "text-emerald-600" },
                 { label: "On Leave",        value: teamOverview.onLeave,  color: "bg-blue-500",   textColor: "text-blue-600"   },
-                { label: "WFH",             value: teamOverview.wfh,      color: "bg-violet-500", textColor: "text-violet-600" },
+                { label: "WFH",             value: teamOverview.wfh,      color: "bg-blue-500", textColor: "text-blue-600" },
                 { label: "Pending Requests",value: teamOverview.pending,  color: "bg-amber-500",  textColor: "text-amber-600"  },
               ].map(({ label, value, color, textColor }) => {
                 const pct = teamOverview.total > 0 ? (value / teamOverview.total) * 100 : 0;

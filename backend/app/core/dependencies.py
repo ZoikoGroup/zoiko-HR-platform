@@ -4,11 +4,12 @@ core/dependencies.py
 Reusable FastAPI dependencies for the standalone HR platform.
 
 Role model (lowest number = highest privilege):
-  super_admin  0  platform-wide (all orgs)
-  admin        1  org admin — full control within own org
-  hr_admin     2  HR admin within own org
-  manager      3  manager within own org
-  employee     4  self-service (ESS) only
+  super_admin    0  platform-wide (all orgs); also the billing "Organization Owner"
+  admin          1  org admin — full control within own org
+  billing_admin  1  org-scoped billing authority only (ZHR-COM-BILL-001 Section 19)
+  hr_admin       2  HR admin within own org
+  manager        3  manager within own org
+  employee       4  self-service (ESS) only
 """
 
 from fastapi import Depends
@@ -23,9 +24,12 @@ oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
 
 # ── Role Hierarchy ───────────────────────────────────────────────────────────
+# billing_admin sits alongside admin: per ZHR-COM-BILL-001 Section 19, it
+# carries near-Owner billing authority but no HR-operational authority.
 ROLE_HIERARCHY = {
     "super_admin": 0,
     "admin": 1,
+    "billing_admin": 1,
     "hr_admin": 2,
     "manager": 3,
     "employee": 4,
@@ -33,18 +37,64 @@ ROLE_HIERARCHY = {
 
 # ── Role Creation Rules ─────────────────────────────────────────────────────
 ROLE_CREATION_RULES = {
-    "super_admin": ["admin"],
-    "admin": ["admin", "hr_admin", "manager", "employee"],
+    "super_admin": ["admin", "billing_admin"],
+    "admin": ["admin", "billing_admin", "hr_admin", "manager", "employee"],
+    "billing_admin": [],
     "hr_admin": ["manager", "employee"],
     "manager": [],
     "employee": [],
 }
 
 # ── What each role can do within the HR platform ────────────────────────────
+# Billing permissions (manage_billing/view_billing/...) implement the
+# ZHR-COM-BILL-001 Section 19 RBAC matrix: super_admin is mapped to the
+# spec's "Organization Owner" row (full authority), billing_admin to its
+# "Billing Admin" row (same, minus unilateral refunds/unrestricted discounts).
+#
+# Separation of duties (Section 19): HR Admin, IT/Integration Admin and
+# Security/Privacy Admin permission sets are separate. super_admin does NOT
+# auto-inherit HR operational, integration-admin or security-admin writes.
 ROLE_PERMISSIONS = {
-    "super_admin": ["all", "manage_platforms", "manage_organizations", "view_reports", "manage_users"],
-    "admin": ["manage_organization", "manage_users", "manage_hr", "manage_departments", "manage_employees", "manage_attendance", "manage_leave", "manage_assets", "manage_learning", "manage_performance", "manage_recruitment", "manage_ess", "manage_travel"],
-    "hr_admin": ["manage_hr", "manage_departments", "manage_employees", "manage_attendance", "manage_leave", "manage_assets", "manage_learning", "manage_performance", "manage_recruitment", "manage_ess", "manage_travel"],
+    # ── Organization Owner (super_admin) — ZHR-COM-BILL-001 Section 19 ──
+    # Full billing authority; refund/credit is request-only (requires approval).
+    # Does NOT inherit HR Admin, IT Admin or Security Admin writes.
+    "super_admin": [
+        "all",
+        # Platform-level
+        "manage_platforms", "manage_organizations", "view_reports", "manage_users",
+        # Billing (Section 19 — Organization Owner row)
+        "manage_billing", "view_billing", "manage_payment_methods",
+        "manage_plan", "view_plan_usage",
+        "request_refund",           # request-only, not unilateral
+        "manage_discounts", "manage_addons",
+        "cancel_subscription",
+        "view_invoices",
+        # Workforce & entitlements
+        "manage_workforce", "view_delinquency",
+        "manage_modules",
+        # Access & role management
+        "manage_access",
+    ],
+    "admin": [
+        "manage_organization", "manage_users", "view_payroll",
+        "manage_hr", "manage_departments", "manage_employees",
+        "manage_attendance", "manage_leave", "manage_assets",
+        "manage_learning", "manage_performance", "manage_recruitment",
+        "manage_ess", "manage_travel", "manage_compliance",
+    ],
+    "billing_admin": [
+        "manage_billing", "view_billing", "manage_payment_methods",
+        "manage_plan", "view_plan_usage",
+        "request_refund", "manage_discounts", "manage_addons",
+        "cancel_subscription",
+        "view_invoices",
+    ],
+    "hr_admin": [
+        "manage_hr", "manage_departments", "manage_employees",
+        "manage_attendance", "manage_leave", "manage_assets",
+        "manage_learning", "manage_performance", "manage_recruitment",
+        "manage_ess", "manage_travel", "manage_compliance",
+    ],
     "manager": ["view_subordinates", "approve_attendance", "approve_leave", "manage_performance"],
     "employee": ["view_profile", "request_leave", "clock_in_out", "view_assets", "ess"],
 }
@@ -71,6 +121,7 @@ __all__ = [
     "get_current_org_admin", "get_current_super_admin",
     "get_organization_id", "get_super_admin_organization_id",
     "require_organization_access",
+    "get_current_billing_owner", "get_current_billing_admin", "get_current_billing_viewer",
 ]
 
 
@@ -173,6 +224,44 @@ def get_super_admin_organization_id(
             "Super Admin must provide organization_id query parameter to access organization data."
         )
     return organization_id
+
+
+# ── Billing RBAC (ZHR-COM-BILL-001 Section 19) ──────────────────────────────
+# super_admin is mapped to the standard's "Organization Owner" row; it keeps
+# its existing cross-org access, so a billing route also needs an explicit
+# organization_id/require_organization_access check for every OTHER role.
+def get_current_billing_owner(current_user=Depends(get_current_user)):
+    """Only the Organization Owner (super_admin) — plan changes, cancellation,
+    payment methods, discounts/add-ons, and classification conversions."""
+    role_val = _role_value(current_user.role)
+    if role_val != "super_admin":
+        raise ForbiddenException(
+            f"This action requires Organization Owner privileges. Your role: {role_val}"
+        )
+    return current_user
+
+
+def get_current_billing_admin(current_user=Depends(get_current_user)):
+    """Organization Owner or Billing Admin — day-to-day billing operations."""
+    role_val = _role_value(current_user.role)
+    allowed_roles = ["super_admin", "billing_admin"]
+    if role_val not in allowed_roles:
+        raise ForbiddenException(
+            f"This action requires billing admin privileges. Your role: {role_val}"
+        )
+    return current_user
+
+
+def get_current_billing_viewer(current_user=Depends(get_current_user)):
+    """Adds HR Admin / Organization Admin as view-only (package + workforce
+    usage only, no financial detail — Section 19's separation-of-duties rule)."""
+    role_val = _role_value(current_user.role)
+    allowed_roles = ["super_admin", "billing_admin", "admin", "hr_admin"]
+    if role_val not in allowed_roles:
+        raise ForbiddenException(
+            f"This action requires billing view privileges. Your role: {role_val}"
+        )
+    return current_user
 
 
 def require_organization_access(

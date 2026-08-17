@@ -3,10 +3,12 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 @theme inline {
-  --color-primary-dark: #1E1B4B;
-  --color-primary-light: #4F46E5;
-  --color-accent: #F97316;
-  --color-accent-hover: #EA580C;
+  --color-primary-dark: #0A1128;
+  --color-primary-light: #3B82F6;
+  --color-primary: #3B82F6;
+  --color-primary-hover: #2563EB;
+  --color-accent: #10B981;
+  --color-accent-hover: #059669;
   --color-secondary: #3B82F6;
   /* Zoiko brand — the single enterprise accent for Billing */
   --color-brand: #FF7A00;

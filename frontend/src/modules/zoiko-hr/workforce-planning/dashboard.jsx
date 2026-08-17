@@ -139,7 +139,7 @@ export default function WorkforceDashboard() {
           <StatCard title="Total Plans" value={formatNumber(d.total_plans)} icon={Target} color="text-blue-600" />
           <StatCard title="Active Plans" value={formatNumber(d.active_plans)} icon={BarChart3} color="text-teal-600" />
           <StatCard title="Total Budget" value={formatCurrency(d.total_budget)} icon={DollarSign} color="text-green-600" />
-          <StatCard title="Total Headcount" value={formatNumber(d.total_current_headcount)} icon={Users} color="text-indigo-600" />
+          <StatCard title="Total Headcount" value={formatNumber(d.total_current_headcount)} icon={Users} color="text-blue-600" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -157,7 +157,7 @@ export default function WorkforceDashboard() {
                 <p className="text-xs text-gray-400">Filled</p>
               </div>
               <div className="text-center">
-                <p className="text-2xl font-bold text-orange-600">{formatNumber(d.total_vacant_positions)}</p>
+                <p className="text-2xl font-bold text-blue-600">{formatNumber(d.total_vacant_positions)}</p>
                 <p className="text-xs text-gray-400">Vacant</p>
               </div>
             </div>
@@ -175,12 +175,12 @@ export default function WorkforceDashboard() {
 
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h3 className="text-sm font-semibold text-gray-800 mb-4 flex items-center gap-2">
-              <UserCheck size={16} className="text-purple-600" /> Succession Readiness
+              <UserCheck size={16} className="text-blue-600" /> Succession Readiness
             </h3>
             <div className="space-y-3">
               <ReadinessGauge label="Ready" value={d.ready_successors} total={totalSuccession} color="bg-green-500" />
               <ReadinessGauge label="High Risk" value={d.high_risk_count} total={totalSuccession} color="bg-red-500" />
-              <ReadinessGauge label="Total Tracked" value={d.succession_count} total={totalSuccession || 1} color="bg-purple-500" />
+              <ReadinessGauge label="Total Tracked" value={d.succession_count} total={totalSuccession || 1} color="bg-blue-500" />
             </div>
           </div>
         </div>

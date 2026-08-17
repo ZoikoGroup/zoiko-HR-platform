@@ -1,15 +1,15 @@
 export default function BusinessCloud() {
   const integrations = [
-    { label: "Accounting", color: "#1A2560", letter: "A" },
-    { label: "CRM", color: "#F97316", letter: "C" },
-    { label: "Identity / SSO", color: "#2B6CB0", letter: "ID" },
-    { label: "Payments", color: "#2E7D32", letter: "S" },
-    { label: "ERP", color: "#1B5E20", letter: "E" },
-    { label: "Tax", color: "#BF360C", letter: "T" },
-    { label: "Productivity", color: "#4A148C", letter: "⊞" },
-    { label: "REST API", color: "#1A2560", letter: "{}" },
-    { label: "Webhooks", color: "#EA580C", letter: "⬡" },
-    { label: "Imports / Exports", color: "#0D47A1", letter: "↕" },
+    { label: "Accounting", color: "#0A1128", letter: "A" },
+    { label: "CRM", color: "#3B82F6", letter: "C" },
+    { label: "Identity / SSO", color: "#10B981", letter: "ID" },
+    { label: "Payments", color: "#F59E0B", letter: "S" },
+    { label: "ERP", color: "#0A1128", letter: "E" },
+    { label: "Tax", color: "#3B82F6", letter: "T" },
+    { label: "Productivity", color: "#10B981", letter: "⊞" },
+    { label: "REST API", color: "#F59E0B", letter: "{}" },
+    { label: "Webhooks", color: "#0A1128", letter: "⬡" },
+    { label: "Imports / Exports", color: "#3B82F6", letter: "↕" },
   ];
 
   const row1 = integrations.slice(0, 6);
@@ -77,7 +77,7 @@ const styles = {
     fontSize: "11px",
     fontWeight: 600,
     letterSpacing: "0.12em",
-    color: "#2B4EFF",
+    color: "#3B82F6",
     textTransform: "uppercase",
     marginBottom: "16px",
   },
@@ -138,11 +138,11 @@ const styles = {
   cta: {
     display: "inline-block",
     padding: "12px 28px",
-    border: "1.5px solid #1A2560",
+    border: "1.5px solid #0A1128",
     borderRadius: "999px",
     fontSize: "14px",
     fontWeight: 600,
-    color: "#1A2560",
+    color: "#0A1128",
     textDecoration: "none",
     backgroundColor: "transparent",
   },

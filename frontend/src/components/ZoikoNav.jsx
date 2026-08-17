@@ -12,8 +12,8 @@ export default function ZoikoNav() {
         <div style={S.logo}>
           <div style={S.logoIcon}>
             <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
-              <path d="M8 22L20 6" stroke="#f97316" strokeWidth="3.5" strokeLinecap="round"/>
-              <path d="M8 6L8 22" stroke="#2d4fd6" strokeWidth="3.5" strokeLinecap="round"/>
+              <path d="M8 22L20 6" stroke="#10B981" strokeWidth="3.5" strokeLinecap="round"/>
+              <path d="M8 6L8 22" stroke="#3B82F6" strokeWidth="3.5" strokeLinecap="round"/>
             </svg>
           </div>
           <span style={S.logoText}>
@@ -142,7 +142,7 @@ const S = {
     cursor: "pointer",
   },
   demo: {
-    background: "#f97316",
+    background: "#3B82F6",
     color: "#fff",
     border: "none",
     borderRadius: 50,

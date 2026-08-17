@@ -10,6 +10,7 @@ import { api, API_BASE_URL } from "./api";
 export {
   getDocuments,
   getDocumentById,
+  getDocumentFile,
   uploadDocument,
   deleteDocument,
   updateDocumentStatus,

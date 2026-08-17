@@ -17,11 +17,11 @@ import {
   ArrowUpRight,
 } from "lucide-react";
 
-const NAVY = "#1E2A4A";
-const NAVY_DEEP = "#16213D";
-const ORANGE = "#E8850A";
-const ORANGE_DARK = "#D8760A";
-const BLUE = "#2F4DC4";
+const NAVY = "#0A1128";
+const NAVY_DEEP = "#111A33";
+const ORANGE = "#3B82F6";
+const ORANGE_DARK = "#2563EB";
+const BLUE = "#3B82F6";
 const BODY = "#5B6373";
 const BORDER = "#E6E8EC";
 const SECTION_BG = "#F7F8FA";
@@ -94,7 +94,7 @@ const startingPointCards = [
 const coverageCards = [
   {
     icon: Circle,
-    iconBg: `linear-gradient(135deg, #3450C9, ${NAVY})`,
+    iconBg: `linear-gradient(135deg, #3B82F6, ${NAVY})`,
     title: "Platform Overview",
     desc: "How Zoiko One connects People, Money, Work, Supply and Control through one shared operating system.",
   },
@@ -106,7 +106,7 @@ const coverageCards = [
   },
   {
     icon: ArrowLeftRight,
-    iconBg: ORANGE,
+    iconBg: "#10B981",
     title: "Workflow Demonstration",
     desc: "Connected handoffs: HR-to-payroll, project-to-cash, spend-to-stock, documents-to-compliance, billing-to-insights.",
   },
@@ -118,13 +118,13 @@ const coverageCards = [
   },
   {
     icon: BarChart3,
-    iconBg: "#3F8CD9",
+    iconBg: "#F59E0B",
     title: "Reporting & Insights",
     desc: "How Zoiko Insights surfaces visibility across payroll, spend, billing, projects, inventory, risk and performance.",
   },
   {
     icon: Sparkles,
-    iconBg: `linear-gradient(135deg, ${ORANGE}, ${NAVY})`,
+    iconBg: `linear-gradient(135deg, #F59E0B, ${NAVY})`,
     title: "AI Assistance",
     desc: "Governed AI support for summaries, drafting, workflow guidance, exception analysis and operational insights.",
   },
@@ -171,7 +171,7 @@ function Field({ label, required, placeholder, type = "text", colSpan }) {
         }}
       >
         {label}
-        {required && <span style={{ color: ORANGE }}> *</span>}
+        {required && <span style={{ color: "#F59E0B" }}> *</span>}
       </label>
       <input
         type={type}
@@ -201,7 +201,7 @@ function Pill({ children, active, onClick }) {
       onClick={onClick}
       style={{
         border: `1px solid ${active ? ORANGE : BORDER}`,
-        background: active ? "#FBEEE3" : "#fff",
+        background: active ? "#EFF6FF" : "#fff",
         color: active ? ORANGE_DARK : NAVY,
         borderRadius: 999,
         padding: "8px 16px",
@@ -274,7 +274,7 @@ export default function ZoikoDemoPage() {
               }}
             >
               See Zoiko One in{" "}
-              <span style={{ color: ORANGE }}>action.</span>
+              <span style={{ color: "#10B981" }}>action.</span>
             </h1>
 
             <p style={{ fontSize: 17, lineHeight: 1.6, color: BODY, maxWidth: 520, margin: "0 0 24px 0" }}>

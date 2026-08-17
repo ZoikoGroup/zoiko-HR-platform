@@ -21,7 +21,7 @@ const Field = ({ label, icon: Icon, children }) => (
 
 const inputCls = (err) =>
   `w-full border rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none
-   focus:ring-2 focus:ring-indigo-300 focus:border-indigo-400 focus:bg-white dark:focus:bg-[#0f172a] transition
+   focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition
    ${err ? "border-red-300 bg-red-50 dark:bg-red-900/30" : "border-slate-200 dark:border-[#334155]"}`;
 
 export default function EmergencyContacts() {
@@ -125,11 +125,11 @@ export default function EmergencyContacts() {
     const c = isEditing ? draft : contact;
 
     return (
-      <div className={`bg-white dark:bg-[#1e293b] rounded-2xl border shadow-sm transition ${contact.isPrimary ? "border-indigo-200 dark:border-indigo-800 shadow-indigo-100" : "border-slate-100 dark:border-[#334155]"}`}>
+      <div className={`bg-white dark:bg-[#1e293b] rounded-2xl border shadow-sm transition ${contact.isPrimary ? "border-blue-200 dark:border-blue-800 shadow-blue-100" : "border-slate-100 dark:border-[#334155]"}`}>
         <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#334155]">
           <div className="flex items-center gap-3">
             <div className={`w-10 h-10 rounded-xl flex items-center justify-center font-bold text-sm ${
-              contact.isPrimary ? "bg-indigo-100 dark:bg-indigo-500/20 text-indigo-600 dark:text-indigo-300" : "bg-slate-100 dark:bg-[#0f172a] text-slate-500 dark:text-[#94a3b8]"
+              contact.isPrimary ? "bg-blue-100 dark:bg-blue-500/20 text-blue-600 dark:text-blue-300" : "bg-slate-100 dark:bg-[#0f172a] text-slate-500 dark:text-[#94a3b8]"
             }`}>
               {contact.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
             </div>
@@ -137,7 +137,7 @@ export default function EmergencyContacts() {
               <div className="flex items-center gap-2">
                 <span className="text-sm font-bold text-slate-800 dark:text-[#f1f5f9]">{contact.name}</span>
                 {contact.isPrimary && (
-                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-indigo-600 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-500/20 border border-indigo-200 dark:border-indigo-800 px-2 py-0.5 rounded-full">
+                  <span className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-300 bg-blue-50 dark:bg-blue-500/20 border border-blue-200 dark:border-blue-800 px-2 py-0.5 rounded-full">
                     <Star size={10} fill="currentColor" /> Primary
                   </span>
                 )}
@@ -153,7 +153,7 @@ export default function EmergencyContacts() {
             )}
             {!isEditing ? (
               <>
-                <button onClick={() => handleEdit(contact)} className="p-2 rounded-xl hover:bg-indigo-50 dark:hover:bg-indigo-500/20 text-slate-400 dark:text-[#94a3b8] hover:text-indigo-500 transition">
+                <button onClick={() => handleEdit(contact)} className="p-2 rounded-xl hover:bg-blue-50 dark:hover:bg-blue-500/20 text-slate-400 dark:text-[#94a3b8] hover:text-blue-500 transition">
                   <Edit3 size={15} />
                 </button>
                 <button onClick={() => handleDelete(contact.id)} className="p-2 rounded-xl hover:bg-red-50 dark:hover:bg-red-500/20 text-slate-400 dark:text-[#94a3b8] hover:text-red-500 transition">
@@ -163,7 +163,7 @@ export default function EmergencyContacts() {
             ) : (
               <>
                 <button onClick={handleCancelEdit} className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-[#0f172a] text-slate-400 dark:text-[#94a3b8] transition"><X size={15} /></button>
-                <button onClick={() => handleSave(contact.id)} className="flex items-center gap-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-3 py-1.5 rounded-xl transition">
+                <button onClick={() => handleSave(contact.id)} className="flex items-center gap-1 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 px-3 py-1.5 rounded-xl transition">
                   <Save size={13} /> Save
                 </button>
               </>
@@ -225,7 +225,7 @@ export default function EmergencyContacts() {
     return (
       <EmployeePageShell title="Emergency Contacts" subtitle="Profile">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 dark:text-[#94a3b8] font-medium">Loading emergency contacts...</span>
         </div>
       </EmployeePageShell>
@@ -241,13 +241,13 @@ export default function EmergencyContacts() {
             <h1 className="text-2xl font-bold text-slate-800 dark:text-[#f1f5f9] mt-1">Emergency Contacts</h1>
           </div>
           {saving ? (
-            <div className="flex items-center gap-2 text-sm font-semibold text-indigo-600 bg-indigo-50 dark:bg-indigo-500/20 px-4 py-2.5 rounded-xl">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-600 bg-blue-50 dark:bg-blue-500/20 px-4 py-2.5 rounded-xl">
               <Loader2 size={14} className="animate-spin" /> Saving...
             </div>
           ) : (
             <button
               onClick={() => { setShowAdd(true); setErrors({}); }}
-              className="flex items-center gap-2 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2.5 rounded-xl transition shadow-sm shadow-indigo-200"
+              className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2.5 rounded-xl transition shadow-sm shadow-blue-200"
             >
               <Plus size={16} /> Add Contact
             </button>
@@ -279,7 +279,7 @@ export default function EmergencyContacts() {
 
         {/* Add New Contact Form */}
         {showAdd && (
-          <div className="mt-4 bg-white dark:bg-[#1e293b] rounded-2xl border-2 border-dashed border-indigo-200 dark:border-indigo-800 p-6">
+          <div className="mt-4 bg-white dark:bg-[#1e293b] rounded-2xl border-2 border-dashed border-blue-200 dark:border-blue-800 p-6">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-sm font-bold text-slate-700 dark:text-[#f1f5f9]">New Contact</h3>
               <button onClick={() => { setShowAdd(false); setErrors({}); setNewContact(emptyContact); }} className="p-1.5 rounded-xl hover:bg-slate-100 dark:hover:bg-[#0f172a] text-slate-400 dark:text-[#94a3b8] transition">
@@ -315,7 +315,7 @@ export default function EmergencyContacts() {
               <button onClick={() => { setShowAdd(false); setErrors({}); setNewContact(emptyContact); }} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-[#334155] text-sm font-semibold text-slate-500 dark:text-[#94a3b8] hover:bg-slate-50 dark:hover:bg-[#0f172a] transition">
                 Cancel
               </button>
-              <button onClick={handleAdd} className="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold transition">
+              <button onClick={handleAdd} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition">
                 Add Contact
               </button>
             </div>

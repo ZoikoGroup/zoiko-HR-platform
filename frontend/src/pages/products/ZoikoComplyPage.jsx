@@ -12,18 +12,18 @@ import {
   ChevronDown,
 } from "lucide-react";
 
-const NAVY = "#0B1C3F";
-const BLUE = "#1A3A8C";
-const LIGHT_BLUE = "#4A9FE4";
-const ORANGE = "#D97B3F";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const LIGHT_BLUE = "#10B981";
+const ORANGE = "#3B82F6";
 const WHITE = "#FFFFFF";
 const OFF_WHITE = "#f8fafc";
 const GRAY = "#6B7280";
 const LIGHT_GRAY = "#E5E7EB";
 const DARK_TEXT = "#111827";
 const SUBTLE_TEXT = "#4B5563";
-const ICON_NAVY = "#1E2A6A";
-const ICON_GOLD = "#C9952E";
+const ICON_NAVY = "#0A1128";
+const ICON_GOLD = "#10B981";
 
 const FF = "'Inter', system-ui, -apple-system, sans-serif";
 
@@ -83,7 +83,7 @@ const capabilityCards = [
   },
   {
     icon: AlertTriangle,
-    iconBg: ORANGE,
+    iconBg: "#F59E0B",
     title: "Exceptions & remediation",
     desc: "Surface, assign and resolve issues.",
   },
@@ -101,7 +101,7 @@ const capabilityCards = [
   },
   {
     icon: Sparkles,
-    iconBg: `linear-gradient(135deg, ${ORANGE}, ${ICON_NAVY})`,
+    iconBg: `linear-gradient(135deg, #F59E0B, ${ICON_NAVY})`,
     title: "AI assistance, governed",
     desc: "Summarize obligations and surface exceptions \u2014 never makes compliance determinations, gives legal advice, or closes issues without authorization.",
   },
@@ -183,16 +183,16 @@ export default function ZoikoComplyPage() {
         padding: "80px 24px",
         overflow: "hidden",
         backgroundColor: "#f5f4f2",
-        background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+        background: "linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.35) 100%)",
       }}>
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+          background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.22) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
           pointerEvents: "none",
         }} />
         <div style={{ position: "relative", zIndex: 1, maxWidth: 1400 }}>
           <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "rgba(255,255,255,0.92)", borderRadius: 999, padding: "6px 16px", marginBottom: 28, fontSize: 14, fontWeight: 500, boxShadow: "0 1px 4px rgba(0,0,0,0.08)" }}>
-            <span style={{ background: "#1E2A8C", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>Control</span>
+            <span style={{ background: "#3B82F6", color: "#fff", borderRadius: 999, padding: "2px 10px", fontSize: 12, fontWeight: 700 }}>Control</span>
             <span style={{ color: "#555" }}>Zoiko Comply</span>
           </div>
 
@@ -216,11 +216,11 @@ export default function ZoikoComplyPage() {
 
           <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
             <button style={{
-              background: "linear-gradient(135deg, #FF8800, #FF5500)",
+              background: "#3B82F6",
               color: "#fff", border: "none", borderRadius: 999,
               padding: "14px 32px", fontSize: 16, fontWeight: 700, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 8,
-              boxShadow: "0 4px 16px rgba(255,85,0,0.45)",
+              boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
             }}>
               Get a Demo <ArrowRight size={17} />
             </button>
@@ -337,10 +337,10 @@ export default function ZoikoComplyPage() {
       {/* BOTTOM CTA */}
       <section style={{ ...wrap, paddingTop: "20px", paddingBottom: "80px" }}>
         <div style={{
-          background: `linear-gradient(135deg, ${BLUE} 0%, #1e40af 100%)`,
+          background: "linear-gradient(135deg, #0A1128 0%, #111A33 100%)",
           borderRadius: "24px", padding: "64px 48px",
           textAlign: "center",
-          boxShadow: "0 16px 48px rgba(26,58,140,0.35)",
+          boxShadow: "0 16px 48px rgba(10,17,40,0.35)",
           position: "relative", overflow: "hidden",
         }}>
           <div style={{
@@ -368,7 +368,7 @@ export default function ZoikoComplyPage() {
                 padding: "14px 28px", borderRadius: "50px", border: "none",
                 background: ORANGE, color: "white", fontSize: "15px",
                 fontWeight: "700", cursor: "pointer", fontFamily: FF,
-                boxShadow: "0 6px 20px rgba(217,123,63,0.5)",
+                boxShadow: "0 6px 20px rgba(59,130,246,0.5)",
               }}>Get a Demo</button>
               <button style={{
                 padding: "13px 24px", borderRadius: "50px",

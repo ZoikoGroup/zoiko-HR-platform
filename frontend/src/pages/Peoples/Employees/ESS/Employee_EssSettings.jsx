@@ -72,7 +72,7 @@ export default function EssSettings() {
     return (
       <EmployeePageShell title="Settings" subtitle="Manage your personal preferences and notification settings.">
         <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </EmployeePageShell>
     );
@@ -109,7 +109,7 @@ export default function EssSettings() {
                 type="button"
                 onClick={() => setNotifications((prev) => ({ ...prev, [n.key]: !prev[n.key] }))}
                 className={`relative w-11 h-6 rounded-full cursor-pointer transition-colors ${
-                  notifications[n.key] ? "bg-indigo-600" : "bg-gray-300"
+                  notifications[n.key] ? "bg-blue-600" : "bg-gray-300"
                 }`}
               >
                 <span
@@ -130,7 +130,7 @@ export default function EssSettings() {
               <select
                 value={language}
                 onChange={(e) => setLanguage(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm text-gray-900 dark:text-[#f1f5f9] bg-white dark:bg-[#1e293b] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm text-gray-900 dark:text-[#f1f5f9] bg-white dark:bg-[#1e293b] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
                 {["English", "Hindi", "Telugu", "Tamil"].map((l) => (
                   <option key={l}>{l}</option>
@@ -142,7 +142,7 @@ export default function EssSettings() {
               <select
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value)}
-                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm text-gray-900 dark:text-[#f1f5f9] bg-white dark:bg-[#1e293b] focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500"
+                className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm text-gray-900 dark:text-[#f1f5f9] bg-white dark:bg-[#1e293b] focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500"
               >
                 {["Asia/Kolkata", "UTC", "America/New_York", "Europe/London"].map((t) => (
                   <option key={t}>{t}</option>
@@ -156,7 +156,7 @@ export default function EssSettings() {
           <button
             onClick={handleSave}
             disabled={saving}
-            className="px-7 py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-indigo-400 text-white rounded-lg text-sm font-semibold transition-colors"
+            className="px-7 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-semibold transition-colors"
           >
             {saving ? "Saving..." : "Save Changes"}
           </button>

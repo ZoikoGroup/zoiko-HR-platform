@@ -38,7 +38,7 @@ function StatusBadge({ status }) {
 }
 
 function TypeBadge({ type }) {
-  const m = { okr: "bg-indigo-100 text-indigo-800", kpi: "bg-orange-100 text-orange-800", individual: "bg-teal-100 text-teal-800" };
+  const m = { okr: "bg-blue-100 text-blue-800", kpi: "bg-blue-100 text-blue-800", individual: "bg-teal-100 text-teal-800" };
   return <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${m[type] || "bg-gray-100 text-gray-800"}`}>{(type || "okr").toUpperCase()}</span>;
 }
 

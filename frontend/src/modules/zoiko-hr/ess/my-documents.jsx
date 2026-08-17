@@ -57,8 +57,8 @@ const StatusBadge = ({ status }) => {
 };
 
 const CAT_COLORS = {
-  company:  "bg-indigo-50 text-indigo-700 border-indigo-200",
-  employee: "bg-violet-50 text-violet-700 border-violet-200",
+  company:  "bg-blue-50 text-blue-700 border-blue-200",
+  employee: "bg-blue-50 text-blue-700 border-blue-200",
   contract: "bg-cyan-50 text-cyan-700 border-cyan-200",
   policy:   "bg-teal-50 text-teal-700 border-teal-200",
 };
@@ -124,7 +124,7 @@ function UploadModal({ onClose, onUploaded, user }) {
       <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
         <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
-            <Upload className="w-4 h-4 text-indigo-600" /> Upload Document
+            <Upload className="w-4 h-4 text-blue-600" /> Upload Document
           </h3>
           <button onClick={onClose} className="p-1 rounded hover:bg-gray-100 text-slate-400 hover:text-slate-600">
             <X className="w-5 h-5" />
@@ -135,7 +135,7 @@ function UploadModal({ onClose, onUploaded, user }) {
             <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">File *</label>
             <div
               onClick={() => fileRef.current?.click()}
-              className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer hover:border-indigo-400 hover:bg-indigo-50/50 transition-colors"
+              className="border-2 border-dashed border-gray-200 rounded-xl p-6 text-center cursor-pointer hover:border-blue-400 hover:bg-blue-50/50 transition-colors"
             >
               {file ? (
                 <p className="text-sm font-medium text-slate-700">{file.name}</p>
@@ -157,7 +157,7 @@ function UploadModal({ onClose, onUploaded, user }) {
               placeholder="Leave blank to use file name"
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             />
           </div>
 
@@ -166,7 +166,7 @@ function UploadModal({ onClose, onUploaded, user }) {
             <select
               value={category}
               onChange={e => setCategory(e.target.value)}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30"
             >
               <option value="employee">Employee</option>
               <option value="company">Company</option>
@@ -182,7 +182,7 @@ function UploadModal({ onClose, onUploaded, user }) {
               value={description}
               onChange={e => setDesc(e.target.value)}
               placeholder="Optional notes…"
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none"
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none"
             />
           </div>
 
@@ -197,7 +197,7 @@ function UploadModal({ onClose, onUploaded, user }) {
             <button
               type="submit"
               disabled={uploading}
-              className="flex-1 py-2 text-sm font-semibold bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-60 flex items-center justify-center gap-2"
+              className="flex-1 py-2 text-sm font-semibold bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-60 flex items-center justify-center gap-2"
             >
               {uploading
                 ? <><RefreshCw className="w-4 h-4 animate-spin" /> Uploading…</>
@@ -266,10 +266,10 @@ export default function EssMyDocuments() {
   const categoryColors = {
     payslips: "bg-blue-50 text-blue-600",
     "tax forms": "bg-orange-50 text-orange-600",
-    certificates: "bg-purple-50 text-purple-600",
+    certificates: "bg-blue-50 text-blue-600",
     "offer letter": "bg-green-50 text-green-600",
-    company: "bg-indigo-50 text-indigo-600",
-    employee: "bg-violet-50 text-violet-600",
+    company: "bg-blue-50 text-blue-600",
+    employee: "bg-blue-50 text-blue-600",
     contract: "bg-cyan-50 text-cyan-600",
     policy: "bg-teal-50 text-teal-600",
     other: "bg-gray-50 text-gray-600",
@@ -309,7 +309,7 @@ export default function EssMyDocuments() {
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
-            <svg className="animate-spin h-8 w-8 text-indigo-500" viewBox="0 0 24 24" fill="none">
+            <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>

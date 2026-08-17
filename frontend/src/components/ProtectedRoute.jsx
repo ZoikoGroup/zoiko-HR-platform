@@ -19,7 +19,7 @@ export default function ProtectedRoute({ children, allowedRoles }) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-[#0A0F1C] text-white">
         <div className="flex items-center gap-3 text-slate-300">
-          <Loader2 className="h-5 w-5 animate-spin text-indigo-400" />
+          <Loader2 className="h-5 w-5 animate-spin text-blue-400" />
           Checking your session…
         </div>
       </div>

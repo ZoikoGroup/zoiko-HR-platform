@@ -58,7 +58,7 @@ export default function EssDashboard() {
     const docCount = documents?.data?.length || 0;
 
     return [
-      { label: "Leave Balance", value: `${totalLeaveDays} Days`, sub: "Annual leave remaining", color: "#4F46E5" },
+      { label: "Leave Balance", value: `${totalLeaveDays} Days`, sub: "Annual leave remaining", color: "#3B82F6" },
       { label: "Attendance", value: `${attendancePct}%`, sub: "This month", color: "#059669" },
       { label: "Pending Requests", value: String(pendingRequests), sub: "Awaiting approval", color: "#D97706" },
       { label: "Documents", value: String(docCount), sub: "Files uploaded", color: "#0EA5E9" },
@@ -101,7 +101,7 @@ export default function EssDashboard() {
     return (
       <EmployeePageShell title="Employee Self Service" subtitle="Welcome back! Here's your personal overview for today.">
         <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </EmployeePageShell>
     );
@@ -122,7 +122,7 @@ export default function EssDashboard() {
       <div className="grid grid-cols-4 gap-4 mb-7">
         {stats.map((s) => (
           <StatCard key={s.label} label={s.label} value={s.value} sub={s.sub} accentColor={
-            s.color === "#4F46E5" ? "text-indigo-600 dark:text-indigo-400" :
+            s.color === "#3B82F6" ? "text-blue-600 dark:text-blue-400" :
             s.color === "#059669" ? "text-emerald-600 dark:text-emerald-400" :
             s.color === "#D97706" ? "text-amber-600 dark:text-amber-400" :
             "text-sky-600 dark:text-sky-400"

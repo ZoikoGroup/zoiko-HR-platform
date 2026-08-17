@@ -2,20 +2,20 @@ import React from 'react';
 import { TrendingUp } from 'lucide-react';
 
 const colorMap = {
-  teal:     { bg: 'bg-[#19C58A]/10',    icon: 'text-[#19C58A]' },
-  green:    { bg: 'bg-[#19C58A]/10',    icon: 'text-[#19C58A]' },
-  emerald:  { bg: 'bg-[#19C58A]/10',    icon: 'text-[#19C58A]' },
-  payroll:  { bg: 'bg-[#19C58A]/10',    icon: 'text-[#19C58A]' },
-  blue:     { bg: 'bg-[#35B6F5]/10',    icon: 'text-[#35B6F5]' },
-  employee: { bg: 'bg-[#35B6F5]/10',    icon: 'text-[#35B6F5]' },
-  orange:   { bg: 'bg-[#F8A60A]/10',    icon: 'text-[#F8A60A]' },
-  amber:    { bg: 'bg-[#F8A60A]/10',    icon: 'text-[#F8A60A]' },
-  tax:      { bg: 'bg-[#F8A60A]/10',    icon: 'text-[#F8A60A]' },
-  purple:   { bg: 'bg-[#9D7BF2]/10',    icon: 'text-[#9D7BF2]' },
-  finance:  { bg: 'bg-[#9D7BF2]/10',    icon: 'text-[#9D7BF2]' },
-  rose:     { bg: 'bg-[#FF6E86]/10',    icon: 'text-[#FF6E86]' },
-  pink:     { bg: 'bg-[#FF6E86]/10',    icon: 'text-[#FF6E86]' },
-  alert:    { bg: 'bg-[#FF6E86]/10',    icon: 'text-[#FF6E86]' },
+  teal:     { bg: 'bg-[#10B981]/10',    icon: 'text-[#10B981]' },
+  green:    { bg: 'bg-[#10B981]/10',    icon: 'text-[#10B981]' },
+  emerald:  { bg: 'bg-[#10B981]/10',    icon: 'text-[#10B981]' },
+  payroll:  { bg: 'bg-[#10B981]/10',    icon: 'text-[#10B981]' },
+  blue:     { bg: 'bg-[#3B82F6]/10',    icon: 'text-[#3B82F6]' },
+  employee: { bg: 'bg-[#3B82F6]/10',    icon: 'text-[#3B82F6]' },
+  orange:   { bg: 'bg-[#F59E0B]/10',    icon: 'text-[#F59E0B]' },
+  amber:    { bg: 'bg-[#F59E0B]/10',    icon: 'text-[#F59E0B]' },
+  tax:      { bg: 'bg-[#F59E0B]/10',    icon: 'text-[#F59E0B]' },
+  purple:   { bg: 'bg-[#0A1128]/10',    icon: 'text-[#0A1128]' },
+  finance:  { bg: 'bg-[#0A1128]/10',    icon: 'text-[#0A1128]' },
+  rose:     { bg: 'bg-[#0A1128]/10',    icon: 'text-[#0A1128]' },
+  pink:     { bg: 'bg-[#0A1128]/10',    icon: 'text-[#0A1128]' },
+  alert:    { bg: 'bg-[#EF4444]/10',    icon: 'text-[#EF4444]' },
 };
 
 export default function StatCard({ icon: Icon, title, value, loading, color = 'teal', trend, suffix }) {
@@ -37,8 +37,8 @@ export default function StatCard({ icon: Icon, title, value, loading, color = 't
         )}
         {trend && !loading && (
           <div className="flex items-center gap-1 mt-1.5">
-            <div className="w-1.5 h-1.5 rounded-full bg-[#19C58A]" />
-            <span className="text-[11px] font-bold text-[#19C58A]">{trend}</span>
+            <div className="w-1.5 h-1.5 rounded-full bg-[#10B981]" />
+            <span className="text-[11px] font-bold text-[#10B981]">{trend}</span>
           </div>
         )}
       </div>

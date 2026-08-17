@@ -70,7 +70,7 @@ const IconPieSmall = ({ size = 20 }) => (
 const IconChevron = ({ open }) => (
   <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
     style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.22s" }}>
-    <path d="M6 9l6 6 6-6" stroke="#4a3fc0" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M6 9l6 6 6-6" stroke="#3B82F6" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" />
   </svg>
 );
 
@@ -79,37 +79,37 @@ const IconChevron = ({ open }) => (
 ───────────────────────────────────────── */
 const trustCards = [
   {
-    Icon: IconLock, bg: "#3b2fb0",
+    Icon: IconLock, bg: "#3B82F6",
     title: "Security",
     desc: "Secure access, permissions, workflow control, auditability and integration security.",
     link: "View Security →",
   },
   {
-    Icon: IconGlobe, bg: "#3b2fb0",
+    Icon: IconGlobe, bg: "#10B981",
     title: "Privacy",
     desc: "How sensitive data is handled, processed and protected.",
     link: "View Privacy →",
   },
   {
-    Icon: IconUser, bg: "#4a3fc0",
+    Icon: IconUser, bg: "#0A1128",
     title: "Access control",
     desc: "Roles, permissions, entities and administrator oversight.",
     link: "View Access Control →",
   },
   {
-    Icon: IconDoc, bg: "#3b2fb0",
+    Icon: IconDoc, bg: "#F59E0B",
     title: "Audit & evidence",
     desc: "Decision trails, approval history and activity records.",
     link: "View Audit & Evidence →",
   },
   {
-    Icon: IconStar, bg: "linear-gradient(135deg,#f97316,#a16207)",
+    Icon: IconStar, bg: "#3B82F6",
     title: "Responsible AI",
     desc: "AI inside permission, policy and approval boundaries.",
     link: "View Responsible AI →",
   },
   {
-    Icon: IconPie, bg: "#22b5d4",
+    Icon: IconPie, bg: "#10B981",
     title: "Reliability & status",
     desc: "Availability, incidents and maintenance communication.",
     link: "View Status →",
@@ -211,7 +211,7 @@ const S = {
     padding: "6px 16px 6px 6px", marginBottom: 32, background: "#fff",
   },
   badgePill: {
-    background: "#2d4fd6", color: "#fff",
+    background: "#3B82F6", color: "#fff",
     fontSize: 12, fontWeight: 700, borderRadius: 50, padding: "4px 12px",
   },
   badgeText: { fontSize: 14, color: "#333" },
@@ -226,7 +226,7 @@ const S = {
   },
   heroActions: { display: "flex", justifyContent: "center", gap: 16, flexWrap: "wrap" },
   btnOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 30px",
     fontSize: 15, fontWeight: 600, cursor: "pointer",
   },
@@ -240,7 +240,7 @@ const S = {
   hubSection: { padding: "100px 24px", background: "#ffffff" },
   hubInner: { maxWidth: 1100, margin: "0 auto" },
   labelBlue: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
@@ -263,7 +263,7 @@ const S = {
   cardTitle: { fontSize: 15, fontWeight: 700, color: "#1a1a4e", marginBottom: 10 },
   cardDesc: { fontSize: 13.5, color: "#888", lineHeight: 1.55, flex: 1, marginBottom: 18 },
   cardLink: {
-    fontSize: 13.5, fontWeight: 600, color: "#3b2fb0",
+    fontSize: 13.5, fontWeight: 600, color: "#3B82F6",
     background: "none", border: "none", cursor: "pointer",
     padding: 0, textAlign: "left",
   },
@@ -271,12 +271,12 @@ const S = {
   /* ── Vendor Review ── */
   vendorSection: {
     padding: "80px 60px",
-    background: "linear-gradient(135deg,#2d1b8e 0%,#3a2fba 40%,#2b5fd8 80%,#3a80e0 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     display: "flex", alignItems: "center", gap: 80,
   },
   vendorLeft: { flex: 1, maxWidth: 440 },
   labelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     marginBottom: 18, display: "block",
   },
@@ -286,7 +286,7 @@ const S = {
   },
   vendorDesc: { fontSize: 15, color: "rgba(255,255,255,0.78)", lineHeight: 1.65, marginBottom: 36 },
   btnVendor: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "14px 28px",
     fontSize: 15, fontWeight: 700, cursor: "pointer",
     display: "inline-flex", alignItems: "center", gap: 8,
@@ -320,7 +320,7 @@ const S = {
   ctaSection: { padding: "60px 28px 80px", background: "#f5f5fb" },
   ctaCard: {
     maxWidth: 1060, margin: "0 auto",
-    background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     borderRadius: 22, padding: "72px 48px", textAlign: "center",
   },
   ctaH2: {
@@ -330,7 +330,7 @@ const S = {
   ctaSub: { fontSize: 15, color: "rgba(255,255,255,0.78)", marginBottom: 36, lineHeight: 1.55 },
   ctaActions: { display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" },
   btnCtaOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 32px",
     fontSize: 15, fontWeight: 700, cursor: "pointer",
   },

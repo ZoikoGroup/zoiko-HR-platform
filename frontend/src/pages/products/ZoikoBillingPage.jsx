@@ -17,10 +17,10 @@ const NAVY = "#161B33";
 const BODY = "#5B6373";
 const ORANGE = "#FF7A00";
 const ORANGE_DARK = "#E06800";
-const BLUE_EYEBROW = "#2B3FE0";
+const BLUE_EYEBROW = "#3B82F6";
 const BORDER = "#E6E8EC";
 const SECTION_BG = "#F7F8FA";
-const ICON_NAVY = "#1E2A6A";
+const ICON_NAVY = "#0A1128";
 
 const flowRow1 = ["Customer record", "Billing event", "Invoice / subscription / usage", "Approval"];
 const flowRow2 = ["Payment reference", "Collections", "Revenue insight"];
@@ -139,7 +139,7 @@ function Hero() {
           </div>
 
           <div style={{
-            background: "linear-gradient(152.22deg, #1D0A5E 0%, #240C84 60%, #150844 100%)",
+            background: "linear-gradient(152.22deg, #0A1128 0%, #111A33 60%, #0A1128 100%)",
             borderRadius: 22,
             padding: "30px 28px 34px",
             color: "#fff",
@@ -251,7 +251,7 @@ function FaqSection() {
 function BottomCta() {
   return (
     <section style={{ padding: "88px 24px 110px" }}>
-      <div style={{ maxWidth: 1180, margin: "0 auto", background: "linear-gradient(115deg, #1C2A8C 0%, #3F63D8 100%)", borderRadius: 26, padding: "64px 40px", textAlign: "center", color: "#fff" }}>
+      <div style={{ maxWidth: 1180, margin: "0 auto", background: "linear-gradient(115deg, #0A1128 0%, #111A33 100%)", borderRadius: 26, padding: "64px 40px", textAlign: "center", color: "#fff" }}>
         <h2 style={{ fontSize: 34, fontWeight: 800, margin: "0 0 16px 0" }}>Turn delivered work into revenue.</h2>
         <p style={{ fontSize: 16, color: "rgba(255,255,255,0.85)", maxWidth: 560, margin: "0 auto 32px auto", lineHeight: 1.6 }}>
           Connect billing to projects, time, payments and insights.

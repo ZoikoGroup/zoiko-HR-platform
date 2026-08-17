@@ -65,18 +65,18 @@ const IconMail = () => (
 const IconChevron = ({ open }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
     style={{ transform: open ? "rotate(180deg)" : "rotate(0deg)", transition: "transform 0.2s" }}>
-    <path d="M6 9l6 6 6-6" stroke="#4a3fc0" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+    <path d="M6 9l6 6 6-6" stroke="#3B82F6" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
   </svg>
 );
 
 /* ─── DATA ─── */
 const principles = [
-  { Icon: IconKey,    bg: "#3b2fb0", title: "Secure access",              desc: "Authentication and secure entry into workspaces, with enterprise SSO and MFA support." },
-  { Icon: IconUser,   bg: "#3b2fb0", title: "Permission-aware experience", desc: "Role-based access so users only see and do what their role allows." },
-  { Icon: IconArrows, bg: "#3b2fb0", title: "Governed workflows",          desc: "Approvals, policy checks and routing keep actions inside control." },
-  { Icon: IconDoc,    bg: "#3b2fb0", title: "Auditability",                desc: "Audit-ready activity records, decision trails and document history." },
-  { Icon: IconCopy,   bg: "#22b5d4", title: "Integration control",         desc: "Controlled, scoped integrations across the operating environment." },
-  { Icon: IconStar,   bg: "linear-gradient(135deg,#f97316,#a16207)", title: "Responsible AI boundaries", desc: "AI stays inside permissions and policy: no restricted-data exposure, no approval bypass, no irreversible action without authorization." },
+  { Icon: IconKey,    bg: "#3B82F6", title: "Secure access",              desc: "Authentication and secure entry into workspaces, with enterprise SSO and MFA support." },
+  { Icon: IconUser,   bg: "#10B981", title: "Permission-aware experience", desc: "Role-based access so users only see and do what their role allows." },
+  { Icon: IconArrows, bg: "#0A1128", title: "Governed workflows",          desc: "Approvals, policy checks and routing keep actions inside control." },
+  { Icon: IconDoc,    bg: "#F59E0B", title: "Auditability",                desc: "Audit-ready activity records, decision trails and document history." },
+  { Icon: IconCopy,   bg: "#3B82F6", title: "Integration control",         desc: "Controlled, scoped integrations across the operating environment." },
+  { Icon: IconStar,   bg: "#10B981", title: "Responsible AI boundaries", desc: "AI stays inside permissions and policy: no restricted-data exposure, no approval bypass, no irreversible action without authorization." },
 ];
 
 const enterpriseCards = [
@@ -133,12 +133,12 @@ const S = {
     padding: "80px 24px",
     overflow: "hidden",
     backgroundColor: "#f5f4f2",
-    background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+    background: "linear-gradient(120deg, rgba(16,185,129,0.22) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.30) 100%)",
   },
   heroOverlay: {
     position: "absolute",
     inset: 0,
-    background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+    background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.20) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.24) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
     pointerEvents: "none",
   },
   heroInner: { position: "relative", zIndex: 1, maxWidth: 1100, margin: "0 auto" },
@@ -148,7 +148,7 @@ const S = {
     padding: "6px 16px 6px 6px", marginBottom: 32, background: "#fff",
   },
   badgePill: {
-    background: "#3b5bdb", color: "#fff", fontSize: 12, fontWeight: 700,
+    background: "#3B82F6", color: "#fff", fontSize: 12, fontWeight: 700,
     borderRadius: 999, padding: "4px 12px",
   },
   badgeText: { fontSize: 14, color: "#333" },
@@ -156,14 +156,14 @@ const S = {
     fontSize: "clamp(32px,5vw,56px)", fontWeight: 800, lineHeight: 1.1,
     color: "#0B1C3F", margin: "0 0 20px",
   },
-  heroOrange: { color: "#f97316" },
+  heroOrange: { color: "#10B981" },
   heroSub: {
     fontSize: 16, color: "#4B5563", lineHeight: 1.7,
     maxWidth: 660, margin: "0 auto 28px",
   },
   heroActions: { display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" },
   btnOrange: {
-    background: "linear-gradient(135deg, #F97316, #EA580C)", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 999, padding: "14px 32px", fontSize: 16,
     fontWeight: 600, cursor: "pointer", display: "flex",
     alignItems: "center", gap: 8,
@@ -178,12 +178,12 @@ const S = {
   principlesSection: { padding: "100px 24px", background: "#ffffff" },
   principlesInner: { maxWidth: 1100, margin: "0 auto" },
   sectionLabelBlue: {
-    fontSize: 11.5, fontWeight: 700, color: "#4a3fc0",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
   sectionLabelOrange: {
-    fontSize: 11.5, fontWeight: 700, color: "#f97316",
+    fontSize: 11.5, fontWeight: 700, color: "#3B82F6",
     textTransform: "uppercase", letterSpacing: "0.12em",
     textAlign: "center", marginBottom: 16,
   },
@@ -210,7 +210,7 @@ const S = {
   /* Enterprise */
   enterpriseSection: {
     padding: "100px 48px",
-    background: "linear-gradient(135deg,#2d1b8e 0%,#3a2fba 40%,#2b5fd8 80%,#3a88e8 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     textAlign: "center",
   },
   enterpriseH2: {
@@ -266,7 +266,7 @@ const S = {
   ctaSection: { padding: "60px 28px 80px", background: "#f5f5fb" },
   ctaCard: {
     maxWidth: 1060, margin: "0 auto",
-    background: "linear-gradient(135deg,#5b2d8e 0%,#4a3fc0 35%,#3a6fd8 70%,#4ab0f5 100%)",
+    background: "linear-gradient(135deg,#0A1128 0%,#111A33 100%)",
     borderRadius: 22, padding: "72px 48px", textAlign: "center",
   },
   ctaH2: {
@@ -276,7 +276,7 @@ const S = {
   ctaSub: { fontSize: 15, color: "rgba(255,255,255,0.8)", marginBottom: 36, lineHeight: 1.55 },
   ctaActions: { display: "flex", justifyContent: "center", gap: 14, flexWrap: "wrap" },
   btnCtaOrange: {
-    background: "#f97316", color: "#fff", border: "none",
+    background: "#3B82F6", color: "#fff", border: "none",
     borderRadius: 50, padding: "15px 32px", fontSize: 15, fontWeight: 700, cursor: "pointer",
   },
   btnCtaGhost: {

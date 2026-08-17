@@ -1,9 +1,12 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Search, Hash, Building2, RefreshCw, Lock, Unlock, Eye, Shield, Users,
-  UserPlus, X, Loader2, Trash2, Check, UserCheck, Upload
+  UserPlus, X, Loader2, Trash2, Check, UserCheck, Upload, Download
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
+import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
+import { useDocumentFile } from "../../../hooks/useDocumentFile";
+import { fileTypeIcon, fmtDate } from "../../../utils/documents";
 import { getDocuments, getHrEmployees, assignDocumentToEmployees, getDocumentAssignments, removeDocumentAssignment, uploadDocument } from "../../../service/hrService";
 
 const STATUS_META = {
@@ -21,17 +24,6 @@ const StatusBadge = ({ status }) => {
     </span>
   );
 };
-const fileTypeIcon = (filename = "") => {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  const map = { pdf: "📄", doc: "📝", docx: "📝", xls: "📊", xlsx: "📊", png: "🖼️", jpg: "🖼️", jpeg: "🖼️", pptx: "📑" };
-  return map[ext] || "📎";
-};
-const fmtDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
-};
-
 const STATUS_FILTERS = ["all", "pending", "approved", "rejected", "expired"];
 
 const ACCESS_ROLE_LABELS = {
@@ -68,6 +60,11 @@ export default function CompanyDocuments() {
 
   const [toast, setToast] = useState(null);
   const showToast = (type, msg) => { setToast({ type, msg }); setTimeout(() => setToast(null), 3000); };
+
+  const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
+  useEffect(() => {
+    if (fileError) showToast("error", fileError);
+  }, [fileError]);
 
   const load = () => {
     setLoading(true); setError(null);
@@ -182,7 +179,7 @@ export default function CompanyDocuments() {
     const roles = Array.isArray(ac.roles) ? ac.roles : [];
     const role = roles[0] || "all";
     return (
-      <span className="inline-flex items-center gap-1 text-xs text-indigo-600 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-200">
+      <span className="inline-flex items-center gap-1 text-xs text-blue-600 bg-blue-50 px-2 py-0.5 rounded-full border border-blue-200">
         <Lock className="w-3 h-3" /> {ACCESS_ROLE_LABELS[role] || role}
       </span>
     );
@@ -193,7 +190,7 @@ export default function CompanyDocuments() {
       <div className="space-y-6 pb-10">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
           <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-indigo-50 rounded-xl"><Building2 className="w-5 h-5 text-indigo-600" /></div>
+            <div className="p-2.5 bg-blue-50 rounded-xl"><Building2 className="w-5 h-5 text-blue-600" /></div>
             <div>
               <h2 className="text-xl font-bold text-slate-900">Company Documents</h2>
               <p className="text-sm text-slate-500">Policies, handbooks, and official company files. Assign to employees.</p>
@@ -201,7 +198,7 @@ export default function CompanyDocuments() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => setUploadModal(true)}
-              className="flex items-center gap-2 text-sm font-semibold text-white bg-indigo-600 px-4 py-2 rounded-lg hover:bg-indigo-700 self-start sm:self-center">
+              className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
               <Upload className="w-4 h-4" /> Upload
             </button>
             <button onClick={load} className="flex items-center gap-2 text-sm font-medium text-slate-600 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
@@ -215,18 +212,18 @@ export default function CompanyDocuments() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search company documents…" value={search}
               onChange={e => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
           </div>
           <div className="relative max-w-[200px]">
             <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search by Employee ID…" value={empIdSearch}
               onChange={e => setEmpIdSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 font-mono" />
+              className="w-full pl-9 pr-4 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 font-mono" />
           </div>
           <div className="flex gap-2 flex-wrap">
             {STATUS_FILTERS.map(s => (
               <button key={s} onClick={() => setStatusFilter(s)}
-                className={`px-3 py-2 rounded-lg text-xs font-semibold capitalize transition-colors ${statusFilter === s ? "bg-indigo-600 text-white shadow-sm" : "bg-white border border-gray-200 text-slate-600 hover:bg-gray-50"}`}>
+                className={`px-3 py-2 rounded-lg text-xs font-semibold capitalize transition-colors ${statusFilter === s ? "bg-blue-600 text-white shadow-sm" : "bg-white border border-gray-200 text-slate-600 hover:bg-gray-50"}`}>
                 {s === "all" ? "All" : s}
               </button>
             ))}
@@ -235,7 +232,7 @@ export default function CompanyDocuments() {
 
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
-            <svg className="animate-spin h-8 w-8 text-indigo-500" viewBox="0 0 24 24" fill="none">
+            <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
               <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
               <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v4a4 4 0 00-4 4H4z" />
             </svg>
@@ -257,7 +254,7 @@ export default function CompanyDocuments() {
                 <div key={d.id} className="bg-white rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-all p-5 flex flex-col gap-3 group">
                   <div className="flex items-start gap-3">
                     <span className="text-2xl select-none shrink-0 mt-0.5">{fileTypeIcon(d.file_name || d.title)}</span>
-                    <p className="font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:text-indigo-700 transition-colors">{d.title}</p>
+                    <p className="font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:text-blue-700 transition-colors">{d.title}</p>
                   </div>
                   {d.description && <p className="text-xs text-slate-400 line-clamp-2">{d.description}</p>}
                   <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-100">
@@ -274,13 +271,24 @@ export default function CompanyDocuments() {
                   </div>
                   {/* Action row */}
                   <div className="flex items-center gap-2 pt-1">
+                    <button onClick={() => view(d.id)} disabled={busyId === d.id}
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                      {busyId === d.id && busyAction === "view" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />} Preview
+                    </button>
+                    <button onClick={() => download(d.id)} disabled={busyId === d.id}
+                      aria-label={`Download ${d.title}`}
+                      className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
+                      {busyId === d.id && busyAction === "download" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                  <div className="flex items-center gap-2">
                     <button onClick={() => openAssignModal(d)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-indigo-600 border border-indigo-200 bg-indigo-50 rounded-lg hover:bg-indigo-100 transition-colors">
+                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
                       <UserPlus className="w-3.5 h-3.5" /> Assign
                     </button>
                     <button onClick={() => openViewAssignments(d)}
                       className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">
-                      <Users className="w-3.5 h-3.5" /> View
+                      <Users className="w-3.5 h-3.5" /> Assignees
                     </button>
                   </div>
                 </div>
@@ -303,25 +311,25 @@ export default function CompanyDocuments() {
             </div>
             <div className="p-6 overflow-y-auto flex-1">
               {empLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>
+                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
               ) : employees.length === 0 ? (
                 <p className="text-sm text-slate-500 text-center py-8">No active employees found.</p>
               ) : (
                 <div className="space-y-1">
                   {employees.map(emp => (
                     <label key={emp.id} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
-                      selectedEmpIds.includes(emp.id) ? "bg-indigo-50 border border-indigo-200" : "hover:bg-slate-50 border border-transparent"
+                      selectedEmpIds.includes(emp.id) ? "bg-blue-50 border border-blue-200" : "hover:bg-slate-50 border border-transparent"
                     }`}>
                       <input type="checkbox" checked={selectedEmpIds.includes(emp.id)}
-                        onChange={() => toggleEmp(emp.id)} className="rounded accent-indigo-600 w-4 h-4" />
-                      <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">
+                        onChange={() => toggleEmp(emp.id)} className="rounded accent-blue-600 w-4 h-4" />
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
                         {(emp.firstName || emp.first_name || "?").charAt(0)}{(emp.lastName || emp.last_name || "").charAt(0)}
                       </div>
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">{emp.fullName || emp.full_name || `${emp.firstName || emp.first_name || ""} ${emp.lastName || emp.last_name || ""}`}</p>
-                        <p className="text-xs text-slate-400"><span className="font-mono text-indigo-500">{emp.employeeId || emp.employee_id}</span> · {emp.employeeCode || emp.employee_code} · {emp.jobTitle || emp.job_title || ""}</p>
+                        <p className="text-xs text-slate-400"><span className="font-mono text-blue-500">{emp.employeeId || emp.employee_id}</span> · {emp.employeeCode || emp.employee_code} · {emp.jobTitle || emp.job_title || ""}</p>
                       </div>
-                      {selectedEmpIds.includes(emp.id) && <Check className="w-4 h-4 text-indigo-600 shrink-0" />}
+                      {selectedEmpIds.includes(emp.id) && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
                     </label>
                   ))}
                 </div>
@@ -332,7 +340,7 @@ export default function CompanyDocuments() {
                 <span className="text-sm text-slate-600 font-medium">{selectedEmpIds.length} selected</span>
               </div>
               <button onClick={handleAssign} disabled={!selectedEmpIds.length || assigning}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:bg-indigo-400 transition flex items-center justify-center gap-2">
+                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:bg-blue-400 transition flex items-center justify-center gap-2">
                 {assigning ? <><Loader2 className="w-4 h-4 animate-spin" /> Assigning...</> : <><UserPlus className="w-4 h-4" /> Assign to {selectedEmpIds.length} Employee{selectedEmpIds.length !== 1 ? "s" : ""}</>}
               </button>
             </div>
@@ -353,7 +361,7 @@ export default function CompanyDocuments() {
             </div>
             <div className="p-6 overflow-y-auto flex-1">
               {assignLoading ? (
-                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-indigo-500" /></div>
+                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
               ) : assignments.length === 0 ? (
                 <div className="text-center py-8">
                   <Users className="w-10 h-10 text-slate-300 mx-auto mb-2" />
@@ -364,12 +372,12 @@ export default function CompanyDocuments() {
                   {assignments.map(a => (
                     <div key={a.id} className="flex items-center justify-between p-3 rounded-xl bg-white border border-slate-100 hover:border-slate-200 transition-colors">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-xs font-bold text-indigo-600 shrink-0">
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
                           {((a.employee_name || "??").charAt(0))}
                         </div>
                         <div className="min-w-0">
                           <p className="text-sm font-medium text-slate-800 truncate">{a.employee_name || "Unknown"}</p>
-                          <p className="text-xs text-slate-400">{a.employee_id_str ? <span className="font-mono text-indigo-500">{a.employee_id_str}</span> : a.employee_code || ""}</p>
+                          <p className="text-xs text-slate-400">{a.employee_id_str ? <span className="font-mono text-blue-500">{a.employee_id_str}</span> : a.employee_code || ""}</p>
                           <span className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-xs font-medium mt-1 ${
                             a.status === "pending" ? "bg-amber-50 text-amber-700" :
                             a.status === "acknowledged" ? "bg-emerald-50 text-emerald-700" :
@@ -389,7 +397,7 @@ export default function CompanyDocuments() {
             </div>
             <div className="p-6 pt-0 border-t border-slate-100 shrink-0">
               <button onClick={() => { setViewAssignModal(null); setAssignments([]); openAssignModal(viewAssignModal); }}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 transition flex items-center justify-center gap-2">
+                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2">
                 <UserPlus className="w-4 h-4" /> Assign More
               </button>
             </div>
@@ -412,7 +420,7 @@ export default function CompanyDocuments() {
             <div className="p-6 space-y-4">
               <div>
                 <label className="text-xs font-semibold text-slate-600 mb-1.5 block">File <span className="text-rose-500">*</span></label>
-                <div className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${uploadFile ? "border-indigo-300 bg-indigo-50" : "border-slate-200 hover:border-slate-300"}`}
+                <div className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${uploadFile ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}
                   onClick={() => document.getElementById("doc-upload-input").click()}
                   onDragOver={e => e.preventDefault()}
                   onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setUploadFile(f); }}>
@@ -436,13 +444,13 @@ export default function CompanyDocuments() {
                 <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Title</label>
                 <input type="text" value={uploadForm.title} onChange={e => setUploadForm(p => ({ ...p, title: e.target.value }))}
                   placeholder={uploadFile?.name?.replace(/\.[^.]+$/, "") || "Document title"}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Document Type</label>
                   <select value={uploadForm.document_type} onChange={e => setUploadForm(p => ({ ...p, document_type: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 bg-white">
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 bg-white">
                     <option value="">Select type</option>
                     <option value="policy">Policy</option>
                     <option value="handbook">Handbook</option>
@@ -455,23 +463,23 @@ export default function CompanyDocuments() {
                 <div>
                   <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Expiry Date</label>
                   <input type="date" value={uploadForm.expiry_date} onChange={e => setUploadForm(p => ({ ...p, expiry_date: e.target.value }))}
-                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30" />
+                    className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
                 </div>
               </div>
               <div>
                 <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Description</label>
                 <textarea value={uploadForm.description} onChange={e => setUploadForm(p => ({ ...p, description: e.target.value }))} rows={2}
                   placeholder="Brief description of this document…"
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500/30 resize-none" />
+                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30 resize-none" />
               </div>
               <label className="flex items-center gap-2 text-sm text-slate-600 cursor-pointer">
-                <input type="checkbox" checked={assignAfterUpload} onChange={e => setAssignAfterUpload(e.target.checked)} className="rounded accent-indigo-600 w-4 h-4" />
+                <input type="checkbox" checked={assignAfterUpload} onChange={e => setAssignAfterUpload(e.target.checked)} className="rounded accent-blue-600 w-4 h-4" />
                 Assign to employees after upload
               </label>
             </div>
             <div className="p-6 pt-0 border-t border-slate-100">
               <button onClick={handleUpload} disabled={!uploadFile || uploading}
-                className="w-full py-2.5 rounded-xl bg-indigo-600 text-white text-sm font-semibold hover:bg-indigo-700 disabled:bg-indigo-400 transition flex items-center justify-center gap-2">
+                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:bg-blue-400 transition flex items-center justify-center gap-2">
                 {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading...</> : <><Upload className="w-4 h-4" /> Upload Document</>}
               </button>
             </div>
@@ -485,6 +493,8 @@ export default function CompanyDocuments() {
           {toast.msg}
         </div>
       )}
+
+      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
     </HRPage>
   );
 }

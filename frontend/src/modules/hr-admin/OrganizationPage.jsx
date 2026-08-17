@@ -85,8 +85,8 @@ export default function HrAdminOrganizationPage() {
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
         <div className="flex items-center gap-4 mb-6">
-          <div className="h-16 w-16 bg-[#FF7A00]/10 rounded-2xl flex items-center justify-center">
-            <Building className="h-8 w-8 text-[#FF7A00]" />
+          <div className="h-16 w-16 bg-[#3B82F6]/10 rounded-2xl flex items-center justify-center">
+            <Building className="h-8 w-8 text-[#3B82F6]" />
           </div>
           <div>
             <h2 className="text-xl font-bold text-slate-800">{org.name}</h2>

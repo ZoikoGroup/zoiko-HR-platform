@@ -50,10 +50,10 @@ function OnboardingSubNav() {
 const CATEGORIES = ["HR", "IT", "Manager", "Custom"];
 
 const CATEGORY_COLORS = {
-  HR: "blue",
-  IT: "green",
-  Manager: "purple",
-  Custom: "orange",
+  HR: "bg-blue-100 text-blue-800",
+  IT: "bg-emerald-100 text-emerald-800",
+  Manager: "bg-[#0A1128]/10 text-[#0A1128]",
+  Custom: "bg-amber-100 text-amber-800",
 };
 
 export default function OnboardingChecklists() {
@@ -484,7 +484,7 @@ export default function OnboardingChecklists() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-bold text-gray-800 truncate">{tpl.name}</h3>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full bg-${CATEGORY_COLORS[tpl.category] || "gray"}-100 text-${CATEGORY_COLORS[tpl.category] || "gray"}-800`}>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_COLORS[tpl.category] || "bg-gray-100 text-gray-800"}`}>
                         {tpl.category || activeTab}
                       </span>
                     </div>

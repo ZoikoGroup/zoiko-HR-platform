@@ -56,7 +56,7 @@ export default function LeaveHistory() {
     return (
       <EmployeePageShell title="Leave History" subtitle="Complete record of all your leave requests.">
         <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin" />
+          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
         </div>
       </EmployeePageShell>
     );

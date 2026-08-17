@@ -280,7 +280,7 @@ export default function DepartmentList() {
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{r.name}</p>
                     </td>
-                    <td className="px-4 py-3 font-mono text-xs font-bold text-[#FF7A00]">{r.department_code || "—"}</td>
+                    <td className="px-4 py-3 font-mono text-xs font-bold text-[#3B82F6]">{r.department_code || "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-rose-600">{r.code}</td>
                     <td className="px-4 py-3">{r.head || "—"}</td>
                     <td className="px-4 py-3">

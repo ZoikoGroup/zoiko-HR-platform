@@ -47,8 +47,8 @@ function LifecycleEvent({ event, onAction, actionLabel, actionColor }) {
       case "probation_start": return "bg-orange-500";
       case "probation_end": return "bg-green-500";
       case "confirmation": return "bg-blue-500";
-      case "promotion": return "bg-purple-500";
-      case "transfer": return "bg-indigo-500";
+      case "promotion": return "bg-blue-500";
+      case "transfer": return "bg-blue-500";
       case "resignation": return "bg-red-500";
       case "exit": return "bg-gray-500";
       default: return "bg-gray-500";
@@ -213,9 +213,9 @@ export default function EmployeeLifecycle() {
     switch (eventType) {
       case "probation_start": return "bg-blue-600 text-white";
       case "probation_end": return "bg-green-600 text-white";
-      case "confirmation": return "bg-purple-600 text-white";
+      case "confirmation": return "bg-blue-600 text-white";
       case "promotion": return "bg-orange-600 text-white";
-      case "transfer": return "bg-indigo-600 text-white";
+      case "transfer": return "bg-blue-600 text-white";
       case "resignation": return "bg-red-600 text-white";
       case "exit": return "bg-gray-600 text-white";
       default: return "bg-blue-600 text-white";
@@ -275,11 +275,11 @@ export default function EmployeeLifecycle() {
           </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2">
             <p className="text-xs text-gray-400">Promotions</p>
-            <p className="text-lg font-bold text-purple-600">{stats.promotions}</p>
+            <p className="text-lg font-bold text-blue-600">{stats.promotions}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2">
             <p className="text-xs text-gray-400">Transfers</p>
-            <p className="text-lg font-bold text-indigo-600">{stats.transfers}</p>
+            <p className="text-lg font-bold text-blue-600">{stats.transfers}</p>
           </div>
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-3 py-2">
             <p className="text-xs text-gray-400">Resignations</p>
@@ -312,13 +312,13 @@ export default function EmployeeLifecycle() {
           </button>
           <button
             onClick={() => setFilter("promotion")}
-            className={`px-3 py-1 text-xs rounded-full font-medium ${filter === "promotion" ? "bg-purple-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            className={`px-3 py-1 text-xs rounded-full font-medium ${filter === "promotion" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
           >
             Promotion
           </button>
           <button
             onClick={() => setFilter("transfer")}
-            className={`px-3 py-1 text-xs rounded-full font-medium ${filter === "transfer" ? "bg-indigo-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
+            className={`px-3 py-1 text-xs rounded-full font-medium ${filter === "transfer" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-700 hover:bg-gray-200"}`}
           >
             Transfer
           </button>

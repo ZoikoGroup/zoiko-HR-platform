@@ -18,7 +18,7 @@ function SubNav() {
       {NAV_ITEMS.map((item) => (
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/recruitment"}
           className={({ isActive }) =>
-            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
+            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"}`
           }>
           {item.label}
         </NavLink>
@@ -46,7 +46,7 @@ function daysAgo(dateStr) {
 }
 
 function StatusBadge({ status }) {
-  const m = { applied: "bg-blue-100 text-blue-800", new: "bg-blue-100 text-blue-800", screening: "bg-indigo-100 text-indigo-800", interview: "bg-purple-100 text-purple-800", interviewed: "bg-purple-100 text-purple-800", offer: "bg-orange-100 text-orange-800", offered: "bg-orange-100 text-orange-800", hired: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800" };
+  const m = { applied: "bg-blue-100 text-blue-800", new: "bg-blue-100 text-blue-800", screening: "bg-blue-100 text-blue-800", interview: "bg-blue-100 text-blue-800", interviewed: "bg-blue-100 text-blue-800", offer: "bg-blue-100 text-blue-800", offered: "bg-blue-100 text-blue-800", hired: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800" };
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[status] || "bg-gray-100 text-gray-800"}`}>{status?.replace(/_/g, " ")}</span>;
 }
 
@@ -172,7 +172,7 @@ export default function Candidates() {
 
   if (loading) return <HRPage title="Candidates" subtitle="Manage applicant pool"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
 
-  if (error) return <HRPage title="Candidates" subtitle="Manage applicant pool"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm">Try Again</button></div></div></HRPage>;
+  if (error) return <HRPage title="Candidates" subtitle="Manage applicant pool"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div></div></HRPage>;
 
   if (id && candidate) {
     const act = candidate.activity || [];
@@ -186,12 +186,12 @@ export default function Candidates() {
           <div className="bg-white rounded-xl border border-gray-200 p-6">
             <div className="flex items-start justify-between mb-6">
               <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full bg-orange-100 flex items-center justify-center"><User className="w-7 h-7 text-orange-600" /></div>
+                <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center"><User className="w-7 h-7 text-blue-600" /></div>
                 <div>
                   <h2 className="text-xl font-bold text-gray-900">{candidate.name}</h2>
                   <p className="text-sm text-gray-500">{candidate.position || "No position specified"}</p>
                   {candidate.requisition_title && (
-                    <p className="text-xs text-orange-600 mt-0.5">Applying for requisition: {candidate.requisition_title}</p>
+                    <p className="text-xs text-blue-600 mt-0.5">Applying for requisition: {candidate.requisition_title}</p>
                   )}
                 </div>
               </div>
@@ -216,14 +216,14 @@ export default function Candidates() {
               <div className="flex flex-wrap gap-2">
                 {["applied", "screening", "interview", "offer", "hired", "rejected"].map((s) => (
                   <button key={s} onClick={() => handleStatusUpdate(candidate.id, s)} disabled={candidate.status === s}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${candidate.status === s ? "bg-orange-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${candidate.status === s ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
                     {s.charAt(0).toUpperCase() + s.slice(1)}
                   </button>
                 ))}
               </div>
             </div>
             <div className="flex gap-2 mt-4">
-              <button onClick={() => openEdit(candidate)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-orange-600 border border-orange-200 rounded-lg hover:bg-orange-50"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
+              <button onClick={() => openEdit(candidate)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
               <button onClick={() => handleDelete(candidate.id)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
             </div>
           </div>
@@ -235,7 +235,7 @@ export default function Candidates() {
               <div className="space-y-3">
                 {act.slice(0, 10).map((a, i) => (
                   <div key={i} className="flex items-start gap-3 pb-3 border-b border-gray-50 last:border-0">
-                    <div className="p-1.5 rounded-full bg-orange-100"><Clock className="w-3.5 h-3.5 text-orange-600" /></div>
+                    <div className="p-1.5 rounded-full bg-blue-100"><Clock className="w-3.5 h-3.5 text-blue-600" /></div>
                     <div className="flex-1">
                       <p className="text-sm text-gray-900">{a.description || a.message || a.action}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{formatDate(a.date || a.created_at)}</p>
@@ -258,7 +258,7 @@ export default function Candidates() {
           <h1 className="text-2xl font-bold text-gray-900">Candidates</h1>
           <div className="flex items-center gap-2">
             <button onClick={exportCsv} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Export CSV</button>
-            <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-orange-600 text-white rounded-lg hover:bg-orange-700 text-sm font-medium">
+            <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
               <Plus className="w-4 h-4" /> Add Candidate
             </button>
           </div>
@@ -268,7 +268,7 @@ export default function Candidates() {
           <div className="relative flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search candidates..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500" />
+              className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
           </div>
           <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
             <option value="">All Statuses</option>
@@ -317,7 +317,7 @@ export default function Candidates() {
                   <td className="px-3 py-3 text-xs text-gray-400 capitalize">{c.source || "-"}</td>
                   <td className="px-3 py-3">
                     <div className="flex gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="text-gray-400 hover:text-orange-600"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
                       <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
@@ -416,7 +416,7 @@ export default function Candidates() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-orange-600 rounded-lg hover:bg-orange-700">{editItem ? "Update" : "Add"}</button>
+              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Add"}</button>
             </div>
           </div>
         </div>

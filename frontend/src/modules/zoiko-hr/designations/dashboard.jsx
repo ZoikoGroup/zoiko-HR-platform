@@ -19,7 +19,7 @@ function SubNav() {
         <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/designations"}
           className={({ isActive }) =>
             `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-              isActive ? "text-orange-600 border-b-2 border-orange-600 bg-orange-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
+              isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
             }`
           }>
           {item.label}
@@ -39,7 +39,7 @@ function StatCard({ title, value, icon: Icon, change, trend }) {
           <p className="text-sm text-gray-500 font-medium">{title}</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
         </div>
-        {Icon && <div className="p-2 bg-orange-50 rounded-lg"><Icon className="w-5 h-5 text-orange-600" /></div>}
+        {Icon && <div className="p-2 bg-blue-50 rounded-lg"><Icon className="w-5 h-5 text-blue-600" /></div>}
       </div>
       {change != null && (
         <div className="flex items-center gap-1 mt-3">
@@ -55,11 +55,11 @@ function StatCard({ title, value, icon: Icon, change, trend }) {
 // Static bar chart data matching the level distribution display
 const STATIC_LEVEL_BARS = [
   { level: "L1", count: 2, color: "bg-blue-400" },
-  { level: "L2", count: 2, color: "bg-indigo-400" },
-  { level: "L3", count: 2, color: "bg-purple-400" },
+  { level: "L2", count: 2, color: "bg-blue-400" },
+  { level: "L3", count: 2, color: "bg-blue-400" },
   { level: "L4", count: 1, color: "bg-pink-400" },
   { level: "L5", count: 2, color: "bg-red-400" },
-  { level: "L6", count: 3, color: "bg-orange-400" },
+  { level: "L6", count: 3, color: "bg-blue-400" },
   { level: "L7", count: 1, color: "bg-yellow-400" },
   { level: "L8", count: 1, color: "bg-green-400" },
   { level: "L9", count: 1, color: "bg-teal-400" },
@@ -149,7 +149,7 @@ export default function DesignationsDashboard() {
       <HRPage title="Designations Dashboard" subtitle="Overview of job titles, levels, and organizational structure">
         <SubNav />
         <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600"></div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
           <span className="ml-3 text-gray-500">Loading dashboard...</span>
         </div>
       </HRPage>
@@ -169,17 +169,17 @@ export default function DesignationsDashboard() {
     <HRPage title="Designations Dashboard" subtitle="Overview of job titles, levels, and organizational structure">
       <SubNav />
       <div className="space-y-6">
-        <div className="bg-gradient-to-r from-orange-600 to-orange-700 rounded-xl shadow-lg p-6 text-white">
+        <div className="bg-gradient-to-r from-blue-600 to-blue-700 rounded-xl shadow-lg p-6 text-white">
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-orange-100 text-sm font-medium">Active Designations</p>
+              <p className="text-blue-100 text-sm font-medium">Active Designations</p>
               <p className="text-4xl font-bold font-mono mt-1">{stats.active}</p>
-              <p className="text-orange-100 mt-1">{stats.total} total across {departmentDistribution.length} departments</p>
+              <p className="text-blue-100 mt-1">{stats.total} total across {departmentDistribution.length} departments</p>
             </div>
             <div className="text-right">
-              <p className="text-orange-100 text-sm">Level Coverage</p>
+              <p className="text-blue-100 text-sm">Level Coverage</p>
               <p className="text-3xl font-bold">{levelDistribution.length}/10</p>
-              <p className="text-orange-100 text-sm mt-1">L1 through L10</p>
+              <p className="text-blue-100 text-sm mt-1">L1 through L10</p>
             </div>
           </div>
         </div>
@@ -206,8 +206,8 @@ export default function DesignationsDashboard() {
             </div>
             <div className="flex items-center gap-4 mt-3 text-xs text-gray-500">
               <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Entry to Mid</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-orange-400" /> Senior</span>
-              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-purple-400" /> Leadership</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Senior</span>
+              <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-400" /> Leadership</span>
             </div>
           </div>
 
@@ -220,10 +220,10 @@ export default function DesignationsDashboard() {
                 const maxPct = (ld.maxSalary / maxSalary) * 100;
                 return (
                   <div key={ld.level} className="flex items-center gap-3">
-                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ld.level === "L1" ? "bg-blue-100 text-blue-800" : ld.level === "L2" ? "bg-indigo-100 text-indigo-800" : ld.level === "L3" ? "bg-purple-100 text-purple-800" : ld.level === "L4" ? "bg-pink-100 text-pink-800" : ld.level === "L5" ? "bg-red-100 text-red-800" : ld.level === "L6" ? "bg-orange-100 text-orange-800" : ld.level === "L7" ? "bg-yellow-100 text-yellow-800" : ld.level === "L8" ? "bg-green-100 text-green-800" : ld.level === "L9" ? "bg-teal-100 text-teal-800" : ld.level === "L10" ? "bg-cyan-100 text-cyan-800" : "bg-gray-100 text-gray-800"}`}>{ld.level}</span>
+                    <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${ld.level === "L1" ? "bg-blue-100 text-blue-800" : ld.level === "L2" ? "bg-blue-100 text-blue-800" : ld.level === "L3" ? "bg-blue-100 text-blue-800" : ld.level === "L4" ? "bg-pink-100 text-pink-800" : ld.level === "L5" ? "bg-red-100 text-red-800" : ld.level === "L6" ? "bg-blue-100 text-blue-800" : ld.level === "L7" ? "bg-yellow-100 text-yellow-800" : ld.level === "L8" ? "bg-green-100 text-green-800" : ld.level === "L9" ? "bg-teal-100 text-teal-800" : ld.level === "L10" ? "bg-cyan-100 text-cyan-800" : "bg-gray-100 text-gray-800"}`}>{ld.level}</span>
                     <div className="flex-1 relative h-5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="absolute h-full bg-orange-200 rounded-full" style={{ left: `${minPct}%`, width: `${maxPct - minPct}%` }} />
-                      <div className="absolute h-full bg-orange-500 rounded-full opacity-60" style={{ left: `${(minPct + maxPct) / 2}%`, width: "4px" }} />
+                      <div className="absolute h-full bg-blue-200 rounded-full" style={{ left: `${minPct}%`, width: `${maxPct - minPct}%` }} />
+                      <div className="absolute h-full bg-blue-500 rounded-full opacity-60" style={{ left: `${(minPct + maxPct) / 2}%`, width: "4px" }} />
                     </div>
                     <span className="text-xs text-gray-500 w-20 text-right">{ld.minSalary} - {ld.maxSalary}</span>
                   </div>
@@ -246,9 +246,9 @@ export default function DesignationsDashboard() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {departmentDistribution.map((d, i) => (
-                    <tr key={d.dept + i} className="hover:bg-orange-50/50 transition-colors">
+                    <tr key={d.dept + i} className="hover:bg-blue-50/50 transition-colors">
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{d.dept}</td>
-                      <td className="px-4 py-3 text-sm text-orange-600 font-medium">{d.count}</td>
+                      <td className="px-4 py-3 text-sm text-blue-600 font-medium">{d.count}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -270,10 +270,10 @@ export default function DesignationsDashboard() {
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-100">
                   {recentDesignations.map((d, i) => (
-                    <tr key={d.id ?? i} className="hover:bg-orange-50/50 transition-colors">
+                    <tr key={d.id ?? i} className="hover:bg-blue-50/50 transition-colors">
                       <td className="px-4 py-3 text-sm font-medium text-gray-900">{d.title}</td>
                       <td className="px-4 py-3 text-sm text-gray-700">{d.department}</td>
-                      <td className="px-4 py-3 text-sm"><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${d.level === "L1" ? "bg-blue-100 text-blue-800" : d.level === "L2" ? "bg-indigo-100 text-indigo-800" : d.level === "L3" ? "bg-purple-100 text-purple-800" : d.level === "L4" ? "bg-pink-100 text-pink-800" : d.level === "L5" ? "bg-red-100 text-red-800" : d.level === "L6" ? "bg-orange-100 text-orange-800" : d.level === "L7" ? "bg-yellow-100 text-yellow-800" : d.level === "L8" ? "bg-green-100 text-green-800" : d.level === "L9" ? "bg-teal-100 text-teal-800" : d.level === "L10" ? "bg-cyan-100 text-cyan-800" : "bg-gray-100 text-gray-800"}`}>{d.level}</span></td>
+                      <td className="px-4 py-3 text-sm"><span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${d.level === "L1" ? "bg-blue-100 text-blue-800" : d.level === "L2" ? "bg-blue-100 text-blue-800" : d.level === "L3" ? "bg-blue-100 text-blue-800" : d.level === "L4" ? "bg-pink-100 text-pink-800" : d.level === "L5" ? "bg-red-100 text-red-800" : d.level === "L6" ? "bg-blue-100 text-blue-800" : d.level === "L7" ? "bg-yellow-100 text-yellow-800" : d.level === "L8" ? "bg-green-100 text-green-800" : d.level === "L9" ? "bg-teal-100 text-teal-800" : d.level === "L10" ? "bg-cyan-100 text-cyan-800" : "bg-gray-100 text-gray-800"}`}>{d.level}</span></td>
                       <td className="px-4 py-3 text-sm"><span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${d.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>{d.status}</span></td>
                     </tr>
                   ))}

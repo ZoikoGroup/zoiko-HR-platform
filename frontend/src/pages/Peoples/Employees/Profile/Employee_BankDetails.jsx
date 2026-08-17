@@ -108,15 +108,15 @@ export default function BankDetails() {
 
   const inputClass = (field) =>
     `w-full bg-slate-50 dark:bg-[#0f172a] border rounded-xl px-3 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] outline-none transition
-    focus:bg-white dark:focus:bg-[#0f172a] focus:ring-2 focus:ring-indigo-300 ${
-      errors[field] ? "border-red-300 bg-red-50 dark:bg-red-900/30" : "border-slate-200 dark:border-[#334155] focus:border-indigo-400"
+    focus:bg-white dark:focus:bg-[#0f172a] focus:ring-2 focus:ring-blue-300 ${
+      errors[field] ? "border-red-300 bg-red-50 dark:bg-red-900/30" : "border-slate-200 dark:border-[#334155] focus:border-blue-400"
     } ${!editMode ? "opacity-60 cursor-not-allowed" : ""}`;
 
   if (loading) {
     return (
       <EmployeePageShell title="Bank Details" subtitle="Profile">
         <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-indigo-500 animate-spin" />
+          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
           <span className="ml-3 text-sm text-slate-500 dark:text-[#94a3b8] font-medium">Loading bank details...</span>
         </div>
       </EmployeePageShell>
@@ -142,13 +142,13 @@ export default function BankDetails() {
             <h1 className="text-2xl font-bold text-slate-800 dark:text-[#f1f5f9] mt-1">Bank Details</h1>
           </div>
           {saving ? (
-            <div className="flex items-center gap-2 text-sm font-semibold text-indigo-600 bg-indigo-50 dark:bg-indigo-500/20 px-4 py-2 rounded-xl">
+            <div className="flex items-center gap-2 text-sm font-semibold text-blue-600 bg-blue-50 dark:bg-blue-500/20 px-4 py-2 rounded-xl">
               <Loader2 size={14} className="animate-spin" /> Saving...
             </div>
           ) : !editMode ? (
             <button
               onClick={() => { setDraft(data); setEditMode(true); }}
-              className="flex items-center gap-2 text-sm font-semibold text-indigo-600 bg-indigo-50 dark:bg-indigo-500/20 hover:bg-indigo-100 dark:hover:bg-indigo-500/30 px-4 py-2 rounded-xl transition"
+              className="flex items-center gap-2 text-sm font-semibold text-blue-600 bg-blue-50 dark:bg-blue-500/20 hover:bg-blue-100 dark:hover:bg-blue-500/30 px-4 py-2 rounded-xl transition"
             >
               <Edit3 size={14} /> Edit
             </button>
@@ -157,7 +157,7 @@ export default function BankDetails() {
               <button onClick={handleCancel} className="flex items-center gap-1.5 text-sm font-semibold text-slate-500 dark:text-[#94a3b8] bg-slate-100 dark:bg-[#0f172a] hover:bg-slate-200 dark:hover:bg-[#0f172a]/80 px-4 py-2 rounded-xl transition">
                 <X size={14} /> Cancel
               </button>
-              <button onClick={handleSave} className="flex items-center gap-1.5 text-sm font-semibold text-white bg-indigo-600 hover:bg-indigo-700 px-4 py-2 rounded-xl transition">
+              <button onClick={handleSave} className="flex items-center gap-1.5 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-xl transition">
                 <Save size={14} /> Save
               </button>
             </div>
@@ -177,7 +177,7 @@ export default function BankDetails() {
         )}
 
         {/* Card visual */}
-        <div className="mb-6 bg-gradient-to-br from-indigo-600 via-violet-600 to-purple-700 rounded-2xl p-6 text-white shadow-xl">
+        <div className="mb-6 bg-gradient-to-br from-blue-600 via-blue-600 to-blue-700 rounded-2xl p-6 text-white shadow-xl">
           <div className="flex justify-between items-start mb-8">
             <div>
               <p className="text-xs opacity-60 uppercase tracking-widest font-semibold">Bank Name</p>

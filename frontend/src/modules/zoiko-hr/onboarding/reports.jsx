@@ -171,7 +171,7 @@ export default function OnboardingReports() {
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           <StatCard title="Total Joiners" value={joining?.totalJoiners ?? 0} icon={Users} color="bg-blue-500" />
           <StatCard title="This Month" value={joining?.thisMonth ?? 0} icon={UserPlus} color="bg-emerald-500" />
-          <StatCard title="This Quarter" value={joining?.thisQuarter ?? 0} icon={CalendarDays} color="bg-violet-500" />
+          <StatCard title="This Quarter" value={joining?.thisQuarter ?? 0} icon={CalendarDays} color="bg-[#0A1128]" />
           <StatCard title="Avg Days to Onboard" value={joining?.avgDaysToOnboard ?? 0} icon={Clock} color="bg-amber-500" suffix="days" />
         </div>
 

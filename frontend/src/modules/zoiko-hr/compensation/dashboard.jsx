@@ -41,9 +41,9 @@ export default function CompensationDashboard() {
     const d = dashboard || {};
     return [
       { label: "Total Salary Cost", value: d.total_salary_cost, color: "text-green-600", format: true },
-      { label: "Pending Bonuses", value: d.total_bonuses_pending, color: "text-orange-600", format: true },
+      { label: "Pending Bonuses", value: d.total_bonuses_pending, color: "text-blue-600", format: true },
       { label: "Paid Bonuses", value: d.total_bonuses_paid, color: "text-blue-600", format: true },
-      { label: "Total Incentives", value: d.total_incentives, color: "text-purple-600", format: true },
+      { label: "Total Incentives", value: d.total_incentives, color: "text-blue-600", format: true },
       { label: "Active Benefits", value: d.active_benefits, color: "text-pink-600", format: false },
       { label: "Total Allowances", value: d.total_allowances, color: "text-teal-600", format: true },
       { label: "Total Deductions", value: d.total_deductions, color: "text-red-600", format: true },

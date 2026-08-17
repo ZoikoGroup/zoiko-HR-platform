@@ -4,10 +4,10 @@ import { ArrowRight, ChevronDown } from "lucide-react";
 import LandingHeader from "../../landing/LandingHeader";
 import Footer from "../../landing/Footer";
 
-const NAVY = "#0B1C3F";
-const BLUE = "#1A3A8C";
-const LIGHT_BLUE = "#4A9FE4";
-const ORANGE = "#f97316";
+const NAVY = "#0A1128";
+const BLUE = "#3B82F6";
+const LIGHT_BLUE = "#3B82F6";
+const ORANGE = "#3B82F6";
 const WHITE = "#FFFFFF";
 const OFF_WHITE = "#f8fafc";
 const GRAY = "#6B7280";
@@ -60,9 +60,9 @@ const iconBox = (bg = ORANGE) => ({
 const IconDoc = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
     <rect x="4" y="2" width="12" height="16" rx="2" fill="white" fillOpacity="0.9"/>
-    <rect x="7" y="6" width="6" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="7" y="9" width="6" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="7" y="12" width="4" height="1.5" rx="0.75" fill="#f97316"/>
+    <rect x="7" y="6" width="6" height="1.5" rx="0.75" fill="#3B82F6"/>
+    <rect x="7" y="9" width="6" height="1.5" rx="0.75" fill="#3B82F6"/>
+    <rect x="7" y="12" width="4" height="1.5" rx="0.75" fill="#3B82F6"/>
   </svg>
 );
 
@@ -75,9 +75,9 @@ const IconCheck = () => (
 const IconPO = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
     <rect x="4" y="2" width="12" height="16" rx="2" fill="white" fillOpacity="0.9"/>
-    <rect x="7" y="6" width="5" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="7" y="9" width="5" height="1.5" rx="0.75" fill="#f97316"/>
-    <rect x="14" y="5" width="3" height="4" rx="1" fill="#f97316"/>
+    <rect x="7" y="6" width="5" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="7" y="9" width="5" height="1.5" rx="0.75" fill="#10B981"/>
+    <rect x="14" y="5" width="3" height="4" rx="1" fill="#10B981"/>
   </svg>
 );
 
@@ -93,7 +93,7 @@ const IconGrid = () => (
 const IconLink = () => (
   <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
     <circle cx="12" cy="12" r="5" fill="white" fillOpacity="0.9"/>
-    <circle cx="12" cy="12" r="2" fill="#5b5bd6"/>
+    <circle cx="12" cy="12" r="2" fill="#3B82F6"/>
   </svg>
 );
 
@@ -106,12 +106,12 @@ const IconBar = () => (
 );
 
 const capabilities = [
-  { icon: <IconDoc/>, bg: ORANGE, title: "Purchase requests", desc: "Capture intent with policy and budget context." },
+  { icon: <IconDoc/>, bg: "#3B82F6", title: "Purchase requests", desc: "Capture intent with policy and budget context." },
   { icon: <IconCheck/>, bg: NAVY, title: "Approvals & policy", desc: "Route by threshold, category and budget." },
-  { icon: <IconPO/>, bg: ORANGE, title: "POs & supplier invoices", desc: "Match invoices to POs and receiving." },
-  { icon: <IconGrid/>, bg: "#2d2b6b", title: "Vendors & AP", desc: "Manage vendors and accounts-payable workflows." },
-  { icon: <IconLink/>, bg: "#5b5bd6", title: "Receiving link", desc: "Connect spend to Zoiko Inventory goods movement." },
-  { icon: <IconBar/>, bg: "#2d2b6b", title: "Spend insight", desc: "Visibility into committed and actual spend." },
+  { icon: <IconPO/>, bg: "#10B981", title: "POs & supplier invoices", desc: "Match invoices to POs and receiving." },
+  { icon: <IconGrid/>, bg: "#F59E0B", title: "Vendors & AP", desc: "Manage vendors and accounts-payable workflows." },
+  { icon: <IconLink/>, bg: "#3B82F6", title: "Receiving link", desc: "Connect spend to Zoiko Inventory goods movement." },
+  { icon: <IconBar/>, bg: NAVY, title: "Spend insight", desc: "Visibility into committed and actual spend." },
 ];
 
 const workflowSteps = [
@@ -174,11 +174,11 @@ export default function ZoikoSpendPage() {
         padding: "80px 24px",
         overflow: "hidden",
         backgroundColor: "#f5f4f2",
-        background: "linear-gradient(120deg, rgba(255,195,130,0.45) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(170,205,240,0.45) 100%)",
+        background: "linear-gradient(120deg, rgba(16,185,129,0.35) 0%, rgba(250,248,245,0.98) 38%, rgba(250,248,245,0.98) 62%, rgba(59,130,246,0.35) 100%)",
       }}>
         <div style={{
           position: "absolute", inset: 0,
-          background: "radial-gradient(ellipse at 12% 55%, rgba(255,175,90,0.25) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(140,190,235,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
+          background: "radial-gradient(ellipse at 12% 55%, rgba(16,185,129,0.22) 0%, transparent 42%), radial-gradient(ellipse at 88% 45%, rgba(59,130,246,0.28) 0%, transparent 42%), radial-gradient(ellipse at 50% 50%, rgba(255,255,255,0.7) 0%, transparent 55%)",
           pointerEvents: "none",
         }} />
         <div style={{ position: "relative", zIndex: 1, maxWidth: 1400 }}>
@@ -193,7 +193,7 @@ export default function ZoikoSpendPage() {
             maxWidth: 1100,
           }}>
             Spend management software for{" "}
-            <span style={{ color: ORANGE }}>controlled purchasing.</span>
+            <span style={{ color: "#10B981" }}>controlled purchasing.</span>
           </h1>
 
           <p style={{
@@ -205,11 +205,11 @@ export default function ZoikoSpendPage() {
 
           <div style={{ display: "flex", gap: 14, justifyContent: "center", flexWrap: "wrap" }}>
             <button onClick={() => navigate("/get-demo")} style={{
-              background: "linear-gradient(135deg, #FF8800, #FF5500)",
+              background: "#3B82F6",
               color: "#fff", border: "none", borderRadius: 999,
               padding: "14px 32px", fontSize: 16, fontWeight: 700, cursor: "pointer",
               display: "flex", alignItems: "center", gap: 8,
-              boxShadow: "0 4px 16px rgba(255,85,0,0.45)",
+              boxShadow: "0 4px 16px rgba(59,130,246,0.45)",
             }}>
               Get a Demo <ArrowRight size={17} />
             </button>
@@ -300,7 +300,7 @@ export default function ZoikoSpendPage() {
       {/* BOTTOM CTA */}
       <section style={{ ...wrap, paddingTop: "20px", paddingBottom: "80px" }}>
         <div style={{
-          background: `linear-gradient(120deg, #6b21a8 0%, #5b5bd6 40%, #3b82f6 100%)`,
+          background: "linear-gradient(120deg, #0A1128 0%, #111A33 100%)",
           borderRadius: "24px", padding: "64px 48px",
           textAlign: "center",
           position: "relative", overflow: "hidden",
@@ -330,7 +330,7 @@ export default function ZoikoSpendPage() {
                 padding: "14px 28px", borderRadius: "50px", border: "none",
                 background: ORANGE, color: "white", fontSize: "15px",
                 fontWeight: "700", cursor: "pointer", fontFamily: FF,
-                boxShadow: "0 6px 20px rgba(249,115,22,0.5)",
+                boxShadow: "0 6px 20px rgba(59,130,246,0.5)",
               }}>Get a Demo</button>
               <button style={{
                 padding: "13px 24px", borderRadius: "50px",

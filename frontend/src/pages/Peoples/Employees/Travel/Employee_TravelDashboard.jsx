@@ -92,7 +92,7 @@ export default function TravelDashboard() {
       {!loading && !error && (
         <div className="space-y-6">
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatCard label="Total Trips" value={stats.total} accentColor="text-indigo-600 dark:text-indigo-400" />
+            <StatCard label="Total Trips" value={stats.total} accentColor="text-blue-600 dark:text-blue-400" />
             <StatCard label="Pending Approval" value={stats.pending} accentColor="text-yellow-600 dark:text-amber-400" />
             <StatCard label="Expenses Claimed" value={stats.expenses} accentColor="text-green-600 dark:text-emerald-400" />
             <StatCard label="Upcoming Trips" value={stats.upcoming} accentColor="text-sky-600 dark:text-sky-400" />

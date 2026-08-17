@@ -17,7 +17,7 @@ export default function WhyExists() {
   return (
     <section className="bg-white py-20 md:py-24">
       <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-12 text-center">
-        <p className="text-xs font-bold text-[#4F46E5] tracking-[0.15em] uppercase mb-4">
+        <p className="text-xs font-bold text-[#3B82F6] tracking-[0.15em] uppercase mb-4">
           The Connected Spine
         </p>
         <h2 className="text-3xl sm:text-4xl font-extrabold text-[#111827] leading-tight tracking-tight mb-4">
@@ -30,7 +30,7 @@ export default function WhyExists() {
           and recorded through ZoikoCoreX.
         </p>
 
-        <div className="rounded-3xl p-8 md:p-10 bg-gradient-to-br from-[#1E1B4B] via-[#312E81] to-[#3B82F6] text-white text-left">
+        <div className="rounded-3xl p-8 md:p-10 bg-gradient-to-br from-[#0A1128] to-[#111A33] text-white text-left">
           <h3 className="text-xl md:text-2xl font-bold mb-2 text-center md:text-left">
             From employee record to paid invoice — connected end to end
           </h3>
@@ -56,7 +56,7 @@ export default function WhyExists() {
           </div>
 
           <div className="text-center">
-            <button onClick={() => navigate("/platform")} className="inline-flex items-center gap-2 bg-[#F97316] hover:bg-[#EA580C] text-white font-bold px-6 py-3 rounded-full text-sm shadow-lg shadow-orange-500/30 transition-all duration-200 hover:scale-[1.03]">
+            <button onClick={() => navigate("/platform")} className="inline-flex items-center gap-2 bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold px-6 py-3 rounded-full text-sm shadow-lg shadow-blue-500/30 transition-all duration-200 hover:scale-[1.03]">
               View Platform Overview <ArrowRight size={16} />
             </button>
           </div>
