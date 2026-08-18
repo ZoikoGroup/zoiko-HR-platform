@@ -183,32 +183,99 @@ def list_organizations(
     db: Session = Depends(get_db),
     _=Depends(get_current_super_admin),
 ):
-    from app.modules.hr.models import Organization
-    from app.modules.employee.models import Employee, EmployeeStatus
+    from app.modules.hr.models import Organization, OrganizationStatus
+    from app.modules.employee.models import Employee, EmployeeStatus, UserRole
+    from app.modules.billing.models import BillingSubscription, OrganizationEvaluation
+    from app.modules.billing.models import PlanCode as BillingPlanCode
 
     q = db.query(Organization)
     if status:
-        q = q.filter(Organization.status == status)
+        q = q.filter(Organization.status.ilike(status))
     if search:
         term = f"%{search}%"
-        q = q.filter(Organization.name.ilike(term))
+        q = q.filter(
+            Organization.name.ilike(term)
+            | Organization.organization_code.ilike(term)
+        )
     total = q.count()
     orgs = q.order_by(Organization.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
-    employees = db.query(Employee).all()
+    all_employees = db.query(Employee).filter(Employee.organization_id.in_([o.id for o in orgs])).all() if orgs else []
+    emp_by_org = {}
+    for e in all_employees:
+        emp_by_org.setdefault(e.organization_id, []).append(e)
+
+    plan_display = {
+        BillingPlanCode.CORE: "Core",
+        BillingPlanCode.ADVANCED: "Advanced",
+        BillingPlanCode.ENTERPRISE: "Enterprise",
+    }
+
+    org_ids = [o.id for o in orgs]
+    subs = {}
+    evals = {}
+    if org_ids:
+        for sub in db.query(BillingSubscription).filter(BillingSubscription.organization_id.in_(org_ids)).all():
+            subs[sub.organization_id] = sub
+        for ev in db.query(OrganizationEvaluation).filter(
+            OrganizationEvaluation.organization_id.in_(org_ids),
+            OrganizationEvaluation.status == "active",
+        ).all():
+            evals[ev.organization_id] = ev
+
+    approver_ids = {o.approved_by for o in orgs if o.approved_by}
+    approvers = {}
+    if approver_ids:
+        for emp in db.query(Employee).filter(Employee.id.in_(approver_ids)).all():
+            approvers[emp.id] = emp
+
     result = []
     for o in orgs:
-        org_emps = [e for e in employees if e.organization_id == o.id]
+        org_emps = emp_by_org.get(o.id, [])
+        admin = next((e for e in org_emps if e.role and e.role.value == UserRole.ADMIN.value), None)
+        sub = subs.get(o.id)
+        ev = evals.get(o.id)
+        sub_plan = None
+        eval_end = None
+
+        if sub and sub.plan_code:
+            sub_plan = plan_display.get(sub.plan_code, sub.plan_code.value if hasattr(sub.plan_code, 'value') else str(sub.plan_code))
+        elif sub and sub.status and sub.status.value == "EVALUATION":
+            sub_plan = "Evaluation"
+
+        if ev:
+            eval_end = ev.evaluation_ends_at
+        elif not sub_plan or sub_plan == "Evaluation":
+            from datetime import datetime, timedelta
+            default_eval_days = 14
+            base = o.created_at or datetime.utcnow()
+            eval_end = base + timedelta(days=default_eval_days)
+            if not sub_plan:
+                sub_plan = "Evaluation"
+
+        approver = approvers.get(o.approved_by)
+
         result.append(OrganizationSummary(
             id=o.id,
             name=o.name,
+            code=o.code,
             organization_code=o.organization_code,
             status=o.status.value if o.status else None,
             is_active=bool(o.is_active),
             total_employees=len(org_emps),
+            user_count=len(org_emps),
             active_employees=sum(
                 1 for e in org_emps if e.status and e.status.value == EmployeeStatus.ACTIVE.value
             ),
+            subscription_plan=sub_plan,
+            evaluation_ends_at=eval_end,
+            admin_name=admin.full_name if admin else None,
+            admin_email=admin.email if admin else None,
+            approved_by_name=approver.full_name if approver else None,
+            approved_at=o.approved_at,
+            suspended_at=o.suspended_at,
+            reactivated_at=o.reactivated_at,
+            rejection_reason=o.rejection_reason,
             created_at=o.created_at,
         ))
     return {"organizations": result, "total": total}
@@ -218,6 +285,8 @@ def list_organizations(
 def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_current_super_admin)):
     from app.modules.hr.models import Organization
     from app.modules.employee.models import Employee, UserRole, EmployeeStatus
+    from app.modules.billing.models import BillingSubscription, OrganizationEvaluation
+    from app.modules.billing.models import PlanCode as BillingPlanCode
 
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
@@ -228,16 +297,48 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
     hr_admins = sum(1 for e in employees if e.role and e.role.value == UserRole.HR_ADMIN.value)
     managers = sum(1 for e in employees if e.role and e.role.value == UserRole.MANAGER.value)
 
+    plan_display = {
+        BillingPlanCode.CORE: "Core",
+        BillingPlanCode.ADVANCED: "Advanced",
+        BillingPlanCode.ENTERPRISE: "Enterprise",
+    }
+
+    sub = db.query(BillingSubscription).filter(BillingSubscription.organization_id == org_id).first()
+    sub_plan = None
+    if sub and sub.plan_code:
+        sub_plan = plan_display.get(sub.plan_code, sub.plan_code.value if hasattr(sub.plan_code, 'value') else str(sub.plan_code))
+    elif sub and sub.status and sub.status.value == "EVALUATION":
+        sub_plan = "Evaluation"
+
+    evaluation = db.query(OrganizationEvaluation).filter(
+        OrganizationEvaluation.organization_id == org_id,
+        OrganizationEvaluation.status == "active",
+    ).first()
+
+    approver = None
+    if org.approved_by:
+        approver = db.query(Employee).filter(Employee.id == org.approved_by).first()
+
     return OrganizationDetail(
         id=org.id,
         name=org.name,
+        code=org.code,
         organization_code=org.organization_code,
         status=org.status.value if org.status else None,
         is_active=bool(org.is_active),
         total_employees=len(employees),
+        user_count=len(employees),
         active_employees=sum(
             1 for e in employees if e.status and e.status.value == EmployeeStatus.ACTIVE.value
         ),
+        subscription_plan=sub_plan,
+        admin_name=admin.full_name if admin else None,
+        admin_email=admin.email if admin else None,
+        approved_by_name=approver.full_name if approver else None,
+        approved_at=org.approved_at,
+        suspended_at=org.suspended_at,
+        reactivated_at=org.reactivated_at,
+        rejection_reason=org.rejection_reason,
         created_at=org.created_at,
         domain=org.domain,
         address=org.address,
@@ -246,10 +347,9 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
         city=org.city,
         timezone=org.timezone,
         industry=org.industry,
-        admin_name=admin.full_name if admin else None,
-        admin_email=admin.email if admin else None,
         hr_admins=hr_admins,
         managers=managers,
+        evaluation_ends_at=evaluation.evaluation_ends_at if evaluation else None,
     )
 
 
@@ -283,8 +383,21 @@ def update_organization_status(
     previous = org.status.value if org.status else None
     org.status = new_status
     org.is_active = new_status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED)
-    if new_status == OrganizationStatus.SUSPENDED:
-        org.suspended_at = __import__("datetime").datetime.utcnow()
+
+    from datetime import datetime as _dt
+    now = _dt.utcnow()
+
+    if new_status == OrganizationStatus.APPROVED:
+        org.approved_by = current_user.id
+        org.approved_at = now
+    elif new_status == OrganizationStatus.REJECTED:
+        org.rejection_reason = data.reason
+    elif new_status == OrganizationStatus.SUSPENDED:
+        org.suspended_at = now
+    elif new_status == OrganizationStatus.ACTIVE and previous and previous.lower() in ("suspended", "on_hold"):
+        org.reactivated_at = now
+    elif new_status == OrganizationStatus.ON_HOLD:
+        org.on_hold_at = now
     db.commit()
 
     db.add(ApprovalHistory(
@@ -306,6 +419,152 @@ def update_organization_status(
     db.commit()
 
     return {"message": f"Organization {org.name} status set to {new_status.value}."}
+
+
+@router.delete("/organizations/{org_id}", summary="Delete a rejected organization (hard delete)")
+def delete_organization(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    from app.modules.hr.models import Organization, OrganizationStatus
+    from app.modules.employee.models import Employee
+    from app.modules.billing.models import BillingSubscription, OrganizationEvaluation, BillingAuditLog, BillingConversion
+
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if not org:
+        raise NotFoundException("Organization", org_id)
+
+    if org.status != OrganizationStatus.REJECTED:
+        raise BadRequestException("Only rejected organizations can be deleted.")
+
+    for log in db.query(BillingAuditLog).filter(BillingAuditLog.organization_id == org_id).all():
+        db.delete(log)
+    for conv in db.query(BillingConversion).filter(BillingConversion.organization_id == org_id).all():
+        db.delete(conv)
+    for ev in db.query(OrganizationEvaluation).filter(OrganizationEvaluation.organization_id == org_id).all():
+        db.delete(ev)
+    for sub in db.query(BillingSubscription).filter(BillingSubscription.organization_id == org_id).all():
+        db.delete(sub)
+    for emp in db.query(Employee).filter(Employee.organization_id == org_id).all():
+        emp.organization_id = None
+    db.flush()
+
+    db.add(AuditLog(
+        action=AuditAction.DELETE,
+        entity_type="Organization",
+        entity_id=org.id,
+        performed_by=current_user.id,
+        performed_by_email=current_user.email,
+        details={"name": org.name, "code": org.organization_code},
+    ))
+    db.delete(org)
+    db.commit()
+
+    return {"message": f"Organization '{org.name}' has been permanently deleted."}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# AUDIT LOGS (org-scoped)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/organizations/{org_id}/audit-logs", summary="Audit logs for a specific organization")
+def get_organization_audit_logs(
+    org_id: int,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_super_admin),
+):
+    from app.modules.hr.models import Organization
+    if not db.query(Organization).filter(Organization.id == org_id).first():
+        raise NotFoundException("Organization", org_id)
+
+    q = db.query(AuditLog).filter(
+        AuditLog.entity_type == "Organization",
+        AuditLog.entity_id == org_id,
+    )
+    total = q.count()
+    rows = q.order_by(AuditLog.created_at.desc()).limit(min(limit, 200)).all()
+    return {"logs": rows, "total": total}
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# USERS (platform-wide)
+# ═══════════════════════════════════════════════════════════════════════════════
+
+@router.get("/users", summary="List all platform users across organizations")
+def list_users(
+    search: Optional[str] = None,
+    role: Optional[str] = None,
+    status: Optional[str] = None,
+    organization_id: Optional[int] = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_super_admin),
+):
+    from app.modules.employee.models import Employee, EmployeeStatus, UserRole
+
+    q = db.query(Employee)
+
+    if search:
+        term = f"%{search}%"
+        q = q.filter(
+            Employee.first_name.ilike(term)
+            | Employee.last_name.ilike(term)
+            | Employee.email.ilike(term)
+            | Employee.employee_code.ilike(term)
+        )
+    if role:
+        try:
+            role_enum = UserRole(role)
+            q = q.filter(Employee.role == role_enum)
+        except ValueError:
+            pass
+    if status:
+        try:
+            status_enum = EmployeeStatus(status)
+            q = q.filter(Employee.status == status_enum)
+        except ValueError:
+            pass
+    if organization_id:
+        q = q.filter(Employee.organization_id == organization_id)
+
+    total = q.count()
+    rows = (
+        q.order_by(Employee.created_at.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+
+    org_ids = {e.organization_id for e in rows if e.organization_id}
+    org_names = {}
+    if org_ids:
+        from app.modules.hr.models import Organization
+        for org in db.query(Organization).filter(Organization.id.in_(org_ids)).all():
+            org_names[org.id] = org.name
+
+    users = []
+    for e in rows:
+        users.append({
+            "id": e.id,
+            "email": e.email,
+            "role": e.role.value if e.role else None,
+            "is_active": bool(e.is_active),
+            "first_name": e.first_name or "",
+            "last_name": e.last_name or "",
+            "full_name": e.full_name,
+            "phone": e.phone,
+            "employee_code": e.employee_code,
+            "status": e.status.value if e.status else None,
+            "job_title": e.job_title,
+            "organization_id": e.organization_id,
+            "organization_name": org_names.get(e.organization_id),
+            "created_at": str(e.created_at) if e.created_at else None,
+        })
+
+    return {"users": users, "total": total}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

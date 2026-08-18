@@ -122,27 +122,27 @@ export default function AttendanceDashboard() {
       <div className="space-y-6">
         
         {/* Dynamic Hero Banner */}
-        <div className="bg-gradient-to-br from-orange-500 via-orange-600 to-red-500 rounded-2xl p-6 md:p-8 shadow-lg text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
+        <div className="bg-gradient-to-br from-[#0A1128] via-[#1A2744] to-[#1E3A5F] rounded-2xl p-6 md:p-8 shadow-lg text-white flex flex-col md:flex-row items-start md:items-center justify-between gap-6 relative overflow-hidden">
           <div className="absolute right-0 top-0 opacity-10 pointer-events-none transform translate-x-1/4 -translate-y-1/4">
             <Users size={240} />
           </div>
           <div className="relative z-10">
             <h1 className="text-3xl font-extrabold leading-tight tracking-tight text-white mb-2">Live Workforce Overview</h1>
-            <p className="text-orange-100 text-sm max-w-md font-medium leading-relaxed">
+            <p className="text-blue-200 text-sm max-w-md font-medium leading-relaxed">
               Real-time snapshot of employee availability, remote work status, and department-level attendance trends.
             </p>
           </div>
           <div className="relative z-10 flex gap-4 md:gap-8 flex-wrap shrink-0">
             <div>
-              <p className="text-orange-200 text-xs font-bold uppercase tracking-wide mb-1">Active Now</p>
+              <p className="text-blue-200 text-xs font-bold uppercase tracking-wide mb-1">Active Now</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-black">{loading ? "-" : present_today}</span>
-                <span className="text-orange-200 font-medium">/ {loading ? "-" : total_employees}</span>
+                <span className="text-blue-200 font-medium">/ {loading ? "-" : total_employees}</span>
               </div>
             </div>
             <div className="h-12 w-px bg-white/20 hidden md:block"></div>
             <div>
-              <p className="text-orange-200 text-xs font-bold uppercase tracking-wide mb-1">Working Remote</p>
+              <p className="text-blue-200 text-xs font-bold uppercase tracking-wide mb-1">Working Remote</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-black">{loading ? "-" : remote}</span>
               </div>
@@ -163,7 +163,7 @@ export default function AttendanceDashboard() {
             <div className="relative w-full sm:w-auto">
               <Calendar className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors cursor-pointer appearance-none">
+                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
                 <option value="today">Today</option>
                 <option value="this_week">This Week</option>
                 <option value="this_month">This Month</option>
@@ -174,7 +174,7 @@ export default function AttendanceDashboard() {
             <div className="relative w-full sm:w-auto">
               <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors cursor-pointer appearance-none">
+                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
                 <option value="">All Departments</option>
                 {deptOptions.map((d) => (<option key={d} value={d}>{d}</option>))}
               </select>
@@ -182,7 +182,7 @@ export default function AttendanceDashboard() {
             <div className="relative w-full sm:w-auto">
               <Building2 className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-orange-500/20 focus:border-orange-500 focus:bg-white transition-colors cursor-pointer appearance-none">
+                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
                 <option value="">All Locations</option>
                 <option value="office">Office</option>
                 <option value="remote">Remote</option>

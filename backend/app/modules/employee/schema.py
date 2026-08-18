@@ -1,5 +1,5 @@
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Literal, Optional, List
 from decimal import Decimal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator
@@ -225,6 +225,11 @@ class RegisterRequest(BaseModel):
     email: EmailStr = Field(..., example="admin@company.com")
     password: str = Field(..., min_length=8, example="SecurePass123!")
     organization: str = Field(..., min_length=1, max_length=200, example="Acme Inc.")
+    plan_code: Literal["core", "advanced"] = Field(
+        ...,
+        description="Evaluation package scope. Enterprise is contract-priced "
+        "and sales-led only (Section 2) — not a valid self-serve value.",
+    )
     product: Optional[str] = Field(None, example="payroll")
     products: Optional[List[str]] = Field(None, example=["hr", "payroll"])
     org_type: Optional[str] = Field(None, example="corporation")

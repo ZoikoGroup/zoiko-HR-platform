@@ -410,7 +410,7 @@ export default function Holidays() {
         {showImport && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
             <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="bg-gradient-to-r from-gray-900 to-gray-800 px-6 py-5 flex justify-between items-center">
+              <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] px-6 py-5 flex justify-between items-center">
                 <h2 className="text-lg font-bold text-white">Import Holidays</h2>
                 <button onClick={() => setShowImport(false)} className="text-gray-400 hover:text-white transition-colors">
                   <X className="w-5 h-5" />

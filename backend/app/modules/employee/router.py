@@ -109,15 +109,9 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     summary="List active products for registration",
 )
 def list_products_public(db: Session = Depends(get_db)):
-    return [
-        {
-            "id": 1,
-            "name": "HR Platform",
-            "code": "hr",
-            "description": "Human Resources management for your organization.",
-            "icon": None,
-        }
-    ]
+    from app.modules.billing import service as billing_service
+    plans = billing_service.get_plans(db, active_only=True)
+    return [billing_service.plan_to_dict(p) for p in plans]
 
 
 @auth_router.get(

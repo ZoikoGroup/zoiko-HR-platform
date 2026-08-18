@@ -905,6 +905,12 @@ def get_organization_details(db: Session, organization_id: int) -> dict:
     subscription_plan = "STANDARD"
     subscription_status = "active"
 
+    from app.modules.billing.models import OrganizationEvaluation
+    active_evaluation = db.query(OrganizationEvaluation).filter(
+        OrganizationEvaluation.organization_id == organization_id,
+        OrganizationEvaluation.status == "active",
+    ).first()
+
     total_employees = db.query(Employee).filter(
         Employee.organization_id == organization_id
     ).count()
@@ -953,6 +959,7 @@ def get_organization_details(db: Session, organization_id: int) -> dict:
         "total_employees": total_employees,
         "active_employees": active_employees,
         "hr_admins": hr_admins,
+        "evaluation_ends_at": active_evaluation.evaluation_ends_at.isoformat() if active_evaluation and active_evaluation.evaluation_ends_at else None,
     }
 
 

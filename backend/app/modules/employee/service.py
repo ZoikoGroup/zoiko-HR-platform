@@ -355,6 +355,24 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
                     "Your organization has been deactivated. Please contact support."
                 )
 
+            # Evaluation expiry check: approved orgs with expired evaluations
+            if org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
+                from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
+                from app.modules.billing import service as billing_svc
+                evaluation = (
+                    db.query(OrganizationEvaluation)
+                    .filter(
+                        OrganizationEvaluation.organization_id == org.id,
+                        OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+                    )
+                    .first()
+                )
+                if evaluation and evaluation.evaluation_ends_at < datetime.utcnow():
+                    billing_svc.end_evaluation(db, evaluation.id)
+                    raise UnauthorizedException(
+                        "Your evaluation period has expired. Contact sales to continue."
+                    )
+
     if not employee.is_active:
         raise UnauthorizedException("Your account has been deactivated.")
 
@@ -397,6 +415,9 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
 
 # TODO: This function is duplicated in hr/service.py.  Changes here must be
 # mirrored there, or the two copies should be consolidated into one.
+DEFAULT_EVALUATION_DAYS = 14
+
+
 def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     existing = db.query(Employee).filter(Employee.email == data.email).first()
     if existing:
@@ -420,8 +441,8 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         uuid=org_uuid,
         organization_code=org_code,
         organization_name=data.organization,
-        status=OrganizationStatus.ACTIVE,
-        is_active=True,
+        status=OrganizationStatus.PENDING,
+        is_active=False,
         address=data.address,
         city=data.city,
         state=data.state,
@@ -467,6 +488,33 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.commit()
     db.refresh(employee)
 
+    from app.modules.billing import service as billing_service
+    from app.modules.billing.models import DataClassification, BillingAuditAction
+
+    evaluation = billing_service.start_evaluation(
+        db,
+        organization_id=org.id,
+        evaluation_ends_at=datetime.utcnow() + timedelta(days=DEFAULT_EVALUATION_DAYS),
+        approved_package_scope=data.plan_code,
+        data_classification=DataClassification.SYNTHETIC,
+        conversion_owner=data.email,
+    )
+
+    billing_service.log_billing_audit(
+        db,
+        actor=employee,
+        organization_id=org.id,
+        action=BillingAuditAction.EVALUATION_STARTED,
+        entity_type="OrganizationEvaluation",
+        entity_id=evaluation.id,
+        before=None,
+        after={
+            "evaluation_ends_at": evaluation.evaluation_ends_at.isoformat(),
+            "plan_code": data.plan_code,
+        },
+        reason="Self-serve registration",
+    )
+
     from app.modules.super_admin.models import AuditLog, AuditAction, Notification
     audit = AuditLog(
         action=AuditAction.CREATE,
@@ -474,13 +522,19 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         entity_id=org.id,
         performed_by=employee.id,
         performed_by_email=employee.email,
-        details={"organization": org.name, "code": org.code, "status": "ACTIVE"},
+        details={
+            "organization": org.name,
+            "code": org.code,
+            "status": "PENDING",
+            "evaluation_id": evaluation.id,
+            "plan_code": data.plan_code,
+        },
     )
     db.add(audit)
 
     notification = Notification(
-        title="Organization Registered",
-        message=f"Organization '{org.name}' has been registered and is active.",
+        title="Organization Evaluation Requested",
+        message=f"Organization '{org.name}' requested a {data.plan_code} evaluation.",
         notification_type="org_registration",
         priority="high",
         target_org_id=org.id,
@@ -526,9 +580,15 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         logger.warning(f"[email] Failed to notify super admins about organization {org.name}: {e}")
 
     return {
-        "message": "Organization registered successfully.",
+        "message": (
+            "Evaluation workspace requested. It is not a paid subscription "
+            "and will expire on the date shown unless approved and converted "
+            "by your account team."
+        ),
         "organization_id": org.id,
         "organization_name": org.name,
+        "evaluation_ends_at": evaluation.evaluation_ends_at.isoformat(),
+        "plan_code": data.plan_code,
     }
 
 
