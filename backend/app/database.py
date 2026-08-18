@@ -87,6 +87,36 @@ def initialize_database() -> None:
         logger.error("Database initialization failed: %s", exc_info)
         raise
 
+    # -- Schema migration: add columns that create_all won't retroactively add -----
+    _ALTER_SQL = [
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS plan_id INTEGER",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS billing_cycle VARCHAR(50)",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS billing_metric VARCHAR(50)",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS committed_quantity INTEGER",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS billing_timezone VARCHAR(100) DEFAULT 'UTC'",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS service_start_at TIMESTAMP",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS commercial_effective_at TIMESTAMP",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS renewal_anchor_date TIMESTAMP",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS quantity INTEGER",
+        "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS price_catalog_version VARCHAR(50)",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS name VARCHAR(100) NOT NULL DEFAULT ''",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS monthly_price NUMERIC(12,2)",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS annual_price NUMERIC(12,2)",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'USD'",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS description TEXT",
+    ]
+    try:
+        from sqlalchemy import text as sql_text
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        for stmt in _ALTER_SQL:
+            db.execute(sql_text(stmt))
+        db.commit()
+        db.close()
+        logger.info("Billing schema migration: ensured all billing_subscriptions columns exist.")
+    except Exception as exc_info:
+        logger.warning("Billing schema migration skipped: %s", exc_info)
+
     # Backfill: map existing plan_code strings to plan_id FKs
     try:
         from app.modules.billing.service import backfill_plan_ids
@@ -98,6 +128,42 @@ def initialize_database() -> None:
         db.close()
     except Exception as exc_info:
         logger.warning("Billing backfill skipped: %s", exc_info)
+
+    # Seed billing plan catalog if empty (one source of truth, Section 2)
+    try:
+        from app.modules.billing.models import BillingPlan, PlanCode, BillingMetric
+        Session = sessionmaker(bind=engine)
+        db = Session()
+        if not db.query(BillingPlan).first():
+            plans = [
+                BillingPlan(
+                    code=PlanCode.CORE, name="Core",
+                    catalog_version="ZHR-COM-BILL-001-v1",
+                    billing_metric=BillingMetric.ACTIVE_WORKFORCE,
+                    is_active=True, is_contract_priced=False,
+                    description="Essential HR tools for small to mid-size teams.",
+                ),
+                BillingPlan(
+                    code=PlanCode.ADVANCED, name="Advanced",
+                    catalog_version="ZHR-COM-BILL-001-v1",
+                    billing_metric=BillingMetric.ACTIVE_WORKFORCE,
+                    is_active=True, is_contract_priced=False,
+                    description="Advanced HR, payroll, and compliance for growing organisations.",
+                ),
+                BillingPlan(
+                    code=PlanCode.ENTERPRISE, name="Enterprise",
+                    catalog_version="ZHR-COM-BILL-001-v1",
+                    billing_metric=BillingMetric.COMMITTED_WORKFORCE,
+                    is_active=True, is_contract_priced=True,
+                    description="Custom deployment with dedicated support — contact sales.",
+                ),
+            ]
+            db.add_all(plans)
+            db.commit()
+            logger.info("Billing plan catalog seeded: 3 plans (Core, Advanced, Enterprise).")
+        db.close()
+    except Exception as exc_info:
+        logger.warning("Billing plan seed skipped: %s", exc_info)
 
 
 # -- 4. Session dependency -------------------------------------------------------

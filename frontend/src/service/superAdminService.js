@@ -21,6 +21,10 @@ export const superAdminService = {
   approveOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "approved" }),
   rejectOrganization: (id, data) => api.post(`/super-admin/organizations/${id}/status`, { status: "rejected", reason: data?.reason }),
   reactivateOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "active" }),
+  deleteOrganization: (id) => api.delete(`/super-admin/organizations/${id}`),
+
+  // Organization audit logs (org-scoped)
+  getOrganizationAuditLogs: (orgId, params) => api.get(`/super-admin/organizations/${orgId}/audit-logs`, { params }),
 
   // Audit Logs
   getAuditLogs: (params) => api.get("/super-admin/audit-logs", { params }),
@@ -33,6 +37,9 @@ export const superAdminService = {
   createNotification: (data) => api.post("/super-admin/notifications", data),
   markNotificationRead: (id) => api.put(`/super-admin/notifications/${id}/read`),
   deleteNotification: (id) => api.delete(`/super-admin/notifications/${id}`),
+
+  // Users
+  getUsers: (params) => api.get("/super-admin/users", { params }),
 
   // Platform Settings
   getSettings: () => api.get("/super-admin/platform-settings"),

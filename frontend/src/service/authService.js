@@ -28,9 +28,9 @@ export async function login({ email, password }) {
   }
 }
 
-export async function register({ name, email, password, organization, products, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail }) {
+export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail }) {
   try {
-    const payload = { name, email, password, organization, products };
+    const payload = { name, email, password, organization, plan_code: planCode };
     if (orgType) payload.org_type = orgType;
     if (phone) payload.phone = phone;
     if (address) payload.address = address;

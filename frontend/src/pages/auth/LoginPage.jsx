@@ -128,6 +128,15 @@ export default function LoginPage() {
               </Link>
             </div>
 
+            <div className="text-center">
+              <p className="text-xs text-slate-500">
+                Don't have an account?{" "}
+                <Link to="/register" className="font-semibold text-[#3B82F6] hover:underline">
+                  Start Free Evaluation
+                </Link>
+              </p>
+            </div>
+
             <div className="relative flex py-2 items-center">
               <div className="flex-grow border-t border-slate-200"></div>
               <span className="flex-shrink mx-4 text-xs text-slate-400">or</span>

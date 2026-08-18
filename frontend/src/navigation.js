@@ -111,7 +111,7 @@ const superAdminBilling = {
 };
 
 const superAdminPlatform = {
-  title: "PLATFORM",
+  title: "SUPER ADMIN",
   items: [
     { label: "Dashboard",                href: "/super-admin/dashboard",           icon: LayoutDashboard },
     { label: "Organizations",            href: "/super-admin/organizations",       icon: Building2 },

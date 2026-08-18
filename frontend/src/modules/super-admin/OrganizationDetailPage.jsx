@@ -4,26 +4,71 @@ import PageHeader from "../../components/PageHeader";
 import {
   AlertTriangle, Building, Calendar, ChevronLeft, FileText, ShieldAlert,
   Activity, Users, CheckCircle, XCircle, CreditCard, ArrowUpRight, ArrowDownRight, X,
+  ThumbsUp, ThumbsDown, RotateCcw, Pause, Clock,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
 import { billingService } from "../../service/billingService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
+import EvaluationTimeRemaining from "../../components/EvaluationTimeRemaining";
 
 const STATUS_BADGE = {
+  pending: "bg-amber-50 text-amber-700 border-amber-200",
+  approved: "bg-blue-50 text-blue-700 border-blue-200",
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
-  suspended: "bg-slate-50 text-slate-700 border-slate-200",
-  deactivated: "bg-blue-50 text-blue-700 border-blue-200",
   rejected: "bg-red-50 text-red-700 border-red-200",
-  on_hold: "bg-amber-50 text-amber-700 border-amber-200",
+  suspended: "bg-slate-100 text-slate-600 border-slate-200",
+  deactivated: "bg-slate-50 text-slate-500 border-slate-200",
+  on_hold: "bg-amber-50 text-amber-600 border-amber-200",
+};
+
+const STATUS_LABELS = {
+  pending: "Pending Review",
+  approved: "Approved",
+  active: "Active",
+  rejected: "Rejected",
+  suspended: "Suspended",
+  deactivated: "Deactivated",
+  on_hold: "On Hold",
 };
 
 function StatusBadge({ status }) {
   return (
     <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border uppercase ${STATUS_BADGE[status] || "bg-slate-50 text-slate-600"}`}>
-      {status || "—"}
+      {STATUS_LABELS[status] || status || "—"}
     </span>
   );
+}
+
+function getStatusOptions(currentStatus) {
+  const transitions = {
+    pending: [
+      { value: "approved", label: "Approve", icon: ThumbsUp, color: "emerald" },
+      { value: "rejected", label: "Reject", icon: XCircle, color: "red" },
+    ],
+    approved: [
+      { value: "active", label: "Activate", icon: CheckCircle, color: "emerald" },
+      { value: "suspended", label: "Suspend", icon: ShieldAlert, color: "slate" },
+      { value: "on_hold", label: "Put On Hold", icon: Pause, color: "amber" },
+    ],
+    active: [
+      { value: "suspended", label: "Suspend", icon: ShieldAlert, color: "slate" },
+      { value: "deactivated", label: "Deactivate", icon: XCircle, color: "slate" },
+      { value: "on_hold", label: "Put On Hold", icon: Pause, color: "amber" },
+    ],
+    suspended: [
+      { value: "active", label: "Reactivate", icon: RotateCcw, color: "emerald" },
+      { value: "deactivated", label: "Deactivate", icon: XCircle, color: "slate" },
+    ],
+    on_hold: [
+      { value: "active", label: "Reactivate", icon: RotateCcw, color: "emerald" },
+      { value: "suspended", label: "Suspend", icon: ShieldAlert, color: "slate" },
+      { value: "deactivated", label: "Deactivate", icon: XCircle, color: "slate" },
+    ],
+    rejected: [],
+    deactivated: [],
+  };
+  return transitions[currentStatus] || [];
 }
 
 export default function OrganizationDetailPage() {
@@ -42,6 +87,8 @@ export default function OrganizationDetailPage() {
   const [evaluations, setEvaluations] = useState([]);
   const [conversions, setConversions] = useState([]);
   const [billingLoading, setBillingLoading] = useState(true);
+  const [rejectModal, setRejectModal] = useState(false);
+  const [rejectReason, setRejectReason] = useState("");
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -50,11 +97,10 @@ export default function OrganizationDetailPage() {
       const orgData = await superAdminService.getOrganization(orgId);
       setOrg(orgData);
       try {
-        const auditData = await superAdminService.getAuditLogs({ page_size: 20 });
+        const auditData = await superAdminService.getOrganizationAuditLogs(orgId, { page_size: 20 });
         setAuditLogs(auditData.logs || []);
       } catch { setAuditLogs([]); }
 
-      // Load billing data
       setBillingLoading(true);
       try {
         const [subData, evalData, convData] = await Promise.all([
@@ -66,7 +112,6 @@ export default function OrganizationDetailPage() {
         setEvaluations(evalData.list || []);
         setConversions(convData.list || []);
       } catch {
-        // Billing endpoints may not have data yet — that's ok
         setSubscription(null);
         setEvaluations([]);
         setConversions([]);
@@ -87,10 +132,8 @@ export default function OrganizationDetailPage() {
     if (!statusModal) return;
     setActionLoading("status");
     try {
-      await superAdminService.updateOrganizationStatus(orgId, {
-        status: statusModal.status,
-        reason: statusReason || null,
-      });
+      const payload = { status: statusModal.value, reason: statusReason || null };
+      await superAdminService.updateOrganizationStatus(orgId, payload);
       setStatusModal(null);
       setStatusReason("");
       loadAll();
@@ -101,12 +144,28 @@ export default function OrganizationDetailPage() {
     }
   };
 
-  const statusOptions = [
-    { value: "active", label: "Active" },
-    { value: "suspended", label: "Suspended" },
-    { value: "deactivated", label: "Deactivated" },
-    { value: "on_hold", label: "On Hold" },
-  ];
+  const handleQuickApprove = async () => {
+    setActionLoading("approve");
+    try {
+      await superAdminService.approveOrganization(orgId);
+      loadAll();
+    } catch (e) { setError(e.message); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleReject = async () => {
+    if (!rejectReason.trim()) return;
+    setActionLoading("reject");
+    try {
+      await superAdminService.rejectOrganization(orgId, { reason: rejectReason });
+      setRejectModal(false);
+      setRejectReason("");
+      loadAll();
+    } catch (e) { setError(e.message); }
+    finally { setActionLoading(null); }
+  };
+
+  const availableTransitions = org ? getStatusOptions(org.status) : [];
 
   if (loading) {
     return (
@@ -165,27 +224,38 @@ export default function OrganizationDetailPage() {
                   <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
                     <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}</span>
                     <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {org.total_employees} employees</span>
+                    {org.subscription_plan && (
+                      <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" /> {org.subscription_plan}</span>
+                    )}
+                    {org.evaluation_ends_at && (
+                      <EvaluationTimeRemaining evaluationEndsAt={org.evaluation_ends_at} compact />
+                    )}
                   </div>
                 </div>
               </div>
-              <select
-                value=""
-                onChange={(e) => {
-                  const target = e.target.value;
-                  if (!target) return;
-                  const option = statusOptions.find((o) => o.value === target);
-                  if (!option) return;
-                  setStatusModal({ status: target, label: option.label });
-                  setStatusReason("");
-                }}
-                className="rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-600 outline-none focus:border-[#3B82F6] cursor-pointer"
-              >
-                <option value="">Change status...</option>
-                {statusOptions.map((o) => (
-                  <option key={o.value} value={o.value} disabled={o.value === org.status}>{o.label}</option>
-                ))}
-              </select>
             </div>
+
+            {/* Quick Actions for PENDING orgs */}
+            {org.status === "pending" && (
+              <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h4 className="text-sm font-bold text-amber-800">Pending Approval</h4>
+                    <p className="text-xs text-amber-600 mt-1">This organization is waiting for admin approval before users can sign in.</p>
+                  </div>
+                  <div className="flex gap-2">
+                    <button onClick={handleQuickApprove} disabled={actionLoading === "approve"}
+                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
+                      <ThumbsUp className="h-4 w-4" /> Approve
+                    </button>
+                    <button onClick={() => setRejectModal(true)}
+                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+                      <ThumbsDown className="h-4 w-4" /> Reject
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
               <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
@@ -213,6 +283,7 @@ export default function OrganizationDetailPage() {
               <div><span className="text-slate-400 block text-xs">Name</span><span className="font-semibold text-slate-700">{org.name}</span></div>
               <div><span className="text-slate-400 block text-xs">Organization Code</span><span className="font-mono text-xs font-semibold text-[#3B82F6]">{org.organization_code || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Status</span><StatusBadge status={org.status} /></div>
+              <div><span className="text-slate-400 block text-xs">Plan</span><span className="font-semibold text-slate-700">{org.subscription_plan || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Admin Contact</span><span className="font-semibold text-slate-700">{org.admin_name || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Admin Email</span><span className="font-semibold text-slate-700">{org.admin_email || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Country</span><span className="font-semibold text-slate-700">{org.country || "—"}</span></div>
@@ -223,6 +294,18 @@ export default function OrganizationDetailPage() {
               <div className="col-span-2"><span className="text-slate-400 block text-xs">Address</span><span className="font-semibold text-slate-700">{org.address || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Domain</span><span className="font-semibold text-slate-700">{org.domain || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Created At</span><span className="font-semibold text-slate-700">{org.created_at ? new Date(org.created_at).toLocaleString() : "—"}</span></div>
+              {org.approved_at && (
+                <div><span className="text-slate-400 block text-xs">Approved At</span><span className="font-semibold text-slate-700">{new Date(org.approved_at).toLocaleString()}</span></div>
+              )}
+              {org.approved_by_name && (
+                <div><span className="text-slate-400 block text-xs">Approved By</span><span className="font-semibold text-slate-700">{org.approved_by_name}</span></div>
+              )}
+              {org.rejection_reason && (
+                <div className="col-span-2">
+                  <span className="text-slate-400 block text-xs">Rejection Reason</span>
+                  <p className="mt-1 text-red-600 bg-red-50 rounded-xl p-3 text-sm">{org.rejection_reason}</p>
+                </div>
+              )}
             </div>
           </div>
 
@@ -235,9 +318,16 @@ export default function OrganizationDetailPage() {
             {billingLoading ? (
               <div className="text-center py-6 text-slate-400 text-sm">Loading billing data...</div>
             ) : !subscription ? (
-              <div className="text-center py-6 text-slate-400 text-sm">No billing data available</div>
+              <div className="text-center py-6 text-slate-400 text-sm">
+                {org.evaluation_ends_at
+                  ? "No active subscription — evaluation period"
+                  : "No billing data available"}
+              </div>
             ) : (
               <div className="space-y-4">
+                {(subscription?.status === "EVALUATION" || org.evaluation_ends_at) && (
+                  <EvaluationTimeRemaining evaluationEndsAt={org.evaluation_ends_at} />
+                )}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Classification</p>
@@ -249,7 +339,7 @@ export default function OrganizationDetailPage() {
                   </div>
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Plan</p>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{subscription.plan_code?.toUpperCase() || "—"}</p>
+                    <p className="text-sm font-bold text-slate-800 mt-1">{subscription.plan_code?.toUpperCase() || org.subscription_plan || "—"}</p>
                   </div>
                   <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Workforce</p>
@@ -263,20 +353,6 @@ export default function OrganizationDetailPage() {
                     {subscription.renewal_anchor_date && <> · Renewal: <span className="font-semibold">{new Date(subscription.renewal_anchor_date).toLocaleDateString()}</span></>}
                   </div>
                 )}
-
-                {isSuperAdmin && (subscription.status === "active" || subscription.status === "evaluation") && (
-                  <div className="flex gap-2 pt-2">
-                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-blue-50 text-blue-600 text-xs font-semibold border border-blue-100 hover:bg-blue-100 transition">
-                      <ArrowUpRight className="h-3 w-3" /> Upgrade
-                    </button>
-                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-amber-50 text-amber-600 text-xs font-semibold border border-amber-100 hover:bg-amber-100 transition">
-                      <ArrowDownRight className="h-3 w-3" /> Downgrade
-                    </button>
-                    <button className="flex items-center gap-1 px-3 py-1.5 rounded-full bg-red-50 text-red-600 text-xs font-semibold border border-red-100 hover:bg-red-100 transition">
-                      <X className="h-3 w-3" /> Cancel
-                    </button>
-                  </div>
-                )}
               </div>
             )}
 
@@ -287,9 +363,11 @@ export default function OrganizationDetailPage() {
                 <div className="space-y-2">
                   {evaluations.map((ev) => (
                     <div key={ev.id} className="flex items-center justify-between p-2 rounded-xl bg-slate-50 border border-slate-100 text-sm">
-                      <div>
+                      <div className="flex items-center gap-2">
                         <span className="font-semibold text-slate-700">Status: {ev.status}</span>
-                        <span className="ml-2 text-xs text-slate-400">· Ends: {new Date(ev.evaluation_ends_at).toLocaleDateString()}</span>
+                        {ev.status === "ACTIVE" && ev.evaluation_ends_at && (
+                          <EvaluationTimeRemaining evaluationEndsAt={ev.evaluation_ends_at} compact />
+                        )}
                       </div>
                       <span className="text-xs text-slate-400">{ev.data_classification}</span>
                     </div>
@@ -320,9 +398,9 @@ export default function OrganizationDetailPage() {
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
-            <h3 className="text-lg font-bold text-slate-800 mb-4">Recent Platform Audit Activity</h3>
+            <h3 className="text-lg font-bold text-slate-800 mb-4">Organization Audit Activity</h3>
             {auditLogs.length === 0 ? (
-              <div className="text-center py-8 text-slate-400">No audit logs</div>
+              <div className="text-center py-8 text-slate-400">No audit logs for this organization</div>
             ) : (
               <div className="space-y-3">
                 {auditLogs.map((log) => (
@@ -336,6 +414,11 @@ export default function OrganizationDetailPage() {
                         {log.entity_type} {log.entity_id ? `#${log.entity_id} · ` : "· "}
                         {log.performed_by_email || "system"} · {log.created_at ? new Date(log.created_at).toLocaleString() : ""}
                       </div>
+                      {log.details && (
+                        <div className="text-xs text-slate-400 mt-1 font-mono">
+                          {typeof log.details === "object" ? JSON.stringify(log.details) : log.details}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ))}
@@ -345,6 +428,7 @@ export default function OrganizationDetailPage() {
         </>
       )}
 
+      {/* Contextual Status Change Modal */}
       {statusModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
           <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
@@ -352,24 +436,63 @@ export default function OrganizationDetailPage() {
               <div className="h-10 w-10 rounded-full bg-[#3B82F6]/10 flex items-center justify-center">
                 <ShieldAlert className="h-5 w-5 text-[#3B82F6]" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Change Organization Status</h3>
+              <h3 className="text-lg font-bold text-slate-800">{statusModal.label} Organization</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">
-              Change <strong>{org?.name}</strong> status to <span className="font-bold">{statusModal.label}</span>.
-              Current status: <StatusBadge status={org?.status} />
+              Change <strong>{org?.name}</strong> from <StatusBadge status={org?.status} /> to <span className="font-bold">{statusModal.label}</span>.
+            </p>
+            {statusModal.value === "rejected" ? (
+              <textarea
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                placeholder="Reason for rejection (required)..."
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-red-400 min-h-[80px] resize-y"
+              />
+            ) : (
+              <textarea
+                value={statusReason}
+                onChange={(e) => setStatusReason(e.target.value)}
+                placeholder="Optional reason for this status change..."
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] min-h-[80px] resize-y"
+              />
+            )}
+            <div className="flex gap-3 mt-6 justify-end">
+              <button onClick={() => { setStatusModal(null); setStatusReason(""); }}
+                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={handleStatusChange} disabled={actionLoading === "status" || (statusModal.value === "rejected" && !statusReason.trim())}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB] disabled:opacity-50">
+                {actionLoading === "status" ? "Updating..." : `Confirm ${statusModal.label}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reject Modal (for quick reject from pending banner) */}
+      {rejectModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                <XCircle className="h-5 w-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Reject Organization</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Reject <strong>{org?.name}</strong> registration. Provide a reason (required):
             </p>
             <textarea
-              value={statusReason}
-              onChange={(e) => setStatusReason(e.target.value)}
-              placeholder="Optional reason for this status change..."
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] min-h-[80px] resize-y"
+              value={rejectReason}
+              onChange={(e) => setRejectReason(e.target.value)}
+              placeholder="Reason for rejection..."
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-red-400 min-h-[100px] resize-y"
             />
             <div className="flex gap-3 mt-6 justify-end">
-              <button onClick={() => setStatusModal(null)}
+              <button onClick={() => { setRejectModal(false); setRejectReason(""); }}
                 className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={handleStatusChange} disabled={actionLoading === "status"}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB] disabled:opacity-50">
-                {actionLoading === "status" ? "Updating..." : `Change to ${statusModal.label}`}
+              <button onClick={handleReject} disabled={!rejectReason.trim() || actionLoading === "reject"}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                {actionLoading === "reject" ? "Rejecting..." : "Reject"}
               </button>
             </div>
           </div>
