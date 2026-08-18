@@ -1,0 +1,75 @@
+/*
+  Assistant design tokens (UI/UX Figma spec, Section 5 — "Figma variables
+  must use semantic aliases... product frames should not hard-code raw
+  color values where a semantic token exists").
+
+  Values alias the platform's actual design tokens defined in src/index.css
+  (--color-primary, --color-surface, --color-warning, etc.) — NOT the
+  #FF7A00 "Billing" accent the chatbot borrowed initially, which that file
+  explicitly scopes to Billing only. Components reference --zhr-* variables
+  (via Tailwind arbitrary-value classes) so the palette can be retuned
+  centrally without touching component markup.
+*/
+
+:root {
+  /* Surface */
+  --zhr-surface-canvas: #ffffff;
+  --zhr-surface-panel: #F8F7FC;    /* platform --color-surface-hover / bg-lavender */
+  --zhr-surface-overlay: #ffffff;
+  --zhr-surface-elevated: #ffffff;
+
+  /* Text */
+  --zhr-text-primary: #111827;     /* platform --color-text-primary */
+  --zhr-text-secondary: #4B5563;   /* platform --color-text-secondary */
+  --zhr-text-muted: #6B7280;       /* platform --color-muted-text */
+  --zhr-text-inverse: #ffffff;
+  --zhr-text-danger: #ef4444;      /* platform --color-danger */
+
+  /* Border */
+  --zhr-border-default: #E5E7EB;   /* platform --color-border-light */
+  --zhr-border-strong: #D1D5DB;    /* platform --color-border-default */
+  --zhr-border-focus: #3B82F6;     /* platform --color-primary */
+  --zhr-border-danger: #fca5a5;
+
+  /* Action — platform primary blue, not the Billing-only orange accent */
+  --zhr-action-primary: #3B82F6;
+  --zhr-action-primary-hover: #2563EB;
+  --zhr-action-secondary: #F1F0F6; /* platform --color-card-bg */
+  --zhr-action-destructive: #ef4444;
+  --zhr-action-disabled: #D1D5DB;
+
+  /* Evidence states (WF-05/13, Section 13) — mapped to platform semantic colors */
+  --zhr-evidence-grounded-bg: #F8F7FC;
+  --zhr-evidence-grounded-border: #F1F0F6;
+  --zhr-evidence-grounded-text: #111827;
+  --zhr-evidence-partial-bg: #FFFBEB;
+  --zhr-evidence-partial-border: #FEF3C7;
+  --zhr-evidence-partial-text: #92400E;
+  --zhr-evidence-conflict-bg: #FFFBEB;
+  --zhr-evidence-conflict-border: #FEF3C7;
+  --zhr-evidence-conflict-text: #B45309;
+  --zhr-evidence-unavailable-bg: #F1F0F6;
+  --zhr-evidence-unavailable-border: #E5E7EB;
+  --zhr-evidence-unavailable-text: #374151;
+
+  /* Brand icon accents (from the Zoiko HR mark) — reserved for small,
+     deliberate highlights only (e.g. the launcher's ring), never body text
+     or large fills, so the assistant reads as "Zoiko" without competing
+     with the primary blue as the main action color. */
+  --zhr-brand-teal: #4BC5D4;
+  --zhr-brand-gold: #EEC23B;
+  --zhr-brand-navy: #06508D;
+
+  /* Elevation */
+  --zhr-elevation-panel: 0 20px 40px -12px rgba(6, 80, 141, 0.20);
+  --zhr-elevation-modal: 0 24px 48px -12px rgba(6, 80, 141, 0.30);
+
+  /* Radius */
+  --zhr-radius-control: 9999px;
+  --zhr-radius-card: 1rem;
+  --zhr-radius-panel: 1.5rem;
+
+  /* Size */
+  --zhr-panel-width: 420px;
+  --zhr-control-min-target: 44px;
+}

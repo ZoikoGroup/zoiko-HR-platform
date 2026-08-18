@@ -40,7 +40,6 @@ import {
   ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   Tags,
   Target,
   TrendingUp,
@@ -329,6 +328,7 @@ const userManagement = {
   title: "USER MANAGEMENT",
   items: [
     { label: "User Management", href: "/hr-admin/settings", icon: Users },
+    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen },
   ],
 };
 
@@ -355,7 +355,6 @@ const sharedLayersSection = {
         { label: "Documents", href: "/shared/documents", icon: FileText },
         { label: "Approvals", href: "/shared/approvals", icon: FileCheck2 },
         { label: "Expenses", href: "/shared/expenses", icon: WalletCards },
-        { label: "AI Assistance", href: "/shared/ai-assistance", icon: Sparkles },
       ],
     },
   ],

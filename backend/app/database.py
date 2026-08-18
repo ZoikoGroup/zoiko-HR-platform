@@ -10,7 +10,7 @@ import logging
 import os
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, exc
+from sqlalchemy import create_engine, exc, text
 from sqlalchemy.orm import declarative_base, sessionmaker
 
 from app.config import settings
@@ -71,6 +71,7 @@ Base = declarative_base()
 import app.modules.employee.models  # noqa: F401,E402
 import app.modules.hr.models  # noqa: F401,E402
 import app.modules.super_admin.models  # noqa: F401,E402
+import app.modules.assistant.models  # noqa: F401,E402
 import app.modules.billing.models  # noqa: F401,E402
 
 
@@ -81,6 +82,8 @@ def initialize_database() -> None:
         return
 
     try:
+        with engine.begin() as conn:
+            conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
         Base.metadata.create_all(bind=engine)
         logger.info("HR platform database tables initialized.")
     except exc.SQLAlchemyError as exc_info:

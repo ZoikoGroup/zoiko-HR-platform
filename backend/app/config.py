@@ -77,5 +77,15 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "Info@zoikoone.com"
     SMTP_USE_TLS: str = "true"
 
+    # ── Assistant / LLM (app/modules/assistant) ─────────────────────────────
+    # Groq is the chat-completion provider (llm_client.py); embeddings are a
+    # separate local model (embeddings.py) since Groq has no embeddings API.
+    GROQ_API_KEY: str = Field(default="", validation_alias="HR_GROQ_API_KEY")
+    # llama-3.3-70b-versatile was retired from Groq's catalog; gpt-oss-120b
+    # is the current flagship general-purpose chat model with reliable JSON
+    # mode. Re-verify against `client.models.list()` before changing this.
+    GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
+    EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
+
 
 settings = Settings()
