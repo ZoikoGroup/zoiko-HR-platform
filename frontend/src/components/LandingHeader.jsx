@@ -104,7 +104,7 @@ export default function LandingHeader() {
               boxShadow: "0 4px 14px rgba(59,130,246,0.35)",
             }}
           >
-            {isAuthenticated ? "Go to Dashboard" : "Get Started Free"}
+            {isAuthenticated ? "Go to Dashboard" : "Start Free Evaluation"}
           </Link>
         </div>
 
@@ -140,7 +140,7 @@ export default function LandingHeader() {
             <Link to="/register" onClick={() => setMobileOpen(false)}
               className="text-center py-2.5 rounded-lg text-sm font-semibold text-white no-underline"
               style={{ background: "linear-gradient(135deg, #3B82F6, #60A5FA)" }}>
-              Get Started Free
+              Start Free Evaluation
             </Link>
           </div>
         </div>

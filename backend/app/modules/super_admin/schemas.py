@@ -17,11 +17,22 @@ class SuperAdminBootstrapRequest(BaseModel):
 class OrganizationSummary(BaseModel):
     id: int
     name: Optional[str] = None
+    code: Optional[str] = None
     organization_code: Optional[str] = None
     status: Optional[str] = None
     is_active: bool = True
     total_employees: int = 0
+    user_count: int = 0
     active_employees: int = 0
+    subscription_plan: Optional[str] = None
+    evaluation_ends_at: Optional[datetime] = None
+    admin_name: Optional[str] = None
+    admin_email: Optional[str] = None
+    approved_by_name: Optional[str] = None
+    approved_at: Optional[datetime] = None
+    suspended_at: Optional[datetime] = None
+    reactivated_at: Optional[datetime] = None
+    rejection_reason: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -36,10 +47,9 @@ class OrganizationDetail(OrganizationSummary):
     city: Optional[str] = None
     timezone: Optional[str] = None
     industry: Optional[str] = None
-    admin_name: Optional[str] = None
-    admin_email: Optional[str] = None
     hr_admins: int = 0
     managers: int = 0
+    evaluation_ends_at: Optional[datetime] = None
 
 
 class OrganizationStatusUpdate(BaseModel):

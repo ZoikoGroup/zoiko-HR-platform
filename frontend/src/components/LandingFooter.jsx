@@ -66,7 +66,7 @@ export default function LandingFooter() {
             background: "white", color: "#FF6B00", textDecoration: "none",
             boxShadow: "0 4px 14px rgba(0,0,0,0.2)", transition: "all 0.2s"
           }}>
-            Get Started Free
+            Start Free Evaluation
           </Link>
           <Link to="/login" style={{
             padding: "12px 28px", borderRadius: "8px", fontSize: "15px", fontWeight: "600",

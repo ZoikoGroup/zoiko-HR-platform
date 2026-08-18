@@ -1,10 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
-import PageHeader from "../../components/PageHeader";
 import {
-  AlertTriangle, Search, Building, ShieldAlert, CheckCircle, XCircle,
-  RotateCcw, ChevronLeft, ChevronRight, Eye, Mail, User, Clock,
-  Calendar, ThumbsUp, ThumbsDown, History, X, MessageSquare
+  Search, Eye, ShieldCheck, History, CheckCircle2, XCircle,
+  ChevronDown, Building2, Filter, Plus, SlidersHorizontal,
+  ChevronLeft, ChevronRight, MoreVertical, RotateCcw, AlertTriangle, X
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
 
@@ -14,25 +13,22 @@ export default function SuperAdminOrganizationsPage() {
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
-  const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [searchTerm, setSearchTerm] = useState("");
+  const [statusFilter, setStatusFilter] = useState("All statuses");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
 
-  const [workflowOrg, setWorkflowOrg] = useState(null);
   const [rejectModal, setRejectModal] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
-  const [confirmModal, setConfirmModal] = useState(null);
-  const [detailOrg, setDetailOrg] = useState(null);
 
   const loadOrgs = useCallback(async () => {
     setLoading(true);
     try {
       setError(null);
       const params = { page, page_size: pageSize };
-      if (search) params.search = search;
-      if (statusFilter) params.status = statusFilter;
+      if (searchTerm) params.search = searchTerm;
+      if (statusFilter !== "All statuses") params.status = statusFilter.toLowerCase().replace(" ", "_");
       const data = await superAdminService.getOrganizations(params);
       setOrganizations(data.organizations || []);
       setTotal(data.total || 0);
@@ -42,30 +38,21 @@ export default function SuperAdminOrganizationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, search, statusFilter]);
+  }, [page, pageSize, searchTerm, statusFilter]);
 
   useEffect(() => { loadOrgs(); }, [loadOrgs]);
 
-  const openWorkflow = (org) => {
-    setWorkflowOrg(org);
-    setConfirmModal(null);
-    setRejectModal(null);
-    setDetailOrg(null);
-  };
-
-  const handleApprove = async () => {
-    if (!workflowOrg) return;
-    setActionLoading(workflowOrg.id);
+  const handleApprove = async (org) => {
+    setActionLoading(org.id);
     try {
-      await superAdminService.approveOrganization(workflowOrg.id);
-      setWorkflowOrg(null);
+      await superAdminService.approveOrganization(org.id);
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
   };
 
-  const handleRejectClick = () => {
-    setRejectModal(workflowOrg);
+  const handleRejectClick = (org) => {
+    setRejectModal(org);
     setRejectReason("");
   };
 
@@ -75,373 +62,359 @@ export default function SuperAdminOrganizationsPage() {
     try {
       await superAdminService.rejectOrganization(rejectModal.id, { reason: rejectReason });
       setRejectModal(null);
-      setWorkflowOrg(null);
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
   };
 
-  const handleSuspend = async () => {
-    if (!workflowOrg) return;
-    setActionLoading(workflowOrg.id);
+  const handleSuspend = async (org) => {
+    if (!confirm(`Suspend "${org.name}"?`)) return;
+    setActionLoading(org.id);
     try {
-      await superAdminService.suspendOrganization(workflowOrg.id);
-      setWorkflowOrg(null);
+      await superAdminService.suspendOrganization(org.id);
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
   };
 
-  const handleReactivate = async () => {
-    if (!workflowOrg) return;
-    setActionLoading(workflowOrg.id);
+  const handleReactivate = async (org) => {
+    if (!confirm(`Reactivate "${org.name}"?`)) return;
+    setActionLoading(org.id);
     try {
-      await superAdminService.reactivateOrganization(workflowOrg.id);
-      setWorkflowOrg(null);
+      await superAdminService.reactivateOrganization(org.id);
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm("Are you sure you want to delete this organization? This cannot be undone.")) return;
-    try {
-      await superAdminService.deleteOrganization(id);
-      setWorkflowOrg(null);
-      loadOrgs();
-    } catch (e) { setError(e.message); }
+  const AVATAR_GRADIENTS = [
+    "from-pink-500 to-rose-500",
+    "from-amber-500 to-orange-500",
+    "from-violet-500 to-indigo-500",
+    "from-emerald-500 to-teal-500",
+    "from-blue-500 to-cyan-500",
+    "from-red-500 to-pink-500",
+    "from-fuchsia-500 to-purple-500",
+    "from-sky-500 to-blue-500",
+  ];
+
+  const getOrgAvatar = (name = "") => {
+    const clean = name.trim();
+    const words = clean.split(/\s+/).filter(Boolean);
+    const initials = words.length > 1
+      ? (words[0][0] + words[1][0])
+      : clean.slice(0, 2);
+    let hash = 0;
+    for (let i = 0; i < clean.length; i++) hash = (hash * 31 + clean.charCodeAt(i)) >>> 0;
+    const gradient = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
+    return { initials: initials.toUpperCase(), gradient };
   };
 
   const totalPages = Math.ceil(total / pageSize);
 
-  const StatusBadge = ({ status }) => {
-    const map = {
-      PENDING: "bg-amber-50 text-amber-700 border-amber-200",
-      ACTIVE: "bg-emerald-50 text-emerald-700 border-emerald-200",
-      REJECTED: "bg-red-50 text-red-700 border-red-200",
-      SUSPENDED: "bg-slate-50 text-slate-700 border-slate-200",
-      DEACTIVATED: "bg-blue-50 text-blue-700 border-blue-200",
-    };
-    return (
-      <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold border ${map[status] || "bg-slate-50 text-slate-600"}`}>
-        {status}
-      </span>
-    );
-  };
-
-  const renderActions = (o) => {
-    const base = "p-1.5 rounded-lg transition disabled:opacity-40";
-    return (
-      <div className="flex justify-end gap-1 text-slate-400">
-        <button onClick={() => openWorkflow(o)}
-          className={`${base} hover:text-blue-500 hover:bg-blue-50`} title="Manage">
-          <Eye className="h-4 w-4" />
-        </button>
-        {o.status === "PENDING" && (
-          <>
-            <button onClick={() => { setWorkflowOrg(o); handleApprove(); }} disabled={actionLoading === o.id}
-              className={`${base} hover:text-emerald-500 hover:bg-emerald-50`} title="Approve">
-              <ThumbsUp className="h-4 w-4" />
-            </button>
-            <button onClick={() => { setWorkflowOrg(o); handleRejectClick(); }} disabled={actionLoading === o.id}
-              className={`${base} hover:text-red-500 hover:bg-red-50`} title="Reject">
-              <ThumbsDown className="h-4 w-4" />
-            </button>
-          </>
-        )}
-        {o.status === "ACTIVE" && (
-          <button onClick={() => { setWorkflowOrg(o); if (confirm(`Suspend "${o.name}"?`)) handleSuspend(); }}
-            disabled={actionLoading === o.id}
-            className={`${base} hover:text-red-500 hover:bg-red-50`} title="Suspend">
-            <ShieldAlert className="h-4 w-4" />
-          </button>
-        )}
-        {o.status === "SUSPENDED" && (
-          <button onClick={() => { setWorkflowOrg(o); if (confirm(`Reactivate "${o.name}"?`)) handleReactivate(); }}
-            disabled={actionLoading === o.id}
-            className={`${base} hover:text-emerald-500 hover:bg-emerald-50`} title="Reactivate">
-            <RotateCcw className="h-4 w-4" />
-          </button>
-        )}
-        <button onClick={() => navigate(`/super-admin/organizations/${o.id}`)}
-          className={`${base} hover:text-[#3B82F6] hover:bg-slate-50`} title="View Details">
-          <History className="h-4 w-4" />
-        </button>
-      </div>
-    );
-  };
-
   return (
-    <div className="space-y-6 font-sans">
-      <PageHeader title="Organizations" description="Manage all organizations on the platform." />
+    <div className="min-h-screen bg-slate-50/60 p-6 sm:p-10 text-slate-800 font-sans antialiased">
+      <div className="max-w-7xl mx-auto space-y-6">
 
-      {error && (
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-          <span>{error}</span>
-          <button onClick={loadOrgs} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
+        {/* Header Section */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-8 bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-3xl shadow-sm">
+          <div>
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 bg-slate-900 text-white rounded-2xl shadow-sm">
+                <Building2 className="w-6 h-6" />
+              </div>
+              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
+                Organizations
+              </h1>
+            </div>
+            <p className="mt-2 text-sm text-slate-500 font-medium ml-1">
+              Manage platform workspaces, review pending approvals, and view system audits.
+            </p>
+          </div>
+
+          <button className="inline-flex items-center justify-center gap-2 px-5 py-2.5 bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold rounded-2xl shadow-sm hover:shadow-md transition-all active:scale-[0.98]">
+            <Plus className="w-4 h-4" />
+            Add Organization
+          </button>
         </div>
-      )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <h3 className="text-lg font-bold text-slate-800">All Organizations ({total})</h3>
-          <div className="flex gap-3 items-center">
-            <select
-              value={statusFilter}
-              onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
-              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]"
-            >
-              <option value="">All Status</option>
-              <option value="pending">Pending</option>
-              <option value="active">Approved</option>
-              <option value="rejected">Rejected</option>
-              <option value="suspended">Suspended</option>
-              <option value="deactivated">Deactivated</option>
-            </select>
-            <div className="relative max-w-sm w-full">
-              <Search className="absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search organizations..."
-                value={search}
-                onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-                className="w-full rounded-full border border-slate-200 bg-slate-50 py-2 pl-10 pr-4 text-sm text-slate-800 placeholder-slate-400 outline-none transition focus:bg-white focus:border-[#3B82F6]"
-              />
+        {error && (
+          <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+            <AlertTriangle className="h-5 w-5 flex-shrink-0" />
+            <span>{error}</span>
+            <button onClick={loadOrgs} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
+          </div>
+        )}
+
+        {/* Main Content Container */}
+        <div className="bg-white border border-slate-200/80 rounded-3xl shadow-sm overflow-hidden">
+
+          {/* Toolbar */}
+          <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/30">
+            <div className="flex items-center gap-3">
+              <h2 className="text-lg font-bold text-slate-900">All Organizations</h2>
+              <span className="px-2.5 py-0.5 text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full">
+                {total} total
+              </span>
+            </div>
+
+            <div className="flex items-center flex-wrap gap-3">
+              {/* Status Filter Dropdown */}
+              <div className="relative">
+                <Filter className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                <select
+                  value={statusFilter}
+                  onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }}
+                  className="appearance-none bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold rounded-2xl pl-9 pr-9 py-2.5 border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 cursor-pointer transition"
+                >
+                  <option value="All statuses">All statuses</option>
+                  <option value="pending">Pending Review</option>
+                  <option value="active">Active</option>
+                  <option value="rejected">Rejected</option>
+                  <option value="suspended">Suspended</option>
+                  <option value="deactivated">Deactivated</option>
+                </select>
+                <ChevronDown className="w-4 h-4 text-slate-400 absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+              </div>
+
+              {/* Search Bar */}
+              <div className="relative flex-1 sm:flex-none">
+                <Search className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="text"
+                  placeholder="Search by name or slug..."
+                  value={searchTerm}
+                  onChange={(e) => { setSearchTerm(e.target.value); setPage(1); }}
+                  className="w-full sm:w-64 bg-white hover:bg-slate-50/80 focus:bg-white text-xs font-medium text-slate-800 placeholder-slate-400 rounded-2xl pl-9 pr-4 py-2.5 border border-slate-200 shadow-sm focus:outline-none focus:ring-2 focus:ring-slate-900/10 transition"
+                />
+              </div>
+
+              <button className="p-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-600 rounded-2xl shadow-sm transition" title="More Filters">
+                <SlidersHorizontal className="w-4 h-4" />
+              </button>
             </div>
           </div>
-        </div>
 
-        {loading ? (
-          <div className="text-center py-12 text-slate-400">Loading...</div>
-        ) : organizations.length === 0 ? (
-          <div className="text-center py-12 text-slate-400">
-            <Building className="h-10 w-10 mx-auto mb-3 opacity-40" />
-            No organizations found
-          </div>
-        ) : (
-          <>
+          {/* Table View */}
+          {loading ? (
+            <div className="divide-y divide-slate-100">
+              {Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="flex items-center gap-4 px-6 py-4 animate-pulse">
+                  <div className="h-10 w-10 rounded-2xl bg-slate-100" />
+                  <div className="flex-1 space-y-2">
+                    <div className="h-3 w-40 rounded bg-slate-100" />
+                    <div className="h-2.5 w-24 rounded bg-slate-100" />
+                  </div>
+                  <div className="h-6 w-16 rounded-xl bg-slate-100" />
+                  <div className="h-6 w-20 rounded-full bg-slate-100" />
+                  <div className="h-6 w-24 rounded-full bg-slate-100" />
+                </div>
+              ))}
+            </div>
+          ) : organizations.length === 0 ? (
+            <div className="py-16 text-center">
+              <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-slate-100">
+                <Building2 className="h-6 w-6 text-slate-300" />
+              </div>
+              <p className="text-sm font-semibold text-slate-600">No organizations found</p>
+              <p className="mt-1 text-sm text-slate-400">
+                {searchTerm || statusFilter !== "All statuses" ? "Try adjusting your search or filter." : "New registrations will appear here."}
+              </p>
+            </div>
+          ) : (
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                    <th className="py-3 px-4">Organization</th>
-                    <th className="py-3 px-4">Org Code</th>
-                    <th className="py-3 px-4">Plan</th>
-                    <th className="py-3 px-4">Users</th>
-                    <th className="py-3 px-4">Status</th>
-                    <th className="py-3 px-4">Created</th>
-                    <th className="py-3 px-4 text-right">Actions</th>
+              <table className="w-full text-left text-sm">
+                <thead className="border-b border-slate-100 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50/50">
+                  <tr>
+                    <th className="px-6 py-3.5">Organization</th>
+                    <th className="px-6 py-3.5">Plan</th>
+                    <th className="px-6 py-3.5">Users</th>
+                    <th className="px-6 py-3.5">Status</th>
+                    <th className="px-6 py-3.5">Created</th>
+                    <th className="px-6 py-3.5 text-right pr-8">Actions</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y divide-slate-100">
-                  {organizations.map((o) => (
-                    <tr key={o.id} className="text-sm text-slate-650 hover:bg-slate-50/50 transition">
-                      <td className="py-4 px-4">
-                        <div className="flex items-center gap-2.5">
-                          <div className="h-9 w-9 bg-slate-100 rounded-xl flex items-center justify-center text-slate-550 border border-slate-200/50">
-                            <Building className="h-4.5 w-4.5" />
+                  {organizations.map((o) => {
+                    const avatar = getOrgAvatar(o.name);
+                    const s = o.status?.toUpperCase();
+                    const userCount = o.user_count ?? o.total_employees ?? 0;
+                    return (
+                      <tr key={o.id} className="hover:bg-slate-50/80 transition-colors group">
+                        {/* Organization Details */}
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-3.5">
+                            <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${avatar.gradient} text-white flex items-center justify-center font-bold text-xs shadow-sm ring-2 ring-white`}>
+                              {avatar.initials}
+                            </div>
+                            <div>
+                              <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600 transition-colors">
+                                {o.name}
+                              </div>
+                              <div className="text-xs font-medium text-slate-400">
+                                ID: {o.organization_code || "—"}
+                              </div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="font-bold text-slate-850">{o.name}</div>
-                            <div className="text-[10px] font-mono font-bold text-[#3B82F6]">{o.organization_code || "—"}</div>
+                        </td>
+
+                        {/* Plan Badge */}
+                        <td className="px-6 py-4">
+                          {o.subscription_plan ? (
+                            <span className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-slate-700 bg-slate-100/80 border border-slate-200/80 rounded-xl capitalize">
+                              {o.subscription_plan}
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
+                              Not assigned
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Users Counter */}
+                        <td className="px-6 py-4">
+                          <div className="inline-flex items-center gap-1.5 font-semibold text-slate-700 text-xs">
+                            <span className="w-2 h-2 rounded-full bg-slate-300"></span>
+                            {userCount} {userCount === 1 ? "user" : "users"}
                           </div>
-                        </div>
-                      </td>
-                       <td className="py-4 px-4">
-                        <span className="inline-flex items-center rounded bg-[#3B82F6]/10 px-1.5 py-0.5 text-[10px] font-mono font-bold text-[#3B82F6]">{o.organization_code || "—"}</span>
-                      </td>
-                      <td className="py-4 px-4">
-                        <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                          o.subscription_plan?.toUpperCase() === "ENTERPRISE" ? "bg-blue-50 text-blue-600 border border-blue-100" :
-                          o.subscription_plan?.toUpperCase() === "PROFESSIONAL" ? "bg-blue-50 text-blue-600 border border-blue-100" :
-                          o.subscription_plan?.toUpperCase() === "BASIC" ? "bg-[#3B82F6]/5 text-[#3B82F6] border border-[#3B82F6]/10" :
-                          o.subscription_plan?.toUpperCase() === "TRIAL" ? "bg-blue-50 text-blue-600 border border-blue-100" :
-                          "bg-slate-50 text-slate-600 border border-slate-100"
-                        }`}>
-                          {o.subscription_plan}
-                        </span>
-                      </td>
-                      <td className="py-4 px-4 font-semibold text-slate-800">{o.user_count}</td>
-                      <td className="py-4 px-4"><StatusBadge status={o.status} /></td>
-                      <td className="py-4 px-4 text-slate-500">{new Date(o.created_at).toLocaleDateString()}</td>
-                      <td className="py-4 px-4 text-right">{renderActions(o)}</td>
-                    </tr>
-                  ))}
+                        </td>
+
+                        {/* Status Pill */}
+                        <td className="px-6 py-4">
+                          {s === "ACTIVE" || s === "APPROVED" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-emerald-50 text-emerald-700 border border-emerald-200/60 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                              Active
+                            </span>
+                          ) : s === "PENDING" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-amber-50 text-amber-700 border border-amber-200/60 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
+                              Pending Review
+                            </span>
+                          ) : s === "REJECTED" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-red-50 text-red-700 border border-red-200/60 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-red-500"></span>
+                              Rejected
+                            </span>
+                          ) : s === "SUSPENDED" ? (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200/60 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                              Suspended
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-600 border border-slate-200/60 shadow-xs">
+                              <span className="w-1.5 h-1.5 rounded-full bg-slate-400"></span>
+                              {o.status || "—"}
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Date Created */}
+                        <td className="px-6 py-4 text-xs font-medium text-slate-500">
+                          {o.created_at ? new Date(o.created_at).toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" }) : "—"}
+                        </td>
+
+                        {/* Action Buttons */}
+                        <td className="px-6 py-4 text-right pr-6">
+                          <div className="inline-flex items-center bg-slate-50 border border-slate-200/80 rounded-2xl p-1 gap-1 shadow-xs">
+                            {/* View Button */}
+                            <button onClick={() => navigate(`/super-admin/organizations/${o.id}`)}
+                              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-white rounded-xl transition-all shadow-none hover:shadow-xs" title="View details">
+                              <Eye className="w-4 h-4" />
+                            </button>
+
+                            {/* Approval / Security Context */}
+                            {s === "PENDING" ? (
+                              <>
+                                <button onClick={() => handleApprove(o)} disabled={actionLoading === o.id}
+                                  className="p-1.5 text-emerald-600 hover:text-white hover:bg-emerald-600 rounded-xl transition-all shadow-none hover:shadow-xs disabled:opacity-40" title="Approve">
+                                  <CheckCircle2 className="w-4 h-4" />
+                                </button>
+                                <button onClick={() => handleRejectClick(o)} disabled={actionLoading === o.id}
+                                  className="p-1.5 text-rose-500 hover:text-white hover:bg-rose-600 rounded-xl transition-all shadow-none hover:shadow-xs disabled:opacity-40" title="Reject">
+                                  <XCircle className="w-4 h-4" />
+                                </button>
+                              </>
+                            ) : s === "ACTIVE" || s === "APPROVED" ? (
+                              <button onClick={() => handleSuspend(o)} disabled={actionLoading === o.id}
+                                className="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-white rounded-xl transition-all shadow-none hover:shadow-xs disabled:opacity-40" title="Permissions & Security">
+                                <ShieldCheck className="w-4 h-4" />
+                              </button>
+                            ) : s === "SUSPENDED" || s === "ON_HOLD" ? (
+                              <button onClick={() => handleReactivate(o)} disabled={actionLoading === o.id}
+                                className="p-1.5 text-slate-500 hover:text-emerald-600 hover:bg-white rounded-xl transition-all shadow-none hover:shadow-xs disabled:opacity-40" title="Reactivate">
+                                <RotateCcw className="w-4 h-4" />
+                              </button>
+                            ) : null}
+
+                            {/* History Button */}
+                            <button onClick={() => navigate(`/super-admin/organizations/${o.id}`)}
+                              className="p-1.5 text-slate-500 hover:text-slate-900 hover:bg-white rounded-xl transition-all shadow-none hover:shadow-xs" title="Audit Trail">
+                              <History className="w-4 h-4" />
+                            </button>
+
+                            <button onClick={() => navigate(`/super-admin/organizations/${o.id}`)}
+                              className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white rounded-xl transition-all shadow-none hover:shadow-xs" title="More options">
+                              <MoreVertical className="w-4 h-4" />
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
+          )}
+
+          {/* Footer Controls & Pagination */}
+          <div className="px-6 py-4 border-t border-slate-100 bg-slate-50/30 flex items-center justify-between text-xs text-slate-500 font-medium">
+            <div>
+              Showing{" "}
+              <span className="font-bold text-slate-700">
+                {total === 0 ? "0" : `${(page - 1) * pageSize + 1}–${Math.min(page * pageSize, total)}`}
+              </span>{" "}
+              of <span className="font-bold text-slate-700">{total}</span>
+            </div>
 
             {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100">
-                <span className="text-sm text-slate-500">{total} total organizations</span>
-                <div className="flex gap-2 items-center">
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
-                  <span className="text-sm text-slate-600">Page {page} of {totalPages}</span>
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
-                </div>
+              <div className="flex items-center gap-2">
+                <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1}
+                  className="p-2 bg-white border border-slate-200 rounded-xl text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition shadow-xs disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-white disabled:hover:text-slate-400">
+                  <ChevronLeft className="w-4 h-4" />
+                </button>
+                {Array.from({ length: Math.min(totalPages, 5) }, (_, i) => {
+                  let pageNum;
+                  if (totalPages <= 5) {
+                    pageNum = i + 1;
+                  } else if (page <= 3) {
+                    pageNum = i + 1;
+                  } else if (page >= totalPages - 2) {
+                    pageNum = totalPages - 4 + i;
+                  } else {
+                    pageNum = page - 2 + i;
+                  }
+                  return (
+                    <button key={pageNum} onClick={() => setPage(pageNum)}
+                      className={`px-3 py-1 font-bold rounded-xl shadow-xs transition ${
+                        page === pageNum
+                          ? "bg-slate-900 text-white"
+                          : "bg-white border border-slate-200 text-slate-600 hover:bg-slate-50"
+                      }`}>
+                      {pageNum}
+                    </button>
+                  );
+                })}
+                <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages}
+                  className="p-2 bg-white border border-slate-200 rounded-xl text-slate-600 hover:bg-slate-50 transition shadow-xs disabled:opacity-40 disabled:cursor-not-allowed">
+                  <ChevronRight className="w-4 h-4" />
+                </button>
               </div>
             )}
-          </>
-        )}
-      </div>
-
-      {/* Workflow Modal */}
-      {workflowOrg && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-2xl shadow-xl border border-slate-200 max-h-[90vh] overflow-y-auto">
-            <div className="flex items-center justify-between mb-6">
-              <div className="flex items-center gap-3">
-                <div className="h-10 w-10 bg-[#3B82F6]/10 rounded-2xl flex items-center justify-center">
-                  <Building className="h-5 w-5 text-[#3B82F6]" />
-                </div>
-                <div>
-                  <h3 className="text-lg font-bold text-slate-800">{workflowOrg.name}</h3>
-                  <span className="text-[10px] text-slate-400 font-mono">{workflowOrg.code}</span>
-                </div>
-              </div>
-              <button onClick={() => setWorkflowOrg(null)} className="p-1 hover:bg-slate-100 rounded-lg"><X className="h-5 w-5 text-slate-400" /></button>
-            </div>
-
-            {/* Details Grid */}
-            <div className="grid grid-cols-2 gap-4 text-sm mb-6">
-               <div>
-                <span className="text-slate-400 block text-xs">Organization Name</span>
-                <span className="font-semibold text-slate-700">{workflowOrg.name}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Org Code</span>
-                <span className="font-semibold text-[#3B82F6] font-mono">{workflowOrg.organization_code || "—"}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Legacy Code</span>
-                <span className="font-semibold text-slate-700 font-mono">{workflowOrg.code}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Current Status</span>
-                <StatusBadge status={workflowOrg.status} />
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Subscription Plan</span>
-                <span className="font-semibold text-slate-700 capitalize">{workflowOrg.subscription_plan}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Organization Admin</span>
-                <span className="font-semibold text-slate-700">{workflowOrg.admin_name || "—"}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Admin Email</span>
-                <span className="font-semibold text-slate-700">{workflowOrg.admin_email || "—"}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">User Count</span>
-                <span className="font-semibold text-slate-700">{workflowOrg.user_count}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-xs">Registration Date</span>
-                <span className="font-semibold text-slate-700">{new Date(workflowOrg.created_at).toLocaleDateString()}</span>
-              </div>
-              {workflowOrg.approved_by_name && (
-                <div>
-                  <span className="text-slate-400 block text-xs">Approved By</span>
-                  <span className="font-semibold text-slate-700">{workflowOrg.approved_by_name}</span>
-                </div>
-              )}
-              {workflowOrg.approved_at && (
-                <div>
-                  <span className="text-slate-400 block text-xs">Approved At</span>
-                  <span className="font-semibold text-slate-700">{new Date(workflowOrg.approved_at).toLocaleString()}</span>
-                </div>
-              )}
-              {workflowOrg.suspended_at && (
-                <div>
-                  <span className="text-slate-400 block text-xs">Suspended At</span>
-                  <span className="font-semibold text-slate-700">{new Date(workflowOrg.suspended_at).toLocaleString()}</span>
-                </div>
-              )}
-              {workflowOrg.reactivated_at && (
-                <div>
-                  <span className="text-slate-400 block text-xs">Reactivated At</span>
-                  <span className="font-semibold text-slate-700">{new Date(workflowOrg.reactivated_at).toLocaleString()}</span>
-                </div>
-              )}
-              {workflowOrg.rejection_reason && (
-                <div className="col-span-2">
-                  <span className="text-slate-400 block text-xs">Rejection Reason</span>
-                  <p className="mt-1 text-red-600 bg-red-50 rounded-xl p-3 text-sm">{workflowOrg.rejection_reason}</p>
-                </div>
-              )}
-            </div>
-
-            {/* Status-Based Actions */}
-            <div className="border-t border-slate-100 pt-4">
-              <h4 className="text-sm font-bold text-slate-700 mb-3">Workflow Actions</h4>
-              <div className="flex gap-3 flex-wrap">
-                {workflowOrg.status === "PENDING" && (
-                  <>
-                    <button onClick={handleApprove} disabled={actionLoading === workflowOrg.id}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
-                      <ThumbsUp className="h-4 w-4" /> Approve
-                    </button>
-                    <button onClick={handleRejectClick} disabled={actionLoading === workflowOrg.id}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
-                      <ThumbsDown className="h-4 w-4" /> Reject
-                    </button>
-                    <button onClick={() => navigate(`/super-admin/organizations/${workflowOrg.id}`)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
-                      <Eye className="h-4 w-4" /> View Details
-                    </button>
-                  </>
-                )}
-                {workflowOrg.status === "ACTIVE" && (
-                  <>
-                    <button onClick={() => { if (confirm(`Suspend "${workflowOrg.name}"?`)) handleSuspend(); }} disabled={actionLoading === workflowOrg.id}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-slate-600 text-white text-sm font-semibold hover:bg-slate-700 disabled:opacity-50">
-                      <ShieldAlert className="h-4 w-4" /> Suspend
-                    </button>
-                    <button onClick={() => navigate(`/super-admin/organizations/${workflowOrg.id}`)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
-                      <Eye className="h-4 w-4" /> View Details
-                    </button>
-                  </>
-                )}
-                {workflowOrg.status === "SUSPENDED" && (
-                  <>
-                    <button onClick={() => { if (confirm(`Reactivate "${workflowOrg.name}"?`)) handleReactivate(); }} disabled={actionLoading === workflowOrg.id}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
-                      <RotateCcw className="h-4 w-4" /> Reactivate
-                    </button>
-                    <button onClick={() => navigate(`/super-admin/organizations/${workflowOrg.id}`)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
-                      <Eye className="h-4 w-4" /> View Details
-                    </button>
-                  </>
-                )}
-                {workflowOrg.status === "REJECTED" && (
-                  <>
-                    <button onClick={() => navigate(`/super-admin/organizations/${workflowOrg.id}`)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
-                      <Eye className="h-4 w-4" /> View Details
-                    </button>
-                    <button onClick={() => { setWorkflowOrg(null); handleDelete(workflowOrg.id); }}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
-                      <XCircle className="h-4 w-4" /> Delete Registration
-                    </button>
-                  </>
-                )}
-                {workflowOrg.status === "DEACTIVATED" && (
-                  <>
-                    <button onClick={() => navigate(`/super-admin/organizations/${workflowOrg.id}`)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">
-                      <Eye className="h-4 w-4" /> View Details
-                    </button>
-                  </>
-                )}
-              </div>
-            </div>
           </div>
         </div>
-      )}
+      </div>
 
       {/* Reject Reason Modal */}
       {rejectModal && (
@@ -465,9 +438,9 @@ export default function SuperAdminOrganizationsPage() {
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => setRejectModal(null)}
                 className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
-              <button onClick={confirmReject} disabled={!rejectReason.trim()}
+              <button onClick={confirmReject} disabled={!rejectReason.trim() || actionLoading === rejectModal.id}
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
-                <XCircle className="h-4 w-4" /> Reject
+                {actionLoading === rejectModal.id ? "Rejecting..." : "Reject"}
               </button>
             </div>
           </div>

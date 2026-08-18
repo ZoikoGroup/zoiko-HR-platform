@@ -8,7 +8,7 @@ const SECTION_EXCLUSIONS = {
   // at the single-org employee page, which isn't organization-scoped for a
   // platform-wide super admin. Hidden here only for super_admin — the
   // Administration section still shows for admin/hr_admin roles.
-  super_admin: ["HR ADMIN", "ORGANIZATION ADMIN", "PRODUCTS", "MY WORKSPACE", "ADMINISTRATION"],
+  super_admin: ["HR ADMIN", "ORGANIZATION ADMIN", "PRODUCTS", "MY WORKSPACE", "ADMINISTRATION", "PLATFORM"],
   hr_admin: ["SHARED LAYERS"],
   employee: ["SHARED LAYERS"],
 };

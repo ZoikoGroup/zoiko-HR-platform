@@ -17,12 +17,18 @@ export default function RegistrationSuccessPage() {
   const location = useLocation();
   const orgName = location.state?.organizationName ?? "Your Organization";
   const email = location.state?.email ?? "";
+  const planCode = location.state?.planCode ?? "";
+  const evaluationEndsAt = location.state?.evaluationEndsAt ?? "";
 
   useEffect(() => {
     if (!location.state?.organizationName) {
       navigate("/register", { replace: true });
     }
   }, [location.state, navigate]);
+
+  const evaluationDays = evaluationEndsAt
+    ? Math.max(1, Math.ceil((new Date(evaluationEndsAt) - new Date()) / (1000 * 60 * 60 * 24)))
+    : 14;
 
   const [mounted, setMounted] = useState(false);
 
@@ -91,11 +97,11 @@ export default function RegistrationSuccessPage() {
 
           <div className="mt-6 text-center">
             <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-              Organization registered successfully
+              Evaluation request submitted
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">
               <span className="font-medium text-slate-700">{orgName}</span>{" "}
-              has been submitted. We've sent a confirmation to
+              evaluation workspace is pending approval. We've sent a confirmation to
             </p>
             <p className="mt-0.5 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-700">
               <Mail size={14} className="text-slate-400" />
@@ -128,13 +134,14 @@ export default function RegistrationSuccessPage() {
                 <ShieldCheck size={13} />
               </div>
               <span className="text-sm text-slate-400">
-                Account activated
+                Evaluation workspace activated
               </span>
             </div>
           </div>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-slate-400">
-            This usually takes less than 24 hours. You'll get an email as
+            Your {evaluationDays}-day evaluation will begin once approved.
+            No credit card required. You'll get an email as
             soon as your organization is approved.
           </p>
 

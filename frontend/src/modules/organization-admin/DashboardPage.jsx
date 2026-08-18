@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
 import { Users, Building2, BadgeInfo, CalendarCheck, Activity, Wrench } from "lucide-react";
+import EvaluationTimeRemaining from "../../components/EvaluationTimeRemaining";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
 const DashboardCharts = lazy(() => import("./DashboardCharts"));
@@ -194,10 +195,16 @@ export default function OrgAdminDashboardPage() {
               <p className="font-['Sora',system-ui,sans-serif] text-[14.5px] font-bold">Org Health Score</p>
               <p className="text-[11px] font-semibold tracking-[0.04em]" style={{ color: "rgba(255,255,255,0.6)" }}>Attendance &amp; compliance combined</p>
             </div>
-          </div>
         </div>
+      </div>
 
-        <div className="flex items-baseline justify-between mb-[14px] mt-[30px]">
+      {org?.evaluation_ends_at && (
+        <div className="mb-[14px]">
+          <EvaluationTimeRemaining evaluationEndsAt={org.evaluation_ends_at} />
+        </div>
+      )}
+
+      <div className="flex items-baseline justify-between mb-[14px] mt-[30px]">
           <h2 className="font-['Sora',system-ui,sans-serif] text-[15.5px] font-bold tracking-[-0.01em]" style={{ color: INK }}>Key Metrics</h2>
           <button onClick={() => navigate("/organization-admin/metrics")} className="text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>View all metrics →</button>
         </div>
