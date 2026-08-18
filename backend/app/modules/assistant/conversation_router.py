@@ -28,9 +28,10 @@ def get_capabilities(
 ):
     from app.modules.assistant import guardrails
     return {
-        "generation_enabled": guardrails.is_generation_enabled(db, organization_id),
-        "actions_enabled": guardrails.is_actions_enabled(db, organization_id),
+        "generation_enabled": guardrails.is_generation_enabled(db, organization_id, employee_id=current_user.id),
+        "actions_enabled": guardrails.is_actions_enabled(db, organization_id, employee_id=current_user.id),
         "supported_workflow_types": ["book_leave"],
+        "employee_restricted": guardrails.is_employee_processing_restricted(db, current_user.id),
     }
 
 
@@ -72,8 +73,11 @@ def rename_conversation(
     current_user=Depends(get_current_user),
     organization_id: int = Depends(get_organization_id),
 ):
-    from app.core.sanitize import sanitize_input
-    title = sanitize_input(payload.title)
+    # Not run through sanitize_input(): that HTML-escapes quotes/apostrophes
+    # for content later rendered as raw HTML. React already auto-escapes
+    # JSX text nodes, so pre-escaping here only left literal `&#39;`/`&#34;`
+    # on screen instead of preventing anything.
+    title = payload.title.strip()
     return conversation_service.rename_conversation(db, organization_id, current_user.id, conversation_id, title)
 
 
@@ -111,10 +115,12 @@ def create_turn(
     organization_id: int = Depends(get_organization_id),
 ):
     conversation = conversation_service.get_conversation(db, organization_id, current_user.id, conversation_id)
-    from app.core.sanitize import sanitize_input
-    text = sanitize_input(payload.text)
+    # See rename_conversation() above — same reasoning: no HTML pre-escaping,
+    # it only corrupted what's shown to the user, fed to Groq, and audited.
+    text = payload.text.strip()
     turn = conversation_service.create_and_process_turn(db, conversation, current_user, text,
-                                                          subject_employee_id=payload.subject_employee_id)
+                                                          subject_employee_id=payload.subject_employee_id,
+                                                          attachment_id=payload.attachment_id)
     return conversation_service.serialize_turn(db, turn)
 
 

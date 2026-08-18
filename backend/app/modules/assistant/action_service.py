@@ -20,7 +20,7 @@ import secrets
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException, ZoikoException
-from app.modules.assistant import audit_service, guardrails
+from app.modules.assistant import audit_service, guardrails, safety_service
 from app.modules.assistant.models import (
     ChatTurn, ChatWorkflow, ChatWorkflowField, ChatWorkflowValidation,
     ChatWorkflowConfirmation, ChatWorkflowExecution, ChatWorkflowReconciliation,
@@ -50,11 +50,23 @@ def _extract_dates(text: str) -> tuple[str | None, str | None]:
     return matches[0], matches[1]
 
 
+_CLARIFICATION_PROMPTS = {
+    "leave_type": "what type of leave (e.g. annual, sick, casual)",
+    "dates": "which dates (a start and end date)",
+}
+
+
 def start_book_leave_workflow(db: Session, turn: ChatTurn, employee) -> ChatTurn:
     """Turn-processing entry point for the book_leave intent: creates a
     ChatWorkflow draft (best-effort field extraction from the turn text) and
     completes the turn with an ACTION response pointing at it. The client
-    then drives validate -> confirm -> execute via the workflow endpoints."""
+    then drives validate -> confirm -> execute via the workflow endpoints.
+
+    A material field that couldn't be extracted (leave type or dates) is
+    never silently guessed — the response asks a targeted clarifying
+    question naming exactly what's missing (AI Guardrail spec, Section 21:
+    "do not guess consequence-bearing intent"), while still creating the
+    draft so the user can also just fill the field in directly."""
     leave_type = _extract_leave_type(turn.user_input_text)
     start_date, end_date = _extract_dates(turn.user_input_text)
 
@@ -81,11 +93,29 @@ def start_book_leave_workflow(db: Session, turn: ChatTurn, employee) -> ChatTurn
         "leave_type": leave_type, "start_date": start_date, "end_date": end_date,
     }})
 
+    missing = []
+    if not leave_type:
+        missing.append(_CLARIFICATION_PROMPTS["leave_type"])
+    if not (start_date and end_date):
+        missing.append(_CLARIFICATION_PROMPTS["dates"])
+
+    if missing:
+        answer_text = (
+            "I've started a leave request, but I need a bit more before you can submit it — "
+            "could you tell me " + " and ".join(missing) + "? You can also fill it in directly below."
+        )
+        confidence_state = ConfidenceState.PARTIAL
+        safety_service.record(db, turn.organization_id, "clarification_requested", turn_id=turn.id,
+                               employee_id=employee.id, detail={"missing_fields": missing})
+    else:
+        answer_text = "I've drafted a leave request based on your message. Review the details and confirm to submit it."
+        confidence_state = ConfidenceState.PARTIAL
+
     response = ChatResponse(
         turn_id=turn.id,
-        answer_text="I've drafted a leave request based on your message. Review the details and confirm to submit it.",
+        answer_text=answer_text,
         answer_type=AnswerType.ACTION,
-        confidence_state=ConfidenceState.PARTIAL,
+        confidence_state=confidence_state,
         next_actions=[{"type": "review_workflow", "label": "Review leave request", "workflow_id": workflow.id}],
     )
     db.add(response)
@@ -210,7 +240,9 @@ def confirm_workflow(db: Session, organization_id: int, employee_id: int, workfl
 
 def execute_workflow(db: Session, organization_id: int, employee_id: int, workflow_id: int,
                       idempotency_key: str) -> ChatWorkflow:
-    if not guardrails.is_actions_enabled(db, organization_id):
+    if not guardrails.is_actions_enabled(db, organization_id, employee_id=employee_id):
+        if guardrails.is_employee_processing_restricted(db, employee_id):
+            raise ZoikoException(403, "ASSISTANT_ACTIONS_DISABLED", "Actions are restricted for your account per a data-privacy request you submitted.")
         raise ZoikoException(403, "ASSISTANT_ACTIONS_DISABLED", "Actions are currently disabled by an administrator.")
 
     workflow = _get_workflow(db, organization_id, employee_id, workflow_id)
@@ -282,15 +314,28 @@ def get_workflow(db: Session, organization_id: int, employee_id: int, workflow_i
 
 # ── book_leave: validator + executor ──────────────────────────────────────────
 
+def _normalize_leave_type(raw: str) -> str:
+    """Defense-in-depth only — the UI now offers a fixed dropdown of exact
+    enum values, so this mainly guards any future caller that passes free
+    text (e.g. 'Annual Leave' -> 'annual')."""
+    normalized = raw.strip().lower()
+    if normalized.endswith(" leave"):
+        normalized = normalized[: -len(" leave")].strip()
+    return normalized
+
+
 def _validate_book_leave(db: Session, workflow: ChatWorkflow, fields: dict) -> list[tuple[str, bool, str]]:
     checks = []
 
     leave_type = fields.get("leave_type")
     valid_types = {lt.value for lt in LeaveType}
+    if leave_type:
+        leave_type = _normalize_leave_type(leave_type)
     checks.append(("leave_type_present", bool(leave_type), "Leave type is required."
                    if not leave_type else "OK"))
     if leave_type and leave_type not in valid_types:
-        checks.append(("leave_type_valid", False, f"'{leave_type}' is not a recognized leave type."))
+        checks.append(("leave_type_valid", False,
+                        f"'{leave_type}' is not a recognized leave type. Choose one of: {', '.join(sorted(valid_types))}."))
 
     start_date, end_date = fields.get("start_date"), fields.get("end_date")
     checks.append(("dates_present", bool(start_date and end_date),
@@ -335,7 +380,7 @@ def _execute_book_leave(db: Session, workflow: ChatWorkflow, fields: dict, emplo
     leave = LeaveRequest(
         employee_id=workflow.employee_id,
         organization_id=workflow.organization_id,
-        leave_type=fields["leave_type"],
+        leave_type=_normalize_leave_type(fields["leave_type"]),
         start_date=start_date,
         end_date=end_date,
         days=(end_date - start_date).days + 1,

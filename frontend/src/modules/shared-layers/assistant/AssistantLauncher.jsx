@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { Sparkles, X } from "lucide-react";
+import { createPortal } from "react-dom";
+import { X } from "lucide-react";
+import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
 import { useAuth } from "../../../context/AuthContext";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
@@ -7,7 +9,19 @@ import HistoryRail from "./HistoryRail";
 
 /**
  * WF-01 Persistent Launcher and Docked Panel — mounted once at the app
- * root so it's available on every authenticated page.
+ * root so it's available on every authenticated page. Rendered via a
+ * portal straight onto <body> so no ancestor's overflow/transform/z-index
+ * context can clip or reposition a widget that has to float above
+ * everything, regardless of which route mounted it.
+ *
+ * The button is always present and its own icon/rotation/fill state is the
+ * single toggle affordance — one `open` boolean drives the icon swap, the
+ * rotation, the accent fill, and whether the panel renders at all.
+ *
+ * Below `sm` the panel becomes the WF-03 full-screen mobile composition
+ * (a deliberate difference from a plain floating widget): the button stays
+ * on top of it as the close control, so the composer reserves extra
+ * bottom clearance there to avoid the two overlapping.
  */
 export default function AssistantLauncher() {
   const { isAuthenticated } = useAuth();
@@ -36,7 +50,7 @@ export default function AssistantLauncher() {
 
   if (!isAuthenticated) return null;
 
-  return (
+  return createPortal(
     <>
       <button
         ref={launcherRef}
@@ -44,43 +58,55 @@ export default function AssistantLauncher() {
         onClick={() => (open ? close() : setOpen(true))}
         aria-label={open ? "Close HR Assistant" : "Open HR Assistant"}
         aria-expanded={open}
-        className="fixed bottom-5 right-5 z-40 flex h-14 w-14 items-center justify-center rounded-full bg-[var(--zhr-action-primary)] text-white shadow-[var(--zhr-elevation-panel)] transition hover:bg-[var(--zhr-action-primary-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zhr-border-focus)]"
+        className={`fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center overflow-hidden
+          rounded-2xl shadow-[var(--zhr-elevation-panel)] transition-all duration-200
+          hover:-translate-y-0.5 hover:shadow-[var(--zhr-elevation-modal)]
+          focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zhr-border-focus)]
+          ${open ? "rotate-90 bg-[var(--zhr-action-primary)] text-white hover:bg-[var(--zhr-action-primary-hover)]" : ""}`}
       >
-        {open ? <X className="h-6 w-6" /> : <Sparkles className="h-6 w-6" />}
+        {open ? <X className="h-5.5 w-5.5" /> : <img src={zoikoHrIcon} alt="" className="h-full w-full object-cover" />}
       </button>
 
       {open && (
         <div
           role="dialog"
           aria-label="HR Assistant"
-          className="fixed bottom-24 right-5 z-40 flex overflow-hidden rounded-3xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] shadow-[var(--zhr-elevation-modal)]"
-          style={{ width: "min(92vw, var(--zhr-panel-width))", height: "min(75vh, 640px)" }}
+          className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--zhr-surface-overlay)]
+            sm:inset-auto sm:bottom-24 sm:right-5 sm:rounded-3xl sm:border sm:border-[var(--zhr-border-default)] sm:shadow-[var(--zhr-elevation-modal)]"
+          style={{
+            "--_panel-w": "min(92vw, var(--zhr-panel-width))",
+            "--_panel-h": "min(75vh, 640px)",
+          }}
         >
-          {historyOpen && (
-            <div className="absolute inset-0 z-10 flex flex-col bg-[var(--zhr-surface-canvas)]">
-              <button onClick={() => setHistoryOpen(false)} className="absolute right-2 top-2 rounded-lg p-1.5 text-[var(--zhr-text-muted)]">
-                <X className="h-4 w-4" />
-              </button>
-              <HistoryRail
-                conversations={engine.conversations}
-                activeId={engine.conversationId}
-                onSelect={(id) => { engine.openConversation(id); setHistoryOpen(false); }}
-                onRename={engine.renameCurrentConversation}
-                onDelete={engine.removeConversation}
+          <div className="flex h-full w-full flex-col sm:h-[var(--_panel-h)] sm:w-[var(--_panel-w)]">
+            {historyOpen && (
+              <div className="absolute inset-0 z-10 flex flex-col bg-[var(--zhr-surface-canvas)]">
+                <button onClick={() => setHistoryOpen(false)} className="absolute right-2 top-2 rounded-lg p-1.5 text-[var(--zhr-text-muted)]">
+                  <X className="h-4 w-4" />
+                </button>
+                <HistoryRail
+                  conversations={engine.conversations}
+                  activeId={engine.conversationId}
+                  onSelect={(id) => { engine.openConversation(id); setHistoryOpen(false); }}
+                  onRename={engine.renameCurrentConversation}
+                  onDelete={engine.removeConversation}
+                />
+              </div>
+            )}
+            <div className="min-h-0 flex-1" tabIndex={-1} ref={headingRef}>
+              <ConversationView
+                {...engine}
+                onSend={engine.send}
+                compact
+                onToggleHistory={() => setHistoryOpen((v) => !v)}
+                onNewConversation={engine.startNewConversation}
+                onClose={close}
               />
             </div>
-          )}
-          <div className="flex-1 min-w-0" tabIndex={-1} ref={headingRef}>
-            <ConversationView
-              {...engine}
-              onSend={engine.send}
-              compact
-              onToggleHistory={() => setHistoryOpen((v) => !v)}
-              onNewConversation={engine.startNewConversation}
-            />
           </div>
         </div>
       )}
-    </>
+    </>,
+    document.body
   );
 }

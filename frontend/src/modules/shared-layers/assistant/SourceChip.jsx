@@ -1,9 +1,24 @@
 import { useState } from "react";
-import { FileText, ShieldCheck } from "lucide-react";
+import { FileText, ShieldCheck, Paperclip } from "lucide-react";
 
 const TIER_LABELS = { A: "Binding policy", B: "Operational (SOP)", C: "Explanatory", D: "Reference" };
 
+function isAttachment(source) {
+  return source.hr_record_ref?.startsWith("attachment:");
+}
+
 export function SourceDetail({ source }) {
+  if (isAttachment(source)) {
+    return (
+      <div className="text-xs text-[var(--zhr-text-secondary)]">
+        <p className="font-bold text-[var(--zhr-text-primary)]">{source.label}</p>
+        <p className="mt-1">
+          This answer was read from a document you uploaded. It does not override or count as published
+          company policy.
+        </p>
+      </div>
+    );
+  }
   if (source.hr_record_ref) {
     return (
       <div className="text-xs text-[var(--zhr-text-secondary)]">
@@ -27,6 +42,7 @@ export function SourceDetail({ source }) {
 
 export default function SourceChip({ source }) {
   const [open, setOpen] = useState(false);
+  const Icon = isAttachment(source) ? Paperclip : source.hr_record_ref ? ShieldCheck : FileText;
   return (
     <div className="relative inline-block">
       <button
@@ -34,7 +50,7 @@ export default function SourceChip({ source }) {
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1 rounded-full border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-panel)] px-2.5 py-1 text-[11px] font-semibold text-[var(--zhr-text-secondary)] hover:border-[var(--zhr-border-focus)] hover:text-[var(--zhr-action-primary)] transition"
       >
-        {source.hr_record_ref ? <ShieldCheck className="h-3 w-3" /> : <FileText className="h-3 w-3" />}
+        <Icon className="h-3 w-3" />
         {source.label}
       </button>
       {open && (

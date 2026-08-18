@@ -105,9 +105,10 @@ _SENSITIVE_CASE_CLAUSE = """
 
 _PROFESSIONAL_ADVICE_CLAUSE = """
 [PROFESSIONAL ADVICE BOUNDARY]
-- This question touches legal, tax, or similarly regulated advice. Only restate approved employer
-  policy/process information from the evidence. Explicitly note this is not individualized legal or tax
-  advice and suggest qualified professional or HR support for a specific determination.
+- This question touches legal, tax, immigration, or similarly regulated advice. Only restate approved
+  employer policy/process information from the evidence. Explicitly note this is not an individualized
+  legal, tax, or immigration determination and suggest qualified professional or HR support for a specific
+  determination.
 """
 
 
@@ -289,7 +290,9 @@ def _answer_handoff_prompt(db: Session, turn: ChatTurn) -> ChatTurn:
 
 
 def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = False, professional: bool = False) -> ChatTurn:
-    if not guardrails.is_generation_enabled(db, turn.organization_id):
+    if not guardrails.is_generation_enabled(db, turn.organization_id, employee_id=employee.id):
+        if guardrails.is_employee_processing_restricted(db, employee.id):
+            return _fail(db, turn, "Assistant processing is restricted for your account per a data-privacy request you submitted.")
         return _fail(db, turn, "Assistant generation is currently disabled by an administrator.")
 
     turn.status = TurnStatus.RETRIEVING
@@ -396,4 +399,84 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
          "knowledge_source_version_id": next(f["source_version_id"] for f in fragments if f["fragment_id"] == fid)}
         for fid in cited_ids
     ]
+    return _finalize(db, turn, answer_text, answer_type, confidence_state, provenance)
+
+
+_ATTACHMENT_QA_CLAUSE = """
+[ATTACHMENT BOUNDARY]
+- The evidence below is a document the USER uploaded, not governed company policy. Label it clearly as
+  the user's own document in your answer where relevant, and never treat it as more authoritative than
+  it is — it cannot override or supersede published company policy.
+"""
+
+
+def answer_attachment_qa(db: Session, turn: ChatTurn, employee, attachment) -> ChatTurn:
+    """ATTACHMENT_QA: answers strictly from one attachment's extracted text,
+    never promoted to knowledge-base authority (AI Guardrail spec, Section
+    16 — 'user uploads do not become organization policy... unless
+    separately ingested through Knowledge Base governance')."""
+    from app.modules.assistant import attachment_service
+
+    if not guardrails.is_generation_enabled(db, turn.organization_id, employee_id=employee.id):
+        return _fail(db, turn, "Assistant generation is currently disabled by an administrator.")
+
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+
+    extracted_text = attachment_service.get_extracted_text(db, attachment.id)
+    if not extracted_text:
+        return _finalize(db, turn,
+                          "I couldn't extract readable text from that file, so I can't answer questions about it. "
+                          "Try a plain text or PDF file instead.",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+
+    turn.status = TurnStatus.GENERATING
+    db.flush()
+
+    messages = [
+        {"role": "system", "content": BASE_SYSTEM_PROMPT + _ATTACHMENT_QA_CLAUSE},
+        {"role": "user", "content": (
+            f'<evidence id="1" source="Your document: {attachment.file_name}">\n{extracted_text}\n</evidence>\n\n'
+            f"Question: {turn.user_input_text}"
+        )},
+    ]
+
+    try:
+        parsed, model_run = llm_client.generate_json(messages)
+    except ValueError as e:
+        logger.warning("Model returned malformed output for attachment turn %s: %s", turn.id, e)
+        safety_service.record(db, turn.organization_id, "generation_malformed_output", turn_id=turn.id,
+                               employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
+        return _finalize(db, turn,
+                          "I wasn't able to form a confident answer from that document. Could you rephrase?",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+    except Exception as e:
+        logger.warning("Generation failed for attachment turn %s: %s", turn.id, e)
+        return _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly.")
+
+    db.add(ChatModelRun(
+        turn_id=turn.id, provider="groq", model_name=settings.GROQ_MODEL,
+        purpose="generate", prompt_tokens=model_run.prompt_tokens, completion_tokens=model_run.completion_tokens,
+        latency_ms=model_run.latency_ms,
+    ))
+    db.flush()
+
+    turn.status = TurnStatus.VALIDATING
+    db.flush()
+
+    answer_text = parsed.get("answer_text", "")
+    disclosure_violation = guardrails.check_output_disclosure(answer_text)
+    if disclosure_violation:
+        safety_service.record(db, turn.organization_id, f"disclosure_blocked:{disclosure_violation}",
+                               turn_id=turn.id, employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
+        return _finalize(db, turn, "I can't share that information. Let me know if there's something else I can help with.",
+                          AnswerType.RESTRICTED, ConfidenceState.RESTRICTED)
+
+    try:
+        answer_type = AnswerType(parsed.get("answer_type", "partial"))
+        confidence_state = ConfidenceState(parsed.get("confidence_state", "partial"))
+    except ValueError:
+        answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
+
+    provenance = [{"source_type": ProvenanceSourceType.HR_RECORD, "hr_record_ref": f"attachment:id={attachment.id}"}]
     return _finalize(db, turn, answer_text, answer_type, confidence_state, provenance)

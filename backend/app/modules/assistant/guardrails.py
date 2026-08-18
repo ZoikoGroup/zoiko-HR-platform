@@ -11,7 +11,12 @@ import re
 from sqlalchemy.orm import Session
 
 from app.core.sanitize import sanitize_input
-from app.modules.assistant.models import ChatOperationalControl, ControlType
+from app.modules.assistant.models import (
+    ChatOperationalControl, ControlType, ChatPrivacyRequest, PrivacyRequestType, PrivacyRequestStatus,
+    ChatAuditEvent,
+)
+
+UNRESTRICT_EVENT_TYPE = "processing_unrestricted"
 
 
 def sanitize_user_text(text: str) -> str:
@@ -42,12 +47,52 @@ def wrap_evidence_as_data(fragments: list[dict]) -> str:
     )
 
 
-def is_generation_enabled(db: Session, organization_id: int) -> bool:
-    return not _kill_switch_on(db, organization_id, ControlType.GENERATION_KILL_SWITCH)
+def is_generation_enabled(db: Session, organization_id: int, employee_id: int | None = None) -> bool:
+    if _kill_switch_on(db, organization_id, ControlType.GENERATION_KILL_SWITCH):
+        return False
+    if employee_id is not None and is_employee_processing_restricted(db, employee_id):
+        return False
+    return True
 
 
-def is_actions_enabled(db: Session, organization_id: int) -> bool:
-    return not _kill_switch_on(db, organization_id, ControlType.ACTION_KILL_SWITCH)
+def is_actions_enabled(db: Session, organization_id: int, employee_id: int | None = None) -> bool:
+    if _kill_switch_on(db, organization_id, ControlType.ACTION_KILL_SWITCH):
+        return False
+    if employee_id is not None and is_employee_processing_restricted(db, employee_id):
+        return False
+    return True
+
+
+def is_employee_processing_restricted(db: Session, employee_id: int) -> bool:
+    """A completed 'restrict' data-subject request stops further assistant
+    processing for that employee — toggleable via lift_employee_restriction()
+    below. No new column or enum value backs the toggle (avoids an ALTER
+    TYPE against an already-live table): restricted is true only if the
+    latest 'restrict' request is newer than the latest unrestrict audit
+    event, so lifting it is just recording a newer event, not a schema
+    change."""
+    latest_restrict = (
+        db.query(ChatPrivacyRequest)
+        .filter(
+            ChatPrivacyRequest.employee_id == employee_id,
+            ChatPrivacyRequest.request_type == PrivacyRequestType.RESTRICT,
+            ChatPrivacyRequest.status == PrivacyRequestStatus.COMPLETED,
+        )
+        .order_by(ChatPrivacyRequest.completed_at.desc())
+        .first()
+    )
+    if not latest_restrict:
+        return False
+
+    latest_unrestrict = (
+        db.query(ChatAuditEvent)
+        .filter(ChatAuditEvent.actor_employee_id == employee_id, ChatAuditEvent.event_type == UNRESTRICT_EVENT_TYPE)
+        .order_by(ChatAuditEvent.created_at.desc())
+        .first()
+    )
+    if not latest_unrestrict:
+        return True
+    return latest_restrict.completed_at > latest_unrestrict.created_at
 
 
 def _kill_switch_on(db: Session, organization_id: int, control_type: ControlType) -> bool:

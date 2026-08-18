@@ -96,3 +96,18 @@ def retire_source(
                           source.id, current_user.id)
     db.commit()
     return source
+
+
+@knowledge_router.post("/sources/{source_id}/suspend", response_model=KnowledgeSourceResponse)
+def suspend_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    organization_id: int = Depends(get_organization_id),
+):
+    """Reversible per-source kill switch — publish again later to reactivate."""
+    source = knowledge_service.suspend_source(db, organization_id, source_id)
+    audit_service.record(db, organization_id, "knowledge_source_suspended", "knowledge_source",
+                          source.id, current_user.id)
+    db.commit()
+    return source

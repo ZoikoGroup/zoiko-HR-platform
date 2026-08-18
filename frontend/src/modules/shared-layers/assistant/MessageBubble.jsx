@@ -1,4 +1,5 @@
-import { Sparkles, AlertCircle, AlertTriangle, ShieldAlert, Loader2, UserCircle2 } from "lucide-react";
+import { AlertCircle, AlertTriangle, ShieldAlert, Loader2, UserCircle2 } from "lucide-react";
+import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
 import SourceChip from "./SourceChip";
 import FeedbackControl from "./FeedbackControl";
 import WorkflowPanel from "./WorkflowPanel";
@@ -6,8 +7,8 @@ import HandoffPanel from "./HandoffPanel";
 
 function AssistantAvatar() {
   return (
-    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--zhr-surface-panel)] text-[var(--zhr-action-primary)]">
-      <Sparkles className="h-4.5 w-4.5" />
+    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl">
+      <img src={zoikoHrIcon} alt="" className="h-full w-full object-cover" />
     </div>
   );
 }

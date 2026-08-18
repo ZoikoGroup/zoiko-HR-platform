@@ -49,6 +49,9 @@ class TurnCreate(BaseModel):
     # Authorization is re-checked server-side on every turn (WF-09) — the
     # client-supplied id is never trusted on its own.
     subject_employee_id: Optional[int] = None
+    # ATTACHMENT_QA: answer from this attachment's extracted text only —
+    # ownership/conversation membership re-checked server-side.
+    attachment_id: Optional[int] = None
 
 
 class SourceRef(BaseModel):
@@ -219,3 +222,32 @@ class CapabilitiesResponse(BaseModel):
     generation_enabled: bool
     actions_enabled: bool
     supported_workflow_types: list[str]
+    employee_restricted: bool = False
+
+
+# ── Data-subject rights ─────────────────────────────────────────────────────
+
+class PrivacyRequestCreate(BaseModel):
+    request_type: str = Field(..., pattern="^(export|delete|restrict)$")
+
+
+class PrivacyRequestResponse(BaseModel):
+    id: int
+    request_type: str
+    status: str
+    created_at: datetime
+    completed_at: Optional[datetime] = None
+    result: Optional[dict] = None
+
+
+# ── Attachments ────────────────────────────────────────────────────────────
+
+class AttachmentResponse(BaseModel):
+    id: int
+    conversation_id: int
+    file_name: str
+    mime_type: Optional[str] = None
+    size_bytes: int
+    scan_status: str
+    extraction_available: bool
+    created_at: datetime

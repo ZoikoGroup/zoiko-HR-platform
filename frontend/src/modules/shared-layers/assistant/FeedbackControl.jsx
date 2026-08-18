@@ -55,7 +55,7 @@ export default function FeedbackControl({ turnId }) {
               key={rc.value}
               type="button"
               onClick={() => send("down", rc.value)}
-              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${reasonCode === rc.value ? "border-[#FF7A00] text-[#FF7A00]" : "border-slate-200 text-slate-500 hover:border-slate-300"}`}
+              className={`rounded-full border px-2 py-0.5 text-[10px] font-semibold ${reasonCode === rc.value ? "border-[var(--zhr-action-primary)] text-[var(--zhr-action-primary)]" : "border-[var(--zhr-border-default)] text-[var(--zhr-text-secondary)] hover:border-[var(--zhr-border-strong)]"}`}
             >
               {rc.label}
             </button>

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   createConversation, listConversations, deleteConversation, renameConversation,
-  listTurns, createTurn, streamTurn, getCapabilities, getTeamScope,
+  listTurns, createTurn, streamTurn, getCapabilities, getTeamScope, uploadAttachment,
 } from "../../../service/assistantService";
 
 /**
@@ -21,6 +21,8 @@ export function useAssistantConversation(active = true) {
   const [streamingTurnId, setStreamingTurnId] = useState(null);
   const [streamingText, setStreamingText] = useState("");
   const [degradedMessage, setDegradedMessage] = useState(null);
+  const [pendingAttachment, setPendingAttachment] = useState(null);
+  const [attachmentUploading, setAttachmentUploading] = useState(false);
   const stopStreamRef = useRef(null);
 
   const refreshConversations = useCallback(async () => {
@@ -78,6 +80,14 @@ export function useAssistantConversation(active = true) {
     await refreshConversations();
   }, [refreshConversations]);
 
+  const refreshCapabilities = useCallback(async () => {
+    try {
+      setCapabilities(await getCapabilities());
+    } catch {
+      // Advisory only.
+    }
+  }, []);
+
   const initializedRef = useRef(false);
   useEffect(() => {
     if (!active || initializedRef.current) return;
@@ -89,11 +99,7 @@ export function useAssistantConversation(active = true) {
       } else {
         await startNewConversation();
       }
-      try {
-        setCapabilities(await getCapabilities());
-      } catch {
-        // Advisory only.
-      }
+      await refreshCapabilities();
       try {
         const res = await getTeamScope();
         setTeamMembers(res.members || []);
@@ -104,20 +110,40 @@ export function useAssistantConversation(active = true) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active]);
 
+  const attachFile = useCallback(async (file) => {
+    if (!conversationId || !file) return;
+    setAttachmentUploading(true);
+    setDegradedMessage(null);
+    try {
+      const attachment = await uploadAttachment(conversationId, file);
+      setPendingAttachment(attachment);
+    } catch (e) {
+      setDegradedMessage(e.message || "Could not upload that file.");
+    } finally {
+      setAttachmentUploading(false);
+    }
+  }, [conversationId]);
+
+  const clearPendingAttachment = useCallback(() => setPendingAttachment(null), []);
+
   const send = useCallback(async (text) => {
     const messageText = (text || "").trim();
     if (!messageText || !conversationId || sending) return;
     setSending(true);
     setDegradedMessage(null);
+    const attachmentId = pendingAttachment?.id;
+    const attachmentName = pendingAttachment?.file_name;
+    setPendingAttachment(null);
 
     const placeholder = {
-      id: `pending-${Date.now()}`, user_input_text: messageText, status: "accepted",
-      answer_text: null, sources: [], next_actions: [], completed_at: null,
+      id: `pending-${Date.now()}`,
+      user_input_text: attachmentName ? `${messageText}  📎 ${attachmentName}` : messageText,
+      status: "accepted", answer_text: null, sources: [], next_actions: [], completed_at: null,
     };
     setTurns((prev) => [...prev, placeholder]);
 
     try {
-      const turn = await createTurn(conversationId, messageText, scope?.id);
+      const turn = await createTurn(conversationId, messageText, scope?.id, attachmentId);
       setTurns((prev) => prev.map((t) => (t === placeholder ? turn : t)));
       refreshConversations();
 
@@ -139,13 +165,15 @@ export function useAssistantConversation(active = true) {
     } finally {
       setSending(false);
     }
-  }, [conversationId, sending, scope, refreshConversations]);
+  }, [conversationId, sending, scope, pendingAttachment, refreshConversations]);
 
   useEffect(() => () => { stopStreamRef.current?.(); }, []);
 
   return {
     conversationId, conversations, turns, scope, setScope, teamMembers, capabilities,
     sending, loadingConversation, streamingTurnId, streamingText, degradedMessage,
+    pendingAttachment, attachmentUploading, attachFile, clearPendingAttachment,
     send, openConversation, startNewConversation, removeConversation, renameCurrentConversation,
+    refreshCapabilities,
   };
 }

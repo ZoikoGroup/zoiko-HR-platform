@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreVertical, History, Plus, LifeBuoy } from "lucide-react";
+import { MoreVertical, History, Plus, LifeBuoy, Download, Trash2 } from "lucide-react";
 
-export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupportRequest }) {
+export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupportRequest, onExportData, onDeleteData }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -23,6 +23,8 @@ export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupp
     { label: "History", icon: History, onClick: onOpenHistory },
     { label: "New conversation", icon: Plus, onClick: onNewConversation },
     { label: "Support request", icon: LifeBuoy, onClick: onSupportRequest },
+    ...(onExportData ? [{ label: "Export my data", icon: Download, onClick: onExportData }] : []),
+    ...(onDeleteData ? [{ label: "Delete my data", icon: Trash2, onClick: onDeleteData, destructive: true }] : []),
   ];
 
   return (
@@ -40,17 +42,19 @@ export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupp
       {open && (
         <div
           role="menu"
-          className="absolute right-0 z-30 mt-1 w-48 rounded-xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] p-1.5 shadow-[var(--zhr-elevation-panel)]"
+          className="absolute right-0 z-30 mt-1 w-52 rounded-xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] p-1.5 shadow-[var(--zhr-elevation-panel)]"
         >
-          {items.map(({ label, icon: Icon, onClick }) => (
+          {items.map(({ label, icon: Icon, onClick, destructive }) => (
             <button
               key={label}
               role="menuitem"
               type="button"
               onClick={() => { setOpen(false); onClick?.(); }}
-              className="flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold text-[var(--zhr-text-primary)] hover:bg-[var(--zhr-surface-panel)]"
+              className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-2 text-left text-xs font-semibold hover:bg-[var(--zhr-surface-panel)] ${
+                destructive ? "text-red-600" : "text-[var(--zhr-text-primary)]"
+              }`}
             >
-              <Icon className="h-4 w-4 text-[var(--zhr-text-secondary)]" />
+              <Icon className={`h-4 w-4 ${destructive ? "text-red-500" : "text-[var(--zhr-text-secondary)]"}`} />
               {label}
             </button>
           ))}

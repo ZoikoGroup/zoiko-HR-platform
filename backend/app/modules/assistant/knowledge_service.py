@@ -190,13 +190,30 @@ def list_versions(db: Session, organization_id: int, source_id: int) -> list[Kno
 
 
 def retire_source(db: Session, organization_id: int, source_id: int, retired_by: int) -> KnowledgeSource:
-    """Makes the source permanently ineligible for retrieval without
-    deleting it (evidence/audit history is never destroyed — matches the
-    retrieval eligibility filter, which only ever selects PUBLISHED sources)."""
+    """Terminal — makes the source permanently ineligible for retrieval
+    without deleting it (evidence/audit history is never destroyed). For a
+    reversible pause instead, use suspend_source()."""
     source = get_source(db, organization_id, source_id)
     if source.status == KnowledgeStatus.RETIRED:
         raise BadRequestException("Source is already retired.")
     source.status = KnowledgeStatus.RETIRED
+    db.commit()
+    db.refresh(source)
+    return source
+
+
+def suspend_source(db: Session, organization_id: int, source_id: int) -> KnowledgeSource:
+    """Reversible per-source kill switch (AI Guardrail spec Section 26:
+    'Knowledge-source kill switch | Source/version | Make source ineligible
+    for retrieval without deleting evidence history' — distinct from the
+    permanent retire()). Moves a published source back to REVIEW, which
+    retrieval_service already excludes (only PUBLISHED is eligible); publish
+    again later to reactivate — no separate 'reactivate' verb needed since
+    publish_source() doesn't guard against re-publishing."""
+    source = get_source(db, organization_id, source_id)
+    if source.status != KnowledgeStatus.PUBLISHED:
+        raise BadRequestException(f"Only a published source can be suspended (current status: '{source.status.value}').")
+    source.status = KnowledgeStatus.REVIEW
     db.commit()
     db.refresh(source)
     return source

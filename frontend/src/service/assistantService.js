@@ -9,14 +9,29 @@ export const deleteConversation = (id) => api.delete(`/assistant/conversations/$
 export const listTurns = (conversationId) => api.get(`/assistant/conversations/${conversationId}/turns`);
 
 // ── Turns ─────────────────────────────────────────────────────────────────
-export const createTurn = (conversationId, text, subjectEmployeeId) =>
+export const createTurn = (conversationId, text, subjectEmployeeId, attachmentId) =>
   api.post(`/assistant/conversations/${conversationId}/turns`, {
-    text, subject_employee_id: subjectEmployeeId || undefined,
+    text, subject_employee_id: subjectEmployeeId || undefined, attachment_id: attachmentId || undefined,
   });
 export const getTurn = (turnId) => api.get(`/assistant/turns/${turnId}`);
 
 // ── Manager/delegated scope ──────────────────────────────────────────────────
 export const getTeamScope = () => api.get("/assistant/scope/team");
+
+// ── Attachments ──────────────────────────────────────────────────────────────
+export const uploadAttachment = (conversationId, file) => {
+  const formData = new FormData();
+  formData.append("conversation_id", conversationId);
+  formData.append("file", file);
+  return api.post("/assistant/attachments", formData);
+};
+export const deleteAttachment = (id) => api.delete(`/assistant/attachments/${id}`);
+
+// ── Data-subject rights (export / delete / restrict my assistant data) ──────
+export const listPrivacyRequests = () => api.get("/assistant/privacy-requests");
+export const createPrivacyRequest = (requestType) =>
+  api.post("/assistant/privacy-requests", { request_type: requestType });
+export const liftRestriction = () => api.post("/assistant/privacy-requests/unrestrict", {});
 
 // ── Capabilities / feedback / handoff ───────────────────────────────────────
 export const getCapabilities = () => api.get("/assistant/capabilities");
@@ -42,6 +57,7 @@ export const listKnowledgeSources = (params) => api.get("/assistant/admin/knowle
 export const createKnowledgeSource = (payload) => api.post("/assistant/admin/knowledge/sources", payload);
 export const publishKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/publish`, {});
 export const retireKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/retire`, {});
+export const suspendKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/suspend`, {});
 export const listKnowledgeVersions = (id) => api.get(`/assistant/admin/knowledge/sources/${id}/versions`);
 
 // ── Admin: operational controls (kill switches) ─────────────────────────────

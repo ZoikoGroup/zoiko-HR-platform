@@ -1,11 +1,15 @@
+import { useState } from "react";
 import { AlertTriangle, Info } from "lucide-react";
+import { liftRestriction } from "../../../service/assistantService";
 
 /**
  * WF-14 degraded/service-unavailable: states exactly which capability is
  * unavailable rather than a generic "something went wrong" — precision the
  * spec explicitly calls for over vague status copy.
  */
-export default function SystemBanner({ capabilities, errorMessage }) {
+export default function SystemBanner({ capabilities, errorMessage, onRestrictionLifted }) {
+  const [undoing, setUndoing] = useState(false);
+
   if (errorMessage) {
     return (
       <div className="mb-3 flex items-center gap-2 rounded-xl border border-red-100 bg-red-50 p-3 text-xs font-semibold text-red-600">
@@ -31,6 +35,27 @@ export default function SystemBanner({ capabilities, errorMessage }) {
         <span className="font-semibold">Available:</span> {available.join(", ")}.{" "}
         <span className="font-semibold">Unavailable:</span> {unavailable.join(", ")}.
       </p>
+      {capabilities.employee_restricted && (
+        <div className="mt-2">
+          <p>This is because you submitted a data-privacy request to restrict assistant processing.</p>
+          <button
+            type="button"
+            disabled={undoing}
+            onClick={async () => {
+              setUndoing(true);
+              try {
+                await liftRestriction();
+                onRestrictionLifted?.();
+              } finally {
+                setUndoing(false);
+              }
+            }}
+            className="mt-1.5 rounded-full border border-amber-300 px-3 py-1 text-[11px] font-bold text-amber-800 hover:bg-amber-100 disabled:opacity-50"
+          >
+            {undoing ? "Undoing..." : "Undo restriction"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }

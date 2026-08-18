@@ -10,7 +10,7 @@ import re
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import NotFoundException
-from app.modules.assistant import orchestration_service, action_service, audit_service, safety_service, guardrails, scope_service
+from app.modules.assistant import orchestration_service, action_service, audit_service, safety_service, guardrails, scope_service, retention_service
 from app.modules.assistant.models import (
     ChatConversation, ChatTurn, ChatResponse, ChatResponseProvenance,
     KnowledgeSourceVersion, KnowledgeSource, TurnStatus,
@@ -59,12 +59,13 @@ def rename_conversation(db: Session, organization_id: int, employee_id: int, con
 
 def delete_conversation(db: Session, organization_id: int, employee_id: int, conversation_id: int) -> None:
     conversation = get_conversation(db, organization_id, employee_id, conversation_id)
-    db.delete(conversation)
+    retention_service.cascade_delete_conversation(db, conversation)
+    audit_service.record(db, organization_id, "conversation_deleted", "chat_conversation", conversation_id, employee_id)
     db.commit()
 
 
 def create_and_process_turn(db: Session, conversation: ChatConversation, employee, text: str,
-                             subject_employee_id: int | None = None) -> ChatTurn:
+                             subject_employee_id: int | None = None, attachment_id: int | None = None) -> ChatTurn:
     """Step 1 of orchestration (create the turn row), then either routes to
     the action engine (for action-triggering intents) or runs the standard
     answer pipeline. `subject_employee_id` (WF-09 manager scope) is
@@ -104,6 +105,15 @@ def create_and_process_turn(db: Session, conversation: ChatConversation, employe
     # any intent routing or model call.
     if orchestration_service.apply_hard_block_if_needed(db, turn, employee):
         return turn
+
+    if attachment_id is not None:
+        from app.modules.assistant import attachment_service
+        # Scoped to this conversation — an attachment from another
+        # conversation (even the same employee's) is not addressable here.
+        attachment = attachment_service.get_attachment(db, conversation.organization_id, attachment_id)
+        if attachment.conversation_id != conversation.id:
+            raise NotFoundException("Attachment", attachment_id)
+        return orchestration_service.answer_attachment_qa(db, turn, employee, attachment)
 
     intent = orchestration_service.classify_intent(text)
     if intent == "book_leave":
@@ -168,6 +178,8 @@ def serialize_turn(db: Session, turn: ChatTurn) -> dict:
                     "effective_to": version.effective_to if version else None,
                     "excerpt": (version.content_text[:280] + ("..." if len(version.content_text) > 280 else "")) if version else None,
                 })
+            elif p.hr_record_ref and p.hr_record_ref.startswith("attachment:"):
+                sources.append({"label": "Your document", "hr_record_ref": p.hr_record_ref})
             elif p.hr_record_ref:
                 sources.append({"label": "HR record", "hr_record_ref": p.hr_record_ref})
                 match = _HR_RECORD_EMPLOYEE_RE.search(p.hr_record_ref)

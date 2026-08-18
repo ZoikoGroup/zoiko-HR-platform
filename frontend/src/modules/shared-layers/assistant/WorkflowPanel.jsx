@@ -6,6 +6,10 @@ import {
 
 const FIELD_LABELS = { leave_type: "Leave type", start_date: "Start date", end_date: "End date", reason: "Reason" };
 
+// Must match backend LeaveType enum values exactly (app/modules/hr/models.py)
+// — free text here is what let "annual leave" through instead of "annual".
+const LEAVE_TYPE_OPTIONS = ["annual", "sick", "casual", "maternity", "paternity", "unpaid", "emergency", "other"];
+
 export default function WorkflowPanel({ workflowId, onExecuted }) {
   const [workflow, setWorkflow] = useState(null);
   const [editValues, setEditValues] = useState({});
@@ -37,7 +41,7 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
   };
 
   if (!workflow) {
-    return <div className="flex items-center gap-2 text-xs text-slate-400"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading request...</div>;
+    return <div className="flex items-center gap-2 text-xs text-[var(--zhr-text-muted)]"><Loader2 className="h-3.5 w-3.5 animate-spin" /> Loading request...</div>;
   }
 
   const status = workflow.status;
@@ -47,27 +51,36 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
   const isTerminal = ["completed", "cancelled", "failed", "reconciliation_required"].includes(status);
 
   return (
-    <div className="mt-3 rounded-2xl border border-slate-200 bg-white p-4 text-sm">
+    <div className="mt-3 rounded-2xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] p-4 text-sm">
       <div className="mb-3 flex items-center justify-between">
-        <h4 className="flex items-center gap-1.5 font-bold text-slate-800">
-          <CalendarDays className="h-4 w-4 text-[#FF7A00]" /> Leave request draft
+        <h4 className="flex items-center gap-1.5 font-bold text-[var(--zhr-text-primary)]">
+          <CalendarDays className="h-4 w-4 text-[var(--zhr-action-primary)]" /> Leave request draft
         </h4>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-bold uppercase text-slate-500">{status.replace(/_/g, " ")}</span>
+        <span className="rounded-full bg-[var(--zhr-action-secondary)] px-2 py-0.5 text-[10px] font-bold uppercase text-[var(--zhr-text-secondary)]">{status.replace(/_/g, " ")}</span>
       </div>
 
       <div className="space-y-2">
         {Object.entries(FIELD_LABELS).map(([name, label]) => (
           <div key={name} className="flex items-center gap-2">
-            <label className="w-24 shrink-0 text-[11px] font-semibold text-slate-500">{label}</label>
-            {isDraft ? (
+            <label className="w-24 shrink-0 text-[11px] font-semibold text-[var(--zhr-text-secondary)]">{label}</label>
+            {isDraft && name === "leave_type" ? (
+              <select
+                value={editValues[name] || ""}
+                onChange={(e) => setEditValues((v) => ({ ...v, [name]: e.target.value }))}
+                className="flex-1 rounded-lg border border-[var(--zhr-border-default)] px-2 py-1 text-xs"
+              >
+                <option value="" disabled>Select a leave type...</option>
+                {LEAVE_TYPE_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+              </select>
+            ) : isDraft ? (
               <input
                 type={name.includes("date") ? "date" : "text"}
                 value={editValues[name] || ""}
                 onChange={(e) => setEditValues((v) => ({ ...v, [name]: e.target.value }))}
-                className="flex-1 rounded-lg border border-slate-200 px-2 py-1 text-xs"
+                className="flex-1 rounded-lg border border-[var(--zhr-border-default)] px-2 py-1 text-xs"
               />
             ) : (
-              <span className="text-xs text-slate-700">{editValues[name] || "—"}</span>
+              <span className="text-xs text-[var(--zhr-text-primary)]">{editValues[name] || "—"}</span>
             )}
           </div>
         ))}
@@ -97,11 +110,11 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
               <button
                 disabled={busy}
                 onClick={() => run(async () => { await updateWorkflowFields(workflowId, editValues); return validateWorkflow(workflowId); })}
-                className="rounded-full bg-[#FF7A00] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#e56e00] disabled:opacity-50"
+                className="rounded-full bg-[var(--zhr-action-primary)] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[var(--zhr-action-primary-hover)] disabled:opacity-50"
               >
                 Save &amp; validate
               </button>
-              <button disabled={busy} onClick={() => run(() => cancelWorkflow(workflowId))} className="rounded-full border border-slate-200 px-3.5 py-1.5 text-xs font-bold text-slate-500">
+              <button disabled={busy} onClick={() => run(() => cancelWorkflow(workflowId))} className="rounded-full border border-[var(--zhr-border-default)] px-3.5 py-1.5 text-xs font-bold text-[var(--zhr-text-secondary)]">
                 Cancel
               </button>
             </>
@@ -111,11 +124,11 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
               <button
                 disabled={busy}
                 onClick={() => run(() => confirmWorkflow(workflowId, workflow.confirmation_token))}
-                className="rounded-full bg-[#FF7A00] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#e56e00] disabled:opacity-50"
+                className="rounded-full bg-[var(--zhr-action-primary)] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[var(--zhr-action-primary-hover)] disabled:opacity-50"
               >
                 Confirm request
               </button>
-              <button disabled={busy} onClick={() => run(() => cancelWorkflow(workflowId))} className="rounded-full border border-slate-200 px-3.5 py-1.5 text-xs font-bold text-slate-500">
+              <button disabled={busy} onClick={() => run(() => cancelWorkflow(workflowId))} className="rounded-full border border-[var(--zhr-border-default)] px-3.5 py-1.5 text-xs font-bold text-[var(--zhr-text-secondary)]">
                 Cancel
               </button>
             </>
@@ -124,7 +137,7 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
             <button
               disabled={busy}
               onClick={() => run(() => executeWorkflow(workflowId, `${workflowId}-${Date.now()}`))}
-              className="rounded-full bg-[#FF7A00] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[#e56e00] disabled:opacity-50"
+              className="rounded-full bg-[var(--zhr-action-primary)] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[var(--zhr-action-primary-hover)] disabled:opacity-50"
             >
               Submit leave request
             </button>

@@ -45,9 +45,25 @@ MEDICAL_INFERENCE_RE = re.compile(
     r"(infer|guess|figure out) .*(condition|illness|disability))\b",
     re.IGNORECASE,
 )
+# Peer compensation is a hard block, not a soft flag: there is no
+# approved-aggregate/benchmark feature in this build to route to (per the
+# guardrail spec's "Compensation comparison" row), so any question about a
+# SPECIFIC other employee's pay has no benign resolution here — only the
+# employee's own pay facts are ever in scope.
+COMPENSATION_COMPARISON_RE = re.compile(
+    r"\b(how much does .+ (make|earn)|what('s| is) .+'s (salary|pay)|"
+    r"(compare|comparing) (my )?(salary|pay) (to|with)|does .+ (make|earn) more than me)\b",
+    re.IGNORECASE,
+)
+# Legal, tax AND immigration all get the same "not an individualized
+# determination" boundary per the guardrail spec's professional-advice
+# doctrine — grouped as one category since the required treatment is
+# identical, not three separate clauses saying the same thing.
 PROFESSIONAL_ADVICE_RE = re.compile(
     r"\b(is (it|this) legal|should i sue|lawsuit|legal advice|sue (my|the) (employer|company)|"
-    r"how much tax (should|do) i|tax advice|reduce my taxes|file a lawsuit)\b",
+    r"how much tax (should|do) i|tax advice|reduce my taxes|file a lawsuit|"
+    r"visa (sponsorship|status)|work permit|immigration (status|process|advice)|work authorization|"
+    r"h-?1b|green card sponsorship)\b",
     re.IGNORECASE,
 )
 SENSITIVE_CASE_RE = re.compile(
@@ -71,12 +87,17 @@ SAFE_MESSAGES = {
         "I can't speculate about someone's medical condition or disability. If this is about an accommodation "
         "or attendance concern, I can point you to the approved process, or connect you with HR."
     ),
+    "compensation_comparison": (
+        "I can't share another employee's compensation details — that's outside what I'm authorized to "
+        "disclose. I can help with your own pay-related questions, or connect you with HR."
+    ),
 }
 
 CATEGORY_HARD_BLOCK_PATTERNS = (
     ("self_harm", SELF_HARM_RE),
     ("disciplinary_recommendation", ADVERSE_EMPLOYMENT_RE),
     ("medical_inference", MEDICAL_INFERENCE_RE),
+    ("compensation_comparison", COMPENSATION_COMPARISON_RE),
 )
 CATEGORY_SOFT_FLAG_PATTERNS = (
     ("professional_advice", PROFESSIONAL_ADVICE_RE),

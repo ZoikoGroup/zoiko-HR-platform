@@ -1,9 +1,9 @@
 import { useEffect, useState } from "react";
 import PageHeader from "../../../components/PageHeader";
-import { BookOpen, CheckCircle2, Plus, ShieldOff, Search, ChevronDown, ChevronUp, Archive } from "lucide-react";
+import { BookOpen, CheckCircle2, Plus, ShieldOff, Search, ChevronDown, ChevronUp, Archive, PauseCircle } from "lucide-react";
 import {
-  listKnowledgeSources, createKnowledgeSource, publishKnowledgeSource, retireKnowledgeSource, listKnowledgeVersions,
-  listControls, setControl,
+  listKnowledgeSources, createKnowledgeSource, publishKnowledgeSource, retireKnowledgeSource, suspendKnowledgeSource,
+  listKnowledgeVersions, listControls, setControl,
 } from "../../../service/assistantService";
 
 const SOURCE_TYPES = ["policy", "faq", "sop", "compliance", "handbook", "guide", "form"];
@@ -93,6 +93,11 @@ export default function AdminKnowledgePage() {
     try { await retireKnowledgeSource(id); await reload(); } finally { setBusy(false); }
   };
 
+  const suspend = async (id) => {
+    setBusy(true);
+    try { await suspendKnowledgeSource(id); await reload(); } finally { setBusy(false); }
+  };
+
   const toggleControl = async (controlType, isEnabled) => {
     setBusy(true);
     try { await setControl(controlType, isEnabled); await reload(); } finally { setBusy(false); }
@@ -107,7 +112,7 @@ export default function AdminKnowledgePage() {
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-800">
-          <ShieldOff className="h-5 w-5 text-[#FF7A00]" /> Operational controls
+          <ShieldOff className="h-5 w-5 text-[var(--zhr-action-primary)]" /> Operational controls
         </h3>
         <div className="flex flex-wrap gap-4">
           {controls.map((c) => (
@@ -129,7 +134,7 @@ export default function AdminKnowledgePage() {
       <div className="grid gap-6 lg:grid-cols-2">
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="mb-4 flex items-center gap-2 text-lg font-bold text-slate-800">
-            <Plus className="h-5 w-5 text-[#FF7A00]" /> New knowledge source
+            <Plus className="h-5 w-5 text-[var(--zhr-action-primary)]" /> New knowledge source
           </h3>
           <form onSubmit={submit} className="space-y-3">
             <input
@@ -154,7 +159,7 @@ export default function AdminKnowledgePage() {
             <button
               type="button"
               onClick={() => setShowApplicability((v) => !v)}
-              className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-[#FF7A00]"
+              className="flex items-center gap-1 text-[11px] font-bold text-slate-500 hover:text-[var(--zhr-action-primary)]"
             >
               {showApplicability ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
               Applicability (optional — restricts who this source answers for)
@@ -174,7 +179,7 @@ export default function AdminKnowledgePage() {
             )}
 
             {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
-            <button disabled={busy} className="rounded-full bg-[#FF7A00] px-4 py-2 text-sm font-bold text-white hover:bg-[#e56e00] disabled:opacity-50">
+            <button disabled={busy} className="rounded-full bg-[var(--zhr-action-primary)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--zhr-action-primary-hover)] disabled:opacity-50">
               Create draft
             </button>
           </form>
@@ -182,7 +187,7 @@ export default function AdminKnowledgePage() {
 
         <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
           <h3 className="mb-3 flex items-center gap-2 text-lg font-bold text-slate-800">
-            <BookOpen className="h-5 w-5 text-[#FF7A00]" /> Sources
+            <BookOpen className="h-5 w-5 text-[var(--zhr-action-primary)]" /> Sources
           </h3>
           <div className="mb-3 flex gap-2">
             <div className="relative flex-1">
@@ -208,14 +213,17 @@ export default function AdminKnowledgePage() {
                   </button>
                   <div className="flex items-center gap-1.5">
                     {s.status !== "published" && s.status !== "retired" && (
-                      <button disabled={busy} onClick={() => publish(s.id)} className="rounded-full border border-[#FF7A00] px-3 py-1 text-[11px] font-bold text-[#FF7A00]">
+                      <button disabled={busy} onClick={() => publish(s.id)} className="rounded-full border border-[var(--zhr-action-primary)] px-3 py-1 text-[11px] font-bold text-[var(--zhr-action-primary)]">
                         Publish
                       </button>
                     )}
                     {s.status === "published" && (
                       <>
                         <span className="flex items-center gap-1 text-[11px] font-bold text-emerald-600"><CheckCircle2 className="h-3.5 w-3.5" /> Live</span>
-                        <button disabled={busy} onClick={() => retire(s.id)} title="Retire" className="rounded-full border border-slate-300 p-1.5 text-slate-500 hover:text-rose-600 hover:border-rose-300">
+                        <button disabled={busy} onClick={() => suspend(s.id)} title="Suspend (reversible — publish again to reactivate)" className="rounded-full border border-slate-300 p-1.5 text-slate-500 hover:text-amber-600 hover:border-amber-300">
+                          <PauseCircle className="h-3.5 w-3.5" />
+                        </button>
+                        <button disabled={busy} onClick={() => retire(s.id)} title="Retire (permanent)" className="rounded-full border border-slate-300 p-1.5 text-slate-500 hover:text-rose-600 hover:border-rose-300">
                           <Archive className="h-3.5 w-3.5" />
                         </button>
                       </>

@@ -1,11 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Bot, Loader2 } from "lucide-react";
+import { Loader2, X } from "lucide-react";
+import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
 import AssistantAnswer, { UserMessage } from "./MessageBubble";
 import Composer from "./Composer";
 import ScopeSelector from "./ScopeSelector";
 import SystemBanner from "./SystemBanner";
 import AssistantMenu from "./AssistantMenu";
 import HandoffPanel from "./HandoffPanel";
+import { createPrivacyRequest } from "../../../service/assistantService";
 
 const WELCOME_PROMPTS = [
   "What is the annual leave policy?",
@@ -20,7 +22,8 @@ const WELCOME_PROMPTS = [
 export default function ConversationView({
   turns, conversationId, scope, setScope, teamMembers, capabilities,
   sending, loadingConversation, streamingTurnId, streamingText, degradedMessage, onSend,
-  compact = false, onToggleHistory, onNewConversation,
+  pendingAttachment, attachmentUploading, attachFile, clearPendingAttachment, refreshCapabilities,
+  compact = false, onToggleHistory, onNewConversation, onClose,
 }) {
   const [input, setInput] = useState("");
   const [supportRequestOpen, setSupportRequestOpen] = useState(false);
@@ -41,13 +44,30 @@ export default function ConversationView({
     onSend(value);
   };
 
+  const exportMyData = async () => {
+    const request = await createPrivacyRequest("export");
+    const blob = new Blob([JSON.stringify(request.result, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `hr-assistant-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  const deleteMyData = async () => {
+    if (!window.confirm("This permanently deletes all your HR Assistant conversations. This cannot be undone. Continue?")) return;
+    await createPrivacyRequest("delete");
+    window.location.reload();
+  };
+
   const generationOff = capabilities && !capabilities.generation_enabled;
 
   return (
     <div className="flex h-full flex-col">
       <div className={`flex items-center justify-between border-b border-[var(--zhr-border-default)] ${compact ? "px-3 py-2.5" : "px-4 py-3"}`}>
         <h3 className="flex items-center gap-2 font-bold text-[var(--zhr-text-primary)]">
-          <Bot className="h-5 w-5 text-[var(--zhr-action-primary)]" /> HR Assistant
+          <img src={zoikoHrIcon} alt="" className="h-6 w-6 rounded-lg" /> HR Assistant
         </h3>
         <div className="flex items-center gap-2">
           <ScopeSelector teamMembers={teamMembers} scope={scope} onChange={setScope} />
@@ -58,12 +78,24 @@ export default function ConversationView({
             onOpenHistory={onToggleHistory}
             onNewConversation={onNewConversation}
             onSupportRequest={() => setSupportRequestOpen(true)}
+            onExportData={exportMyData}
+            onDeleteData={deleteMyData}
           />
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close HR Assistant"
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--zhr-text-secondary)] hover:bg-[var(--zhr-surface-panel)]"
+            >
+              <X className="h-4.5 w-4.5" />
+            </button>
+          )}
         </div>
       </div>
 
       <div className={`flex-1 overflow-y-auto ${compact ? "px-3 py-3" : "px-4 py-4"}`} ref={scrollRef}>
-        <SystemBanner capabilities={capabilities} errorMessage={degradedMessage} />
+        <SystemBanner capabilities={capabilities} errorMessage={degradedMessage} onRestrictionLifted={refreshCapabilities} />
 
         {supportRequestOpen && (
           <HandoffPanel
@@ -82,7 +114,7 @@ export default function ConversationView({
 
         {!loadingConversation && turns.length === 0 && !degradedMessage && !supportRequestOpen && (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[var(--zhr-text-muted)]">
-            <Bot className="h-10 w-10 text-[var(--zhr-border-default)]" />
+            <img src={zoikoHrIcon} alt="" className="h-12 w-12 rounded-2xl opacity-40" />
             <p className="text-sm">Ask about leave policies, your balance, or book time off.</p>
             <div className="flex flex-wrap justify-center gap-2">
               {WELCOME_PROMPTS.map((p) => (
@@ -117,13 +149,19 @@ export default function ConversationView({
         </div>
       </div>
 
-      <div className={compact ? "px-3 pb-3" : "px-4 pb-4"}>
+      <div
+        className={`${compact ? "px-3" : "px-4"} pt-0 pb-[max(4.5rem,calc(env(safe-area-inset-bottom)+3.75rem))] sm:pb-3`}
+      >
         <Composer
           value={input}
           onChange={setInput}
           onSubmit={() => submit()}
           disabled={!conversationId || sending}
           placeholder="Ask about HR..."
+          pendingAttachment={pendingAttachment}
+          attachmentUploading={attachmentUploading}
+          onAttachFile={attachFile}
+          onClearAttachment={clearPendingAttachment}
         />
       </div>
     </div>
