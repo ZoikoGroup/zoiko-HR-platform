@@ -841,7 +841,10 @@ def get_leave_balance(db: Session, employee_id: Optional[int] = None, organizati
     balances = query.all()
     result = {}
     for b in balances:
-        result[str(b.leave_type)] = {
+        # b.leave_type is a str-mixin Enum; str() on it renders "LeaveType.SICK"
+        # rather than "sick" on this Python version, so use .value explicitly.
+        leave_type_key = b.leave_type.value if hasattr(b.leave_type, "value") else str(b.leave_type)
+        result[leave_type_key] = {
             "total_days": b.total_days,
             "used_days": b.used_days,
             "pending_days": b.pending_days,

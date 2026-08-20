@@ -23,6 +23,7 @@ import {
   History,
   LayoutDashboard,
   Layers,
+  LifeBuoy,
   Lock,
   MapPin,
   MessageSquare,
@@ -329,6 +330,7 @@ const userManagement = {
   items: [
     { label: "User Management", href: "/hr-admin/settings", icon: Users },
     { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen },
+    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy },
   ],
 };
 

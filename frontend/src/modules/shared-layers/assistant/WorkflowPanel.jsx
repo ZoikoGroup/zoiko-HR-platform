@@ -15,6 +15,11 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
   const [editValues, setEditValues] = useState({});
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  // Minted once per workflow, not per click — a repeated click on "Submit"
+  // (double-click, or retrying after a request that looked like it failed)
+  // must reuse the same key so the server recognizes it as the same
+  // logical operation rather than executing it twice.
+  const [idempotencyKey, setIdempotencyKey] = useState(null);
 
   const load = async () => {
     const wf = await getWorkflow(workflowId);
@@ -24,7 +29,10 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
     setEditValues(values);
   };
 
-  useEffect(() => { load(); }, [workflowId]);
+  useEffect(() => {
+    load();
+    setIdempotencyKey(`${workflowId}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  }, [workflowId]);
 
   const run = async (fn) => {
     setBusy(true);
@@ -135,8 +143,8 @@ export default function WorkflowPanel({ workflowId, onExecuted }) {
           )}
           {isAwaitingConfirmation && (
             <button
-              disabled={busy}
-              onClick={() => run(() => executeWorkflow(workflowId, `${workflowId}-${Date.now()}`))}
+              disabled={busy || !idempotencyKey}
+              onClick={() => run(() => executeWorkflow(workflowId, idempotencyKey))}
               className="rounded-full bg-[var(--zhr-action-primary)] px-3.5 py-1.5 text-xs font-bold text-white hover:bg-[var(--zhr-action-primary-hover)] disabled:opacity-50"
             >
               Submit leave request

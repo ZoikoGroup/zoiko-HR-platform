@@ -133,9 +133,26 @@ class HandoffResponse(BaseModel):
     status: str
     ticket_reference: Optional[str]
     created_at: datetime
+    already_open: bool = False  # True when this is an existing unresolved ticket, not a newly created one
 
-    class Config:
-        from_attributes = True
+
+class HandoffAdminResponse(BaseModel):
+    id: int
+    ticket_reference: Optional[str]
+    status: str
+    reason: str
+    issue_summary: str
+    employee_id: int
+    employee_name: Optional[str] = None
+    conversation_id: int
+    resolution_note: Optional[str] = None
+    resolved_by_name: Optional[str] = None
+    resolved_at: Optional[datetime] = None
+    created_at: datetime
+
+
+class HandoffResolve(BaseModel):
+    resolution_note: Optional[str] = None
 
 
 # ── Workflow (action engine) ──────────────────────────────────────────────────

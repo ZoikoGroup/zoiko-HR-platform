@@ -198,6 +198,7 @@ const DocumentsPage = lazy(() => import("./modules/shared-layers/DocumentsPage")
 const ApprovalsPage = lazy(() => import("./modules/shared-layers/ApprovalsPage"));
 const ExpensesPage = lazy(() => import("./modules/shared-layers/ExpensesPage"));
 const AdminKnowledgePage = lazy(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
+const AdminHandoffsPage = lazy(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
 const AssistantLauncher = lazy(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
 const UserManagementPage = lazy(() => import("./modules/settings/UserManagementPage"));
 
@@ -378,6 +379,7 @@ const routeOverrides = {
   "/hr-admin/reports": <ZoikoHRReports />,
   "/hr-admin/settings": <UserManagementPage />,
   "/hr-admin/assistant-knowledge": <AdminKnowledgePage />,
+  "/hr-admin/assistant-handoffs": <AdminHandoffsPage />,
   // Super Admin
   "/super-admin/dashboard": <SuperAdminDashboardPage />,
   "/super-admin/organizations": <SuperAdminOrganizationsPage />,

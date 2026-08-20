@@ -44,6 +44,7 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
   const isNoAnswer = answerType === "no_answer";
   const isRestricted = answerType === "restricted";
   const showHandoff = !isStreaming && (isNoAnswer || isConflict || isRestricted);
+  const handoffReason = isRestricted ? "restricted" : isConflict ? "conflict" : "no_reliable_answer";
 
   const bubbleTone = isConflict || isNoAnswer
     ? { bg: "var(--zhr-evidence-partial-bg)", border: "var(--zhr-evidence-partial-border)", text: "var(--zhr-evidence-partial-text)" }
@@ -93,7 +94,7 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
         )}
 
         {showHandoff && (
-          <HandoffPanel conversationId={conversationId} turnId={turn.id} defaultSummary={turn.user_input_text} />
+          <HandoffPanel conversationId={conversationId} turnId={turn.id} defaultSummary={turn.user_input_text} reason={handoffReason} />
         )}
 
         {turn.status === "completed" && !isStreaming && (

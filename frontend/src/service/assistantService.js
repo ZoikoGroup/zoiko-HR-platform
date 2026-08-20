@@ -41,6 +41,7 @@ export const createHandoff = (conversationId, turnId, reason, issueSummary) =>
   api.post("/assistant/handoffs", {
     conversation_id: conversationId, turn_id: turnId, reason, issue_summary: issueSummary,
   });
+export const getMyOpenHandoff = () => api.get("/assistant/handoffs/mine/open");
 
 // ── Workflows (action engine) ───────────────────────────────────────────────
 export const getWorkflow = (id) => api.get(`/assistant/workflows/${id}`);
@@ -59,6 +60,11 @@ export const publishKnowledgeSource = (id) => api.post(`/assistant/admin/knowled
 export const retireKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/retire`, {});
 export const suspendKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/suspend`, {});
 export const listKnowledgeVersions = (id) => api.get(`/assistant/admin/knowledge/sources/${id}/versions`);
+
+// ── Admin: handoff ticket queue ──────────────────────────────────────────────
+export const listHandoffTickets = (status) => api.get("/assistant/admin/handoffs", { params: status ? { status } : undefined });
+export const resolveHandoffTicket = (id, resolutionNote) =>
+  api.post(`/assistant/admin/handoffs/${id}/resolve`, { resolution_note: resolutionNote || undefined });
 
 // ── Admin: operational controls (kill switches) ─────────────────────────────
 export const listControls = () => api.get("/assistant/admin/controls");

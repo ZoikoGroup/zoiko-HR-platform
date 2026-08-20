@@ -107,6 +107,9 @@ def initialize_database() -> None:
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS annual_price NUMERIC(12,2)",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'USD'",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS description TEXT",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolution_note TEXT",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_by INTEGER",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
     ]
     try:
         from sqlalchemy import text as sql_text

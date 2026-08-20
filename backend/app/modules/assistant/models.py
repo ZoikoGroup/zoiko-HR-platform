@@ -446,6 +446,9 @@ class ChatHandoff(Base):
     issue_summary   = Column(Text, nullable=False)
     status          = Column(Enum(HandoffStatus), default=HandoffStatus.OPEN, nullable=False)
     ticket_reference = Column(String(50), nullable=True)
+    resolution_note = Column(Text, nullable=True)
+    resolved_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    resolved_at     = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, server_default=func.now())
 
 
