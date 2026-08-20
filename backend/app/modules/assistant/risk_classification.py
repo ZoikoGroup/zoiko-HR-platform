@@ -35,12 +35,12 @@ SELF_HARM_RE = re.compile(
     re.IGNORECASE,
 )
 ADVERSE_EMPLOYMENT_RE = re.compile(
-    r"\b(who should i (fire|terminate|let go)|should i fire|recommend (firing|terminating)|"
-    r"who (to|should i) (fire|let go)|help me decide who to (fire|terminate))\b",
+    r"\b(who should (i|we) (fire|terminate|let go)|should (i|we) fire|recommend (firing|terminating)|"
+    r"who (to|should (i|we)) (fire|let go)|help me decide who to (fire|terminate))\b",
     re.IGNORECASE,
 )
 MEDICAL_INFERENCE_RE = re.compile(
-    r"\b(does .*(have|has) a (disability|medical condition)|diagnos\w*|"
+    r"\b(does .*(have|has) (a |an )?(disability|medical condition|mental illness|illness|condition)|diagnos\w*|"
     r"why is .*(always|often|constantly) (absent|sick|out)|"
     r"(infer|guess|figure out) .*(condition|illness|disability))\b",
     re.IGNORECASE,
@@ -51,8 +51,9 @@ MEDICAL_INFERENCE_RE = re.compile(
 # SPECIFIC other employee's pay has no benign resolution here — only the
 # employee's own pay facts are ever in scope.
 COMPENSATION_COMPARISON_RE = re.compile(
-    r"\b(how much does .+ (make|earn)|what('s| is) .+'s (salary|pay)|"
-    r"(compare|comparing) (my )?(salary|pay) (to|with)|does .+ (make|earn) more than me)\b",
+    r"\b(how much does .+ (make|earn)|what does .+ (make|earn)|what('s| is) .+'s (salary|pay)|"
+    r"(compare|comparing) (my )?(salary|pay) (to|with)|does .+ (make|earn) more than me|"
+    r"(makes?|earns?) compared (to|with) me)\b",
     re.IGNORECASE,
 )
 # Legal, tax AND immigration all get the same "not an individualized

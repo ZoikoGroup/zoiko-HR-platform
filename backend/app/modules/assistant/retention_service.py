@@ -17,6 +17,8 @@ in conversation_service was a latent bug: it would hit a foreign-key
 violation the moment a conversation had any turns.
 """
 
+import os
+
 from sqlalchemy.orm import Session
 
 from app.modules.assistant.models import (
@@ -25,6 +27,7 @@ from app.modules.assistant.models import (
     ChatRetrievalRun, ChatRetrievalHit, ChatAttachment, ChatAttachmentProcessing,
     ChatWorkflow, ChatWorkflowField, ChatWorkflowValidation,
     ChatWorkflowConfirmation, ChatWorkflowExecution, ChatWorkflowReconciliation,
+    ChatSafetyEvent,
 )
 
 
@@ -52,17 +55,40 @@ def cascade_delete_conversation(db: Session, conversation: ChatConversation) -> 
 
         if response_ids:
             db.query(ChatResponseProvenance).filter(ChatResponseProvenance.response_id.in_(response_ids)).delete(synchronize_session=False)
+        # ChatFeedback.response_id FKs to chat_responses — must go before
+        # ChatResponse is deleted, or a feedback row on that response
+        # raises a foreign-key violation (chat_feedback_response_id_fkey).
+        db.query(ChatFeedback).filter(ChatFeedback.turn_id.in_(turn_ids)).delete(synchronize_session=False)
         db.query(ChatResponse).filter(ChatResponse.turn_id.in_(turn_ids)).delete(synchronize_session=False)
         db.query(ChatModelRun).filter(ChatModelRun.turn_id.in_(turn_ids)).delete(synchronize_session=False)
         db.query(ChatToolCall).filter(ChatToolCall.turn_id.in_(turn_ids)).delete(synchronize_session=False)
-        db.query(ChatFeedback).filter(ChatFeedback.turn_id.in_(turn_ids)).delete(synchronize_session=False)
+
+    if turn_ids:
+        # ChatSafetyEvent is an append-only monitoring log (same intent as
+        # ChatAuditEvent) but, unlike it, carries a real FK to chat_turns —
+        # deleting a referenced turn without clearing it first raises a
+        # foreign-key violation. Null the reference rather than deleting the
+        # row: the guardrail signal itself should survive conversation deletion.
+        db.query(ChatSafetyEvent).filter(ChatSafetyEvent.turn_id.in_(turn_ids)).update(
+            {ChatSafetyEvent.turn_id: None}, synchronize_session=False
+        )
 
     db.query(ChatHandoff).filter(ChatHandoff.conversation_id == conversation.id).delete(synchronize_session=False)
 
-    attachment_ids = [row[0] for row in db.query(ChatAttachment.id).filter(ChatAttachment.conversation_id == conversation.id).all()]
-    if attachment_ids:
+    attachments = db.query(ChatAttachment).filter(ChatAttachment.conversation_id == conversation.id).all()
+    if attachments:
+        attachment_ids = [a.id for a in attachments]
+        file_paths = [a.file_path for a in attachments]
         db.query(ChatAttachmentProcessing).filter(ChatAttachmentProcessing.attachment_id.in_(attachment_ids)).delete(synchronize_session=False)
         db.query(ChatAttachment).filter(ChatAttachment.id.in_(attachment_ids)).delete(synchronize_session=False)
+        # Same best-effort cleanup as attachment_service.delete_attachment —
+        # the DB rows are the source of truth; a missing file on disk is not
+        # a reason to fail the conversation delete.
+        for path in file_paths:
+            try:
+                os.remove(path)
+            except OSError:
+                pass
 
     if turn_ids:
         db.query(ChatTurn).filter(ChatTurn.id.in_(turn_ids)).delete(synchronize_session=False)

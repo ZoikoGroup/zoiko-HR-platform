@@ -98,7 +98,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     let detail;
     try {
       const data = await res.json();
-      detail = data?.detail || data?.message;
+      detail = data?.detail || data?.message || data?.error;
       if (Array.isArray(detail)) {
         // Handle FastAPI 422 validation errors nicely
         detail = detail.map(err => {

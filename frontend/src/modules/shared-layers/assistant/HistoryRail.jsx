@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { MessageSquare, Trash2, Pencil, Check, X } from "lucide-react";
+import { MessageSquare, Trash2, Pencil, Check, X, ChevronLeft } from "lucide-react";
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -16,7 +16,7 @@ function timeLabel(iso) {
  * rename, delete. Auto-generated titles (conversation.title is null until
  * renamed) fall back to "New chat" rather than showing raw content.
  */
-export default function HistoryRail({ conversations, activeId, onSelect, onRename, onDelete }) {
+export default function HistoryRail({ conversations, activeId, onSelect, onRename, onDelete, onBack }) {
   const [editingId, setEditingId] = useState(null);
   const [editValue, setEditValue] = useState("");
 
@@ -32,7 +32,17 @@ export default function HistoryRail({ conversations, activeId, onSelect, onRenam
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-[var(--zhr-border-default)] p-3 pr-9">
+      <div className="flex items-center gap-1.5 border-b border-[var(--zhr-border-default)] p-2">
+        {onBack && (
+          <button
+            type="button"
+            onClick={onBack}
+            aria-label="Back to conversation"
+            className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg text-[var(--zhr-text-secondary)] hover:bg-[var(--zhr-surface-panel)]"
+          >
+            <ChevronLeft className="h-4 w-4" />
+          </button>
+        )}
         <h4 className="text-xs font-bold uppercase tracking-wide text-[var(--zhr-text-muted)]">Conversations</h4>
       </div>
       <div className="flex-1 overflow-y-auto p-1.5 space-y-0.5">

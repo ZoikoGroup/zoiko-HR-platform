@@ -21,6 +21,7 @@ from app.modules.assistant.models import (
     ProvenanceSourceType, EligibilityState,
 )
 from app.modules.hr import attendance_service
+from app.modules.hr.models import Employee, EmployeeStatus, Department
 
 logger = logging.getLogger("zoiko.assistant")
 
@@ -29,12 +30,49 @@ logger = logging.getLogger("zoiko.assistant")
 # production configuration). Stamped onto every safety/audit event for
 # observability, not stored per-turn (no schema change to already-live
 # tables required for that).
-PROMPT_VERSION = "zhr-system-1.0.0"
+PROMPT_VERSION = "zhr-system-1.0.1"
+
+# See _answer_policy_qa: once an uploaded attachment exists in the
+# conversation, a KB match has to clear this (materially higher than
+# retrieval_service.MIN_RELEVANCE_SCORE) bar to be trusted over it.
+_ATTACHMENT_COMPETING_MIN_SCORE = 0.7
 
 _LEAVE_BOOKING_RE = re.compile(r"\b(book|request|apply for|take)\b.*\bleave\b", re.IGNORECASE)
 _LEAVE_BALANCE_RE = re.compile(r"\bleave\b.*\b(balance|left|remaining|days)\b|\bhow many.*leave\b", re.IGNORECASE)
 _ATTENDANCE_RE = re.compile(r"\battendance\b|\bclock(ed)? in\b|\bcheck(ed)? in\b", re.IGNORECASE)
 _HANDOFF_RE = re.compile(r"\bspeak (to|with)\b.*\bhr\b|\btalk to a human\b|\bcontact hr\b", re.IGNORECASE)
+_HEADCOUNT_RE = re.compile(
+    r"\bhow many (emplo\w*|people|staff|workers)\b|\b(emplo\w*|staff) (count|headcount)\b|\bheadcount\b"
+    r"|\btotal (number of )?emplo\w*\b|\b(count|number) of (emplo\w*|people|staff|workers)\b",
+    re.IGNORECASE,
+)
+_DEPT_DIRECTORY_RE = re.compile(
+    r"\bwho(?:'s)?\s+(is|are|works?)\b|\bwho(?:'s)\b|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b",
+    re.IGNORECASE,
+)
+_DEPT_CANDIDATE_STRIP_RES = [
+    re.compile(r"^who(?:'s|\s+is|\s+are|\s+works?)\s*(?:(?:in|on|from|of|part of)\s+)?(?:the\s+)?", re.IGNORECASE),
+    re.compile(r"^members?\s+of\s+(?:the\s+)?", re.IGNORECASE),
+    re.compile(r"^list\s+employees?\s+in\s+(?:the\s+)?", re.IGNORECASE),
+    re.compile(r"^people\s+in\s+(?:the\s+)?", re.IGNORECASE),
+]
+_DEPT_CANDIDATE_TRAILING_RE = re.compile(r"\s*(department|team)$", re.IGNORECASE)
+
+
+def _extract_department_candidate(text: str) -> str:
+    """Best-effort noun-phrase extraction for 'who's in <department>'-style
+    questions — no NLP model, just stripping the recognized trigger phrase
+    and trailing 'department'/'team' so what's left is the department name
+    to look up. If nothing meaningful remains, the caller treats it as no
+    match rather than guessing."""
+    candidate = text.strip().rstrip("?.! ")
+    for pattern in _DEPT_CANDIDATE_STRIP_RES:
+        stripped = pattern.sub("", candidate)
+        if stripped != candidate:
+            candidate = stripped
+            break
+    candidate = _DEPT_CANDIDATE_TRAILING_RE.sub("", candidate)
+    return candidate.strip()
 
 # Small talk never needs retrieval or a model call — routing "hi"/"thanks"
 # through the evidence-required contract is exactly what produced the
@@ -93,6 +131,9 @@ Rules:
 - If two or more pieces of evidence materially disagree, set confidence_state="conflict" and describe
   the disagreement neutrally in answer_text without picking a winner.
 - cited_fragment_ids must only contain ids that appear in the <evidence id="..."> tags given to you.
+- Never mention an evidence/fragment id number inside answer_text itself (e.g. "evidence 42") — those ids
+  are internal plumbing for cited_fragment_ids only. If you need to refer to a source in answer_text, use
+  its plain-language name or topic, never its id.
 - Do not output anything outside this JSON object.
 """
 
@@ -133,6 +174,10 @@ def classify_intent(text: str) -> str:
         return "attendance_status"
     if _HANDOFF_RE.search(text):
         return "handoff_request"
+    if _HEADCOUNT_RE.search(text):
+        return "org_headcount"
+    if _DEPT_DIRECTORY_RE.search(text) and _extract_department_candidate(text):
+        return "department_directory"
     return "policy_qa"
 
 
@@ -182,6 +227,10 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
         return _answer_attendance_status(db, turn, subject)
     if intent == "handoff_request":
         return _answer_handoff_prompt(db, turn)
+    if intent == "org_headcount":
+        return _answer_org_headcount(db, turn)
+    if intent == "department_directory":
+        return _answer_department_directory(db, turn)
 
     risk = risk_classification.classify(turn.user_input_text)
     sensitive = bool(risk and risk.category == "sensitive_case")
@@ -240,7 +289,7 @@ def _answer_leave_balance(db: Session, turn: ChatTurn, subject) -> ChatTurn:
                           AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
 
     lines = [
-        f"{leave_type}: {b['total_days'] - b['used_days'] - b['pending_days']} day(s) remaining "
+        f"{leave_type.replace('_', ' ').title()}: {b['total_days'] - b['used_days'] - b['pending_days']} day(s) remaining "
         f"({b['used_days']} used, {b['pending_days']} pending, {b['total_days']} total for {b['year']})"
         for leave_type, b in balances.items()
     ]
@@ -272,6 +321,74 @@ def _answer_attendance_status(db: Session, turn: ChatTurn, subject) -> ChatTurn:
                                    "hr_record_ref": f"attendance_records:employee_id={subject.id}"}])
 
 
+def _answer_org_headcount(db: Session, turn: ChatTurn) -> ChatTurn:
+    """Organization-wide headcount is a real HR record lookup, not a
+    knowledge-base question — routing it through RAG (which today only
+    holds the leave policy) would always dead-end in NO_RELIABLE_ANSWER."""
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+    count = (
+        db.query(Employee)
+        .filter(Employee.organization_id == turn.organization_id, Employee.status == EmployeeStatus.ACTIVE)
+        .count()
+    )
+    answer = f"There {'is' if count == 1 else 'are'} currently {count} active employee{'' if count == 1 else 's'} in your organization."
+    return _finalize(db, turn, answer, AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+                      provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
+                                   "hr_record_ref": f"employees:organization_id={turn.organization_id}"}])
+
+
+def _answer_department_directory(db: Session, turn: ChatTurn) -> ChatTurn:
+    """Open company-directory lookup (who's in a given department) — real
+    HR record data, available to any employee, same trust tier as headcount.
+    No NLP model for the department-name extraction, so this only succeeds
+    when the candidate phrase actually matches a real department; otherwise
+    it degrades to a helpful list rather than guessing."""
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+    candidate = _extract_department_candidate(turn.user_input_text).lower()
+
+    departments = (
+        db.query(Department)
+        .filter(Department.organization_id == turn.organization_id, Department.is_active.is_(True))
+        .all()
+    )
+    def _initials(name: str) -> str:
+        return "".join(word[0] for word in name.split()).lower()
+
+    matches = [
+        d for d in departments
+        if candidate == d.name.lower() or candidate in d.name.lower() or d.name.lower() in candidate
+        or candidate == _initials(d.name)
+    ]
+
+    if len(matches) != 1:
+        available = ", ".join(sorted(d.name for d in departments)) or "no departments are set up yet"
+        message = (
+            f"I couldn't find a single department matching '{candidate}'. Departments in your organization: {available}."
+            if departments else
+            "No departments are set up in your organization yet."
+        )
+        return _finalize(db, turn, message, AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+
+    department = matches[0]
+    members = (
+        db.query(Employee)
+        .filter(Employee.organization_id == turn.organization_id, Employee.department_id == department.id,
+                Employee.status == EmployeeStatus.ACTIVE)
+        .all()
+    )
+    if not members:
+        return _finalize(db, turn, f"The {department.name} department has no active employees listed.",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+
+    lines = [f"- {m.full_name}" + (f" ({m.designation.title})" if m.designation else "") for m in members]
+    answer = f"{department.name} department ({len(members)} {'person' if len(members) == 1 else 'people'}):\n" + "\n".join(lines)
+    return _finalize(db, turn, answer, AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+                      provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
+                                   "hr_record_ref": f"departments:id={department.id}"}])
+
+
 def _answer_chitchat(db: Session, turn: ChatTurn, kind: str) -> ChatTurn:
     """Greetings/thanks/acks/farewells are answered directly — no retrieval,
     no model call. Fast, always succeeds, and avoids forcing small talk
@@ -301,6 +418,7 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
     role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
     fragments = retrieval_service.retrieve(
         db, turn.organization_id, turn.user_input_text, audience_role=role_val,
+        jurisdiction=getattr(employee, "country", None),
     )
 
     retrieval_run = ChatRetrievalRun(turn_id=turn.id, query_text=turn.user_input_text)
@@ -312,6 +430,34 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
             rank=rank, score=round(f["score"], 5), eligibility_state=EligibilityState.ELIGIBLE,
         ))
     db.flush()
+
+    # A follow-up question about a document you just uploaded (e.g. "what's
+    # the total hours worked") shouldn't require re-attaching the file on
+    # every message. But a weak/tangential KB match can score above the
+    # normal relevance floor without actually answering the question (e.g.
+    # "total hours worked" scored 0.63 against an unrelated leave policy,
+    # comfortably over MIN_RELEVANCE_SCORE) — so once an attachment exists
+    # in the conversation, the KB is only trusted over it at a materially
+    # higher confidence bar. Below that bar, the attachment wins. This never
+    # fires for conversations with no attachment (kb_confident is
+    # unconditionally true whenever any fragment cleared the normal floor).
+    if turn.conversation_id:
+        from app.modules.assistant.models import ChatAttachment
+        recent_attachment = (
+            db.query(ChatAttachment)
+            .filter(ChatAttachment.conversation_id == turn.conversation_id)
+            .order_by(ChatAttachment.created_at.desc())
+            .first()
+        )
+    else:
+        recent_attachment = None
+
+    kb_confident = bool(fragments) and (
+        not recent_attachment or fragments[0]["score"] >= _ATTACHMENT_COMPETING_MIN_SCORE
+    )
+
+    if not kb_confident and recent_attachment:
+        return answer_attachment_qa(db, turn, employee, recent_attachment)
 
     if not fragments:
         return _finalize(db, turn,

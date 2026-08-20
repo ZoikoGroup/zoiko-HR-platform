@@ -7,6 +7,8 @@ publish status, and applicability (jurisdiction/worker_type/audience_role)
 are all resolved in Postgres before any vector comparison runs.
 """
 
+import datetime
+
 from sqlalchemy.orm import Session
 
 from app.modules.assistant import embeddings
@@ -17,6 +19,17 @@ from app.modules.assistant.models import (
 
 TOP_K = 5
 
+# Below this cosine-similarity score, a "top match" isn't actually related to
+# the query — it's just whatever happened to be nearest in a small knowledge
+# base. Without this floor, a vague or unrelated query (e.g. "what is this",
+# "who is in engineering") always returns *something*, and the model then
+# confidently answers from evidence that doesn't actually address the
+# question. Calibrated empirically: genuine questions (even off-topic ones
+# like "travel reimbursement" against a leave-only KB) scored >=0.58, while
+# vague/non-questions scored <=0.44 — 0.5 sits in the gap with margin both
+# ways.
+MIN_RELEVANCE_SCORE = 0.5
+
 
 def retrieve(
     db: Session,
@@ -24,11 +37,13 @@ def retrieve(
     query_text: str,
     worker_type: str | None = None,
     audience_role: str | None = None,
+    jurisdiction: str | None = None,
     top_k: int = TOP_K,
 ) -> list[dict]:
     """Return up to top_k eligible fragments ranked by cosine similarity.
     Each result: fragment_id, source_id, source_version_id, source_title, text, score."""
     query_vector = embeddings.embed_text(query_text)
+    today = datetime.date.today()
 
     eligible_version_ids = (
         db.query(KnowledgeSourceVersion.id)
@@ -42,6 +57,15 @@ def retrieve(
         )
         .filter(
             (KnowledgeApplicability.audience_role.is_(None)) | (KnowledgeApplicability.audience_role == audience_role)
+        )
+        .filter(
+            (KnowledgeApplicability.jurisdiction_code.is_(None)) | (KnowledgeApplicability.jurisdiction_code == jurisdiction)
+        )
+        .filter(
+            (KnowledgeSourceVersion.effective_from.is_(None)) | (KnowledgeSourceVersion.effective_from <= today)
+        )
+        .filter(
+            (KnowledgeSourceVersion.effective_to.is_(None)) | (KnowledgeSourceVersion.effective_to >= today)
         )
         .distinct()
         .all()
@@ -70,12 +94,15 @@ def retrieve(
 
     results = []
     for fragment, source_id, distance in rows:
+        score = max(0.0, 1.0 - float(distance))
+        if score < MIN_RELEVANCE_SCORE:
+            continue
         results.append({
             "fragment_id": fragment.id,
             "source_version_id": fragment.knowledge_source_version_id,
             "source_id": source_id,
             "source_title": source_titles.get(source_id, "Unknown source"),
             "text": fragment.text,
-            "score": max(0.0, 1.0 - float(distance)),
+            "score": score,
         })
     return results

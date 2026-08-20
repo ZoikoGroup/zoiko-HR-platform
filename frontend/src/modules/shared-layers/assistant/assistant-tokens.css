@@ -72,4 +72,126 @@
   /* Size */
   --zhr-panel-width: 420px;
   --zhr-control-min-target: 44px;
+
+  /* Launcher orb — lighter/darker stops around the platform's primary blue.
+     No separate dark-theme value exists for --color-primary anywhere in
+     this codebase today (.dark only redefines --background/--foreground),
+     so these stay the same in light/dark for now — if a real dark-mode
+     accent is added later, aliasing through --zhr-action-primary here means
+     the orb picks it up automatically. */
+  --zhr-action-primary-tint: #93C5FD;
+}
+
+/* ── Launcher toggle — glossy 3D orb ────────────────────────────────────
+   Two elements: the button itself (gradient + layered inset/outer shadow)
+   and a separate halo element behind it (blurred, pulsing). Kept as two
+   real elements per spec rather than a ::before pseudo-element. The halo
+   is positioned independently (fixed, same coordinates/size as the
+   button) rather than via a shared `relative` wrapper — deliberately,
+   because an earlier pass added `position: relative` directly on the
+   button and it silently beat the button's own `fixed` utility class in
+   the cascade (equal specificity, loads later), breaking the launcher's
+   viewport-corner placement. Rotation uses a custom property (--zhr-rot)
+   composed into one `transform` on the button, rather than a separate
+   Tailwind `rotate-*` utility, so hover/active can layer lift/scale on
+   top of it without the two fighting over the `transform` property. */
+.zhr-orb-btn {
+  --zhr-rot: 0deg;
+  background: radial-gradient(
+    circle at 32% 26%,
+    var(--zhr-action-primary-tint) 0%,
+    var(--zhr-action-primary) 55%,
+    var(--zhr-action-primary-hover) 100%
+  );
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.35),
+    inset 0 -8px 14px -6px rgba(0, 0, 0, 0.4),
+    0 16px 30px -8px rgba(0, 0, 0, 0.45);
+  transform: rotate(var(--zhr-rot)) translateY(0) scale(1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.zhr-orb-btn.is-open {
+  --zhr-rot: 90deg;
+}
+
+.zhr-orb-btn:hover {
+  transform: rotate(var(--zhr-rot)) translateY(-3px) scale(1.04);
+  box-shadow:
+    inset 0 1px 1px rgba(255, 255, 255, 0.4),
+    inset 0 -8px 14px -6px rgba(0, 0, 0, 0.45),
+    0 20px 36px -8px rgba(0, 0, 0, 0.5);
+}
+
+.zhr-orb-btn:active {
+  transform: rotate(var(--zhr-rot)) translateY(0) scale(1);
+  transition-duration: 0.08s;
+}
+
+.zhr-orb-halo {
+  position: fixed;
+  bottom: 1.25rem;   /* matches the button's bottom-5 */
+  right: 1.25rem;    /* matches the button's right-5 */
+  z-index: 40;       /* behind the button's z-50 */
+  height: 3.5rem;    /* matches h-14 */
+  width: 3.5rem;     /* matches w-14 */
+  border-radius: 1rem;
+  background: var(--zhr-action-primary);
+  filter: blur(20px);
+  animation: zhr-orb-halo-pulse 2.8s ease-in-out infinite;
+  pointer-events: none;
+}
+
+.zhr-orb-halo.is-open {
+  animation-name: zhr-orb-halo-pulse-open;
+}
+
+/* Hover-intensified variants — a plain opacity/transform override on
+   .zhr-orb-halo wouldn't win against its own running keyframe animation
+   (the animation continuously drives both properties), so hover swaps to
+   a boosted keyframe set instead of fighting the cascade. */
+.zhr-orb-btn:hover + .zhr-orb-halo {
+  animation-name: zhr-orb-halo-pulse-hover;
+}
+
+.zhr-orb-btn:hover + .zhr-orb-halo.is-open {
+  animation-name: zhr-orb-halo-pulse-open-hover;
+}
+
+@keyframes zhr-orb-halo-pulse {
+  0%, 100% { transform: scale(1);    opacity: 0.55; }
+  50%      { transform: scale(1.12); opacity: 0.9; }
+}
+
+@keyframes zhr-orb-halo-pulse-hover {
+  0%, 100% { transform: scale(1.02); opacity: 0.7; }
+  50%      { transform: scale(1.14); opacity: 0.95; }
+}
+
+@keyframes zhr-orb-halo-pulse-open {
+  0%, 100% { transform: scale(1);    opacity: 0.8; }
+  50%      { transform: scale(1.12); opacity: 1; }
+}
+
+@keyframes zhr-orb-halo-pulse-open-hover {
+  0%, 100% { transform: scale(1.02); opacity: 0.9; }
+  50%      { transform: scale(1.14); opacity: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .zhr-orb-halo,
+  .zhr-orb-btn:hover + .zhr-orb-halo {
+    animation: none;
+    transform: scale(1);
+    opacity: 0.6;
+  }
+  .zhr-orb-halo.is-open,
+  .zhr-orb-btn:hover + .zhr-orb-halo.is-open {
+    animation: none;
+    transform: scale(1);
+    opacity: 0.8;
+  }
+  .zhr-orb-btn {
+    transition-duration: 0.01ms;
+  }
 }

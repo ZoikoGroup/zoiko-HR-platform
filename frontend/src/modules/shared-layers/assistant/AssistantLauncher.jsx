@@ -1,11 +1,21 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useLocation } from "react-router-dom";
 import { X } from "lucide-react";
-import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
+import zoikoWaveGlyph from "../../../assets/zoikohr-wave-glyph.svg";
 import { useAuth } from "../../../context/AuthContext";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
-import HistoryRail from "./HistoryRail";
+
+// Public, unauthenticated routes (kept in sync with the public <Route>
+// entries in App.jsx). AssistantContext's `isAuthenticated` is a raw
+// token-presence check (`Boolean(user) || isAuthenticated()`), not a
+// route-aware one — a leftover token from a previous session (e.g. after an
+// expired-session redirect to /login that didn't clear storage) reads as
+// "authenticated" even while the login form is the thing on screen. The
+// launcher is mounted once at the app root regardless of route, so it needs
+// its own route check rather than relying on the token check alone.
+const PUBLIC_PATHS = new Set(["/", "/login", "/forgot-password", "/register", "/register/success"]);
 
 /**
  * WF-01 Persistent Launcher and Docked Panel — mounted once at the app
@@ -25,6 +35,7 @@ import HistoryRail from "./HistoryRail";
  */
 export default function AssistantLauncher() {
   const { isAuthenticated } = useAuth();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const launcherRef = useRef(null);
@@ -48,7 +59,7 @@ export default function AssistantLauncher() {
     launcherRef.current?.focus();
   };
 
-  if (!isAuthenticated) return null;
+  if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname)) return null;
 
   return createPortal(
     <>
@@ -58,14 +69,14 @@ export default function AssistantLauncher() {
         onClick={() => (open ? close() : setOpen(true))}
         aria-label={open ? "Close HR Assistant" : "Open HR Assistant"}
         aria-expanded={open}
-        className={`fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center overflow-hidden
-          rounded-2xl shadow-[var(--zhr-elevation-panel)] transition-all duration-200
-          hover:-translate-y-0.5 hover:shadow-[var(--zhr-elevation-modal)]
+        className={`zhr-orb-btn fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center
+          rounded-2xl
           focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--zhr-border-focus)]
-          ${open ? "rotate-90 bg-[var(--zhr-action-primary)] text-white hover:bg-[var(--zhr-action-primary-hover)]" : ""}`}
+          ${open ? "is-open" : ""}`}
       >
-        {open ? <X className="h-5.5 w-5.5" /> : <img src={zoikoHrIcon} alt="" className="h-full w-full object-cover" />}
+        {open ? <X className="h-6 w-6 text-white" /> : <img src={zoikoWaveGlyph} alt="" className="h-8 w-8" />}
       </button>
+      <span aria-hidden="true" className={`zhr-orb-halo ${open ? "is-open" : ""}`} />
 
       {open && (
         <div
@@ -79,26 +90,14 @@ export default function AssistantLauncher() {
           }}
         >
           <div className="flex h-full w-full flex-col sm:h-[var(--_panel-h)] sm:w-[var(--_panel-w)]">
-            {historyOpen && (
-              <div className="absolute inset-0 z-10 flex flex-col bg-[var(--zhr-surface-canvas)]">
-                <button onClick={() => setHistoryOpen(false)} className="absolute right-2 top-2 rounded-lg p-1.5 text-[var(--zhr-text-muted)]">
-                  <X className="h-4 w-4" />
-                </button>
-                <HistoryRail
-                  conversations={engine.conversations}
-                  activeId={engine.conversationId}
-                  onSelect={(id) => { engine.openConversation(id); setHistoryOpen(false); }}
-                  onRename={engine.renameCurrentConversation}
-                  onDelete={engine.removeConversation}
-                />
-              </div>
-            )}
             <div className="min-h-0 flex-1" tabIndex={-1} ref={headingRef}>
               <ConversationView
                 {...engine}
                 onSend={engine.send}
                 compact
+                historyOpen={historyOpen}
                 onToggleHistory={() => setHistoryOpen((v) => !v)}
+                onCloseHistory={() => setHistoryOpen(false)}
                 onNewConversation={engine.startNewConversation}
                 onClose={close}
               />

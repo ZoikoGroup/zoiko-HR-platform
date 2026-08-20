@@ -7,6 +7,7 @@ import ScopeSelector from "./ScopeSelector";
 import SystemBanner from "./SystemBanner";
 import AssistantMenu from "./AssistantMenu";
 import HandoffPanel from "./HandoffPanel";
+import HistoryRail from "./HistoryRail";
 import { createPrivacyRequest } from "../../../service/assistantService";
 
 const WELCOME_PROMPTS = [
@@ -20,10 +21,11 @@ const WELCOME_PROMPTS = [
  * lives in useAssistantConversation() at the launcher level.
  */
 export default function ConversationView({
-  turns, conversationId, scope, setScope, teamMembers, capabilities,
+  turns, conversationId, conversations, scope, setScope, teamMembers, capabilities,
   sending, loadingConversation, streamingTurnId, streamingText, degradedMessage, onSend,
   pendingAttachment, attachmentUploading, attachFile, clearPendingAttachment, refreshCapabilities,
-  compact = false, onToggleHistory, onNewConversation, onClose,
+  openConversation, removeConversation, renameCurrentConversation,
+  compact = false, historyOpen = false, onToggleHistory, onCloseHistory, onNewConversation, onClose,
 }) {
   const [input, setInput] = useState("");
   const [supportRequestOpen, setSupportRequestOpen] = useState(false);
@@ -45,20 +47,28 @@ export default function ConversationView({
   };
 
   const exportMyData = async () => {
-    const request = await createPrivacyRequest("export");
-    const blob = new Blob([JSON.stringify(request.result, null, 2)], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `hr-assistant-data-export-${new Date().toISOString().slice(0, 10)}.json`;
-    a.click();
-    URL.revokeObjectURL(url);
+    try {
+      const request = await createPrivacyRequest("export");
+      const blob = new Blob([JSON.stringify(request.result, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `hr-assistant-data-export-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      window.alert(e.message || "Could not export your data. Please try again shortly.");
+    }
   };
 
   const deleteMyData = async () => {
     if (!window.confirm("This permanently deletes all your HR Assistant conversations. This cannot be undone. Continue?")) return;
-    await createPrivacyRequest("delete");
-    window.location.reload();
+    try {
+      await createPrivacyRequest("delete");
+      window.location.reload();
+    } catch (e) {
+      window.alert(e.message || "Could not delete your data. Please try again shortly.");
+    }
   };
 
   const generationOff = capabilities && !capabilities.generation_enabled;
@@ -94,6 +104,16 @@ export default function ConversationView({
         </div>
       </div>
 
+      {historyOpen ? (
+        <HistoryRail
+          conversations={conversations}
+          activeId={conversationId}
+          onSelect={(id) => { openConversation(id); onCloseHistory(); }}
+          onRename={renameCurrentConversation}
+          onDelete={removeConversation}
+          onBack={onCloseHistory}
+        />
+      ) : (
       <div className={`flex-1 overflow-y-auto ${compact ? "px-3 py-3" : "px-4 py-4"}`} ref={scrollRef}>
         <SystemBanner capabilities={capabilities} errorMessage={degradedMessage} onRestrictionLifted={refreshCapabilities} />
 
@@ -103,6 +123,7 @@ export default function ConversationView({
             turnId={null}
             defaultSummary=""
             onClose={() => setSupportRequestOpen(false)}
+            checkOnMount
           />
         )}
 
@@ -148,22 +169,25 @@ export default function ConversationView({
           ))}
         </div>
       </div>
+      )}
 
-      <div
-        className={`${compact ? "px-3" : "px-4"} pt-0 pb-[max(4.5rem,calc(env(safe-area-inset-bottom)+3.75rem))] sm:pb-3`}
-      >
-        <Composer
-          value={input}
-          onChange={setInput}
-          onSubmit={() => submit()}
-          disabled={!conversationId || sending}
-          placeholder="Ask about HR..."
-          pendingAttachment={pendingAttachment}
-          attachmentUploading={attachmentUploading}
-          onAttachFile={attachFile}
-          onClearAttachment={clearPendingAttachment}
-        />
-      </div>
+      {!historyOpen && (
+        <div
+          className={`${compact ? "px-3" : "px-4"} pt-0 pb-[max(4.5rem,calc(env(safe-area-inset-bottom)+3.75rem))] sm:pb-3`}
+        >
+          <Composer
+            value={input}
+            onChange={setInput}
+            onSubmit={() => submit()}
+            disabled={!conversationId || sending}
+            placeholder="Ask about HR..."
+            pendingAttachment={pendingAttachment}
+            attachmentUploading={attachmentUploading}
+            onAttachFile={attachFile}
+            onClearAttachment={clearPendingAttachment}
+          />
+        </div>
+      )}
     </div>
   );
 }

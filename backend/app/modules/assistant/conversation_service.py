@@ -19,6 +19,17 @@ from app.modules.employee.models import Employee
 
 _HR_RECORD_EMPLOYEE_RE = re.compile(r"employee_id=(\d+)")
 
+_TITLE_MAX_LEN = 48
+
+
+def _derive_title(text: str) -> str:
+    """First-message-derived title (ChatGPT/Claude convention) so the
+    history list never shows an undifferentiated wall of "New chat"."""
+    collapsed = re.sub(r"\s+", " ", text).strip()
+    if len(collapsed) <= _TITLE_MAX_LEN:
+        return collapsed
+    return collapsed[:_TITLE_MAX_LEN].rstrip() + "…"
+
 
 def create_conversation(db: Session, organization_id: int, employee_id: int, title: str | None) -> ChatConversation:
     conversation = ChatConversation(organization_id=organization_id, employee_id=employee_id, title=title)
@@ -77,6 +88,9 @@ def create_and_process_turn(db: Session, conversation: ChatConversation, employe
         .filter(ChatTurn.conversation_id == conversation.id)
         .count()
     ) + 1
+
+    if next_seq == 1 and not conversation.title:
+        conversation.title = _derive_title(text)
 
     turn = ChatTurn(
         conversation_id=conversation.id,
