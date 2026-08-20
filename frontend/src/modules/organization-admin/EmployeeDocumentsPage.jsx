@@ -69,7 +69,11 @@ export default function OrgAdminEmployeeDocumentsPage() {
     setLoading(true); setError(null);
     try {
       const params = {};
-      if (currentCategory) params.category = currentCategory;
+      if (currentCategory) {
+        params.category = currentCategory;
+      } else {
+        params.exclude_categories = "employee";
+      }
       if (empIdSearch.trim()) params.employee_id_str = empIdSearch.trim();
       const res = await getDocuments(params);
       const raw = res?.data;

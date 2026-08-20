@@ -1,13 +1,19 @@
 import { useState, useEffect, useMemo } from "react";
 import {
   Search, Hash, Building2, RefreshCw, Lock, Unlock, Eye, Shield, Users,
-  UserPlus, X, Loader2, Trash2, Check, UserCheck, Upload, Download
+  UserPlus, X, Loader2, Trash2, Check, Upload, Download,
+  FolderPlus, Folder, ChevronRight, Home
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import { fileTypeIcon, fmtDate } from "../../../utils/documents";
-import { getDocuments, getHrEmployees, assignDocumentToEmployees, getDocumentAssignments, removeDocumentAssignment, uploadDocument } from "../../../service/hrService";
+import {
+  getDocuments, getHrEmployees, assignDocumentToEmployees,
+  getDocumentAssignments, removeDocumentAssignment, uploadDocument,
+  getDocumentFolders, getFolderBreadcrumb, createDocumentFolder,
+  deleteDocumentFolder, assignFolderToEmployees
+} from "../../../service/hrService";
 
 const STATUS_META = {
   pending:  { label: "Pending",  bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-500"  },
@@ -39,6 +45,19 @@ export default function CompanyDocuments() {
   const [empIdSearch, setEmpIdSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
 
+  // folder state
+  const [currentFolderId, setCurrentFolderId] = useState(null);
+  const [folders, setFolders]     = useState([]);
+  const [breadcrumb, setBreadcrumb] = useState([]);
+  const [folderModal, setFolderModal] = useState(false);
+  const [folderName, setFolderName] = useState("");
+  const [creatingFolder, setCreatingFolder] = useState(false);
+
+  // folder assign modal
+  const [folderAssignModal, setFolderAssignModal] = useState(null);
+  const [folderAssignEmpIds, setFolderAssignEmpIds] = useState([]);
+  const [folderAssigning, setFolderAssigning] = useState(false);
+
   // assign modal
   const [assignModal, setAssignModal] = useState(null);
   const [employees, setEmployees]     = useState([]);
@@ -53,9 +72,10 @@ export default function CompanyDocuments() {
 
   // upload modal
   const [uploadModal, setUploadModal] = useState(false);
-  const [uploadForm, setUploadForm] = useState({ title: "", description: "", document_type: "", expiry_date: "" });
-  const [uploadFile, setUploadFile] = useState(null);
+  const [uploadForm, setUploadForm] = useState({ description: "", document_type: "", expiry_date: "" });
+  const [uploadFiles, setUploadFiles] = useState([]);
   const [uploading, setUploading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState({ done: 0, total: 0 });
   const [assignAfterUpload, setAssignAfterUpload] = useState(false);
 
   const [toast, setToast] = useState(null);
@@ -68,7 +88,7 @@ export default function CompanyDocuments() {
 
   const load = () => {
     setLoading(true); setError(null);
-    const params = {};
+    const params = { category: "company", folder_id: currentFolderId ?? undefined };
     if (empIdSearch.trim()) params.employee_id_str = empIdSearch.trim();
     return getDocuments(params)
       .then(res => {
@@ -80,7 +100,23 @@ export default function CompanyDocuments() {
       .finally(() => setLoading(false));
   };
 
-  useEffect(() => { load(); }, [empIdSearch]);
+  const loadFolders = () => {
+    getDocumentFolders(currentFolderId)
+      .then(res => {
+        const raw = res?.data;
+        setFolders(Array.isArray(raw) ? raw : (raw?.items || raw?.data || []));
+      })
+      .catch(() => setFolders([]));
+  };
+
+  const loadBreadcrumb = () => {
+    if (!currentFolderId) { setBreadcrumb([]); return; }
+    getFolderBreadcrumb(currentFolderId)
+      .then(res => setBreadcrumb(Array.isArray(res?.data) ? res.data : []))
+      .catch(() => setBreadcrumb([]));
+  };
+
+  useEffect(() => { load(); loadFolders(); loadBreadcrumb(); }, [empIdSearch, currentFolderId]);
 
   const loadEmployees = async () => {
     setEmpLoading(true);
@@ -128,38 +164,88 @@ export default function CompanyDocuments() {
   };
 
   const handleUpload = async () => {
-    if (!uploadFile) return;
+    if (!uploadFiles.length) return;
     setUploading(true);
+    setUploadProgress({ done: 0, total: uploadFiles.length });
+    const newDocs = [];
     try {
-      const fd = new FormData();
-      fd.append("file", uploadFile);
-      fd.append("title", uploadForm.title || uploadFile.name);
-      fd.append("category", "company");
-      if (uploadForm.description) fd.append("description", uploadForm.description);
-      if (uploadForm.document_type) fd.append("document_type", uploadForm.document_type);
-      if (uploadForm.expiry_date) fd.append("expiry_date", uploadForm.expiry_date);
-      const res = await uploadDocument(fd);
-      const newDoc = res?.data;
-      if (newDoc?.id) {
-        setDocs(prev => [newDoc, ...prev]);
+      for (const f of uploadFiles) {
+        const fd = new FormData();
+        fd.append("file", f);
+        fd.append("title", f.name.replace(/\.[^.]+$/, ""));
+        fd.append("category", "company");
+        if (currentFolderId) fd.append("folder_id", currentFolderId);
+        if (uploadForm.description) fd.append("description", uploadForm.description);
+        if (uploadForm.document_type) fd.append("document_type", uploadForm.document_type);
+        if (uploadForm.expiry_date) fd.append("expiry_date", uploadForm.expiry_date);
+        const res = await uploadDocument(fd);
+        if (res?.data?.id) newDocs.push(res.data);
+        setUploadProgress(prev => ({ ...prev, done: prev.done + 1 }));
       }
-      showToast("success", `"${uploadForm.title || uploadFile.name}" uploaded`);
+      if (newDocs.length) setDocs(prev => [...newDocs, ...prev]);
+      showToast("success", `${newDocs.length} document${newDocs.length > 1 ? "s" : ""} uploaded`);
       setUploadModal(false);
-      setUploadFile(null);
-      setUploadForm({ title: "", description: "", document_type: "", expiry_date: "" });
-      if (assignAfterUpload && newDoc?.id) {
+      setUploadFiles([]);
+      setUploadForm({ description: "", document_type: "", expiry_date: "" });
+      if (assignAfterUpload && newDocs.length) {
         setAssignAfterUpload(false);
-        openAssignModal(newDoc);
+        openAssignModal(newDocs[0]);
       }
     } catch (e) {
       console.error("[Upload] failed:", e);
       showToast("error", e?.message || "Upload failed");
     }
-    finally { setUploading(false); }
+    finally { setUploading(false); setUploadProgress({ done: 0, total: 0 }); }
   };
 
   const toggleEmp = (id) => {
     setSelectedEmpIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
+  };
+
+  const handleCreateFolder = async () => {
+    if (!folderName.trim()) return;
+    setCreatingFolder(true);
+    try {
+      await createDocumentFolder(folderName.trim(), currentFolderId);
+      showToast("success", `Folder "${folderName.trim()}" created`);
+      setFolderModal(false);
+      setFolderName("");
+      loadFolders();
+    } catch (e) { showToast("error", e?.message || "Failed to create folder"); }
+    finally { setCreatingFolder(false); }
+  };
+
+  const handleDeleteFolder = async (folderId, folderNameStr) => {
+    if (!window.confirm(`Delete folder "${folderNameStr}"? Its documents will be moved to root.`)) return;
+    try {
+      await deleteDocumentFolder(folderId);
+      showToast("success", "Folder deleted");
+      loadFolders();
+      load();
+    } catch (e) { showToast("error", e?.message || "Failed to delete folder"); }
+  };
+
+  const enterFolder = (folderId) => {
+    setCurrentFolderId(folderId);
+    setSearch("");
+  };
+
+  const openFolderAssign = (folder) => {
+    setFolderAssignModal(folder);
+    setFolderAssignEmpIds([]);
+    loadEmployees();
+  };
+
+  const handleFolderAssign = async () => {
+    if (!folderAssignModal || !folderAssignEmpIds.length) return;
+    setFolderAssigning(true);
+    try {
+      const res = await assignFolderToEmployees(folderAssignModal.id, folderAssignEmpIds);
+      const d = res?.data || {};
+      showToast("success", `Assigned ${d.documents_count || 0} document(s) to ${folderAssignEmpIds.length} employee(s)`);
+      setFolderAssignModal(null);
+    } catch (e) { showToast("error", e?.message || "Assignment failed"); }
+    finally { setFolderAssigning(false); }
   };
 
   const companyDocs = useMemo(() =>
@@ -197,6 +283,10 @@ export default function CompanyDocuments() {
             </div>
           </div>
           <div className="flex items-center gap-2">
+            <button onClick={() => setFolderModal(true)}
+              className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
+              <FolderPlus className="w-4 h-4" /> New Folder
+            </button>
             <button onClick={() => setUploadModal(true)}
               className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
               <Upload className="w-4 h-4" /> Upload
@@ -206,6 +296,54 @@ export default function CompanyDocuments() {
             </button>
           </div>
         </div>
+
+        {/* Breadcrumb */}
+        {(currentFolderId || breadcrumb.length > 0) && (
+          <nav className="flex items-center gap-1 text-sm text-slate-500 bg-white px-4 py-2.5 rounded-xl border border-gray-100">
+            <button onClick={() => { setCurrentFolderId(null); setSearch(""); }}
+              className="flex items-center gap-1 hover:text-blue-600 transition-colors font-medium">
+              <Home className="w-3.5 h-3.5" /> Root
+            </button>
+            {breadcrumb.map((b) => (
+              <span key={b.id} className="flex items-center gap-1">
+                <ChevronRight className="w-3.5 h-3.5 text-slate-300" />
+                <button onClick={() => { setCurrentFolderId(b.id); setSearch(""); }}
+                  className="hover:text-blue-600 transition-colors font-medium">
+                  {b.name}
+                </button>
+              </span>
+            ))}
+          </nav>
+        )}
+
+        {/* Folders */}
+        {folders.length > 0 && (
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+            {folders.map(f => (
+              <div key={f.id}
+                className="group relative p-4 rounded-xl bg-white border border-gray-100 hover:border-blue-200 hover:shadow-md transition-all cursor-pointer"
+                onClick={() => enterFolder(f.id)}>
+                <div className="flex items-center gap-3">
+                  <div className="p-2 rounded-lg bg-amber-50 text-amber-500 group-hover:bg-amber-100 transition-colors">
+                    <Folder className="w-5 h-5" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-semibold text-slate-800 truncate">{f.name}</p>
+                    <p className="text-xs text-slate-400">{f.document_count || 0} doc{(f.document_count || 0) !== 1 ? "s" : ""}</p>
+                  </div>
+                </div>
+                <button onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f.id, f.name); }}
+                  className="absolute top-2 right-2 p-1 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete folder">
+                  <Trash2 className="w-3.5 h-3.5" />
+                </button>
+                <button onClick={(e) => { e.stopPropagation(); openFolderAssign(f); }}
+                  className="absolute bottom-2 right-2 p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-all" title="Assign folder to employees">
+                  <UserPlus className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="flex flex-col sm:flex-row gap-3">
           <div className="relative flex-1">
@@ -297,6 +435,87 @@ export default function CompanyDocuments() {
           </>
         )}
       </div>
+
+      {/* Create Folder Modal */}
+      {folderModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100">
+              <h2 className="text-lg font-bold text-slate-800">New Folder</h2>
+              <button onClick={() => { setFolderModal(false); setFolderName(""); }} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition"><X size={18} /></button>
+            </div>
+            <div className="p-6">
+              <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Folder Name</label>
+              <input type="text" autoFocus value={folderName} onChange={e => setFolderName(e.target.value)}
+                onKeyDown={e => { if (e.key === "Enter") handleCreateFolder(); }}
+                placeholder="e.g. Policies, HR Forms"
+                className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
+              {currentFolderId && (
+                <p className="text-xs text-slate-400 mt-2">Creating inside current folder</p>
+              )}
+            </div>
+            <div className="p-6 pt-0">
+              <button onClick={handleCreateFolder} disabled={!folderName.trim() || creatingFolder}
+                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:bg-blue-400 transition flex items-center justify-center gap-2">
+                {creatingFolder ? <><Loader2 className="w-4 h-4 animate-spin" /> Creating…</> : <><FolderPlus className="w-4 h-4" /> Create Folder</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Folder Assign Modal */}
+      {folderAssignModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 shrink-0">
+              <div>
+                <h2 className="text-lg font-bold text-slate-800">Assign Folder</h2>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  <span className="font-semibold">{folderAssignModal.name}</span> · All documents will be assigned
+                </p>
+              </div>
+              <button onClick={() => setFolderAssignModal(null)} className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition"><X size={18} /></button>
+            </div>
+            <div className="p-6 overflow-y-auto flex-1">
+              {empLoading ? (
+                <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 animate-spin text-blue-500" /></div>
+              ) : employees.length === 0 ? (
+                <p className="text-sm text-slate-500 text-center py-8">No active employees found.</p>
+              ) : (
+                <div className="space-y-1">
+                  {employees.map(emp => (
+                    <label key={emp.id} className={`flex items-center gap-3 p-3 rounded-xl cursor-pointer transition-colors ${
+                      folderAssignEmpIds.includes(emp.id) ? "bg-blue-50 border border-blue-200" : "hover:bg-slate-50 border border-transparent"
+                    }`}>
+                      <input type="checkbox" checked={folderAssignEmpIds.includes(emp.id)}
+                        onChange={() => setFolderAssignEmpIds(prev => prev.includes(emp.id) ? prev.filter(x => x !== emp.id) : [...prev, emp.id])}
+                        className="rounded accent-blue-600 w-4 h-4" />
+                      <div className="w-8 h-8 rounded-full bg-blue-100 flex items-center justify-center text-xs font-bold text-blue-600 shrink-0">
+                        {(emp.firstName || emp.first_name || "?").charAt(0)}{(emp.lastName || emp.last_name || "").charAt(0)}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">{emp.fullName || emp.full_name || `${emp.firstName || emp.first_name || ""} ${emp.lastName || emp.last_name || ""}`}</p>
+                        <p className="text-xs text-slate-400"><span className="font-mono text-blue-500">{emp.employeeId || emp.employee_id}</span></p>
+                      </div>
+                      {folderAssignEmpIds.includes(emp.id) && <Check className="w-4 h-4 text-blue-600 shrink-0" />}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="p-6 pt-0 border-t border-slate-100 shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <span className="text-sm text-slate-600 font-medium">{folderAssignEmpIds.length} selected</span>
+              </div>
+              <button onClick={handleFolderAssign} disabled={!folderAssignEmpIds.length || folderAssigning}
+                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:bg-blue-400 transition flex items-center justify-center gap-2">
+                {folderAssigning ? <><Loader2 className="w-4 h-4 animate-spin" /> Assigning...</> : <><UserPlus className="w-4 h-4" /> Assign to {folderAssignEmpIds.length} Employee{folderAssignEmpIds.length !== 1 ? "s" : ""}</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Assign Modal */}
       {assignModal && (
@@ -408,44 +627,56 @@ export default function CompanyDocuments() {
       {/* Upload Modal */}
       {uploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col">
-            <div className="flex items-center justify-between p-6 border-b border-slate-100">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between p-6 border-b border-slate-100 shrink-0">
               <div>
-                <h2 className="text-lg font-bold text-slate-800">Upload Company Document</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Upload a policy, handbook, or company file</p>
+                <h2 className="text-lg font-bold text-slate-800">Upload Company Documents</h2>
+                <p className="text-xs text-slate-400 mt-0.5">Upload policies, handbooks, or company files</p>
               </div>
-              <button onClick={() => { setUploadModal(false); setUploadFile(null); setUploadForm({ title: "", description: "", document_type: "", expiry_date: "" }); }}
+              <button onClick={() => { setUploadModal(false); setUploadFiles([]); setUploadForm({ description: "", document_type: "", expiry_date: "" }); }}
                 className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition"><X size={18} /></button>
             </div>
-            <div className="p-6 space-y-4">
+            <div className="p-6 space-y-4 overflow-y-auto flex-1">
               <div>
-                <label className="text-xs font-semibold text-slate-600 mb-1.5 block">File <span className="text-rose-500">*</span></label>
-                <div className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${uploadFile ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}
+                <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Files <span className="text-rose-500">*</span></label>
+                <div className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-colors ${uploadFiles.length ? "border-blue-300 bg-blue-50" : "border-slate-200 hover:border-slate-300"}`}
                   onClick={() => document.getElementById("doc-upload-input").click()}
                   onDragOver={e => e.preventDefault()}
-                  onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) setUploadFile(f); }}>
-                  {uploadFile ? (
-                    <div>
-                      <span className="text-3xl">📄</span>
-                      <p className="text-sm font-medium text-slate-700 mt-1">{uploadFile.name}</p>
-                      <p className="text-xs text-slate-400">{(uploadFile.size / 1024).toFixed(1)} KB</p>
-                    </div>
-                  ) : (
-                    <div>
-                      <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
-                      <p className="text-sm text-slate-500">Click or drag file here</p>
-                      <p className="text-xs text-slate-400 mt-1">PDF, DOC, XLS, images accepted</p>
-                    </div>
-                  )}
+                  onDrop={e => {
+                    e.preventDefault();
+                    const dropped = Array.from(e.dataTransfer.files);
+                    if (dropped.length) setUploadFiles(prev => [...prev, ...dropped]);
+                  }}>
+                  <div>
+                    <Upload className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                    <p className="text-sm text-slate-500">Click or drag files here</p>
+                    <p className="text-xs text-slate-400 mt-1">Select multiple files at once · PDF, DOC, XLS, images</p>
+                  </div>
                 </div>
-                <input id="doc-upload-input" type="file" className="hidden" onChange={e => setUploadFile(e.target.files[0] || null)} />
+                <input id="doc-upload-input" type="file" multiple className="hidden" onChange={e => {
+                  const added = Array.from(e.target.files || []);
+                  if (added.length) setUploadFiles(prev => [...prev, ...added]);
+                  e.target.value = "";
+                }} />
               </div>
-              <div>
-                <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Title</label>
-                <input type="text" value={uploadForm.title} onChange={e => setUploadForm(p => ({ ...p, title: e.target.value }))}
-                  placeholder={uploadFile?.name?.replace(/\.[^.]+$/, "") || "Document title"}
-                  className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/30" />
-              </div>
+              {uploadFiles.length > 0 && (
+                <div className="space-y-2">
+                  {uploadFiles.map((f, i) => (
+                    <div key={`${f.name}-${i}`} className="flex items-center gap-3 px-3 py-2 bg-white border border-slate-100 rounded-lg">
+                      <span className="text-lg shrink-0">📄</span>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-sm font-medium text-slate-700 truncate">{f.name}</p>
+                        <p className="text-xs text-slate-400">{(f.size / 1024).toFixed(1)} KB</p>
+                      </div>
+                      <button onClick={() => setUploadFiles(prev => prev.filter((_, idx) => idx !== i))}
+                        className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 transition-colors shrink-0" title="Remove">
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                  <p className="text-xs text-slate-400 text-right">{uploadFiles.length} file{uploadFiles.length > 1 ? "s" : ""} selected</p>
+                </div>
+              )}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs font-semibold text-slate-600 mb-1.5 block">Document Type</label>
@@ -477,10 +708,13 @@ export default function CompanyDocuments() {
                 Assign to employees after upload
               </label>
             </div>
-            <div className="p-6 pt-0 border-t border-slate-100">
-              <button onClick={handleUpload} disabled={!uploadFile || uploading}
+            <div className="p-6 pt-0 border-t border-slate-100 shrink-0">
+              <button onClick={handleUpload} disabled={!uploadFiles.length || uploading}
                 className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:bg-blue-400 transition flex items-center justify-center gap-2">
-                {uploading ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading...</> : <><Upload className="w-4 h-4" /> Upload Document</>}
+                {uploading
+                  ? <><Loader2 className="w-4 h-4 animate-spin" /> Uploading {uploadProgress.done + 1} of {uploadProgress.total}…</>
+                  : <><Upload className="w-4 h-4" /> Upload {uploadFiles.length > 0 ? `${uploadFiles.length} File${uploadFiles.length > 1 ? "s" : ""}` : "Documents"}</>
+                }
               </button>
             </div>
           </div>

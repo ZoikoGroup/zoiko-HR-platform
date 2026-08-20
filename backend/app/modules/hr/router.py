@@ -2416,6 +2416,8 @@ def list_hr_documents(
     employee_id:    Optional[int] = Query(None, description="Filter by employee database ID"),
     employee_id_str: Optional[str] = Query(None, description="Filter by Employee ID (e.g., ZO0001)"),
     search:         Optional[str] = Query(None, description="Search by title or document type"),
+    exclude_categories: Optional[str] = Query(None, description="Comma-separated categories to exclude (e.g. employee,contract)"),
+    folder_id:      Optional[int] = Query(None, description="Filter by folder ID (null = root)"),
 ):
     return service.get_hr_documents(
         db,
@@ -2424,6 +2426,8 @@ def list_hr_documents(
         employee_id=employee_id,
         employee_id_str=employee_id_str,
         search=search,
+        exclude_categories=exclude_categories,
+        folder_id=folder_id,
         organization_id=current_user.organization_id,
         current_user=current_user,
     )
@@ -2454,6 +2458,7 @@ async def upload_hr_document_route(
     note: Optional[str] = Form(None),
     employee_id: Optional[int] = Form(None),
     expiry_date: Optional[date] = Form(None),
+    folder_id: Optional[int] = Form(None),
 ):
     _validate_upload_file(file)
     contents = await file.read()
@@ -2485,6 +2490,7 @@ async def upload_hr_document_route(
         employee_id=resolved_employee_id,
         uploaded_by=current_user.id,
         expiry_date=expiry_date,
+        folder_id=folder_id,
     )
     return doc
 
@@ -2805,3 +2811,107 @@ def remove_assignment(
 ):
     service.remove_document_assignment(db, assignment_id, organization_id=current_user.organization_id)
     return {"message": f"Assignment {assignment_id} removed."}
+
+
+# ════════════════════════════════════════════════════════════════════════════════
+# DOCUMENT FOLDERS
+# ════════════════════════════════════════════════════════════════════════════════
+
+@hr_router.get(
+    "/document-folders",
+    summary="List document folders",
+    tags=["📄 HR Documents"],
+)
+def list_folders(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    parent_id: Optional[int] = Query(None, description="Parent folder ID (null = root)"),
+):
+    return service.get_document_folders(db, current_user.organization_id, parent_id=parent_id)
+
+
+@hr_router.get(
+    "/document-folders/{folder_id}/breadcrumb",
+    summary="Get folder breadcrumb path",
+    tags=["📄 HR Documents"],
+)
+def folder_breadcrumb(
+    folder_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return service.get_folder_breadcrumb(db, folder_id)
+
+
+@hr_router.post(
+    "/document-folders",
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a document folder",
+    tags=["📄 HR Documents"],
+)
+def create_folder(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    name: str = Form(...),
+    parent_id: Optional[int] = Form(None),
+):
+    return service.create_document_folder(
+        db,
+        name=name,
+        organization_id=current_user.organization_id,
+        parent_id=parent_id,
+        created_by=current_user.id,
+    )
+
+
+@hr_router.patch(
+    "/document-folders/{folder_id}",
+    summary="Rename a document folder",
+    tags=["📄 HR Documents"],
+)
+def rename_folder(
+    folder_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    name: str = Form(...),
+):
+    return service.rename_document_folder(db, folder_id, name, current_user.organization_id)
+
+
+@hr_router.delete(
+    "/document-folders/{folder_id}",
+    summary="Delete a document folder (documents move to root)",
+    tags=["📄 HR Documents"],
+)
+def delete_folder(
+    folder_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    service.delete_document_folder(db, folder_id, current_user.organization_id)
+    return {"message": f"Folder {folder_id} deleted. Documents moved to root."}
+
+
+@hr_router.post(
+    "/document-folders/{folder_id}/assign",
+    summary="Assign all documents in a folder to employees",
+    tags=["📄 HR Documents"],
+)
+def assign_folder(
+    folder_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    employee_ids: str = Form(..., description="Comma-separated employee IDs"),
+    notes: Optional[str] = Form(None),
+):
+    ids = [int(x.strip()) for x in employee_ids.split(",") if x.strip().isdigit()]
+    if not ids:
+        raise HTTPException(status_code=400, detail="No valid employee IDs provided")
+    return service.assign_folder_to_employees(
+        db,
+        folder_id=folder_id,
+        employee_ids=ids,
+        assigned_by=current_user.id,
+        organization_id=current_user.organization_id,
+        notes=notes,
+    )

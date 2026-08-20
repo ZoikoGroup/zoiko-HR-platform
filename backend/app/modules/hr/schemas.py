@@ -3078,6 +3078,7 @@ class HrDocumentResponse(BaseModel):
     employee_id_str:   Optional[str] = None
     designation_name:  Optional[str] = None
     uploader_name:     Optional[str] = None
+    folder_id:         Optional[int] = None
 
     model_config = {"from_attributes": True}
 
