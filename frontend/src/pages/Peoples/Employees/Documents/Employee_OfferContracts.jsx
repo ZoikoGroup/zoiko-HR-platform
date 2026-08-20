@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import { getDocuments } from "../../../../service/employee";
-import { API_BASE_URL } from "../../../../service/api";
-import { Download, Check, X, Clock, AlertCircle, MessageSquare } from "lucide-react";
+import { Download, Check, X, Clock, AlertCircle, MessageSquare, Eye, Loader2 } from "lucide-react";
+import { useDocumentFile } from "../../../../hooks/useDocumentFile";
+import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 
 const typeColor = {
   Offer: { color: "#3B82F6", bg: "#EFF6FF" },
@@ -27,17 +28,11 @@ function normalizeType(type) {
   return "Other";
 }
 
-function getDownloadUrl(d) {
-  if (d.file_url) return d.file_url;
-  if (d.url) return d.url;
-  if (d.file_path) return `${API_BASE_URL}/${d.file_path.replace(/\\/g, "/")}`;
-  return null;
-}
-
 export default function OfferContracts() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [docs, setDocs] = useState([]);
+  const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
 
   useEffect(() => {
     let mounted = true;
@@ -114,7 +109,6 @@ export default function OfferContracts() {
               const colors = typeColor[d.type] || { color: "#3B82F6", bg: "#EEF2FF" };
               const raw = d.raw || {};
               const statusMeta = STATUS_META[raw.status];
-              const url = getDownloadUrl(raw);
               return (
                 <div
                   key={d.id || d.name}
@@ -152,16 +146,24 @@ export default function OfferContracts() {
                       </div>
                     </div>
 
-                    {url && (
-                      <a
-                        href={url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="shrink-0 flex items-center gap-1.5 px-4 py-2 bg-gray-100 dark:bg-[#0f172a] hover:bg-gray-200 dark:hover:bg-[#1e293b] text-gray-700 dark:text-[#e2e8f0] text-sm font-semibold rounded-lg transition"
+                    <div className="shrink-0 flex items-center gap-2">
+                      <button
+                        onClick={() => view(d.id)}
+                        disabled={busyId === d.id}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-blue-50 dark:bg-blue-900/30 hover:bg-blue-100 dark:hover:bg-blue-900/50 text-blue-700 dark:text-blue-300 text-sm font-semibold rounded-lg transition disabled:opacity-50"
                       >
-                        <Download size={14} /> Download
-                      </a>
-                    )}
+                        {busyId === d.id && busyAction === "view" ? <Loader2 size={14} className="animate-spin" /> : <Eye size={14} />}
+                        View
+                      </button>
+                      <button
+                        onClick={() => download(d.id)}
+                        disabled={busyId === d.id}
+                        className="flex items-center gap-1.5 px-4 py-2 bg-gray-100 dark:bg-[#0f172a] hover:bg-gray-200 dark:hover:bg-[#1e293b] text-gray-700 dark:text-[#e2e8f0] text-sm font-semibold rounded-lg transition disabled:opacity-50"
+                      >
+                        {busyId === d.id && busyAction === "download" ? <Loader2 size={14} className="animate-spin" /> : <Download size={14} />}
+                        Download
+                      </button>
+                    </div>
                   </div>
 
                   {(raw.admin_feedback || raw.rejection_reason) && (
@@ -176,6 +178,7 @@ export default function OfferContracts() {
           )}
         </div>
       )}
+      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
     </EmployeePageShell>
   );
 }

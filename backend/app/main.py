@@ -41,6 +41,10 @@ async def lifespan(application: FastAPI):
     initialize_database()
     logger.info("[startup] Tables ready: %s", sorted(Base.metadata.tables.keys()))
     yield
+    # Dispose all pooled connections before shutdown so Neon's SSL teardown
+    # doesn't race with SQLAlchemy's pool-reset rollback.
+    engine.dispose()
+    logger.info("[shutdown] Database connection pool disposed.")
 
 
 app = FastAPI(

@@ -4790,12 +4790,15 @@ def get_hr_documents(
     employee_id: Optional[int] = None,
     search: Optional[str] = None,
     employee_id_str: Optional[str] = None,
+    exclude_categories: Optional[str] = None,
+    folder_id: Optional[int] = None,
     current_user=None,
 ) -> list:
     """
     Return all non-deleted HR documents, with optional filtering.
     Resolves employee_name and uploader_name for the response.
     Supports filtering by Employee ID string (org-scoped, e.g. ZO0001) via employee_id_str.
+    exclude_categories: comma-separated list of categories to exclude (e.g. "employee,contract")
     """
     from app.modules.hr.models import HrDocument, HrDocumentCategory, HrDocumentStatus
     from app.modules.employee.models import Employee
@@ -4823,6 +4826,14 @@ def get_hr_documents(
             query = query.filter(HrDocument.category == cat_enum)
         except ValueError:
             query = query.filter(HrDocument.category == category)
+    if exclude_categories:
+        exclude_list = [c.strip() for c in exclude_categories.split(",") if c.strip()]
+        for ex_cat in exclude_list:
+            try:
+                ex_enum = HrDocumentCategory(ex_cat)
+                query = query.filter(HrDocument.category != ex_enum)
+            except ValueError:
+                query = query.filter(HrDocument.category != ex_cat)
     if status:
         try:
             st_enum = HrDocumentStatus(status)
@@ -4831,6 +4842,11 @@ def get_hr_documents(
             query = query.filter(HrDocument.status == status)
     if employee_id:
         query = query.filter(HrDocument.employee_id == employee_id)
+    if folder_id is not None:
+        if folder_id == 0:
+            query = query.filter(HrDocument.folder_id.is_(None))
+        else:
+            query = query.filter(HrDocument.folder_id == folder_id)
     if employee_id_str:
         emp = db.query(Employee).filter(
             Employee.employee_id == employee_id_str,
@@ -5530,6 +5546,7 @@ def upload_hr_document_with_approval(
     uploaded_by: Optional[int] = None,
     expiry_date=None,
     tags: Optional[list] = None,
+    folder_id: Optional[int] = None,
 ) -> object:
     """
     Upload a document AND create approval workflow steps.
@@ -5566,6 +5583,7 @@ def upload_hr_document_with_approval(
         expiry_date=expiry_date,
         tags=tags or [],
         organization_id=organization_id,
+        folder_id=folder_id,
     )
     db.add(doc)
     db.commit()
@@ -5634,6 +5652,60 @@ def assign_document_to_employees(
     return result
 
 
+def assign_folder_to_employees(
+    db: Session,
+    folder_id: int,
+    employee_ids: list[int],
+    assigned_by: int,
+    organization_id: int,
+    notes: Optional[str] = None,
+) -> dict:
+    """Assign ALL documents inside a folder to the given employees."""
+    from app.modules.hr.models import HrDocument, HrDocumentFolder, DocumentAssignment, AssignmentStatus
+
+    folder = db.query(HrDocumentFolder).filter(
+        HrDocumentFolder.id == folder_id,
+        HrDocumentFolder.organization_id == organization_id,
+    ).first()
+    if not folder:
+        raise NotFoundException("HrDocumentFolder", folder_id)
+
+    docs = db.query(HrDocument).filter(
+        HrDocument.folder_id == folder_id,
+        HrDocument.is_deleted == False,
+    ).all()
+
+    total_created = 0
+    total_skipped = 0
+    for doc in docs:
+        for emp_id in employee_ids:
+            existing = db.query(DocumentAssignment).filter(
+                DocumentAssignment.document_id == doc.id,
+                DocumentAssignment.employee_id == emp_id,
+            ).first()
+            if existing:
+                total_skipped += 1
+                continue
+            assignment = DocumentAssignment(
+                document_id=doc.id,
+                employee_id=emp_id,
+                assigned_by=assigned_by,
+                status=AssignmentStatus.PENDING,
+                notes=notes,
+            )
+            db.add(assignment)
+            total_created += 1
+
+    db.commit()
+    return {
+        "folder_id": folder_id,
+        "folder_name": folder.name,
+        "documents_count": len(docs),
+        "assignments_created": total_created,
+        "assignments_skipped": total_skipped,
+    }
+
+
 def get_document_assignments(db: Session, document_id: int, organization_id: int) -> list:
     from app.modules.hr.models import HrDocument, DocumentAssignment
 
@@ -5676,7 +5748,7 @@ def remove_document_assignment(db: Session, assignment_id: int, organization_id:
 
 def get_my_assigned_documents(db: Session, employee_id: int, organization_id: int) -> list:
     """Return documents assigned to a specific employee, with document details."""
-    from app.modules.hr.models import DocumentAssignment, HrDocument, AssignmentStatus
+    from app.modules.hr.models import DocumentAssignment, HrDocument, HrDocumentFolder, AssignmentStatus
     rows = (
         db.query(DocumentAssignment, HrDocument)
         .join(HrDocument, DocumentAssignment.document_id == HrDocument.id)
@@ -5700,6 +5772,12 @@ def get_my_assigned_documents(db: Session, employee_id: int, organization_id: in
         d["status"] = str(assn.status.value) if hasattr(assn.status, "value") else str(assn.status)
         d["acknowledged_at"] = assn.acknowledged_at.isoformat() if assn.acknowledged_at else None
         d["assigned_at"] = assn.assigned_at.isoformat() if assn.assigned_at else None
+        d["folder_id"] = doc.folder_id
+        d["folder_name"] = None
+        if doc.folder_id:
+            folder = db.query(HrDocumentFolder).filter(HrDocumentFolder.id == doc.folder_id).first()
+            if folder:
+                d["folder_name"] = folder.name
         result.append(d)
     return result
 
@@ -5723,3 +5801,96 @@ def _enrich_assignment(db: Session, entry: dict):
         entry["assigned_at"] = entry["assigned_at"].isoformat() if hasattr(entry["assigned_at"], "isoformat") else str(entry["assigned_at"])
     if entry.get("acknowledged_at"):
         entry["acknowledged_at"] = entry["acknowledged_at"].isoformat() if hasattr(entry["acknowledged_at"], "isoformat") else str(entry["acknowledged_at"])
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DOCUMENT FOLDERS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def get_document_folders(db: Session, organization_id: int, parent_id: int | None = None) -> list:
+    from app.modules.hr.models import HrDocumentFolder
+    folders = (
+        db.query(HrDocumentFolder)
+        .filter(
+            HrDocumentFolder.organization_id == organization_id,
+            HrDocumentFolder.parent_id == parent_id,
+        )
+        .order_by(HrDocumentFolder.name.asc())
+        .all()
+    )
+    result = []
+    for f in folders:
+        doc_count = (
+            db.query(HrDocument)
+            .filter(HrDocument.folder_id == f.id, HrDocument.is_deleted == False)
+            .count()
+        )
+        result.append({
+            "id": f.id,
+            "name": f.name,
+            "parent_id": f.parent_id,
+            "document_count": doc_count,
+            "created_at": f.created_at.isoformat() if f.created_at else None,
+        })
+    return result
+
+
+def get_folder_breadcrumb(db: Session, folder_id: int | None) -> list:
+    from app.modules.hr.models import HrDocumentFolder
+    if not folder_id:
+        return []
+    chain = []
+    current_id = folder_id
+    while current_id:
+        folder = db.query(HrDocumentFolder).filter(HrDocumentFolder.id == current_id).first()
+        if not folder:
+            break
+        chain.append({"id": folder.id, "name": folder.name})
+        current_id = folder.parent_id
+    chain.reverse()
+    return chain
+
+
+def create_document_folder(db: Session, name: str, organization_id: int, parent_id: int | None = None, created_by: int | None = None) -> dict:
+    from app.modules.hr.models import HrDocumentFolder
+    folder = HrDocumentFolder(
+        name=name.strip(),
+        parent_id=parent_id,
+        organization_id=organization_id,
+        created_by=created_by,
+    )
+    db.add(folder)
+    db.commit()
+    db.refresh(folder)
+    return {"id": folder.id, "name": folder.name, "parent_id": folder.parent_id, "created_at": folder.created_at.isoformat() if folder.created_at else None}
+
+
+def rename_document_folder(db: Session, folder_id: int, name: str, organization_id: int) -> dict:
+    from app.modules.hr.models import HrDocumentFolder
+    folder = db.query(HrDocumentFolder).filter(
+        HrDocumentFolder.id == folder_id,
+        HrDocumentFolder.organization_id == organization_id,
+    ).first()
+    if not folder:
+        raise ValueError("Folder not found")
+    folder.name = name.strip()
+    db.commit()
+    db.refresh(folder)
+    return {"id": folder.id, "name": folder.name}
+
+
+def delete_document_folder(db: Session, folder_id: int, organization_id: int) -> bool:
+    from app.modules.hr.models import HrDocumentFolder
+    folder = db.query(HrDocumentFolder).filter(
+        HrDocumentFolder.id == folder_id,
+        HrDocumentFolder.organization_id == organization_id,
+    ).first()
+    if not folder:
+        raise ValueError("Folder not found")
+    # Move documents to root (no folder)
+    db.query(HrDocument).filter(HrDocument.folder_id == folder_id).update({"folder_id": None})
+    # Move child folders to root
+    db.query(HrDocumentFolder).filter(HrDocumentFolder.parent_id == folder_id).update({"parent_id": folder.parent_id})
+    db.delete(folder)
+    db.commit()
+    return True

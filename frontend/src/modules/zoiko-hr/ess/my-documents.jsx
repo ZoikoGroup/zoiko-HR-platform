@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { NavLink } from "react-router-dom";
-import { Upload, Search, X, Check, RefreshCw, FileText, Eye } from "lucide-react";
+import { Upload, Search, X, Check, RefreshCw, FileText, Eye, Download, Loader2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getDocuments, uploadDocument } from "../../../service/hrService";
-import { API_BASE_URL } from "../../../service/api";
 import { useAuth } from "../../../context/AuthContext";
+import { useDocumentFile } from "../../../hooks/useDocumentFile";
+import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
+import { fileTypeIcon, fmtDate } from "../../../utils/documents";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/ess" },
@@ -57,10 +59,15 @@ const StatusBadge = ({ status }) => {
 };
 
 const CAT_COLORS = {
-  company:  "bg-blue-50 text-blue-700 border-blue-200",
-  employee: "bg-blue-50 text-blue-700 border-blue-200",
-  contract: "bg-cyan-50 text-cyan-700 border-cyan-200",
-  policy:   "bg-teal-50 text-teal-700 border-teal-200",
+  payslips:       "bg-blue-50 text-blue-700 border-blue-200",
+  "offer letters": "bg-green-50 text-green-700 border-green-200",
+  contracts:      "bg-cyan-50 text-cyan-700 border-cyan-200",
+  "tax & compliance": "bg-orange-50 text-orange-700 border-orange-200",
+  employee:       "bg-blue-50 text-blue-700 border-blue-200",
+  company:        "bg-blue-50 text-blue-700 border-blue-200",
+  contract:       "bg-cyan-50 text-cyan-700 border-cyan-200",
+  policy:         "bg-teal-50 text-teal-700 border-teal-200",
+  other:          "bg-slate-100 text-slate-600 border-slate-200",
 };
 
 const CategoryPill = ({ category }) => {
@@ -70,18 +77,6 @@ const CategoryPill = ({ category }) => {
       {category || "other"}
     </span>
   );
-};
-
-const fileTypeIcon = (filename = "") => {
-  const ext = filename.split(".").pop()?.toLowerCase();
-  const map = { pdf: "📄", doc: "📝", docx: "📝", xls: "📊", xlsx: "📊", png: "🖼️", jpg: "🖼️", jpeg: "🖼️", pptx: "📑" };
-  return map[ext] || "📎";
-};
-
-const fmtDate = (iso) => {
-  if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
 };
 
 function UploadModal({ onClose, onUploaded, user }) {
@@ -217,7 +212,12 @@ export default function EssMyDocuments() {
   const [search, setSearch] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [toast, setToast] = useState(null);
-  const [fileViewUrl, setFileViewUrl] = useState(null);
+
+  const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
+
+  useEffect(() => {
+    if (fileError) showToast("error", fileError);
+  }, [fileError]);
 
   const showToast = (type, message) => {
     setToast({ type, message });
@@ -244,35 +244,47 @@ export default function EssMyDocuments() {
     !search || d.title?.toLowerCase().includes(search.toLowerCase()) || d.category?.toLowerCase().includes(search.toLowerCase())
   );
 
+  function resolveSection(doc) {
+    const cat = (doc.category || "").toLowerCase();
+    const dtype = (doc.document_type || "").toLowerCase();
+    if (cat === "payslip") return "Payslips";
+    if (cat === "employee") {
+      if (dtype === "offer_letter") return "Offer Letters";
+      if (dtype === "contract" || dtype === "nda") return "Contracts";
+      return "Employee Documents";
+    }
+    if (cat === "tax") return "Tax & Compliance";
+    if (cat === "company") return "Company";
+    if (cat === "contract") return "Contracts";
+    if (cat === "policy") return "Policy";
+    return cat.charAt(0).toUpperCase() + cat.slice(1) || "Other";
+  }
+
   const grouped = filtered.reduce((acc, doc) => {
-    const cat = doc.category || "Other";
-    if (!acc[cat]) acc[cat] = [];
-    acc[cat].push(doc);
+    const section = resolveSection(doc);
+    if (!acc[section]) acc[section] = [];
+    acc[section].push(doc);
     return acc;
   }, {});
 
-  const categoryIcons = {
-    payslips: "💰",
-    "tax forms": "📋",
-    certificates: "🏆",
-    "offer letter": "📄",
-    company: "🏢",
-    employee: "👤",
-    contract: "📝",
-    policy: "📋",
-    other: "📁",
+  const sectionIcons = {
+    Payslips: "💰",
+    "Offer Letters": "📄",
+    Contracts: "📝",
+    "Tax & Compliance": "📋",
+    "Employee Documents": "👤",
+    Company: "🏢",
+    Policy: "📋",
   };
 
-  const categoryColors = {
-    payslips: "bg-blue-50 text-blue-600",
-    "tax forms": "bg-orange-50 text-orange-600",
-    certificates: "bg-blue-50 text-blue-600",
-    "offer letter": "bg-green-50 text-green-600",
-    company: "bg-blue-50 text-blue-600",
-    employee: "bg-blue-50 text-blue-600",
-    contract: "bg-cyan-50 text-cyan-600",
-    policy: "bg-teal-50 text-teal-600",
-    other: "bg-gray-50 text-gray-600",
+  const sectionColors = {
+    Payslips: "bg-blue-50 text-blue-600",
+    "Offer Letters": "bg-green-50 text-green-600",
+    Contracts: "bg-cyan-50 text-cyan-600",
+    "Tax & Compliance": "bg-orange-50 text-orange-600",
+    "Employee Documents": "bg-blue-50 text-blue-600",
+    Company: "bg-blue-50 text-blue-600",
+    Policy: "bg-teal-50 text-teal-600",
   };
 
   return (
@@ -326,17 +338,16 @@ export default function EssMyDocuments() {
             </p>
           </div>
         ) : (
-          Object.entries(grouped).map(([category, docs]) => {
-            const catKey = category.toLowerCase();
-            const icon = categoryIcons[catKey] || "📁";
-            const colorCls = categoryColors[catKey] || "bg-gray-50 text-gray-600";
+          Object.entries(grouped).map(([section, docs]) => {
+            const icon = sectionIcons[section] || "📁";
+            const colorCls = sectionColors[section] || "bg-gray-50 text-gray-600";
             return (
-              <div key={category} className="bg-white rounded-xl border border-gray-200 p-5">
+              <div key={section} className="bg-white rounded-xl border border-gray-200 p-5">
                 <div className="flex items-center gap-3 mb-4">
                   <div className={`p-2 rounded-lg ${colorCls}`}>
                     <span className="text-lg">{icon}</span>
                   </div>
-                  <h2 className="text-lg font-semibold text-gray-900">{category.charAt(0).toUpperCase() + category.slice(1)}</h2>
+                  <h2 className="text-lg font-semibold text-gray-900">{section}</h2>
                   <span className="text-xs text-gray-400">({docs.length} file{docs.length !== 1 ? "s" : ""})</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -357,15 +368,22 @@ export default function EssMyDocuments() {
                       <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
                         <span className="text-xs text-gray-400">Uploaded {fmtDate(doc.created_at)}</span>
                         <div className="flex gap-2">
-                          {doc.file_path && (
-                            <button
-                              onClick={() => setFileViewUrl(`${API_BASE_URL}/${doc.file_path.replace(/\\/g, "/")}`)}
-                              className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium"
-                            >
-                              <Eye className="w-3 h-3" />
-                              View
-                            </button>
-                          )}
+                          <button
+                            onClick={() => view(doc.id)}
+                            disabled={busyId === doc.id}
+                            className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium disabled:opacity-50"
+                          >
+                            {busyId === doc.id && busyAction === "view" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />}
+                            View
+                          </button>
+                          <button
+                            onClick={() => download(doc.id)}
+                            disabled={busyId === doc.id}
+                            className="flex items-center gap-1 text-blue-600 hover:text-blue-800 text-xs font-medium disabled:opacity-50"
+                          >
+                            {busyId === doc.id && busyAction === "download" ? <Loader2 className="w-3 h-3 animate-spin" /> : <Download className="w-3 h-3" />}
+                            Download
+                          </button>
                         </div>
                       </div>
                       {doc.rejection_reason && doc.status === "rejected" && (
@@ -384,21 +402,7 @@ export default function EssMyDocuments() {
 
       {showUpload && <UploadModal onClose={() => setShowUpload(false)} onUploaded={load} user={user} />}
 
-      {fileViewUrl && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-            <div className="flex items-center justify-between px-6 py-4 border-b border-gray-100">
-              <h3 className="text-base font-bold text-slate-900">Document Preview</h3>
-              <button onClick={() => setFileViewUrl(null)} className="p-1 rounded hover:bg-gray-100 text-slate-400 hover:text-slate-600">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 p-4 overflow-auto">
-              <iframe src={fileViewUrl} className="w-full h-[70vh] border-0 rounded-lg" title="Document preview" />
-            </div>
-          </div>
-        </div>
-      )}
+      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
 
       {toast && (
         <div className={`fixed bottom-6 right-6 z-50 px-4 py-3 rounded-xl shadow-lg text-sm font-medium flex items-center gap-2 ${toast.type === "success" ? "bg-emerald-600" : "bg-rose-600"} text-white`}>
