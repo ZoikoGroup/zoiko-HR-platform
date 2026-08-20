@@ -1832,6 +1832,7 @@ class HrDocument(Base):
     approved_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
     approved_at     = Column(DateTime, nullable=True)
     is_template     = Column(Boolean, default=False, nullable=False)
+    folder_id       = Column(Integer, ForeignKey("hr_document_folders.id"), nullable=True, index=True)
 
     employee        = relationship("Employee", foreign_keys=[employee_id], backref="hr_documents")
     uploader        = relationship("Employee", foreign_keys=[uploaded_by])
@@ -1841,6 +1842,23 @@ class HrDocument(Base):
     approval_steps  = relationship("DocumentApprovalStep", back_populates="document", order_by="DocumentApprovalStep.step_order")
     approval_logs   = relationship("DocumentApprovalLog", back_populates="document", order_by="DocumentApprovalLog.created_at.desc()")
     assignments     = relationship("DocumentAssignment", back_populates="document", order_by="DocumentAssignment.assigned_at.desc()")
+    folder          = relationship("HrDocumentFolder", back_populates="documents")
+
+
+class HrDocumentFolder(Base):
+    __tablename__ = "hr_document_folders"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    name            = Column(String(255), nullable=False)
+    parent_id       = Column(Integer, ForeignKey("hr_document_folders.id"), nullable=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    created_by      = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+
+    organization    = relationship("Organization")
+    creator         = relationship("Employee", foreign_keys=[created_by])
+    parent          = relationship("HrDocumentFolder", remote_side=[id], backref="children")
+    documents       = relationship("HrDocument", back_populates="folder")
 
 
 # ════════════════════════════════════════════════════════════════════════════════

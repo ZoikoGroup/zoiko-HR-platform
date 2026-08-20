@@ -776,3 +776,30 @@ export const deleteDesignation = (id) =>
   api.delete(`/hr/designations/${id}`).then(data => ({ data }));
 
 // ── (Employee management endpoints moved to src/service/employee.js) ──────────
+
+// ── Document Folders ──────────────────────────────────────────────────────────
+export const getDocumentFolders = (parentId = null) => {
+  const params = parentId !== null ? `?parent_id=${parentId}` : "";
+  return api.get(`/hr/document-folders${params}`).then(data => ({ data }));
+};
+export const getFolderBreadcrumb = (folderId) =>
+  api.get(`/hr/document-folders/${folderId}/breadcrumb`).then(data => ({ data }));
+export const createDocumentFolder = (name, parentId = null) => {
+  const fd = new FormData();
+  fd.append("name", name);
+  if (parentId !== null && parentId !== undefined) fd.append("parent_id", parentId);
+  return api.post("/hr/document-folders", fd).then(data => ({ data }));
+};
+export const renameDocumentFolder = (folderId, name) => {
+  const fd = new FormData();
+  fd.append("name", name);
+  return api.patch(`/hr/document-folders/${folderId}`, fd).then(data => ({ data }));
+};
+export const deleteDocumentFolder = (folderId) =>
+  api.delete(`/hr/document-folders/${folderId}`).then(data => ({ data }));
+export const assignFolderToEmployees = (folderId, employeeIds, notes = "") => {
+  const fd = new FormData();
+  fd.append("employee_ids", employeeIds.join(","));
+  if (notes) fd.append("notes", notes);
+  return api.post(`/hr/document-folders/${folderId}/assign`, fd).then(data => ({ data }));
+};
