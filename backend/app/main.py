@@ -113,6 +113,7 @@ recruitment_router = _safe_import(lambda: __import__("app.modules.hr.recruitment
 workforce_router   = _safe_import(lambda: __import__("app.modules.hr.workforce_router", fromlist=["workforce_router"]).workforce_router, "hr.workforce_router")
 org_config_router  = _safe_import(lambda: __import__("app.modules.hr.org_config_router", fromlist=["org_config_router"]).org_config_router, "hr.org_config_router")
 super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.router", fromlist=["router"]).router, "super_admin.router")
+command_center_router = _safe_import(lambda: __import__("app.modules.super_admin.command_center_router", fromlist=["router"]).router, "super_admin.command_center_router")
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
 
@@ -126,6 +127,7 @@ app.include_router(recruitment_router)
 app.include_router(workforce_router)
 app.include_router(org_config_router)
 app.include_router(super_admin_router)
+app.include_router(command_center_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
 

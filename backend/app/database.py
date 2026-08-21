@@ -71,6 +71,7 @@ Base = declarative_base()
 import app.modules.employee.models  # noqa: F401,E402
 import app.modules.hr.models  # noqa: F401,E402
 import app.modules.super_admin.models  # noqa: F401,E402
+import app.modules.super_admin.command_center_models  # noqa: F401,E402
 import app.modules.assistant.models  # noqa: F401,E402
 import app.modules.billing.models  # noqa: F401,E402
 
@@ -103,6 +104,9 @@ def initialize_database() -> None:
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS quantity INTEGER",
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS price_catalog_version VARCHAR(50)",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS name VARCHAR(100) NOT NULL DEFAULT ''",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS is_active BOOLEAN NOT NULL DEFAULT TRUE",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS is_contract_priced BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE billing_plans ALTER COLUMN price_locked SET DEFAULT FALSE",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS monthly_price NUMERIC(12,2)",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS annual_price NUMERIC(12,2)",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'USD'",
