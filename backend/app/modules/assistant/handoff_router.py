@@ -37,16 +37,10 @@ def create_handoff(
     return _to_handoff_response(handoff, already_open=not is_new)
 
 
-@handoff_router.get("/{handoff_id}", response_model=HandoffResponse)
-def get_handoff(
-    handoff_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
-    organization_id: int = Depends(get_organization_id),
-):
-    return _to_handoff_response(handoff_service.get_handoff(db, organization_id, handoff_id))
-
-
+# Both /mine routes must be registered before /{handoff_id} — FastAPI
+# matches routes in registration order, and /{handoff_id} would otherwise
+# swallow a request to /mine or /mine/open, trying (and failing) to parse
+# "mine" as an int.
 @handoff_router.get("/mine/open", response_model=Optional[HandoffResponse])
 def get_my_open_handoff(
     db: Session = Depends(get_db),
@@ -57,6 +51,28 @@ def get_my_open_handoff(
     before they fill out a new form, rather than only finding out on submit."""
     handoff = handoff_service.get_open_handoff_for_employee(db, organization_id, current_user.id)
     return _to_handoff_response(handoff, already_open=True) if handoff else None
+
+
+@handoff_router.get("/mine", response_model=list[HandoffAdminResponse])
+def list_my_handoffs(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    organization_id: int = Depends(get_organization_id),
+):
+    """Self-service ticket history — an employee's own tickets, open and
+    resolved. Distinct from the admin queue: no employee sees anyone else's."""
+    handoffs = handoff_service.list_handoffs_for_employee(db, organization_id, current_user.id)
+    return [handoff_service.serialize_handoff(db, h) for h in handoffs]
+
+
+@handoff_router.get("/{handoff_id}", response_model=HandoffResponse)
+def get_handoff(
+    handoff_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    organization_id: int = Depends(get_organization_id),
+):
+    return _to_handoff_response(handoff_service.get_handoff(db, organization_id, handoff_id))
 
 
 @handoff_admin_router.get("", response_model=list[HandoffAdminResponse])

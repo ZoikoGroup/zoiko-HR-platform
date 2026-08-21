@@ -11,6 +11,7 @@ Revisit if HR later adopts a real case-management tool.
 """
 
 import datetime
+import logging
 import secrets
 
 from sqlalchemy.orm import Session
@@ -18,7 +19,37 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import NotFoundException, BadRequestException
 from app.modules.assistant import audit_service
 from app.modules.assistant.models import ChatHandoff, HandoffStatus
-from app.modules.employee.models import Employee
+from app.modules.employee.models import Employee, UserRole
+from app.modules.hr.models import Organization
+
+logger = logging.getLogger("zoiko.assistant")
+
+TICKETS_URL = "https://zoikoone.com/hr-admin/assistant-handoffs"
+
+
+def _notify_admins_of_new_ticket(db: Session, organization_id: int, employee: Employee, handoff: ChatHandoff) -> None:
+    """Best-effort — a notification failure must never fail ticket creation
+    itself, so every exception here is caught and logged, not raised."""
+    try:
+        from app.services import email_service
+
+        org = db.query(Organization).filter(Organization.id == organization_id).first()
+        org_name = (org.display_name or org.organization_name) if org else "your organization"
+        admins = (
+            db.query(Employee)
+            .filter(Employee.organization_id == organization_id, Employee.role.in_([UserRole.ADMIN, UserRole.HR_ADMIN]))
+            .all()
+        )
+        for admin in admins:
+            if not admin.email:
+                continue
+            email_service.send_hr_ticket_created(
+                admin.email, employee.full_name, handoff.ticket_reference,
+                handoff.issue_summary, org_name, TICKETS_URL,
+                db=db, organization_id=organization_id,
+            )
+    except Exception as e:
+        logger.warning("Failed to send ticket-created notification for handoff %s: %s", handoff.id, e)
 
 
 def get_open_handoff_for_employee(db: Session, organization_id: int, employee_id: int) -> ChatHandoff | None:
@@ -60,6 +91,11 @@ def create_handoff(db: Session, organization_id: int, employee_id: int, conversa
     audit_service.record(db, organization_id, "handoff_created", "chat_handoff", handoff.id, employee_id)
     db.commit()
     db.refresh(handoff)
+
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if employee:
+        _notify_admins_of_new_ticket(db, organization_id, employee, handoff)
+
     return handoff, True
 
 
@@ -82,6 +118,17 @@ def list_handoffs(db: Session, organization_id: int, status: str | None = None) 
     if status:
         query = query.filter(ChatHandoff.status == HandoffStatus(status))
     return query.order_by(ChatHandoff.created_at.desc()).all()
+
+
+def list_handoffs_for_employee(db: Session, organization_id: int, employee_id: int) -> list[ChatHandoff]:
+    """Self-service — an employee's own ticket history (open and resolved),
+    not the admin-wide queue."""
+    return (
+        db.query(ChatHandoff)
+        .filter(ChatHandoff.organization_id == organization_id, ChatHandoff.employee_id == employee_id)
+        .order_by(ChatHandoff.created_at.desc())
+        .all()
+    )
 
 
 def resolve_handoff(db: Session, organization_id: int, handoff_id: int, resolved_by: int,

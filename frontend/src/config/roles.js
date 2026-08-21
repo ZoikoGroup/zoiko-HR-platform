@@ -109,6 +109,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/hr-admin/documents",
     "/hr-admin/reports",
     "/hr-admin/settings",
+    "/hr-admin/assistant-knowledge",
+    "/hr-admin/assistant-handoffs",
     // ── All product paths ──
     "/zoiko-hr",
     "/zoikotime",

@@ -7,6 +7,7 @@ import ScopeSelector from "./ScopeSelector";
 import SystemBanner from "./SystemBanner";
 import AssistantMenu from "./AssistantMenu";
 import HandoffPanel from "./HandoffPanel";
+import MyTicketsPanel from "./MyTicketsPanel";
 import HistoryRail from "./HistoryRail";
 import { createPrivacyRequest } from "../../../service/assistantService";
 
@@ -29,6 +30,7 @@ export default function ConversationView({
 }) {
   const [input, setInput] = useState("");
   const [supportRequestOpen, setSupportRequestOpen] = useState(false);
+  const [myTicketsOpen, setMyTicketsOpen] = useState(false);
   const scrollRef = useRef(null);
 
   useEffect(() => {
@@ -37,6 +39,7 @@ export default function ConversationView({
 
   useEffect(() => {
     setSupportRequestOpen(false);
+    setMyTicketsOpen(false);
   }, [conversationId]);
 
   const submit = (text) => {
@@ -88,6 +91,7 @@ export default function ConversationView({
             onOpenHistory={onToggleHistory}
             onNewConversation={onNewConversation}
             onSupportRequest={() => setSupportRequestOpen(true)}
+            onMyTickets={() => setMyTicketsOpen(true)}
             onExportData={exportMyData}
             onDeleteData={deleteMyData}
           />
@@ -127,13 +131,15 @@ export default function ConversationView({
           />
         )}
 
+        {myTicketsOpen && <MyTicketsPanel onClose={() => setMyTicketsOpen(false)} />}
+
         {loadingConversation && (
           <div className="flex h-full items-center justify-center text-[var(--zhr-text-muted)]">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         )}
 
-        {!loadingConversation && turns.length === 0 && !degradedMessage && !supportRequestOpen && (
+        {!loadingConversation && turns.length === 0 && !degradedMessage && !supportRequestOpen && !myTicketsOpen && (
           <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-[var(--zhr-text-muted)]">
             <img src={zoikoHrIcon} alt="" className="h-12 w-12 rounded-2xl opacity-40" />
             <p className="text-sm">Ask about leave policies, your balance, or book time off.</p>

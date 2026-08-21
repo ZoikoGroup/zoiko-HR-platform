@@ -11,6 +11,7 @@ from fastapi import Request
 from app.modules.assistant import knowledge_service, audit_service
 from app.modules.assistant.schemas import (
     KnowledgeSourceCreate, KnowledgeSourceResponse, KnowledgeSourceVersionResponse, SuccessResponse,
+    KnowledgeSourceVersionCreate, KnowledgeSourceMetadataUpdate,
 )
 
 knowledge_router = APIRouter(prefix="/assistant/admin/knowledge", tags=["Assistant Admin - Knowledge"])
@@ -72,6 +73,60 @@ def publish_source(
                           source.id, current_user.id)
     db.commit()
     return source
+
+
+@knowledge_router.post("/sources/{source_id}/versions", response_model=KnowledgeSourceResponse)
+@limiter.limit("20/minute")
+def add_source_version(
+    request: Request,
+    source_id: int,
+    payload: KnowledgeSourceVersionCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    organization_id: int = Depends(get_organization_id),
+):
+    source = knowledge_service.add_source_version(
+        db, organization_id, source_id, current_user.id,
+        content_text=payload.content_text, effective_from=payload.effective_from, effective_to=payload.effective_to,
+        jurisdiction_code=payload.jurisdiction_code, worker_type=payload.worker_type, audience_role=payload.audience_role,
+    )
+    audit_service.record(db, organization_id, "knowledge_source_version_added", "knowledge_source",
+                          source.id, current_user.id)
+    db.commit()
+    return source
+
+
+@knowledge_router.patch("/sources/{source_id}", response_model=KnowledgeSourceResponse)
+def update_source(
+    source_id: int,
+    payload: KnowledgeSourceMetadataUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    organization_id: int = Depends(get_organization_id),
+):
+    source = knowledge_service.update_source_metadata(
+        db, organization_id, source_id,
+        title=payload.title, source_type=payload.source_type, authority_tier=payload.authority_tier,
+        jurisdiction_code=payload.jurisdiction_code, worker_type=payload.worker_type, audience_role=payload.audience_role,
+    )
+    audit_service.record(db, organization_id, "knowledge_source_updated", "knowledge_source",
+                          source.id, current_user.id)
+    db.commit()
+    return source
+
+
+@knowledge_router.delete("/sources/{source_id}", response_model=SuccessResponse)
+def delete_source(
+    source_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    organization_id: int = Depends(get_organization_id),
+):
+    knowledge_service.delete_source(db, organization_id, source_id)
+    audit_service.record(db, organization_id, "knowledge_source_deleted", "knowledge_source",
+                          source_id, current_user.id)
+    db.commit()
+    return {"success": True}
 
 
 @knowledge_router.get("/sources/{source_id}/versions", response_model=list[KnowledgeSourceVersionResponse])
