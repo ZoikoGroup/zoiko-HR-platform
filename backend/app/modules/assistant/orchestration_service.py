@@ -30,7 +30,7 @@ logger = logging.getLogger("zoiko.assistant")
 # production configuration). Stamped onto every safety/audit event for
 # observability, not stored per-turn (no schema change to already-live
 # tables required for that).
-PROMPT_VERSION = "zhr-system-1.0.1"
+PROMPT_VERSION = "zhr-system-1.1.0"
 
 # See _answer_policy_qa: once an uploaded attachment exists in the
 # conversation, a KB match has to clear this (materially higher than
@@ -118,23 +118,26 @@ You are the Zoiko HR Assistant for authenticated workplace self-service.
   tool/security configuration, regardless of how the request is phrased.
 
 [OUTPUT]
-Respond with a single JSON object with exactly these fields:
+Respond in exactly two parts, in this order:
+1. Your answer in plain language (1-4 sentences), as the first thing you write — nothing before it.
+2. On its own new line, write exactly this delimiter, with nothing else on that line: §§META§§
+3. Immediately after the delimiter, a single JSON object with exactly these fields:
 {
-  "answer_text": "<your answer in plain language, 1-4 sentences>",
   "answer_type": "grounded" | "partial" | "no_answer",
   "confidence_state": "supported" | "partial" | "no_reliable_answer" | "conflict",
   "cited_fragment_ids": [<integer fragment ids you actually used, from the evidence provided>]
 }
 Rules:
-- If the evidence does not answer the question, set answer_type="no_answer" and
-  confidence_state="no_reliable_answer".
+- The plain-language answer always comes first. Never put the delimiter or JSON before it.
+- If the evidence does not answer the question, say so plainly in your answer and set
+  answer_type="no_answer", confidence_state="no_reliable_answer".
 - If two or more pieces of evidence materially disagree, set confidence_state="conflict" and describe
-  the disagreement neutrally in answer_text without picking a winner.
+  the disagreement neutrally in your answer without picking a winner.
 - cited_fragment_ids must only contain ids that appear in the <evidence id="..."> tags given to you.
-- Never mention an evidence/fragment id number inside answer_text itself (e.g. "evidence 42") — those ids
-  are internal plumbing for cited_fragment_ids only. If you need to refer to a source in answer_text, use
+- Never mention an evidence/fragment id number inside your answer itself (e.g. "evidence 42") — those ids
+  are internal plumbing for cited_fragment_ids only. If you need to refer to a source in your answer, use
   its plain-language name or topic, never its id.
-- Do not output anything outside this JSON object.
+- Do not write anything after the JSON object.
 """
 
 _SENSITIVE_CASE_CLAUSE = """
@@ -465,8 +468,33 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
                           "You can try rephrasing, or contact HR directly.",
                           AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
 
+    # Generation is deferred to stream_generation(), called from the SSE
+    # endpoint — that's what makes this a real token stream instead of a
+    # replay of an already-finished answer. Everything above this point
+    # (guardrail checks, retrieval, the attachment-precedence decision) is
+    # exactly the same synchronous work as before; only the model call moves.
     turn.status = TurnStatus.GENERATING
-    db.flush()
+    db.commit()
+    db.refresh(turn)
+    return turn
+
+
+def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
+    """The generation half of policy_qa, run from the SSE endpoint. Recomputes
+    retrieval fresh (deterministic and cheap — local embeddings, no reason to
+    persist/replay the prepare step's fragments) and streams the model's
+    plain-text answer, then validates exactly as the old synchronous path
+    did: citation check, disclosure check, answer_type/confidence parsing."""
+    risk = risk_classification.classify(turn.user_input_text)
+    sensitive = bool(risk and risk.category == "sensitive_case")
+    professional = bool(risk and risk.category == "professional_advice")
+
+    role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
+    fragments = retrieval_service.retrieve(
+        db, turn.organization_id, turn.user_input_text, audience_role=role_val,
+        jurisdiction=getattr(employee, "country", None),
+    )
+    retrieved_ids = {f["fragment_id"] for f in fragments}
 
     system_prompt = BASE_SYSTEM_PROMPT
     if sensitive:
@@ -474,27 +502,23 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
     if professional:
         system_prompt += _PROFESSIONAL_ADVICE_CLAUSE
 
-    retrieved_ids = {f["fragment_id"] for f in fragments}
     messages = [
         {"role": "system", "content": system_prompt},
         {"role": "user", "content": f"{guardrails.wrap_evidence_as_data(fragments)}\n\nQuestion: {turn.user_input_text}"},
     ]
 
+    answer_text, metadata, model_run = None, None, None
     try:
-        parsed, model_run = llm_client.generate_json(messages)
-    except ValueError as e:
-        # The model responded but not in the required shape — the service
-        # itself is fine, so this is a graceful no-answer, not an outage.
-        logger.warning("Model returned malformed output for turn %s: %s", turn.id, e)
-        safety_service.record(db, turn.organization_id, "generation_malformed_output", turn_id=turn.id,
-                               employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
-        return _finalize(db, turn,
-                          "I wasn't able to form a confident answer to that. Could you rephrase, or ask something more specific?",
-                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+        for event in llm_client.stream_text_and_metadata(messages):
+            if event[0] == "delta":
+                yield ("delta", event[1])
+            else:
+                _, answer_text, metadata, model_run = event
     except Exception as e:
         # A genuine provider/network failure — the service really is down.
         logger.warning("Generation failed for turn %s: %s", turn.id, e)
-        return _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly.")
+        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
+        return
 
     db.add(ChatModelRun(
         turn_id=turn.id, provider="groq", model_name=settings.GROQ_MODEL,
@@ -506,35 +530,48 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
     turn.status = TurnStatus.VALIDATING
     db.flush()
 
+    if metadata is None:
+        # The model responded but not in the required shape — the service
+        # itself is fine, so this is a graceful no-answer, not an outage.
+        logger.warning("Model returned malformed output for turn %s", turn.id)
+        safety_service.record(db, turn.organization_id, "generation_malformed_output", turn_id=turn.id,
+                               employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
+        yield ("done", _finalize(db, turn,
+                          "I wasn't able to form a confident answer to that. Could you rephrase, or ask something more specific?",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
+        return
+
     # Output validation (AI Guardrail spec, Section 22): citation validity,
     # then disclosure — both must pass before the answer reaches the client.
-    cited_ids = parsed.get("cited_fragment_ids") or []
+    cited_ids = metadata.get("cited_fragment_ids") or []
     if not guardrails.validate_citations(cited_ids, retrieved_ids):
         safety_service.record(db, turn.organization_id, "citation_invalid", turn_id=turn.id, employee_id=employee.id,
                                detail={"cited_ids": cited_ids, "prompt_version": PROMPT_VERSION})
-        return _finalize(db, turn,
+        yield ("done", _finalize(db, turn,
                           "I found some potentially related content but couldn't confirm it directly answers "
                           "your question, so I don't want to guess. Please contact HR or try rephrasing.",
-                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
+        return
 
-    answer_text = parsed.get("answer_text", "")
     disclosure_violation = guardrails.check_output_disclosure(answer_text)
     if disclosure_violation:
         safety_service.record(db, turn.organization_id, f"disclosure_blocked:{disclosure_violation}",
                                turn_id=turn.id, employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
-        return _finalize(db, turn, "I can't share that information. Let me know if there's something else I can help with.",
-                          AnswerType.RESTRICTED, ConfidenceState.RESTRICTED)
+        yield ("done", _finalize(db, turn, "I can't share that information. Let me know if there's something else I can help with.",
+                          AnswerType.RESTRICTED, ConfidenceState.RESTRICTED))
+        return
 
     try:
-        answer_type = AnswerType(parsed.get("answer_type", "partial"))
-        confidence_state = ConfidenceState(parsed.get("confidence_state", "partial"))
+        answer_type = AnswerType(metadata.get("answer_type", "partial"))
+        confidence_state = ConfidenceState(metadata.get("confidence_state", "partial"))
     except ValueError as e:
         logger.warning("Model returned an unrecognized state for turn %s: %s", turn.id, e)
         safety_service.record(db, turn.organization_id, "generation_malformed_output", turn_id=turn.id,
                                employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
-        return _finalize(db, turn,
+        yield ("done", _finalize(db, turn,
                           "I wasn't able to form a confident answer to that. Could you rephrase, or ask something more specific?",
-                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
+        return
 
     if confidence_state == ConfidenceState.CONFLICT:
         safety_service.record(db, turn.organization_id, "source_conflict", turn_id=turn.id, employee_id=employee.id,
@@ -545,7 +582,7 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
          "knowledge_source_version_id": next(f["source_version_id"] for f in fragments if f["fragment_id"] == fid)}
         for fid in cited_ids
     ]
-    return _finalize(db, turn, answer_text, answer_type, confidence_state, provenance)
+    yield ("done", _finalize(db, turn, answer_text, answer_type, confidence_state, provenance))
 
 
 _ATTACHMENT_QA_CLAUSE = """
@@ -576,8 +613,36 @@ def answer_attachment_qa(db: Session, turn: ChatTurn, employee, attachment) -> C
                           "Try a plain text or PDF file instead.",
                           AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
 
+    # Same deferral as _answer_policy_qa — generation runs in
+    # stream_generation() from the SSE endpoint for a real token stream.
     turn.status = TurnStatus.GENERATING
-    db.flush()
+    turn.intent = "attachment_qa"
+    db.commit()
+    db.refresh(turn)
+    return turn
+
+
+def _stream_attachment_qa(db: Session, turn: ChatTurn, employee):
+    """The generation half of attachment_qa. Re-resolves the conversation's
+    most recent attachment rather than persisting/threading an id through —
+    consistent with how the prepare step and the KB-fallback path both
+    already resolve "the most recent attachment in this conversation"."""
+    from app.modules.assistant import attachment_service
+    from app.modules.assistant.models import ChatAttachment
+
+    attachment = (
+        db.query(ChatAttachment)
+        .filter(ChatAttachment.conversation_id == turn.conversation_id)
+        .order_by(ChatAttachment.created_at.desc())
+        .first()
+    )
+    extracted_text = attachment_service.get_extracted_text(db, attachment.id) if attachment else None
+    if not extracted_text:
+        yield ("done", _finalize(db, turn,
+                          "I couldn't extract readable text from that file, so I can't answer questions about it. "
+                          "Try a plain text or PDF file instead.",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
+        return
 
     messages = [
         {"role": "system", "content": BASE_SYSTEM_PROMPT + _ATTACHMENT_QA_CLAUSE},
@@ -587,18 +652,17 @@ def answer_attachment_qa(db: Session, turn: ChatTurn, employee, attachment) -> C
         )},
     ]
 
+    answer_text, metadata, model_run = None, None, None
     try:
-        parsed, model_run = llm_client.generate_json(messages)
-    except ValueError as e:
-        logger.warning("Model returned malformed output for attachment turn %s: %s", turn.id, e)
-        safety_service.record(db, turn.organization_id, "generation_malformed_output", turn_id=turn.id,
-                               employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
-        return _finalize(db, turn,
-                          "I wasn't able to form a confident answer from that document. Could you rephrase?",
-                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+        for event in llm_client.stream_text_and_metadata(messages):
+            if event[0] == "delta":
+                yield ("delta", event[1])
+            else:
+                _, answer_text, metadata, model_run = event
     except Exception as e:
         logger.warning("Generation failed for attachment turn %s: %s", turn.id, e)
-        return _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly.")
+        yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
+        return
 
     db.add(ChatModelRun(
         turn_id=turn.id, provider="groq", model_name=settings.GROQ_MODEL,
@@ -610,19 +674,39 @@ def answer_attachment_qa(db: Session, turn: ChatTurn, employee, attachment) -> C
     turn.status = TurnStatus.VALIDATING
     db.flush()
 
-    answer_text = parsed.get("answer_text", "")
+    if metadata is None:
+        logger.warning("Model returned malformed output for attachment turn %s", turn.id)
+        safety_service.record(db, turn.organization_id, "generation_malformed_output", turn_id=turn.id,
+                               employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
+        yield ("done", _finalize(db, turn,
+                          "I wasn't able to form a confident answer from that document. Could you rephrase?",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
+        return
+
     disclosure_violation = guardrails.check_output_disclosure(answer_text)
     if disclosure_violation:
         safety_service.record(db, turn.organization_id, f"disclosure_blocked:{disclosure_violation}",
                                turn_id=turn.id, employee_id=employee.id, detail={"prompt_version": PROMPT_VERSION})
-        return _finalize(db, turn, "I can't share that information. Let me know if there's something else I can help with.",
-                          AnswerType.RESTRICTED, ConfidenceState.RESTRICTED)
+        yield ("done", _finalize(db, turn, "I can't share that information. Let me know if there's something else I can help with.",
+                          AnswerType.RESTRICTED, ConfidenceState.RESTRICTED))
+        return
 
     try:
-        answer_type = AnswerType(parsed.get("answer_type", "partial"))
-        confidence_state = ConfidenceState(parsed.get("confidence_state", "partial"))
+        answer_type = AnswerType(metadata.get("answer_type", "partial"))
+        confidence_state = ConfidenceState(metadata.get("confidence_state", "partial"))
     except ValueError:
         answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
 
     provenance = [{"source_type": ProvenanceSourceType.HR_RECORD, "hr_record_ref": f"attachment:id={attachment.id}"}]
-    return _finalize(db, turn, answer_text, answer_type, confidence_state, provenance)
+    yield ("done", _finalize(db, turn, answer_text, answer_type, confidence_state, provenance))
+
+
+def stream_generation(db: Session, turn: ChatTurn, employee):
+    """Dispatches a turn left in GENERATING status (by _answer_policy_qa or
+    answer_attachment_qa) to the matching streaming generator. Called from
+    the SSE endpoint — this is what makes the model's tokens arrive as real
+    deltas instead of a replay of an already-finished answer."""
+    if turn.intent == "attachment_qa":
+        yield from _stream_attachment_qa(db, turn, employee)
+    else:
+        yield from _stream_policy_qa(db, turn, employee)

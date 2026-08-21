@@ -302,6 +302,30 @@ def send_new_organization_created(
     }, db=db)
 
 
+def send_hr_ticket_created(
+    email: str,
+    employee_name: str,
+    ticket_reference: str,
+    issue_summary: str,
+    organization_name: str,
+    tickets_url: str,
+    db=None,
+    organization_id=None,
+):
+    """Notify one org admin that a new HR Assistant support ticket was
+    raised. Called once per admin — send_approval_email doesn't support
+    multiple recipients, and a per-admin failure (bad address, etc.)
+    shouldn't stop the others from being notified."""
+    return send_approval_email(email, "hr_ticket_created.html", {
+        "subject": f"New HR Support Ticket {ticket_reference} | Zoiko HR",
+        "employee_name": employee_name,
+        "ticket_reference": ticket_reference,
+        "issue_summary": issue_summary,
+        "organization_name": organization_name,
+        "tickets_url": tickets_url,
+    }, db=db, organization_id=organization_id)
+
+
 def send_leave_request_submitted(
     email: str,
     first_name: str,

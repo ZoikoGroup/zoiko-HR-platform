@@ -1,9 +1,12 @@
 import { useEffect, useState } from "react";
 import PageHeader from "../../../components/PageHeader";
-import { BookOpen, CheckCircle2, Plus, ShieldOff, Search, ChevronDown, ChevronUp, Archive, PauseCircle } from "lucide-react";
+import {
+  BookOpen, CheckCircle2, Plus, ShieldOff, Search, ChevronDown, ChevronUp, Archive, PauseCircle,
+  Pencil, Trash2, FilePlus2,
+} from "lucide-react";
 import {
   listKnowledgeSources, createKnowledgeSource, publishKnowledgeSource, retireKnowledgeSource, suspendKnowledgeSource,
-  listKnowledgeVersions, listControls, setControl,
+  listKnowledgeVersions, listControls, setControl, addKnowledgeSourceVersion, updateKnowledgeSource, deleteKnowledgeSource,
 } from "../../../service/assistantService";
 
 const SOURCE_TYPES = ["policy", "faq", "sop", "compliance", "handbook", "guide", "form"];
@@ -15,24 +18,125 @@ const emptyForm = {
   jurisdiction_code: "", worker_type: "", audience_role: "",
 };
 
-function VersionHistory({ sourceId }) {
+function VersionHistory({ sourceId, onSourceChanged }) {
   const [versions, setVersions] = useState(null);
+  const [addingVersion, setAddingVersion] = useState(false);
+  const [newContent, setNewContent] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
 
-  useEffect(() => {
+  const loadVersions = () => {
     listKnowledgeVersions(sourceId).then(setVersions).catch(() => setVersions([]));
-  }, [sourceId]);
+  };
+
+  useEffect(() => { loadVersions(); }, [sourceId]);
+
+  const submitVersion = async (e) => {
+    e.preventDefault();
+    if (!newContent.trim()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addKnowledgeSourceVersion(sourceId, { content_text: newContent });
+      setNewContent("");
+      setAddingVersion(false);
+      loadVersions();
+      await onSourceChanged?.();
+    } catch (err) {
+      setError(err.message || "Failed to add a new version.");
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (versions === null) return <p className="px-3 py-2 text-[11px] text-slate-400">Loading versions...</p>;
   return (
     <div className="border-t border-slate-100 bg-white px-3 py-2 space-y-1.5">
       {versions.map((v) => (
         <div key={v.id} className="flex items-center justify-between text-[11px] text-slate-500">
-          <span>Version {v.version_no} · hash {v.content_hash.slice(0, 8)}</span>
+          <span>
+            Version {v.version_no} · hash {v.content_hash.slice(0, 8)}
+            {v.effective_to ? ` · superseded ${new Date(v.effective_to).toLocaleDateString()}` : ""}
+          </span>
           <span>{v.published_at ? `Published ${new Date(v.published_at).toLocaleDateString()}` : "Unpublished"}</span>
         </div>
       ))}
       {versions.length === 0 && <p className="text-[11px] text-slate-400">No versions found.</p>}
+
+      {addingVersion ? (
+        <form onSubmit={submitVersion} className="space-y-1.5 pt-1.5">
+          <textarea
+            autoFocus rows={5} placeholder="New version content — replaces the current content going forward..."
+            value={newContent} onChange={(e) => setNewContent(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+          />
+          {error && <p className="text-[11px] font-semibold text-rose-600">{error}</p>}
+          <div className="flex gap-1.5">
+            <button disabled={busy} className="rounded-full bg-[var(--zhr-action-primary)] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+              Save version
+            </button>
+            <button type="button" onClick={() => { setAddingVersion(false); setError(null); }} className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-bold text-slate-500">
+              Cancel
+            </button>
+          </div>
+        </form>
+      ) : (
+        <button
+          onClick={() => setAddingVersion(true)}
+          className="flex items-center gap-1 pt-1 text-[11px] font-bold text-slate-500 hover:text-[var(--zhr-action-primary)]"
+        >
+          <FilePlus2 className="h-3.5 w-3.5" /> Add new version
+        </button>
+      )}
     </div>
+  );
+}
+
+function EditMetadataForm({ source, onCancel, onSaved }) {
+  const [form, setForm] = useState({
+    title: source.title, source_type: source.source_type, authority_tier: source.authority_tier,
+  });
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    setError(null);
+    try {
+      await updateKnowledgeSource(source.id, form);
+      await onSaved();
+    } catch (err) {
+      setError(err.message || "Failed to update this source.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="space-y-2 border-t border-slate-100 bg-white px-3 py-2.5">
+      <input
+        required value={form.title} onChange={(e) => setForm((f) => ({ ...f, title: e.target.value }))}
+        className="w-full rounded-lg border border-slate-200 px-2 py-1.5 text-xs"
+      />
+      <div className="flex gap-2">
+        <select value={form.source_type} onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value }))} className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
+          {SOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+        <select value={form.authority_tier} onChange={(e) => setForm((f) => ({ ...f, authority_tier: e.target.value }))} className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
+          {TIERS.map((t) => <option key={t} value={t}>Tier {t}</option>)}
+        </select>
+      </div>
+      {error && <p className="text-[11px] font-semibold text-rose-600">{error}</p>}
+      <div className="flex gap-1.5">
+        <button disabled={busy} className="rounded-full bg-[var(--zhr-action-primary)] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
+          Save
+        </button>
+        <button type="button" onClick={onCancel} className="rounded-full border border-slate-300 px-3 py-1 text-[11px] font-bold text-slate-500">
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 
@@ -46,6 +150,7 @@ export default function AdminKnowledgePage() {
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [expandedId, setExpandedId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
 
   const reload = async (params) => {
     const [srcs, ctrls] = await Promise.all([listKnowledgeSources(params), listControls()]);
@@ -96,6 +201,12 @@ export default function AdminKnowledgePage() {
   const suspend = async (id) => {
     setBusy(true);
     try { await suspendKnowledgeSource(id); await reload(); } finally { setBusy(false); }
+  };
+
+  const remove = async (id) => {
+    if (!window.confirm("Permanently delete this draft source? This cannot be undone.")) return;
+    setBusy(true);
+    try { await deleteKnowledgeSource(id); await reload(); } finally { setBusy(false); }
   };
 
   const toggleControl = async (controlType, isEnabled) => {
@@ -229,9 +340,29 @@ export default function AdminKnowledgePage() {
                       </>
                     )}
                     {s.status === "retired" && <span className="text-[11px] font-bold text-slate-400">Retired</span>}
+                    <button
+                      disabled={busy}
+                      onClick={() => { setEditingId(editingId === s.id ? null : s.id); setExpandedId(null); }}
+                      title="Edit title / type / tier"
+                      className="rounded-full border border-slate-300 p-1.5 text-slate-500 hover:text-[var(--zhr-action-primary)] hover:border-[var(--zhr-action-primary)]"
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                    {s.status === "draft" && (
+                      <button disabled={busy} onClick={() => remove(s.id)} title="Delete draft (never published)" className="rounded-full border border-slate-300 p-1.5 text-slate-500 hover:text-rose-600 hover:border-rose-300">
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
+                    )}
                   </div>
                 </div>
-                {expandedId === s.id && <VersionHistory sourceId={s.id} />}
+                {editingId === s.id && (
+                  <EditMetadataForm
+                    source={s}
+                    onCancel={() => setEditingId(null)}
+                    onSaved={async () => { setEditingId(null); await reload(); }}
+                  />
+                )}
+                {expandedId === s.id && <VersionHistory sourceId={s.id} onSourceChanged={reload} />}
               </div>
             ))}
             {sources.length === 0 && <p className="text-xs text-slate-400">No knowledge sources match your filters.</p>}
