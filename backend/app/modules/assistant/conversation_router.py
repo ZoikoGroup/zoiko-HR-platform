@@ -1,5 +1,5 @@
-import asyncio
 import json
+import time
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
@@ -10,7 +10,7 @@ from app.core.dependencies import get_current_user, get_organization_id
 from app.core.rate_limiter import limiter
 from app.core.exceptions import NotFoundException
 
-from app.modules.assistant import conversation_service, audit_service
+from app.modules.assistant import conversation_service, audit_service, orchestration_service
 from app.modules.assistant.models import ChatFeedback
 from app.modules.assistant.schemas import (
     ConversationCreate, ConversationResponse, ConversationListResponse, ConversationRename,
@@ -136,23 +136,62 @@ def get_turn(
 
 
 @conversation_router.get("/turns/{turn_id}/stream")
-async def stream_turn(
+def stream_turn(
     turn_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     organization_id: int = Depends(get_organization_id),
 ):
-    """Turn processing already runs synchronously in POST .../turns (Groq
-    tool-calling responses are small; no queue exists in this stack). This
-    endpoint replays the finished answer as an SSE token stream so the UI
-    gets the same progressive-reveal UX the spec describes, without a second
-    model call. Real mid-generation token streaming can replace this body
-    later without changing the endpoint contract."""
+    """Every intent except policy_qa/attachment_qa is instant (no model
+    call at all — chitchat, leave balance, org headcount, etc. are all
+    resolved synchronously in POST .../turns), so those are replayed as a
+    word-chunked SSE stream purely for a consistent progressive-reveal UX,
+    not because anything is still being computed.
+
+    A turn POST left in GENERATING status, though, has a real model call
+    still pending — that branch drives orchestration_service.stream_generation()
+    for actual token-by-token streaming (Groq's plain-text completions
+    stream for real; only its JSON mode can't — see llm_client.py). This
+    endpoint is a plain sync generator on purpose: Starlette's
+    StreamingResponse runs a non-async content iterable via
+    iterate_in_threadpool automatically, so the blocking network waits
+    inside the Groq SDK's sync streaming client never block the event loop,
+    without a manual thread bridge here."""
     turn = conversation_service.get_turn(db, organization_id, turn_id)
+
+    if turn.status.value == "generating":
+        # FastAPI closes the Depends(get_db) session as soon as this endpoint
+        # function returns the StreamingResponse object — but the generator
+        # body below only actually runs afterward, while the response body is
+        # being streamed. Using the request-scoped `db`/`current_user` here
+        # hits "Instance is not persistent within this Session" once that
+        # session is closed mid-stream. The generator opens its own session
+        # instead, scoped to its own lifetime, and closes it when done.
+        employee_id = current_user.id
+
+        def event_stream_real():
+            from app.database import SessionLocal
+            from app.modules.hr.models import Employee
+            stream_db = SessionLocal()
+            try:
+                stream_turn_obj = conversation_service.get_turn(stream_db, organization_id, turn_id)
+                stream_employee = stream_db.query(Employee).filter(Employee.id == employee_id).first()
+                yield f"event: turn.accepted\ndata: {json.dumps({'turn_id': turn_id})}\n\n"
+                for event in orchestration_service.stream_generation(stream_db, stream_turn_obj, stream_employee):
+                    if event[0] == "delta":
+                        yield f"event: text.delta\ndata: {json.dumps({'delta': event[1]})}\n\n"
+                    else:
+                        final_payload = conversation_service.serialize_turn(stream_db, event[1])
+                        yield f"event: turn.completed\ndata: {json.dumps(final_payload, default=str)}\n\n"
+            finally:
+                stream_db.close()
+
+        return StreamingResponse(event_stream_real(), media_type="text/event-stream")
+
     payload = conversation_service.serialize_turn(db, turn)
     answer_text = payload.get("answer_text") or ""
 
-    async def event_stream():
+    def event_stream():
         yield f"event: turn.accepted\ndata: {json.dumps({'turn_id': turn_id})}\n\n"
         words = answer_text.split(" ")
         buffer = ""
@@ -161,7 +200,7 @@ async def stream_turn(
             if i % 3 == 2 or i == len(words) - 1:
                 yield f"event: text.delta\ndata: {json.dumps({'delta': buffer})}\n\n"
                 buffer = ""
-                await asyncio.sleep(0.03)
+                time.sleep(0.03)
         yield f"event: turn.completed\ndata: {json.dumps(payload, default=str)}\n\n"
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

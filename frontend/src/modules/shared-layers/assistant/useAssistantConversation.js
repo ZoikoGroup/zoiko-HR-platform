@@ -147,11 +147,14 @@ export function useAssistantConversation(active = true) {
       setTurns((prev) => prev.map((t) => (t === placeholder ? turn : t)));
       refreshConversations();
 
-      if (turn.answer_text) {
+      if (turn.answer_text || turn.status === "generating") {
         setStreamingTurnId(turn.id);
         setStreamingText("");
         const stop = streamTurn(turn.id, (eventName, data) => {
-          if (eventName === "text.delta") setStreamingText(data.delta);
+          // Real per-token deltas from the backend are incremental chunks,
+          // not the whole text so far — must accumulate, not replace, or
+          // the UI only ever shows the single latest chunk.
+          if (eventName === "text.delta") setStreamingText((prev) => prev + data.delta);
           if (eventName === "turn.completed" || eventName === "error") {
             setStreamingTurnId(null);
             setTurns((prev) => prev.map((t) => (t.id === turn.id ? { ...t, ...(data.id ? data : {}) } : t)));

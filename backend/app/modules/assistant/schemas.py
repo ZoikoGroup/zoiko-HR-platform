@@ -219,6 +219,24 @@ class KnowledgeSourceVersionResponse(BaseModel):
         from_attributes = True
 
 
+class KnowledgeSourceVersionCreate(BaseModel):
+    content_text: str
+    effective_from: Optional[date] = None
+    effective_to: Optional[date] = None
+    jurisdiction_code: Optional[str] = None
+    worker_type: Optional[str] = None
+    audience_role: Optional[str] = None
+
+
+class KnowledgeSourceMetadataUpdate(BaseModel):
+    title: Optional[str] = None
+    source_type: Optional[str] = Field(None, pattern="^(policy|faq|sop|compliance|handbook|guide|form)$")
+    authority_tier: Optional[str] = Field(None, pattern="^[ABCD]$")
+    jurisdiction_code: Optional[str] = None
+    worker_type: Optional[str] = None
+    audience_role: Optional[str] = None
+
+
 # ── Operational controls ──────────────────────────────────────────────────────
 
 class OperationalControlUpdate(BaseModel):

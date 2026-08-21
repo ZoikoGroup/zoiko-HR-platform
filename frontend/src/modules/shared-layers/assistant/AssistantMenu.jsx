@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { MoreVertical, History, Plus, LifeBuoy, Download, Trash2 } from "lucide-react";
+import { MoreVertical, History, Plus, LifeBuoy, Ticket, Download, Trash2 } from "lucide-react";
 
-export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupportRequest, onExportData, onDeleteData }) {
+export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupportRequest, onMyTickets, onExportData, onDeleteData }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
@@ -23,6 +23,7 @@ export default function AssistantMenu({ onOpenHistory, onNewConversation, onSupp
     { label: "History", icon: History, onClick: onOpenHistory },
     { label: "New conversation", icon: Plus, onClick: onNewConversation },
     { label: "Support request", icon: LifeBuoy, onClick: onSupportRequest },
+    { label: "My tickets", icon: Ticket, onClick: onMyTickets },
     ...(onExportData ? [{ label: "Export my data", icon: Download, onClick: onExportData }] : []),
     ...(onDeleteData ? [{ label: "Delete my data", icon: Trash2, onClick: onDeleteData, destructive: true }] : []),
   ];

@@ -102,94 +102,77 @@ def stream(messages: list[dict], temperature: float = 0.2):
             yield delta.content
 
 
-_ANSWER_TEXT_KEY_RE = re.compile(r'"answer_text"\s*:\s*"')
+
+# Groq's JSON mode cannot stream at all — verified directly against the live
+# API: response_format=json_object + stream=True delivers the entire
+# completion as a single SSE chunk regardless of length (measured: 1 chunk
+# vs. 408 chunks for the identical prompt without json_mode). So real
+# streaming means the model writes its answer as plain text (which does
+# stream token-by-token) followed by a delimiter and a small trailing JSON
+# metadata block, rather than one JSON object wrapping everything.
+META_DELIMITER = "§§META§§"
 
 
-def _find_unescaped_quote(s: str, start: int) -> int | None:
-    """Index of the first unescaped '"' at or after `start`, or None if the
-    string doesn't close within what's arrived so far (still streaming)."""
-    i, n = start, len(s)
-    while i < n:
-        c = s[i]
-        if c == "\\":
-            if i + 1 >= n:
-                return None  # trailing lone backslash — incomplete escape, wait for more
-            i += 2
-            continue
-        if c == '"':
-            return i
-        i += 1
-    return None
-
-
-def _best_effort_json_string_decode(segment: str) -> str:
-    """Decode a (possibly incomplete) JSON string body. A chunk boundary can
-    land mid-escape-sequence (e.g. buffer ends on a lone '\\'); trimming from
-    the end until it parses just holds back the last character or two until
-    the next chunk completes it, rather than showing a raw escape artifact."""
-    candidate = segment
-    for _ in range(4):
-        try:
-            return json.loads('"' + candidate + '"')
-        except (json.JSONDecodeError, ValueError):
-            if not candidate:
-                return ""
-            candidate = candidate[:-1]
-    return ""
-
-
-def stream_json(messages: list[dict], temperature: float = 0.2):
-    """Streams a JSON-mode completion, incrementally extracting the
-    'answer_text' string field's content as it's produced — real progressive
-    token reveal, not a replay of an already-finished answer. Yields
-    ("delta", text) for each new chunk of decoded answer_text, then a final
-    ("done", raw_text, ModelRunResult).
-
-    Best-effort by design: this scans for `"answer_text": "` textually
-    rather than running a full incremental JSON parser, so it only emits
-    deltas once the model has actually started that field (in the prompted
-    schema it's the first key, and Groq follows requested key order in
-    practice, but this isn't a language guarantee). If the field is never
-    found as a distinct top-level string (e.g. very short/malformed output),
-    no deltas fire and the caller parses raw_text once streaming ends —
-    identical behavior to the non-streaming generate_json() path, so
-    correctness never depends on the field actually being found early."""
+def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2):
+    """Streams the plain-language answer as real per-token deltas, then
+    parses a trailing metadata block once the stream ends. Yields
+    ("delta", text) for each new chunk of the answer (holding back enough
+    of the tail that a partial delimiter match is never shown as visible
+    text), then a final ("done", answer_text, metadata_dict_or_None,
+    ModelRunResult). metadata_dict is None if the delimiter or its JSON
+    never resolved — callers must treat that as malformed output, same as
+    generate_json()'s ValueError path, not guess at the missing fields."""
     client = _get_client()
     start = time.monotonic()
     completion = client.chat.completions.create(
         model=settings.GROQ_MODEL,
         messages=messages,
         temperature=temperature,
-        response_format={"type": "json_object"},
         stream=True,
     )
 
     raw = ""
     emitted_len = 0
-    field_start = None
-    field_done = False
+    delim_idx = None
 
     for chunk in completion:
         delta = chunk.choices[0].delta
         if not (delta and delta.content):
             continue
         raw += delta.content
-        if field_done:
-            continue
-        if field_start is None:
-            m = _ANSWER_TEXT_KEY_RE.search(raw)
-            if m:
-                field_start = m.end()
-        if field_start is not None:
-            end = _find_unescaped_quote(raw, field_start)
-            segment = raw[field_start:end] if end is not None else raw[field_start:]
-            if end is not None:
-                field_done = True
-            decoded = _best_effort_json_string_decode(segment)
-            if len(decoded) > emitted_len:
-                yield ("delta", decoded[emitted_len:])
-                emitted_len = len(decoded)
+
+        if delim_idx is None:
+            found = raw.find(META_DELIMITER)
+            if found != -1:
+                delim_idx = found
+            else:
+                # Hold back a tail long enough to contain a partial
+                # delimiter match so a chunk boundary mid-delimiter never
+                # leaks as visible text.
+                safe_len = max(0, len(raw) - (len(META_DELIMITER) - 1))
+                if safe_len > emitted_len:
+                    yield ("delta", raw[emitted_len:safe_len])
+                    emitted_len = safe_len
+                continue
+
+        if emitted_len < delim_idx:
+            yield ("delta", raw[emitted_len:delim_idx])
+            emitted_len = delim_idx
 
     latency_ms = int((time.monotonic() - start) * 1000)
     result = ModelRunResult(text=raw, prompt_tokens=None, completion_tokens=None, latency_ms=latency_ms)
-    yield ("done", raw, result)
+
+    if delim_idx is not None:
+        answer_text = raw[:delim_idx].strip()
+        meta_raw = raw[delim_idx + len(META_DELIMITER):].strip()
+        try:
+            metadata = parse_json_response(meta_raw)
+        except ValueError:
+            metadata = None
+        yield ("done", answer_text, metadata, result)
+    else:
+        # Delimiter never appeared — emit whatever was held back so nothing
+        # is silently dropped, but there's no metadata to parse.
+        if emitted_len < len(raw):
+            yield ("delta", raw[emitted_len:])
+        yield ("done", raw.strip(), None, result)
