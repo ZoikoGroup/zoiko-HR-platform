@@ -4306,7 +4306,7 @@ def get_employees(
     organization_id: Optional[int] = None,
     visible_roles: Optional[list] = None,
 ) -> dict:
-    per_page = min(per_page, 10000)
+    per_page = min(per_page, 200)
     query = db.query(Employee)
 
     if organization_id:

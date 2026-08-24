@@ -30,7 +30,7 @@ export default class ErrorBoundary extends Component {
             <p className="mt-2 text-sm text-slate-400">
               An unexpected error occurred. Please try signing in again.
             </p>
-            {this.state.error && (
+            {import.meta.env.DEV && this.state.error && (
               <p className="mt-3 rounded-xl bg-slate-800/60 px-3 py-2 text-xs text-red-400 break-all">
                 {this.state.error.message}
               </p>

@@ -1,0 +1,20 @@
+server {
+    listen ${PORT};
+    server_name _;
+    root /usr/share/nginx/html;
+    index index.html;
+
+    # Matches frontend/vercel.json's rewrite: unknown paths fall back to the
+    # SPA shell so client-side routing (react-router-dom) can take over.
+    location / {
+        try_files $uri $uri/ /index.html;
+    }
+
+    location = /index.html {
+        add_header Cache-Control "no-cache";
+    }
+
+    location /assets/ {
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+}

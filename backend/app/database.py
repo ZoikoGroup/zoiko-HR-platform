@@ -77,9 +77,10 @@ import app.modules.billing.models  # noqa: F401,E402
 
 
 def initialize_database() -> None:
-    """Create tables in development; production relies on Alembic."""
+    """Create tables in development; production runs `alembic upgrade head`
+    as a deploy step instead (see backend/alembic/)."""
     if not _is_development_environment():
-        logger.info("Production DB init skipped; Alembic migrations are expected.")
+        logger.info("Production DB init skipped; run `alembic upgrade head` before starting.")
         return
 
     try:

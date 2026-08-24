@@ -64,7 +64,7 @@ def list_courses(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=10000, description="Results per page"),
+    per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     search: Optional[str] = Query(None, description="Search by course name"),
     category: Optional[str] = Query(None, description="Filter by category"),
     status: Optional[str] = Query(None, description="Filter by status"),
@@ -143,7 +143,7 @@ def list_enrollments(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=10000, description="Results per page"),
+    per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
     course_id: Optional[int] = Query(None, description="Filter by course ID"),
     status: Optional[str] = Query(None, description="Filter by enrollment status"),
@@ -689,7 +689,7 @@ def list_training_programs(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     page: int = Query(1, ge=1, description="Page number"),
-    per_page: int = Query(20, ge=1, le=10000, description="Results per page"),
+    per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     status: Optional[str] = Query(None, description="Filter by status"),
 ):
     return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id)

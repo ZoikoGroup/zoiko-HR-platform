@@ -9,8 +9,15 @@ export default function LoginPage() {
   const location = useLocation();
   const from = location.state?.from?.pathname || defaultRedirect;
 
-  const [email, setEmail] = useState(import.meta.env.VITE_DEFAULT_EMAIL || "");
-  const [password, setPassword] = useState(import.meta.env.VITE_DEFAULT_PASSWORD || "");
+  // Demo credentials only ever prefill in a dev server build (`import.meta.env.DEV`);
+  // a production build ignores these vars even if a deploy platform sets them,
+  // so a default admin login can never ship in the bundle users download.
+  const [email, setEmail] = useState(
+    import.meta.env.DEV ? import.meta.env.VITE_DEFAULT_EMAIL || "" : ""
+  );
+  const [password, setPassword] = useState(
+    import.meta.env.DEV ? import.meta.env.VITE_DEFAULT_PASSWORD || "" : ""
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);

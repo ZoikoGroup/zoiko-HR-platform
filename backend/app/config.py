@@ -28,9 +28,9 @@ class Settings(BaseSettings):
     # ── JWT / Auth ────────────────────────────────────────────────────────
     # HR_ prefixed namespace — tokens issued here are unreadable by the
     # monolith and vice-versa, even with an identical SECRET_KEY.
-    SECRET_KEY: str = Field(
-        default="dev-change-me-zoiko-hr-platform", validation_alias="HR_SECRET_KEY"
-    )
+    # No default: an unset HR_SECRET_KEY must refuse startup, not silently
+    # fall back to a value anyone can read in this source file.
+    SECRET_KEY: str = Field(validation_alias="HR_SECRET_KEY")
     ALGORITHM: str = Field(default="HS256", validation_alias="HR_ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=1440, validation_alias="HR_ACCESS_TOKEN_EXPIRE_MINUTES"
@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     # ── App Info ──────────────────────────────────────────────────────────
     APP_NAME: str = Field(default="Zoiko HR Platform Backend", validation_alias="HR_APP_NAME")
     APP_VERSION: str = Field(default="1.0.0", validation_alias="HR_APP_VERSION")
-    DEBUG: bool = Field(default=True, validation_alias="HR_DEBUG")
+    DEBUG: bool = Field(default=False, validation_alias="HR_DEBUG")
 
     @field_validator("DEBUG", mode="before")
     @classmethod
