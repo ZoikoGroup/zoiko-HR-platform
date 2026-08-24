@@ -102,9 +102,6 @@ function ApprovalsContent() {
         api.get("/hr/travel?page=1&per_page=100&search="),
         api.get("/hr/employees?page=1&per_page=100")
       ]);
-      console.log("Travel API response:", travelRes);
-      console.log("Employees API response:", empRes);
-      
       const empMap = {};
       const empList = safeArray(empRes?.items || empRes);
       empList.forEach(emp => { if (emp?.id != null) empMap[emp.id] = emp; });

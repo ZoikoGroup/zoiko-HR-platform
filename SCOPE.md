@@ -26,7 +26,7 @@
 
 No backend module exists here and all related frontend pages/modules are deleted:
 
-- **Billing / Billing Admin** — `billing_admin` role fully removed (roles.js, navigation, UserManagement, settings)
+- **Billing Admin** — `billing_admin` role fully removed (roles.js, navigation, UserManagement, settings). This does NOT include platform subscription billing: `app/modules/billing` (backend) and the super-admin Billing Overview/Plans/Discounts pages (frontend) are in scope — they manage what each tenant org is subscribed to (see `docs/ZHR-COM-BILL-001-commercial-billing-standard.md`), not a removed per-org billing product.
 - **Payroll** — backend payroll routes absent; org-admin dashboard payroll entry now points to a guidance page
 - **Spend, Inventory, Operations, Comply, Governance, Insights, Zoikotime**
 

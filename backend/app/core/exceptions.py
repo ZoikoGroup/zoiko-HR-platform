@@ -18,17 +18,29 @@ Standard error response format we use everywhere:
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app.config import settings
+
+_ALLOWED_ORIGINS = {o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip()}
+
 
 def _cors_headers(request: Request) -> dict:
-    """Return CORS headers that mirror the ForceCORSMiddleware logic."""
+    """Return CORS headers matching the CORSMiddleware allow-list in main.py.
+
+    Error responses bypass CORSMiddleware (exception handlers run outside its
+    scope), so this must independently check the origin against the same
+    allow-list rather than reflecting any Origin header back — otherwise any
+    site could make credentialed requests and read error bodies.
+    """
     origin = request.headers.get("origin", "")
-    return {
-        "Access-Control-Allow-Origin": origin if origin else "*",
-        "Access-Control-Allow-Credentials": "true",
+    headers = {
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "*",
-        "Access-Control-Expose-Headers": "*",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+        "Access-Control-Expose-Headers": "Content-Disposition",
     }
+    if origin in _ALLOWED_ORIGINS:
+        headers["Access-Control-Allow-Origin"] = origin
+        headers["Access-Control-Allow-Credentials"] = "true"
+    return headers
 
 
 # ── Custom Exception Classes ──────────────────────────────────────────────────

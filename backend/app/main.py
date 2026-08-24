@@ -21,6 +21,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
+from slowapi.middleware import SlowAPIMiddleware
 
 from app.config import settings
 from app.database import engine, Base, initialize_database
@@ -50,9 +51,10 @@ async def lifespan(application: FastAPI):
 app = FastAPI(
     title=settings.APP_NAME,
     version=settings.APP_VERSION,
-    docs_url="/docs",
-    redoc_url="/redoc",
-    openapi_url="/openapi.json",
+    # API docs/schema expose all ~482 routes; keep them out of production.
+    docs_url="/docs" if settings.DEBUG else None,
+    redoc_url="/redoc" if settings.DEBUG else None,
+    openapi_url="/openapi.json" if settings.DEBUG else None,
     lifespan=lifespan,
 )
 
@@ -87,6 +89,7 @@ app.add_middleware(
 )
 
 app.state.limiter = limiter
+app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(ZoikoException, zoiko_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
@@ -113,6 +116,7 @@ recruitment_router = _safe_import(lambda: __import__("app.modules.hr.recruitment
 workforce_router   = _safe_import(lambda: __import__("app.modules.hr.workforce_router", fromlist=["workforce_router"]).workforce_router, "hr.workforce_router")
 org_config_router  = _safe_import(lambda: __import__("app.modules.hr.org_config_router", fromlist=["org_config_router"]).org_config_router, "hr.org_config_router")
 super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.router", fromlist=["router"]).router, "super_admin.router")
+command_center_router = _safe_import(lambda: __import__("app.modules.super_admin.command_center_router", fromlist=["router"]).router, "super_admin.command_center_router")
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
 
@@ -126,6 +130,7 @@ app.include_router(recruitment_router)
 app.include_router(workforce_router)
 app.include_router(org_config_router)
 app.include_router(super_admin_router)
+app.include_router(command_center_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
 
@@ -135,6 +140,6 @@ def root():
     return {
         "name": settings.APP_NAME,
         "version": settings.APP_VERSION,
-        "docs": "/docs",
+        "docs": "/docs" if settings.DEBUG else None,
         "health": "/super-admin/health",
     }

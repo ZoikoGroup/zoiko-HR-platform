@@ -1,142 +1,160 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  Building2, Users, ShieldAlert, UserCheck, UserCog,
-  AlertTriangle, ChevronRight, CheckCircle2, Activity,
+  Building2, Users, CircleDollarSign, Rocket, ShieldCheck, AlertTriangle,
+  RefreshCw, Download, Plus, ExternalLink,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import StatTile from "./command-center/StatTile";
+import NeedsAttentionTable from "./command-center/NeedsAttentionTable";
+import CustomerHealthCard from "./command-center/CustomerHealthCard";
+import CommercialHealthCard from "./command-center/CommercialHealthCard";
+import OrgLifecycleFunnel from "./command-center/OrgLifecycleFunnel";
+import PlatformHealthCard from "./command-center/PlatformHealthCard";
+import SecurityAccessCard from "./command-center/SecurityAccessCard";
+import GovernanceAuditCard from "./command-center/GovernanceAuditCard";
+import { formatCurrencyFromCents, formatCompactNumber, INK, INK_SOFT, BLUE, EMERALD, RED } from "./command-center/format";
+
+const BANNER_META = {
+  operational: { label: "Production operational", dot: "bg-emerald-500", bg: "bg-emerald-50", border: "border-emerald-200/60", text: "text-emerald-700" },
+  degraded: { label: "Production degraded", dot: "bg-amber-500", bg: "bg-amber-50", border: "border-amber-200/60", text: "text-amber-700" },
+  outage: { label: "Production outage", dot: "bg-red-500", bg: "bg-red-50", border: "border-red-200/60", text: "text-red-700" },
+};
 
 export default function SuperAdminDashboardPage() {
   const navigate = useNavigate();
-  const [stats, setStats] = useState(null);
+  const platformHealthRef = useRef(null);
+
+  const [days, setDays] = useState(30);
+  const [overview, setOverview] = useState(null);
+  const [attention, setAttention] = useState([]);
+  const [customerHealth, setCustomerHealth] = useState(null);
+  const [commercialHealth, setCommercialHealth] = useState(null);
+  const [lifecycle, setLifecycle] = useState(null);
+  const [platformHealth, setPlatformHealth] = useState([]);
+  const [security, setSecurity] = useState(null);
+  const [recentAudit, setRecentAudit] = useState([]);
+  const [auditEventsCount, setAuditEventsCount] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState(null);
 
-  useEffect(() => {
-    loadStats();
-  }, []);
-
-  const loadStats = async () => {
+  const loadAll = useCallback(async () => {
+    setLoading(true);
+    setError(null);
     try {
-      setError(null);
-      setLoading(true);
-      const data = await superAdminService.getDashboardStats();
-      setStats(data);
+      const params = { days };
+      const [
+        overviewData, attentionData, customerHealthData, commercialHealthData,
+        lifecycleData, platformHealthData, securityData, auditLogsData,
+      ] = await Promise.all([
+        superAdminService.getCommandCenterOverview(params),
+        superAdminService.getCommandCenterAttention(),
+        superAdminService.getCommandCenterCustomerHealth(),
+        superAdminService.getCommandCenterCommercialHealth(params),
+        superAdminService.getCommandCenterLifecycle(),
+        superAdminService.getCommandCenterPlatformHealth(),
+        superAdminService.getCommandCenterSecurity(params),
+        superAdminService.getAuditLogs({ limit: 8 }),
+      ]);
+      setOverview(overviewData);
+      setAttention(attentionData?.items || []);
+      setCustomerHealth(customerHealthData);
+      setCommercialHealth(commercialHealthData);
+      setLifecycle(lifecycleData);
+      setPlatformHealth(platformHealthData || []);
+      setSecurity(securityData);
+      setRecentAudit(auditLogsData?.logs || []);
+      setAuditEventsCount(auditLogsData?.total || 0);
+      setLastLoadedAt(new Date());
     } catch (e) {
-      console.error("Failed to load dashboard", e);
-      setError(e.message || "Unable to load dashboard statistics.");
+      console.error("Failed to load Platform Command Center", e);
+      setError(e.message || "Unable to load the Platform Command Center.");
     } finally {
       setLoading(false);
     }
+  }, [days]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const handleUpdateServiceStatus = async (serviceName, status) => {
+    try {
+      const existing = platformHealth.find((s) => s.service_name === serviceName);
+      const updated = await superAdminService.updateCommandCenterPlatformHealth(serviceName, {
+        status,
+        availability_pct: existing?.availability_pct ?? null,
+        latency_p95_ms: existing?.latency_p95_ms ?? null,
+        notes: existing?.notes ?? null,
+      });
+      setPlatformHealth((prev) => prev.map((s) => (s.service_name === serviceName ? updated : s)));
+      loadAll();
+    } catch (e) {
+      console.error("Failed to update service health", e);
+    }
   };
 
-  const STATUS_META = {
-    PENDING: { label: "Pending Review", bg: "bg-amber-50", text: "text-amber-600", border: "border-amber-200/60", dot: "bg-amber-500" },
-    ACTIVE: { label: "Active", bg: "bg-emerald-50", text: "text-emerald-600", border: "border-emerald-200/60", dot: "bg-emerald-500" },
-    APPROVED: { label: "Approved", bg: "bg-blue-50", text: "text-blue-600", border: "border-blue-200/60", dot: "bg-blue-500" },
-    REJECTED: { label: "Rejected", bg: "bg-red-50", text: "text-red-600", border: "border-red-200/60", dot: "bg-red-500" },
-    SUSPENDED: { label: "Suspended", bg: "bg-slate-100", text: "text-slate-600", border: "border-slate-200/60", dot: "bg-slate-400" },
-    DEACTIVATED: { label: "Deactivated", bg: "bg-blue-50", text: "text-blue-600", border: "border-blue-200/60", dot: "bg-blue-500" },
-    ON_HOLD: { label: "On Hold", bg: "bg-amber-50", text: "text-amber-600", border: "border-amber-200/60", dot: "bg-amber-500" },
+  const handleExport = () => {
+    if (!overview) return;
+    const rows = [
+      ["Metric", "Value"],
+      ["Active Organizations", overview.active_organizations?.value],
+      ["Subscribed Workforce", overview.subscribed_workforce?.value],
+      ["MRR (USD)", ((overview.mrr_cents?.value || 0) / 100).toFixed(2)],
+      ["Activation Rate (%)", overview.activation_rate_pct?.value?.toFixed?.(1)],
+      ["Platform Reliability (%)", overview.platform_reliability_pct ?? "N/A"],
+      ["Critical Attention Items", overview.critical_attention_count],
+      ["Active P1 Incidents", overview.active_p1_incidents],
+    ];
+    const csv = rows.map((r) => r.join(",")).join("\n");
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `platform-command-center-${new Date().toISOString().slice(0, 10)}.csv`;
+    link.click();
+    URL.revokeObjectURL(url);
   };
 
-  const StatusBadge = ({ status }) => {
-    const meta = STATUS_META[status?.toUpperCase()] || { label: status, bg: "bg-slate-50", text: "text-slate-600", border: "border-slate-200/60", dot: "bg-slate-400" };
-    return (
-      <span className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${meta.bg} ${meta.text} border ${meta.border}`}>
-        <span className={`w-1.5 h-1.5 rounded-full ${meta.dot}`} />
-        {meta.label}
-      </span>
-    );
-  };
-
-  const AVATAR_GRADIENTS = [
-    "from-pink-500 to-rose-500",
-    "from-amber-500 to-orange-500",
-    "from-violet-500 to-indigo-500",
-    "from-emerald-500 to-teal-500",
-    "from-blue-500 to-cyan-500",
-    "from-red-500 to-pink-500",
-    "from-fuchsia-500 to-purple-500",
-    "from-sky-500 to-blue-500",
-  ];
-
-  const getOrgAvatar = (name = "") => {
-    const clean = name.trim();
-    const words = clean.split(/\s+/).filter(Boolean);
-    const initials = words.length > 1
-      ? (words[0][0] + words[1][0])
-      : clean.slice(0, 2);
-    let hash = 0;
-    for (let i = 0; i < clean.length; i++) hash = (hash * 31 + clean.charCodeAt(i)) >>> 0;
-    const gradient = AVATAR_GRADIENTS[hash % AVATAR_GRADIENTS.length];
-    return { initials: initials.toUpperCase(), gradient };
-  };
-
-  const totalPending = (stats?.total_organizations ?? 0) - (stats?.active_organizations ?? 0) - (stats?.suspended_organizations ?? 0);
-
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-slate-50/60 p-6 sm:p-10 text-slate-800 font-sans antialiased">
-        <div className="max-w-7xl mx-auto space-y-6">
-          <div className="p-8 bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-3xl shadow-sm">
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-slate-900 text-white rounded-2xl shadow-sm">
-                <Activity className="w-6 h-6" />
-              </div>
-              <div>
-                <div className="h-8 w-48 bg-slate-100 rounded-xl animate-pulse" />
-                <div className="h-4 w-72 bg-slate-100 rounded-lg animate-pulse mt-2" />
-              </div>
-            </div>
-          </div>
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            {Array.from({ length: 4 }).map((_, i) => (
-              <div key={i} className="p-5 bg-white border border-slate-200/80 rounded-3xl shadow-sm animate-pulse">
-                <div className="flex items-center gap-3 mb-3">
-                  <div className="w-10 h-10 rounded-2xl bg-slate-100" />
-                  <div className="h-3 w-20 bg-slate-100 rounded-lg" />
-                </div>
-                <div className="h-8 w-16 bg-slate-100 rounded-lg" />
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  const statCards = [
-    { title: "Total Organizations", value: stats?.total_organizations ?? 0, icon: Building2, gradient: "from-blue-500 to-indigo-500", link: "/super-admin/organizations" },
-    { title: "Active", value: stats?.active_organizations ?? 0, icon: CheckCircle2, gradient: "from-emerald-500 to-teal-500" },
-    { title: "Suspended", value: stats?.suspended_organizations ?? 0, icon: ShieldAlert, gradient: "from-slate-500 to-gray-600" },
-    { title: "Total Employees", value: stats?.total_employees ?? 0, icon: Users, gradient: "from-violet-500 to-purple-500" },
-  ];
-
-  const secondaryCards = [
-    { title: "Active Employees", value: stats?.active_employees ?? 0, icon: UserCheck, gradient: "from-emerald-400 to-green-500" },
-    { title: "Admins", value: stats?.total_admins ?? 0, icon: UserCog, gradient: "from-amber-400 to-orange-500" },
-    { title: "HR Admins", value: stats?.total_hr_admins ?? 0, icon: UserCog, gradient: "from-pink-400 to-rose-500" },
-  ];
+  const banner = BANNER_META[overview?.banner_status || "operational"];
+  const secondsAgo = lastLoadedAt ? Math.max(0, Math.round((Date.now() - lastLoadedAt.getTime()) / 1000)) : null;
 
   return (
     <div className="min-h-screen bg-slate-50/60 p-6 sm:p-10 text-slate-800 font-sans antialiased">
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-8 bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-3xl shadow-sm">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           <div>
-            <div className="flex items-center gap-3">
-              <div className="p-2.5 bg-slate-900 text-white rounded-2xl shadow-sm">
-                <Activity className="w-6 h-6" />
-              </div>
-              <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight text-slate-900">
-                Super Admin Dashboard
-              </h1>
-            </div>
-            <p className="mt-2 text-sm text-slate-500 font-medium ml-1">
-              Comprehensive platform overview across all organizations and products.
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight" style={{ color: INK }}>
+              Platform Command Center
+            </h1>
+            <p className="mt-1.5 text-sm font-medium" style={{ color: INK_SOFT }}>
+              Commercial, customer, service, security and governance health across ZoikoHR.
             </p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2.5">
+            <LabeledSelect label="Environment" value="Production" options={["Production", "Staging"]} disabled />
+            <LabeledSelect label="Region" value="Global" options={["Global"]} disabled />
+            <LabeledSelect
+              label="Period"
+              value={`Last ${days} days`}
+              options={["Last 7 days", "Last 30 days", "Last 90 days"]}
+              onChange={(v) => setDays(parseInt(v.match(/\d+/)[0], 10))}
+            />
+            <button onClick={loadAll} className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition" title="Refresh">
+              <RefreshCw className={`w-4 h-4 text-slate-600 ${loading ? "animate-spin" : ""}`} />
+            </button>
+            <button onClick={handleExport} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition text-sm font-semibold text-slate-700">
+              <Download className="w-4 h-4" /> Export
+            </button>
+            <button
+              onClick={() => navigate("/super-admin/organizations")}
+              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm hover:opacity-90 transition"
+              style={{ background: BLUE }}
+            >
+              <Plus className="w-4 h-4" /> Create Organization
+            </button>
           </div>
         </div>
 
@@ -144,112 +162,117 @@ export default function SuperAdminDashboardPage() {
           <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 flex-shrink-0" />
             <span>{error}</span>
-            <button onClick={loadStats} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
+            <button onClick={loadAll} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
           </div>
         )}
 
-        {/* Primary Stat Cards */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {statCards.map((s, idx) => (
-            <div key={idx}
-              className={`group p-5 bg-white border border-slate-200/80 rounded-3xl shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5 ${s.link ? "cursor-pointer" : ""}`}
-              onClick={() => s.link && navigate(s.link)}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <div className={`p-2.5 bg-gradient-to-br ${s.gradient} text-white rounded-2xl shadow-sm`}>
-                  <s.icon className="w-5 h-5" />
-                </div>
-                {s.link && <ChevronRight className="w-4 h-4 text-slate-300 group-hover:text-slate-500 transition" />}
-              </div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{s.title}</p>
-              <p className="text-3xl font-extrabold text-slate-900 mt-1">{s.value}</p>
-            </div>
-          ))}
+        {/* Status banner */}
+        <div className={`flex flex-wrap items-center gap-2 px-5 py-3 rounded-2xl border ${banner.bg} ${banner.border}`}>
+          <span className={`w-2 h-2 rounded-full ${banner.dot}`} />
+          <span className={`text-sm font-semibold ${banner.text}`}>{banner.label}</span>
+          <span className="text-slate-400">•</span>
+          <span className="text-sm font-medium text-slate-600">
+            {overview?.active_p1_incidents ?? 0} active P1 incident{overview?.active_p1_incidents === 1 ? "" : "s"}
+          </span>
+          <span className="text-slate-400">•</span>
+          <span className="text-sm font-medium text-slate-600">
+            API {overview?.platform_reliability_pct != null ? `${overview.platform_reliability_pct}%` : "not yet recorded"}
+          </span>
+          {secondsAgo != null && (
+            <>
+              <span className="text-slate-400">•</span>
+              <span className="text-sm font-medium text-slate-600">Updated {secondsAgo}s ago</span>
+            </>
+          )}
+          <button
+            onClick={() => platformHealthRef.current?.scrollIntoView({ behavior: "smooth", block: "center" })}
+            className="ml-auto flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800"
+          >
+            View status page <ExternalLink className="w-3 h-3" />
+          </button>
         </div>
 
-        {/* Secondary Stat Cards */}
-        <div className="grid gap-4 sm:grid-cols-3">
-          {secondaryCards.map((s, idx) => (
-            <div key={idx} className="p-5 bg-white border border-slate-200/80 rounded-3xl shadow-sm transition-all hover:shadow-md hover:-translate-y-0.5">
-              <div className="flex items-center gap-3 mb-3">
-                <div className={`p-2 bg-gradient-to-br ${s.gradient} text-white rounded-xl shadow-sm`}>
-                  <s.icon className="w-4 h-4" />
-                </div>
-                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{s.title}</p>
-              </div>
-              <p className="text-2xl font-extrabold text-slate-900">{s.value}</p>
-            </div>
-          ))}
+        {/* KPI tiles */}
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+          <StatTile
+            icon={Building2} iconGradient="from-blue-500 to-indigo-500" title="Active Organizations"
+            valueDisplay={loading ? "—" : overview?.active_organizations?.value ?? 0}
+            deltaPct={overview?.active_organizations?.delta_pct} series={overview?.active_organizations?.series}
+            sparklineColor={BLUE}
+          />
+          <StatTile
+            icon={Users} iconGradient="from-violet-500 to-purple-500" title="Subscribed Workforce"
+            valueDisplay={loading ? "—" : formatCompactNumber(overview?.subscribed_workforce?.value)}
+            deltaPct={overview?.subscribed_workforce?.delta_pct} series={overview?.subscribed_workforce?.series}
+            sparklineColor="#8B5CF6"
+          />
+          <StatTile
+            icon={CircleDollarSign} iconGradient="from-emerald-500 to-teal-500" title="MRR"
+            valueDisplay={loading ? "—" : formatCurrencyFromCents(overview?.mrr_cents?.value)}
+            deltaPct={overview?.mrr_cents?.delta_pct} series={overview?.mrr_cents?.series}
+            sparklineColor={EMERALD}
+          />
+          <StatTile
+            icon={Rocket} iconGradient="from-sky-500 to-blue-500" title="Activation Rate"
+            valueDisplay={loading ? "—" : `${(overview?.activation_rate_pct?.value ?? 0).toFixed(1)}%`}
+            deltaPct={overview?.activation_rate_pct?.delta_pct} series={overview?.activation_rate_pct?.series}
+            sparklineColor="#0EA5E9"
+          />
+          <StatTile
+            icon={ShieldCheck} iconGradient="from-emerald-500 to-green-600" title="Platform Reliability"
+            valueDisplay={loading ? "—" : overview?.platform_reliability_pct != null ? `${overview.platform_reliability_pct}%` : "—"}
+            deltaPct={null} series={null}
+            sparklineColor={EMERALD}
+          />
+          <StatTile
+            icon={AlertTriangle} iconGradient="from-red-500 to-rose-500" title="Critical Attention"
+            valueDisplay={loading ? "—" : overview?.critical_attention_count ?? 0}
+            deltaPct={null} series={null}
+            sparklineColor={RED}
+          />
         </div>
 
-        {/* Recent Organizations */}
-        {stats?.recent_organizations?.length > 0 && (
-          <div className="bg-white border border-slate-200/80 rounded-3xl shadow-sm overflow-hidden">
-            <div className="p-6 border-b border-slate-100 flex items-center justify-between bg-slate-50/30">
-              <div className="flex items-center gap-3">
-                <h2 className="text-lg font-bold text-slate-900">Recent Organizations</h2>
-                <span className="px-2.5 py-0.5 text-xs font-semibold text-slate-600 bg-slate-100 border border-slate-200 rounded-full">
-                  {stats.recent_organizations.length}
-                </span>
-              </div>
-              <button onClick={() => navigate("/super-admin/organizations")}
-                className="text-xs font-semibold text-indigo-600 hover:text-indigo-800 transition">
-                View all →
-              </button>
-            </div>
-            <div className="divide-y divide-slate-100">
-              {stats.recent_organizations.map((org) => {
-                const avatar = getOrgAvatar(org.name);
-                return (
-                  <div key={org.id}
-                    className="flex items-center gap-4 px-6 py-4 hover:bg-slate-50/60 transition-colors cursor-pointer group"
-                    onClick={() => navigate(`/super-admin/organizations/${org.id}`)}
-                  >
-                    <div className={`w-10 h-10 rounded-2xl bg-gradient-to-br ${avatar.gradient} text-white flex items-center justify-center font-bold text-xs shadow-sm ring-2 ring-white shrink-0`}>
-                      {avatar.initials}
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="font-bold text-slate-900 text-sm group-hover:text-indigo-600 transition-colors truncate">
-                        {org.name}
-                      </div>
-                      <div className="text-xs font-medium text-slate-400">
-                        ID: {org.organization_code || "—"} · {org.total_employees ?? 0} employees
-                      </div>
-                    </div>
-                    <StatusBadge status={org.status} />
-                    <span className="text-xs font-medium text-slate-400 shrink-0">
-                      {org.created_at ? new Date(org.created_at).toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" }) : "—"}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
+        {!overview?.mrr_pricing_configured && !loading && (
+          <div className="rounded-2xl border border-amber-200/60 bg-amber-50 px-5 py-3 text-sm text-amber-700">
+            Plan pricing hasn't been configured yet on the Billing Plans page, so MRR and other revenue figures are correctly showing as $0 — not a bug.
           </div>
         )}
 
-        {/* Workforce Summary */}
-        <div className="bg-white border border-slate-200/80 rounded-3xl shadow-sm p-6">
-          <h2 className="text-lg font-bold text-slate-900 mb-4">Workforce Summary</h2>
-          <div className="grid grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Employees</p>
-              <p className="text-2xl font-extrabold text-slate-900 mt-1">{stats?.total_employees ?? 0}</p>
-            </div>
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Active Employees</p>
-              <p className="text-2xl font-extrabold text-emerald-600 mt-1">{stats?.active_employees ?? 0}</p>
-            </div>
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Total Admins</p>
-              <p className="text-2xl font-extrabold text-slate-900 mt-1">{stats?.total_admins ?? 0}</p>
-            </div>
-            <div className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider">HR Admins</p>
-              <p className="text-2xl font-extrabold text-slate-900 mt-1">{stats?.total_hr_admins ?? 0}</p>
-            </div>
+        {/* Attention / Customer Health / Commercial Health */}
+        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr_1.3fr] gap-4 items-start">
+          <NeedsAttentionTable items={attention} loading={loading} />
+          <CustomerHealthCard data={customerHealth} loading={loading} />
+          <CommercialHealthCard data={commercialHealth} loading={loading} pricingConfigured={overview?.mrr_pricing_configured} />
+        </div>
+
+        {/* Lifecycle / Platform Health / Security / Governance */}
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+          <OrgLifecycleFunnel data={lifecycle} loading={loading} />
+          <div ref={platformHealthRef}>
+            <PlatformHealthCard data={platformHealth} loading={loading} onUpdateStatus={handleUpdateServiceStatus} />
           </div>
+          <SecurityAccessCard data={security} loading={loading} />
+          <GovernanceAuditCard auditEventsCount={auditEventsCount} recentActivity={recentAudit} loading={loading} />
         </div>
       </div>
+    </div>
+  );
+}
+
+function LabeledSelect({ label, value, options, onChange, disabled }) {
+  return (
+    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white">
+      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
+      <select
+        value={value}
+        disabled={disabled}
+        onChange={(e) => onChange?.(e.target.value)}
+        className={`text-sm font-semibold text-slate-700 bg-transparent outline-none ${disabled ? "cursor-default appearance-none pr-0" : "cursor-pointer"}`}
+      >
+        {options.map((o) => (
+          <option key={o} value={o}>{o}</option>
+        ))}
+      </select>
     </div>
   );
 }

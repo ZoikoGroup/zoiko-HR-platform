@@ -44,4 +44,18 @@ export const superAdminService = {
   // Platform Settings
   getSettings: () => api.get("/super-admin/platform-settings"),
   updateSetting: (key, data) => api.put(`/super-admin/platform-settings/${key}`, data),
+
+  // Platform Command Center
+  getCommandCenterOverview: (params) => api.get("/super-admin/command-center/overview", { params }),
+  getCommandCenterAttention: () => api.get("/super-admin/command-center/attention"),
+  getCommandCenterCustomerHealth: () => api.get("/super-admin/command-center/customer-health"),
+  getCommandCenterCommercialHealth: (params) => api.get("/super-admin/command-center/commercial-health", { params }),
+  getCommandCenterLifecycle: () => api.get("/super-admin/command-center/lifecycle"),
+  getCommandCenterPlatformHealth: () => api.get("/super-admin/command-center/platform-health"),
+  updateCommandCenterPlatformHealth: (serviceName, data) =>
+    api.put(`/super-admin/command-center/platform-health/${serviceName}`, data),
+  getCommandCenterSecurity: (params) => api.get("/super-admin/command-center/security", { params }),
+  getCommandCenterIncidents: (params) => api.get("/super-admin/command-center/incidents", { params }),
+  createCommandCenterIncident: (data) => api.post("/super-admin/command-center/incidents", data),
+  resolveCommandCenterIncident: (id) => api.put(`/super-admin/command-center/incidents/${id}/resolve`),
 };

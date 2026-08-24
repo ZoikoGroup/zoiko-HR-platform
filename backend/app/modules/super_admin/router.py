@@ -10,15 +10,19 @@ endpoint (or scripts/seed_super_admin.py) and then logs in through the normal
 """
 
 import logging
+import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Request
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.database import get_db
 from app.core.dependencies import get_current_super_admin
-from app.core.exceptions import BadRequestException, NotFoundException, UnauthorizedException
+from app.core.exceptions import (
+    BadRequestException, NotFoundException, UnauthorizedException, ZoikoException,
+)
 from app.core.security import hash_password
 
 from app.modules.super_admin.models import (
@@ -69,7 +73,7 @@ def bootstrap_super_admin(data: SuperAdminBootstrapRequest, db: Session = Depend
         raise UnauthorizedException(
             "Super Admin bootstrap is disabled. Set SUPER_ADMIN_SETUP_KEY in the environment."
         )
-    if data.setup_key != settings.SUPER_ADMIN_SETUP_KEY:
+    if not secrets.compare_digest(data.setup_key, settings.SUPER_ADMIN_SETUP_KEY):
         raise UnauthorizedException("Invalid setup key.")
 
     from datetime import date
@@ -700,6 +704,11 @@ def update_platform_setting(
 
 
 # ── Public health probe (no auth) ─────────────────────────────────────────────
-@router.get("/health", include_in_schema=False, summary="Liveness probe")
-def health():
+@router.get("/health", include_in_schema=False, summary="Readiness probe")
+def health(db: Session = Depends(get_db)):
+    try:
+        db.execute(text("SELECT 1"))
+    except Exception as exc_info:
+        logger.error("Health check DB connectivity failed: %s", exc_info)
+        raise ZoikoException(503, "SERVICE_UNAVAILABLE", "Database unreachable") from exc_info
     return {"status": "ok"}

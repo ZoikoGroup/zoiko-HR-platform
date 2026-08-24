@@ -1,0 +1,13 @@
+.venv
+venv
+__pycache__
+**/__pycache__
+*.pyc
+.env
+.env.example
+*.log
+.git
+.gitignore
+tests
+backend_stdout.log
+backend_stderr.log

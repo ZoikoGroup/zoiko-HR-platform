@@ -119,7 +119,6 @@ export default function DesignationList() {
         setDepartments(Array.isArray(deptItems) ? deptItems : []);
         const empItems = empRes?.data || empRes?.items || (Array.isArray(empRes) ? empRes : []);
         const emps = Array.isArray(empItems) ? empItems : [];
-        if (emps.length > 0) console.log("First employee keys:", Object.keys(emps[0]), "sample:", emps[0]);
         setEmployees(emps);
       })
       .catch((err) => console.error(err))

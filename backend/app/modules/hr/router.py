@@ -2169,7 +2169,7 @@ def list_travel_requests(
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=10000),
+    per_page: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
     status: Optional[RequestStatus] = Query(None),
 ):
@@ -2270,7 +2270,7 @@ def list_travel_expenses(
     employee_id: Optional[int] = Query(None),
     status: Optional[RequestStatus] = Query(None),
     page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=10000),
+    per_page: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
 ):
     result = service.get_travel_expenses(
