@@ -38,8 +38,22 @@ PROMPT_VERSION = "zhr-system-1.1.0"
 _ATTACHMENT_COMPETING_MIN_SCORE = 0.7
 
 _LEAVE_BOOKING_RE = re.compile(r"\b(book|request|apply for|take)\b.*\bleave\b", re.IGNORECASE)
-_LEAVE_BALANCE_RE = re.compile(r"\bleave\b.*\b(balance|left|remaining|days)\b|\bhow many.*leave\b", re.IGNORECASE)
-_ATTENDANCE_RE = re.compile(r"\battendance\b|\bclock(ed)? in\b|\bcheck(ed)? in\b", re.IGNORECASE)
+_LEAVE_BALANCE_RE = re.compile(
+    r"\bleave\b.*\b(balance|left|remaining|days)\b|\bhow many.*leave\b"
+    r"|\bentitle\w*\b.*\bleave\b|\bleave\b.*\bentitle\w*\b"
+    r"|\bentitle\w*\b.{0,20}\bdays?\b|\bdays?\b.{0,20}\bentitle\w*\b"
+    # Named leave-type phrasing with no literal "leave"/"entitle" at all, e.g.
+    # "how many sick days do I get" or "vacation days remaining" — matches
+    # the same leave_type vocabulary attendance_service.get_leave_balance()
+    # already returns (sick/casual/annual/earned/etc., see _answer_leave_balance).
+    r"|\b(sick|casual|annual|vacation|personal|earned|paid|maternity|paternity|bereavement|comp(?:-?\s?off)?|unpaid)\b"
+    r".{0,15}\bdays?\b",
+    re.IGNORECASE,
+)
+_ATTENDANCE_RE = re.compile(
+    r"\battendance\b|\bclock(ed)? (in|out)\b|\bcheck(ed)? (in|out)\b",
+    re.IGNORECASE,
+)
 _HANDOFF_RE = re.compile(r"\bspeak (to|with)\b.*\bhr\b|\btalk to a human\b|\bcontact hr\b", re.IGNORECASE)
 _HEADCOUNT_RE = re.compile(
     r"\bhow many (emplo\w*|people|staff|workers)\b|\b(emplo\w*|staff) (count|headcount)\b|\bheadcount\b"
