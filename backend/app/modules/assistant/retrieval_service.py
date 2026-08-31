@@ -106,3 +106,66 @@ def retrieve(
             "score": score,
         })
     return results
+
+
+def retrieve_public(db: Session, query_text: str, top_k: int = TOP_K) -> list[dict]:
+    """Same shape as retrieve(), for the unauthenticated public assistant
+    (zoikohr.com). Eligibility is KnowledgeSource.is_public == True instead
+    of an organization_id match — public content is explicitly opted-in per
+    source, regardless of which tenant authored it, so an anonymous visitor
+    is never scoped to any one organization. Applicability filters
+    (worker_type/audience_role/jurisdiction) don't apply to a visitor with no
+    account, so they're skipped entirely rather than passed as None."""
+    query_vector = embeddings.embed_text(query_text)
+    today = datetime.date.today()
+
+    eligible_version_ids = (
+        db.query(KnowledgeSourceVersion.id)
+        .join(KnowledgeSource, KnowledgeSource.id == KnowledgeSourceVersion.knowledge_source_id)
+        .filter(KnowledgeSource.is_public.is_(True))
+        .filter(KnowledgeSource.status == KnowledgeStatus.PUBLISHED)
+        .filter(
+            (KnowledgeSourceVersion.effective_from.is_(None)) | (KnowledgeSourceVersion.effective_from <= today)
+        )
+        .filter(
+            (KnowledgeSourceVersion.effective_to.is_(None)) | (KnowledgeSourceVersion.effective_to >= today)
+        )
+        .distinct()
+        .all()
+    )
+    version_ids = [row[0] for row in eligible_version_ids]
+    if not version_ids:
+        return []
+
+    rows = (
+        db.query(
+            KnowledgeFragment,
+            KnowledgeSourceVersion.knowledge_source_id,
+            KnowledgeFragment.embedding.cosine_distance(query_vector).label("distance"),
+        )
+        .join(KnowledgeSourceVersion, KnowledgeSourceVersion.id == KnowledgeFragment.knowledge_source_version_id)
+        .filter(KnowledgeFragment.knowledge_source_version_id.in_(version_ids))
+        .filter(KnowledgeFragment.embedding.is_not(None))
+        .order_by("distance")
+        .limit(top_k)
+        .all()
+    )
+
+    source_titles = {
+        s.id: s.title for s in db.query(KnowledgeSource).filter(KnowledgeSource.is_public.is_(True)).all()
+    }
+
+    results = []
+    for fragment, source_id, distance in rows:
+        score = max(0.0, 1.0 - float(distance))
+        if score < MIN_RELEVANCE_SCORE:
+            continue
+        results.append({
+            "fragment_id": fragment.id,
+            "source_version_id": fragment.knowledge_source_version_id,
+            "source_id": source_id,
+            "source_title": source_titles.get(source_id, "Unknown source"),
+            "text": fragment.text,
+            "score": score,
+        })
+    return results

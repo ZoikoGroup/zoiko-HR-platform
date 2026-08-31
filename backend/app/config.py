@@ -55,8 +55,15 @@ class Settings(BaseSettings):
         return value
 
     # ── CORS ──────────────────────────────────────────────────────────────
+    # This default is a fallback only — the real deployed server's .env sets
+    # CORS_ORIGINS explicitly (see backend/.env.example). The production
+    # origins are included here too as a safety net in case that env var is
+    # ever missing: app.zoikohr.com (authenticated platform) and
+    # zoikohr.com/www.zoikohr.com (public marketing site + its chat widget).
     CORS_ORIGINS: str = (
+        "https://app.zoikohr.com,https://zoikohr.com,https://www.zoikohr.com,"
         "http://localhost:3000,http://127.0.0.1:3000,"
+        "http://localhost:3001,http://127.0.0.1:3001,"  # Next.js falls back here when 3000 is taken
         "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,"
         "http://127.0.0.1:5173,http://127.0.0.1:5174"
     )
@@ -86,6 +93,13 @@ class Settings(BaseSettings):
     # mode. Re-verify against `client.models.list()` before changing this.
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
+
+    # ── Public assistant (zoikohr.com) ──────────────────────────────────────
+    # Organization that owns the seeded is_public=True knowledge content and
+    # that audit/safety log rows for anonymous public queries are attributed
+    # to (both organization_id columns are NOT NULL). Set after running
+    # scripts/seed_public_assistant.py. 0 disables the public endpoint.
+    PUBLIC_ORG_ID: int = Field(default=0, validation_alias="HR_PUBLIC_ORG_ID")
 
 
 settings = Settings()

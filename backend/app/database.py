@@ -116,6 +116,7 @@ def initialize_database() -> None:
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_by INTEGER",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
         "ALTER TABLE hr_documents ADD COLUMN IF NOT EXISTS folder_id INTEGER",
+        "ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE",
     ]
     try:
         from sqlalchemy import text as sql_text

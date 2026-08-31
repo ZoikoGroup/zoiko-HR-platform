@@ -192,6 +192,7 @@ class KnowledgeSourceCreate(BaseModel):
     audience_role: Optional[str] = None
     effective_from: Optional[date] = None
     effective_to: Optional[date] = None
+    is_public: bool = False
 
 
 class KnowledgeSourceResponse(BaseModel):
@@ -200,6 +201,7 @@ class KnowledgeSourceResponse(BaseModel):
     source_type: str
     authority_tier: str
     status: str
+    is_public: bool
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -235,6 +237,32 @@ class KnowledgeSourceMetadataUpdate(BaseModel):
     jurisdiction_code: Optional[str] = None
     worker_type: Optional[str] = None
     audience_role: Optional[str] = None
+    is_public: Optional[bool] = None
+
+
+# ── Public assistant (zoikohr.com, unauthenticated) ─────────────────────────
+
+class PublicHistoryTurn(BaseModel):
+    question: str = Field(..., max_length=500)
+    answer: str = Field(..., max_length=2000)
+
+
+class PublicAskRequest(BaseModel):
+    question: str = Field(..., min_length=1, max_length=500)
+    history: list[PublicHistoryTurn] = Field(default_factory=list, max_length=6)
+    session_id: Optional[str] = Field(None, max_length=100)
+
+
+class PublicSource(BaseModel):
+    title: str
+    excerpt: str
+
+
+class PublicAskResponse(BaseModel):
+    answer_text: str
+    answer_type: str
+    confidence_state: str
+    sources: list[PublicSource] = Field(default_factory=list)
 
 
 # ── Operational controls ──────────────────────────────────────────────────────
