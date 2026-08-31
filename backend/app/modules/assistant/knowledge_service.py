@@ -61,6 +61,7 @@ def create_source(
     audience_role: str | None,
     effective_from,
     effective_to,
+    is_public: bool = False,
 ) -> KnowledgeSource:
     source = KnowledgeSource(
         organization_id=organization_id,
@@ -69,6 +70,7 @@ def create_source(
         authority_tier=authority_tier,
         status=KnowledgeStatus.DRAFT,
         owner_employee_id=owner_employee_id,
+        is_public=is_public,
     )
     db.add(source)
     db.flush()
@@ -264,6 +266,7 @@ def update_source_metadata(
     jurisdiction_code: str | None = None,
     worker_type: str | None = None,
     audience_role: str | None = None,
+    is_public: bool | None = None,
 ) -> KnowledgeSource:
     """Full-replace semantics for whichever fields are provided (matches the
     rest of this codebase's PATCH conventions, e.g. conversation rename) —
@@ -277,6 +280,8 @@ def update_source_metadata(
         source.source_type = source_type
     if authority_tier is not None:
         source.authority_tier = authority_tier
+    if is_public is not None:
+        source.is_public = is_public
 
     if jurisdiction_code is not None or worker_type is not None or audience_role is not None:
         if not source.versions:

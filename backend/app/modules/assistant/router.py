@@ -15,6 +15,7 @@ from app.modules.assistant.operations_router import operations_router
 from app.modules.assistant.scope_router import scope_router
 from app.modules.assistant.privacy_router import privacy_router
 from app.modules.assistant.attachment_router import attachment_router
+from app.modules.assistant.public_router import public_router
 
 assistant_router = APIRouter()
 assistant_router.include_router(conversation_router)
@@ -26,3 +27,4 @@ assistant_router.include_router(operations_router)
 assistant_router.include_router(scope_router)
 assistant_router.include_router(privacy_router)
 assistant_router.include_router(attachment_router)
+assistant_router.include_router(public_router)
