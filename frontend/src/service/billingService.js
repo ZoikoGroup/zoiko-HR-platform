@@ -27,6 +27,44 @@ export const billingService = {
   getDiscounts: (params) => api.get("/billing/discounts", { params }),
   createDiscount: (data) => api.post("/billing/discounts", data),
 
+  // ── Checkout (Stripe hosted) ─────────────────────────────────────────────
+  createCheckoutSession: (data, idempotencyKey) =>
+    api.post("/billing/checkout-session", data, {
+      headers: { "Idempotency-Key": idempotencyKey },
+    }),
+
+  // ── Invoices ─────────────────────────────────────────────────────────────
+  getInvoices: (orgId) => api.get(`/billing/invoices/${orgId}`),
+
+  // ── Provider refs (Stripe customer/subscription IDs) ─────────────────────
+  getProviderRefs: (orgId) => api.get(`/billing/provider-refs/${orgId}`),
+
+  // ── Plan Changes (Prompt 4) ─────────────────────────────────────────────
+  previewPlanChange: (orgId, data) =>
+    api.post(`/billing/plan-changes/preview`, data, { params: { org_id: orgId } }),
+
+  schedulePlanChange: (orgId, data) =>
+    api.post(`/billing/plan-changes/schedule`, data, { params: { org_id: orgId } }),
+
+  cancelPlanChange: (changeId, data) =>
+    api.post(`/billing/plan-changes/${changeId}/cancel`, data),
+
+  listPlanChanges: (orgId) =>
+    api.get(`/billing/plan-changes/${orgId}`),
+
+  // ── Refunds (Section 12 I3) ────────────────────────────────────────────
+  requestRefund: (orgId, data) =>
+    api.post(`/billing/refunds/request`, data, { params: { org_id: orgId } }),
+
+  approveRefund: (requestId, data = {}) =>
+    api.post(`/billing/refunds/${requestId}/approve`, data),
+
+  rejectRefund: (requestId, data = {}) =>
+    api.post(`/billing/refunds/${requestId}/reject`, data),
+
+  listRefundRequests: (orgId) =>
+    api.get(`/billing/refunds/${orgId}`),
+
   // ── Existing foundation endpoints ────────────────────────────────────────
   getOverview: (orgId) => api.get(`/billing/organizations/${orgId}/overview`),
   getWorkforce: (orgId) => api.get(`/billing/organizations/${orgId}/workforce`),

@@ -179,7 +179,9 @@ export default function BillingOverviewPage() {
                   </div>
                   <div className="flex items-center gap-3">
                     <span className="text-sm font-bold text-slate-800">
-                      {plan.monthly_price != null ? `$${plan.monthly_price}/mo` : <span className="text-slate-400 italic text-xs">Not set</span>}
+                      {plan.monthly_price != null && !Number.isNaN(Number(plan.monthly_price))
+                        ? `$${plan.monthly_price}/mo`
+                        : <span className="text-slate-400 text-[11px] italic">Pricing pending — contact sales</span>}
                     </span>
                     {plan.is_active
                       ? <CheckCircle className="h-4 w-4 text-green-500 shrink-0" />

@@ -12,9 +12,11 @@ Existing billing deps from core/dependencies.py are reused — no second
 permission system.
 """
 
+import json
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, Query, Request
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -24,14 +26,37 @@ from app.core.dependencies import (
     get_current_billing_viewer,
     get_current_user,
     require_organization_access,
+    get_current_super_admin,
 )
-from app.core.exceptions import ForbiddenException, AlreadyExistsException
+from app.core.exceptions import ForbiddenException, AlreadyExistsException, BadRequestException
 from app.modules.billing import service
-from app.modules.billing.models import BillingAuditAction, BillingPlan
+from app.modules.billing import catalog_service
+from app.modules.billing import plan_change_service
+from app.modules.billing import refund_service
+from app.modules.billing.models import (
+    BillingAuditAction, BillingAuditLog, BillingInvoice, BillingPlan, BillingWebhookEvent,
+    BillingPlanChange, BillingRefundRequest,
+    ProviderRef, RefundRequestStatus, SubscriptionStatus,
+)
+from app.modules.billing.entitlement_service import compute_entitlement_snapshot
+from app.modules.billing.idempotency import execute_idempotent, require_idempotency_key
+from app.modules.billing.stripe_client import (
+    create_checkout_session,
+    stripe_enabled,
+    verify_webhook_signature,
+)
+from app.modules.billing.webhook_service import process_webhook_event
+from app.modules.billing.reconciliation_service import reconcile_org
 from app.modules.billing.schemas import (
     BillingAuditLogItem,
+    BillingInvoiceResponse,
     BillingOverviewResponse,
     CancelRequest,
+    CatalogPublishRequest,
+    CatalogPublishResponse,
+    CatalogResponse,
+    CheckoutSessionRequest,
+    CheckoutSessionResponse,
     ClassificationUpdateRequest,
     ConversionListResponse,
     ConversionRequest,
@@ -44,12 +69,27 @@ from app.modules.billing.schemas import (
     EvaluationListResponse,
     EvaluationResponse,
     EvaluationStartRequest,
+    InvoiceListResponse,
+    PlanChangeCancelRequest,
+    PlanChangeListResponse,
+    PlanChangePreviewRequest,
+    PlanChangePreviewResponse,
+    PlanChangeResponse,
+    PlanChangeScheduleRequest,
     PlanCreateRequest,
     PlanListResponse,
     PlanResponse,
     PlanUpdateRequest,
+    ProviderRefResponse,
+    ReconcileRequest,
+    ReconciliationCaseResponse,
+    RefundApproveRequest,
+    RefundListResponse,
+    RefundRequest,
+    RefundResponse,
     SubscriptionResponse,
     UpgradeRequest,
+    WebhookEventListResponse,
     WorkforceSnapshotResponse,
 )
 
@@ -305,6 +345,10 @@ def update_plan(
 ):
     plan = service.get_plan_by_id(db, plan_id)
 
+    # Section 17 immutability: a PUBLISHED plan is append-only — refuse any
+    # mutation instead of silently succeeding.
+    catalog_service.ensure_plan_mutable(plan)
+
     # Immutability guard: if this plan's catalog_version is referenced by any
     # billing_conversion, reject edits (Section 17).
     if data.catalog_version is not None and data.catalog_version != plan.catalog_version:
@@ -335,7 +379,51 @@ def update_plan(
     return service.plan_to_dict(plan)
 
 
-# ── Evaluation endpoints ──────────────────────────────────────────────────────
+# ── Catalog publication endpoints (Section 17) ───────────────────────────────
+
+@billing_router.get(
+    "/catalog",
+    response_model=CatalogResponse,
+    summary="Customer-visible catalog (published plans only)",
+)
+def get_catalog(
+    catalog_version: str = Query(None, alias="catalog_version"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    """Only PUBLISHED, active plans — Section 17 core rule: a draft/unpublished
+    price record is NEVER exposed to customers."""
+    plans = catalog_service.get_customer_visible_plans(db, version=catalog_version)
+    return CatalogResponse(
+        version=catalog_service.get_latest_published_catalog_version(db),
+        list=[catalog_service.catalog_plan_to_dict(p) for p in plans],
+        total=len(plans),
+    )
+
+
+@billing_router.post(
+    "/catalog/publish",
+    response_model=CatalogPublishResponse,
+    summary="Publish a catalog version (Super Admin only, irreversible)",
+)
+def publish_catalog(
+    data: CatalogPublishRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    """Publishing is IRREVERSIBLE and append-only (Section 17). The caller must
+    echo the exact version string; any mismatch is rejected. A version with a
+    non-contract-priced plan missing a price is rejected — never publish a
+    broken catalog."""
+    version = (data.catalog_version or "").strip()
+    # The JSON body IS the echo/confirmation — a non-empty exact string is required.
+    if not version:
+        raise BadRequestException("catalog_version is required to confirm publication.")
+    plans = catalog_service.publish_catalog_version(
+        db, version=version, actor_email=getattr(current_user, "email", "unknown")
+    )
+    published = [catalog_service.catalog_plan_to_dict(p) for p in plans]
+    return CatalogPublishResponse(published=published, total=len(published), version=version)
 
 @billing_router.post(
     "/evaluations",
@@ -538,12 +626,12 @@ def downgrade_dry_run(
     current_user=Depends(get_current_billing_owner),
 ):
     _check_org_scope(current_user, org_id)
-    return service.downgrade_subscription_dry_run(db, org_id, data.plan_id)
+    return plan_change_service.preview_plan_change(db, org_id, data.plan_id)
 
 
 @billing_router.post(
     "/subscriptions/{org_id}/downgrade",
-    response_model=SubscriptionResponse,
+    response_model=PlanChangeResponse,
     summary="Schedule downgrade (effective at renewal_anchor_date)",
 )
 def downgrade_subscription(
@@ -553,12 +641,13 @@ def downgrade_subscription(
     current_user=Depends(get_current_billing_owner),
 ):
     _check_org_scope(current_user, org_id)
-    subscription = service.schedule_downgrade(
+    change = plan_change_service.schedule_plan_change(
         db,
         organization_id=org_id,
         plan_id=data.plan_id,
         billing_cycle=data.billing_cycle,
         effective_at=data.effective_at,
+        requested_by=current_user,
     )
 
     service.log_billing_audit(
@@ -566,16 +655,17 @@ def downgrade_subscription(
         actor=current_user,
         organization_id=org_id,
         action=BillingAuditAction.SUBSCRIPTION_DOWNGRADED,
-        entity_type="BillingSubscription",
-        entity_id=subscription.id,
+        entity_type="BillingPlanChange",
+        entity_id=change.id,
         before=None,
         after={
-            "plan_id": subscription.plan_id,
-            "plan_code": service.role_value(subscription.plan_code) if subscription.plan_code else None,
-            "renewal_anchor_date": subscription.renewal_anchor_date.isoformat() if subscription.renewal_anchor_date else None,
+            "change_type": change.change_type.value if change.change_type else None,
+            "to_plan_id": change.to_plan_id,
+            "effective_at": change.effective_at.isoformat() if change.effective_at else None,
+            "status": change.status.value if change.status else None,
         },
     )
-    return subscription
+    return change
 
 
 @billing_router.post(
@@ -673,3 +763,438 @@ def create_discount(
         },
     )
     return discount
+
+
+# ── Entitlement snapshot endpoint ────────────────────────────────────────────
+
+@billing_router.get(
+    "/entitlements/{org_id}",
+    summary="Compiled entitlement snapshot for an organization",
+    description=(
+        "Returns the resolved entitlement state for every feature key, "
+        "backed by the organization's plan and contract overrides."
+    ),
+)
+def get_entitlement_snapshot(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    return compute_entitlement_snapshot(db, org_id)
+
+
+# ── Stripe Checkout (Prompt 3) ─────────────────────────────────────────────
+
+@billing_router.post(
+    "/checkout-session",
+    response_model=CheckoutSessionResponse,
+    summary="Create a Stripe Checkout Session (evaluation→paid or plan change)",
+)
+def create_checkout(
+    data: CheckoutSessionRequest,
+    request: Request,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+    idempotency_key: str = Depends(require_idempotency_key),
+):
+    if not stripe_enabled():
+        raise BadRequestException(
+            "Stripe is not configured. Set HR_STRIPE_SECRET_KEY to enable checkout."
+        )
+
+    _check_org_scope(current_user, data.organization_id)
+    plan = service.get_plan_by_id(db, data.plan_id)
+
+    if not plan.stripe_monthly_price_id and not plan.stripe_annual_price_id:
+        raise BadRequestException(
+            "Selected plan does not have Stripe price IDs configured. "
+            "Run catalog sync first."
+        )
+
+    price_id = (
+        plan.stripe_annual_price_id if data.billing_cycle.value == "annual"
+        else plan.stripe_monthly_price_id
+    )
+    if not price_id:
+        raise BadRequestException(
+            f"No Stripe price ID for {data.billing_cycle.value} billing cycle."
+        )
+
+    def _do_checkout():
+        from app.modules.billing.models import ProviderRef
+        provider_ref = db.query(ProviderRef).filter(
+            ProviderRef.organization_id == data.organization_id
+        ).first()
+        customer_id = provider_ref.stripe_customer_id if provider_ref else None
+
+        result = create_checkout_session(
+            price_id=price_id,
+            org_id=data.organization_id,
+            customer_id=customer_id,
+            success_url=data.success_url,
+            cancel_url=data.cancel_url,
+            metadata={"plan_code": plan.code.value if hasattr(plan.code, "value") else str(plan.code)},
+            idempotency_key=idempotency_key,
+        )
+
+        service.log_billing_audit(
+            db,
+            actor=current_user,
+            organization_id=data.organization_id,
+            action=BillingAuditAction.CHECKOUT_SESSION_CREATED,
+            entity_type="BillingSubscription",
+            entity_id=None,
+            before=None,
+            after={"checkout_session_id": result["checkout_session_id"], "plan_id": data.plan_id},
+        )
+        return result, 200
+
+    result, status_code, _ = execute_idempotent(
+        db, idempotency_key, data.organization_id, "checkout-session",
+        data.model_dump(), _do_checkout,
+    )
+    return result
+
+
+# ── Provider Refs ───────────────────────────────────────────────────────────
+
+@billing_router.get(
+    "/provider-refs/{org_id}",
+    response_model=ProviderRefResponse,
+    summary="Stripe provider references for an organization",
+)
+def get_provider_refs(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    ref = db.query(ProviderRef).filter(ProviderRef.organization_id == org_id).first()
+    if not ref:
+        return ProviderRefResponse(organization_id=org_id)
+    return ref
+
+
+# ── Invoices ────────────────────────────────────────────────────────────────
+
+@billing_router.get(
+    "/invoices/{org_id}",
+    response_model=InvoiceListResponse,
+    summary="List Stripe invoices mirrored for an organization",
+)
+def list_invoices(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    invoices = (
+        db.query(BillingInvoice)
+        .filter(BillingInvoice.organization_id == org_id)
+        .order_by(BillingInvoice.created_at.desc())
+        .all()
+    )
+    return InvoiceListResponse(
+        list=[BillingInvoiceResponse.model_validate(inv) for inv in invoices],
+        total=len(invoices),
+    )
+
+
+# ── Webhook events log ─────────────────────────────────────────────────────
+
+@billing_router.get(
+    "/webhook-events",
+    response_model=list[WebhookEventListResponse],
+    summary="Recent Stripe webhook events (for review)",
+)
+def list_webhook_events(
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_admin),
+):
+    events = (
+        db.query(BillingWebhookEvent)
+        .order_by(BillingWebhookEvent.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+    return events
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Stripe Webhook — PUBLIC, no auth (Stripe sends unsigned-in-header)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Separate router — mounted directly in main.py, not via billing_router
+webhook_router = APIRouter(prefix="/billing/webhooks", tags=["Billing / Webhooks"])
+
+
+@webhook_router.post("/stripe")
+async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
+    """Stripe webhook receiver. Signature-verified against HR_STRIPE_WEBHOOK_SECRET.
+    Rejects anything that doesn't verify with 400 and a log entry.
+    No auth header required — Stripe calls this endpoint directly.
+    """
+    payload_body = await request.body()
+    sig_header = request.headers.get("stripe-signature", "")
+
+    if not verify_webhook_signature(payload_body, sig_header):
+        logger.warning(
+            "[webhook] Invalid signature from %s — rejecting",
+            request.client.host if request.client else "unknown",
+        )
+        return {"status": "error", "message": "invalid signature"}, 400
+
+    try:
+        event = json.loads(payload_body)
+    except json.JSONDecodeError:
+        logger.error("[webhook] Malformed JSON payload")
+        return {"status": "error", "message": "malformed JSON"}, 400
+
+    result = process_webhook_event(db, event)
+    status_code = 200 if result.get("status") != "error" else 500
+    return result, status_code
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Internal Reconciliation (privileged, audited, not customer-exposed)
+# ═══════════════════════════════════════════════════════════════════════════
+
+@billing_router.post(
+    "/internal/reconcile",
+    response_model=ReconciliationCaseResponse,
+    summary="Internal: reconcile local subscription state with Stripe (privileged)",
+    description=(
+        "Re-fetches subscription state from Stripe for a given organization, "
+        "diffs it against the local BillingSubscription row. On mismatch: "
+        "opens a reconciliation case (Section 21/22), does NOT auto-overwrite."
+    ),
+)
+def reconcile_subscription(
+    data: ReconcileRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    """Privileged endpoint: only super_admin can run reconciliation.
+    Writes a reconciliation case on mismatch, never auto-fixes."""
+    if not stripe_enabled():
+        raise BadRequestException("Stripe is not configured. Set HR_STRIPE_SECRET_KEY to enable reconciliation.")
+
+    result = reconcile_org(
+        db,
+        organization_id=data.organization_id,
+        actor=getattr(current_user, "email", "unknown"),
+    )
+
+    if result["matched"]:
+        return ReconciliationCaseResponse(
+            organization_id=data.organization_id,
+            reason="status_mismatch",
+            status="resolved",
+            notes="Subscription state matches Stripe — no case opened.",
+            opened_by=getattr(current_user, "email", "unknown"),
+        )
+
+    # Fetch the case that was opened
+    from app.modules.billing.models import BillingReconciliationCase, ReconciliationCaseStatus
+    case = (
+        db.query(BillingReconciliationCase)
+        .filter(BillingReconciliationCase.organization_id == data.organization_id)
+        .order_by(BillingReconciliationCase.created_at.desc())
+        .first()
+    )
+    if not case:
+        return ReconciliationCaseResponse(
+            organization_id=data.organization_id,
+            reason="status_mismatch",
+            status="open",
+            notes=f"Diffs: {'; '.join(result.get('diffs', []))}",
+            opened_by=getattr(current_user, "email", "unknown"),
+        )
+
+    # Log audit
+    service.log_billing_audit(
+        db,
+        actor=current_user,
+        organization_id=data.organization_id,
+        action=BillingAuditAction.RECONCILIATION_CASE_OPENED,
+        entity_type="BillingReconciliationCase",
+        entity_id=case.id,
+        before=None,
+        after={"case_id": case.id, "reason": case.reason.value if hasattr(case.reason, "value") else str(case.reason)},
+        source="reconciliation",
+    )
+
+    return case
+
+
+# ── Plan Change endpoints (Prompt 4) ──────────────────────────────────────
+
+@billing_router.post(
+    "/plan-changes/preview",
+    response_model=PlanChangePreviewResponse,
+    summary="Preview plan change with blockers and entitlement delta",
+)
+def preview_plan_change(
+    org_id: int,
+    data: PlanChangePreviewRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    _check_org_scope(current_user, org_id)
+    return plan_change_service.preview_plan_change(db, org_id, data.plan_id)
+
+
+@billing_router.post(
+    "/plan-changes/schedule",
+    response_model=PlanChangeResponse,
+    summary="Schedule a plan change (upgrade/downgrade)",
+)
+def schedule_plan_change(
+    org_id: int,
+    data: PlanChangeScheduleRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    _check_org_scope(current_user, org_id)
+    change = plan_change_service.schedule_plan_change(
+        db,
+        organization_id=org_id,
+        plan_id=data.plan_id,
+        billing_cycle=data.billing_cycle,
+        effective_at=data.effective_at,
+        requested_by=current_user,
+    )
+
+    service.log_billing_audit(
+        db,
+        actor=current_user,
+        organization_id=org_id,
+        action=BillingAuditAction.PLAN_CHANGE_SCHEDULED,
+        entity_type="BillingPlanChange",
+        entity_id=change.id,
+        after={
+            "change_type": change.change_type.value if change.change_type else None,
+            "to_plan_id": change.to_plan_id,
+            "status": change.status.value if change.status else None,
+        },
+    )
+    return change
+
+
+@billing_router.post(
+    "/plan-changes/{change_id}/cancel",
+    response_model=PlanChangeResponse,
+    summary="Cancel a scheduled plan change",
+)
+def cancel_plan_change(
+    change_id: int,
+    data: PlanChangeCancelRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    change = plan_change_service.cancel_plan_change(
+        db,
+        change_id=change_id,
+        cancel_reason=data.cancel_reason,
+        canceled_by=current_user,
+    )
+    return change
+
+
+@billing_router.get(
+    "/plan-changes/{org_id}",
+    response_model=PlanChangeListResponse,
+    summary="Get pending plan changes for an organization",
+)
+def list_plan_changes(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    changes = plan_change_service.get_pending_changes(db, org_id)
+    return PlanChangeListResponse(list=changes, total=len(changes))
+
+
+# ── Refund / Credit endpoints (Section 12 I3) ─────────────────────────────
+
+@billing_router.post(
+    "/refunds/request",
+    response_model=RefundResponse,
+    summary="Request a refund or credit",
+)
+def request_refund(
+    org_id: int,
+    data: RefundRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    _check_org_scope(current_user, org_id)
+    request = refund_service.request_refund(
+        db,
+        organization_id=org_id,
+        amount_cents=data.amount_cents,
+        reason=data.reason,
+        request_type=data.request_type,
+        stripe_subscription_id=data.stripe_subscription_id,
+        stripe_invoice_id=data.stripe_invoice_id,
+        requested_by=current_user,
+    )
+    return request
+
+
+@billing_router.post(
+    "/refunds/{request_id}/approve",
+    response_model=RefundResponse,
+    summary="Approve and execute a refund/credit request",
+)
+def approve_refund(
+    request_id: int,
+    data: RefundApproveRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_admin),
+):
+    request = refund_service.approve_refund(
+        db,
+        request_id=request_id,
+        approved_by=current_user,
+    )
+    return request
+
+
+@billing_router.post(
+    "/refunds/{request_id}/reject",
+    response_model=RefundResponse,
+    summary="Reject a refund/credit request",
+)
+def reject_refund(
+    request_id: int,
+    data: RefundApproveRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_admin),
+):
+    request = refund_service.reject_refund(
+        db,
+        request_id=request_id,
+        rejected_by=current_user,
+        rejection_reason=data.rejection_reason or "",
+    )
+    return request
+
+
+@billing_router.get(
+    "/refunds/{org_id}",
+    response_model=RefundListResponse,
+    summary="Get refund requests for an organization",
+)
+def list_refund_requests(
+    org_id: int,
+    status: Optional[RefundRequestStatus] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    requests = refund_service.get_refund_requests(db, org_id, status=status)
+    return RefundListResponse(list=requests, total=len(requests))

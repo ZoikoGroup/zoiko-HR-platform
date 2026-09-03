@@ -1,0 +1,17 @@
+{
+  "id": "evt_test_invoice_payment_failed",
+  "type": "invoice.payment_failed",
+  "object": "event",
+  "data": {
+    "object": {
+      "id": "inv_test_invoice_456",
+      "object": "invoice",
+      "customer": "cus_test_customer_123",
+      "subscription": "sub_test_subscription_123",
+      "amount_due": 10000,
+      "amount_paid": 0,
+      "currency": "usd",
+      "status": "open"
+    }
+  }
+}

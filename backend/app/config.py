@@ -87,5 +87,14 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
+    # ── Stripe (app/modules/billing/stripe_sync_service.py) ───────────────────
+    # Optional, blank-default. Section 17/H2 approvals land before live billing;
+    # until then these are TEST-MODE-ONLY keys. If HR_STRIPE_SECRET_KEY is empty,
+    # sync_plan_to_stripe logs and no-ops (mirrors the _safe_import pattern in
+    # main.py — absence degrades gracefully, never crashes).
+    STRIPE_SECRET_KEY: str = Field(default="", validation_alias="HR_STRIPE_SECRET_KEY")
+    STRIPE_WEBHOOK_SECRET: str = Field(default="", validation_alias="HR_STRIPE_WEBHOOK_SECRET")
+    STRIPE_PUBLISHABLE_KEY: str = Field(default="", validation_alias="HR_STRIPE_PUBLISHABLE_KEY")
+
 
 settings = Settings()

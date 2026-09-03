@@ -41,6 +41,24 @@ async def lifespan(application: FastAPI):
     # create_all is additive-only and never alters existing tables/columns.
     initialize_database()
     logger.info("[startup] Tables ready: %s", sorted(Base.metadata.tables.keys()))
+
+    # Entitlement matrix visibility: report count so an empty table is never silent.
+    try:
+        from sqlalchemy import text as _sql_text, inspect as _inspect
+        with engine.connect() as _conn:
+            _count = _conn.execute(
+                _sql_text("SELECT COUNT(*) FROM plan_entitlement_mappings")
+            ).scalar()
+        if _count == 0:
+            logger.warning(
+                "[startup] plan_entitlement_mappings: 0 rows — "
+                "entitlement matrix not yet approved."
+            )
+        else:
+            logger.info("[startup] plan_entitlement_mappings: %d rows.", _count)
+    except Exception:
+        # Table may not exist yet on a fresh DB before migration runs.
+        logger.info("[startup] plan_entitlement_mappings: table not yet created.")
     yield
     # Dispose all pooled connections before shutdown so Neon's SSL teardown
     # doesn't race with SQLAlchemy's pool-reset rollback.
@@ -119,6 +137,7 @@ super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.ro
 command_center_router = _safe_import(lambda: __import__("app.modules.super_admin.command_center_router", fromlist=["router"]).router, "super_admin.command_center_router")
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
+billing_webhook_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["webhook_router"]).webhook_router, "billing.webhook_router")
 
 app.include_router(auth_router)
 app.include_router(employee_router)
@@ -133,6 +152,7 @@ app.include_router(super_admin_router)
 app.include_router(command_center_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
+app.include_router(billing_webhook_router)
 
 
 @app.get("/", include_in_schema=False, tags=["Meta"])

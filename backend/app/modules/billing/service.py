@@ -280,10 +280,16 @@ def plan_to_dict(plan: BillingPlan) -> dict:
         "is_active": plan.is_active,
         "is_contract_priced": plan.is_contract_priced,
         "is_self_serve_enabled": plan.is_self_serve_enabled,
+        "is_published": plan.published_at is not None,
         "monthly_price": float(plan.monthly_price) if plan.monthly_price is not None else None,
         "annual_price": float(plan.annual_price) if plan.annual_price is not None else None,
         "currency": plan.currency,
         "description": plan.description,
+        "tax_category": role_value(plan.tax_category) if plan.tax_category else None,
+        "stripe_product_id": plan.stripe_product_id,
+        "stripe_monthly_price_id": plan.stripe_monthly_price_id,
+        "stripe_annual_price_id": plan.stripe_annual_price_id,
+        "published_at": plan.published_at.isoformat() if plan.published_at else None,
         "created_at": plan.created_at.isoformat() if plan.created_at else None,
         "updated_at": plan.updated_at.isoformat() if plan.updated_at else None,
     }
@@ -607,6 +613,8 @@ def log_billing_audit(
     before: Optional[dict],
     after: Optional[dict],
     reason: Optional[str] = None,
+    source: Optional[str] = None,
+    stripe_event_id: Optional[str] = None,
 ) -> BillingAuditLog:
     log = BillingAuditLog(
         organization_id=organization_id,
@@ -618,6 +626,8 @@ def log_billing_audit(
         before=before,
         after=after,
         reason=reason,
+        source=source,
+        stripe_event_id=stripe_event_id,
     )
     db.add(log)
     db.commit()

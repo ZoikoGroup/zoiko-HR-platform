@@ -106,6 +106,8 @@ const superAdminBilling = {
   items: [
     { label: "Overview", href: "/super-admin/billing", icon: LayoutDashboard },
     { label: "Plans & Catalog", href: "/super-admin/billing/plans", icon: Package },
+    { label: "Plan Changes", href: "/super-admin/billing/plan-changes", icon: GitBranch },
+    { label: "Refunds & Credits", href: "/super-admin/billing/refunds", icon: HandCoins },
     { label: "Discounts", href: "/super-admin/billing/discounts", icon: Percent },
   ],
 };

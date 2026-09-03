@@ -37,6 +37,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
+from app.core.entitlements import require_entitlement
 
 # Assuming these are imported from your config or database modules
 # from app.database import get_db
@@ -576,6 +577,7 @@ def get_leave_settings(
     "/leaves/settings",
     response_model=LeaveSettingResponse,
     summary="Update leave settings",
+    dependencies=[Depends(require_entitlement("hr.leave.core"))],
 )
 def update_leave_settings(
     data: LeaveSettingUpdate,
@@ -1217,6 +1219,7 @@ def list_new_hires(
     response_model=OnboardingNewHireResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Create a new hire record",
+    dependencies=[Depends(require_entitlement("hr.onboarding.core"))],
 )
 def create_new_hire(data: OnboardingNewHireCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     return service.create_new_hire(db, data, organization_id=current_user.organization_id)
@@ -2771,6 +2774,7 @@ def get_approval_audit_log(
     summary="Assign document to employees",
     description="Assign a company document to one or more employees. Existing assignments are skipped.",
     tags=["📄 HR Documents"],
+    dependencies=[Depends(require_entitlement("hr.documents.bulk_distribution"))],
 )
 def assign_document(
     document_id: int,
