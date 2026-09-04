@@ -14,6 +14,12 @@ export const superAdminService = {
   getOrganizationDetail: (id) => api.get(`/super-admin/organizations/${id}`),
   updateOrganizationStatus: (id, data) => api.post(`/super-admin/organizations/${id}/status`, data),
 
+  // Two-step destructive action confirmation (Prompt 5): mint a one-time,
+  // actor-bound token, then pass confirmation_id + confirmation_token back on
+  // the status update, or X-Confirmation-Id/X-Confirmation-Token headers on delete.
+  mintConfirmationToken: (id, purpose) =>
+    api.post(`/super-admin/organizations/${id}/confirmation-tokens?purpose=${encodeURIComponent(purpose)}`),
+
   // Status shortcuts — all map to the single status endpoint
   suspendOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "suspended" }),
   putOnHold: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "on_hold" }),
@@ -21,7 +27,12 @@ export const superAdminService = {
   approveOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "approved" }),
   rejectOrganization: (id, data) => api.post(`/super-admin/organizations/${id}/status`, { status: "rejected", reason: data?.reason }),
   reactivateOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "active" }),
-  deleteOrganization: (id) => api.delete(`/super-admin/organizations/${id}`),
+  deleteOrganization: (id, confirmation) =>
+    api.delete(`/super-admin/organizations/${id}`, {
+      headers: confirmation
+        ? { "X-Confirmation-Id": String(confirmation.id), "X-Confirmation-Token": confirmation.token }
+        : undefined,
+    }),
 
   // Organization audit logs (org-scoped)
   getOrganizationAuditLogs: (orgId, params) => api.get(`/super-admin/organizations/${orgId}/audit-logs`, { params }),

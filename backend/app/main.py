@@ -59,9 +59,38 @@ async def lifespan(application: FastAPI):
     except Exception:
         # Table may not exist yet on a fresh DB before migration runs.
         logger.info("[startup] plan_entitlement_mappings: table not yet created.")
+
+    # Background scheduler: plan-change execution (02:00) + delinquency walk (02:05).
+    try:
+        from app.modules.billing.scheduler import start_scheduler
+
+        start_scheduler()
+    except Exception as e:
+        logger.warning("[startup] Scheduler could not be started: %s", e)
+
+    # Route→feature sweep (Prompt 6): report FEATURE_KEYS with zero mapped
+    # routes and flag any mapped route that no longer exists (drift). Report-only
+    # by design; enable hard enforcement via HR_ENFORCE_ENTITLEMENTS.
+    try:
+        from app.modules.billing.route_entitlement_map import sweep_route_entitlement_map
+
+        sweep_route_entitlement_map(application)
+        logger.info(
+            "[startup] Route entitlement map: %d routes mapped.",
+            len(__import__("app.modules.billing.route_entitlement_map", fromlist=["ROUTE_ENTITLEMENT_MAP"]).ROUTE_ENTITLEMENT_MAP),
+        )
+    except Exception as e:
+        logger.warning("[startup] Entitlement map sweep could not run: %s", e)
+
     yield
     # Dispose all pooled connections before shutdown so Neon's SSL teardown
     # doesn't race with SQLAlchemy's pool-reset rollback.
+    try:
+        from app.modules.billing.scheduler import stop_scheduler
+
+        stop_scheduler()
+    except Exception:
+        pass
     engine.dispose()
     logger.info("[shutdown] Database connection pool disposed.")
 
@@ -111,6 +140,25 @@ app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 app.add_exception_handler(ZoikoException, zoiko_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
+
+
+# ── Route-level entitlement enforcement (Prompt 6) ─────────────────────────
+# Opt-in via HR_ENFORCE_ENTITLEMENTS (default OFF). When enabled, requests to
+# routes listed in route_entitlement_map.py are blocked (403) unless the caller's
+# organization is ENTITLED_AVAILABLE for the mapped feature key. The startup
+# sweep in the lifespan stays report-only regardless, so dev/test can run
+# without an approved entitlement matrix.
+if settings.ENFORCE_ENTITLEMENTS:
+    from app.modules.billing.entitlement_middleware import EntitlementMiddleware
+    from app.database import SessionLocal
+
+    app.add_middleware(
+        EntitlementMiddleware,
+        db_session_factory=SessionLocal,
+    )
+    logger.info("[startup] Entitlement enforcement ENABLED (HR_ENFORCE_ENTITLEMENTS=true).")
+else:
+    logger.info("[startup] Entitlement enforcement disabled (report-only sweep).")
 
 
 # ── Router imports (each imported independently so one failure never

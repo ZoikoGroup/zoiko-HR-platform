@@ -14,6 +14,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
+  CreditCard,
   FileCheck2,
   FileText,
   GitBranch,
@@ -381,6 +382,7 @@ const organizationAdminDashboard = {
     { label: "Dashboard", href: "/organization-admin/dashboard", icon: LayoutDashboard },
     { label: "My Organization", href: "/organization-admin/organization", icon: Building2 },
     { label: "Payroll Guidance", href: "/organization-admin/payroll-guidance", icon: BookOpen, badge: "Payroll" },
+    { label: "Billing & Plan", href: "/organization-admin/billing-and-plan", icon: CreditCard },
   ],
 };
 

@@ -162,6 +162,75 @@ def compute_entitlement_snapshot(
 
 # ── Single feature entitlement check ────────────────────────────────────────
 
+# Feature keys whose use is "new commercial expansion / cost-increasing" and so
+# are restricted from day 10, or "non-essential write-heavy / premium" and so are
+# restricted from day 20 (Section 10 G2/G3). Read-only, privacy/legal-hold,
+# billing-remediation and export paths are intentionally NOT restricted.
+_DAY_10_RESTRICTED_KEYS = frozenset({
+    "hr.integration.sso",
+    "hr.integration.scim",
+    "hr.integration.api_write",
+    "hr.integration.custom_connector",
+    "hr.integration.file_exchange",
+    "hr.documents.bulk_distribution",
+    "hr.identity.sso",
+    "hr.identity.scim",
+})
+
+_DAY_20_RESTRICTED_KEYS = _DAY_10_RESTRICTED_KEYS | frozenset({
+    "hr.workforce_planning.core",
+    "hr.onboarding.core",
+})
+
+
+def _delinquency_gate(db: Session, organization_id: int, feature_key: str) -> dict | None:
+    """If the organization has an open delinquency case whose stage has passed
+    a restriction threshold, return a blocked entitlement dict; otherwise None.
+
+    Day 20 additionally applies a controlled service restriction, but critical
+    read / remediation / privacy / export paths are never blocked here."""
+    from app.modules.billing.delinquency_service import get_open_case
+    from app.modules.billing.models import DelinquencyStage
+
+    case = get_open_case(db, organization_id)
+    if case is None:
+        return None
+
+    if case.stage == DelinquencyStage.DAY_10_RESTRICT:
+        if feature_key in _DAY_10_RESTRICTED_KEYS:
+            return {
+                "state": "DELINQUENCY_RESTRICTED",
+                "feature_key": feature_key,
+                "catalog_version": FEATURE_KEY_REGISTRY_VERSION,
+                "delinquency_stage": case.stage.value,
+            }
+        return None
+
+    if case.stage == DelinquencyStage.DAY_20_RESTRICT:
+        if feature_key in _DAY_20_RESTRICTED_KEYS:
+            return {
+                "state": "DELINQUENCY_RESTRICTED",
+                "feature_key": feature_key,
+                "catalog_version": FEATURE_KEY_REGISTRY_VERSION,
+                "delinquency_stage": case.stage.value,
+            }
+        return None
+
+    if case.stage == DelinquencyStage.DAY_45_TERMINATION:
+        # G5: normal service ends at termination; read/export/privacy paths
+        # remain governed separately and are not blocked here.
+        if feature_key in _DAY_20_RESTRICTED_KEYS:
+            return {
+                "state": "DELINQUENCY_RESTRICTED",
+                "feature_key": feature_key,
+                "catalog_version": FEATURE_KEY_REGISTRY_VERSION,
+                "delinquency_stage": case.stage.value,
+            }
+        return None
+
+    return None
+
+
 def check_entitlement(
     db: Session,
     organization_id: int,
@@ -200,6 +269,15 @@ def check_entitlement(
             "feature_key": feature_key,
             "catalog_version": FEATURE_KEY_REGISTRY_VERSION,
         }
+
+    # ── Delinquency gate (Section 10 G1-G3) ──────────────────────────────
+    # Server-authoritative (not frontend-banner dependent): if the org has an
+    # open delinquency case past day 10/20, cost-increasing / new-commercial
+    # expansion and non-essential write actions are restricted here at the
+    # entitlement layer, before any plan mapping is consulted.
+    gate = _delinquency_gate(db, organization_id, feature_key)
+    if gate is not None:
+        return gate
 
     # ── Check cache ──────────────────────────────────────────────────────
     cache_key = f"{_CACHE_PREFIX}{organization_id}:{feature_key}"

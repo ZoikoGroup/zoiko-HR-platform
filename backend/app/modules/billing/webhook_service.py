@@ -290,6 +290,15 @@ def _handle_invoice_paid(db, event_id, data, full_event):
             db, subscription, SubscriptionStatus.ACTIVE, event_id, "invoice.paid"
         )
 
+    # Payment recovered → close any open delinquency case and restore
+    # entitlements automatically if no other restriction reason exists.
+    try:
+        from app.modules.billing import delinquency_service
+
+        delinquency_service.recover(db, org_id, stripe_event_id=event_id)
+    except Exception as e:
+        logger.error("[webhook] Delinquency recover failed for org %d: %s", org_id, e)
+
     _log_audit(
         db,
         organization_id=org_id,
@@ -324,6 +333,15 @@ def _handle_invoice_payment_failed(db, event_id, data, full_event):
         _transition_subscription(
             db, subscription, SubscriptionStatus.PAST_DUE, event_id, "invoice.payment_failed"
         )
+
+    # Payment failed → open (or reopen) the delinquency case for the graduated
+    # day-10/14/20/45 recovery timeline (Section 10 G1).
+    try:
+        from app.modules.billing import delinquency_service
+
+        delinquency_service.open_case(db, org_id, stripe_event_id=event_id)
+    except Exception as e:
+        logger.error("[webhook] Delinquency case open failed for org %d: %s", org_id, e)
 
     _log_audit(
         db,

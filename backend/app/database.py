@@ -53,7 +53,7 @@ resolved_database_url = resolve_database_url()
 # Postgres (e.g. test/dev on localhost) and a remote Neon DB both work without
 # hardcoding a mode. Honor the caller's explicit choice from the URL.
 _parsed_db = urlparse(resolved_database_url)
-_sslmode = dict(_parsed_db.query.split("=") for _ in _parsed_db.query.split("&") if "=" in _).get("sslmode")
+_sslmode = dict(_.split("=") for _ in _parsed_db.query.split("&") if "=" in _).get("sslmode")
 
 engine = create_engine(
     resolved_database_url,

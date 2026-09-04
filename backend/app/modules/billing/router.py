@@ -35,7 +35,7 @@ from app.modules.billing import plan_change_service
 from app.modules.billing import refund_service
 from app.modules.billing.models import (
     BillingAuditAction, BillingAuditLog, BillingInvoice, BillingPlan, BillingWebhookEvent,
-    BillingPlanChange, BillingRefundRequest,
+    BillingPlanChange, BillingRefundRequest, DelinquencyCase,
     ProviderRef, RefundRequestStatus, SubscriptionStatus,
 )
 from app.modules.billing.entitlement_service import compute_entitlement_snapshot
@@ -91,6 +91,19 @@ from app.modules.billing.schemas import (
     UpgradeRequest,
     WebhookEventListResponse,
     WorkforceSnapshotResponse,
+    DelinquencyStatusResponse,
+    SupportAccessRequest,
+    SupportAccessCreatedResponse,
+    SupportAccessListResponse,
+    SupportAccessResponse,
+    SupportAccessValidateRequest,
+    MeSubscriptionResponse,
+    MeEntitlementsResponse,
+    MeCancelRequest,
+    MeReactivateRequest,
+    MeReactivateResponse,
+    MeDowngradeImpactRequest,
+    MeDowngradeImpactResponse,
 )
 
 logger = logging.getLogger("zoiko.billing")
@@ -1198,3 +1211,348 @@ def list_refund_requests(
     _check_org_scope(current_user, org_id)
     requests = refund_service.get_refund_requests(db, org_id, status=status)
     return RefundListResponse(list=requests, total=len(requests))
+
+
+# ── Delinquency status (Section 10) & Billing Operations support access ────
+
+@billing_router.get(
+    "/organizations/{org_id}/delinquency",
+    response_model=DelinquencyStatusResponse,
+    summary="Get delinquency status for an organization",
+)
+def get_delinquency_status(
+    org_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    from app.modules.billing import delinquency_service
+
+    case = delinquency_service.get_open_case(db, org_id)
+    if case is None:
+        closed = (
+            db.query(DelinquencyCase)
+            .filter(DelinquencyCase.organization_id == org_id)
+            .order_by(DelinquencyCase.created_at.desc())
+            .first()
+        )
+        return DelinquencyStatusResponse(
+            organization_id=org_id,
+            has_open_case=False,
+            status=closed.status.name if closed else None,
+            recovered_at=closed.recovered_at if closed else None,
+            retention_hold_until=closed.retention_hold_until if closed else None,
+        )
+    from app.modules.billing.delinquency_service import resolve_stage
+
+    stage, days = resolve_stage(case.failed_at)
+    return DelinquencyStatusResponse(
+        organization_id=org_id,
+        has_open_case=True,
+        stage=stage.name,
+        status=case.status.name,
+        failed_at=case.failed_at,
+        recovered_at=case.recovered_at,
+        retention_hold_until=case.retention_hold_until,
+        days_elapsed=days,
+    )
+
+
+@billing_router.post(
+    "/support-access",
+    response_model=SupportAccessCreatedResponse,
+    summary="Mint a time-bounded support-access grant (Billing Ops)",
+)
+def create_support_access(
+    data: SupportAccessRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    from app.modules.billing import delinquency_service
+
+    grant, raw = delinquency_service.mint_support_access(
+        db,
+        data.organization_id,
+        granted_by=current_user.email or f"user-{current_user.id}",
+        reason=data.reason,
+        ttl_hours=data.ttl_hours,
+    )
+    return SupportAccessCreatedResponse(
+        **{
+            "id": grant.id,
+            "organization_id": grant.organization_id,
+            "granted_by": grant.granted_by,
+            "reason": grant.reason,
+            "expires_at": grant.expires_at,
+            "revoked_at": grant.revoked_at,
+            "revoked_by": grant.revoked_by,
+            "created_at": grant.created_at,
+            "token": raw,
+        }
+    )
+
+
+@billing_router.get(
+    "/support-access",
+    response_model=SupportAccessListResponse,
+    summary="List active support-access grants (Billing Ops)",
+)
+def list_support_access(
+    organization_id: Optional[int] = Query(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    from app.modules.billing.models import SupportAccessGrant
+
+    q = db.query(SupportAccessGrant)
+    if organization_id is not None:
+        q = q.filter(SupportAccessGrant.organization_id == organization_id)
+    grants = q.order_by(SupportAccessGrant.created_at.desc()).all()
+    return SupportAccessListResponse(list=grants, total=len(grants))
+
+
+@billing_router.post(
+    "/support-access/{grant_id}/revoke",
+    response_model=SupportAccessResponse,
+    summary="Revoke a support-access grant (Billing Ops)",
+)
+def revoke_support_access_endpoint(
+    grant_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    from app.modules.billing import delinquency_service
+
+    try:
+        grant = delinquency_service.revoke_support_access(
+            db, grant_id, revoked_by=current_user.email or f"user-{current_user.id}"
+        )
+    except ValueError as e:
+        raise BadRequestException(str(e))
+    return grant
+
+
+@billing_router.post(
+    "/support-access/validate",
+    summary="Validate a support-access token for an organization",
+)
+def validate_support_access_endpoint(
+    data: SupportAccessValidateRequest,
+    db: Session = Depends(get_db),
+):
+    # This endpoint authenticates the grant token itself; no higher-privilege
+    # dependency is required beyond an authenticated session so support tooling
+    # and backend guards can confirm a grant before elevated access.
+    from fastapi import HTTPException
+    from app.modules.billing import delinquency_service
+
+    try:
+        grant = delinquency_service.validate_support_access(db, data.organization_id, data.token)
+    except ValueError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    return {
+        "valid": True,
+        "grant_id": grant.id,
+        "organization_id": grant.organization_id,
+        "expires_at": grant.expires_at.isoformat(),
+    }
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Customer Self-Serve Billing — /billing/me/* (Prompt 6)
+# ═══════════════════════════════════════════════════════════════════════════
+# Every /me route is scoped strictly to the caller's OWN organization. The org
+# id is derived from the authenticated JWT (current_user.organization_id); a
+# super_admin belongs to their own Org Owner tenant, so cross-org lookups are
+# simply not possible here (use the /organizations/{org_id} endpoints for that).
+# RBAC: same Section 19 trimming the org-admin Overview page already uses —
+# HR Admin / Organization Admin see plan + workforce usage only, no financials.
+
+def _me_org_id(current_user) -> int:
+    """Resolve and enforce the caller's own organization. Super Admin must have
+    an organization (the Org Owner tenant); otherwise they cannot self-serve."""
+    org_id = getattr(current_user, "organization_id", None)
+    if org_id is None:
+        raise ForbiddenException(
+            "Self-serve billing requires an organization. Platform-level accounts "
+            "must use the /billing/organizations/{org_id}/ endpoints."
+        )
+    return org_id
+
+
+def _me_billing_actor(current_user) -> None:
+    """Self-serve write actions (cancel/reactivate/downgrade-impact) are reserved
+    for org decision-makers: Owner (super_admin), Organization Admin (admin) and
+    Billing Admin. HR Admin / manager / employee are view-only (Section 19)."""
+    role = _get_billing_role(current_user)
+    if role not in ("super_admin", "admin", "billing_admin"):
+        raise ForbiddenException(
+            f"Self-serve billing changes require an org billing authority. Your role: {role}"
+        )
+
+
+@billing_router.get(
+    "/me/subscription",
+    response_model=MeSubscriptionResponse,
+    summary="My organization's subscription (self-serve, trimmed for non-owners)",
+)
+def get_me_subscription(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    org_id = _me_org_id(current_user)
+    subscription = service.get_or_create_subscription(db, org_id)
+    trimmed = _get_billing_role(current_user) in ("admin", "hr_admin")
+    return service.to_overview_response(db, subscription, trimmed=trimmed)
+
+
+@billing_router.get(
+    "/me/entitlements",
+    response_model=MeEntitlementsResponse,
+    summary="My organization's compiled entitlement snapshot (self-serve)",
+)
+def get_me_entitlements(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    org_id = _me_org_id(current_user)
+    snapshot = compute_entitlement_snapshot(db, org_id)
+    return MeEntitlementsResponse(
+        organization_id=org_id,
+        catalog_version=snapshot["catalog_version"],
+        states=snapshot["feature_states"],
+        contract_overrides=snapshot["contract_overrides"],
+    )
+
+
+@billing_router.post(
+    "/me/cancel",
+    response_model=MeSubscriptionResponse,
+    summary="Schedule cancellation of my organization's subscription (self-serve)",
+)
+def cancel_me_subscription(
+    data: MeCancelRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    _me_billing_actor(current_user)
+    org_id = _me_org_id(current_user)
+    subscription = service.cancel_subscription(
+        db,
+        organization_id=org_id,
+        reason=data.reason,
+        effective_at=data.effective_at,
+    )
+    service.log_billing_audit(
+        db,
+        actor=current_user,
+        organization_id=org_id,
+        action=BillingAuditAction.SUBSCRIPTION_CANCELED,
+        entity_type="BillingSubscription",
+        entity_id=subscription.id,
+        before={"status": "active"},
+        after={"status": "cancel_at_period_end"},
+        reason=data.reason,
+        source="self-service",
+    )
+    return service.to_overview_response(db, subscription, trimmed=False)
+
+
+@billing_router.post(
+    "/me/reactivate",
+    response_model=MeReactivateResponse,
+    summary="Reactivate my organization's subscription (self-serve)",
+)
+def reactivate_me_subscription(
+    data: MeReactivateRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Reactivate a subscription that was in cancel_at_period_end. Requires a
+    valid Stripe payment method when Stripe is enabled — the self-service portal
+    must not resurrect billing without a chargeable card (Section 13 H2)."""
+    _me_billing_actor(current_user)
+    org_id = _me_org_id(current_user)
+    subscription = service.get_or_create_subscription(db, org_id)
+    from app.modules.billing.models import SubscriptionStatus
+
+    if subscription.status != SubscriptionStatus.CANCEL_AT_PERIOD_END:
+        raise BadRequestException(
+            "Only a cancel_at_period_end subscription can be reactivated."
+        )
+
+    billing_empty_card = False
+    if stripe_enabled():
+        from app.modules.billing import stripe_client
+        from app.modules.billing.models import ProviderRef
+
+        provider_ref = (
+            db.query(ProviderRef)
+            .filter(ProviderRef.organization_id == org_id)
+            .first()
+        )
+        customer_id = provider_ref.stripe_customer_id if provider_ref else None
+        valid = stripe_client.payment_method_valid(customer_id=customer_id)
+        if not valid:
+            billing_empty_card = True
+            raise BadRequestException(
+                "No valid payment method on file. Please add a card via the "
+                "Stripe Billing Portal before reactivating, then retry."
+            )
+
+    subscription.status = SubscriptionStatus.ACTIVE
+    db.commit()
+    db.refresh(subscription)
+
+    service.log_billing_audit(
+        db,
+        actor=current_user,
+        organization_id=org_id,
+        action=BillingAuditAction.SUBSCRIPTION_REACTIVATED,
+        entity_type="BillingSubscription",
+        entity_id=subscription.id,
+        before={"status": "cancel_at_period_end"},
+        after={"status": "active"},
+        reason=data.reason,
+        source="self-service",
+    )
+    return MeReactivateResponse(
+        organization_id=org_id,
+        status=service.role_value(subscription.status),
+        plan_code=service.role_value(subscription.plan_code) if subscription.plan_code else None,
+        billing_empty_card=billing_empty_card,
+    )
+
+
+@billing_router.post(
+    "/me/downgrade-impact",
+    response_model=MeDowngradeImpactResponse,
+    summary="Check what a downgrade to a target plan would break (self-serve)",
+)
+def me_downgrade_impact(
+    data: MeDowngradeImpactRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from app.modules.billing.downgrade_blockers import (
+        detect_all_blockers,
+        blockers_to_dict,
+        has_blocking_blockers,
+    )
+
+    _me_billing_actor(current_user)
+    org_id = _me_org_id(current_user)
+    subscription = service.get_or_create_subscription(db, org_id)
+    current_plan = (
+        service.role_value(subscription.plan_code)
+        if subscription.plan_code
+        else None
+    )
+    blockers = detect_all_blockers(db, org_id, data.target_plan_code)
+    return MeDowngradeImpactResponse(
+        organization_id=org_id,
+        eligible=not has_blocking_blockers(blockers),
+        blockers=blockers_to_dict(blockers),
+        current_plan_code=current_plan,
+        target_plan_code=data.target_plan_code,
+    )

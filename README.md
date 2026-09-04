@@ -125,7 +125,7 @@ Two non-obvious things the Dockerfiles work around, in case either build ever br
 - Set `HR_DEBUG=false` (or omit it) in production — this disables the public `/docs`/`/redoc`/`/openapi.json` schema, skips the dev-only `create_all` boot path, and is required before running `alembic upgrade head` as described above.
 - `HR_SECRET_KEY` has no default — startup fails loudly if it's unset, rather than silently signing tokens with a value visible in this repo's source.
 - `CORS_ORIGINS` must list your real frontend origin(s); it's also used to validate the `Origin` header on error responses (401/403/404/500), not just successful ones.
-- CI (`.github/workflows/ci.yml`) runs the backend test suite against a `pgvector/pgvector:pg16` service container and builds the frontend on every push/PR to `main`.
+- CI (`.github/workflows/ci.yml`) runs the backend test suite against a `pgvector/pgvector:pg16` service container and builds the frontend (plus a Stripe-key secret-leak check on `dist/`) on every push/PR to `main`. Deployment (`.github/workflows/deploy.yml`) is gated on that CI run — it only deploys to `main` after a successful CI completion.
 
 ## Runtime boundaries
 

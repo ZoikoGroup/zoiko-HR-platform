@@ -60,7 +60,13 @@ export default function SuperAdminOrganizationsPage() {
     if (!rejectModal || !rejectReason.trim()) return;
     setActionLoading(rejectModal.id);
     try {
-      await superAdminService.rejectOrganization(rejectModal.id, { reason: rejectReason });
+      const confirm = await superAdminService.mintConfirmationToken(rejectModal.id, "update_organization_status");
+      await superAdminService.updateOrganizationStatus(rejectModal.id, {
+        status: "rejected",
+        reason: rejectReason,
+        confirmation_id: confirm.confirmation_id,
+        confirmation_token: confirm.token,
+      });
       setRejectModal(null);
       loadOrgs();
     } catch (e) { setError(e.message); }
@@ -71,7 +77,12 @@ export default function SuperAdminOrganizationsPage() {
     if (!confirm(`Suspend "${org.name}"?`)) return;
     setActionLoading(org.id);
     try {
-      await superAdminService.suspendOrganization(org.id);
+      const confirm = await superAdminService.mintConfirmationToken(org.id, "update_organization_status");
+      await superAdminService.updateOrganizationStatus(org.id, {
+        status: "suspended",
+        confirmation_id: confirm.confirmation_id,
+        confirmation_token: confirm.token,
+      });
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }

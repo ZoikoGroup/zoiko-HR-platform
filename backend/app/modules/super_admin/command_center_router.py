@@ -170,6 +170,41 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{s.organization_id}",
         ))
 
+    # Delinquency lifecycle anomalies (Section 10 G1-G5) surfaced to command
+    # center so escalation is not banner-dependent.
+    from app.modules.billing.models import DelinquencyCase, DelinquencyCaseStatus
+
+    _STAGE_SEVERITY = {"DAY_45_TERMINATION": "critical", "DAY_20_RESTRICT": "high", "DAY_10_RESTRICT": "high", "RECOVERY": "medium"}
+    for case in db.query(DelinquencyCase).filter(
+        DelinquencyCase.status == DelinquencyCaseStatus.OPEN
+    ).all():
+        stage = case.stage.value if case.stage else "recovery"
+        days = max(0, int((now - case.failed_at).total_seconds() // 86400)) if case.failed_at else 0
+        items.append(AttentionItem(
+            severity=_STAGE_SEVERITY.get(stage, "high"),
+            issue=f"Delinquency escalation: {days}d unpaid, stage {stage}",
+            organization_id=case.organization_id,
+            organization_name=org_names.get(case.organization_id),
+            detected_at=case.failed_at,
+            action_label="Review",
+            action_href=f"/super-admin/organizations/{case.organization_id}",
+        ))
+
+    # Active Billing Operations support-access grants — surface for review so
+    # time-bounded access is visible and auditable.
+    from app.modules.billing.models import SupportAccessGrant
+
+    for g in db.query(SupportAccessGrant).filter(SupportAccessGrant.revoked_at.is_(None)).all():
+        items.append(AttentionItem(
+            severity="low",
+            issue="Active support-access grant (expires)",
+            organization_id=g.organization_id,
+            organization_name=org_names.get(g.organization_id),
+            detected_at=g.expires_at,
+            action_label="Review",
+            action_href=f"/super-admin/organizations/{g.organization_id}",
+        ))
+
     for t in db.query(SupportTicket).filter(
         SupportTicket.priority.in_(["urgent", "high"]), SupportTicket.status == "open"
     ).all():

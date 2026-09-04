@@ -1179,3 +1179,182 @@ def send_credit_note_email(
         "currency": currency,
         "reason": reason,
     }, db=db, organization_id=organization_id, attachments=attachments)
+
+
+# ── Delinquency Notices & Support Access (Section 10 G1–G5, Section 18 O3) ──
+
+# G4 recipient roles: Organization Owner + Billing Contact + Billing Admin
+# receive delinquency notices. Enterprise also routes to an assigned Customer
+# Success / Account Executive. Normal HR admins/employees are never sent
+# financial amounts or billing terms.
+_BILLING_RECIPIENT_ROLES = ("billing_admin",)
+_OWNER_ROLE = "super_admin"
+
+
+def _role_value(role) -> str:
+    return role.value if hasattr(role, "value") else str(role)
+
+
+def resolve_billing_recipients(db, organization_id: int) -> list[str]:
+    """G4: resolve the deduplicated authorized billing recipients for an org:
+    the Organization Owner (highest-privilege super_admin, else earliest active
+    admin) plus every active Billing Admin. Returns unique emails in stable
+    order. Never includes normal HR admins/employees."""
+    from app.modules.hr.models import Organization
+    from app.modules.employee.models import Employee, UserRole
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    if org is None:
+        return []
+
+    employees = (
+        db.query(Employee)
+        .filter(
+            Employee.organization_id == organization_id,
+            Employee.is_active == True,  # noqa: E712
+        )
+        .order_by(Employee.created_at.asc())
+        .all()
+    )
+
+    recipients: list[str] = []
+    seen: set[str] = set()
+
+    def _add(email):
+        if email and email not in seen:
+            seen.add(email)
+            recipients.append(email)
+
+    owner = next((e for e in employees if _role_value(e.role) == _OWNER_ROLE), None)
+    if owner is None:
+        owner = next((e for e in employees if _role_value(e.role) in ("admin", "hr_admin")), None)
+    if owner is not None:
+        _add(owner.email or owner.work_email)
+
+    for e in employees:
+        if _role_value(e.role) in _BILLING_RECIPIENT_ROLES:
+            _add(e.email or e.work_email)
+
+    return recipients
+
+
+def is_enterprise_org(db, organization_id: int) -> bool:
+    from app.modules.billing.models import BillingSubscription, PlanCode
+
+    sub = (
+        db.query(BillingSubscription)
+        .filter(BillingSubscription.organization_id == organization_id)
+        .first()
+    )
+    return bool(sub and sub.plan_code == PlanCode.ENTERPRISE)
+
+
+def _delinquency_billing_ops_email() -> str:
+    """Internal Zoiko HR Billing Operations mailbox for Enterprise CS/AE routing.
+    Falls back to the platform support/sender email; configurable via env."""
+    try:
+        from app.config import settings
+
+        return getattr(settings, "BILLING_OPS_EMAIL", None) or getattr(settings, "SMTP_FROM_EMAIL", "")
+    except Exception:
+        return ""
+
+
+def send_delinquency_notice(db, organization_id: int, stage: str, days_overdue: int, amounts: dict | None = None, login_url: str = LOGIN_URL, export_url: str = ""):
+    """G4/O3: dispatch the correct delinquency notice to the authorized
+    billing recipients for the org. `amounts` holds financial detail that is
+    only ever rendered for authorized billing contacts (never HR admins)."""
+    from app.modules.hr.models import Organization
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    customer_name = org.organization_name or org.display_name or "Your organization" if org else "Your organization"
+
+    plan_name = ""
+    subscription_number = ""
+    currency = (amounts or {}).get("currency", "USD")
+    overdue_amount = (amounts or {}).get("overdue_amount", "0.00")
+    try:
+        from app.modules.billing.models import BillingSubscription, BillingPlan
+
+        sub = (
+            db.query(BillingSubscription)
+            .filter(BillingSubscription.organization_id == organization_id)
+            .first()
+        )
+        if sub:
+            subscription_number = f"SUB-{sub.id:05d}"
+            if sub.plan_code:
+                plan_name = str(sub.plan_code.value)
+    except Exception:
+        pass
+
+    recipients = resolve_billing_recipients(db, organization_id)
+
+    stage_map = {
+        "DAY_10_RESTRICT": ("delinquency_day10.html", "Payment Overdue — Action Required | {{company_name}}"),
+        "DAY_20_RESTRICT": ("delinquency_day20.html", "Controlled Service Restriction Applied | {{company_name}}"),
+        "DAY_45_TERMINATION": ("delinquency_day45.html", "Termination & Closure Notice | {{company_name}}"),
+        "RECOVERED": ("delinquency_recovered.html", "Payment Recovered — Service Restored | {{company_name}}"),
+    }
+    template, subject = stage_map.get(stage, ("delinquency_day10.html", "Payment Overdue | {{company_name}}"))
+
+    retention_window_days = ""
+    if stage == "DAY_45_TERMINATION":
+        try:
+            from app.modules.billing.delinquency_service import DEFAULT_RETENTION_HOLD_DAYS
+
+            retention_window_days = str(DEFAULT_RETENTION_HOLD_DAYS)
+        except Exception:
+            retention_window_days = "90"
+
+    context = {
+        "subject": subject,
+        "customer_name": customer_name,
+        "plan_name": plan_name,
+        "subscription_number": subscription_number,
+        "days_overdue": str(days_overdue),
+        "currency": currency,
+        "overdue_amount": overdue_amount,
+        "login_url": login_url,
+        "export_url": export_url or login_url,
+        "retention_window_days": retention_window_days,
+    }
+
+    sent = 0
+    for email in recipients:
+        if send_approval_email(email, template, dict(context), db=db, organization_id=organization_id):
+            sent += 1
+
+    # Enterprise → also route to assigned Customer Success / Account Executive
+    # (fallback: internal Billing Operations mailbox).
+    if is_enterprise_org(db, organization_id):
+        cs_email = _delinquency_billing_ops_email()
+        if cs_email:
+            if send_approval_email(cs_email, template, dict(context), db=db, organization_id=organization_id):
+                sent += 1
+
+    return {"recipients": recipients, "sent": sent, "stage": stage}
+
+
+def send_support_access_granted_email(
+    organization_id: int,
+    recipient_email: str,
+    grant_duration_hours: int,
+    expires_at: str,
+    db=None,
+):
+    """Internal Billing Operations notice that a time-bounded support-access
+    grant was issued for an org. Kept minimal — no financial data."""
+    try:
+        from app.config import settings
+
+        login_url = f"{settings.FRONTEND_URL.rstrip('/')}/super-admin/organizations/{organization_id}" if getattr(settings, "FRONTEND_URL", None) else LOGIN_URL
+    except Exception:
+        login_url = LOGIN_URL
+    return send_approval_email(recipient_email, "support_access_granted.html", {
+        "subject": f"Support Access Granted — Org {organization_id} | Zoiko HR",
+        "organization_id": str(organization_id),
+        "grant_duration_hours": str(grant_duration_hours),
+        "expires_at": expires_at,
+        "support_url": login_url,
+    }, db=db, organization_id=organization_id)

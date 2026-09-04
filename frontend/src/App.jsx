@@ -171,6 +171,7 @@ const OrgAdminEmployeeDocumentsPage = lazy(() => import("./modules/organization-
 const OrgAdminUserManagementPage = lazy(() => import("./modules/organization-admin/UserManagementPage"));
 const OrgAdminMetricsPage = lazy(() => import("./modules/organization-admin/MetricsPage"));
 const OrgAdminPayrollGuidancePage = lazy(() => import("./modules/organization-admin/PayrollGuidancePage"));
+const OrgAdminBillingPlanPage = lazy(() => import("./modules/organization-admin/BillingPlanPage"));
 
 const HrAdminDashboardPage = lazy(() => import("./modules/hr-admin/DashboardPage"));
 const HrAdminOrganizationPage = lazy(() => import("./modules/hr-admin/OrganizationPage"));
@@ -364,6 +365,7 @@ const routeOverrides = {
   "/organization-admin/users": <OrgAdminUserManagementPage />,
   "/organization-admin/metrics": <OrgAdminMetricsPage />,
   "/organization-admin/payroll-guidance": <OrgAdminPayrollGuidancePage />,
+  "/organization-admin/billing-and-plan": <OrgAdminBillingPlanPage />,
   // HR Admin
   "/hr-admin/dashboard": <HrAdminDashboardPage />,
   "/hr-admin/my-organization": <HrAdminOrganizationPage />,
