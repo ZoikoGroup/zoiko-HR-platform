@@ -49,9 +49,15 @@ def resolve_database_url(raw_url: str | None = None) -> str:
 # -- 1. Engine ----------------------------------------------------------------
 resolved_database_url = resolve_database_url()
 
+# Postgres SSL is driven by the URL query (?sslmode=...) so a local non-SSL
+# Postgres (e.g. test/dev on localhost) and a remote Neon DB both work without
+# hardcoding a mode. Honor the caller's explicit choice from the URL.
+_parsed_db = urlparse(resolved_database_url)
+_sslmode = dict(_parsed_db.query.split("=") for _ in _parsed_db.query.split("&") if "=" in _).get("sslmode")
+
 engine = create_engine(
     resolved_database_url,
-    connect_args={"sslmode": "require"},
+    connect_args={"sslmode": _sslmode} if _sslmode else {},
     pool_pre_ping=True,
     pool_size=5,
     max_overflow=10,
@@ -74,6 +80,7 @@ import app.modules.super_admin.models  # noqa: F401,E402
 import app.modules.super_admin.command_center_models  # noqa: F401,E402
 import app.modules.assistant.models  # noqa: F401,E402
 import app.modules.billing.models  # noqa: F401,E402
+import app.modules.billing.feature_keys  # noqa: F401,E402
 
 
 def initialize_database() -> None:
@@ -112,6 +119,12 @@ def initialize_database() -> None:
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS annual_price NUMERIC(12,2)",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS currency VARCHAR(3) DEFAULT 'USD'",
         "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS description TEXT",
+        # Section 17: append-only publication + provider IDs + per-SKU tax category
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS published_at TIMESTAMP",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS tax_category VARCHAR(50) DEFAULT 'saas_subscription'",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS stripe_product_id VARCHAR(255)",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS stripe_monthly_price_id VARCHAR(255)",
+        "ALTER TABLE billing_plans ADD COLUMN IF NOT EXISTS stripe_annual_price_id VARCHAR(255)",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolution_note TEXT",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_by INTEGER",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",

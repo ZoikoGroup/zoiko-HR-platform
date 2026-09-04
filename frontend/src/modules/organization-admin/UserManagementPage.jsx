@@ -148,7 +148,7 @@ export default function OrgAdminUserManagementPage() {
 
   const fetchUsers = useCallback(async () => {
     try {
-      const data = await getEmployees({ per_page: 1000, include_all_roles: true });
+      const data = await getEmployees({ per_page: 200, include_all_roles: true });
       const items = data.items || [];
       setRawEmployees(items);
       setUsers(items.map((e) => ({

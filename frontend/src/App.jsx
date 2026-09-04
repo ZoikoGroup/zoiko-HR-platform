@@ -185,6 +185,8 @@ const SuperAdminAccessPage = lazy(() => import("./modules/super-admin/AccessPage
 const SuperAdminBillingOverviewPage = lazy(() => import("./modules/super-admin/BillingOverviewPage"));
 const SuperAdminBillingPlansPage = lazy(() => import("./modules/super-admin/BillingPlansPage"));
 const SuperAdminBillingDiscountsPage = lazy(() => import("./modules/super-admin/BillingDiscountsPage"));
+const SuperAdminBillingPlanChangesPage = lazy(() => import("./modules/super-admin/BillingPlanChangesPage"));
+const SuperAdminBillingRefundsPage = lazy(() => import("./modules/super-admin/BillingRefundsPage"));
 
 const DashboardPage = lazy(() => import("./modules/platform/DashboardPage"));
 const OrganizationsPage = lazy(() => import("./modules/platform/OrganizationsPage"));
@@ -393,6 +395,8 @@ const routeOverrides = {
   "/super-admin/billing": <SuperAdminBillingOverviewPage />,
   "/super-admin/billing/plans": <SuperAdminBillingPlansPage />,
   "/super-admin/billing/discounts": <SuperAdminBillingDiscountsPage />,
+  "/super-admin/billing/plan-changes": <SuperAdminBillingPlanChangesPage />,
+  "/super-admin/billing/refunds": <SuperAdminBillingRefundsPage />,
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMPLOYEE WORKSPACE — /employee/* routes (role: employee only)

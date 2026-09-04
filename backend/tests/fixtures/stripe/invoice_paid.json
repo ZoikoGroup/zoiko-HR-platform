@@ -1,0 +1,19 @@
+{
+  "id": "evt_test_invoice_paid",
+  "type": "invoice.paid",
+  "object": "event",
+  "data": {
+    "object": {
+      "id": "inv_test_invoice_123",
+      "object": "invoice",
+      "customer": "cus_test_customer_123",
+      "subscription": "sub_test_subscription_123",
+      "amount_due": 10000,
+      "amount_paid": 10000,
+      "currency": "usd",
+      "status": "paid",
+      "hosted_invoice_url": "https://invoice.stripe.com/test",
+      "invoice_pdf": "https://invoice.stripe.com/test.pdf"
+    }
+  }
+}

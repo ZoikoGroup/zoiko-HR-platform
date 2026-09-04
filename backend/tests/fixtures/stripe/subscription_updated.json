@@ -1,0 +1,27 @@
+{
+  "id": "evt_test_sub_updated",
+  "type": "customer.subscription.updated",
+  "object": "event",
+  "data": {
+    "object": {
+      "id": "sub_test_subscription_123",
+      "object": "subscription",
+      "status": "active",
+      "current_period_start": 1725000000,
+      "current_period_end": 1727678400,
+      "cancel_at_period_end": false,
+      "latest_invoice": "inv_test_invoice_123",
+      "items": {
+        "data": [
+          {
+            "id": "si_test_item_123",
+            "price": {
+              "id": "price_test_monthly"
+            },
+            "quantity": 10
+          }
+        ]
+      }
+    }
+  }
+}

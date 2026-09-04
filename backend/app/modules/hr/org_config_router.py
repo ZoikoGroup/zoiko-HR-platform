@@ -19,6 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_org_admin
+from app.core.entitlements import require_entitlement
 from app.modules.hr import org_config_service
 from app.modules.hr.schemas import (
     OrgConfigCreate, OrgConfigUpdate, OrgConfigResponse, OrgConfigBulkUpdate,
@@ -65,7 +66,8 @@ def get_config(
     }
 
 
-@org_config_router.put("/bulk", response_model=list[OrgConfigResponse], summary="Bulk update config entries")
+@org_config_router.put("/bulk", response_model=list[OrgConfigResponse], summary="Bulk update config entries",
+                       dependencies=[Depends(require_entitlement("hr.identity.sso"))])
 def bulk_update(
     data: OrgConfigBulkUpdate,
     db: Session = Depends(get_db),

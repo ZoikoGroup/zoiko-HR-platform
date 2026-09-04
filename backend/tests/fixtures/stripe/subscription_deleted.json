@@ -1,0 +1,14 @@
+{
+  "id": "evt_test_sub_deleted",
+  "type": "customer.subscription.deleted",
+  "object": "event",
+  "data": {
+    "object": {
+      "id": "sub_test_subscription_123",
+      "object": "subscription",
+      "status": "canceled",
+      "current_period_start": 1725000000,
+      "current_period_end": 1727678400
+    }
+  }
+}

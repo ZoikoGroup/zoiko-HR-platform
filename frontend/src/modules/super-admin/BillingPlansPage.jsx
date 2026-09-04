@@ -1,10 +1,27 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import PageHeader from "../../components/PageHeader";
 import {
   AlertTriangle, Package, Plus, Save, X, Edit3, CheckCircle, XCircle,
-  Loader2, RefreshCw, Info,
+  Loader2, RefreshCw, Info, Send, Lock,
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
+import { catalogService } from "../../service/catalogService";
+import { PRICING_PENDING_TEXT } from "../../utils/catalogPriceUtil";
+
+// Section 17: no HR plan has an approved numeric price today. A null-price
+// state must render a clear "pricing pending" notice — NEVER a raw null/blank
+// cell or NaN. Only truly-priced (self-serve) plans show a real dollar amount.
+function PriceCell({ price }) {
+  const hasPrice = price != null && !Number.isNaN(Number(price));
+  if (!hasPrice) {
+    return (
+      <span className="text-[11px] font-medium text-amber-600 bg-amber-50 border border-amber-100 rounded-full px-2 py-0.5 inline-block">
+        {PRICING_PENDING_TEXT}
+      </span>
+    );
+  }
+  return <span className="font-semibold text-slate-700">${Number(price).toLocaleString()}</span>;
+}
 
 function FieldLabel({ children, required }) {
   return (
@@ -57,6 +74,28 @@ export default function BillingPlansPage() {
   const [editing, setEditing] = useState(null);
   const [creating, setCreating] = useState(false);
   const [form, setForm] = useState(BLANK_FORM);
+
+  // Publish flow (Section 17, append-only + typed confirmation)
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [publishVersion, setPublishVersion] = useState("");
+  const [publishConfirm, setPublishConfirm] = useState("");
+  const [publishing, setPublishing] = useState(false);
+  const [publishError, setPublishError] = useState(null);
+
+  // Distinct catalog versions present in the current data, and which are
+  // fully published vs draft.
+  const versions = useMemo(() => {
+    const map = new Map();
+    for (const p of plans) {
+      if (!map.has(p.catalog_version)) {
+        map.set(p.catalog_version, { total: 0, published: 0 });
+      }
+      const e = map.get(p.catalog_version);
+      e.total += 1;
+      if (p.is_published) e.published += 1;
+    }
+    return Array.from(map.entries()).map(([v, e]) => ({ version: v, ...e }));
+  }, [plans]);
 
   const loadPlans = useCallback(async () => {
     setLoading(true);
@@ -137,6 +176,39 @@ export default function BillingPlansPage() {
     }
   };
 
+  const openPublish = (version) => {
+    setPublishError(null);
+    setPublishVersion(version);
+    setPublishConfirm("");
+    setPublishOpen(true);
+  };
+
+  const closePublish = () => {
+    setPublishOpen(false);
+    setPublishVersion("");
+    setPublishConfirm("");
+    setPublishError(null);
+  };
+
+  const handlePublish = async () => {
+    setPublishError(null);
+    // Lightweight confirmation: the typed string MUST match the version.
+    if (publishConfirm.trim() !== publishVersion) {
+      setPublishError("Confirmation does not match the catalog version. Publication is irreversible.");
+      return;
+    }
+    setPublishing(true);
+    try {
+      await catalogService.publishCatalogVersion(publishVersion);
+      closePublish();
+      loadPlans();
+    } catch (e) {
+      setPublishError(e.message || "Failed to publish catalog version.");
+    } finally {
+      setPublishing(false);
+    }
+  };
+
   const isOpen = editing || creating;
 
   if (loading) {
@@ -163,6 +235,14 @@ export default function BillingPlansPage() {
               title="Refresh"
             >
               <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => openPublish(versions.find(v => v.published < v.total)?.version || plans[0]?.catalog_version || "")}
+              disabled={versions.length === 0}
+              className="flex items-center gap-2 rounded-full border border-[#FF7A00] text-[#FF7A00] px-4 py-2.5 text-sm font-semibold hover:bg-orange-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              title="Publish a catalog version (irreversible, confirms by typed version)"
+            >
+              <Send className="h-4 w-4" /> Publish Version
             </button>
             <button
               onClick={openCreate}
@@ -200,6 +280,7 @@ export default function BillingPlansPage() {
                   <th className="py-3.5 px-5">Monthly</th>
                   <th className="py-3.5 px-5">Annual</th>
                   <th className="py-3.5 px-5">Version</th>
+                  <th className="py-3.5 px-5">Published</th>
                   <th className="py-3.5 px-5">Self-Serve</th>
                   <th className="py-3.5 px-5">Active</th>
                   <th className="py-3.5 px-5" />
@@ -233,19 +314,24 @@ export default function BillingPlansPage() {
                       {plan.billing_metric?.replace(/_/g, " ")}
                     </td>
                     <td className="py-4 px-5">
-                      {plan.monthly_price != null
-                        ? <span className="font-semibold text-slate-700">${Number(plan.monthly_price).toLocaleString()}</span>
-                        : <span className="text-slate-300 italic text-xs">—</span>
-                      }
+                      <PriceCell price={plan.monthly_price} />
                     </td>
                     <td className="py-4 px-5">
-                      {plan.annual_price != null
-                        ? <span className="font-semibold text-slate-700">${Number(plan.annual_price).toLocaleString()}</span>
-                        : <span className="text-slate-300 italic text-xs">—</span>
-                      }
+                      <PriceCell price={plan.annual_price} />
                     </td>
                     <td className="py-4 px-5">
                       <span className="text-[11px] font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded-md">{plan.catalog_version}</span>
+                    </td>
+                    <td className="py-4 px-5">
+                      {plan.is_published ? (
+                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold bg-green-50 text-green-600 border border-green-100">
+                          <CheckCircle className="h-3 w-3" /> Published
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold bg-slate-100 text-slate-500 border border-slate-200">
+                          <Lock className="h-3 w-3" /> Draft
+                        </span>
+                      )}
                     </td>
                     <td className="py-4 px-5">
                       {plan.is_self_serve_enabled ? (
@@ -446,6 +532,77 @@ export default function BillingPlansPage() {
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {creating ? "Create Plan" : "Save Changes"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Publish Version Modal (Section 17: append-only, typed confirmation) */}
+      {publishOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
+                  <Send className="h-5 w-5 text-[#FF7A00]" />
+                </div>
+                <h3 className="text-base font-bold text-slate-800">Publish Catalog Version</h3>
+              </div>
+              <button onClick={closePublish} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
+                <X className="h-5 w-5 text-slate-400" />
+              </button>
+            </div>
+
+            <div className="px-6 py-5 space-y-4">
+              <div className="flex items-start gap-2 bg-red-50 text-red-600 rounded-xl px-4 py-3 text-xs border border-red-100">
+                <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                <span><strong>Publishing is irreversible & append-only.</strong> Once published, prices can never be edited — create a new catalog version instead. Type the version below to confirm.</span>
+              </div>
+
+              <div>
+                <FieldLabel required>Catalog Version to Publish</FieldLabel>
+                <Select value={publishVersion} onChange={e => setPublishVersion(e.target.value)}>
+                  {versions.map(v => (
+                    <option key={v.version} value={v.version}>
+                      {v.version} ({v.published}/{v.total} published)
+                    </option>
+                  ))}
+                </Select>
+              </div>
+
+              <div>
+                <FieldLabel required>Type the exact version to confirm</FieldLabel>
+                <Input
+                  type="text"
+                  value={publishConfirm}
+                  onChange={e => setPublishConfirm(e.target.value)}
+                  placeholder={publishVersion}
+                />
+              </div>
+
+              {publishError && (
+                <div className="flex items-center gap-2 bg-red-50 text-red-600 rounded-xl px-4 py-3 text-sm border border-red-100">
+                  <AlertTriangle className="h-4 w-4 flex-shrink-0" />
+                  {publishError}
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50">
+              <button
+                onClick={closePublish}
+                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-100 font-medium transition"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handlePublish}
+                disabled={publishing}
+                className="flex items-center gap-2 px-5 py-2 rounded-full bg-[#FF7A00] text-white text-sm font-semibold hover:bg-[#e56e00] disabled:opacity-60 transition shadow-sm"
+              >
+                {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+                Publish Version
               </button>
             </div>
           </div>
