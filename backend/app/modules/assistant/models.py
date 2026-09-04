@@ -268,6 +268,10 @@ class KnowledgeSource(Base):
     authority_tier  = Column(String(1), nullable=False, default="C")  # A | B | C | D
     status          = Column(Enum(KnowledgeStatus), default=KnowledgeStatus.DRAFT, nullable=False)
     owner_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    # Visible to the public, unauthenticated assistant (zoikohr.com) regardless
+    # of which organization owns/authors it — decoupled from organization_id
+    # so public content never needs a fake tenant. See retrieval_service.retrieve_public().
+    is_public       = Column(Boolean, nullable=False, default=False)
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, onupdate=func.now())
 

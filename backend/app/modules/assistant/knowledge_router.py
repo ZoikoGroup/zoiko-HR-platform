@@ -54,6 +54,7 @@ def create_source(
         content_text=payload.content_text, jurisdiction_code=payload.jurisdiction_code,
         worker_type=payload.worker_type, audience_role=payload.audience_role,
         effective_from=payload.effective_from, effective_to=payload.effective_to,
+        is_public=payload.is_public,
     )
     audit_service.record(db, organization_id, "knowledge_source_created", "knowledge_source",
                           source.id, current_user.id)
@@ -108,6 +109,7 @@ def update_source(
         db, organization_id, source_id,
         title=payload.title, source_type=payload.source_type, authority_tier=payload.authority_tier,
         jurisdiction_code=payload.jurisdiction_code, worker_type=payload.worker_type, audience_role=payload.audience_role,
+        is_public=payload.is_public,
     )
     audit_service.record(db, organization_id, "knowledge_source_updated", "knowledge_source",
                           source.id, current_user.id)

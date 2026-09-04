@@ -37,7 +37,26 @@ PROMPT_VERSION = "zhr-system-1.1.0"
 # retrieval_service.MIN_RELEVANCE_SCORE) bar to be trusted over it.
 _ATTACHMENT_COMPETING_MIN_SCORE = 0.7
 
-_LEAVE_BOOKING_RE = re.compile(r"\b(book|request|apply for|take)\b.*\bleave\b", re.IGNORECASE)
+_LEAVE_BOOKING_ACTION_RE = re.compile(r"\b(book|request|apply for)\b.*\bleave\b", re.IGNORECASE)
+# "take...leave" alone is too ambiguous to trust unconditionally — "Can I take
+# annual leave during my probation period?" is a policy question, not a
+# booking request, but matches just as well as "I want to take leave
+# tomorrow." Only treat it as booking when it ISN'T phrased as an eligibility/
+# permission question (see _LEAVE_POLICY_QUESTION_RE below).
+_LEAVE_TAKE_RE = re.compile(r"\btake\b.*\bleave\b", re.IGNORECASE)
+_LEAVE_POLICY_QUESTION_RE = re.compile(
+    r"\b(can|could|may)\s+i\b|\bam\s+i\s+(able|allowed|eligible)\b|\bis\s+it\s+possible\b"
+    r"|\bduring\s+(my|the)\b|\bprobation\b",
+    re.IGNORECASE,
+)
+
+
+def _is_leave_booking(text: str) -> bool:
+    if _LEAVE_BOOKING_ACTION_RE.search(text):
+        return True
+    return bool(_LEAVE_TAKE_RE.search(text) and not _LEAVE_POLICY_QUESTION_RE.search(text))
+
+
 _LEAVE_BALANCE_RE = re.compile(
     r"\bleave\b.*\b(balance|left|remaining|days)\b|\bhow many.*leave\b"
     r"|\bentitle\w*\b.*\bleave\b|\bleave\b.*\bentitle\w*\b"
@@ -48,6 +67,17 @@ _LEAVE_BALANCE_RE = re.compile(
     # already returns (sick/casual/annual/earned/etc., see _answer_leave_balance).
     r"|\b(sick|casual|annual|vacation|personal|earned|paid|maternity|paternity|bereavement|comp(?:-?\s?off)?|unpaid)\b"
     r".{0,15}\bdays?\b",
+    re.IGNORECASE,
+)
+# Policy questions about the RULE governing a leave type ("how many days do
+# employees accrue", "days allowed for X", "can I carry forward") collide
+# with the personal-balance patterns above, since both talk about a leave
+# type + "days". These verbs/phrases are policy-flavored, not personal-state
+# ("do I have" / "am I entitled" / "remaining" / "balance") — when present,
+# treat it as a policy question even though _LEAVE_BALANCE_RE also matched.
+_LEAVE_POLICY_OVERRIDE_RE = re.compile(
+    r"\bpolicy\b|\baccrue\w*\b|\bcarr(?:y|ied)\s+forward\b|\ballowed for\b"
+    r"|\b(do|does|are)\s+employees\b|\bemployees\s+(accrue|receive|get)\b",
     re.IGNORECASE,
 )
 _ATTENDANCE_RE = re.compile(
@@ -183,9 +213,9 @@ def classify_intent(text: str) -> str:
         return "chitchat:farewell"
     if _ACK_RE.match(text):
         return "chitchat:ack"
-    if _LEAVE_BOOKING_RE.search(text):
+    if _is_leave_booking(text):
         return "book_leave"
-    if _LEAVE_BALANCE_RE.search(text):
+    if _LEAVE_BALANCE_RE.search(text) and not _LEAVE_POLICY_OVERRIDE_RE.search(text):
         return "leave_balance"
     if _ATTENDANCE_RE.search(text):
         return "attendance_status"

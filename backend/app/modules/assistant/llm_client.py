@@ -26,7 +26,11 @@ def _get_client() -> Groq:
     if _client is None:
         if not settings.GROQ_API_KEY:
             raise RuntimeError("HR_GROQ_API_KEY is not configured.")
-        _client = Groq(api_key=settings.GROQ_API_KEY)
+        # Without this, a stalled connection to Groq can hang indefinitely.
+        # public_service's ThreadPoolExecutor wrapper stops *waiting* on a
+        # hung call after its own timeout, but doesn't kill the underlying
+        # thread — this bounds the actual HTTP call so that thread can exit.
+        _client = Groq(api_key=settings.GROQ_API_KEY, timeout=45.0)
     return _client
 
 
@@ -113,7 +117,7 @@ def stream(messages: list[dict], temperature: float = 0.2):
 META_DELIMITER = "§§META§§"
 
 
-def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2):
+def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max_tokens: int | None = None):
     """Streams the plain-language answer as real per-token deltas, then
     parses a trailing metadata block once the stream ends. Yields
     ("delta", text) for each new chunk of the answer (holding back enough
@@ -121,15 +125,22 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2):
     text), then a final ("done", answer_text, metadata_dict_or_None,
     ModelRunResult). metadata_dict is None if the delimiter or its JSON
     never resolved — callers must treat that as malformed output, same as
-    generate_json()'s ValueError path, not guess at the missing fields."""
+    generate_json()'s ValueError path, not guess at the missing fields.
+
+    max_tokens defaults to None (no cap, matching prior behavior for the
+    authenticated flow) — the public assistant passes an explicit cap since
+    it's reachable by anyone on the internet, not just logged-in employees."""
     client = _get_client()
     start = time.monotonic()
-    completion = client.chat.completions.create(
-        model=settings.GROQ_MODEL,
-        messages=messages,
-        temperature=temperature,
-        stream=True,
-    )
+    kwargs = {
+        "model": settings.GROQ_MODEL,
+        "messages": messages,
+        "temperature": temperature,
+        "stream": True,
+    }
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    completion = client.chat.completions.create(**kwargs)
 
     raw = ""
     emitted_len = 0

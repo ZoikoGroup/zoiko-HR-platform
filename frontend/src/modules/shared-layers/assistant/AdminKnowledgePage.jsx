@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import PageHeader from "../../../components/PageHeader";
 import {
   BookOpen, CheckCircle2, Plus, ShieldOff, Search, ChevronDown, ChevronUp, Archive, PauseCircle,
-  Pencil, Trash2, FilePlus2,
+  Pencil, Trash2, FilePlus2, Globe2,
 } from "lucide-react";
 import {
   listKnowledgeSources, createKnowledgeSource, publishKnowledgeSource, retireKnowledgeSource, suspendKnowledgeSource,
@@ -15,7 +15,7 @@ const STATUSES = ["draft", "review", "published", "superseded", "retired"];
 
 const emptyForm = {
   title: "", source_type: "policy", authority_tier: "B", content_text: "",
-  jurisdiction_code: "", worker_type: "", audience_role: "",
+  jurisdiction_code: "", worker_type: "", audience_role: "", is_public: false,
 };
 
 function VersionHistory({ sourceId, onSourceChanged }) {
@@ -95,6 +95,7 @@ function VersionHistory({ sourceId, onSourceChanged }) {
 function EditMetadataForm({ source, onCancel, onSaved }) {
   const [form, setForm] = useState({
     title: source.title, source_type: source.source_type, authority_tier: source.authority_tier,
+    is_public: source.is_public,
   });
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
@@ -127,6 +128,10 @@ function EditMetadataForm({ source, onCancel, onSaved }) {
           {TIERS.map((t) => <option key={t} value={t}>Tier {t}</option>)}
         </select>
       </div>
+      <label className="flex items-center gap-1.5 text-[11px] font-semibold text-slate-600">
+        <input type="checkbox" checked={form.is_public} onChange={(e) => setForm((f) => ({ ...f, is_public: e.target.checked }))} />
+        Visible on zoikohr.com (public, unauthenticated assistant)
+      </label>
       {error && <p className="text-[11px] font-semibold text-rose-600">{error}</p>}
       <div className="flex gap-1.5">
         <button disabled={busy} className="rounded-full bg-[var(--zhr-action-primary)] px-3 py-1 text-[11px] font-bold text-white disabled:opacity-50">
@@ -289,6 +294,11 @@ export default function AdminKnowledgePage() {
               </div>
             )}
 
+            <label className="flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+              <input type="checkbox" checked={form.is_public} onChange={(e) => setForm((f) => ({ ...f, is_public: e.target.checked }))} />
+              Visible on zoikohr.com (public, unauthenticated assistant)
+            </label>
+
             {error && <p className="text-xs font-semibold text-rose-600">{error}</p>}
             <button disabled={busy} className="rounded-full bg-[var(--zhr-action-primary)] px-4 py-2 text-sm font-bold text-white hover:bg-[var(--zhr-action-primary-hover)] disabled:opacity-50">
               Create draft
@@ -319,7 +329,14 @@ export default function AdminKnowledgePage() {
               <div key={s.id} className="rounded-xl border border-slate-100 bg-slate-50">
                 <div className="flex items-center justify-between px-3 py-2.5">
                   <button className="flex-1 text-left" onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}>
-                    <p className="text-sm font-bold text-slate-800">{s.title}</p>
+                    <p className="flex items-center gap-1.5 text-sm font-bold text-slate-800">
+                      {s.title}
+                      {s.is_public && (
+                        <span title="Visible on zoikohr.com" className="flex items-center gap-0.5 rounded-full bg-sky-50 px-1.5 py-0.5 text-[10px] font-bold text-sky-600">
+                          <Globe2 className="h-3 w-3" /> Public
+                        </span>
+                      )}
+                    </p>
                     <p className="text-[11px] text-slate-500">{s.source_type} · Tier {s.authority_tier} · {s.status}</p>
                   </button>
                   <div className="flex items-center gap-1.5">
