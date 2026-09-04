@@ -335,3 +335,38 @@ def retrieve_upcoming_invoice(
     except stripe.error.StripeError as e:
         logger.error("[stripe] Upcoming invoice retrieval failed: %s", e)
         raise RuntimeError(f"Stripe upcoming invoice retrieval failed: {e}") from e
+
+
+# ── Payment-method validity (Prompt 6 self-serve reactivate) ───────────────
+
+def payment_method_valid(*, customer_id: Optional[str] = None) -> bool:
+    """Return True when the customer has a chargeable default payment method on
+    file. Used by /billing/me/reactivate so a canceled subscription is not
+    resurrected without a card that can be charged (Section 13 H2).
+
+    - No customer_id -> False (nothing to charge).
+    - Stripe disabled (no test key) -> True (skip the gate in non-Stripe mode);
+      callers should therefore only rely on this when stripe_enabled() is True.
+    - Otherwise retrieves the customer's default_source / invoice_settings and
+      returns whether a usable payment method exists.
+    Errors are treated as False (fail-closed): never resurrect billing when we
+    cannot confirm a payment method.
+    """
+    if not customer_id:
+        return False
+    if not stripe_enabled():
+        return True
+    stripe = get_stripe()
+    try:
+        customer = stripe.Customer.retrieve(customer_id)
+        if customer is None or getattr(customer, "deleted", False):
+            return False
+        def_pm = (
+            getattr(customer, "invoice_settings", None)
+            and getattr(customer.invoice_settings, "default_payment_method", None)
+        )
+        default_source = getattr(customer, "default_source", None)
+        return bool(def_pm or default_source)
+    except stripe.error.StripeError as e:
+        logger.error("[stripe] payment_method_valid failed for %s: %s", customer_id, e)
+        return False

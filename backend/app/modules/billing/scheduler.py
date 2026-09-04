@@ -47,6 +47,26 @@ def _execute_plan_changes_job():
         logger.error("[scheduler] Plan change execution job failed: %s", e)
 
 
+def _execute_delinquency_walk_job():
+    """Job function: advance the delinquency timeline (day 10/20/45) for every
+    open case and dispatch stage-change notices (Section 10 G1-G5)."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.delinquency_service import run_delinquency_walk
+
+        db = SessionLocal()
+        try:
+            result = run_delinquency_walk(db)
+            logger.info(
+                "[scheduler] Delinquency walk: %d open, %d advanced, %d notified",
+                result["open_cases"], result["advanced"], result["notified"],
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Delinquency walk job failed: %s", e)
+
+
 def setup_scheduler(app=None) -> bool:
     """Register the plan-change scheduler with the FastAPI app lifecycle.
 
@@ -64,8 +84,30 @@ def setup_scheduler(app=None) -> bool:
         )
         return False
 
+    if app:
+        # Backwards-compatible registration for apps that do not use lifespan.
+        # Modern apps (main.py) call start_scheduler()/stop_scheduler() directly
+        # inside the FastAPI lifespan block instead.
+        @app.on_event("startup")
+        def _app_start():
+            start_scheduler()
+
+        @app.on_event("shutdown")
+        def _app_stop():
+            stop_scheduler()
+    else:
+        start_scheduler()
+
+    return True
+
+
+def _ensure_scheduler():
+    """Lazily build the BackgroundScheduler and register all daily jobs."""
     global _scheduler
-    _scheduler = BackgroundScheduler()
+    if _scheduler is not None and _scheduler.running:
+        return _scheduler
+    if _scheduler is None:
+        _scheduler = BackgroundScheduler()
 
     _scheduler.add_job(
         _execute_plan_changes_job,
@@ -76,22 +118,40 @@ def setup_scheduler(app=None) -> bool:
         misfire_grace_time=3600,
     )
 
-    if app:
-        @app.on_event("startup")
-        def start_scheduler():
-            _scheduler.start()
-            logger.info("[scheduler] Plan change scheduler started — daily at 02:00 UTC")
+    _scheduler.add_job(
+        _execute_delinquency_walk_job,
+        CronTrigger(hour=2, minute=5),
+        id="delinquency_walk",
+        name="Advance delinquency timeline and dispatch notices",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    return _scheduler
 
-        @app.on_event("shutdown")
-        def stop_scheduler():
-            if _scheduler.running:
-                _scheduler.shutdown(wait=False)
-                logger.info("[scheduler] Plan change scheduler stopped")
-    else:
+
+def start_scheduler() -> bool:
+    """Start the background scheduler (registers plan-change + delinquency jobs
+    on first start). Safe to call once from the FastAPI lifespan."""
+    if not _SCHEDULER_AVAILABLE:
+        logger.warning("[scheduler] APScheduler not installed — background jobs disabled")
+        return False
+    global _scheduler
+    _scheduler = _ensure_scheduler()
+    if not _scheduler.running:
         _scheduler.start()
-        logger.info("[scheduler] Plan change scheduler started (standalone) — daily at 02:00 UTC")
-
+    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05 UTC")
     return True
+
+
+def stop_scheduler() -> bool:
+    """Stop the background scheduler. Safe to call from the FastAPI lifespan."""
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
+        logger.info("[scheduler] Background scheduler stopped")
+        return True
+    return False
 
 
 def get_scheduler():

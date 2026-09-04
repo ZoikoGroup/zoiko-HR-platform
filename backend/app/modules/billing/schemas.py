@@ -521,3 +521,110 @@ class RefundResponse(BaseModel):
 class RefundListResponse(BaseModel):
     list: List[RefundResponse]
     total: int
+
+
+# ── Delinquency & Support Access (Section 10 G1-G5, Section 18 O3) ─────────
+
+class DelinquencyStatusResponse(BaseModel):
+    organization_id: int
+    has_open_case: bool
+    stage: Optional[str] = None
+    status: Optional[str] = None
+    failed_at: Optional[datetime] = None
+    recovered_at: Optional[datetime] = None
+    retention_hold_until: Optional[datetime] = None
+    days_elapsed: Optional[int] = None
+
+
+class SupportAccessRequest(BaseModel):
+    organization_id: int
+    reason: Optional[str] = None
+    ttl_hours: int = 24
+
+
+class SupportAccessResponse(BaseModel):
+    id: int
+    organization_id: int
+    granted_by: str
+    reason: Optional[str] = None
+    expires_at: datetime
+    revoked_at: Optional[datetime] = None
+    revoked_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SupportAccessCreatedResponse(SupportAccessResponse):
+    token: str  # raw token, returned exactly once on creation
+
+
+class SupportAccessValidateRequest(BaseModel):
+    organization_id: int
+    token: str
+
+
+class SupportAccessListResponse(BaseModel):
+    list: List[SupportAccessResponse]
+    total: int
+
+
+# ── Customer Self-Serve Billing (/billing/me/*) — Prompt 6 ────────────────
+
+class MeSubscriptionResponse(BaseModel):
+    """Subscription scoped to the caller's own organization. Trimming (Section 19)
+    is applied server-side for HR Admin / Organization Admin: financial detail and
+    billing classification are nulled as in to_overview_response(trimmed=True)."""
+    organization_id: int
+    billing_classification: Optional[str] = None
+    status: Optional[str] = None
+    billing_channel: Optional[str] = None
+    plan_id: Optional[int] = None
+    plan_code: Optional[str] = None
+    plan_name: Optional[str] = None
+    billing_cycle: Optional[str] = None
+    price_catalog_version: Optional[str] = None
+    billing_metric: Optional[str] = None
+    quantity: Optional[int] = None
+    committed_quantity: Optional[int] = None
+    renewal_anchor_date: Optional[datetime] = None
+    commercial_effective_at: Optional[datetime] = None
+    billing_timezone: Optional[str] = None
+    service_start_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class MeEntitlementsResponse(BaseModel):
+    organization_id: int
+    catalog_version: str
+    states: dict
+    contract_overrides: dict
+
+
+class MeCancelRequest(BaseModel):
+    reason: Optional[str] = None
+    effective_at: Optional[datetime] = None
+
+
+class MeReactivateRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class MeReactivateResponse(BaseModel):
+    organization_id: int
+    status: str
+    plan_code: Optional[str] = None
+    billing_empty_card: bool = False
+
+
+class MeDowngradeImpactRequest(BaseModel):
+    target_plan_code: str
+
+
+class MeDowngradeImpactResponse(BaseModel):
+    organization_id: int
+    eligible: bool
+    blockers: List[dict] = []
+    current_plan_code: Optional[str] = None
+    target_plan_code: str

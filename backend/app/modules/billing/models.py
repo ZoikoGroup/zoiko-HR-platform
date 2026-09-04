@@ -131,6 +131,7 @@ class BillingAuditAction(str, enum.Enum):
     SUBSCRIPTION_UPGRADED = "subscription_upgraded"
     SUBSCRIPTION_DOWNGRADED = "subscription_downgraded"
     SUBSCRIPTION_CANCELED = "subscription_canceled"
+    SUBSCRIPTION_REACTIVATED = "subscription_reactivated"
     DISCOUNT_CREATED = "discount_created"
     SUBSCRIPTION_ACTIVATED = "subscription_activated"
     SUBSCRIPTION_PAST_DUE = "subscription_past_due"
@@ -151,6 +152,15 @@ class BillingAuditAction(str, enum.Enum):
     REFUND_REJECTED = "refund_rejected"
     CREDIT_REQUESTED = "credit_requested"
     CREDIT_APPROVED = "credit_approved"
+    DELINQUENCY_CASE_OPENED = "delinquency_case_opened"
+    DELINQUENCY_STAGE_CHANGED = "delinquency_stage_changed"
+    DELINQUENCY_RECOVERED = "delinquency_recovered"
+    DELINQUENCY_RETENTION_HOLD = "delinquency_retention_hold"
+    DELINQUENCY_TERMINATION_STARTED = "delinquency_termination_started"
+    SUPPORT_ACCESS_GRANTED = "support_access_granted"
+    SUPPORT_ACCESS_REVOKED = "support_access_revoked"
+    CONFIRMATION_TOKEN_CREATED = "confirmation_token_created"
+    CONFIRMATION_TOKEN_CONSUMED = "confirmation_token_consumed"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -599,5 +609,105 @@ class BillingRefundRequest(Base):
     processed_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")
+
+
+# ── Delinquency (Section 10 G1–G5, Section 22 DAY_* events) ────────────────
+
+class DelinquencyStage(str, enum.Enum):
+    """Graduated recovery stages per Section 10 G1. Recovery is attempted
+    through day 14; new commercial expansion is gated from day 10; controlled
+    service restriction starts day 20; termination/closure workflow at day 45
+    unless an Enterprise contractual cure period overrides the timing."""
+    RECOVERY = "recovery"                  # payment failed, still trying (day 0–14)
+    DAY_10_RESTRICT = "day_10_restrict"    # block new commercial expansion / cost-increasing actions
+    DAY_20_RESTRICT = "day_20_restrict"    # controlled service restriction, preserve read/remediation/privacy/export
+    DAY_45_TERMINATION = "day_45_termination"  # terminate standard subscription, begin closure workflow
+
+
+class DelinquencyCaseStatus(str, enum.Enum):
+    OPEN = "open"
+    RECOVERED = "recovered"
+    TERMINATED = "terminated"
+
+
+class DelinquencyCase(Base):
+    """One open delinquency case per organization while a payment failure is
+    being recovered. Tracks the graduated day-10/20/45 timeline and the
+    derived RESTRICTED stage so the entitlement layer can gate actions
+    without relying on frontend banners alone (Section 10 G2/G3)."""
+    __tablename__ = "billing_delinquency_cases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=False, index=True)
+    status = Column(CaseInsensitiveEnum(DelinquencyCaseStatus), default=DelinquencyCaseStatus.OPEN, nullable=False)
+    stage = Column(CaseInsensitiveEnum(DelinquencyStage), default=DelinquencyStage.RECOVERY, nullable=False)
+    stripe_event_id = Column(String(255), nullable=True)
+    failed_at = Column(DateTime, nullable=False)          # when invoice.payment_failed was received
+    recovered_at = Column(DateTime, nullable=True)
+    terminated_at = Column(DateTime, nullable=True)
+    retention_hold_until = Column(DateTime, nullable=True)  # G2/G5: export/retention window after termination
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")
+
+
+# ── Support Access (Section 18 O3 / G4 Billing Operations escalation) ─────
+
+class SupportAccessGrant(Base):
+    """Time-bounded, tenant-scoped, fully-logged grant of elevated Billing
+    Operations support access to an organization (Section 8/18: tenant-scoped,
+    logged and time-bounded). A durable opaque token is minted, expiry is
+    enforced, and every grant/revoke is recorded on the billing audit trail."""
+    __tablename__ = "billing_support_access_grants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    token_hash = Column(String(128), nullable=False, unique=True)  # SHA-256 of the raw token
+    granted_by = Column(String(255), nullable=False)   # Billing Ops actor
+    reason = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    organization = relationship("Organization")
+
+
+# ── Confirmation Tokens (two-step destructive / state-changing actions) ────
+
+class ConfirmationTokenPurpose(str, enum.Enum):
+    DELETE_ORGANIZATION = "delete_organization"
+    UPDATE_ORGANIZATION_STATUS = "update_organization_status"
+
+
+class ConfirmationTokenStatus(str, enum.Enum):
+    PENDING = "pending"
+    CONSUMED = "consumed"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class ConfirmationToken(Base):
+    """One-time, time-bounded token minted before a destructive or
+    irrevocable organization action (e.g. hard-delete, forced status change).
+    The actor must present the token back to confirm the action — a two-step
+    pattern that prevents accidental destructive changes."""
+    __tablename__ = "billing_confirmation_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    purpose = Column(CaseInsensitiveEnum(ConfirmationTokenPurpose), nullable=False)
+    token_hash = Column(String(128), nullable=False, unique=True)  # SHA-256 of the raw token
+    expires_at = Column(DateTime, nullable=False)
+    status = Column(CaseInsensitiveEnum(ConfirmationTokenStatus), default=ConfirmationTokenStatus.PENDING, nullable=False)
+    actor_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    consumed_at = Column(DateTime, nullable=True)
+    token_metadata = Column(JSON, nullable=True)   # e.g. the proposed target status / confirmation display
+    created_at = Column(DateTime, server_default=func.now())
 
     organization = relationship("Organization")

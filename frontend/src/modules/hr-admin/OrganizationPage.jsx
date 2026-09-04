@@ -3,6 +3,7 @@ import { useAuth } from "../../context/AuthContext";
 import PageHeader from "../../components/PageHeader";
 import { getOrganizationDetails } from "../../service/orgAdminService";
 import { Building, Calendar, Shield, MapPin, Globe, Clock, BadgeDollarSign, HardDrive, Users, Coins, Briefcase, User, Phone, Mail, FileText } from "lucide-react";
+import DelinquencyBanner from "../../components/DelinquencyBanner";
 
 const statusColors = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -82,6 +83,8 @@ export default function HrAdminOrganizationPage() {
   return (
     <div className="space-y-6 font-sans">
       <PageHeader title="My Organization" description="View your organization details." />
+
+      <DelinquencyBanner organizationId={user?.organization_id} />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
         <div className="flex items-center gap-4 mb-6">

@@ -137,6 +137,25 @@ def get_or_create_subscription(db: Session, organization_id: int) -> BillingSubs
     return subscription
 
 
+def clear_delinquency_restriction(db: Session, organization_id: int) -> bool:
+    """Return True when a recovered delinquency may be lifted (no other
+    suspension/restriction reason exists), so PAYMENT_RECOVERED can restore
+    the subscription to ACTIVE automatically (Section 22).
+
+    This is the single place that decides whether restoration is safe. If a
+    future suspension/restriction source (platform suspend, enterprise hold,
+    legal block) is introduced, it must be added here so recovery respects it.
+    """
+    from app.modules.hr.models import Organization, OrganizationStatus
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    if org is None:
+        return False
+    if org.status in (OrganizationStatus.SUSPENDED, OrganizationStatus.DEACTIVATED, OrganizationStatus.ON_HOLD):
+        return False
+    return True
+
+
 def to_overview_response(db: Session, subscription: BillingSubscription, trimmed: bool) -> dict:
     """Full response for Organization Owner / Billing Admin. Trimmed response
     for HR Admin / Organization Admin exposes plan + workforce usage only,

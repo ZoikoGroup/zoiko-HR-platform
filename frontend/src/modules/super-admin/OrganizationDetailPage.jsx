@@ -4,7 +4,7 @@ import PageHeader from "../../components/PageHeader";
 import {
   AlertTriangle, Building, Calendar, ChevronLeft, FileText, ShieldAlert,
   Activity, Users, CheckCircle, XCircle, CreditCard, ArrowUpRight, ArrowDownRight, X,
-  ThumbsUp, ThumbsDown, RotateCcw, Pause, Clock,
+  ThumbsUp, ThumbsDown, RotateCcw, Pause, Clock, Trash2, KeyRound,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
 import { billingService } from "../../service/billingService";
@@ -71,6 +71,13 @@ function getStatusOptions(currentStatus) {
   return transitions[currentStatus] || [];
 }
 
+function delinquencyStageStyle(stage) {
+  const s = String(stage || "").toLowerCase();
+  if (s.includes("day_45")) return "border-red-300 bg-red-50 text-red-800";
+  if (s.includes("day_20") || s.includes("day_10")) return "border-amber-300 bg-amber-50 text-amber-800";
+  return "border-amber-200 bg-amber-50 text-amber-800";
+}
+
 export default function OrganizationDetailPage() {
   const { orgId } = useParams();
   const navigate = useNavigate();
@@ -89,6 +96,12 @@ export default function OrganizationDetailPage() {
   const [billingLoading, setBillingLoading] = useState(true);
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
+  const [delinquency, setDelinquency] = useState(null);
+  const [supportGrants, setSupportGrants] = useState([]);
+  const [supportModal, setSupportModal] = useState(false);
+  const [supportResult, setSupportResult] = useState(null);
+  const [supportBusy, setSupportBusy] = useState(false);
+  const [deleteModal, setDeleteModal] = useState(false);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
@@ -118,6 +131,13 @@ export default function OrganizationDetailPage() {
       } finally {
         setBillingLoading(false);
       }
+
+      billingService.getDelinquency(orgId)
+        .then(setDelinquency)
+        .catch(() => setDelinquency(null));
+      billingService.listSupportAccess(orgId)
+        .then((res) => setSupportGrants(res?.list || []))
+        .catch(() => setSupportGrants([]));
     } catch (e) {
       console.error("Failed to load org details", e);
       setError(e.message || "Failed to load organization details.");
@@ -132,7 +152,13 @@ export default function OrganizationDetailPage() {
     if (!statusModal) return;
     setActionLoading("status");
     try {
+      const isDestructive = ["suspended", "deactivated", "on_hold", "rejected"].includes(statusModal.value);
       const payload = { status: statusModal.value, reason: statusReason || null };
+      if (isDestructive) {
+        const confirm = await superAdminService.mintConfirmationToken(orgId, "update_organization_status");
+        payload.confirmation_id = confirm.confirmation_id;
+        payload.confirmation_token = confirm.token;
+      }
       await superAdminService.updateOrganizationStatus(orgId, payload);
       setStatusModal(null);
       setStatusReason("");
@@ -161,6 +187,39 @@ export default function OrganizationDetailPage() {
       setRejectModal(false);
       setRejectReason("");
       loadAll();
+    } catch (e) { setError(e.message); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleMintSupport = async () => {
+    setSupportBusy(true);
+    try {
+      const res = await billingService.createSupportAccess({
+        organization_id: Number(orgId),
+        reason: "Manual time-bounded support access",
+        ttl_hours: 24,
+      });
+      setSupportResult(res);
+      setSupportModal(false);
+      loadAll();
+    } catch (e) { setError(e.message); }
+    finally { setSupportBusy(false); }
+  };
+
+  const handleRevokeSupport = async (grantId) => {
+    try {
+      await billingService.revokeSupportAccess(grantId);
+      loadAll();
+    } catch (e) { setError(e.message); }
+  };
+
+  const handleDeleteOrg = async () => {
+    setActionLoading("delete");
+    try {
+      const confirm = await superAdminService.mintConfirmationToken(orgId, "delete_organization");
+      await superAdminService.deleteOrganization(orgId, { id: confirm.confirmation_id, token: confirm.token });
+      setDeleteModal(false);
+      navigate("/super-admin/organizations");
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
   };
@@ -254,6 +313,20 @@ export default function OrganizationDetailPage() {
                     </button>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {/* Hard-delete for REJECTED orgs (Prompt 5 confirmation safeguards) */}
+            {org.status === "rejected" && (
+              <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-red-800">Rejected Organization</h4>
+                  <p className="text-xs text-red-600 mt-1">Delete removes the rejected registration permanently (requires a confirmation token).</p>
+                </div>
+                <button onClick={() => setDeleteModal(true)}
+                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+                  <Trash2 className="h-4 w-4" /> Delete
+                </button>
               </div>
             )}
 
@@ -395,6 +468,66 @@ export default function OrganizationDetailPage() {
                 </div>
               </div>
             )}
+
+            {/* Delinquency status (Prompt 5, Section 10 G1-G5) — informational */}
+            {delinquency?.has_open_case && (
+              <div className="mt-4 pt-4 border-t border-slate-100">
+                <h4 className="text-sm font-bold text-slate-700 mb-2">Delinquency Status</h4>
+                <div className={`rounded-2xl border p-4 ${delinquencyStageStyle(delinquency.stage)}`} role="alert">
+                  <div className="flex items-center gap-2 text-sm font-bold">
+                    <AlertTriangle className="h-4 w-4" />
+                    Payment overdue — {delinquency.days_elapsed ?? 0} day(s)
+                  </div>
+                  <p className="text-xs mt-1 opacity-90">
+                    Stage: <span className="font-semibold uppercase">{delinquency.stage?.replace(/_/g, " ") || "recovery"}</span>
+                    {delinquency.retention_hold_until && (
+                      <> · Retention hold until {new Date(delinquency.retention_hold_until).toLocaleDateString()}</>
+                    )}
+                  </p>
+                  <p className="text-xs mt-1 opacity-70">
+                    Service restrictions escalate automatically at day 10 / 20 / 45. This banner is advisory — enforcement is backend-driven.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            {/* Support Access Grants (Section 18 O3) */}
+            <div className="mt-4 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between mb-2">
+                <h4 className="text-sm font-bold text-slate-700">Support Access Grants</h4>
+                <button onClick={() => setSupportModal(true)}
+                  className="text-xs font-semibold text-[#3B82F6] hover:underline">
+                  + Grant Billing Ops access
+                </button>
+              </div>
+              {supportGrants.length === 0 ? (
+                <p className="text-xs text-slate-400">No active support-access grants.</p>
+              ) : (
+                <div className="space-y-2">
+                  {supportGrants.map((g) => {
+                    const active = !g.revoked_at && (g.expires_at ? new Date(g.expires_at).getTime() > Date.now() : true);
+                    return (
+                      <div key={g.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 text-sm">
+                        <div>
+                          <span className="font-semibold text-slate-700">{g.granted_by || "Billing Ops"}</span>
+                          <span className={`ml-2 text-xs font-semibold ${active ? "text-emerald-600" : "text-slate-400"}`}>
+                            {active ? "Active" : "Expired/Revoked"}
+                          </span>
+                          <div className="text-xs text-slate-400 mt-0.5">
+                            Expires {g.expires_at ? new Date(g.expires_at).toLocaleString() : "—"}
+                            {g.revoked_by && <> · revoked by {g.revoked_by}</>}
+                          </div>
+                        </div>
+                        {active && (
+                          <button onClick={() => handleRevokeSupport(g.id)}
+                            className="text-xs font-semibold text-red-600 hover:underline">Revoke</button>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
@@ -494,6 +627,78 @@ export default function OrganizationDetailPage() {
                 className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
                 {actionLoading === "reject" ? "Rejecting..." : "Reject"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Organization (confirmation-token protected) */}
+      {deleteModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Delete Organization</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Permanently delete <strong>{org?.name}</strong>? This irreversible action
+              requires a one-time confirmation token and removes the registration.
+            </p>
+            <div className="flex gap-3 mt-6 justify-end">
+              <button onClick={() => setDeleteModal(false)}
+                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={handleDeleteOrg} disabled={actionLoading === "delete"}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                {actionLoading === "delete" ? "Deleting..." : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Grant Support Access */}
+      {supportModal && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-[#3B82F6]/10 flex items-center justify-center">
+                <KeyRound className="h-5 w-5 text-[#3B82F6]" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Grant Billing Ops Access</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Mint a time-bounded (24h) support-access token for <strong>{org?.name}</strong>.
+              The raw token is displayed once after minting.
+            </p>
+            <div className="flex gap-3 mt-6 justify-end">
+              <button onClick={() => setSupportModal(false)}
+                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={handleMintSupport} disabled={supportBusy}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB] disabled:opacity-50">
+                {supportBusy ? "Minting..." : "Mint Token"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Support token result (shown once) */}
+      {supportResult && (
+        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-xl border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+                <KeyRound className="h-5 w-5 text-emerald-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Support Access Token</h3>
+            </div>
+            <p className="text-xs text-slate-500 mb-2">Copy this now — the raw token is shown once and cannot be retrieved again.</p>
+            <pre className="bg-slate-900 text-emerald-300 rounded-xl p-4 text-xs whitespace-pre-wrap break-all font-mono select-all">{supportResult.token}</pre>
+            <div className="flex gap-3 mt-6 justify-end">
+              <button onClick={() => { setSupportResult(null); loadAll(); }}
+                className="px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB]">Done</button>
             </div>
           </div>
         </div>

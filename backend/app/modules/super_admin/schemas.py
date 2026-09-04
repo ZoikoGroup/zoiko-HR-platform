@@ -55,6 +55,11 @@ class OrganizationDetail(OrganizationSummary):
 class OrganizationStatusUpdate(BaseModel):
     status: str  # active | suspended | deactivated | on_hold | approved | rejected
     reason: Optional[str] = None
+    # Two-step confirmation (Prompt 5): mint a token via
+    # POST /super-admin/organizations/{org_id}/confirmation-tokens, then present
+    # confirmation_id + confirmation_token here for destructive transitions.
+    confirmation_id: Optional[int] = None
+    confirmation_token: Optional[str] = None
 
 
 # ── Dashboard ────────────────────────────────────────────────────────────────

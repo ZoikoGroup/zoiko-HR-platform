@@ -1,12 +1,15 @@
 name: Deploy Zoiko HR Platform
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI"]
     branches: [main]
+    types: [completed]
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: SSH and deploy backend + frontend
         uses: appleboy/ssh-action@v1.0.3

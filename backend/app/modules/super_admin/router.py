@@ -13,7 +13,7 @@ import logging
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Header, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -357,6 +357,68 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
     )
 
 
+# ── Two-step confirmation tokens (Prompt 5) ────────────────────────────────
+# Destructive / irrevocable organization actions require a one-time,
+# time-bounded, actor-bound confirmation token that is minted first and
+# presented back on the mutating call.
+
+_CONFIRMATION_HEADER_ID = "X-Confirmation-Id"
+_CONFIRMATION_HEADER_TOKEN = "X-Confirmation-Token"
+
+
+def _consume_confirmation(db: Session, current_user, org_id: int, purpose, confirmation_id, confirmation_token):
+    """Consume a one-time confirmation token, enforcing purpose, actor-binding
+    and expiry. Raises BadRequestException on any violation."""
+    from app.modules.billing.delinquency_service import confirm_token
+    from app.modules.billing.models import ConfirmationTokenPurpose
+
+    try:
+        confirm_token(
+            db,
+            token_id=confirmation_id,
+            raw_token=confirmation_token,
+            purpose=ConfirmationTokenPurpose(purpose),
+            actor_id=current_user.id,
+        )
+    except ValueError as e:
+        raise BadRequestException(str(e))
+
+
+@router.post("/organizations/{org_id}/confirmation-tokens", summary="Mint a confirmation token for a destructive org action")
+def mint_confirmation_token_endpoint(
+    org_id: int,
+    purpose: str = "update_organization_status",
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    from app.modules.billing.delinquency_service import mint_confirmation_token
+    from app.modules.billing.models import ConfirmationTokenPurpose
+
+    if org_id < 0:
+        raise BadRequestException("Invalid organization id.")
+    try:
+        purpose_enum = ConfirmationTokenPurpose(purpose)
+    except ValueError:
+        raise BadRequestException(f"Invalid confirmation purpose '{purpose}'.")
+
+    token, raw = mint_confirmation_token(
+        db,
+        organization_id=org_id,
+        purpose=purpose_enum,
+        actor_id=current_user.id,
+        actor_email=current_user.email,
+        token_ttl_hours=24,
+        token_metadata={"purpose": purpose},
+    )
+    return {
+        "confirmation_id": token.id,
+        "token": raw,
+        "purpose": purpose,
+        "organization_id": org_id,
+        "expires_at": token.expires_at.isoformat(),
+    }
+
+
 @router.post("/organizations/{org_id}/status", summary="Update organization status")
 def update_organization_status(
     org_id: int,
@@ -382,6 +444,26 @@ def update_organization_status(
     if new_status is None:
         raise BadRequestException(
             f"Invalid status '{data.status}'. Allowed: {', '.join(status_map)}"
+        )
+
+    # Two-step confirmation for destructive transitions (Prompt 5).
+    _destructive = (
+        OrganizationStatus.SUSPENDED,
+        OrganizationStatus.DEACTIVATED,
+        OrganizationStatus.REJECTED,
+        OrganizationStatus.ON_HOLD,
+    )
+    if new_status in _destructive:
+        if not data.confirmation_id or not data.confirmation_token:
+            raise BadRequestException(
+                "Destructive status change requires a confirmation token. "
+                "POST /super-admin/organizations/{org_id}/confirmation-tokens "
+                "with purpose='update_organization_status' first, then pass "
+                "confirmation_id + confirmation_token."
+            )
+        _consume_confirmation(
+            db, current_user, org.id, "update_organization_status",
+            data.confirmation_id, data.confirmation_token,
         )
 
     previous = org.status.value if org.status else None
@@ -428,6 +510,8 @@ def update_organization_status(
 @router.delete("/organizations/{org_id}", summary="Delete a rejected organization (hard delete)")
 def delete_organization(
     org_id: int,
+    x_confirmation_id: Optional[str] = Header(None, alias=_CONFIRMATION_HEADER_ID),
+    x_confirmation_token: Optional[str] = Header(None, alias=_CONFIRMATION_HEADER_TOKEN),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_super_admin),
 ):
@@ -441,6 +525,23 @@ def delete_organization(
 
     if org.status != OrganizationStatus.REJECTED:
         raise BadRequestException("Only rejected organizations can be deleted.")
+
+    # Two-step confirmation for irreversible hard-delete (Prompt 5).
+    if not x_confirmation_id or not x_confirmation_token:
+        raise BadRequestException(
+            "Deleting an organization requires a confirmation token. "
+            "POST /super-admin/organizations/{org_id}/confirmation-tokens with "
+            "purpose='delete_organization' first, then send X-Confirmation-Id and "
+            "X-Confirmation-Token headers."
+        )
+    try:
+        confirmation_id = int(x_confirmation_id)
+    except (TypeError, ValueError):
+        raise BadRequestException("Invalid X-Confirmation-Id.")
+    _consume_confirmation(
+        db, current_user, org.id, "delete_organization",
+        confirmation_id, x_confirmation_token,
+    )
 
     for log in db.query(BillingAuditLog).filter(BillingAuditLog.organization_id == org_id).all():
         db.delete(log)

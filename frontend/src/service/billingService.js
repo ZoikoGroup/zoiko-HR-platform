@@ -39,6 +39,19 @@ export const billingService = {
   // ── Provider refs (Stripe customer/subscription IDs) ─────────────────────
   getProviderRefs: (orgId) => api.get(`/billing/provider-refs/${orgId}`),
 
+  // ── Delinquency & Support Access (Prompt 5, Section 10 G1-G5 / O3) ───────
+  getDelinquency: (orgId) =>
+    api.get(`/billing/organizations/${orgId}/delinquency`),
+
+  createSupportAccess: (data) =>
+    api.post("/billing/support-access", data),
+
+  listSupportAccess: (orgId) =>
+    api.get("/billing/support-access", { params: { organization_id: orgId } }),
+
+  revokeSupportAccess: (grantId) =>
+    api.post(`/billing/support-access/${grantId}/revoke`),
+
   // ── Plan Changes (Prompt 4) ─────────────────────────────────────────────
   previewPlanChange: (orgId, data) =>
     api.post(`/billing/plan-changes/preview`, data, { params: { org_id: orgId } }),
@@ -64,6 +77,15 @@ export const billingService = {
 
   listRefundRequests: (orgId) =>
     api.get(`/billing/refunds/${orgId}`),
+
+  // ── Customer Self-Serve Billing (/billing/me/* — Prompt 6) ───────────────
+  // Scoped to the caller's own organization via their JWT; owner sees full
+  // financial detail, admin/hr_admin see a trimmed (plan + usage) view.
+  getMySubscription: () => api.get("/billing/me/subscription"),
+  getMyEntitlements: () => api.get("/billing/me/entitlements"),
+  cancelMySubscription: (data) => api.post("/billing/me/cancel", data),
+  reactivateMySubscription: (data) => api.post("/billing/me/reactivate", data),
+  myDowngradeImpact: (data) => api.post("/billing/me/downgrade-impact", data),
 
   // ── Existing foundation endpoints ────────────────────────────────────────
   getOverview: (orgId) => api.get(`/billing/organizations/${orgId}/overview`),

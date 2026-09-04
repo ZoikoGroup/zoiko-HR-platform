@@ -103,6 +103,17 @@ class Settings(BaseSettings):
     STRIPE_WEBHOOK_SECRET: str = Field(default="", validation_alias="HR_STRIPE_WEBHOOK_SECRET")
     STRIPE_PUBLISHABLE_KEY: str = Field(default="", validation_alias="HR_STRIPE_PUBLISHABLE_KEY")
 
+    # ── Route-level entitlement enforcement (Prompt 6) ─────────────────────
+    # When True, the entitlement middleware blocks requests to feature-guarded
+    # routes (route_entitlement_map.py) if the caller's org is NOT entitled to
+    # the mapped feature key. Default OFF: the startup sweep stays report-only
+    # (coverage warnings + drift checks) so the platform runs without mappings
+    # in dev/test. Flip on in an environment where the entitlement matrix is
+    # approved and seeding guarantees mapping rows exist.
+    ENFORCE_ENTITLEMENTS: bool = Field(
+        default=False, validation_alias="HR_ENFORCE_ENTITLEMENTS"
+    )
+
     # ── Public assistant (zoikohr.com) ──────────────────────────────────────
     # Organization that owns the seeded is_public=True knowledge content and
     # that audit/safety log rows for anonymous public queries are attributed
