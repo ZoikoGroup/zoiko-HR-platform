@@ -72,14 +72,14 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     **_r("PUT", "/hr/designations/{designation_id}", "hr.core.designations"),
     **_r("DELETE", "/hr/designations/{designation_id}", "hr.core.designations"),
 
-    # hr.core.org_config (router prefix is /config)
-    **_r("GET", "/config", "hr.core.org_config"),
-    **_r("GET", "/config/defaults", "hr.core.org_config"),
-    **_r("GET", "/config/{key}", "hr.core.org_config"),
-    **_r("PUT", "/config/bulk", "hr.core.org_config"),
-    **_r("PUT", "/config/{key}", "hr.core.org_config"),
-    **_r("DELETE", "/config/{key}", "hr.core.org_config"),
-    **_r("POST", "/config/reset", "hr.core.org_config"),
+    # hr.core.org_config (router prefix is /hr/config)
+    **_r("GET", "/hr/config", "hr.core.org_config"),
+    **_r("GET", "/hr/config/defaults", "hr.core.org_config"),
+    **_r("GET", "/hr/config/{key}", "hr.core.org_config"),
+    **_r("PUT", "/hr/config/bulk", "hr.core.org_config"),
+    **_r("PUT", "/hr/config/{key}", "hr.core.org_config"),
+    **_r("DELETE", "/hr/config/{key}", "hr.core.org_config"),
+    **_r("POST", "/hr/config/reset", "hr.core.org_config"),
 
     # hr.attendance.core
     **_r("GET", "/hr/attendance", "hr.attendance.core"),

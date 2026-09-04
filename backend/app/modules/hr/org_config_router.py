@@ -26,7 +26,7 @@ from app.modules.hr.schemas import (
     SuccessResponse,
 )
 
-org_config_router = APIRouter(prefix="/config", tags=["Organization Config"])
+org_config_router = APIRouter(prefix="/hr/config", tags=["Organization Config"])
 
 
 @org_config_router.get("", response_model=list[OrgConfigResponse], summary="List all config entries for my organization")
@@ -67,7 +67,7 @@ def get_config(
 
 
 @org_config_router.put("/bulk", response_model=list[OrgConfigResponse], summary="Bulk update config entries",
-                       dependencies=[Depends(require_entitlement("hr.identity.sso"))])
+                       dependencies=[Depends(require_entitlement("hr.core.org_config"))])
 def bulk_update(
     data: OrgConfigBulkUpdate,
     db: Session = Depends(get_db),
