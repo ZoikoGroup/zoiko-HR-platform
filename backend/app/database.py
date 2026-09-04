@@ -8,7 +8,7 @@ own database (HR_DATABASE_URL).
 
 import logging
 import os
-from urllib.parse import urlparse
+from urllib.parse import parse_qsl, urlparse
 
 from sqlalchemy import create_engine, exc, text
 from sqlalchemy.orm import declarative_base, sessionmaker
@@ -53,7 +53,7 @@ resolved_database_url = resolve_database_url()
 # Postgres (e.g. test/dev on localhost) and a remote Neon DB both work without
 # hardcoding a mode. Honor the caller's explicit choice from the URL.
 _parsed_db = urlparse(resolved_database_url)
-_sslmode = dict(_parsed_db.query.split("=") for _ in _parsed_db.query.split("&") if "=" in _).get("sslmode")
+_sslmode = dict(parse_qsl(_parsed_db.query)).get("sslmode")
 
 engine = create_engine(
     resolved_database_url,
