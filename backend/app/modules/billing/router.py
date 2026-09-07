@@ -14,6 +14,7 @@ permission system.
 
 import json
 import logging
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -45,8 +46,12 @@ from app.modules.billing.stripe_client import (
     stripe_enabled,
     verify_webhook_signature,
 )
-from app.modules.billing.webhook_service import process_webhook_event
-from app.modules.billing.reconciliation_service import reconcile_org
+from app.modules.billing.webhook_service import process_webhook_event, replay_webhook_event
+from app.modules.billing.reconciliation_service import (
+    reconcile_org,
+    list_reconciliation_cases,
+    resolve_reconciliation_case,
+)
 from app.modules.billing.schemas import (
     BillingAuditLogItem,
     BillingInvoiceResponse,
@@ -70,6 +75,10 @@ from app.modules.billing.schemas import (
     EvaluationResponse,
     EvaluationStartRequest,
     InvoiceListResponse,
+    PlatformInvoiceItem,
+    PlatformInvoiceListResponse,
+    PlatformDelinquencyItem,
+    PlatformDelinquencyListResponse,
     PlanChangeCancelRequest,
     PlanChangeListResponse,
     PlanChangePreviewRequest,
@@ -83,6 +92,9 @@ from app.modules.billing.schemas import (
     ProviderRefResponse,
     ReconcileRequest,
     ReconciliationCaseResponse,
+    PlatformReconciliationCaseItem,
+    PlatformReconciliationCaseListResponse,
+    ResolveReconciliationCaseRequest,
     RefundApproveRequest,
     RefundListResponse,
     RefundRequest,
@@ -90,6 +102,7 @@ from app.modules.billing.schemas import (
     SubscriptionResponse,
     UpgradeRequest,
     WebhookEventListResponse,
+    WebhookReplayResponse,
     WorkforceSnapshotResponse,
     DelinquencyStatusResponse,
     SupportAccessRequest,
@@ -847,7 +860,11 @@ def create_checkout(
             customer_id=customer_id,
             success_url=data.success_url,
             cancel_url=data.cancel_url,
-            metadata={"plan_code": plan.code.value if hasattr(plan.code, "value") else str(plan.code)},
+            metadata={
+                "plan_code": plan.code.value if hasattr(plan.code, "value") else str(plan.code),
+                "plan_id": str(data.plan_id),
+                "billing_cycle": data.billing_cycle.value,
+            },
             idempotency_key=idempotency_key,
         )
 
@@ -892,6 +909,50 @@ def get_provider_refs(
 # ── Invoices ────────────────────────────────────────────────────────────────
 
 @billing_router.get(
+    "/invoices",
+    response_model=PlatformInvoiceListResponse,
+    summary="Platform-wide cross-organization invoices list (Super Admin / Billing Viewer)",
+)
+def list_platform_invoices(
+    status: Optional[str] = None,
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    organization_id: Optional[int] = None,
+    currency: Optional[str] = None,
+    min_amount_cents: Optional[int] = None,
+    max_amount_cents: Optional[int] = None,
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    if _get_billing_role(current_user) != "super_admin":
+        user_org = getattr(current_user, "organization_id", None)
+        if organization_id and organization_id != user_org:
+            raise ForbiddenException("Cross-organization billing queries are restricted to Super Admins.")
+        organization_id = user_org
+
+    items, total = service.list_platform_invoices(
+        db,
+        status=status,
+        date_from=date_from,
+        date_to=date_to,
+        organization_id=organization_id,
+        currency=currency,
+        min_amount_cents=min_amount_cents,
+        max_amount_cents=max_amount_cents,
+        page=page,
+        limit=limit,
+    )
+    return PlatformInvoiceListResponse(
+        list=[PlatformInvoiceItem.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        limit=limit,
+    )
+
+
+@billing_router.get(
     "/invoices/{org_id}",
     response_model=InvoiceListResponse,
     summary="List Stripe invoices mirrored for an organization",
@@ -914,6 +975,7 @@ def list_invoices(
     )
 
 
+
 # ── Webhook events log ─────────────────────────────────────────────────────
 
 @billing_router.get(
@@ -933,6 +995,27 @@ def list_webhook_events(
         .all()
     )
     return events
+
+
+@billing_router.post(
+    "/webhook-events/{event_id}/replay",
+    response_model=WebhookReplayResponse,
+    summary="Manually replay processing for a recorded webhook event",
+)
+def replay_webhook(
+    event_id: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    """Privileged endpoint: only super_admin can manually trigger webhook replay."""
+    try:
+        actor = getattr(current_user, "email", "super_admin")
+        res = replay_webhook_event(db, stripe_event_id=event_id, actor=actor)
+        return res
+    except ValueError as e:
+        raise NotFoundException(str(e))
+    except Exception as e:
+        raise BadRequestException(str(e))
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -973,6 +1056,70 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
 # ═══════════════════════════════════════════════════════════════════════════
 # Internal Reconciliation (privileged, audited, not customer-exposed)
 # ═══════════════════════════════════════════════════════════════════════════
+
+@billing_router.get(
+    "/reconciliation/cases",
+    response_model=PlatformReconciliationCaseListResponse,
+    summary="List platform reconciliation cases (open or resolved)",
+)
+def get_reconciliation_cases(
+    status: Optional[str] = Query(None, description="Filter by case status (open/resolved)"),
+    organization_id: Optional[int] = Query(None, description="Filter by organization ID"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    cases, total = list_reconciliation_cases(
+        db, status=status, organization_id=organization_id, page=page, limit=limit
+    )
+    return PlatformReconciliationCaseListResponse(
+        list=[PlatformReconciliationCaseItem.model_validate(c) for c in cases],
+        total=total,
+        page=page,
+        limit=limit,
+    )
+
+
+@billing_router.post(
+    "/reconciliation/cases/{case_id}/resolve",
+    response_model=PlatformReconciliationCaseItem,
+    summary="Resolve an open reconciliation case",
+)
+def resolve_case(
+    case_id: int,
+    data: ResolveReconciliationCaseRequest = ResolveReconciliationCaseRequest(),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    try:
+        actor = getattr(current_user, "email", "super_admin")
+        case = resolve_reconciliation_case(db, case_id=case_id, resolved_by=actor, notes=data.notes)
+        # Fetch organization name for response
+        from app.modules.hr.models import Organization
+        org = db.query(Organization).filter(Organization.id == case.organization_id).first()
+        org_name = getattr(org, "name", f"Org #{case.organization_id}") if org else f"Org #{case.organization_id}"
+        
+        item = PlatformReconciliationCaseItem(
+            id=case.id,
+            organization_id=case.organization_id,
+            organization_name=org_name,
+            reason=case.reason.value if hasattr(case.reason, "value") else str(case.reason),
+            status=case.status.value if hasattr(case.status, "value") else str(case.status),
+            local_snapshot=case.local_snapshot,
+            stripe_snapshot=case.stripe_snapshot,
+            notes=case.notes,
+            opened_by=case.opened_by,
+            resolved_by=case.resolved_by,
+            resolved_at=case.resolved_at,
+            created_at=case.created_at,
+        )
+        return item
+    except ValueError as e:
+        raise NotFoundException(str(e))
+    except Exception as e:
+        raise BadRequestException(str(e))
+
 
 @billing_router.post(
     "/internal/reconcile",
@@ -1216,6 +1363,25 @@ def list_refund_requests(
 # ── Delinquency status (Section 10) & Billing Operations support access ────
 
 @billing_router.get(
+    "/delinquency",
+    response_model=PlatformDelinquencyListResponse,
+    summary="Platform-wide list of organizations with open delinquency cases (Super Admin)",
+)
+def list_platform_delinquency(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    if _get_billing_role(current_user) != "super_admin":
+        raise ForbiddenException("Platform-wide delinquency views are restricted to Super Admins.")
+    from app.modules.billing import delinquency_service
+    cases = delinquency_service.list_platform_delinquency_cases(db)
+    return PlatformDelinquencyListResponse(
+        list=[PlatformDelinquencyItem.model_validate(c) for c in cases],
+        total=len(cases),
+    )
+
+
+@billing_router.get(
     "/organizations/{org_id}/delinquency",
     response_model=DelinquencyStatusResponse,
     summary="Get delinquency status for an organization",
@@ -1223,6 +1389,7 @@ def list_refund_requests(
 def get_delinquency_status(
     org_id: int,
     db: Session = Depends(get_db),
+
     current_user=Depends(get_current_billing_viewer),
 ):
     _check_org_scope(current_user, org_id)

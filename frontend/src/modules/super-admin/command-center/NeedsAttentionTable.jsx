@@ -1,5 +1,5 @@
 import { useNavigate } from "react-router-dom";
-import { CheckCircle2 } from "lucide-react";
+import { CheckCircle2, ChevronRight } from "lucide-react";
 import { SEVERITY_META, formatRelativeAge, INK, INK_SOFT } from "./format";
 
 export default function NeedsAttentionTable({ items, loading }) {
@@ -31,44 +31,47 @@ export default function NeedsAttentionTable({ items, loading }) {
         </div>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full">
+          <table className="w-full table-fixed">
             <thead>
               <tr>
-                {["Severity", "Issue", "Organization", "Age", "Action"].map((h) => (
-                  <th key={h} className="text-left text-[11px] font-bold uppercase tracking-wider px-6 py-3 border-b border-slate-100" style={{ color: INK_SOFT }}>
-                    {h}
-                  </th>
-                ))}
+                <th className="w-[22%] text-left text-[11px] font-bold uppercase tracking-wider px-4 py-3 border-b border-slate-100" style={{ color: INK_SOFT }}>Severity</th>
+                <th className="w-[34%] text-left text-[11px] font-bold uppercase tracking-wider px-4 py-3 border-b border-slate-100" style={{ color: INK_SOFT }}>Issue</th>
+                <th className="w-[24%] text-left text-[11px] font-bold uppercase tracking-wider px-4 py-3 border-b border-slate-100 truncate" style={{ color: INK_SOFT }}>Org</th>
+                <th className="w-[14%] text-left text-[11px] font-bold uppercase tracking-wider px-4 py-3 border-b border-slate-100" style={{ color: INK_SOFT }}>Age</th>
+                <th className="w-[6%] px-2 py-3 border-b border-slate-100">
+                  <span className="sr-only">Action</span>
+                </th>
               </tr>
             </thead>
             <tbody>
               {items.map((item, idx) => {
                 const meta = SEVERITY_META[item.severity] || SEVERITY_META.low;
+                const clickable = Boolean(item.action_href);
                 return (
-                  <tr key={idx} className="hover:bg-slate-50/60">
-                    <td className="px-6 py-3 border-b border-slate-100">
+                  <tr
+                    key={idx}
+                    onClick={clickable ? () => navigate(item.action_href) : undefined}
+                    title={item.action_label}
+                    className={`hover:bg-slate-50/60 ${clickable ? "cursor-pointer" : ""}`}
+                  >
+                    <td className="px-4 py-3 border-b border-slate-100 align-top">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-[11px] font-semibold ${meta.bg} ${meta.text} border ${meta.border}`}>
                         {meta.label}
                       </span>
                     </td>
-                    <td className="px-6 py-3 border-b border-slate-100 text-sm font-medium" style={{ color: INK }}>{item.issue}</td>
-                    <td className="px-6 py-3 border-b border-slate-100 text-sm font-medium text-blue-600">
+                    <td className="px-4 py-3 border-b border-slate-100 align-top text-sm font-medium break-words" style={{ color: INK }}>{item.issue}</td>
+                    <td className="px-4 py-3 border-b border-slate-100 align-top text-sm font-medium text-blue-600 break-words">
                       {item.organization_name || "Platform-wide"}
                     </td>
-                    <td className="px-6 py-3 border-b border-slate-100 text-sm" style={{ color: INK_SOFT }}>
+                    <td className="px-4 py-3 border-b border-slate-100 align-top text-sm whitespace-nowrap" style={{ color: INK_SOFT }}>
                       {formatRelativeAge(item.detected_at)}
                     </td>
-                    <td className="px-6 py-3 border-b border-slate-100">
-                      <button
-                        onClick={() => item.action_href && navigate(item.action_href)}
-                        className={`px-3 py-1 rounded-lg text-xs font-semibold border transition ${
-                          item.severity === "critical" || item.severity === "high"
-                            ? "bg-red-50 text-red-600 border-red-200/60 hover:bg-red-100"
-                            : "bg-slate-50 text-slate-600 border-slate-200/60 hover:bg-slate-100"
-                        }`}
-                      >
-                        {item.action_label}
-                      </button>
+                    <td className="px-2 py-3 border-b border-slate-100 align-top">
+                      {clickable && (
+                        <ChevronRight
+                          className={`w-4 h-4 ${item.severity === "critical" || item.severity === "high" ? "text-red-500" : "text-slate-400"}`}
+                        />
+                      )}
                     </td>
                   </tr>
                 );

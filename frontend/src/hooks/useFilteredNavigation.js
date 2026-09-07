@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { sections as allSections } from "../navigation";
-import { ROLE_ALLOWED_PREFIXES, VALID_ROLES, PRODUCT_ALLOWED_PREFIXES, PRODUCTS, ROLES, ROLE_DISALLOWED_PREFIXES } from "../config/roles";
+import { sections as allSections } from "../navigation.js";
+import { ROLE_ALLOWED_PREFIXES, VALID_ROLES, PRODUCT_ALLOWED_PREFIXES, PRODUCTS, ROLES, ROLE_DISALLOWED_PREFIXES } from "../config/roles.js";
 
 const SECTION_EXCLUSIONS = {
   // "ADMINISTRATION" duplicates the "USER MANAGEMENT" section for super admin
@@ -95,41 +95,47 @@ function filterNavItem(item, role, products, calcMode) {
   return item;
 }
 
+// Pure filtering core, extracted from the hook so it can be exercised by a
+// plain node:test unit test without a React render context or a
+// `localStorage` global (neither is available under plain `node --test`).
+export function filterSectionsForRole(sections, role, products = [], calcMode = "standard") {
+  if (!role || !VALID_ROLES.includes(role)) return sections;
+
+  const excludedTitles = SECTION_EXCLUSIONS[role] || [];
+
+  if (role === ROLES.SUPER_ADMIN) {
+    return sections
+      .map((section) => {
+        if (excludedTitles.includes(section.title)) return null;
+        if (section.items) {
+          const filteredItems = section.items
+            .map((item) => filterNavItem(item, role, products, calcMode))
+            .filter(Boolean);
+          if (filteredItems.length === 0) return null;
+          return { ...section, items: filteredItems };
+        }
+        return section;
+      })
+      .filter(Boolean);
+  }
+
+  return sections
+    .map((section) => {
+      if (excludedTitles.includes(section.title)) return null;
+
+      const filteredItems = section.items
+        .map((item) => filterNavItem(item, role, products, calcMode))
+        .filter(Boolean);
+
+      if (filteredItems.length === 0) return null;
+      return { ...section, items: filteredItems };
+    })
+    .filter(Boolean);
+}
+
 export default function useFilteredNavigation(role, product, products = []) {
   return useMemo(() => {
     const calcMode = localStorage.getItem("zoiko_payroll_calc_mode") || "standard";
-
-    if (!role || !VALID_ROLES.includes(role)) return allSections;
-
-    const excludedTitles = SECTION_EXCLUSIONS[role] || [];
-
-    if (role === ROLES.SUPER_ADMIN) {
-      return allSections
-        .map((section) => {
-          if (excludedTitles.includes(section.title)) return null;
-          if (section.items) {
-            const filteredItems = section.items
-              .map((item) => filterNavItem(item, role, products, calcMode))
-              .filter(Boolean);
-            if (filteredItems.length === 0) return null;
-            return { ...section, items: filteredItems };
-          }
-          return section;
-        })
-        .filter(Boolean);
-    }
-
-    return allSections
-      .map((section) => {
-        if (excludedTitles.includes(section.title)) return null;
-
-        const filteredItems = section.items
-          .map((item) => filterNavItem(item, role, products, calcMode))
-          .filter(Boolean);
-
-        if (filteredItems.length === 0) return null;
-        return { ...section, items: filteredItems };
-      })
-      .filter(Boolean);
+    return filterSectionsForRole(allSections, role, products, calcMode);
   }, [role, products]);
 }

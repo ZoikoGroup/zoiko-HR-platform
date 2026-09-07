@@ -37,9 +37,9 @@ _STRIPE_KEY_NOTE = (
 
 
 def stripe_enabled() -> bool:
-    """True only when a Stripe TEST-MODE secret key is configured."""
+    """True when a Stripe secret key is configured."""
     key = (settings.STRIPE_SECRET_KEY or "").strip()
-    return key.startswith("sk_test_")
+    return bool(key) and key.startswith("sk_")
 
 
 def _get_stripe_client():

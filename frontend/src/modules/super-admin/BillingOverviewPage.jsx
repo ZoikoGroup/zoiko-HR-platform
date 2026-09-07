@@ -1,9 +1,9 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import {
-  AlertTriangle, LayoutDashboard, CreditCard, CheckCircle, XCircle,
+  AlertTriangle, CreditCard, CheckCircle, XCircle,
   ShieldAlert, Package, Percent, RefreshCw, ArrowRight, TrendingUp,
-  Building2, Clock,
+  Building2, Clock, CircleDollarSign, Hourglass, BarChart3,
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
 import { superAdminService } from "../../service/superAdminService";
@@ -24,19 +24,26 @@ function PlanBadge({ code }) {
   );
 }
 
-function StatCard({ label, value, icon: Icon, iconBg, sub }) {
+function StatCard({ label, value, icon: Icon, iconBg, sub, onClick }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition-shadow">
+    <div
+      onClick={onClick}
+      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition ${onClick ? "cursor-pointer group hover:border-[#3B82F6]/40" : ""}`}
+    >
       <div className="flex items-center justify-between mb-3">
-        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0" style={{ backgroundColor: iconBg }}>
+        <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105" style={{ backgroundColor: iconBg }}>
           <Icon className="w-5 h-5 text-white" />
         </div>
         <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
       </div>
-      <p className="text-3xl font-extrabold text-slate-900 leading-none">{value ?? "—"}</p>
-      {sub && <p className="mt-1 text-xs text-slate-400 font-medium">{sub}</p>}
+      <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-none">{value ?? "—"}</p>
+      {sub && <p className="mt-1 text-xs text-slate-400 font-medium flex items-center justify-between">{sub} {onClick && <ArrowRight className="h-3 w-3 text-slate-300 opacity-0 group-hover:opacity-100 transition" />}</p>}
     </div>
   );
+}
+
+function formatCents(cents) {
+  return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }).format((cents || 0) / 100);
 }
 
 export default function BillingOverviewPage() {
@@ -44,6 +51,10 @@ export default function BillingOverviewPage() {
   const [plans, setPlans] = useState([]);
   const [discounts, setDiscounts] = useState([]);
   const [orgs, setOrgs] = useState([]);
+  const [commercialHealth, setCommercialHealth] = useState(null);
+  const [lifecycle, setLifecycle] = useState(null);
+  const [delinquencyCount, setDelinquencyCount] = useState(0);
+
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -53,14 +64,21 @@ export default function BillingOverviewPage() {
     else setLoading(true);
     setError(null);
     try {
-      const [plansData, discountsData, orgsData] = await Promise.all([
+      const [plansData, discountsData, orgsData, commercialData, lifecycleData, delinquencyData] = await Promise.all([
         billingService.getPlans(),
         billingService.getDiscounts().catch(() => ({ list: [], total: 0 })),
         superAdminService.getOrganizations({ page: 1, page_size: 5 }).catch(() => ({ organizations: [], total: 0 })),
+        superAdminService.getCommandCenterCommercialHealth({ days: 30 }).catch(() => null),
+        superAdminService.getCommandCenterLifecycle().catch(() => null),
+        billingService.getPlatformDelinquency().catch(() => ({ list: [], total: 0 })),
       ]);
+
       setPlans(plansData.list || []);
       setDiscounts(discountsData.list || []);
       setOrgs(orgsData.organizations || []);
+      setCommercialHealth(commercialData);
+      setLifecycle(lifecycleData);
+      setDelinquencyCount(delinquencyData.total || delinquencyData.list?.length || 0);
     } catch (e) {
       console.error("Failed to load billing overview", e);
       setError(e.message || "Unable to load billing overview.");
@@ -76,6 +94,10 @@ export default function BillingOverviewPage() {
   const contractPlans = plans.filter(p => p.is_contract_priced);
   const selfServePlans = plans.filter(p => p.is_self_serve_enabled);
 
+  const mrrCents = commercialHealth?.revenue_next_30_days_cents || 0;
+  const arrCents = mrrCents * 12;
+  const conversionRate = lifecycle?.conversion_rate_pct != null ? `${lifecycle.conversion_rate_pct}%` : "—";
+
   if (loading) {
     return (
       <div className="space-y-6 font-sans">
@@ -85,8 +107,8 @@ export default function BillingOverviewPage() {
             <div className="h-4 w-80 bg-slate-100 rounded-lg animate-pulse" />
           </div>
         </div>
-        <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-          {[...Array(4)].map((_, i) => (
+        <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+          {[...Array(5)].map((_, i) => (
             <div key={i} className="h-28 bg-slate-100 rounded-2xl animate-pulse" />
           ))}
         </div>
@@ -105,12 +127,12 @@ export default function BillingOverviewPage() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
           <h1 className="text-2xl font-extrabold tracking-tight text-slate-900">Billing Overview</h1>
-          <p className="mt-1 text-sm text-slate-500">Platform-wide billing dashboard — plan catalog, subscriptions, and discounts.</p>
+          <p className="mt-1 text-sm text-slate-500">Platform-wide commercial dashboard — revenue metrics, catalog, and subscriptions.</p>
         </div>
         <button
           onClick={() => loadAll(true)}
           disabled={refreshing}
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-colors shadow-sm disabled:opacity-50"
+          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
         >
           <RefreshCw className={`h-4 w-4 ${refreshing ? "animate-spin" : ""}`} />
           Refresh
@@ -126,15 +148,59 @@ export default function BillingOverviewPage() {
         </div>
       )}
 
-      {/* Stats */}
-      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
-        <StatCard label="Total Plans" value={plans.length} icon={Package} iconBg="#FF7A00" sub={`${activePlans.length} active`} />
-        <StatCard label="Self-Serve Plans" value={selfServePlans.length} icon={TrendingUp} iconBg="#10B981" sub={`of ${plans.length} plans`} />
-        <StatCard label="Enterprise Plans" value={contractPlans.length} icon={ShieldAlert} iconBg="#8B5CF6" sub="Contract priced" />
-        <StatCard label="Discount Records" value={discounts.length} icon={Percent} iconBg="#3B82F6" sub="All orgs" />
+      {/* Primary Commercial KPI Cards */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
+        <StatCard
+          label="MRR"
+          value={formatCents(mrrCents)}
+          icon={CircleDollarSign}
+          iconBg="#3B82F6"
+          sub={`ARR: ${formatCents(arrCents)}`}
+          onClick={() => navigate("/super-admin/billing/plans")}
+        />
+        <StatCard
+          label="Active Subscriptions"
+          value={orgs.filter(o => o.status === "active" || o.status === "approved").length || "—"}
+          icon={TrendingUp}
+          iconBg="#10B981"
+          sub="Commercial Orgs"
+          onClick={() => navigate("/super-admin/organizations")}
+        />
+        <StatCard
+          label="Open Delinquencies"
+          value={delinquencyCount}
+          icon={ShieldAlert}
+          iconBg={delinquencyCount > 0 ? "#EF4444" : "#6B7280"}
+          sub={delinquencyCount > 0 ? "Requires Attention" : "Good Standing"}
+          onClick={() => navigate("/super-admin/billing/delinquency")}
+        />
+        <StatCard
+          label="Trial Conversion"
+          value={conversionRate}
+          icon={Hourglass}
+          iconBg="#8B5CF6"
+          sub="Eval → Paid Rate"
+          onClick={() => navigate("/super-admin/billing/evaluations")}
+        />
+        <StatCard
+          label="Catalog Plans"
+          value={plans.length}
+          icon={Package}
+          iconBg="#FF7A00"
+          sub={`${activePlans.length} active plans`}
+          onClick={() => navigate("/super-admin/billing/plans")}
+        />
       </div>
 
-      {/* Content grid */}
+      {/* Secondary Stats Strip */}
+      <div className="grid gap-4 grid-cols-2 lg:grid-cols-4">
+        <StatCard label="Self-Serve Enabled" value={selfServePlans.length} icon={CheckCircle} iconBg="#10B981" sub={`of ${plans.length} total plans`} />
+        <StatCard label="Enterprise Plans" value={contractPlans.length} icon={ShieldAlert} iconBg="#8B5CF6" sub="Contract priced" />
+        <StatCard label="Discount Records" value={discounts.length} icon={Percent} iconBg="#3B82F6" sub="All orgs" />
+        <StatCard label="Total Organizations" value={orgs.length} icon={Building2} iconBg="#64748B" sub="Recent active" />
+      </div>
+
+      {/* Content Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
 
         {/* Plan Catalog Card */}
@@ -148,7 +214,7 @@ export default function BillingOverviewPage() {
             </div>
             <button
               onClick={() => navigate("/super-admin/billing/plans")}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF7A00] hover:text-[#e56e00] transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-[#FF7A00] hover:text-[#e56e00] transition"
             >
               Manage <ArrowRight className="h-3 w-3" />
             </button>
@@ -162,7 +228,7 @@ export default function BillingOverviewPage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {plans.map((plan) => (
-                <div key={plan.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition-colors">
+                <div key={plan.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition">
                   <div className="flex items-center gap-3">
                     <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold ${
                       plan.is_contract_priced ? "bg-amber-50 text-amber-600" : "bg-orange-50 text-orange-500"
@@ -205,7 +271,7 @@ export default function BillingOverviewPage() {
             </div>
             <button
               onClick={() => navigate("/super-admin/billing/discounts")}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 hover:text-blue-800 transition"
             >
               Manage <ArrowRight className="h-3 w-3" />
             </button>
@@ -219,7 +285,7 @@ export default function BillingOverviewPage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {discounts.slice(0, 5).map((d) => (
-                <div key={d.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition-colors">
+                <div key={d.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition">
                   <div>
                     <div className="text-sm font-semibold text-slate-700 truncate max-w-[180px]">{d.campaign_or_contract_id}</div>
                     <div className="flex items-center gap-2 mt-0.5">
@@ -267,7 +333,7 @@ export default function BillingOverviewPage() {
             </div>
             <button
               onClick={() => navigate("/super-admin/organizations")}
-              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700 transition-colors"
+              className="inline-flex items-center gap-1 text-xs font-semibold text-slate-500 hover:text-slate-700 transition"
             >
               View all <ArrowRight className="h-3 w-3" />
             </button>
@@ -277,7 +343,7 @@ export default function BillingOverviewPage() {
               <button
                 key={org.id}
                 onClick={() => navigate(`/super-admin/organizations/${org.id}`)}
-                className="px-5 py-4 text-left hover:bg-slate-50/60 transition-colors"
+                className="px-5 py-4 text-left hover:bg-slate-50/60 transition"
               >
                 <div className="text-sm font-semibold text-slate-700 truncate">{org.name}</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">{org.total_employees ?? 0} users</div>

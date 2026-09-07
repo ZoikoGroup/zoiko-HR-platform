@@ -29,6 +29,7 @@ from app.modules.billing.models import (
     BillingConversion,
     BillingCycle,
     BillingDiscount,
+    BillingInvoice,
     BillingPlan,
     BillingSubscription,
     BillingWorkerState,
@@ -330,14 +331,7 @@ def start_evaluation(
         raise NotFoundException("Organization", organization_id)
 
     # Check for existing active evaluation
-    existing = (
-        db.query(OrganizationEvaluation)
-        .filter(
-            OrganizationEvaluation.organization_id == organization_id,
-            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
-        )
-        .first()
-    )
+    existing = get_active_evaluation(db, organization_id)
     if existing:
         raise BadRequestException("Organization already has an active evaluation.")
 
@@ -359,6 +353,17 @@ def start_evaluation(
     db.commit()
     db.refresh(evaluation)
     return evaluation
+
+
+def get_active_evaluation(db: Session, organization_id: int) -> Optional[OrganizationEvaluation]:
+    return (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.organization_id == organization_id,
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+        )
+        .first()
+    )
 
 
 def get_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
@@ -388,6 +393,46 @@ def end_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
     db.commit()
     db.refresh(evaluation)
     return evaluation
+
+
+def expire_overdue_evaluations(db: Session) -> list[OrganizationEvaluation]:
+    """Daily walk (ZHR-COM-ENT-001 §9): any ACTIVE evaluation past its
+    evaluation_ends_at ends automatically — no charge, no Stripe/provider call.
+    If the linked subscription never converted (still EVALUATION), it moves to
+    EVALUATION_EXPIRED so the frontend can render the distinction."""
+    overdue = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.evaluation_ends_at < datetime.utcnow(),
+        )
+        .all()
+    )
+
+    expired = []
+    for evaluation in overdue:
+        end_evaluation(db, evaluation.id)
+
+        subscription = get_or_create_subscription(db, evaluation.organization_id)
+        if subscription.status == SubscriptionStatus.EVALUATION:
+            subscription.status = SubscriptionStatus.EVALUATION_EXPIRED
+            db.commit()
+
+        log_billing_audit(
+            db,
+            actor=None,
+            organization_id=evaluation.organization_id,
+            action=BillingAuditAction.EVALUATION_ENDED,
+            entity_type="OrganizationEvaluation",
+            entity_id=evaluation.id,
+            before={"status": "active"},
+            after={"status": "evaluation_ended"},
+            reason="auto_expired",
+            source="scheduler",
+        )
+        expired.append(evaluation)
+
+    return expired
 
 
 # ── Conversion ────────────────────────────────────────────────────────────────
@@ -688,3 +733,69 @@ def backfill_plan_ids(db: Session) -> int:
     if count:
         db.commit()
     return count
+
+
+def list_platform_invoices(
+    db: Session,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    organization_id: int | None = None,
+    currency: str | None = None,
+    min_amount_cents: int | None = None,
+    max_amount_cents: int | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
+    """Platform-wide invoice list across all organizations with filters and pagination."""
+    from app.modules.hr.models import Organization
+
+    q = db.query(BillingInvoice)
+
+    if status:
+        q = q.filter(BillingInvoice.status == status)
+    if date_from:
+        q = q.filter(BillingInvoice.created_at >= date_from)
+    if date_to:
+        q = q.filter(BillingInvoice.created_at <= date_to)
+    if organization_id:
+        q = q.filter(BillingInvoice.organization_id == organization_id)
+    if currency:
+        q = q.filter(BillingInvoice.currency == currency.upper())
+    if min_amount_cents is not None:
+        q = q.filter(BillingInvoice.amount_due_cents >= min_amount_cents)
+    if max_amount_cents is not None:
+        q = q.filter(BillingInvoice.amount_due_cents <= max_amount_cents)
+
+    total = q.count()
+
+    offset = max(0, (page - 1) * limit)
+    invoices = q.order_by(BillingInvoice.created_at.desc()).offset(offset).limit(limit).all()
+
+    org_map = {}
+    try:
+        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in db.query(Organization).all()}
+    except Exception:
+        pass
+
+    items = []
+    for inv in invoices:
+        item = {
+            "id": inv.id,
+            "organization_id": inv.organization_id,
+            "organization_name": org_map.get(inv.organization_id) or f"Org #{inv.organization_id}",
+            "stripe_invoice_id": inv.stripe_invoice_id,
+            "amount_due_cents": inv.amount_due_cents,
+            "amount_paid_cents": inv.amount_paid_cents,
+            "currency": inv.currency,
+            "status": inv.status,
+            "hosted_invoice_url": inv.hosted_invoice_url,
+            "invoice_pdf_url": inv.invoice_pdf_url,
+            "period_start": inv.period_start,
+            "period_end": inv.period_end,
+            "created_at": inv.created_at,
+        }
+        items.append(item)
+
+    return items, total
+

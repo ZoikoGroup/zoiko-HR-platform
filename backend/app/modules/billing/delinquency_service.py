@@ -514,3 +514,41 @@ def confirm_token(db: Session, token_id: int, raw_token: str, purpose, actor_id:
         after={"purpose": getattr(token.purpose, "name", str(token.purpose)), "actor_id": actor_id},
     )
     return token
+
+
+def list_platform_delinquency_cases(db: Session) -> list[dict]:
+    """Platform-wide list of all organizations with open delinquency cases."""
+    from app.modules.hr.models import Organization
+
+    org_map = {}
+    try:
+        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in db.query(Organization).all()}
+    except Exception:
+        pass
+
+    cases = (
+        db.query(DelinquencyCase)
+        .filter(DelinquencyCase.status == DelinquencyCaseStatus.OPEN)
+        .order_by(DelinquencyCase.failed_at.asc())
+        .all()
+    )
+
+    now = now_utc()
+    results = []
+    for case in cases:
+        stage, days_elapsed = resolve_stage(case.failed_at, now)
+        results.append({
+            "organization_id": case.organization_id,
+            "organization_name": org_map.get(case.organization_id) or f"Org #{case.organization_id}",
+            "has_open_case": True,
+            "stage": stage.value,
+            "status": case.status.value if hasattr(case.status, "value") else str(case.status),
+            "failed_at": case.failed_at,
+            "recovered_at": case.recovered_at,
+            "retention_hold_until": case.retention_hold_until,
+            "days_elapsed": days_elapsed,
+            "amount_outstanding_cents": 0,
+            "billing_contact_email": None,
+        })
+    return results
+

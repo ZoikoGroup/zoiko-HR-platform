@@ -39,13 +39,20 @@ export const ROLE_ALLOWED_PREFIXES = {
     // ── Billing & Subscription (ZHR-COM-BILL-001 Section 19 — Organization Owner) ──
     "/super-admin/billing",
     "/super-admin/billing/plans",
+    "/super-admin/billing/evaluations",
     "/super-admin/billing/plan-changes",
+    "/super-admin/billing/invoices",
     "/super-admin/billing/refunds",
     "/super-admin/billing/discounts",
+    "/super-admin/billing/delinquency",
+    // ── Payments & Reconciliation ──
+    "/super-admin/billing/webhook-events",
+    "/super-admin/billing/reconciliation",
     // ── Platform administration ──
     "/super-admin/dashboard",
     "/super-admin/organizations",
     "/super-admin/access",
+    "/super-admin/support-access",
     "/super-admin/audit-logs",
     "/super-admin/settings",
     "/super-admin/notifications",

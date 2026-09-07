@@ -59,6 +59,7 @@ class BillingClassification(str, enum.Enum):
 
 class SubscriptionStatus(str, enum.Enum):
     EVALUATION = "evaluation"
+    EVALUATION_EXPIRED = "evaluation_expired"
     ACTIVE = "active"
     PAST_DUE = "past_due"
     RESTRICTED = "restricted"

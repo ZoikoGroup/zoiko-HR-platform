@@ -387,9 +387,21 @@ class BillingInvoiceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PlatformInvoiceItem(BillingInvoiceResponse):
+    organization_name: Optional[str] = None
+
+
+class PlatformInvoiceListResponse(BaseModel):
+    list: List[PlatformInvoiceItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
 class InvoiceListResponse(BaseModel):
     list: List[BillingInvoiceResponse]
     total: int
+
 
 
 # ── Reconciliation schemas ──────────────────────────────────────────────────
@@ -410,8 +422,23 @@ class ReconciliationCaseResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PlatformReconciliationCaseItem(ReconciliationCaseResponse):
+    organization_name: Optional[str] = None
+
+
+class PlatformReconciliationCaseListResponse(BaseModel):
+    list: List[PlatformReconciliationCaseItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
 class ReconcileRequest(BaseModel):
     organization_id: int
+
+
+class ResolveReconciliationCaseRequest(BaseModel):
+    notes: Optional[str] = None
 
 
 # ── Webhook event schemas ───────────────────────────────────────────────────
@@ -422,10 +449,18 @@ class WebhookEventListResponse(BaseModel):
     event_type: str
     processed: bool
     error_message: Optional[str] = None
+    payload: Optional[dict] = None
     created_at: Optional[datetime] = None
     processed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class WebhookReplayResponse(BaseModel):
+    status: str
+    message: str
+    event_id: str
+
 
 
 # ── Plan Change schemas (Prompt 4) ────────────────────────────────────────
@@ -534,6 +569,18 @@ class DelinquencyStatusResponse(BaseModel):
     recovered_at: Optional[datetime] = None
     retention_hold_until: Optional[datetime] = None
     days_elapsed: Optional[int] = None
+
+
+class PlatformDelinquencyItem(DelinquencyStatusResponse):
+    organization_name: Optional[str] = None
+    amount_outstanding_cents: Optional[int] = 0
+    billing_contact_email: Optional[str] = None
+
+
+class PlatformDelinquencyListResponse(BaseModel):
+    list: List[PlatformDelinquencyItem]
+    total: int
+
 
 
 class SupportAccessRequest(BaseModel):

@@ -133,9 +133,7 @@ export default function SuperAdminDashboardPage() {
               Commercial, customer, service, security and governance health across ZoikoHR.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <LabeledSelect label="Environment" value="Production" options={["Production", "Staging"]} disabled />
-            <LabeledSelect label="Region" value="Global" options={["Global"]} disabled />
+          <div className="flex flex-wrap items-center justify-end gap-2.5">
             <LabeledSelect
               label="Period"
               value={`Last ${days} days`}

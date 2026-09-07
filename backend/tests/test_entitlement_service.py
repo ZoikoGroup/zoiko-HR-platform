@@ -28,14 +28,16 @@ from app.modules.billing.entitlement_service import (
     ENTITLED_NOT_CONFIGURED,
     DEPENDENCY_UNAVAILABLE,
     ENTITLED_POLICY_BLOCKED,
+    TRIAL_RESTRICTED,
     CANONICAL_STATES,
 )
 from app.modules.billing.feature_keys import (
     FEATURE_KEYS,
     FEATURE_KEY_REGISTRY_VERSION,
+    TRIAL_PROFILE_FEATURE_KEYS,
     is_valid_feature_key,
 )
-from app.modules.billing.models import PlanCode
+from app.modules.billing.models import PlanCode, SubscriptionStatus
 
 
 # ── Feature key registry tests ──────────────────────────────────────────────
@@ -66,15 +68,17 @@ class TestFeatureKeyRegistry:
             "ENTITLED_NOT_CONFIGURED",
             "DEPENDENCY_UNAVAILABLE",
             "ENTITLED_POLICY_BLOCKED",
+            "TRIAL_RESTRICTED",
         }
         assert CANONICAL_STATES == expected
 
 
 # ── Mock helpers ────────────────────────────────────────────────────────────
 
-def _make_subscription(plan_code=None):
+def _make_subscription(plan_code=None, status=None):
     sub = MagicMock()
     sub.plan_code = plan_code
+    sub.status = status
     return sub
 
 
@@ -100,6 +104,7 @@ def _build_mock_db(subscription=None, mappings=None, existing_snapshot=None):
     if subscription is not None:
         sub_result = MagicMock()
         sub_result.plan_code = subscription.plan_code
+        sub_result.status = getattr(subscription, "status", None)
         sub_first = MagicMock(return_value=sub_result)
     else:
         sub_first = MagicMock(return_value=None)
@@ -363,6 +368,56 @@ class TestComputeEntitlementSnapshot:
         result = compute_entitlement_snapshot(db, 1)
         db.add.assert_called_once()
         db.commit.assert_called()
+
+
+# ── Evaluation (trial) profile tests — G7 ───────────────────────────────────
+# During SubscriptionStatus.EVALUATION, plan_code is always None. Both
+# resolvers must branch on evaluation status BEFORE the "no plan" fallback —
+# otherwise every feature key resolves to ENTITLED_NOT_CONFIGURED for the
+# entire trial, which contradicts ZHR-COM-ENT-001 §7.1.
+
+_TRIAL_KEY = next(iter(TRIAL_PROFILE_FEATURE_KEYS))
+_NON_TRIAL_KEY = next(iter(FEATURE_KEYS - TRIAL_PROFILE_FEATURE_KEYS - {"hr.ai.autonomous_action"}))
+
+
+class TestEvaluationTrialProfile:
+    def test_check_entitlement_trial_key_is_available_during_evaluation(self):
+        sub = _make_subscription(plan_code=None, status=SubscriptionStatus.EVALUATION)
+        db = _build_mock_db(subscription=sub)
+
+        invalidate_entitlement_cache(1)
+        result = check_entitlement(db, 1, _TRIAL_KEY)
+        assert result["state"] == ENTITLED_AVAILABLE
+
+    def test_check_entitlement_non_trial_key_is_restricted_during_evaluation(self):
+        sub = _make_subscription(plan_code=None, status=SubscriptionStatus.EVALUATION)
+        db = _build_mock_db(subscription=sub)
+
+        invalidate_entitlement_cache(1)
+        result = check_entitlement(db, 1, _NON_TRIAL_KEY)
+        assert result["state"] == TRIAL_RESTRICTED
+        assert result["state"] != ENTITLED_NOT_CONFIGURED
+
+    def test_check_entitlement_ai_key_still_hard_blocked_during_evaluation(self):
+        sub = _make_subscription(plan_code=None, status=SubscriptionStatus.EVALUATION)
+        db = _build_mock_db(subscription=sub)
+
+        invalidate_entitlement_cache(1)
+        result = check_entitlement(db, 1, "hr.ai.autonomous_action")
+        assert result["state"] == NOT_ENTITLED
+
+    def test_snapshot_during_evaluation_uses_trial_profile_not_not_configured(self):
+        sub = _make_subscription(plan_code=None, status=SubscriptionStatus.EVALUATION)
+        db = _build_mock_db(subscription=sub)
+
+        result = compute_entitlement_snapshot(db, 1)
+        assert result["feature_states"][_TRIAL_KEY] == ENTITLED_AVAILABLE
+        assert result["feature_states"][_NON_TRIAL_KEY] == TRIAL_RESTRICTED
+        assert result["feature_states"]["hr.ai.autonomous_action"] == NOT_ENTITLED
+        # None of the trial-profile keys should still read as a plan gap.
+        assert ENTITLED_NOT_CONFIGURED not in {
+            result["feature_states"][k] for k in TRIAL_PROFILE_FEATURE_KEYS
+        }
 
 
 # ── Integration tests (require real DB) ─────────────────────────────────────
