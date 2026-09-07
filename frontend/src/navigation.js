@@ -71,9 +71,14 @@ import {
   Plus,
   ScrollText,
   HandCoins,
+  Hourglass,
+  Webhook,
+  Scale,
+  KeyRound,
+  AlertTriangle,
 } from "lucide-react";
 
-import { ROLES } from "./config/roles";
+import { ROLES } from "./config/roles.js";
 
 // Platform core commands
 const platform = {
@@ -101,25 +106,63 @@ const superAdminProfile = {
 // Sidebar sections map to the spec's billing/subscription ownership model.
 // Separation of duties: HR Admin, IT Admin and Security Admin permission sets
 // remain separate — super_admin does NOT auto-inherit them.
+//
+// NOTE: this group is deliberately titled "PLATFORM ADMINISTRATION" rather
+// than "PLATFORM" — SECTION_EXCLUSIONS in useFilteredNavigation.js hides a
+// section titled exactly "PLATFORM" for super_admin (that exclusion targets
+// the unrelated `platform` section below, shared by other roles). Reusing
+// "PLATFORM" here would silently render this group empty for super_admin.
 
-const superAdminBilling = {
+const superAdminCommandCenter = {
+  title: "COMMAND CENTER",
+  items: [
+    { label: "Dashboard", href: "/super-admin/dashboard", icon: LayoutDashboard },
+  ],
+};
+
+const superAdminOrganizations = {
+  title: "ORGANIZATIONS",
+  items: [
+    { label: "Organizations", href: "/super-admin/organizations", icon: Building2 },
+  ],
+};
+
+const superAdminBillingSubscription = {
   title: "BILLING & SUBSCRIPTION",
   items: [
     { label: "Overview", href: "/super-admin/billing", icon: LayoutDashboard },
     { label: "Plans & Catalog", href: "/super-admin/billing/plans", icon: Package },
+    { label: "Evaluations & Trials", href: "/super-admin/billing/evaluations", icon: Hourglass },
     { label: "Plan Changes", href: "/super-admin/billing/plan-changes", icon: GitBranch },
+    { label: "Invoices", href: "/super-admin/billing/invoices", icon: Receipt },
     { label: "Refunds & Credits", href: "/super-admin/billing/refunds", icon: HandCoins },
     { label: "Discounts", href: "/super-admin/billing/discounts", icon: Percent },
+    { label: "Delinquency & Collections", href: "/super-admin/billing/delinquency", icon: AlertTriangle },
   ],
 };
 
-const superAdminPlatform = {
-  title: "SUPER ADMIN",
+const superAdminPaymentsReconciliation = {
+  title: "PAYMENTS & RECONCILIATION",
   items: [
-    { label: "Dashboard",                href: "/super-admin/dashboard",           icon: LayoutDashboard },
-    { label: "Organizations",            href: "/super-admin/organizations",       icon: Building2 },
-    { label: "Access & Role Management", href: "/super-admin/access",              icon: Shield },
-    { label: "Audit Logs",               href: "/super-admin/audit-logs",          icon: FileTextIcon },
+    { label: "Webhook Events", href: "/super-admin/billing/webhook-events", icon: Webhook },
+    { label: "Provider Reconciliation", href: "/super-admin/billing/reconciliation", icon: Scale },
+  ],
+};
+
+const superAdminAccessSecurity = {
+  title: "ACCESS & SECURITY",
+  items: [
+    { label: "Access & Role Management", href: "/super-admin/access", icon: Shield },
+    { label: "Support Access Grants", href: "/super-admin/support-access", icon: KeyRound },
+    { label: "Audit Logs", href: "/super-admin/audit-logs", icon: FileTextIcon },
+  ],
+};
+
+const superAdminPlatformAdministration = {
+  title: "PLATFORM ADMINISTRATION",
+  items: [
+    { label: "Platform Settings", href: "/super-admin/settings", icon: Settings },
+    { label: "Notifications", href: "/super-admin/notifications", icon: Bell },
   ],
 };
 
@@ -387,8 +430,12 @@ const organizationAdminDashboard = {
 };
 
 export const sections = [
-  superAdminBilling,
-  superAdminPlatform,
+  superAdminCommandCenter,
+  superAdminOrganizations,
+  superAdminBillingSubscription,
+  superAdminPaymentsReconciliation,
+  superAdminAccessSecurity,
+  superAdminPlatformAdministration,
   superAdminProfile,
   organizationAdminDashboard,
   hrAdminDashboard,

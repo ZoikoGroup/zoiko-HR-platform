@@ -6,18 +6,29 @@ Server-authoritative entitlement resolver.
 Resolution order for check_entitlement():
   1. hr.ai.autonomous_action → hard-blocked unconditionally (Section 8 E4)
   2. Unknown feature_key → engineering bug: loud in dev, fail-safe NOT_ENTITLED in prod
-  3. No PlanEntitlementMapping row for (plan, feature_key, catalog_version) → ENTITLED_NOT_CONFIGURED
-  4. Mapping row says NOT_ENTITLED → NOT_ENTITLED
-  5. Mapping row says ENTITLED_AVAILABLE but runtime/config dependency unmet → DEPENDENCY_UNAVAILABLE
-  6. Policy-level tenant disable → ENTITLED_POLICY_BLOCKED
-  7. Otherwise → ENTITLED_AVAILABLE
+  3. Open delinquency case past a restriction threshold → DELINQUENCY_RESTRICTED
+  4. subscription.status == EVALUATION → trial profile (Section 7.1): ENTITLED_AVAILABLE
+     or TRIAL_RESTRICTED, never plan_code-based (plan_code is always None mid-trial)
+  5. No PlanEntitlementMapping row for (plan, feature_key, catalog_version) → ENTITLED_NOT_CONFIGURED
+  6. Mapping row says NOT_ENTITLED → NOT_ENTITLED
+  7. Mapping row says ENTITLED_AVAILABLE but runtime/config dependency unmet → DEPENDENCY_UNAVAILABLE
+  8. Policy-level tenant disable → ENTITLED_POLICY_BLOCKED
+  9. Otherwise → ENTITLED_AVAILABLE
 
-Five canonical entitlement states:
+Six canonical entitlement states:
   ENTITLED_AVAILABLE         Feature is enabled for this org.
   NOT_ENTITLED               Feature is not in the org's plan (upgrade CTA).
   ENTITLED_NOT_CONFIGURED    Feature has no mapping row — product/policy gap, not a paywall.
   DEPENDENCY_UNAVAILABLE     Entitled but runtime prerequisite missing (e.g. no IdP configured).
   ENTITLED_POLICY_BLOCKED    Explicitly disabled by org admin (e.g. Section 8 E3 AI toggle).
+  TRIAL_RESTRICTED           Outside the evaluation profile (Section 7.1) — available on conversion,
+                             not gated by plan (distinct from NOT_ENTITLED / ENTITLED_NOT_CONFIGURED).
+
+While an org's subscription is in SubscriptionStatus.EVALUATION, plan_code is
+always None (start_evaluation never sets it), so both resolvers below check
+evaluation status *before* falling through to the plan_code-based lookup —
+otherwise every feature key would resolve to ENTITLED_NOT_CONFIGURED for the
+entire trial, which is not what Section 7.1 specifies.
 """
 
 import logging
@@ -27,11 +38,16 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.cache import get_cached, set_cached, invalidate_cache
-from app.modules.billing.feature_keys import FEATURE_KEYS, FEATURE_KEY_REGISTRY_VERSION
+from app.modules.billing.feature_keys import (
+    FEATURE_KEYS,
+    FEATURE_KEY_REGISTRY_VERSION,
+    TRIAL_PROFILE_FEATURE_KEYS,
+)
 from app.modules.billing.models import (
     BillingEntitlementSnapshot,
     BillingSubscription,
     PlanEntitlementMapping,
+    SubscriptionStatus,
 )
 
 logger = logging.getLogger("zoiko.entitlement")
@@ -42,6 +58,7 @@ NOT_ENTITLED = "NOT_ENTITLED"
 ENTITLED_NOT_CONFIGURED = "ENTITLED_NOT_CONFIGURED"
 DEPENDENCY_UNAVAILABLE = "DEPENDENCY_UNAVAILABLE"
 ENTITLED_POLICY_BLOCKED = "ENTITLED_POLICY_BLOCKED"
+TRIAL_RESTRICTED = "TRIAL_RESTRICTED"
 
 CANONICAL_STATES = frozenset({
     ENTITLED_AVAILABLE,
@@ -49,7 +66,15 @@ CANONICAL_STATES = frozenset({
     ENTITLED_NOT_CONFIGURED,
     DEPENDENCY_UNAVAILABLE,
     ENTITLED_POLICY_BLOCKED,
+    TRIAL_RESTRICTED,
 })
+
+
+def _trial_profile_state(feature_key: str) -> str:
+    """Resolve a feature key's state for an org currently in evaluation
+    (Section 7.1). hr.ai.autonomous_action is handled by its own hard-block
+    before either resolver reaches this helper, so it never appears here."""
+    return ENTITLED_AVAILABLE if feature_key in TRIAL_PROFILE_FEATURE_KEYS else TRIAL_RESTRICTED
 
 _CACHE_PREFIX = "entitlement:"
 _CACHE_TTL_SECONDS = 120
@@ -99,7 +124,15 @@ def compute_entitlement_snapshot(
 
     # Build feature_states from mapping table for all feature keys
     feature_states = {}
-    if plan_code is not None:
+    if subscription and subscription.status == SubscriptionStatus.EVALUATION:
+        # Evaluating orgs never have a plan_code — resolve against the trial
+        # profile (Section 7.1) instead of falling through to "no plan".
+        for fk in FEATURE_KEYS:
+            if fk == "hr.ai.autonomous_action":
+                feature_states[fk] = NOT_ENTITLED
+                continue
+            feature_states[fk] = _trial_profile_state(fk)
+    elif plan_code is not None:
         mappings = (
             db.query(PlanEntitlementMapping)
             .filter(
@@ -295,6 +328,17 @@ def check_entitlement(
     plan_code = None
     if subscription and subscription.plan_code:
         plan_code = subscription.plan_code
+
+    # Evaluating orgs never have a plan_code — resolve against the trial
+    # profile (Section 7.1) before falling through to "no plan" below.
+    if subscription and subscription.status == SubscriptionStatus.EVALUATION:
+        result = {
+            "state": _trial_profile_state(feature_key),
+            "feature_key": feature_key,
+            "catalog_version": FEATURE_KEY_REGISTRY_VERSION,
+        }
+        set_cached(cache_key, result)
+        return result
 
     # No subscription / no plan → ENTITLED_NOT_CONFIGURED (policy gap, not paywall)
     if plan_code is None:

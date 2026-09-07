@@ -351,13 +351,22 @@ export default function BillingPlansPage() {
                       }
                     </td>
                     <td className="py-4 px-5">
-                      <button
-                        onClick={() => openEdit(plan)}
-                        className="p-1.5 rounded-lg text-slate-300 hover:text-[#FF7A00] hover:bg-orange-50 opacity-0 group-hover:opacity-100 transition"
-                        title="Edit plan"
-                      >
-                        <Edit3 className="h-4 w-4" />
-                      </button>
+                      {plan.is_published ? (
+                        <span
+                          className="p-1.5 rounded-lg text-slate-300 cursor-not-allowed inline-block"
+                          title="Published plans are immutable (Section 17). Create a new catalog version to modify."
+                        >
+                          <Lock className="h-4 w-4 text-slate-400" />
+                        </span>
+                      ) : (
+                        <button
+                          onClick={() => openEdit(plan)}
+                          className="p-1.5 rounded-lg text-slate-300 hover:text-[#FF7A00] hover:bg-orange-50 opacity-0 group-hover:opacity-100 transition"
+                          title="Edit draft plan"
+                        >
+                          <Edit3 className="h-4 w-4" />
+                        </button>
+                      )}
                     </td>
                   </tr>
                 ))}

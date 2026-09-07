@@ -10,7 +10,7 @@ export const billingService = {
   // ── Evaluations ──────────────────────────────────────────────────────────
   getEvaluations: (orgId) => api.get(`/billing/evaluations/${orgId}`),
   startEvaluation: (data) => api.post("/billing/evaluations", data),
-  endEvaluation: (id) => api.post(`/billing/evaluations/${id}/end`),
+  endEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/end`, data),
 
   // ── Conversions ──────────────────────────────────────────────────────────
   convertEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/convert`, data),
@@ -35,6 +35,7 @@ export const billingService = {
 
   // ── Invoices ─────────────────────────────────────────────────────────────
   getInvoices: (orgId) => api.get(`/billing/invoices/${orgId}`),
+  getPlatformInvoices: (params) => api.get("/billing/invoices", { params }),
 
   // ── Provider refs (Stripe customer/subscription IDs) ─────────────────────
   getProviderRefs: (orgId) => api.get(`/billing/provider-refs/${orgId}`),
@@ -43,14 +44,40 @@ export const billingService = {
   getDelinquency: (orgId) =>
     api.get(`/billing/organizations/${orgId}/delinquency`),
 
+  getDelinquencyStatus: (orgId) =>
+    api.get(`/billing/organizations/${orgId}/delinquency`),
+
+  getPlatformDelinquency: () =>
+    api.get("/billing/delinquency"),
+
+
   createSupportAccess: (data) =>
     api.post("/billing/support-access", data),
 
+  // orgId is optional — omit it to list grants across every organization
+  // (genuinely platform-wide, unlike evaluations/invoices/delinquency).
   listSupportAccess: (orgId) =>
-    api.get("/billing/support-access", { params: { organization_id: orgId } }),
+    api.get("/billing/support-access", { params: orgId ? { organization_id: orgId } : {} }),
 
   revokeSupportAccess: (grantId) =>
     api.post(`/billing/support-access/${grantId}/revoke`),
+
+  // ── Webhook Events — platform-wide list & manual replay ─────────────────
+  listWebhookEvents: (limit = 50) =>
+    api.get("/billing/webhook-events", { params: { limit } }),
+
+  replayWebhookEvent: (eventId) =>
+    api.post(`/billing/webhook-events/${eventId}/replay`),
+
+  // ── Provider Reconciliation — action & case management ──────────────────
+  reconcileSubscription: (organizationId) =>
+    api.post("/billing/internal/reconcile", { organization_id: organizationId }),
+
+  listReconciliationCases: (params = {}) =>
+    api.get("/billing/reconciliation/cases", { params }),
+
+  resolveReconciliationCase: (caseId, data = {}) =>
+    api.post(`/billing/reconciliation/cases/${caseId}/resolve`, data),
 
   // ── Plan Changes (Prompt 4) ─────────────────────────────────────────────
   previewPlanChange: (orgId, data) =>

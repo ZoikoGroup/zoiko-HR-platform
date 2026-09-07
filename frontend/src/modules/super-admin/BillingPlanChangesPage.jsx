@@ -3,19 +3,14 @@ import { useParams } from "react-router-dom";
 import {
   ArrowUpRight, ArrowDownRight, Calendar, Clock, CheckCircle, XCircle,
   AlertTriangle, Ban, ChevronDown, ChevronRight, Shield,
-  RefreshCcw, RotateCcw,
+  RefreshCcw, RotateCcw, Search,
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import PageHeader from "../../components/PageHeader";
+import OrgPicker from "../../components/OrgPicker";
 import { Button } from "../../components/billing-ui";
-
-const PLAN_OPTIONS = [
-  { id: 2, code: "CORE", label: "Core Plan" },
-  { id: 3, code: "ADVANCED", label: "Advanced Plan" },
-  { id: 4, code: "ENTERPRISE", label: "Enterprise Plan" },
-];
 
 const STATUS_TONES = {
   scheduled: "bg-blue-50 text-blue-700 border-blue-200",
@@ -50,10 +45,13 @@ export default function BillingPlanChangesPage() {
   const { role } = useAuth();
   const isAdmin = [ROLES.SUPER_ADMIN, ROLES.PLATFORM_ADMIN].includes(role);
 
+  const [selectedOrg, setSelectedOrg] = useState(null);
+  const activeOrgId = orgId || selectedOrg?.id;
+
   const [subscription, setSubscription] = useState(null);
   const [plans, setPlans] = useState([]);
   const [pendingChanges, setPendingChanges] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
   // Preview state
@@ -70,13 +68,17 @@ export default function BillingPlanChangesPage() {
   const [confirmCancelId, setConfirmCancelId] = useState(null);
 
   const loadData = useCallback(async () => {
+    if (!activeOrgId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       const [subData, plansData, changesData] = await Promise.all([
-        billingService.getSubscription(orgId).catch(() => null),
+        billingService.getSubscription(activeOrgId).catch(() => null),
         billingService.getPlans({ page_size: 50 }).catch(() => ({ list: [] })),
-        billingService.listPlanChanges(orgId).catch(() => ({ list: [] })),
+        billingService.listPlanChanges(activeOrgId).catch(() => ({ list: [] })),
       ]);
       setSubscription(subData);
       setPlans(plansData.list || []);
@@ -86,16 +88,16 @@ export default function BillingPlanChangesPage() {
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [activeOrgId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const handlePreview = async () => {
-    if (!previewTarget) return;
+    if (!previewTarget || !activeOrgId) return;
     setPreviewLoading(true);
     setPreviewResult(null);
     try {
-      const result = await billingService.previewPlanChange(orgId, { plan_id: Number(previewTarget) });
+      const result = await billingService.previewPlanChange(activeOrgId, { plan_id: Number(previewTarget) });
       setPreviewResult(result);
     } catch (e) {
       setPreviewResult({ error: e.message || "Preview failed" });
@@ -105,10 +107,10 @@ export default function BillingPlanChangesPage() {
   };
 
   const handleSchedule = async () => {
-    if (!scheduleTarget) return;
+    if (!scheduleTarget || !activeOrgId) return;
     setScheduleLoading(true);
     try {
-      await billingService.schedulePlanChange(orgId, {
+      await billingService.schedulePlanChange(activeOrgId, {
         plan_id: Number(scheduleTarget),
         billing_cycle: subscription?.billing_cycle || "monthly",
       });
@@ -151,9 +153,18 @@ export default function BillingPlanChangesPage() {
     <div className="space-y-6 font-sans">
       <PageHeader
         title="Plan Changes"
-        description={`Manage plan changes for organization ${orgId}`}
+        description={activeOrgId ? `Manage plan changes for Organization #${activeOrgId}` : "Select an organization to manage upgrade and downgrade requests."}
         icon={RefreshCcw}
       />
+
+      {!orgId && (
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-2">
+          <label className="block text-xs font-semibold text-slate-600">Select Organization</label>
+          <div className="max-w-md">
+            <OrgPicker selectedOrg={selectedOrg} onSelect={setSelectedOrg} placeholder="Search organization by name or code..." />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
@@ -163,6 +174,16 @@ export default function BillingPlanChangesPage() {
         </div>
       )}
 
+      {!activeOrgId ? (
+        <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
+          <Search className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+          <p className="text-sm font-semibold text-slate-600">Select an organization to view subscription plan changes.</p>
+          <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
+            Plan changes, dry-run blocker previews, and scheduled upgrades/downgrades are scoped per organization.
+          </p>
+        </div>
+      ) : (
+        <>
       {/* Current Subscription */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
         <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">Current Subscription</h3>
@@ -396,6 +417,8 @@ export default function BillingPlanChangesPage() {
           </div>
         )}
       </div>
+        </>
+      )}
     </div>
   );
 }

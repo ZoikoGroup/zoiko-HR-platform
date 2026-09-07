@@ -124,8 +124,7 @@ export default function SuperAdminOrganizationsPage() {
   const totalPages = Math.ceil(total / pageSize);
 
   return (
-    <div className="min-h-screen bg-slate-50/60 p-6 sm:p-10 text-slate-800 font-sans antialiased">
-      <div className="max-w-7xl mx-auto space-y-6">
+    <div className="space-y-6 font-sans">
 
         {/* Header Section */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-8 bg-white/80 backdrop-blur-md border border-slate-200/80 rounded-3xl shadow-sm">
@@ -425,7 +424,6 @@ export default function SuperAdminOrganizationsPage() {
             )}
           </div>
         </div>
-      </div>
 
       {/* Reject Reason Modal */}
       {rejectModal && (

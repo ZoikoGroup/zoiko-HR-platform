@@ -1,6 +1,10 @@
 import { AreaChart, Area, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
 import { formatCurrencyFromCents, formatCompactNumber, BLUE, EMERALD, INK, INK_SOFT, SLATE_LINE } from "./format";
 
+function formatCompactUsd(value) {
+  return `$${formatCompactNumber(value)}`;
+}
+
 export default function CommercialHealthCard({ data, loading, pricingConfigured }) {
   const trend = (data?.trend || []).map((p) => ({
     date: p.date?.slice(5),
@@ -19,7 +23,7 @@ export default function CommercialHealthCard({ data, loading, pricingConfigured 
         </p>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-5 mt-3">
+      <div className="grid grid-cols-1 gap-5 mt-3">
         <div>
           <div className="flex items-center gap-4 mb-2 text-[11px] font-semibold" style={{ color: INK_SOFT }}>
             <span className="flex items-center gap-1.5"><span className="w-2 h-2 rounded-full" style={{ background: BLUE }} /> MRR (USD)</span>
@@ -33,7 +37,7 @@ export default function CommercialHealthCard({ data, loading, pricingConfigured 
             </div>
           ) : (
             <ResponsiveContainer width="100%" height={220}>
-              <AreaChart data={trend} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+              <AreaChart data={trend} margin={{ top: 5, right: 4, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="mrrGrad" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="0%" stopColor={BLUE} stopOpacity={0.15} />
@@ -42,8 +46,8 @@ export default function CommercialHealthCard({ data, loading, pricingConfigured 
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke={SLATE_LINE} />
                 <XAxis dataKey="date" tick={{ fontSize: 10, fill: INK_SOFT }} axisLine={false} tickLine={false} />
-                <YAxis yAxisId="mrr" tick={{ fontSize: 10, fill: INK_SOFT }} axisLine={false} tickLine={false} width={40} />
-                <YAxis yAxisId="workforce" orientation="right" tick={{ fontSize: 10, fill: INK_SOFT }} axisLine={false} tickLine={false} width={36} />
+                <YAxis yAxisId="mrr" tick={{ fontSize: 10, fill: INK_SOFT }} axisLine={false} tickLine={false} width={52} tickFormatter={formatCompactUsd} />
+                <YAxis yAxisId="workforce" orientation="right" tick={{ fontSize: 10, fill: INK_SOFT }} axisLine={false} tickLine={false} width={44} tickFormatter={formatCompactNumber} />
                 <Tooltip />
                 <Area yAxisId="mrr" type="monotone" dataKey="mrr" stroke={BLUE} fill="url(#mrrGrad)" strokeWidth={2} />
                 <Line yAxisId="workforce" type="monotone" dataKey="workforce" stroke={EMERALD} strokeWidth={2} dot={false} />
@@ -84,13 +88,13 @@ export default function CommercialHealthCard({ data, loading, pricingConfigured 
 function StatBox({ label, value, sub, tone, loading }) {
   const toneText = tone === "red" ? "text-red-600" : tone === "amber" ? "text-amber-600" : "";
   return (
-    <div className="p-3 rounded-2xl bg-slate-50 border border-slate-100">
-      <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide leading-tight">{label}</p>
+    <div className="min-w-0 p-3 rounded-2xl bg-slate-50 border border-slate-100">
+      <p className="text-[10.5px] font-semibold text-slate-500 uppercase tracking-wide leading-tight break-words">{label}</p>
       {loading ? (
         <div className="h-5 w-16 bg-slate-200 rounded mt-1.5 animate-pulse" />
       ) : (
         <>
-          <p className={`text-lg font-extrabold mt-1 ${toneText}`} style={!tone ? { color: "#0A1128" } : undefined}>{value}</p>
+          <p className={`text-lg font-extrabold mt-1 break-words ${toneText}`} style={!tone ? { color: "#0A1128" } : undefined}>{value}</p>
           {sub && <p className="text-[10.5px] text-slate-400 mt-0.5">{sub}</p>}
         </>
       )}

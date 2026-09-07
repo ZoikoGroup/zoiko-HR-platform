@@ -67,6 +67,24 @@ def _execute_delinquency_walk_job():
         logger.error("[scheduler] Delinquency walk job failed: %s", e)
 
 
+def _execute_evaluation_expiry_job():
+    """Job function: end any ACTIVE evaluation whose evaluation_ends_at has
+    passed (Section 9 — "Ends automatically; no charge"). Never calls Stripe
+    or any payment provider."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.service import expire_overdue_evaluations
+
+        db = SessionLocal()
+        try:
+            expired = expire_overdue_evaluations(db)
+            logger.info("[scheduler] Evaluation expiry: %d evaluation(s) expired", len(expired))
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Evaluation expiry job failed: %s", e)
+
+
 def setup_scheduler(app=None) -> bool:
     """Register the plan-change scheduler with the FastAPI app lifecycle.
 
@@ -126,6 +144,15 @@ def _ensure_scheduler():
         replace_existing=True,
         misfire_grace_time=3600,
     )
+
+    _scheduler.add_job(
+        _execute_evaluation_expiry_job,
+        CronTrigger(hour=2, minute=10),
+        id="evaluation_expiry_walk",
+        name="Expire evaluations past evaluation_ends_at",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     return _scheduler
 
 
@@ -139,7 +166,7 @@ def start_scheduler() -> bool:
     _scheduler = _ensure_scheduler()
     if not _scheduler.running:
         _scheduler.start()
-    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05 UTC")
+    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05, evaluation expiry 02:10 UTC")
     return True
 
 

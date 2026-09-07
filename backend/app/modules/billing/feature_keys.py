@@ -70,6 +70,27 @@ FEATURE_KEYS: frozenset[str] = frozenset({
 })
 
 
+# ── Evaluation (trial) profile — ZHR-COM-ENT-001 §7.1 ───────────────────────
+# During an active evaluation, core HR/self-service, multi-entity, custom
+# workflow, performance and custom-reporting-shaped modules are enabled;
+# SSO/SCIM/API/webhook/custom-connector integration is sandboxed (excluded
+# here, resolved to TRIAL_RESTRICTED instead of ENTITLED_AVAILABLE); governed
+# AI autonomous action is never entitleable regardless of profile.
+_TRIAL_EXCLUDED_FEATURE_KEYS: frozenset[str] = frozenset({
+    "hr.identity.sso",
+    "hr.identity.scim",
+    "hr.integration.api_read",
+    "hr.integration.api_write",
+    "hr.integration.file_exchange",
+    "hr.integration.custom_connector",
+    "hr.ai.autonomous_action",
+})
+
+TRIAL_PROFILE_FEATURE_KEYS: frozenset[str] = frozenset(
+    FEATURE_KEYS - _TRIAL_EXCLUDED_FEATURE_KEYS
+)
+
+
 def is_valid_feature_key(feature_key: str) -> bool:
     """Check if a feature key is in the registry."""
     return feature_key in FEATURE_KEYS

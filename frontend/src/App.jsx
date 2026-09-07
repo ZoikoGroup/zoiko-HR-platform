@@ -188,6 +188,12 @@ const SuperAdminBillingPlansPage = lazy(() => import("./modules/super-admin/Bill
 const SuperAdminBillingDiscountsPage = lazy(() => import("./modules/super-admin/BillingDiscountsPage"));
 const SuperAdminBillingPlanChangesPage = lazy(() => import("./modules/super-admin/BillingPlanChangesPage"));
 const SuperAdminBillingRefundsPage = lazy(() => import("./modules/super-admin/BillingRefundsPage"));
+const SuperAdminBillingEvaluationsPage = lazy(() => import("./modules/super-admin/BillingEvaluationsPage"));
+const SuperAdminBillingInvoicesPage = lazy(() => import("./modules/super-admin/BillingInvoicesPage"));
+const SuperAdminBillingDelinquencyPage = lazy(() => import("./modules/super-admin/BillingDelinquencyPage"));
+const SuperAdminBillingWebhookEventsPage = lazy(() => import("./modules/super-admin/BillingWebhookEventsPage"));
+const SuperAdminBillingReconciliationPage = lazy(() => import("./modules/super-admin/BillingReconciliationPage"));
+const SuperAdminSupportAccessPage = lazy(() => import("./modules/super-admin/SupportAccessPage"));
 
 const DashboardPage = lazy(() => import("./modules/platform/DashboardPage"));
 const OrganizationsPage = lazy(() => import("./modules/platform/OrganizationsPage"));
@@ -399,6 +405,16 @@ const routeOverrides = {
   "/super-admin/billing/discounts": <SuperAdminBillingDiscountsPage />,
   "/super-admin/billing/plan-changes": <SuperAdminBillingPlanChangesPage />,
   "/super-admin/billing/refunds": <SuperAdminBillingRefundsPage />,
+  "/super-admin/billing/evaluations": <SuperAdminBillingEvaluationsPage />,
+  "/super-admin/billing/invoices": <SuperAdminBillingInvoicesPage />,
+  "/super-admin/billing/delinquency": <SuperAdminBillingDelinquencyPage />,
+
+  // Super Admin — Payments & Reconciliation
+  "/super-admin/billing/webhook-events": <SuperAdminBillingWebhookEventsPage />,
+  "/super-admin/billing/reconciliation": <SuperAdminBillingReconciliationPage />,
+
+  // Super Admin — Access & Security
+  "/super-admin/support-access": <SuperAdminSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMPLOYEE WORKSPACE — /employee/* routes (role: employee only)

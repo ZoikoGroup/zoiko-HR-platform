@@ -2,12 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
   AlertTriangle, CheckCircle, XCircle, RotateCcw, Clock,
-  Filter, ChevronDown, DollarSign,
+  Filter, ChevronDown, DollarSign, Search,
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import PageHeader from "../../components/PageHeader";
+import OrgPicker from "../../components/OrgPicker";
 import { Button } from "../../components/billing-ui";
 
 const STATUS_TONES = {
@@ -32,8 +33,11 @@ export default function BillingRefundsPage() {
   const { role } = useAuth();
   const isAdmin = [ROLES.SUPER_ADMIN, ROLES.PLATFORM_ADMIN].includes(role);
 
+  const [selectedOrg, setSelectedOrg] = useState(null);
+  const activeOrgId = orgId || selectedOrg?.id;
+
   const [refundRequests, setRefundRequests] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [statusFilter, setStatusFilter] = useState("");
 
@@ -47,25 +51,29 @@ export default function BillingRefundsPage() {
   const [confirmAction, setConfirmAction] = useState(null);
 
   const loadData = useCallback(async () => {
+    if (!activeOrgId) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
-      const data = await billingService.listRefundRequests(orgId);
+      const data = await billingService.listRefundRequests(activeOrgId);
       setRefundRequests(data.list || []);
     } catch (e) {
       setError(e.message || "Failed to load refund requests");
     } finally {
       setLoading(false);
     }
-  }, [orgId]);
+  }, [activeOrgId]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
   const handleRequestSubmit = async () => {
-    if (!requestForm.amount_cents || !requestForm.reason.trim()) return;
+    if (!requestForm.amount_cents || !requestForm.reason.trim() || !activeOrgId) return;
     setRequestLoading(true);
     try {
-      await billingService.requestRefund(orgId, {
+      await billingService.requestRefund(activeOrgId, {
         amount_cents: Number(requestForm.amount_cents),
         reason: requestForm.reason,
         request_type: requestForm.request_type,
@@ -125,16 +133,25 @@ export default function BillingRefundsPage() {
     <div className="space-y-6 font-sans">
       <PageHeader
         title="Refund & Credit Management"
-        description={`Manage refunds and credits for organization ${orgId}`}
+        description={activeOrgId ? `Manage refunds and credits for Organization #${activeOrgId}` : "Select an organization to manage refunds and credit adjustments."}
         icon={DollarSign}
         actions={
-          isAdmin && (
+          isAdmin && activeOrgId && (
             <Button variant="primary" size="md" icon={DollarSign} onClick={() => setShowRequestModal(true)}>
               New Request
             </Button>
           )
         }
       />
+
+      {!orgId && (
+        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-2">
+          <label className="block text-xs font-semibold text-slate-600">Select Organization</label>
+          <div className="max-w-md">
+            <OrgPicker selectedOrg={selectedOrg} onSelect={setSelectedOrg} placeholder="Search organization by name or code..." />
+          </div>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
@@ -144,7 +161,17 @@ export default function BillingRefundsPage() {
         </div>
       )}
 
-      {/* Filters */}
+      {!activeOrgId ? (
+        <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
+          <Search className="mx-auto mb-3 h-10 w-10 text-slate-300" />
+          <p className="text-sm font-semibold text-slate-600">Select an organization to manage refunds and credits.</p>
+          <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
+            Per ZHR-COM-BILL-001 §12, refunds and credits require an explicit Finance/Admin action and cannot be triggered automatically.
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Filters */}
       <div className="flex items-center gap-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">Filter:</span>
         {["", "pending", "approved", "rejected", "processed"].map(s => (
@@ -247,6 +274,8 @@ export default function BillingRefundsPage() {
           </div>
         )}
       </div>
+      </>
+      )}
 
       {/* Request Modal */}
       {showRequestModal && (

@@ -23,9 +23,11 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.core.exceptions import BadRequestException
 from app.modules.billing.models import (
     BillingAuditAction,
     BillingAuditLog,
+    BillingCycle,
     BillingInvoice,
     BillingSubscription,
     BillingWebhookEvent,
@@ -169,6 +171,50 @@ def _handle_checkout_completed(db, event_id, data, full_event):
         source="stripe_webhook",
         stripe_event_id=event_id,
     )
+
+    # Close the evaluation→paid loop (ZHR-COM-ENT-001 §8 steps 7-8): a self-serve
+    # checkout completing must close the linked evaluation and record the
+    # conversion, so trial and paid entitlements never remain simultaneously
+    # active. Idempotent by construction — once converted, get_active_evaluation
+    # returns None on any replay of this same (or a later) checkout event.
+    evaluation = billing_service.get_active_evaluation(db, org_id)
+    if evaluation:
+        metadata = data.get("metadata", {})
+        plan_id_str = metadata.get("plan_id")
+        billing_cycle_str = metadata.get("billing_cycle")
+        if plan_id_str and billing_cycle_str:
+            try:
+                conversion = billing_service.convert_evaluation(
+                    db,
+                    evaluation_id=evaluation.id,
+                    plan_id=int(plan_id_str),
+                    billing_cycle=BillingCycle(billing_cycle_str),
+                    quantity_basis="self_serve_checkout",
+                    commercial_effective_at=datetime.utcnow(),
+                    approver="system:stripe_webhook",
+                )
+                _log_audit(
+                    db,
+                    organization_id=org_id,
+                    action=BillingAuditAction.EVALUATION_CONVERTED,
+                    entity_type="BillingConversion",
+                    entity_id=conversion.id,
+                    before={"evaluation_status": "active"},
+                    after={"evaluation_status": "converted", "conversion_id": conversion.id},
+                    source="stripe_webhook",
+                    stripe_event_id=event_id,
+                )
+            except BadRequestException as e:
+                logger.warning(
+                    "[webhook] Could not auto-convert evaluation %s for org %s: %s",
+                    evaluation.id, org_id, e,
+                )
+        else:
+            logger.warning(
+                "[webhook] checkout completed for org %s with active evaluation %s "
+                "but missing plan_id/billing_cycle metadata — cannot auto-convert",
+                org_id, evaluation.id,
+            )
 
     return {"status": "ok", "message": "checkout completed"}
 
@@ -490,7 +536,7 @@ def _log_audit(
 
 def _log_unhandled_event(db: Session, event_id: str, event_type: str, event: dict):
     """Log unhandled event type for review — never silently dropped."""
-    # Write to audit log with WEBHOOOK_UNHANDLED action; no org_id known
+    # Write to audit log with WEBHOOK_UNHANDLED action; no org_id known
     # (unhandled events may not map to any org), use org_id=0 as sentinel.
     log = BillingAuditLog(
         organization_id=0,
@@ -503,3 +549,53 @@ def _log_unhandled_event(db: Session, event_id: str, event_type: str, event: dic
         stripe_event_id=event_id,
     )
     db.add(log)
+
+
+def replay_webhook_event(db: Session, stripe_event_id: str, actor: str = "super_admin") -> dict:
+    """Manually replay processing for an existing webhook event in the inbox."""
+    event_row = db.query(BillingWebhookEvent).filter(
+        BillingWebhookEvent.stripe_event_id == stripe_event_id
+    ).first()
+
+    if not event_row:
+        raise ValueError(f"Webhook event '{stripe_event_id}' not found in inbox")
+
+    if not event_row.payload:
+        raise ValueError(f"Webhook event '{stripe_event_id}' has no saved payload to replay")
+
+    event_type = event_row.event_type
+    payload = event_row.payload
+    data_object = payload.get("data", {}).get("object", {})
+
+    handler = _HANDLERS.get(event_type)
+    try:
+        if handler:
+            result = handler(db, stripe_event_id, data_object, payload)
+        else:
+            result = {"status": "ok", "message": f"unhandled event type '{event_type}' — logged"}
+
+        event_row.processed = True
+        event_row.error_message = None
+        event_row.processed_at = datetime.utcnow()
+        db.commit()
+
+        _log_audit(
+            db,
+            organization_id=0,
+            action=BillingAuditAction.WEBHOOK_RECEIVED,
+            entity_type="BillingWebhookEvent",
+            entity_id=event_row.id,
+            before={"processed": False, "error": event_row.error_message},
+            after={"processed": True, "replayed_by": actor},
+            source="manual_replay",
+            stripe_event_id=stripe_event_id,
+        )
+
+        return {"status": "ok", "message": f"Webhook event {stripe_event_id} replayed successfully", "event_id": stripe_event_id}
+
+    except Exception as e:
+        event_row.error_message = str(e)[:500]
+        db.commit()
+        logger.error("[webhook_replay] Failed to replay event %s: %s", stripe_event_id, e)
+        raise RuntimeError(f"Replay failed: {e}") from e
+
