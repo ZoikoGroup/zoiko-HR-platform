@@ -214,6 +214,17 @@ class EvaluationListResponse(BaseModel):
     total: int
 
 
+class PlatformEvaluationItem(EvaluationResponse):
+    organization_name: Optional[str] = None
+
+
+class PlatformEvaluationListResponse(BaseModel):
+    list: List[PlatformEvaluationItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
 # ── Conversion schemas ────────────────────────────────────────────────────────
 
 class ConversionRequest(BaseModel):
@@ -620,8 +631,11 @@ class SupportAccessListResponse(BaseModel):
 
 class MeSubscriptionResponse(BaseModel):
     """Subscription scoped to the caller's own organization. Trimming (Section 19)
-    is applied server-side for HR Admin / Organization Admin: financial detail and
-    billing classification are nulled as in to_overview_response(trimmed=True)."""
+    is applied server-side for HR Admin only: financial detail and billing
+    classification are nulled as in to_overview_response(trimmed=True).
+    Organization Admin ("admin") is an org decision-maker and gets the full
+    response. evaluation_ends_at is never trimmed — the trial countdown isn't
+    financial detail and both admin and hr_admin should see it."""
     organization_id: int
     billing_classification: Optional[str] = None
     status: Optional[str] = None
@@ -638,6 +652,7 @@ class MeSubscriptionResponse(BaseModel):
     commercial_effective_at: Optional[datetime] = None
     billing_timezone: Optional[str] = None
     service_start_at: Optional[datetime] = None
+    evaluation_ends_at: Optional[datetime] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
 

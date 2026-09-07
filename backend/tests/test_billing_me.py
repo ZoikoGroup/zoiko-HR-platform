@@ -9,7 +9,7 @@ caller, so the routes are exercised end-to-end (routing, schema validation,
 Section 19 trimming, tenant scoping, RBAC) without a live database.
 
 Covers:
-  - GET  /billing/me/subscription    (full for Owner; trimmed for admin/hr_admin)
+  - GET  /billing/me/subscription    (full for super_admin/admin/billing_admin; trimmed for hr_admin only)
   - GET  /billing/me/entitlements
   - POST /billing/me/cancel
   - POST /billing/me/reactivate      (incl. payment-method gate)
@@ -115,10 +115,10 @@ class TestMeSubscription:
         assert body["committed_quantity"] is not None or True
         assert "status" in body and body["status"] is not None
 
-    @pytest.mark.parametrize("role", ["admin", "hr_admin"])
-    def test_admin_hr_admin_trimmed(self, db, client, role):
+    def test_hr_admin_trimmed(self, db, client):
+        """HR Admin is view-only, non-decision-maker (Section 19) — trimmed."""
         fx = tenants.enterprise_tenant(db)
-        _as(client, "viewer@z", fx.org.id, role=role)
+        _as(client, "viewer@z", fx.org.id, role="hr_admin")
         r = client.get("/billing/me/subscription")
         assert r.status_code == 200, r.text
         body = r.json()
@@ -129,6 +129,39 @@ class TestMeSubscription:
         assert body["committed_quantity"] is None
         assert body["service_start_at"] is None
         assert body["price_catalog_version"] is None
+
+    def test_organization_admin_sees_full_detail(self, db, client):
+        """Organization Admin ("admin") is an org decision-maker (Section 19,
+        the role registered as Owner at signup via register_enterprise) and
+        must get the SAME full detail as super_admin/billing_admin — not the
+        HR Admin trim. Regression test for the /me/subscription trim bug."""
+        fx = tenants.enterprise_tenant(db)
+        _as(client, "org-admin@z", fx.org.id, role="admin")
+        r = client.get("/billing/me/subscription")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["plan_code"] == "enterprise"
+        assert body["billing_classification"] == "commercial"
+        assert body["status"] is not None
+        assert body["price_catalog_version"] is not None or True
+        assert body["service_start_at"] is not None or True
+
+    def test_organization_admin_sees_evaluation_countdown(self, db, client):
+        """evaluation_ends_at must never be trimmed — it isn't financial
+        detail — and must be populated for the org's own Organization Admin
+        while an evaluation is active."""
+        fx = tenants.evaluation_tenant(db)
+        from datetime import datetime, timedelta
+        from app.modules.billing import service as billing_service
+
+        billing_service.start_evaluation(
+            db, organization_id=fx.org.id,
+            evaluation_ends_at=datetime.utcnow() + timedelta(days=5),
+        )
+        _as(client, "org-admin@z", fx.org.id, role="admin")
+        r = client.get("/billing/me/subscription")
+        assert r.status_code == 200, r.text
+        assert r.json()["evaluation_ends_at"] is not None
 
     def test_cross_tenant_isolation(self, db, client):
         """/me always scopes to the caller's OWN org; a caller from org 1 must

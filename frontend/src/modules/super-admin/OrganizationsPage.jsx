@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, MoreVertical, RotateCcw, AlertTriangle, X
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import EvaluationTimeRemaining from "../../components/EvaluationTimeRemaining";
 
 export default function SuperAdminOrganizationsPage() {
   const navigate = useNavigate();
@@ -238,6 +239,7 @@ export default function SuperAdminOrganizationsPage() {
                   <tr>
                     <th className="px-6 py-3.5">Organization</th>
                     <th className="px-6 py-3.5">Plan</th>
+                    <th className="px-6 py-3.5">Trial</th>
                     <th className="px-6 py-3.5">Users</th>
                     <th className="px-6 py-3.5">Status</th>
                     <th className="px-6 py-3.5">Created</th>
@@ -279,6 +281,15 @@ export default function SuperAdminOrganizationsPage() {
                             <span className="inline-flex items-center px-2.5 py-1 text-xs font-semibold text-slate-400 bg-slate-50 border border-dashed border-slate-200 rounded-xl">
                               Not assigned
                             </span>
+                          )}
+                        </td>
+
+                        {/* Trial / Evaluation Countdown */}
+                        <td className="px-6 py-4">
+                          {o.evaluation_ends_at ? (
+                            <EvaluationTimeRemaining evaluationEndsAt={o.evaluation_ends_at} compact />
+                          ) : (
+                            <span className="text-xs text-slate-300">—</span>
                           )}
                         </td>
 

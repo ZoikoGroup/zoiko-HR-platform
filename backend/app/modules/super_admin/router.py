@@ -26,12 +26,13 @@ from app.core.exceptions import (
 from app.core.security import hash_password
 
 from app.modules.super_admin.models import (
-    AuditAction, AuditLog, LoginActivity, Notification, PlatformSetting, ApprovalHistory,
+    AuditAction, AuditLog, LoginActivity, Notification, PlatformSetting, ApprovalHistory, EmailDeliveryLog,
 )
 from app.modules.super_admin.schemas import (
     DashboardStats, OrganizationDetail, OrganizationStatusUpdate, OrganizationSummary,
     PlatformSettingItem, PlatformSettingUpdate, SuperAdminBootstrapRequest,
     AuditLogItem, LoginActivityItem, NotificationItem, NotificationCreate,
+    EmailDeliveryLogItem, EmailDeliveryLogResponse,
 )
 
 logger = logging.getLogger("zoiko.super_admin")
@@ -802,6 +803,36 @@ def update_platform_setting(
     ))
     db.commit()
     return row
+
+
+@router.get("/email-logs", response_model=EmailDeliveryLogResponse, summary="List email delivery logs")
+def list_email_logs(
+    status: Optional[str] = None,
+    recipient_email: Optional[str] = None,
+    organization_id: Optional[int] = None,
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_super_admin),
+):
+    query = db.query(EmailDeliveryLog)
+    if status:
+        query = query.filter(EmailDeliveryLog.status == status)
+    if recipient_email:
+        query = query.filter(EmailDeliveryLog.recipient_email.ilike(f"%{recipient_email}%"))
+    if organization_id:
+        query = query.filter(EmailDeliveryLog.organization_id == organization_id)
+
+    total = query.count()
+    offset = (page - 1) * limit
+    logs = query.order_by(EmailDeliveryLog.sent_at.desc()).offset(offset).limit(limit).all()
+
+    return EmailDeliveryLogResponse(
+        list=[EmailDeliveryLogItem.model_validate(l) for l in logs],
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
 
 # ── Public health probe (no auth) ─────────────────────────────────────────────
