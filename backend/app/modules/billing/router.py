@@ -74,6 +74,8 @@ from app.modules.billing.schemas import (
     EvaluationListResponse,
     EvaluationResponse,
     EvaluationStartRequest,
+    PlatformEvaluationItem,
+    PlatformEvaluationListResponse,
     InvoiceListResponse,
     PlatformInvoiceItem,
     PlatformInvoiceListResponse,
@@ -485,6 +487,42 @@ def start_evaluation(
         },
     )
     return evaluation
+
+
+@billing_router.get(
+    "/evaluations",
+    response_model=PlatformEvaluationListResponse,
+    summary="Platform-wide cross-organization evaluations list (Super Admin / Billing Viewer)",
+)
+def list_platform_evaluations(
+    status: Optional[str] = None,
+    expiring_within_days: Optional[int] = None,
+    organization_id: Optional[int] = None,
+    page: int = 1,
+    limit: int = 50,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    if _get_billing_role(current_user) != "super_admin":
+        user_org = getattr(current_user, "organization_id", None)
+        if organization_id and organization_id != user_org:
+            raise ForbiddenException("Cross-organization billing queries are restricted to Super Admins.")
+        organization_id = user_org
+
+    items, total = service.list_platform_evaluations(
+        db,
+        status=status,
+        expiring_within_days=expiring_within_days,
+        organization_id=organization_id,
+        page=page,
+        limit=limit,
+    )
+    return PlatformEvaluationListResponse(
+        list=[PlatformEvaluationItem.model_validate(item) for item in items],
+        total=total,
+        page=page,
+        limit=limit,
+    )
 
 
 @billing_router.get(
@@ -1569,7 +1607,12 @@ def get_me_subscription(
 ):
     org_id = _me_org_id(current_user)
     subscription = service.get_or_create_subscription(db, org_id)
-    trimmed = _get_billing_role(current_user) in ("admin", "hr_admin")
+    # Section 19: Organization Admin ("admin") is an org decision-maker and
+    # gets the full (untrimmed) response — only HR Admin is trimmed to
+    # plan + workforce usage. (Distinct from get_overview()'s super-admin-
+    # facing /organizations/{org_id}/overview, which intentionally trims
+    # both admin and hr_admin for that call site.)
+    trimmed = _get_billing_role(current_user) in ("hr_admin",)
     return service.to_overview_response(db, subscription, trimmed=trimmed)
 
 

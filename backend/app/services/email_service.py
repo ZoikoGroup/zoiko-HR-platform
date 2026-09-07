@@ -167,6 +167,43 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
         return dict(_BRANDING_DEFAULTS)
 
 
+def _log_email_delivery(
+    email: str,
+    template_name: str,
+    subject: str,
+    status: str,
+    error_message: str = None,
+    organization_id: int = None,
+    context_data: dict = None,
+    db=None,
+):
+    """Write an EmailDeliveryLog row to the database for delivery audit evidence."""
+    try:
+        own_session = False
+        if db is None:
+            from app.database import SessionLocal
+            db = SessionLocal()
+            own_session = True
+        try:
+            from app.modules.super_admin.models import EmailDeliveryLog
+            log_row = EmailDeliveryLog(
+                organization_id=organization_id,
+                recipient_email=email,
+                template_name=template_name,
+                subject=subject[:300] if subject else None,
+                status=status,
+                error_message=error_message[:1000] if error_message else None,
+                context_data={k: str(v) for k, v in (context_data or {}).items() if k not in ("password", "token")},
+            )
+            db.add(log_row)
+            db.commit()
+        finally:
+            if own_session:
+                db.close()
+    except Exception as e:
+        logger.warning(f"[email] Failed to write EmailDeliveryLog: {e}")
+
+
 def send_approval_email(
     email: str,
     template_name: str,
@@ -178,51 +215,40 @@ def send_approval_email(
     from_display_name_override=None,
     template_body: str = None,
 ) -> bool:
-    """Send an email via SMTP.
-
-    attachments: optional list of (filename, bytes) tuples, attached as
-    application/pdf parts.
-
-    from_email_override / from_display_name_override: optional per-org
-    "From" identity override (e.g. from Payroll's PayrollEmailSettings).
-    Sent through this same shared SMTP connection — not a separate mail
-    server. None (the default) preserves the existing platform-wide
-    behavior for every current caller.
-    template_body: optional raw HTML body that overrides the on-disk
-    template. Used by billing flows whose org-level BillingConfiguration
-    supplies a custom template (e.g. dunning_email_template /
-    final_notice_template) — the branding/context rendering and SMTP
-    delivery path stay identical.
+    """Send an email via SMTP with delivery audit logging.
     """
     if template_body is not None:
         template = template_body
     else:
         template = _load_template(template_name)
-    if not template:
-        logger.warning(f"Cannot send email to {email}: template {template_name} not found")
-        return False
 
+    subject = context.get("subject", "Zoiko HR — Notification")
     branding = _get_org_branding(organization_id, db=db)
     full_context = {**branding, **context}
+    if "{{" in subject:
+        subject = _render_template(subject, full_context)
+
+    if not template:
+        logger.error(f"[email] Template {template_name} not found on disk. Generating fallback HTML.")
+        # Fallback template to prevent silent delivery drops
+        template = (
+            "<!DOCTYPE html><html><body style='font-family:sans-serif;padding:30px;background:#0F172A;color:#FFF;'>"
+            "<div style='max-width:560px;margin:0 auto;background:#FFF;color:#0F172A;padding:30px;border-radius:12px;'>"
+            "<h2 style='color:#FF6B00;'>Zoiko HR Notification</h2>"
+            "<p>Hello {{first_name}},</p>"
+            "<p>You have a new update regarding: <strong>" + _html.escape(subject) + "</strong></p>"
+            "<p style='background:#F8FAFC;padding:15px;border-radius:8px;'>{{#if action_url}}<a href='{{action_url}}' style='color:#FF6B00;font-weight:bold;'>Click here to view details &rarr;</a>{{/if}}</p>"
+            "<p>Thank you,<br>Zoiko HR Team</p>"
+            "</div></body></html>"
+        )
+
     body = _render_template(template, full_context)
     smtp = _get_smtp_settings(db=db)
 
-    subject = context.get("subject", "Zoiko One — Notification")
-    # Subjects may carry template placeholders (e.g. {{company_name}} resolved
-    # from the merged branding context). Render them against full_context so the
-    # org identity resolves without a second branding lookup. Existing subjects
-    # that contain no "{{" pass through unchanged.
-    if "{{" in subject:
-        subject = _render_template(subject, full_context)
-    # Envelope sender (MAIL FROM) always stays the authenticated SMTP account —
-    # most relays (incl. this one) reject or misdeliver mail whose envelope
-    # sender doesn't match the logged-in account, and it keeps SPF aligned.
-    # from_email_override only changes the visible "From" header, so a tenant
-    # can look like the sender to recipients without new SMTP credentials.
     envelope_from = smtp["from_email"]
     header_from = from_email_override or envelope_from
     to_email = email
-    sender_name = from_display_name_override or full_context.get("company_name") or "Zoiko One"
+    sender_name = from_display_name_override or full_context.get("company_name") or "Zoiko HR"
     reply_to = full_context.get("support_email")
 
     msg = MIMEMultipart("alternative")
@@ -231,7 +257,6 @@ def send_approval_email(
     msg["To"] = to_email
     if reply_to:
         msg["Reply-To"] = reply_to
-    # "alternative" parts are attached least-preferred first: plain text, then HTML.
     msg.attach(MIMEText(_html_to_text(body), "plain", "utf-8"))
     msg.attach(MIMEText(body, "html", "utf-8"))
 
@@ -244,33 +269,45 @@ def send_approval_email(
     try:
         port = int(smtp["port"])
         use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
-        # Use certifi's CA bundle rather than the OS trust store: on several
-        # deployment hosts (minimal containers, some Windows setups) the OS
-        # store is missing the issuer chain for the SMTP host's certificate,
-        # causing CERTIFICATE_VERIFY_FAILED on every send. That exception was
-        # being caught below and swallowed to `False`, so invoices looked
-        # "sent" while every email silently failed.
         context_ssl = ssl.create_default_context(cafile=certifi.where())
 
         if use_tls and port != 465:
-            # STARTTLS (e.g. port 587): plain connection, then upgrade to TLS.
             with smtplib.SMTP(smtp["host"], port, timeout=30) as server:
                 server.starttls(context=context_ssl)
                 if smtp["username"] and smtp["password"]:
                     server.login(smtp["username"], smtp["password"])
                 server.sendmail(envelope_from, to_email, msg.as_string())
         else:
-            # Implicit TLS (e.g. port 465).
             with smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=30) as server:
                 if smtp["username"] and smtp["password"]:
                     server.login(smtp["username"], smtp["password"])
                 server.sendmail(envelope_from, to_email, msg.as_string())
 
         logger.info(f"[email] Sent to {to_email} | template={template_name}")
+        _log_email_delivery(
+            email=to_email,
+            template_name=template_name,
+            subject=subject,
+            status="sent",
+            organization_id=organization_id,
+            context_data=context,
+            db=db,
+        )
         return True
     except Exception as e:
         logger.error(f"[email] Failed to send to {to_email} | template={template_name} | error={e}")
+        _log_email_delivery(
+            email=to_email,
+            template_name=template_name,
+            subject=subject,
+            status="failed",
+            error_message=str(e),
+            organization_id=organization_id,
+            context_data=context,
+            db=db,
+        )
         return False
+
 
 
 def send_registration_received(email: str, org_name: str, db=None):
@@ -1336,6 +1373,48 @@ def send_delinquency_notice(db, organization_id: int, stage: str, days_overdue: 
     return {"recipients": recipients, "sent": sent, "stage": stage}
 
 
+# ── Evaluation milestone reminders (ZHR-COM-ENT-001 Section 8.1) ─────────────
+# Sent once per evaluation to conversion_owner (single recipient, unlike the
+# resolved billing-recipients list delinquency notices use). Copy constraint:
+# none of these may state or imply an automatic charge — the evaluation
+# simply ends if no plan is activated first.
+
+def send_evaluation_7_days_remaining(
+    email: str, org_name: str, evaluation_ends_at_display: str,
+    login_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    return send_approval_email(email, "evaluation_7_days_remaining.html", {
+        "subject": f"7 Days Left in Your Evaluation — {org_name} | Zoiko HR",
+        "organization_name": org_name,
+        "evaluation_ends_at": evaluation_ends_at_display,
+        "login_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_2_days_remaining(
+    email: str, org_name: str, evaluation_ends_at_display: str,
+    login_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    return send_approval_email(email, "evaluation_2_days_remaining.html", {
+        "subject": f"Only 2 Days Left in Your Evaluation — {org_name} | Zoiko HR",
+        "organization_name": org_name,
+        "evaluation_ends_at": evaluation_ends_at_display,
+        "login_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_expired(
+    email: str, org_name: str, evaluation_ends_at_display: str,
+    login_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    return send_approval_email(email, "evaluation_expired.html", {
+        "subject": f"Your Evaluation Has Ended — {org_name} | Zoiko HR",
+        "organization_name": org_name,
+        "evaluation_ends_at": evaluation_ends_at_display,
+        "login_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
 def send_support_access_granted_email(
     organization_id: int,
     recipient_email: str,
@@ -1358,3 +1437,85 @@ def send_support_access_granted_email(
         "expires_at": expires_at,
         "support_url": login_url,
     }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_started_email(
+    email: str, org_name: str, evaluation_end_date: str,
+    login_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    """ZHR-COM-009 Evaluation workspace activated."""
+    return send_approval_email(email, "evaluation_started.html", {
+        "subject": f"Your Zoiko HR evaluation workspace is ready — {org_name}",
+        "organization_name": org_name,
+        "evaluation_end_date": evaluation_end_date,
+        "action_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_halfway_email(
+    email: str, org_name: str, evaluation_end_date: str,
+    login_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    """ZHR-COM-010 Evaluation midpoint review."""
+    return send_approval_email(email, "evaluation_halfway.html", {
+        "subject": f"Zoiko HR evaluation midpoint review — {org_name}",
+        "organization_name": org_name,
+        "evaluation_end_date": evaluation_end_date,
+        "action_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_assigned_email(
+    email: str, first_name: str, document_name: str, due_at_local: str,
+    action_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    """ZHR-DOC-001 / ZHR-DOC-007 Document requested/available."""
+    return send_approval_email(email, "document_assigned.html", {
+        "subject": "A document is required in Zoiko HR",
+        "first_name": first_name,
+        "document_name": document_name,
+        "due_at_local": due_at_local,
+        "action_url": action_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_policy_acknowledgement_requested_email(
+    email: str, first_name: str, policy_display_name: str, due_at_local: str,
+    action_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    """ZHR-POL-001 Policy acknowledgment assigned."""
+    return send_approval_email(email, "policy_acknowledgement_requested.html", {
+        "subject": "Policy acknowledgment required",
+        "first_name": first_name,
+        "policy_display_name": policy_display_name,
+        "due_at_local": due_at_local,
+        "action_url": action_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_performance_review_assigned_email(
+    email: str, first_name: str, cycle_name: str, due_at_local: str,
+    action_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    """ZHR-PER-001 / ZHR-PER-004 Performance review assigned."""
+    return send_approval_email(email, "performance_review_assigned.html", {
+        "subject": f"Performance review action required — {cycle_name}",
+        "first_name": first_name,
+        "cycle_name": cycle_name,
+        "due_at_local": due_at_local,
+        "action_url": action_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_performance_review_submitted_email(
+    email: str, first_name: str, cycle_name: str,
+    action_url: str = LOGIN_URL, db=None, organization_id=None,
+):
+    """ZHR-PER-003 Performance review submitted."""
+    return send_approval_email(email, "performance_review_submitted.html", {
+        "subject": f"Your performance review was submitted — {cycle_name}",
+        "first_name": first_name,
+        "cycle_name": cycle_name,
+        "action_url": action_url,
+    }, db=db, organization_id=organization_id)
+

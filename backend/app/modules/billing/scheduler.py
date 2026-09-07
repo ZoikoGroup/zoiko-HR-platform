@@ -85,6 +85,28 @@ def _execute_evaluation_expiry_job():
         logger.error("[scheduler] Evaluation expiry job failed: %s", e)
 
 
+def _execute_evaluation_reminder_job():
+    """Job function: send 7-day/2-day reminder emails exactly once per
+    evaluation (Section 8.1). Runs after evaluation-expiry (02:10) so an
+    evaluation expiring today has already been closed out before this job
+    would otherwise consider it for a reminder."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.service import send_evaluation_reminders
+
+        db = SessionLocal()
+        try:
+            result = send_evaluation_reminders(db)
+            logger.info(
+                "[scheduler] Evaluation reminders: %d 7-day, %d 2-day sent",
+                result["sent_7d"], result["sent_2d"],
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Evaluation reminder job failed: %s", e)
+
+
 def setup_scheduler(app=None) -> bool:
     """Register the plan-change scheduler with the FastAPI app lifecycle.
 
@@ -153,6 +175,15 @@ def _ensure_scheduler():
         replace_existing=True,
         misfire_grace_time=3600,
     )
+
+    _scheduler.add_job(
+        _execute_evaluation_reminder_job,
+        CronTrigger(hour=2, minute=15),
+        id="evaluation_reminder_walk",
+        name="Send evaluation 7-day/2-day reminder emails",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
     return _scheduler
 
 
@@ -166,7 +197,7 @@ def start_scheduler() -> bool:
     _scheduler = _ensure_scheduler()
     if not _scheduler.running:
         _scheduler.start()
-    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05, evaluation expiry 02:10 UTC")
+    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05, evaluation expiry 02:10, evaluation reminders 02:15 UTC")
     return True
 
 

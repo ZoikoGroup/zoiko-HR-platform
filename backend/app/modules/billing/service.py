@@ -13,10 +13,13 @@ ledger (Section 22), which is a later phase. `CATALOG_VERSION_DRAFT` marks
 every artifact produced here as pending the real approved catalog (Section 3).
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger("zoiko.billing.service")
 
 from app.core.exceptions import (
     BadRequestException,
@@ -158,14 +161,18 @@ def clear_delinquency_restriction(db: Session, organization_id: int) -> bool:
 
 
 def to_overview_response(db: Session, subscription: BillingSubscription, trimmed: bool) -> dict:
-    """Full response for Organization Owner / Billing Admin. Trimmed response
-    for HR Admin / Organization Admin exposes plan + workforce usage only,
-    per Section 19's 'no financial detail by default' rule."""
+    """Full response for Organization Owner / Organization Admin / Billing Admin.
+    Trimmed response (HR Admin only) exposes plan + workforce usage only, per
+    Section 19's 'no financial detail by default' rule. evaluation_ends_at is
+    never trimmed — the trial countdown isn't financial detail."""
     plan_name = None
     if subscription.plan_id:
         plan = db.query(BillingPlan).filter(BillingPlan.id == subscription.plan_id).first()
         if plan:
             plan_name = plan.name
+
+    active_evaluation = get_active_evaluation(db, subscription.organization_id)
+    evaluation_ends_at = active_evaluation.evaluation_ends_at if active_evaluation else None
 
     if trimmed:
         return {
@@ -181,6 +188,7 @@ def to_overview_response(db: Session, subscription: BillingSubscription, trimmed
             "quantity": subscription.quantity,
             "committed_quantity": None,
             "service_start_at": None,
+            "evaluation_ends_at": evaluation_ends_at,
         }
     return {
         "organization_id": subscription.organization_id,
@@ -195,6 +203,7 @@ def to_overview_response(db: Session, subscription: BillingSubscription, trimmed
         "quantity": subscription.quantity,
         "committed_quantity": subscription.committed_quantity,
         "service_start_at": subscription.service_start_at,
+        "evaluation_ends_at": evaluation_ends_at,
     }
 
 
@@ -375,6 +384,67 @@ def get_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
     return evaluation
 
 
+def list_platform_evaluations(
+    db: Session,
+    status: str | None = None,
+    expiring_within_days: int | None = None,
+    organization_id: int | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
+    """Platform-wide evaluations list across all organizations, with filters
+    and pagination — mirrors list_platform_invoices()'s exact shape."""
+    from app.modules.hr.models import Organization
+
+    q = db.query(OrganizationEvaluation)
+
+    if status:
+        try:
+            q = q.filter(OrganizationEvaluation.status == EvaluationStatus[status.upper()])
+        except KeyError:
+            q = q.filter(OrganizationEvaluation.status == status)
+    if organization_id:
+        q = q.filter(OrganizationEvaluation.organization_id == organization_id)
+    if expiring_within_days is not None:
+        q = q.filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.evaluation_ends_at <= datetime.utcnow() + timedelta(days=expiring_within_days),
+        )
+
+    total = q.count()
+
+    offset = max(0, (page - 1) * limit)
+    order_col = (
+        OrganizationEvaluation.evaluation_ends_at.asc()
+        if expiring_within_days is not None
+        else OrganizationEvaluation.created_at.desc()
+    )
+    evaluations = q.order_by(order_col).offset(offset).limit(limit).all()
+
+    org_map = {}
+    try:
+        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in db.query(Organization).all()}
+    except Exception:
+        pass
+
+    items = []
+    for ev in evaluations:
+        items.append({
+            "id": ev.id,
+            "organization_id": ev.organization_id,
+            "organization_name": org_map.get(ev.organization_id) or f"Org #{ev.organization_id}",
+            "evaluation_ends_at": ev.evaluation_ends_at,
+            "approved_package_scope": ev.approved_package_scope,
+            "data_classification": role_value(ev.data_classification),
+            "conversion_owner": ev.conversion_owner,
+            "status": role_value(ev.status),
+            "created_at": ev.created_at,
+            "updated_at": ev.updated_at,
+        })
+
+    return items, total
+
+
 def get_org_evaluations(db: Session, organization_id: int) -> list[OrganizationEvaluation]:
     return (
         db.query(OrganizationEvaluation)
@@ -430,9 +500,93 @@ def expire_overdue_evaluations(db: Session) -> list[OrganizationEvaluation]:
             reason="auto_expired",
             source="scheduler",
         )
+        _send_evaluation_milestone_email(db, evaluation, "expired")
         expired.append(evaluation)
 
     return expired
+
+
+def _org_display_name(db: Session, organization_id: int) -> str:
+    from app.modules.hr.models import Organization
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    return (org.name if org else None) or f"Organization #{organization_id}"
+
+
+def _send_evaluation_milestone_email(db: Session, evaluation: OrganizationEvaluation, milestone: str) -> None:
+    """milestone: '7d' | '2d' | 'expired'. No-op (logged, not raised) if the
+    evaluation has no conversion_owner or if sending fails — a milestone
+    email is a courtesy notification, never allowed to break the scheduler
+    job (expiry/reminder walks) that calls it."""
+    if not evaluation.conversion_owner:
+        return
+    from app.services import email_service
+
+    org_name = _org_display_name(db, evaluation.organization_id)
+    ends_at_display = evaluation.evaluation_ends_at.strftime("%B %d, %Y") if evaluation.evaluation_ends_at else ""
+    sender = {
+        "7d": email_service.send_evaluation_7_days_remaining,
+        "2d": email_service.send_evaluation_2_days_remaining,
+        "expired": email_service.send_evaluation_expired,
+    }[milestone]
+    try:
+        sender(
+            evaluation.conversion_owner, org_name, ends_at_display,
+            db=db, organization_id=evaluation.organization_id,
+        )
+        logger.info(
+            "[evaluation] Sent %s milestone email for evaluation %s to %s",
+            milestone, evaluation.id, evaluation.conversion_owner,
+        )
+    except Exception as e:
+        logger.error(
+            "[evaluation] Failed to send %s milestone email for evaluation %s: %s",
+            milestone, evaluation.id, e,
+        )
+
+
+def send_evaluation_reminders(db: Session) -> dict:
+    """Daily walk (ZHR-COM-ENT-001 §8.1): send the 7-day and 2-day reminder
+    emails exactly once per evaluation. Never touches evaluation/subscription
+    status — expiry is expire_overdue_evaluations()'s job. Reminder windows
+    are wide (±12h) so a job restart or clock skew doesn't skip a send."""
+    now = datetime.utcnow()
+    sent_7d = 0
+    sent_2d = 0
+
+    due_7d = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.reminder_7d_sent_at.is_(None),
+            OrganizationEvaluation.evaluation_ends_at >= now + timedelta(days=6, hours=12),
+            OrganizationEvaluation.evaluation_ends_at <= now + timedelta(days=7, hours=12),
+        )
+        .all()
+    )
+    for evaluation in due_7d:
+        _send_evaluation_milestone_email(db, evaluation, "7d")
+        evaluation.reminder_7d_sent_at = now
+        db.commit()
+        sent_7d += 1
+
+    due_2d = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.reminder_2d_sent_at.is_(None),
+            OrganizationEvaluation.evaluation_ends_at >= now + timedelta(days=1, hours=12),
+            OrganizationEvaluation.evaluation_ends_at <= now + timedelta(days=2, hours=12),
+        )
+        .all()
+    )
+    for evaluation in due_2d:
+        _send_evaluation_milestone_email(db, evaluation, "2d")
+        evaluation.reminder_2d_sent_at = now
+        db.commit()
+        sent_2d += 1
+
+    return {"sent_7d": sent_7d, "sent_2d": sent_2d}
 
 
 # ── Conversion ────────────────────────────────────────────────────────────────

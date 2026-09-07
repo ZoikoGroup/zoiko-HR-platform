@@ -323,6 +323,10 @@ class OrganizationEvaluation(Base):
     status = Column(
         CaseInsensitiveEnum(EvaluationStatus), default=EvaluationStatus.ACTIVE, nullable=False,
     )
+    # Milestone-reminder guards (Section 8.1) — set immediately after a
+    # successful send so a scheduler retry/replay never double-sends.
+    reminder_7d_sent_at = Column(DateTime, nullable=True)
+    reminder_2d_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 

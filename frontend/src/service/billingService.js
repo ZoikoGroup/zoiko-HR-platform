@@ -8,6 +8,7 @@ export const billingService = {
   updatePlan: (id, data) => api.put(`/billing/plans/${id}`, data),
 
   // ── Evaluations ──────────────────────────────────────────────────────────
+  getPlatformEvaluations: (params) => api.get("/billing/evaluations", { params }),
   getEvaluations: (orgId) => api.get(`/billing/evaluations/${orgId}`),
   startEvaluation: (data) => api.post("/billing/evaluations", data),
   endEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/end`, data),

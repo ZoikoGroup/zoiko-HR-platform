@@ -3183,6 +3183,23 @@ def create_onboarding_document(
     db.add(doc)
     db.commit()
     db.refresh(doc)
+
+    if onboarding_new_hire_id:
+        try:
+            from app.services.email_service import send_document_assigned_email
+            new_hire = db.query(OnboardingNewHire).filter(OnboardingNewHire.id == onboarding_new_hire_id).first()
+            if new_hire and new_hire.email:
+                send_document_assigned_email(
+                    email=new_hire.email,
+                    first_name=new_hire.first_name or "Employee",
+                    document_name=doc.title or "Required Document",
+                    due_at_local="Within 7 business days",
+                    db=db,
+                    organization_id=organization_id,
+                )
+        except Exception as e:
+            logger.warning(f"[email] Failed to send document assigned email: {e}")
+
     return _onboarding_doc_to_dict(doc)
 
 
@@ -3641,6 +3658,23 @@ def create_performance_review(db: Session, data: PerformanceReviewCreate, organi
     db.add(review)
     db.commit()
     db.refresh(review)
+
+    if review.employee_id:
+        try:
+            from app.services.email_service import send_performance_review_assigned_email
+            emp = db.query(Employee).filter(Employee.id == review.employee_id).first()
+            if emp and emp.email:
+                send_performance_review_assigned_email(
+                    email=emp.email,
+                    first_name=emp.first_name or "Employee",
+                    cycle_name=getattr(review, "review_cycle", None) or getattr(review, "title", None) or "Performance Review",
+                    due_at_local=str(review.due_date) if hasattr(review, "due_date") and review.due_date else "As scheduled",
+                    db=db,
+                    organization_id=organization_id,
+                )
+        except Exception as e:
+            logger.warning(f"[email] Failed to send performance review assigned email: {e}")
+
     return review
 
 
@@ -3669,6 +3703,22 @@ def update_performance_review(db: Session, review_id: int, data: PerformanceRevi
         setattr(review, key, val)
     db.commit()
     db.refresh(review)
+
+    if review.employee_id:
+        try:
+            from app.services.email_service import send_performance_review_submitted_email
+            emp = db.query(Employee).filter(Employee.id == review.employee_id).first()
+            if emp and emp.email:
+                send_performance_review_submitted_email(
+                    email=emp.email,
+                    first_name=emp.first_name or "Employee",
+                    cycle_name=getattr(review, "review_cycle", None) or getattr(review, "title", None) or "Performance Review",
+                    db=db,
+                    organization_id=organization_id,
+                )
+        except Exception as e:
+            logger.warning(f"[email] Failed to send performance review submitted email: {e}")
+
     return review
 
 

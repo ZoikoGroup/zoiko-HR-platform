@@ -143,3 +143,21 @@ class LoginActivity(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     user = relationship("Employee", foreign_keys=[user_id])
+
+
+class EmailDeliveryLog(Base):
+    """Audit ledger tracking every email send attempt (Finding 2 / Section 8.1 evidence)."""
+    __tablename__ = "super_admin_email_delivery_logs"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    recipient_email = Column(String(255), nullable=False, index=True)
+    template_name = Column(String(255), nullable=False, index=True)
+    subject = Column(String(300), nullable=True)
+    status = Column(String(50), nullable=False, default="sent")  # sent, failed, template_missing
+    error_message = Column(Text, nullable=True)
+    context_data = Column(JSON, nullable=True)
+    sent_at = Column(DateTime, server_default=func.now(), index=True)
+
+    organization = relationship("Organization", foreign_keys=[organization_id])
+

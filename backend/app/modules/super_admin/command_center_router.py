@@ -170,6 +170,30 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{s.organization_id}",
         ))
 
+    # Evaluations expiring within 2 days without a conversion in progress —
+    # the leading-indicator complement to customer_health()'s lagging
+    # "Evaluation expired without conversion" signal (that one is left alone;
+    # this surfaces the risk BEFORE the trial lapses, not after). status ==
+    # ACTIVE alone already excludes converted evaluations (convert_evaluation
+    # always flips status to CONVERTED), so no separate BillingConversion
+    # join is needed here.
+    from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
+
+    for ev in db.query(OrganizationEvaluation).filter(
+        OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+        OrganizationEvaluation.evaluation_ends_at <= now + timedelta(days=2),
+    ).all():
+        hours_left = (ev.evaluation_ends_at - now).total_seconds() / 3600
+        items.append(AttentionItem(
+            severity="high" if hours_left < 24 else "medium",
+            issue="Evaluation expiring without conversion",
+            organization_id=ev.organization_id,
+            organization_name=org_names.get(ev.organization_id),
+            detected_at=ev.evaluation_ends_at,
+            action_label="Review evaluation",
+            action_href=f"/super-admin/billing/evaluations?org_id={ev.organization_id}",
+        ))
+
     # Delinquency lifecycle anomalies (Section 10 G1-G5) surfaced to command
     # center so escalation is not banner-dependent.
     from app.modules.billing.models import DelinquencyCase, DelinquencyCaseStatus

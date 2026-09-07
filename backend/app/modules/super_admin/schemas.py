@@ -138,5 +138,28 @@ class PlatformSettingItem(BaseModel):
         from_attributes = True
 
 
+class EmailDeliveryLogItem(BaseModel):
+    id: int
+    organization_id: Optional[int] = None
+    recipient_email: str
+    template_name: str
+    subject: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    context_data: Optional[dict] = None
+    sent_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class EmailDeliveryLogResponse(BaseModel):
+    list: List[EmailDeliveryLogItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
+
 class PlatformSettingUpdate(BaseModel):
     value: str
