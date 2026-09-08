@@ -1,5 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
-import { Receipt, AlertTriangle, ExternalLink, FileDown, RefreshCw, Filter, Eye, ChevronLeft, ChevronRight, Building2 } from "lucide-react";
+import {
+  Receipt, AlertTriangle, ExternalLink, FileDown, RefreshCw, Filter, Eye,
+  ChevronLeft, ChevronRight, Building2, CircleDollarSign, CheckCircle, Clock, Search
+} from "lucide-react";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { billingService } from "../../service/billingService";
@@ -12,6 +15,54 @@ const STATUS_TONES = {
   draft: "bg-amber-50 text-amber-700 border-amber-200",
 };
 
+const SAMPLE_INVOICES = [
+  {
+    id: 1,
+    stripe_invoice_id: "in_1N3X9vE3lUB9ETl30001",
+    organization_id: 1,
+    organization_name: "Acme Corporation",
+    status: "paid",
+    amount_due_cents: 144000,
+    amount_paid_cents: 144000,
+    currency: "USD",
+    period_start: new Date(Date.now() - 86400000 * 30).toISOString(),
+    period_end: new Date().toISOString(),
+    created_at: new Date(Date.now() - 86400000 * 30).toISOString(),
+    hosted_invoice_url: "https://stripe.com",
+    invoice_pdf_url: "https://stripe.com",
+  },
+  {
+    id: 2,
+    stripe_invoice_id: "in_1N3X9vE3lUB9ETl30002",
+    organization_id: 2,
+    organization_name: "Global Tech Ltd",
+    status: "open",
+    amount_due_cents: 300000,
+    amount_paid_cents: 0,
+    currency: "USD",
+    period_start: new Date(Date.now() - 86400000 * 15).toISOString(),
+    period_end: new Date(Date.now() + 86400000 * 15).toISOString(),
+    created_at: new Date(Date.now() - 86400000 * 15).toISOString(),
+    hosted_invoice_url: "https://stripe.com",
+    invoice_pdf_url: "https://stripe.com",
+  },
+  {
+    id: 3,
+    stripe_invoice_id: "in_1N3X9vE3lUB9ETl30003",
+    organization_id: 3,
+    organization_name: "Apex Systems",
+    status: "paid",
+    amount_due_cents: 60000,
+    amount_paid_cents: 60000,
+    currency: "USD",
+    period_start: new Date(Date.now() - 86400000 * 45).toISOString(),
+    period_end: new Date(Date.now() - 86400000 * 15).toISOString(),
+    created_at: new Date(Date.now() - 86400000 * 45).toISOString(),
+    hosted_invoice_url: "https://stripe.com",
+    invoice_pdf_url: "https://stripe.com",
+  },
+];
+
 function formatCents(cents, currency = "USD") {
   return new Intl.NumberFormat("en-US", {
     style: "currency",
@@ -19,10 +70,26 @@ function formatCents(cents, currency = "USD") {
   }).format((cents || 0) / 100);
 }
 
+function StatCard({ label, value, icon: Icon, color, sub }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color}`}>
+          <Icon className="w-5 h-5 text-white" />
+        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+      </div>
+      <p className="text-2xl font-extrabold text-slate-900">{value}</p>
+      {sub && <p className="mt-1 text-xs text-slate-400 font-medium">{sub}</p>}
+    </div>
+  );
+}
+
 export default function BillingInvoicesPage() {
   const [selectedOrg, setSelectedOrg] = useState(null);
   const [statusFilter, setStatusFilter] = useState("");
   const [currencyFilter, setCurrencyFilter] = useState("");
+  const [searchQuery, setSearchQuery] = useState("");
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
 
@@ -64,16 +131,31 @@ export default function BillingInvoicesPage() {
     setSelectedOrg(null);
     setStatusFilter("");
     setCurrencyFilter("");
+    setSearchQuery("");
     setPage(1);
   };
+
+  const filteredInvoices = invoices.filter(inv => {
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      const matchInv = (inv.stripe_invoice_id || "").toLowerCase().includes(q);
+      const matchOrg = (inv.organization_name || "").toLowerCase().includes(q) || String(inv.organization_id).includes(q);
+      if (!matchInv && !matchOrg) return false;
+    }
+    return true;
+  });
+
+  const totalBilledCents = invoices.reduce((acc, i) => acc + (i.amount_due_cents || 0), 0);
+  const totalPaidCents = invoices.reduce((acc, i) => acc + (i.amount_paid_cents || 0), 0);
+  const openCount = invoices.filter(i => i.status === "open").length;
 
   const totalPages = Math.ceil(total / limit) || 1;
 
   return (
     <div className="space-y-6 font-sans">
       <PageHeader
-        title="Invoices"
-        description="Cross-organization commercial invoices and Stripe mirrored statements."
+        title="Invoices & Commercial Statements"
+        description="Cross-organization commercial statements and Stripe mirrored financial invoices."
         action={
           <button
             onClick={loadData}
@@ -86,12 +168,34 @@ export default function BillingInvoicesPage() {
         }
       />
 
+      {/* KPI Stats Strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Total Invoices" value={total} icon={Receipt} color="bg-blue-500" sub="All commercial orgs" />
+        <StatCard label="Total Billed" value={formatCents(totalBilledCents)} icon={CircleDollarSign} color="bg-indigo-500" sub="Lifetime platform billing" />
+        <StatCard label="Total Collected" value={formatCents(totalPaidCents)} icon={CheckCircle} color="bg-emerald-500" sub="Successfully paid" />
+        <StatCard label="Open / Unpaid" value={openCount} icon={Clock} color={openCount > 0 ? "bg-amber-500" : "bg-slate-400"} sub={openCount > 0 ? "Awaiting payment" : "All cleared"} />
+      </div>
+
       {/* Filter Bar */}
       <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-4">
         <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
-          <Filter className="h-3.5 w-3.5" /> Filter Invoices
+          <Filter className="h-3.5 w-3.5" /> Filter Commercial Invoices
         </div>
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Search Query</label>
+            <div className="relative">
+              <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                placeholder="Invoice # or Org Name..."
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] transition"
+              />
+            </div>
+          </div>
+
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">Organization Filter</label>
             <OrgPicker
@@ -100,7 +204,7 @@ export default function BillingInvoicesPage() {
                 setSelectedOrg(org);
                 setPage(1);
               }}
-              placeholder="All Organizations (or search by name...)"
+              placeholder="All Organizations..."
             />
           </div>
 
@@ -112,7 +216,7 @@ export default function BillingInvoicesPage() {
                 setStatusFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] focus:ring-2 focus:ring-[#3B82F6]/20 transition"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] transition"
             >
               <option value="">All Statuses</option>
               <option value="paid">Paid</option>
@@ -131,7 +235,7 @@ export default function BillingInvoicesPage() {
                 setCurrencyFilter(e.target.value);
                 setPage(1);
               }}
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] focus:ring-2 focus:ring-[#3B82F6]/20 transition"
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] transition"
             >
               <option value="">All Currencies</option>
               <option value="USD">USD ($)</option>
@@ -143,10 +247,10 @@ export default function BillingInvoicesPage() {
           </div>
         </div>
 
-        {(selectedOrg || statusFilter || currencyFilter) && (
+        {(selectedOrg || statusFilter || currencyFilter || searchQuery) && (
           <div className="flex items-center justify-between pt-2 border-t border-slate-100 text-xs">
             <span className="text-slate-500">
-              Active filters applied. Showing results for {selectedOrg ? selectedOrg.name : "all orgs"}.
+              Filters applied. Showing results for {selectedOrg ? selectedOrg.name : "all orgs"}.
             </span>
             <button
               onClick={handleClearFilters}
@@ -168,29 +272,19 @@ export default function BillingInvoicesPage() {
 
       {/* Main Table */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Receipt className="h-5 w-5 text-[#3B82F6]" /> Commercial Invoices ({total})
-          </h3>
-        </div>
+        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2 mb-4">
+          <Receipt className="h-5 w-5 text-[#3B82F6]" /> Commercial Invoices ({filteredInvoices.length})
+        </h3>
 
         {loading ? (
           <div className="flex items-center justify-center py-16">
             <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
           </div>
-        ) : invoices.length === 0 ? (
+        ) : filteredInvoices.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
             <Receipt className="mx-auto mb-3 h-10 w-10 text-slate-300" />
             <p className="text-sm font-semibold text-slate-600">No invoices match the selected criteria.</p>
-            <p className="mt-1 text-xs text-slate-400">Try adjusting your status or organization filters.</p>
-            {(selectedOrg || statusFilter || currencyFilter) && (
-              <button
-                onClick={handleClearFilters}
-                className="mt-4 inline-flex items-center gap-1.5 rounded-full border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-sm"
-              >
-                Reset Filters
-              </button>
-            )}
+            <button onClick={handleClearFilters} className="mt-4 text-xs font-semibold text-[#3B82F6] hover:underline">Reset Filters</button>
           </div>
         ) : (
           <>
@@ -209,7 +303,7 @@ export default function BillingInvoicesPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {invoices.map((inv) => (
+                  {filteredInvoices.map((inv) => (
                     <tr key={inv.id} className="text-sm hover:bg-slate-50/50 transition group">
                       <td className="py-4 px-4 font-medium text-slate-800">
                         <div className="flex items-center gap-2">
@@ -222,7 +316,7 @@ export default function BillingInvoicesPage() {
                       </td>
                       <td className="py-4 px-4 font-mono text-xs text-slate-600">{inv.stripe_invoice_id}</td>
                       <td className="py-4 px-4">
-                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${STATUS_TONES[inv.status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${STATUS_TONES[inv.status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
                           {inv.status}
                         </span>
                       </td>
@@ -261,15 +355,14 @@ export default function BillingInvoicesPage() {
               </table>
             </div>
 
-            {/* Pagination Controls */}
+            {/* Pagination */}
             <div className="mt-6 pt-4 border-t border-slate-100 flex items-center justify-between text-xs text-slate-500">
-              <span>Showing {invoices.length} of {total} invoice(s)</span>
+              <span>Showing {filteredInvoices.length} of {total} invoice(s)</span>
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
                   disabled={page <= 1 || loading}
                   className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition"
-                  title="Previous Page"
                 >
                   <ChevronLeft className="h-4 w-4" />
                 </button>
@@ -278,7 +371,6 @@ export default function BillingInvoicesPage() {
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages || loading}
                   className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition"
-                  title="Next Page"
                 >
                   <ChevronRight className="h-4 w-4" />
                 </button>
@@ -302,7 +394,7 @@ export default function BillingInvoicesPage() {
                   <p className="text-xs text-slate-400 font-mono">{activeInvoice.stripe_invoice_id}</p>
                 </div>
               </div>
-              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold ${STATUS_TONES[activeInvoice.status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
+              <span className={`inline-flex items-center rounded-full border px-3 py-1 text-xs font-semibold capitalize ${STATUS_TONES[activeInvoice.status] || "bg-slate-50 text-slate-600 border-slate-200"}`}>
                 {activeInvoice.status}
               </span>
             </div>

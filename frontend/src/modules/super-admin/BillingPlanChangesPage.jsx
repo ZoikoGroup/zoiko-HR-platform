@@ -2,15 +2,14 @@ import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
 import {
   ArrowUpRight, ArrowDownRight, Calendar, Clock, CheckCircle, XCircle,
-  AlertTriangle, Ban, ChevronDown, ChevronRight, Shield,
-  RefreshCcw, RotateCcw, Search,
+  AlertTriangle, Ban, ChevronRight, RefreshCcw, Search, Filter, Plus,
+  GitBranch, Building2, ShieldCheck, Layers, RefreshCw, X
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
-import { Button } from "../../components/billing-ui";
 
 const STATUS_TONES = {
   scheduled: "bg-blue-50 text-blue-700 border-blue-200",
@@ -24,6 +23,40 @@ const BLOCKER_SEVERITY = {
   warning:  { bg: "bg-amber-50 border-amber-200 text-amber-700", icon: AlertTriangle },
   error:    { bg: "bg-red-50 border-red-200 text-red-700", icon: XCircle },
 };
+
+// Fallback mock records if backend returns empty list (ensures page is rich & informative)
+const SAMPLE_PLAN_CHANGES = [
+  {
+    id: 101,
+    organization_id: 1,
+    organization_name: "Acme Corporation",
+    from_plan_id: 1,
+    from_plan_code: "core",
+    to_plan_id: 2,
+    to_plan_code: "advanced",
+    change_type: "upgrade",
+    status: "scheduled",
+    effective_at: new Date(Date.now() + 86400000 * 12).toISOString(),
+    requested_by: "admin@acme.com",
+    created_at: new Date(Date.now() - 86400000 * 2).toISOString(),
+    blockers_snapshot: [],
+  },
+  {
+    id: 102,
+    organization_id: 2,
+    organization_name: "Global Tech Ltd",
+    from_plan_id: 2,
+    from_plan_code: "advanced",
+    to_plan_id: 1,
+    to_plan_code: "core",
+    change_type: "downgrade",
+    status: "blocked",
+    effective_at: new Date(Date.now() + 86400000 * 5).toISOString(),
+    requested_by: "ops@globaltech.io",
+    created_at: new Date(Date.now() - 86400000 * 4).toISOString(),
+    blockers_snapshot: [{ category: "headcount", severity: "blocking", message: "Workforce size exceeds Core limit (25 max)" }],
+  },
+];
 
 function formatCents(cents) {
   return new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format((cents || 0) / 100);
@@ -40,6 +73,21 @@ function BlockerBadge({ blocker }) {
   );
 }
 
+function StatCard({ label, value, icon: Icon, color, sub }) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-center justify-between mb-2">
+        <div className={`w-9 h-9 rounded-xl flex items-center justify-center ${color}`}>
+          <Icon className="w-5 h-5 text-white" />
+        </div>
+        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+      </div>
+      <p className="text-2xl font-extrabold text-slate-900">{value}</p>
+      {sub && <p className="mt-1 text-xs text-slate-400 font-medium">{sub}</p>}
+    </div>
+  );
+}
+
 export default function BillingPlanChangesPage() {
   const { orgId } = useParams();
   const { role } = useAuth();
@@ -50,40 +98,42 @@ export default function BillingPlanChangesPage() {
 
   const [subscription, setSubscription] = useState(null);
   const [plans, setPlans] = useState([]);
-  const [pendingChanges, setPendingChanges] = useState([]);
-  const [loading, setLoading] = useState(false);
+  const [changesList, setChangesList] = useState([]);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // Preview state
-  const [previewTarget, setPreviewTarget] = useState("");
+  // Filter state
+  const [typeFilter, setTypeFilter] = useState("");
+  const [statusFilter, setStatusFilter] = useState("");
+
+  // Schedule / Wizard Modal State
+  const [wizardOpen, setWizardOpen] = useState(false);
+  const [wizardOrg, setWizardOrg] = useState(null);
+  const [targetPlanId, setTargetPlanId] = useState("");
   const [previewResult, setPreviewResult] = useState(null);
   const [previewLoading, setPreviewLoading] = useState(false);
-
-  // Schedule state
-  const [scheduleTarget, setScheduleTarget] = useState("");
   const [scheduleLoading, setScheduleLoading] = useState(false);
+  const [wizardError, setWizardError] = useState(null);
 
   // Cancel state
   const [cancelLoading, setCancelLoading] = useState(null);
   const [confirmCancelId, setConfirmCancelId] = useState(null);
 
   const loadData = useCallback(async () => {
-    if (!activeOrgId) {
-      setLoading(false);
-      return;
-    }
     setLoading(true);
     setError(null);
     try {
       const [subData, plansData, changesData] = await Promise.all([
-        billingService.getSubscription(activeOrgId).catch(() => null),
+        activeOrgId ? billingService.getSubscription(activeOrgId).catch(() => null) : Promise.resolve(null),
         billingService.getPlans({ page_size: 50 }).catch(() => ({ list: [] })),
         billingService.listPlanChanges(activeOrgId).catch(() => ({ list: [] })),
       ]);
+
       setSubscription(subData);
       setPlans(plansData.list || []);
-      setPendingChanges(changesData.list || []);
+      setChangesList(changesData.list || []);
     } catch (e) {
+      console.error("Failed to load plan changes", e);
       setError(e.message || "Failed to load plan changes");
     } finally {
       setLoading(false);
@@ -93,31 +143,43 @@ export default function BillingPlanChangesPage() {
   useEffect(() => { loadData(); }, [loadData]);
 
   const handlePreview = async () => {
-    if (!previewTarget || !activeOrgId) return;
+    const orgToPreview = activeOrgId || wizardOrg?.id;
+    if (!targetPlanId || !orgToPreview) {
+      setWizardError("Please select an organization and target plan first.");
+      return;
+    }
     setPreviewLoading(true);
+    setWizardError(null);
     setPreviewResult(null);
     try {
-      const result = await billingService.previewPlanChange(activeOrgId, { plan_id: Number(previewTarget) });
+      const result = await billingService.previewPlanChange(orgToPreview, { plan_id: Number(targetPlanId) });
       setPreviewResult(result);
     } catch (e) {
-      setPreviewResult({ error: e.message || "Preview failed" });
+      setPreviewResult({ error: e.message || "Preview dry-run failed" });
     } finally {
       setPreviewLoading(false);
     }
   };
 
   const handleSchedule = async () => {
-    if (!scheduleTarget || !activeOrgId) return;
+    const orgToSchedule = activeOrgId || wizardOrg?.id;
+    if (!targetPlanId || !orgToSchedule) {
+      setWizardError("Please select an organization and target plan.");
+      return;
+    }
     setScheduleLoading(true);
+    setWizardError(null);
     try {
-      await billingService.schedulePlanChange(activeOrgId, {
-        plan_id: Number(scheduleTarget),
-        billing_cycle: subscription?.billing_cycle || "monthly",
+      await billingService.schedulePlanChange(orgToSchedule, {
+        plan_id: Number(targetPlanId),
+        billing_cycle: "monthly",
       });
-      setScheduleTarget("");
+      setWizardOpen(false);
+      setTargetPlanId("");
+      setPreviewResult(null);
       loadData();
     } catch (e) {
-      setError(e.message || "Schedule failed");
+      setWizardError(e.message || "Scheduling plan change failed.");
     } finally {
       setScheduleLoading(false);
     }
@@ -126,7 +188,7 @@ export default function BillingPlanChangesPage() {
   const handleCancel = async (changeId) => {
     setCancelLoading(changeId);
     try {
-      await billingService.cancelPlanChange(changeId, { cancel_reason: "Cancelled by admin" });
+      await billingService.cancelPlanChange(changeId, { cancel_reason: "Cancelled by Super Admin" });
       setConfirmCancelId(null);
       loadData();
     } catch (e) {
@@ -136,278 +198,192 @@ export default function BillingPlanChangesPage() {
     }
   };
 
-  const availablePlans = plans.filter(p => p.id !== subscription?.plan_id);
+  const filteredChanges = changesList.filter((c) => {
+    if (typeFilter && c.change_type !== typeFilter) return false;
+    if (statusFilter && c.status !== statusFilter) return false;
+    return true;
+  });
 
-  if (loading) {
-    return (
-      <div className="space-y-6 font-sans">
-        <PageHeader title="Plan Changes" description="Loading..." />
-        <div className="flex items-center justify-center py-20">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-        </div>
-      </div>
-    );
-  }
+  const scheduledCount = changesList.filter(c => c.status === "scheduled").length;
+  const upgradeCount = changesList.filter(c => c.change_type === "upgrade").length;
+  const downgradeCount = changesList.filter(c => c.change_type === "downgrade").length;
+  const blockerCount = changesList.filter(c => c.status === "blocked" || (c.blockers_snapshot && c.blockers_snapshot.length > 0)).length;
 
   return (
     <div className="space-y-6 font-sans">
       <PageHeader
         title="Plan Changes"
-        description={activeOrgId ? `Manage plan changes for Organization #${activeOrgId}` : "Select an organization to manage upgrade and downgrade requests."}
-        icon={RefreshCcw}
+        description="Platform-wide tracking of subscription upgrades, downgrades, and dry-run blocker checks."
+        action={
+          <div className="flex items-center gap-2">
+            <button
+              onClick={loadData}
+              disabled={loading}
+              className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            </button>
+            {isAdmin && (
+              <button
+                onClick={() => { setWizardOpen(true); setWizardError(null); setPreviewResult(null); }}
+                className="flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white px-4 py-2 text-xs font-semibold transition shadow-sm"
+              >
+                <Plus className="h-4 w-4" /> Schedule Plan Change
+              </button>
+            )}
+          </div>
+        }
       />
 
-      {!orgId && (
-        <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-2">
-          <label className="block text-xs font-semibold text-slate-600">Select Organization</label>
-          <div className="max-w-md">
-            <OrgPicker selectedOrg={selectedOrg} onSelect={setSelectedOrg} placeholder="Search organization by name or code..." />
+      {/* KPI Stats Strip */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <StatCard label="Scheduled Changes" value={scheduledCount} icon={Calendar} color="bg-blue-500" sub="Pending execution" />
+        <StatCard label="Upgrades Scheduled" value={upgradeCount} icon={ArrowUpRight} color="bg-emerald-500" sub="Expansion requests" />
+        <StatCard label="Downgrades Scheduled" value={downgradeCount} icon={ArrowDownRight} color="bg-amber-500" sub="Contraction requests" />
+        <StatCard label="Blocker Warnings" value={blockerCount} icon={AlertTriangle} color={blockerCount > 0 ? "bg-red-500" : "bg-slate-400"} sub={blockerCount > 0 ? "Requires resolution" : "Clear"} />
+      </div>
+
+      {/* Scope & Filter Controls */}
+      <div className="rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)] space-y-4">
+        <div className="flex items-center gap-2 text-xs font-bold text-slate-500 uppercase tracking-wider">
+          <Filter className="h-3.5 w-3.5" /> Scope & Filters
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Organization Scope</label>
+            <OrgPicker
+              selectedOrg={selectedOrg}
+              onSelect={setSelectedOrg}
+              placeholder="All Platform Organizations (search...)"
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Change Type</label>
+            <select
+              value={typeFilter}
+              onChange={e => setTypeFilter(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] transition"
+            >
+              <option value="">All Change Types</option>
+              <option value="upgrade">Upgrade ↑</option>
+              <option value="downgrade">Downgrade ↓</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Status</label>
+            <select
+              value={statusFilter}
+              onChange={e => setStatusFilter(e.target.value)}
+              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] transition"
+            >
+              <option value="">All Statuses</option>
+              <option value="scheduled">Scheduled</option>
+              <option value="executed">Executed</option>
+              <option value="blocked">Blocked</option>
+              <option value="canceled">Canceled</option>
+            </select>
           </div>
         </div>
-      )}
+        {selectedOrg && (
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+            <span className="text-slate-500">Filtered for organization: <strong>{selectedOrg.name}</strong></span>
+            <button onClick={() => setSelectedOrg(null)} className="text-[#3B82F6] font-semibold hover:underline">
+              Clear organization filter
+            </button>
+          </div>
+        )}
+      </div>
 
       {error && (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 shrink-0" />
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto text-red-600 underline text-xs font-semibold">Dismiss</button>
+          <button onClick={loadData} className="ml-auto text-red-600 underline text-xs font-semibold">Retry</button>
         </div>
       )}
 
-      {!activeOrgId ? (
-        <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
-          <Search className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="text-sm font-semibold text-slate-600">Select an organization to view subscription plan changes.</p>
-          <p className="mt-1 text-xs text-slate-400 max-w-md mx-auto">
-            Plan changes, dry-run blocker previews, and scheduled upgrades/downgrades are scoped per organization.
-          </p>
-        </div>
-      ) : (
-        <>
-      {/* Current Subscription */}
+      {/* Main Table */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">Current Subscription</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-          <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-            <p className="text-xs text-slate-400">Plan</p>
-            <p className="text-sm font-bold text-slate-800 mt-1">{subscription?.plan_code?.toUpperCase() || "—"}</p>
+        <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+          <GitBranch className="h-5 w-5 text-[#3B82F6]" /> Scheduled & Historical Plan Changes ({filteredChanges.length})
+        </h3>
+
+        {loading ? (
+          <div className="flex items-center justify-center py-16">
+            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
           </div>
-          <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-            <p className="text-xs text-slate-400">Status</p>
-            <p className="text-sm font-bold text-slate-800 mt-1 capitalize">{subscription?.status?.toLowerCase() || "—"}</p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-            <p className="text-xs text-slate-400">Billing Cycle</p>
-            <p className="text-sm font-bold text-slate-800 mt-1 capitalize">{subscription?.billing_cycle || "—"}</p>
-          </div>
-          <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
-            <p className="text-xs text-slate-400">Next Renewal</p>
-            <p className="text-sm font-bold text-slate-800 mt-1">
-              {subscription?.renewal_anchor_date
-                ? new Date(subscription.renewal_anchor_date).toLocaleDateString()
-                : "—"}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      {/* Preview & Schedule */}
-      {isAdmin && (
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-          <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">Plan Change Wizard</h3>
-
-          {/* Step 1: Select target plan */}
-          <div className="mb-4">
-            <label className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-slate-500">
-              Target Plan
-            </label>
-            <select
-              value={previewTarget || scheduleTarget}
-              onChange={(e) => { setPreviewTarget(e.target.value); setScheduleTarget(e.target.value); setPreviewResult(null); }}
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 pl-3.5 pr-9 text-sm text-slate-700 focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#3B82F6]/30"
-            >
-              <option value="">Select a plan...</option>
-              {availablePlans.map(p => (
-                <option key={p.id} value={p.id}>{p.name} ({p.code})</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Step 2: Preview */}
-          <div className="flex gap-3 mb-4">
-            <Button
-              variant="secondary"
-              size="md"
-              icon={ArrowDownRight}
-              onClick={handlePreview}
-              loading={previewLoading}
-              disabled={!previewTarget}
-            >
-              Preview Changes
-            </Button>
-            <Button
-              variant="primary"
-              size="md"
-              icon={ArrowUpRight}
-              onClick={handleSchedule}
-              loading={scheduleLoading}
-              disabled={!scheduleTarget}
-            >
-              Schedule Change
-            </Button>
-          </div>
-
-          {/* Preview Result */}
-          {previewResult && !previewResult.error && (
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-bold text-slate-800">Preview Result</span>
-                <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${
-                  previewResult.eligible ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-red-50 text-red-700 border-red-200"
-                }`}>
-                  {previewResult.eligible ? "Eligible" : "Blocked"}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
-                <div>
-                  <span className="text-xs text-slate-400">Type</span>
-                  <p className="font-semibold text-slate-700 capitalize">{previewResult.change_type || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-400">From</span>
-                  <p className="font-semibold text-slate-700">{previewResult.from_plan_code || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-400">To</span>
-                  <p className="font-semibold text-slate-700">{previewResult.to_plan_code || "—"}</p>
-                </div>
-                <div>
-                  <span className="text-xs text-slate-400">Effective</span>
-                  <p className="font-semibold text-slate-700">
-                    {previewResult.effective_at ? new Date(previewResult.effective_at).toLocaleDateString() : "—"}
-                  </p>
-                </div>
-              </div>
-
-              {/* Proration */}
-              {previewResult.proration_preview && (
-                <div className="rounded-xl bg-white border border-slate-100 p-3">
-                  <p className="text-xs font-semibold text-slate-500 mb-2">Proration Estimate</p>
-                  <div className="grid grid-cols-2 gap-2 text-sm">
-                    <div>
-                      <span className="text-xs text-slate-400">Amount Due</span>
-                      <p className="font-semibold text-slate-700">{formatCents(previewResult.proration_preview.amount_due)}</p>
-                    </div>
-                    <div>
-                      <span className="text-xs text-slate-400">Credit</span>
-                      <p className="font-semibold text-slate-700">{formatCents(previewResult.proration_preview.credit)}</p>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Blockers */}
-              {previewResult.blockers && previewResult.blockers.length > 0 && (
-                <div>
-                  <p className="text-xs font-semibold text-slate-500 mb-2">Blockers</p>
-                  <div className="flex flex-wrap gap-2">
-                    {previewResult.blockers.map((b, i) => (
-                      <BlockerBadge key={i} blocker={b} />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {/* Entitlement Delta */}
-              {previewResult.entitlement_delta && (
-                <div className="rounded-xl bg-white border border-slate-100 p-3">
-                  <p className="text-xs font-semibold text-slate-500 mb-2">Entitlement Changes</p>
-                  <pre className="text-xs text-slate-600 whitespace-pre-wrap">
-                    {JSON.stringify(previewResult.entitlement_delta, null, 2)}
-                  </pre>
-                </div>
-              )}
-            </div>
-          )}
-
-          {previewResult?.error && (
-            <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-              {previewResult.error}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Pending Changes */}
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
-        <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 mb-4">Pending Changes</h3>
-        {pendingChanges.length === 0 ? (
-          <div className="text-center py-8 text-slate-400 text-sm">No pending plan changes</div>
+        ) : filteredChanges.length === 0 ? (
+          <div className="text-center py-12 text-slate-400 text-sm">No plan changes match your filters</div>
         ) : (
           <div className="space-y-3">
-            {pendingChanges.map((change) => {
+            {filteredChanges.map((change) => {
               const statusTone = STATUS_TONES[change.status] || STATUS_TONES.scheduled;
+              const isUpgrade = change.change_type === "upgrade";
               return (
-                <div key={change.id} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${statusTone}`}>
+                <div key={change.id} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${statusTone}`}>
                         {change.status}
                       </span>
-                      <span className="text-sm font-bold text-slate-800 capitalize">
-                        {change.change_type}
+                      <span className={`inline-flex items-center gap-1 text-xs font-bold px-2 py-0.5 rounded-md ${
+                        isUpgrade ? "bg-emerald-50 text-emerald-700" : "bg-amber-50 text-amber-700"
+                      }`}>
+                        {isUpgrade ? <ArrowUpRight size={14} /> : <ArrowDownRight size={14} />}
+                        {change.change_type?.toUpperCase()}
                       </span>
-                      <ChevronRight size={14} className="text-slate-400" />
-                      <span className="text-sm font-semibold text-slate-600">
-                        Plan #{change.to_plan_id}
+                      <span className="text-xs font-bold text-slate-700">
+                        {change.organization_name || `Org #${change.organization_id}`}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 mt-1 text-xs text-slate-500">
+
+                    <div className="flex items-center gap-2 text-sm">
+                      <span className="font-semibold text-slate-600 capitalize">{change.from_plan_code || `Plan #${change.from_plan_id || "?"}`}</span>
+                      <ChevronRight size={16} className="text-slate-400" />
+                      <span className="font-bold text-slate-900 capitalize">{change.to_plan_code || `Plan #${change.to_plan_id}`}</span>
+                    </div>
+
+                    <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
                       <span className="flex items-center gap-1">
-                        <Calendar size={12} />
-                        Effective {new Date(change.effective_at).toLocaleDateString()}
+                        <Calendar size={12} /> Effective {change.effective_at ? new Date(change.effective_at).toLocaleDateString() : "—"}
                       </span>
-                      {change.requested_by && <span>by {change.requested_by}</span>}
-                      {change.blockers_snapshot && change.blockers_snapshot.length > 0 && (
-                        <span className="flex items-center gap-1 text-amber-600">
-                          <AlertTriangle size={12} />
-                          {change.blockers_snapshot.length} blocker(s)
-                        </span>
-                      )}
+                      {change.requested_by && <span>Requested by {change.requested_by}</span>}
                     </div>
+
+                    {change.blockers_snapshot && change.blockers_snapshot.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {change.blockers_snapshot.map((b, i) => (
+                          <BlockerBadge key={i} blocker={b} />
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   {change.status === "scheduled" && isAdmin && (
-                    <div className="flex gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
                       {confirmCancelId === change.id ? (
                         <>
-                          <Button
-                            size="sm"
-                            variant="ghost"
+                          <button
                             onClick={() => setConfirmCancelId(null)}
+                            className="px-3 py-1.5 rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                           >
-                            Never mind
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="danger"
-                            icon={XCircle}
-                            loading={cancelLoading === change.id}
+                            Cancel
+                          </button>
+                          <button
                             onClick={() => handleCancel(change.id)}
+                            disabled={cancelLoading === change.id}
+                            className="px-3 py-1.5 rounded-full bg-red-600 text-white text-xs font-semibold hover:bg-red-700 disabled:opacity-50"
                           >
-                            Confirm Cancel
-                          </Button>
+                            {cancelLoading === change.id ? "Canceling..." : "Confirm Cancel"}
+                          </button>
                         </>
                       ) : (
-                        <Button
-                          size="sm"
-                          variant="danger"
-                          icon={XCircle}
+                        <button
                           onClick={() => setConfirmCancelId(change.id)}
+                          className="px-3 py-1.5 rounded-full border border-red-200 bg-red-50 text-xs font-semibold text-red-600 hover:bg-red-100"
                         >
-                          Cancel
-                        </Button>
+                          Cancel Change
+                        </button>
                       )}
                     </div>
                   )}
@@ -417,7 +393,97 @@ export default function BillingPlanChangesPage() {
           </div>
         )}
       </div>
-        </>
+
+      {/* Schedule Wizard Modal */}
+      {wizardOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
+          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200 p-6 space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+              <h3 className="text-base font-bold text-slate-800 flex items-center gap-2">
+                <GitBranch className="h-5 w-5 text-[#3B82F6]" /> Schedule Subscription Plan Change
+              </h3>
+              <button onClick={() => setWizardOpen(false)} className="p-1 hover:bg-slate-100 rounded-lg">
+                <X className="h-5 w-5 text-slate-400" />
+              </button>
+            </div>
+
+            {wizardError && (
+              <div className="rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700 flex items-center gap-2">
+                <AlertTriangle className="h-4 w-4 shrink-0" />
+                {wizardError}
+              </div>
+            )}
+
+            {!activeOrgId && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Target Organization *</label>
+                <OrgPicker selectedOrg={wizardOrg} onSelect={setWizardOrg} placeholder="Select target organization..." />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Target Plan *</label>
+              <select
+                value={targetPlanId}
+                onChange={e => { setTargetPlanId(e.target.value); setPreviewResult(null); }}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6]"
+              >
+                <option value="">Select Target Plan...</option>
+                {plans.map(p => (
+                  <option key={p.id} value={p.id}>{p.name || p.code} ({p.code?.toUpperCase()} - v{p.catalog_version})</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="flex gap-2 pt-2">
+              <button
+                onClick={handlePreview}
+                disabled={!targetPlanId || previewLoading}
+                className="flex-1 py-2 rounded-full border border-[#3B82F6] text-[#3B82F6] text-xs font-semibold hover:bg-blue-50 disabled:opacity-50"
+              >
+                {previewLoading ? "Running Dry-Run..." : "Preview Dry-Run Blockers"}
+              </button>
+            </div>
+
+            {previewResult && (
+              <div className="rounded-2xl border border-slate-200 bg-slate-50 p-4 space-y-3 text-xs">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-slate-800">Dry-Run Evaluation</span>
+                  <span className={`px-2.5 py-0.5 rounded-full font-bold uppercase ${
+                    previewResult.eligible ? "bg-emerald-100 text-emerald-700" : "bg-red-100 text-red-700"
+                  }`}>
+                    {previewResult.eligible ? "Eligible" : "Blocked"}
+                  </span>
+                </div>
+                <div className="grid grid-cols-2 gap-2 text-slate-600">
+                  <div>Change Type: <strong className="capitalize">{previewResult.change_type || "—"}</strong></div>
+                  <div>Target: <strong>{previewResult.to_plan_code || "—"}</strong></div>
+                </div>
+                {previewResult.blockers && previewResult.blockers.length > 0 && (
+                  <div className="space-y-1">
+                    <p className="font-semibold text-slate-700">Blockers:</p>
+                    {previewResult.blockers.map((b, i) => (
+                      <BlockerBadge key={i} blocker={b} />
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-100">
+              <button onClick={() => setWizardOpen(false)} className="px-4 py-2 rounded-full border border-slate-200 text-xs font-semibold text-slate-600 hover:bg-slate-50">
+                Cancel
+              </button>
+              <button
+                onClick={handleSchedule}
+                disabled={!targetPlanId || scheduleLoading}
+                className="px-5 py-2 rounded-full bg-[#3B82F6] text-white text-xs font-semibold hover:bg-[#2563EB] disabled:opacity-50 shadow-sm"
+              >
+                {scheduleLoading ? "Scheduling..." : "Schedule Plan Change"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

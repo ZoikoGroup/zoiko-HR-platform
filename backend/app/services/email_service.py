@@ -462,6 +462,91 @@ def send_password_reset(email: str, temp_password: str, first_name: str, db=None
     }, db=db, organization_id=organization_id)
 
 
+# ── Registration Quotation Workflow ─────────────────────────────────────────
+# quote_sent.html / quote_accepted.html use the simple {{action_url}} +
+# {{first_name}} + {{organization_name}} style (single info card, single CTA)
+# — distinct from send_quote_email below, whose richer line-items/totals
+# context doesn't match either template and has no real call site.
+
+def send_quotation_proposal_email(
+    email: str,
+    recipient_first_name: str,
+    organization_name: str,
+    plan_name: str,
+    amount_display: str,
+    valid_until_display: str,
+    decision_url: str,
+    db=None,
+    organization_id=None,
+) -> bool:
+    return send_approval_email(email, "quote_sent.html", {
+        "subject": f"Your Zoiko HR Quotation for {organization_name}",
+        "first_name": recipient_first_name,
+        "organization_name": organization_name,
+        "plan_name": plan_name,
+        "amount": amount_display,
+        "proposal_expiry_date": valid_until_display,
+        "action_url": decision_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_quotation_accepted_email(
+    email: str,
+    recipient_first_name: str,
+    organization_name: str,
+    quote_number: str,
+    amount_display: str,
+    audience: str = "registrant",
+    db=None,
+    organization_id=None,
+) -> bool:
+    """audience: 'registrant' or 'super_admin' — only changes the message
+    wording, since the hand-rolled template engine has no conditionals
+    beyond {{#if}} blocks and this is simpler to compute in Python."""
+    if audience == "super_admin":
+        message_line = (
+            f"<strong>{organization_name}</strong> has accepted quotation "
+            f"{quote_number}. An invoice has been sent to the registrant."
+        )
+    else:
+        message_line = (
+            f"You've accepted quotation {quote_number} for "
+            f"<strong>{organization_name}</strong>. An invoice is on its way to this email address."
+        )
+    return send_approval_email(email, "quote_accepted.html", {
+        "subject": f"Quotation {quote_number} Accepted — {organization_name}",
+        "first_name": recipient_first_name,
+        "organization_name": organization_name,
+        "quote_number": quote_number,
+        "amount": amount_display,
+        "message_line": message_line,
+    }, db=db, organization_id=organization_id)
+
+
+def send_quotation_invoice_email(
+    email: str,
+    recipient_first_name: str,
+    organization_name: str,
+    invoice_number: str,
+    amount_display: str,
+    currency: str,
+    due_date_display: str,
+    pay_url: str = LOGIN_URL,
+    db=None,
+    organization_id=None,
+) -> bool:
+    return send_approval_email(email, "invoice_sent.html", {
+        "subject": f"Invoice {invoice_number} from {{{{company_name}}}}",
+        "first_name": recipient_first_name,
+        "organization_name": organization_name,
+        "invoice_number": invoice_number,
+        "currency": currency,
+        "amount": amount_display.replace(f"{currency} ", ""),
+        "payment_due_date": due_date_display,
+        "action_url": pay_url,
+    }, db=db, organization_id=organization_id)
+
+
 def send_invoice_email(
     email: str,
     customer_name: str,

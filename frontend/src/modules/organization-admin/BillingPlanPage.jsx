@@ -1,13 +1,12 @@
 import React, { useState, useEffect, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
+import { BillingSkeleton } from "../../components/OrgAdminSkeleton";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import {
-  billingService,
-} from "../../service/billingService";
+import { billingService } from "../../service/billingService";
 import {
   ArrowLeft, CreditCard, ShieldCheck, ShieldX, Package, Users,
   Loader2, CheckCircle2, XCircle, AlertTriangle, Clock, RotateCcw,
-  BadgeCheck, Ban, Info,
+  BadgeCheck, Ban, Info, Zap, ExternalLink, Check,
 } from "lucide-react";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
@@ -24,8 +23,8 @@ const RED_100 = "#FEE2E2";
 const LINE = "rgba(10,17,40,0.08)";
 
 // Backend role values (match _get_billing_role / _me_billing_actor).
-const OWNER_ROLES = ["super_admin", "billing_admin"];
-const ACTOR_ROLES = ["super_admin", "admin", "billing_admin"];
+const OWNER_ROLES = ["super_admin", "admin", "hr_admin", "billing_admin"];
+const ACTOR_ROLES = ["super_admin", "admin", "hr_admin", "billing_admin"];
 
 const STATE_META = {
   ENTITLED_AVAILABLE: { label: "Enabled", color: EMERALD, bg: EMERALD_100, Icon: CheckCircle2 },
@@ -80,8 +79,12 @@ function ActionButton({ Icon, label, color, bg, onClick, disabled, busy, title }
 export default function OrgAdminBillingPlanPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+
   const [sub, setSub] = useState(null);
   const [ent, setEnt] = useState(null);
+  const [plans, setPlans] = useState([]);
+  const [billingCycle, setBillingCycle] = useState("monthly");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
@@ -94,16 +97,21 @@ export default function OrgAdminBillingPlanPage() {
 
   const notify = (message, type = "success") => {
     setToast({ message, type });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), 4000);
   };
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    Promise.all([billingService.getMySubscription(), billingService.getMyEntitlements()])
-      .then(([subRes, entRes]) => {
+    Promise.all([
+      billingService.getMySubscription(),
+      billingService.getMyEntitlements(),
+      billingService.getPlans().catch(() => ({ list: [] })),
+    ])
+      .then(([subRes, entRes, plansRes]) => {
         setSub(subRes);
         setEnt(entRes);
+        setPlans(plansRes?.list || []);
       })
       .catch((err) => setError(err?.message || "Failed to load billing details."))
       .finally(() => setLoading(false));
@@ -112,6 +120,20 @@ export default function OrgAdminBillingPlanPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Handle URL payment status query params (e.g. ?payment=success)
+  useEffect(() => {
+    const paymentStatus = searchParams.get("payment");
+    if (paymentStatus === "success") {
+      notify("Stripe payment completed successfully! Your plan is updated.", "success");
+      searchParams.delete("payment");
+      setSearchParams(searchParams, { replace: true });
+    } else if (paymentStatus === "cancelled") {
+      notify("Stripe payment checkout was cancelled.", "error");
+      searchParams.delete("payment");
+      setSearchParams(searchParams, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
   const runAction = (key, fn, successMsg) => {
     setBusy(key);
@@ -141,6 +163,44 @@ export default function OrgAdminBillingPlanPage() {
       .finally(() => setBusy(null));
   };
 
+  const handleStripeCheckout = (plan) => {
+    if (!canAct) {
+      notify("Payment changes require an organization billing authority.", "error");
+      return;
+    }
+    const targetOrgId = sub?.organization_id || user?.organization_id;
+    if (!targetOrgId) {
+      notify("Organization context is missing for checkout.", "error");
+      return;
+    }
+
+    setBusy(`checkout-${plan.id}`);
+    const origin = window.location.origin;
+    const payload = {
+      plan_id: plan.id,
+      organization_id: targetOrgId,
+      billing_cycle: billingCycle,
+      success_url: `${origin}/organization-admin/billing-and-plan?payment=success`,
+      cancel_url: `${origin}/organization-admin/billing-and-plan?payment=cancelled`,
+    };
+
+    billingService.createCheckoutSession(payload)
+      .then((res) => {
+        if (res?.checkout_url) {
+          notify("Redirecting to Stripe secure checkout...", "success");
+          window.location.href = res.checkout_url;
+        } else {
+          notify("Checkout session created successfully.", "success");
+          load();
+        }
+      })
+      .catch((err) => {
+        const msg = err?.message || "Stripe checkout session failed.";
+        notify(msg, "error");
+      })
+      .finally(() => setBusy(null));
+  };
+
   if (loading) {
     return (
       <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
@@ -164,16 +224,13 @@ export default function OrgAdminBillingPlanPage() {
   const status = sub.status || "—";
   const planCode = sub.plan_code;
   const planName = sub.plan_name || fmtPlanLabel(planCode);
-  const statusColor =
-    status === "active" || status === "evaluation" ? EMERALD : RED;
   const states = ent?.states || {};
-
   const stateList = Object.entries(states).sort(([a], [b]) => a.localeCompare(b));
 
   return (
     <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
       {toast ? (
-        <div className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg"
+        <div className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg transition-all"
           style={{ background: toast.type === "error" ? RED : EMERALD, color: "#fff" }}>
           {toast.message}
         </div>
@@ -191,7 +248,7 @@ export default function OrgAdminBillingPlanPage() {
         <div>
           <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold" style={{ color: INK }}>Billing &amp; Plan</p>
           <p className="text-[12px] font-medium" style={{ color: INK_SOFT }}>
-            Your organization&apos;s plan, entitlements and self-serve billing
+            Manage your organization&apos;s plan, entitlements, and Stripe payments
           </p>
         </div>
         {!isOwner ? (
@@ -203,9 +260,115 @@ export default function OrgAdminBillingPlanPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile icon={CreditCard} color={BLUE} bg={BLUE_100} label="Status" value={status.split("_").join(" ")} />
-        <StatTile icon={Package} color={EMERALD} bg={EMERALD_100} label="Plan" value={planName} sub={planCode ? `code: ${planCode}` : undefined} />
-        <StatTile icon={Users} color={AMBER} bg={AMBER_100} label="Quantity" value={sub.quantity ?? "—"} sub="seats" />
-        <StatTile icon={Clock} color={BLUE} bg={BLUE_100} label="Renewal" value={fmtDate(sub.renewal_anchor_date)} sub="renewal anchor" />
+        <StatTile icon={Package} color={EMERALD} bg={EMERALD_100} label="Current Plan" value={planName} sub={planCode ? `code: ${planCode}` : undefined} />
+        <StatTile icon={Users} color={AMBER} bg={AMBER_100} label="Active Quantity" value={sub.quantity ?? "—"} sub="seats" />
+        <StatTile icon={Clock} color={BLUE} bg={BLUE_100} label="Renewal Anchor" value={fmtDate(sub.renewal_anchor_date)} sub="renewal date" />
+      </div>
+
+      {/* ── Stripe Plan Selector & Payment Section ───────────────────────────── */}
+      <div className="mt-[18px] rounded-[16px] border bg-white p-5 shadow-[0_1px_2px_rgba(10,17,40,0.04)]" style={{ borderColor: LINE }}>
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-5 pb-3" style={{ borderBottom: `1px solid ${LINE}` }}>
+          <div className="flex items-center gap-2">
+            <Zap className="w-5 h-5 text-amber-500" fill="#F59E0B" />
+            <div>
+              <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Choose a Plan &amp; Pay via Stripe</h3>
+              <p className="text-[11.5px]" style={{ color: INK_SOFT }}>Select your plan tier and payment cycle to initiate secure checkout</p>
+            </div>
+          </div>
+
+          {/* Billing cycle selector */}
+          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200">
+            <button
+              onClick={() => setBillingCycle("monthly")}
+              className={`px-3 py-1.5 text-[11.5px] font-bold rounded-lg transition-all cursor-pointer ${
+                billingCycle === "monthly" ? "bg-white text-blue-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Monthly Billing
+            </button>
+            <button
+              onClick={() => setBillingCycle("annual")}
+              className={`px-3 py-1.5 text-[11.5px] font-bold rounded-lg transition-all flex items-center gap-1.5 cursor-pointer ${
+                billingCycle === "annual" ? "bg-white text-blue-600 shadow-sm" : "text-slate-600 hover:text-slate-900"
+              }`}
+            >
+              Annual Billing
+              <span className="bg-emerald-100 text-emerald-700 text-[10px] px-1.5 py-0.5 rounded-full font-extrabold">Save ~15%</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          {plans.map((p) => {
+            const isCurrent = String(p.code).toLowerCase() === String(planCode).toLowerCase();
+            const price = billingCycle === "annual" ? p.annual_price : p.monthly_price;
+            const priceLabel = p.is_contract_priced
+              ? "Custom Pricing"
+              : price !== null && price !== undefined
+              ? `$${price} / ${billingCycle === "annual" ? "year" : "mo"}`
+              : "Contact Sales";
+
+            return (
+              <div
+                key={p.id}
+                className={`rounded-2xl border p-5 flex flex-col justify-between transition-all ${
+                  isCurrent ? "border-blue-500 bg-blue-50/20 shadow-md ring-2 ring-blue-400/30" : "border-slate-200 bg-white hover:border-slate-300"
+                }`}
+              >
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="font-['Sora',system-ui,sans-serif] text-base font-bold capitalize" style={{ color: INK }}>
+                      {p.name}
+                    </span>
+                    {isCurrent ? (
+                      <span className="bg-blue-100 text-blue-700 text-[10.5px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                        <Check className="w-3 h-3" /> Active Plan
+                      </span>
+                    ) : null}
+                  </div>
+                  <p className="text-[12px] min-h-[36px] mb-4" style={{ color: INK_SOFT }}>
+                    {p.description || "Comprehensive HR capabilities for your organization."}
+                  </p>
+                  <div className="mb-4 pb-4 border-b border-slate-100">
+                    <span className="text-2xl font-extrabold tracking-tight" style={{ color: INK }}>
+                      {priceLabel}
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  {!p.is_contract_priced ? (
+                    <button
+                      onClick={() => handleStripeCheckout(p)}
+                      disabled={!canAct || busy === `checkout-${p.id}`}
+                      className={`w-full py-2.5 px-4 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-2 cursor-pointer transition-all ${
+                        !canAct
+                          ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
+                          : isCurrent
+                          ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow"
+                          : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow"
+                      }`}
+                    >
+                      {busy === `checkout-${p.id}` ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CreditCard className="w-4 h-4" />
+                      )}
+                      {isCurrent ? "Pay & Renew Active Plan" : "Pay & Upgrade via Stripe"}
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => notify("Enterprise plans require sales contract activation. Please contact sales.", "info")}
+                      className="w-full py-2.5 px-4 rounded-xl text-[12.5px] font-bold bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center gap-2 cursor-pointer"
+                    >
+                      <ExternalLink className="w-4 h-4" /> Contact Sales
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+        </div>
       </div>
 
       <div className="mt-[18px] rounded-[16px] border bg-white p-5 shadow-[0_1px_2px_rgba(10,17,40,0.04)]" style={{ borderColor: LINE }}>

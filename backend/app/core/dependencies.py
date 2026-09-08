@@ -276,6 +276,18 @@ def get_current_billing_admin(current_user=Depends(get_current_user)):
     return current_user
 
 
+def get_current_billing_actor(current_user=Depends(get_current_user)):
+    """Organization decision-makers: Owner (super_admin), Organization Admin (admin),
+    and Billing Admin (billing_admin). Can execute billing self-service actions."""
+    role_val = _role_value(current_user.role)
+    allowed_roles = ["super_admin", "billing_admin", "admin"]
+    if role_val not in allowed_roles:
+        raise ForbiddenException(
+            f"This action requires an organization billing authority. Your role: {role_val}"
+        )
+    return current_user
+
+
 def get_current_billing_viewer(current_user=Depends(get_current_user)):
     """Adds HR Admin / Organization Admin as view-only (package + workforce
     usage only, no financial detail — Section 19's separation-of-duties rule)."""

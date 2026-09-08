@@ -371,6 +371,17 @@ def get_pending_changes(
     )
 
 
+def get_all_plan_changes(
+    db: Session,
+    organization_id: Optional[int] = None,
+) -> list[BillingPlanChange]:
+    """Return all plan changes across platform or for a specific org."""
+    q = db.query(BillingPlanChange)
+    if organization_id:
+        q = q.filter(BillingPlanChange.organization_id == organization_id)
+    return q.order_by(BillingPlanChange.created_at.desc()).all()
+
+
 # ── Execute due changes (called by scheduler job) ─────────────────────────
 
 def execute_due_changes(db: Session) -> dict:

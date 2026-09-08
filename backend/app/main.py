@@ -142,9 +142,16 @@ _cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    # Idempotency-Key: sent by billingService/checkoutService/assistantService
+    # on mutating requests (Stripe checkout, plan changes, workflow execution).
+    # Missing it here made the CORS preflight for those calls fail with a
+    # literal 400 ("Disallowed CORS headers") — the browser then blocks the
+    # real request before it's ever sent, which is what made the "Pay &
+    # Upgrade via Stripe" button silently do nothing.
+    allow_headers=["Authorization", "Content-Type", "Accept", "Idempotency-Key"],
     # Content-Disposition isn't on the CORS response-header safelist, so
     # without this, frontend `fetch()` calls against /hr/documents/{id}/file
     # (frontend and backend run on different origins/ports) can never read
@@ -215,6 +222,7 @@ command_center_router = _safe_import(lambda: __import__("app.modules.super_admin
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
 billing_webhook_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["webhook_router"]).webhook_router, "billing.webhook_router")
+billing_quotation_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["quotation_router"]).quotation_router, "billing.quotation_router")
 
 app.include_router(auth_router)
 app.include_router(employee_router)
@@ -230,6 +238,7 @@ app.include_router(command_center_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
 app.include_router(billing_webhook_router)
+app.include_router(billing_quotation_router)
 
 
 @app.get("/", include_in_schema=False, tags=["Meta"])

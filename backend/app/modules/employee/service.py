@@ -579,6 +579,20 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     except Exception as e:
         logger.warning(f"[email] Failed to notify super admins about organization {org.name}: {e}")
 
+    # Commercial quotation: email the registrant a quote for the selected
+    # plan with an Accept/Reject link. Accepting notifies the registrant +
+    # every Super Admin and sends an invoice (see quotation_service.py).
+    # Never blocks registration itself — logs and continues on failure.
+    from app.modules.billing import quotation_service
+    quotation_service.create_and_send_quotation(
+        db,
+        organization=org,
+        plan_code=data.plan_code,
+        billing_cycle=data.billing_cycle,
+        recipient_email=data.email,
+        recipient_name=_full_name(employee),
+    )
+
     return {
         "message": (
             "Evaluation workspace requested. It is not a paid subscription "

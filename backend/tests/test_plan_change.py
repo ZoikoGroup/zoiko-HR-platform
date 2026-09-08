@@ -483,7 +483,19 @@ class TestRefundRequest:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestRefundApproval:
-    def test_approve_sets_status(self, db):
+    def test_approve_sets_status(self, db, monkeypatch):
+        # This test exercises the local (no-Stripe-execution) fallback path —
+        # explicit, so it stays deterministic regardless of whatever
+        # HR_STRIPE_SECRET_KEY happens to be set in the environment pytest
+        # runs in (previously this implicitly relied on Stripe being
+        # unconfigured, which masked a real AttributeError bug in
+        # refund_service.py's Stripe-enabled branch — see _get_stripe_subscription_id).
+        # _execute_stripe_refund does `from ...stripe_client import stripe_enabled`
+        # freshly on every call, so patching the source module's attribute
+        # (not refund_service's namespace) is what actually takes effect.
+        import app.modules.billing.stripe_client as stripe_client_mod
+        monkeypatch.setattr(stripe_client_mod, "stripe_enabled", lambda: False)
+
         _create_org(db)
         _create_subscription(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")

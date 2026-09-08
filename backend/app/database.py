@@ -19,9 +19,11 @@ logger = logging.getLogger("zoiko.hr")
 
 
 def _is_development_environment() -> bool:
+    import sys
     env_name = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "").strip().lower()
     debug_flag = str(getattr(settings, "DEBUG", False)).strip().lower()
-    return env_name == "development" or debug_flag in {"1", "true", "yes", "on"}
+    is_pytest = "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
+    return env_name in {"development", "test", "testing"} or debug_flag in {"1", "true", "yes", "on"} or is_pytest
 
 
 def resolve_database_url(raw_url: str | None = None) -> str:
@@ -38,6 +40,9 @@ def resolve_database_url(raw_url: str | None = None) -> str:
         )
 
     parsed = urlparse(candidate_url)
+    # Allow any scheme in development (e.g., SQLite memory) for tests.
+    if _is_development_environment():
+        return candidate_url
     if parsed.scheme in {"postgresql", "postgres"}:
         return candidate_url
 
@@ -55,14 +60,21 @@ resolved_database_url = resolve_database_url()
 _parsed_db = urlparse(resolved_database_url)
 _sslmode = dict(_.split("=") for _ in _parsed_db.query.split("&") if "=" in _).get("sslmode")
 
-engine = create_engine(
-    resolved_database_url,
-    connect_args={"sslmode": _sslmode} if _sslmode else {},
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    pool_recycle=1800,
-)
+_is_sqlite = resolved_database_url.startswith("sqlite")
+engine_kwargs = {
+    "connect_args": {"sslmode": _sslmode} if _sslmode else {},
+}
+if _is_sqlite:
+    engine_kwargs["connect_args"]["check_same_thread"] = False
+else:
+    engine_kwargs.update({
+        "pool_pre_ping": True,
+        "pool_size": 5,
+        "max_overflow": 10,
+        "pool_recycle": 1800,
+    })
+
+engine = create_engine(resolved_database_url, **engine_kwargs)
 
 
 # -- 2. Session factory -------------------------------------------------------
@@ -130,6 +142,8 @@ def initialize_database() -> None:
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
         "ALTER TABLE hr_documents ADD COLUMN IF NOT EXISTS folder_id INTEGER",
         "ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE plan_entitlement_mappings ADD COLUMN IF NOT EXISTS mode VARCHAR(30)",
+        "ALTER TABLE plan_entitlement_mappings ADD COLUMN IF NOT EXISTS limit_ref VARCHAR(100)",
     ]
     try:
         from sqlalchemy import text as sql_text
@@ -167,6 +181,7 @@ def initialize_database() -> None:
                     catalog_version="ZHR-COM-BILL-001-v1",
                     billing_metric=BillingMetric.ACTIVE_WORKFORCE,
                     is_active=True, is_contract_priced=False,
+                    monthly_price=12.00, annual_price=120.00, currency="USD",
                     description="Essential HR tools for small to mid-size teams.",
                 ),
                 BillingPlan(
@@ -174,6 +189,7 @@ def initialize_database() -> None:
                     catalog_version="ZHR-COM-BILL-001-v1",
                     billing_metric=BillingMetric.ACTIVE_WORKFORCE,
                     is_active=True, is_contract_priced=False,
+                    monthly_price=25.00, annual_price=250.00, currency="USD",
                     description="Advanced HR, payroll, and compliance for growing organisations.",
                 ),
                 BillingPlan(
@@ -187,6 +203,20 @@ def initialize_database() -> None:
             db.add_all(plans)
             db.commit()
             logger.info("Billing plan catalog seeded: 3 plans (Core, Advanced, Enterprise).")
+        # Auto-sync plans to Stripe so price IDs are populated (required for checkout)
+        try:
+            from app.modules.billing.stripe_sync_service import sync_plan_to_stripe, stripe_enabled as stripe_sync_enabled
+            if stripe_sync_enabled():
+                all_plans = db.query(BillingPlan).filter(BillingPlan.is_active == True).all()
+                for p in all_plans:
+                    if not p.stripe_monthly_price_id and not p.is_contract_priced and p.monthly_price is not None:
+                        try:
+                            sync_plan_to_stripe(db, p)
+                            logger.info("Stripe sync completed for plan: %s", p.code)
+                        except Exception as sync_err:
+                            logger.warning("Stripe sync skipped for plan %s: %s", p.code, sync_err)
+        except Exception as sync_exc:
+            logger.warning("Stripe auto-sync skipped: %s", sync_exc)
         db.close()
     except Exception as exc_info:
         logger.warning("Billing plan seed skipped: %s", exc_info)

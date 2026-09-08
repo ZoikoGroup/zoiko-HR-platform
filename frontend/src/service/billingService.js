@@ -29,10 +29,12 @@ export const billingService = {
   createDiscount: (data) => api.post("/billing/discounts", data),
 
   // ── Checkout (Stripe hosted) ─────────────────────────────────────────────
-  createCheckoutSession: (data, idempotencyKey) =>
-    api.post("/billing/checkout-session", data, {
-      headers: { "Idempotency-Key": idempotencyKey },
-    }),
+  createCheckoutSession: (data, idempotencyKey) => {
+    const key = idempotencyKey || (typeof crypto !== "undefined" && crypto.randomUUID ? crypto.randomUUID() : `ik-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`);
+    return api.post("/billing/checkout-session", data, {
+      headers: { "Idempotency-Key": key },
+    });
+  },
 
   // ── Invoices ─────────────────────────────────────────────────────────────
   getInvoices: (orgId) => api.get(`/billing/invoices/${orgId}`),
@@ -91,7 +93,7 @@ export const billingService = {
     api.post(`/billing/plan-changes/${changeId}/cancel`, data),
 
   listPlanChanges: (orgId) =>
-    api.get(`/billing/plan-changes/${orgId}`),
+    api.get(orgId ? `/billing/plan-changes/${orgId}` : "/billing/plan-changes"),
 
   // ── Refunds (Section 12 I3) ────────────────────────────────────────────
   requestRefund: (orgId, data) =>
@@ -103,13 +105,14 @@ export const billingService = {
   rejectRefund: (requestId, data = {}) =>
     api.post(`/billing/refunds/${requestId}/reject`, data),
 
-  listRefundRequests: (orgId) =>
-    api.get(`/billing/refunds/${orgId}`),
+  listRefundRequests: (orgId, params) =>
+    api.get(orgId ? `/billing/refunds/${orgId}` : "/billing/refunds", { params }),
 
   // ── Customer Self-Serve Billing (/billing/me/* — Prompt 6) ───────────────
   // Scoped to the caller's own organization via their JWT; owner sees full
   // financial detail, admin/hr_admin see a trimmed (plan + usage) view.
   getMySubscription: () => api.get("/billing/me/subscription"),
+  getQuotationInvoice: (invoiceNumber) => api.get(`/billing/me/quotation-invoice/${invoiceNumber}`),
   getMyEntitlements: () => api.get("/billing/me/entitlements"),
   cancelMySubscription: (data) => api.post("/billing/me/cancel", data),
   reactivateMySubscription: (data) => api.post("/billing/me/reactivate", data),

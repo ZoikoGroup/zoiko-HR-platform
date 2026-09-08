@@ -390,7 +390,7 @@ class PlanEntitlementMapping(Base):
     plan_code = Column(CaseInsensitiveEnum(PlanCode), nullable=False)
     feature_key = Column(String(150), nullable=False)
     state = Column(String(30), nullable=False)   # canonical state vocabulary
-    mode = Column(String(30), nullable=True)     # Section 14.1 outward mode override (e.g. read_only)
+    mode = Column("mode", String(30), nullable=True, quote=True)     # Section 14.1 outward mode override (e.g. read_only)
     limit_ref = Column(String(100), nullable=True)  # Section 14.1 quota/cap reference (e.g. "core.exports.limit=20/min")
     catalog_version = Column(String(50), nullable=False)
     approved_by = Column(String(255), nullable=False)
@@ -925,7 +925,7 @@ class CommercialExceptionEntitlement(Base):
     id = Column(Integer, primary_key=True, index=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     feature_key = Column(String(150), nullable=False, index=True)
-    mode = Column(CaseInsensitiveEnum(EntitlementMode), nullable=False)
+    mode = Column("mode", CaseInsensitiveEnum(EntitlementMode), nullable=False, quote=True)
     reason = Column(Text, nullable=False)
     requested_by = Column(String(255), nullable=False)
     approved_by = Column(String(255), nullable=True)
@@ -952,3 +952,55 @@ class CommercialExceptionEntitlement(Base):
             name="uq_exception_org_feature_window",
         ),
     )
+
+
+# ── Registration Quotation (quote -> accept/reject -> invoice) ──────────────
+
+class QuotationStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class BillingQuotation(Base):
+    """A commercial quote emailed to the registrant right after their
+    organization signs up (self-serve evaluation registration). The
+    registrant accepts or rejects it via a single-use emailed link; accepting
+    notifies the registrant + every Super Admin and triggers an invoice
+    email. This is independent of Stripe — there is no real subscription/
+    payment yet at registration time, so amount_cents here is only the
+    quoted figure (from BillingPlan's list price), not a charge."""
+    __tablename__ = "billing_quotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    quote_number = Column(String(50), nullable=False, unique=True)
+
+    plan_code = Column(CaseInsensitiveEnum(PlanCode), nullable=False)
+    billing_cycle = Column(CaseInsensitiveEnum(BillingCycle), nullable=False, default=BillingCycle.MONTHLY)
+    currency = Column(String(3), nullable=False, default="USD")
+    amount_cents = Column(Integer, nullable=False)
+
+    recipient_email = Column(String(255), nullable=False)
+    recipient_name = Column(String(200), nullable=True)
+
+    status = Column(CaseInsensitiveEnum(QuotationStatus), nullable=False, default=QuotationStatus.PENDING)
+    issued_at = Column(DateTime, server_default=func.now())
+    valid_until = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+    # Single-use decision link — only the hash is stored, matching
+    # SecurityActionToken's pattern (employee/models.py); kept local to this
+    # table rather than reusing that table, since a quotation has exactly one
+    # decision token for its whole lifetime and this avoids widening a
+    # security-sensitive shared table/enum for an unrelated concern.
+    decision_token_hash = Column(String(64), nullable=True, index=True)
+    decision_token_expires_at = Column(DateTime, nullable=True)
+
+    invoice_number = Column(String(50), nullable=True)
+    invoice_sent_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")

@@ -85,6 +85,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/organization-admin/metrics",
     "/organization-admin/payroll-guidance",
     "/organization-admin/billing-and-plan",
+    "/organization-admin/pay-invoice",
     // ── HR Assistant admin tools (knowledge base + support tickets) ──
     "/hr-admin/assistant-knowledge",
     "/hr-admin/assistant-handoffs",
@@ -122,6 +123,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/hr-admin/assistant-knowledge",
     "/hr-admin/assistant-handoffs",
     "/organization-admin/billing-and-plan",
+    "/organization-admin/pay-invoice",
     // ── All product paths ──
     "/zoiko-hr",
     "/zoikotime",
