@@ -180,7 +180,7 @@ const products = {
           { label: "Dashboard",            href: "/zoiko-hr/documents",                    icon: LayoutDashboard },
           { label: "Employee Documents",   href: "/zoiko-hr/documents/employee-upload",     icon: UploadCloud },
           { label: "Company Documents",    href: "/zoiko-hr/documents/company-documents",   icon: Building2 },
-          { label: "Approval Workflow",    href: "/zoiko-hr/documents/approvals",           icon: ClipboardCheck },
+          { label: "Approval Workflow",    href: "/zoiko-hr/documents/approvals",           icon: ClipboardCheck, featureKey: "hr.documents.workflow" },
         ]},
         { label: "Departments",        icon: Building2, children: [
           { label: "Dashboard",            href: "/zoiko-hr/departments",             icon: LayoutDashboard },
@@ -269,7 +269,7 @@ const products = {
           { label: "Learning",           href: "/zoiko-hr/ess/requests",          icon: BookOpen },
           { label: "Settings",           href: "/zoiko-hr/ess/settings",          icon: SlidersHorizontal },
         ]},
-        { label: "Employee Documents", icon: FolderOpen, excludeRoles: [ROLES.ADMIN], children: [
+        { label: "Employee Documents", icon: FolderOpen, excludeRoles: [ROLES.ADMIN], featureKey: "hr.documents.core", children: [
           { label: "My Files",           href: "/zoiko-hr/ess/documents/my-files",        icon: FolderOpen },
           { label: "Payslips",           href: "/zoiko-hr/ess/documents/payslips",        icon: Receipt },
           { label: "Offer & Contracts",  href: "/zoiko-hr/ess/documents/contracts",       icon: FileSignature },
@@ -375,8 +375,8 @@ const userManagement = {
   title: "USER MANAGEMENT",
   items: [
     { label: "User Management", href: "/hr-admin/settings", icon: Users },
-    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen },
-    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy },
+    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen, featureKey: "hr.ai.policy_qa" },
+    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy, featureKey: "hr.ai.workflow_assist" },
   ],
 };
 

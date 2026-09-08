@@ -114,6 +114,42 @@ class Settings(BaseSettings):
         default=False, validation_alias="HR_ENFORCE_ENTITLEMENTS"
     )
 
+    # Staged rollout governor (ZHR-COM-ENT-001 "safe enforcement"): a comma-
+    # separated list of feature keys to hard-enforce. When non-empty, ONLY those
+    # keys are blocked and every other guarded route stays pass-through
+    # (report-only). Empty means enforce the whole route map. This lets ops flip
+    # one module at a time after each row of the approved entitlement matrix is
+    # seeded, instead of all-or-nothing enforcement.
+    ENFORCE_ENTITLEMENTS_KEYS: str = Field(
+        default="", validation_alias="HR_ENTITLEMENTS_ENFORCE_KEYS"
+    )
+
+    # Org-level staged rollout governor — independent axis from
+    # ENFORCE_ENTITLEMENTS_KEYS. A comma-separated list of organization IDs to
+    # hard-enforce; empty means enforce for every organization (unchanged
+    # behavior). This value only SEEDS the super_admin_platform_settings row
+    # "entitlement_staged_org_ids" on first boot — after that, the live value
+    # is read from the database (editable via PUT /super-admin/platform-
+    # settings/entitlement_staged_org_ids without a redeploy). See the runbook
+    # comment at the top of entitlement_middleware.py.
+    ENFORCE_ENTITLEMENTS_ORG_IDS: str = Field(
+        default="", validation_alias="HR_ENTITLEMENTS_ENFORCE_ORG_IDS"
+    )
+
+    # ── Entitlement cache backend (app/core/cache.py) ───────────────────────
+    # Empty (default): process-local in-memory cache — fine for a single
+    # instance, but invisible across multiple workers/containers. Set to a
+    # redis:// URL before running more than one backend process/instance, or
+    # a plan change on one instance won't invalidate another's stale cache.
+    REDIS_URL: str = Field(default="", validation_alias="HR_REDIS_URL")
+
+    # READ_ONLY (Section 14.1) is a read-compatible mode: reads (GET/HEAD) pass
+    # and only mutations are blocked. Set False to treat READ_ONLY like a full
+    # block (still safe, just less ergonomic during downgrade-pending windows).
+    ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY: bool = Field(
+        default=True, validation_alias="HR_ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY"
+    )
+
     # ── Public assistant (zoikohr.com) ──────────────────────────────────────
     # Organization that owns the seeded is_public=True knowledge content and
     # that audit/safety log rows for anonymous public queries are attributed

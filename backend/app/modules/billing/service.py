@@ -681,6 +681,17 @@ def get_conversions(db: Session, organization_id: int) -> list[BillingConversion
 
 # ── Subscription management ───────────────────────────────────────────────────
 
+def _invalidate_entitlement_cache(organization_id: int) -> None:
+    """Drop cached per-key entitlement decisions for an org after any
+    subscription mutation that changes plan/status (Phase 8)."""
+    try:
+        from app.modules.billing.entitlement_service import invalidate_entitlement_cache
+
+        invalidate_entitlement_cache(organization_id)
+    except Exception as e:
+        logger.warning("[billing] Entitlement cache invalidation failed: %s", e)
+
+
 def upgrade_subscription(
     db: Session,
     organization_id: int,
@@ -705,6 +716,7 @@ def upgrade_subscription(
     # TODO: stub — proration calculation is a separate ticket (payment provider integration)
     db.commit()
     db.refresh(subscription)
+    _invalidate_entitlement_cache(organization_id)
     return subscription
 
 
@@ -744,6 +756,7 @@ def schedule_downgrade(
     # TODO: stub — eligibility conflict detection (SSO/retention/integration)
     db.commit()
     db.refresh(subscription)
+    _invalidate_entitlement_cache(organization_id)
     return subscription
 
 
@@ -760,6 +773,7 @@ def cancel_subscription(
     # TODO: stub — cancellation date handling for data retention
     db.commit()
     db.refresh(subscription)
+    _invalidate_entitlement_cache(organization_id)
     return subscription
 
 

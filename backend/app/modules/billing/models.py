@@ -162,6 +162,12 @@ class BillingAuditAction(str, enum.Enum):
     SUPPORT_ACCESS_REVOKED = "support_access_revoked"
     CONFIRMATION_TOKEN_CREATED = "confirmation_token_created"
     CONFIRMATION_TOKEN_CONSUMED = "confirmation_token_consumed"
+    # ZHR-COM-ENT-001 §19.1 — commercial exception entitlement lifecycle
+    EXCEPTION_REQUESTED = "exception_requested"
+    EXCEPTION_APPROVED = "exception_approved"
+    EXCEPTION_REJECTED = "exception_rejected"
+    EXCEPTION_REVOKED = "exception_revoked"
+    EXCEPTION_EXPIRED = "exception_expired"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -383,7 +389,9 @@ class PlanEntitlementMapping(Base):
     id = Column(Integer, primary_key=True)
     plan_code = Column(CaseInsensitiveEnum(PlanCode), nullable=False)
     feature_key = Column(String(150), nullable=False)
-    state = Column(String(30), nullable=False)   # one of the 5 canonical states
+    state = Column(String(30), nullable=False)   # canonical state vocabulary
+    mode = Column(String(30), nullable=True)     # Section 14.1 outward mode override (e.g. read_only)
+    limit_ref = Column(String(100), nullable=True)  # Section 14.1 quota/cap reference (e.g. "core.exports.limit=20/min")
     catalog_version = Column(String(50), nullable=False)
     approved_by = Column(String(255), nullable=False)
     approved_at = Column(DateTime, server_default=func.now())
@@ -716,3 +724,231 @@ class ConfirmationToken(Base):
     created_at = Column(DateTime, server_default=func.now())
 
     organization = relationship("Organization")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ZHR-COM-ENT-001 — Commercial Plan Entitlement & Subscription Control
+# (see docs/ZHR-COM-ENT-001-...-specification.md, Section 14).
+#
+# The spec's canonical table names are short and singular (commercial_sku,
+# feature_definition, ...). New tables below use those names verbatim so the
+# data model matches the spec document, while the N+1 existing pre-spec tables
+# keep their historical plural names. plan_feature_entitlement is already
+# covered by the existing plan_entitlement_mappings table (Phase 1 keeps that
+# table; Phase 2 adds the spec's `mode`/`limit_ref` vocabulary on top of it).
+# ═════════════════════════════════════════════════════════════════════════════
+
+class EntitlementMode(str, enum.Enum):
+    """Section 14.1 — the nine canonical entitlement modes. The historically
+    named `state` values (ENTITLED_AVAILABLE etc.) map onto these modes in
+    entitlement_service.py; `mode` is the outward-facing, spec vocabulary."""
+    ENABLED = "enabled"
+    DISABLED_PLAN = "disabled_plan"
+    READ_ONLY = "read_only"
+    CONFIG_REQUIRED = "config_required"
+    DEPENDENCY_REQUIRED = "dependency_required"
+    POLICY_BLOCKED = "policy_blocked"
+    RESTRICTED_BILLING = "restricted_billing"
+    INCIDENT_DISABLED = "incident_disabled"
+    LIMIT_REACHED = "limit_reached"
+
+
+class CommercialCatalogStatus(str, enum.Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    RETIRED = "retired"
+
+
+class CommercialSkuType(str, enum.Enum):
+    SUBSCRIPTION = "subscription"
+    SEAT_ADDON = "seat_addon"
+    SERVICE = "service"
+
+
+class FeatureSensitivity(str, enum.Enum):
+    INTERNAL = "internal"
+    SENSITIVE = "sensitive"
+    RESTRICTED = "restricted"
+
+
+class FeatureEnforcementMode(str, enum.Enum):
+    OFF = "off"
+    REPORT_ONLY = "report_only"
+    ENFORCE = "enforce"
+
+
+class FeatureStatus(str, enum.Enum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    DEPRECATED = "deprecated"
+
+
+class FeatureKeyAlias(Base):
+    """Section 14 `feature_key_alias` — durable canonical-alias mapping (Phase 11).
+    Legacy engineering key → Appendix A sibling. The resolver canonicalizes
+    every incoming feature_key through this table before validity / hard-block
+    checks, logging a deprecation warning on each alias hit. FEATURE_KEY_CANONICAL
+    in feature_keys.py mirrors these rows and is the in-code fallback when the
+    table is empty in a dev database that has not run migrations."""
+    __tablename__ = "feature_key_alias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alias_key = Column(String(150), nullable=False, index=True)
+    canonical_key = Column(String(150), nullable=False)
+    note = Column(String(255), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("alias_key", name="uq_feature_key_alias_alias_key"),
+    )
+
+
+class DowngradeImpactSeverity(str, enum.Enum):
+    BLOCKING = "blocking"
+    WARNING = "warning"
+
+
+class CommercialExceptionStatus(str, enum.Enum):
+    PENDING_APPROVAL = "pending_approval"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class CommercialCatalogVersion(Base):
+    """Section 14 `commercial_catalog_version` — versioned, immutable-after-
+    publish catalog snapshot. checksum stays null until the canonical catalog
+    publishes an integrity digest."""
+    __tablename__ = "commercial_catalog_version"
+
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String(50), unique=True, nullable=False)
+    status = Column(
+        CaseInsensitiveEnum(CommercialCatalogStatus), default=CommercialCatalogStatus.DRAFT, nullable=False,
+    )
+    effective_from = Column(DateTime, nullable=True)
+    effective_to = Column(DateTime, nullable=True)
+    approved_by = Column(String(255), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    checksum = Column(String(64), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    skus = relationship("CommercialSku", back_populates="catalog_version")
+
+
+class CommercialSku(Base):
+    """Section 14 `commercial_sku` — rated catalog line. Amount may stay NULL
+    until price approval (P0 rule: live use is forbidden when a required value
+    is absent, mirroring BillingPlan's unpriced posture)."""
+    __tablename__ = "commercial_sku"
+
+    id = Column(Integer, primary_key=True, index=True)
+    catalog_version_id = Column(Integer, ForeignKey("commercial_catalog_version.id"), nullable=True)
+    code = Column(String(100), nullable=False)
+    type = Column(CaseInsensitiveEnum(CommercialSkuType), default=CommercialSkuType.SUBSCRIPTION, nullable=False)
+    interval = Column(String(20), nullable=True)   # monthly | annual | one_time
+    currency = Column(String(3), nullable=True)
+    amount_cents = Column(Integer, nullable=True)  # null until pricing approved
+    tax_code = Column(String(50), nullable=True)
+    provider_product_id = Column(String(255), nullable=True)
+    provider_price_id = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    catalog_version = relationship("CommercialCatalogVersion", back_populates="skus")
+
+    __table_args__ = (
+        UniqueConstraint("catalog_version_id", "code", name="uq_catalog_sku_code"),
+    )
+
+
+class FeatureDefinition(Base):
+    """Section 14 `feature_definition` — stable semantic feature-key registry
+    with domain, sensitivity and enforcement posture. The engineering
+    FEATURE_KEYS frozenset in feature_keys.py stays the runtime gate; this
+    table is the durable, governable description of each key."""
+    __tablename__ = "feature_definition"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(150), unique=True, nullable=False, index=True)
+    domain = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    sensitivity = Column(
+        CaseInsensitiveEnum(FeatureSensitivity), default=FeatureSensitivity.INTERNAL, nullable=False,
+    )
+    enforcement_mode = Column(
+        CaseInsensitiveEnum(FeatureEnforcementMode), default=FeatureEnforcementMode.REPORT_ONLY, nullable=False,
+    )
+    status = Column(
+        CaseInsensitiveEnum(FeatureStatus), default=FeatureStatus.ACTIVE, nullable=False,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+
+class DowngradeImpactItem(Base):
+    """Section 14 `downgrade_impact_item` — concrete blockers/warnings hanging
+    off a scheduled plan change (or a preview, where plan_change_id is NULL).
+    Populated from downgrade_blockers.Blocker rows so the impact is durable
+    and resolvable instead of living only in a JSON blob."""
+    __tablename__ = "downgrade_impact_item"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_change_id = Column(Integer, ForeignKey("billing_plan_changes.id"), nullable=True, index=True)
+    feature_key = Column(String(150), nullable=False)
+    resource_type = Column(String(100), nullable=True)
+    resource_id = Column(String(200), nullable=True)
+    severity = Column(
+        CaseInsensitiveEnum(DowngradeImpactSeverity), default=DowngradeImpactSeverity.BLOCKING, nullable=False,
+    )
+    remediation = Column(Text, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    plan_change = relationship("BillingPlanChange", foreign_keys=[plan_change_id])
+
+
+class CommercialExceptionEntitlement(Base):
+    """Section 14 `commercial_exception_entitlement` — time-bound, operator-
+    approved entitlement override for a single (organization, feature_key).
+    Never indefinite: starts_at/expires_at are required. Grantable modes are
+    restricted to ENABLED / READ_ONLY (validated in exception_service; a
+    manual row inserting POLICY_BLOCKED etc. is meaningless).
+    Status lifecycle: PENDING_APPROVAL -> ACTIVE/REJECTED -> EXPIRED/REVOKED.
+    Mirror of approved_by/requested_by is kept so requester == approver can be
+    rejected (same-actor pattern shared with refund_service)."""
+    __tablename__ = "commercial_exception_entitlement"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    feature_key = Column(String(150), nullable=False, index=True)
+    mode = Column(CaseInsensitiveEnum(EntitlementMode), nullable=False)
+    reason = Column(Text, nullable=False)
+    requested_by = Column(String(255), nullable=False)
+    approved_by = Column(String(255), nullable=True)
+    starts_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    status = Column(
+        CaseInsensitiveEnum(CommercialExceptionStatus),
+        default=CommercialExceptionStatus.PENDING_APPROVAL,
+        nullable=False,
+    )
+    rejection_reason = Column(Text, nullable=True)
+    rejected_by = Column(String(255), nullable=True)
+    revoked_by = Column(String(255), nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "feature_key", "starts_at", "expires_at",
+            name="uq_exception_org_feature_window",
+        ),
+    )

@@ -57,8 +57,24 @@ const SUPER_ADMIN_HREF_OVERRIDES = {
   "/hr-admin/settings": "/settings/user-management",
 };
 
-function filterNavItem(item, role, products, calcMode) {
+// Entitlement-aware item filtering. When an item carries `featureKey` and an
+// entitlements map is supplied ({featureKey: granted|undefined}), the item is
+// dropped unless the key resolves to a granted state. Items without a
+// featureKey are always kept. When no map is supplied nothing changes — this
+// keeps the layout identical until a sidebar container hydrates the snapshot.
+const GRANTED_STATES = new Set(["ENTITLED_AVAILABLE", "READ_ONLY"]);
+
+function isEntitledFeature(item, entitlements) {
+  if (!item.featureKey || !entitlements) return true;
+  const granted = entitlements[item.featureKey];
+  if (typeof granted === "boolean") return granted;
+  return GRANTED_STATES.has(granted);
+}
+
+function filterNavItem(item, role, products, calcMode, entitlements) {
   if (!item) return null;
+
+  if (!isEntitledFeature(item, entitlements)) return null;
 
   if (item.excludeRoles && item.excludeRoles.includes(role)) return null;
 
@@ -85,7 +101,7 @@ function filterNavItem(item, role, products, calcMode) {
 
   if (item.children) {
     const filteredChildren = item.children
-      .map((child) => filterNavItem(child, role, products, calcMode))
+      .map((child) => filterNavItem(child, role, products, calcMode, entitlements))
       .filter(Boolean);
 
     if (filteredChildren.length === 0) return null;
@@ -98,7 +114,7 @@ function filterNavItem(item, role, products, calcMode) {
 // Pure filtering core, extracted from the hook so it can be exercised by a
 // plain node:test unit test without a React render context or a
 // `localStorage` global (neither is available under plain `node --test`).
-export function filterSectionsForRole(sections, role, products = [], calcMode = "standard") {
+export function filterSectionsForRole(sections, role, products = [], calcMode = "standard", entitlements = null) {
   if (!role || !VALID_ROLES.includes(role)) return sections;
 
   const excludedTitles = SECTION_EXCLUSIONS[role] || [];
@@ -109,7 +125,7 @@ export function filterSectionsForRole(sections, role, products = [], calcMode = 
         if (excludedTitles.includes(section.title)) return null;
         if (section.items) {
           const filteredItems = section.items
-            .map((item) => filterNavItem(item, role, products, calcMode))
+            .map((item) => filterNavItem(item, role, products, calcMode, entitlements))
             .filter(Boolean);
           if (filteredItems.length === 0) return null;
           return { ...section, items: filteredItems };
@@ -124,7 +140,7 @@ export function filterSectionsForRole(sections, role, products = [], calcMode = 
       if (excludedTitles.includes(section.title)) return null;
 
       const filteredItems = section.items
-        .map((item) => filterNavItem(item, role, products, calcMode))
+        .map((item) => filterNavItem(item, role, products, calcMode, entitlements))
         .filter(Boolean);
 
       if (filteredItems.length === 0) return null;
@@ -133,9 +149,9 @@ export function filterSectionsForRole(sections, role, products = [], calcMode = 
     .filter(Boolean);
 }
 
-export default function useFilteredNavigation(role, product, products = []) {
+export default function useFilteredNavigation(role, product, products = [], entitlements = null) {
   return useMemo(() => {
     const calcMode = localStorage.getItem("zoiko_payroll_calc_mode") || "standard";
-    return filterSectionsForRole(allSections, role, products, calcMode);
-  }, [role, products]);
+    return filterSectionsForRole(allSections, role, products, calcMode, entitlements);
+  }, [role, products, entitlements]);
 }

@@ -9,7 +9,16 @@ Usage:
 
 The dependency calls check_entitlement() and:
   - Returns normally if ENTITLED_AVAILABLE
-  - Raises 403 with {"entitlement_state": ..., "feature_key": ...} for all other states
+  - Returns normally for READ_ONLY on a GET/HEAD request (Section 14.1: a
+    read-only feature may still be viewed, only mutation is blocked) — same
+    method-based read/write distinction entitlement_middleware.py already
+    uses for its 129 mapped routes; check_entitlement() itself has no
+    `action` parameter (unlike the spec's illustrative contract in Section 15),
+    so both enforcement layers infer read-vs-write from the HTTP method
+    instead of a caller-supplied flag. Kept consistent between the two
+    rather than adding a second, divergent mechanism.
+  - Raises 403 with {"entitlement_state": ..., "feature_key": ...} for every
+    other case (including a mutating request under READ_ONLY)
 
 This allows the frontend to render the correct message per state:
   - NOT_ENTITLED → upgrade CTA
@@ -25,8 +34,11 @@ from app.database import get_db
 from app.modules.billing.entitlement_service import (
     check_entitlement,
     ENTITLED_AVAILABLE,
+    READ_ONLY,
 )
 from app.modules.hr.models import Employee
+
+_READ_METHODS = frozenset({"GET", "HEAD"})
 
 
 def require_entitlement(feature_key: str):
@@ -50,14 +62,18 @@ def require_entitlement(feature_key: str):
             )
 
         result = check_entitlement(db, organization_id, feature_key)
+        state = result["state"]
 
-        if result["state"] == ENTITLED_AVAILABLE:
+        if state == ENTITLED_AVAILABLE:
+            return current_user
+
+        if state == READ_ONLY and request.method.upper() in _READ_METHODS:
             return current_user
 
         raise HTTPException(
             status_code=403,
             detail={
-                "entitlement_state": result["state"],
+                "entitlement_state": state,
                 "feature_key": feature_key,
             },
         )

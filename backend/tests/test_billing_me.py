@@ -196,7 +196,7 @@ class TestMeEntitlements:
         assert body["catalog_version"].startswith("v")
         assert set(body["states"].keys()) == set(FEATURE_KEYS)
         # AI action hard-blocked always.
-        assert body["states"]["hr.ai.autonomous_action"] == "NOT_ENTITLED"
+        assert body["states"]["hr.ai.autonomous_decision"] == "NOT_ENTITLED"
         assert body["states"]["hr.core.employees"] == "ENTITLED_AVAILABLE"
 
 
@@ -297,7 +297,7 @@ class TestMeDowngradeImpact:
         # Entitle everything on both plans -> no blockers.
         tenants.seed_entitlement_mappings(
             db, plan_codes=[PlanCode.ADVANCED, PlanCode.CORE],
-            not_entitled_keys={"hr.ai.autonomous_action"},
+            not_entitled_keys={"hr.ai.autonomous_decision"},
         )
         _as(client, "owner@z", fx.org.id, role="super_admin")
         r = client.post("/billing/me/downgrade-impact", json={"target_plan_code": "core"})
@@ -313,12 +313,12 @@ class TestMeDowngradeImpact:
         # enterprise entitled to documents.bulk_distribution, core NOT.
         tenants.seed_entitlement_mappings(
             db, plan_codes=[PlanCode.ENTERPRISE],
-            not_entitled_keys={"hr.ai.autonomous_action"},
+            not_entitled_keys={"hr.ai.autonomous_decision"},
         )
         tenants.seed_entitlement_mappings(
             db, plan_codes=[PlanCode.CORE],
             not_entitled_keys={
-                "hr.ai.autonomous_action",
+                "hr.ai.autonomous_decision",
                 "hr.documents.core",
                 "hr.documents.bulk_distribution",
                 "hr.identity.sso",

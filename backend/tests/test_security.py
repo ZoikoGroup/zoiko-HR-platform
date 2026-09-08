@@ -41,6 +41,11 @@ def test_expired_token_is_rejected():
 
 
 def test_tampered_token_is_rejected():
+    # Flipping the JWT's literal last character can be a no-op after base64url
+    # decoding (the final character's trailing bits are padding), so that
+    # mutation isn't reliably a real corruption. Replace the signature segment
+    # outright instead — deterministically invalid regardless of token content.
     token = create_access_token({"sub": "user@example.com"})
-    tampered = token[:-1] + ("A" if token[-1] != "A" else "B")
+    header, payload, _signature = token.split(".")
+    tampered = f"{header}.{payload}.invalidsignatureAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     assert decode_access_token(tampered) is None
