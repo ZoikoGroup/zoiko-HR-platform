@@ -24,6 +24,7 @@ from app.modules.billing.models import (
     BillingPlanChange,
     BillingRefundRequest,
     BillingSubscription,
+    DowngradeImpactItem,
     PlanChangeStatus,
     PlanChangeType,
     RefundRequestStatus,
@@ -217,6 +218,95 @@ class TestPlanChangeSchedule:
         target_plan = _create_plan(db, PlanCode.CORE)
         change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
         assert change.effective_at.date() == sub.renewal_anchor_date.date()
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# DowngradeImpactItem persistence (ZHR-COM-ENT-001 §14) — Phase 1.5
+# ═════════════════════════════════════════════════════════════════════════════
+# preview_plan_change stays side-effect-free (pure); only schedule/execute
+# persist the concrete downgrade_impact_item rows so impact is durable.
+
+class TestDowngradeImpactPersistence:
+    def _change(self, db, mock_blockers, plan_code=PlanCode.ENTERPRISE):
+        _create_org(db)
+        sub, _ = _create_subscription(db)
+        target_plan = _create_plan(db, plan_code)
+        return schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers")
+    def test_schedule_persists_blocker_as_impact_item(self, mock_blockers, db):
+        _create_org(db)
+        _create_subscription(db)
+        target_plan = _create_plan(db, PlanCode.ENTERPRISE)
+        mock_blockers.return_value = [
+            Blocker(category="sso", feature_key="hr.identity.sso",
+                    message="Active SSO", severity="blocking"),
+        ]
+        change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert len(items) == 1
+        assert items[0].feature_key == "hr.identity.sso"
+        assert items[0].severity.value == "blocking"
+        assert items[0].remediation == "Active SSO"
+        assert items[0].resolved_at is None
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers", return_value=[])
+    def test_schedule_without_blockers_persists_none(self, mock_blockers, db):
+        change = self._change(db, mock_blockers)
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert items == []
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers")
+    def test_execute_resolves_outstanding_items(self, mock_blockers, db):
+        _create_org(db)
+        sub, _ = _create_subscription(db)
+        target_plan = _create_plan(db, PlanCode.ENTERPRISE)
+        mock_blockers.return_value = [
+            Blocker(category="sso", feature_key="hr.identity.sso",
+                    message="Active SSO", severity="blocking"),
+        ]
+        change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+        assert change.status == PlanChangeStatus.BLOCKED
+        change.effective_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+        db.commit()
+
+        mock_blockers.return_value = []
+        result = execute_due_changes(db)
+        assert result["executed"] == 1
+
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert len(items) == 1
+        assert items[0].resolved_at is not None
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers")
+    def test_execute_recheck_syncs_updated_blockers(self, mock_blockers, db):
+        _create_org(db)
+        sub, _ = _create_subscription(db)
+        target_plan = _create_plan(db, PlanCode.ENTERPRISE)
+        mock_blockers.return_value = [
+            Blocker(category="sso", feature_key="hr.identity.sso",
+                    message="Active SSO", severity="blocking"),
+        ]
+        change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+        change.effective_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+        db.commit()
+
+        mock_blockers.return_value = [
+            Blocker(category="storage", feature_key="hr.documents.core",
+                    message="Storage in use", severity="blocking"),
+        ]
+        result = execute_due_changes(db)
+        assert result["blocked"] == 1
+
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert len(items) == 1
+        assert items[0].feature_key == "hr.documents.core"
+        assert items[0].severity.value == "blocking"
+        assert items[0].resolved_at is None
 
 
 # ═════════════════════════════════════════════════════════════════════════════

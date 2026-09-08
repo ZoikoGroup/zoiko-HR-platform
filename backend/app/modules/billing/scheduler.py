@@ -107,6 +107,27 @@ def _execute_evaluation_reminder_job():
         logger.error("[scheduler] Evaluation reminder job failed: %s", e)
 
 
+def _execute_exception_expiry_job():
+    """Job function: expire any ACTIVE commercial entitlement exception whose
+    expires_at has passed (ZHR-COM-ENT-001 §19.1). Each expiry invalidates the
+    org's entitlement cache and writes an EXCEPTION_EXPIRED audit row so a
+    time-bound override never silently outlives its window."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.exception_service import expire_overdue_exceptions
+
+        db = SessionLocal()
+        try:
+            expired = expire_overdue_exceptions(db)
+            logger.info(
+                "[scheduler] Exception expiry: %d exception(s) expired", len(expired),
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Exception expiry job failed: %s", e)
+
+
 def setup_scheduler(app=None) -> bool:
     """Register the plan-change scheduler with the FastAPI app lifecycle.
 
@@ -181,6 +202,15 @@ def _ensure_scheduler():
         CronTrigger(hour=2, minute=15),
         id="evaluation_reminder_walk",
         name="Send evaluation 7-day/2-day reminder emails",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    _scheduler.add_job(
+        _execute_exception_expiry_job,
+        CronTrigger(hour=2, minute=20),
+        id="exception_expiry_walk",
+        name="Expire time-bound commercial exception entitlements",
         replace_existing=True,
         misfire_grace_time=3600,
     )

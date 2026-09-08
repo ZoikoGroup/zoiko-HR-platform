@@ -627,6 +627,48 @@ class SupportAccessListResponse(BaseModel):
     total: int
 
 
+# ── Commercial exception entitlements (ZHR-COM-ENT-001 §19.1) ──────────────
+
+class CommercialExceptionRequest(BaseModel):
+    """Tenant request for a time-bound entitlement override. Window is
+    mandatory — an exception is never indefinite."""
+    feature_key: str
+    mode: str = "enabled"          # grantable: enabled | read_only
+    reason: str
+    starts_at: datetime
+    expires_at: datetime
+
+
+class CommercialExceptionResponse(BaseModel):
+    id: int
+    organization_id: int
+    feature_key: str
+    mode: str
+    reason: str
+    requested_by: str
+    approved_by: Optional[str] = None
+    starts_at: datetime
+    expires_at: datetime
+    status: str
+    rejection_reason: Optional[str] = None
+    rejected_by: Optional[str] = None
+    revoked_by: Optional[str] = None
+    revoked_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class CommercialExceptionListResponse(BaseModel):
+    list: List[CommercialExceptionResponse]
+    total: int
+
+
+class CommercialExceptionDecisionRequest(BaseModel):
+    decision_reason: Optional[str] = None
+
+
 # ── Customer Self-Serve Billing (/billing/me/*) — Prompt 6 ────────────────
 
 class MeSubscriptionResponse(BaseModel):

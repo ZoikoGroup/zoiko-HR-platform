@@ -51,17 +51,32 @@ _PLATFORM_SETTING_DEFAULTS = [
     ("smtp_from_email", settings.SMTP_FROM_EMAIL, "Default from email address", "email"),
     ("password_min_length", "8", "Minimum password length requirement", "security"),
     ("max_file_size_mb", "10", "Maximum file upload size in MB", "file_upload"),
+    (
+        "entitlement_staged_org_ids",
+        settings.ENFORCE_ENTITLEMENTS_ORG_IDS,
+        "Comma-separated organization IDs for staged entitlement enforcement "
+        "rollout (empty = enforce for every organization). Edited live via "
+        "PUT /super-admin/platform-settings/entitlement_staged_org_ids — no "
+        "redeploy needed. See the runbook comment in entitlement_middleware.py.",
+        "entitlements",
+    ),
 ]
 
 
 def _seed_platform_settings(db: Session) -> int:
-    """Insert default platform settings if none exist. Returns count created."""
-    if db.query(PlatformSetting).first():
-        return 0
+    """Insert any default platform settings missing from the table (per-key,
+    not all-or-nothing) — so a setting added after a platform was already
+    bootstrapped still gets its default row on the next startup."""
+    existing_keys = {row.key for row in db.query(PlatformSetting.key).all()}
+    created = 0
     for key, value, desc, cat in _PLATFORM_SETTING_DEFAULTS:
+        if key in existing_keys:
+            continue
         db.add(PlatformSetting(key=key, value=value, description=desc, category=cat))
-    db.commit()
-    return len(_PLATFORM_SETTING_DEFAULTS)
+        created += 1
+    if created:
+        db.commit()
+    return created
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

@@ -16,10 +16,12 @@ WHY this exists instead of hand-editing ~450 decorators (Prompt 6 scope):
 
 Assistant module (`app/modules/assistant/`) is intentionally EXCLUDED — it is
 out of scope for every prompt, exactly as the project has consistently decided.
-`hr.ai.autonomous_action` is a policy-level, hard-blocked key (entitlement
+`hr.ai.autonomous_decision` is a policy-level, hard-blocked key (entitlement
 engine always returns NOT_ENTITLED) and is intentionally NOT wired to a route;
 leaving it unmapped is correct, so it intentionally shows in the startup
-'unmapped' warning.
+'unmapped' warning. The retired legacy `hr.ai.autonomous_action` spelling
+canonicalizes onto `hr.ai.autonomous_decision` in the resolver (feature_key_alias),
+so it too is covered without a route entry.
 
 Keys with no corresponding module yet (identity.*, integration.*) are listed in
 NOT_BUILT_FEATURE_KEYS and deliberately left unmapped — they are future modules,
@@ -223,16 +225,104 @@ def mapped_feature_keys() -> set[str]:
 
 
 # Keys intentionally WITHOUT any routes (future modules / hard-blocked policy).
-# These are not silent gaps — they are explicit NOT_BUILT. hr.ai.autonomous_action
-# is additionally hard-blocked at the entitlement engine regardless of mapping.
+# These are not silent gaps — they are explicit NOT_BUILT. Each entry is a
+# deliberate, reviewed decision:
+#
+#   - Appendix A expansion keys (registry v2) that Product has not yet built or
+#     wired to routes. They exist so entitlement checks + seed mappings can be
+#     written in advance; enforcement arrives when the module lands.
+#   - hr.ai.autonomous_decision is additionally hard-blocked at the
+#     entitlement engine regardless of mapping (Section 8 E4). Its retired
+#     legacy spelling (hr.ai.autonomous_action) canonicalizes onto this key
+#     via feature_key_alias and is no longer a member of FEATURE_KEYS itself,
+#     so it must NOT appear in this set (this set is asserted to be a subset
+#     of FEATURE_KEYS — see test_not_built_keys_are_allowlisted_not_silent_gaps).
+#
+# Keep this list explicit and reviewed — do NOT derive it from FEATURE_KEYS, or
+# a future registry addition would silently convert a real gap into an
+# "allowlisted" key.
 NOT_BUILT_FEATURE_KEYS: frozenset[str] = frozenset({
+    # legacy identity/integration + AI (v1 allowlist)
     "hr.identity.sso",
     "hr.identity.scim",
     "hr.integration.api_read",
     "hr.integration.api_write",
     "hr.integration.file_exchange",
     "hr.integration.custom_connector",
-    "hr.ai.autonomous_action",
+    # Appendix A — AI suite (Section 8; governed, not yet routed)
+    "hr.ai.autonomous_decision",
+    "hr.ai.custom_sources",
+    "hr.ai.draft_summary",
+    "hr.ai.governance_admin",
+    "hr.ai.navigation",
+    "hr.ai.policy_qa",
+    "hr.ai.workflow_assist",
+    "hr.ai.workforce_query",
+    # Appendix A — API / webhooks
+    "hr.api.read",
+    "hr.api.write",
+    "hr.api.webhooks",
+    # Appendix A — organizations & records
+    "hr.admin.delegation",
+    "hr.org.directory",
+    "hr.org.jobs",
+    "hr.org.legal_entities",
+    "hr.org.positions",
+    "hr.org.structure",
+    "hr.records",
+    "hr.records.custom_fields",
+    "hr.records.effective_changes",
+    "hr.records.history",
+    # Appendix A — lifecycle / self-service / workflow
+    "hr.lifecycle.automation",
+    "hr.lifecycle.offboarding",
+    "hr.lifecycle.onboarding",
+    "hr.lifecycle.tasks",
+    "hr.self_service.employee",
+    "hr.self_service.manager",
+    "hr.workflow.builder",
+    "hr.workflow.bulk_actions",
+    "hr.workflow.conditional",
+    "hr.workflow.dual_control",
+    "hr.workflow.standard",
+    # Appendix A — documents / identity / integration premium
+    "hr.documents.bulk",
+    "hr.documents.policies",
+    "hr.documents.workflow",
+    "hr.enterprise.data_options",
+    "hr.enterprise.sandbox",
+    "hr.identity.conditional_access",
+    "hr.identity.multi_idp",
+    "hr.integration.custom",
+    "hr.integration.standard",
+    "hr.integration.zoiko_connector",
+    # Appendix A — leave / performance / mobile
+    "hr.leave.advanced",
+    "hr.leave.global",
+    "hr.leave.policies",
+    "hr.mobile.companion",
+    "hr.performance.cycles",
+    "hr.performance.goals",
+    "hr.performance.one_to_one",
+    "hr.performance.reporting",
+    # Appendix A — reporting
+    "hr.reporting.builder",
+    "hr.reporting.cross_entity",
+    "hr.reporting.dashboards_custom",
+    "hr.reporting.export",
+    "hr.reporting.governed_sharing",
+    "hr.reporting.metric_governance",
+    "hr.reporting.scheduled",
+    "hr.reporting.standard",
+    "hr.reporting.templates",
+    # Appendix A — services & support
+    "hr.service.implementation",
+    "hr.service.integration",
+    "hr.service.migration",
+    "hr.support.named_success",
+    "hr.support.priority",
+    "hr.support.sla",
+    "hr.support.standard",
 })
 
 

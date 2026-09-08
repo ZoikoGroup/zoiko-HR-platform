@@ -60,6 +60,24 @@ async def lifespan(application: FastAPI):
         # Table may not exist yet on a fresh DB before migration runs.
         logger.info("[startup] plan_entitlement_mappings: table not yet created.")
 
+    # Platform settings: seed any default keys missing from the table. Runs on
+    # every boot (not just first bootstrap) so a setting added after a
+    # platform was already bootstrapped — and bootstrap subsequently disabled,
+    # per the README's recommendation — still gets its default row.
+    try:
+        from app.modules.super_admin.router import _seed_platform_settings
+        from app.database import SessionLocal as _SessionLocal
+
+        _settings_db = _SessionLocal()
+        try:
+            created = _seed_platform_settings(_settings_db)
+            if created:
+                logger.info("[startup] Platform settings: seeded %d missing key(s).", created)
+        finally:
+            _settings_db.close()
+    except Exception as e:
+        logger.warning("[startup] Platform settings seed could not run: %s", e)
+
     # Background scheduler: plan-change execution (02:00) + delinquency walk (02:05).
     try:
         from app.modules.billing.scheduler import start_scheduler
@@ -145,18 +163,29 @@ app.add_exception_handler(Exception, generic_exception_handler)
 # ── Route-level entitlement enforcement (Prompt 6) ─────────────────────────
 # Opt-in via HR_ENFORCE_ENTITLEMENTS (default OFF). When enabled, requests to
 # routes listed in route_entitlement_map.py are blocked (403) unless the caller's
-# organization is ENTITLED_AVAILABLE for the mapped feature key. The startup
-# sweep in the lifespan stays report-only regardless, so dev/test can run
-# without an approved entitlement matrix.
+# organization is ENTITLED_AVAILABLE for the mapped feature key (or READ_ONLY
+# for reads, Section 14.1). HR_ENTITLEMENTS_ENFORCE_KEYS (comma list) restricts
+# hard enforcement to a subset of keys for a staged rollout — every other guarded
+# route stays pass-through. The startup sweep in the lifespan stays report-only
+# regardless, so dev/test can run without an approved entitlement matrix.
 if settings.ENFORCE_ENTITLEMENTS:
     from app.modules.billing.entitlement_middleware import EntitlementMiddleware
     from app.database import SessionLocal
 
+    _enforce_keys = frozenset(
+        k.strip() for k in settings.ENFORCE_ENTITLEMENTS_KEYS.split(",") if k.strip()
+    )
     app.add_middleware(
         EntitlementMiddleware,
         db_session_factory=SessionLocal,
+        enforce_keys=_enforce_keys,
+        allow_read_in_read_only=settings.ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY,
     )
-    logger.info("[startup] Entitlement enforcement ENABLED (HR_ENFORCE_ENTITLEMENTS=true).")
+    logger.info(
+        "[startup] Entitlement enforcement ENABLED (HR_ENFORCE_ENTITLEMENTS=true)."
+        "%s",
+        f" Keys restricted to: {sorted(_enforce_keys)}" if _enforce_keys else "",
+    )
 else:
     logger.info("[startup] Entitlement enforcement disabled (report-only sweep).")
 

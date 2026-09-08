@@ -1,7 +1,16 @@
 # Local convenience only — not a production deployment manifest.
-# Both services connect to the real Neon Postgres from backend/.env; there's
-# no local database container since Neon is the only supported database.
+# Backend/frontend connect to the real Neon Postgres from backend/.env;
+# there's no local database container since Neon is the only supported
+# database. redis IS a local container here — entitlement caching only needs
+# a shared backend once more than one backend instance is running, which
+# doesn't apply to this single-service compose file, but it's included so
+# HR_REDIS_URL has something to point at when testing that path locally.
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   backend:
     build: ./backend
     ports:
@@ -10,6 +19,9 @@ services:
       - ./backend/.env
     environment:
       PORT: "8080"
+      HR_REDIS_URL: redis://redis:6379/0
+    depends_on:
+      - redis
 
   frontend:
     build:

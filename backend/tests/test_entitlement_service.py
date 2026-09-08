@@ -29,6 +29,7 @@ from app.modules.billing.entitlement_service import (
     DEPENDENCY_UNAVAILABLE,
     ENTITLED_POLICY_BLOCKED,
     TRIAL_RESTRICTED,
+    READ_ONLY,
     CANONICAL_STATES,
 )
 from app.modules.billing.feature_keys import (
@@ -54,8 +55,30 @@ class TestFeatureKeyRegistry:
             assert isinstance(key, str)
             assert "." in key, f"Feature key '{key}' must be dot-separated"
 
-    def test_hr_ai_autonomous_action_exists(self):
-        assert "hr.ai.autonomous_action" in FEATURE_KEYS
+    def test_hr_ai_autonomous_action_is_retired_but_canonicalized(self):
+        assert "hr.ai.autonomous_action" not in FEATURE_KEYS
+        from app.modules.billing.feature_keys import canonical_feature_key
+        assert canonical_feature_key("hr.ai.autonomous_action") == "hr.ai.autonomous_decision"
+        assert "hr.ai.autonomous_decision" in FEATURE_KEYS
+
+    def test_appendix_a_expansion_lands_in_registry(self):
+        from app.modules.billing.feature_keys import _APPENDIX_A_KEYS, canonical_feature_key
+        assert FEATURE_KEY_REGISTRY_VERSION == "v2"
+        assert "hr.records" in FEATURE_KEYS
+        assert "hr.ai.autonomous_decision" in FEATURE_KEYS
+        assert "hr.api.webhooks" in FEATURE_KEYS
+        for key in _APPENDIX_A_KEYS:
+            assert key in FEATURE_KEYS
+
+    def test_canonical_aliasing_maps_legacy_to_appendix(self):
+        from app.modules.billing.feature_keys import canonical_feature_key
+        assert canonical_feature_key("hr.ai.autonomous_action") == "hr.ai.autonomous_decision"
+        assert canonical_feature_key("hr.documents.bulk_distribution") == "hr.documents.bulk"
+        assert canonical_feature_key("hr.recruitment.core") == "hr.recruitment.core"
+
+    def test_legacy_engineering_keys_stay_valid(self):
+        for key in ("hr.recruitment.core", "hr.attendance.core", "hr.learning.core"):
+            assert is_valid_feature_key(key) is True
 
     def test_is_valid_feature_key(self):
         assert is_valid_feature_key("hr.core.employees") is True
@@ -64,6 +87,7 @@ class TestFeatureKeyRegistry:
     def test_canonical_states_match_spec(self):
         expected = {
             "ENTITLED_AVAILABLE",
+            "READ_ONLY",
             "NOT_ENTITLED",
             "ENTITLED_NOT_CONFIGURED",
             "DEPENDENCY_UNAVAILABLE",
@@ -82,23 +106,34 @@ def _make_subscription(plan_code=None, status=None):
     return sub
 
 
-def _make_mapping(feature_key, state, catalog_version=None):
+def _make_mapping(feature_key, state, catalog_version=None, plan_code=None,
+                  mode=None, limit_ref=None):
     m = MagicMock()
     m.feature_key = feature_key
     m.state = state
     m.catalog_version = catalog_version or FEATURE_KEY_REGISTRY_VERSION
+    m.plan_code = plan_code
+    m.mode = mode
+    m.limit_ref = limit_ref
     return m
 
 
-def _build_mock_db(subscription=None, mappings=None, existing_snapshot=None):
+_NO_MAPPING_FIRST = object()
+
+
+def _build_mock_db(subscription=None, mappings=None, existing_snapshot=None,
+                   pending_changes=None, mapping_first=_NO_MAPPING_FIRST, mapping_all=None):
     """Build a mock DB session that chains query().filter().first() correctly.
 
-    SQLAlchemy calls: db.query(Model).filter(condition).first()
+    SQLAlchemy calls: db.query(Model).filter(condition).first() / .all()
     We need the mock to return different objects for different Model args.
+    mapping_first / mapping_all override the .first() and .all() results so a
+    test can model "no mapping row for this plan, but another plan grants it"
+    (required_plan upgrade target).
     """
     db = MagicMock()
 
-    from app.modules.billing.models import BillingSubscription, PlanEntitlementMapping, BillingEntitlementSnapshot
+    from app.modules.billing.models import BillingSubscription, PlanEntitlementMapping, BillingEntitlementSnapshot, CommercialExceptionEntitlement, BillingPlanChange, FeatureKeyAlias
 
     # Subscription query chain
     if subscription is not None:
@@ -115,18 +150,34 @@ def _build_mock_db(subscription=None, mappings=None, existing_snapshot=None):
     sub_query_obj.filter.return_value = sub_filter_obj
 
     # Mapping query chain
-    if mappings is not None and len(mappings) > 0:
+    if mapping_first is not _NO_MAPPING_FIRST:
+        if mapping_first is not None:
+            map_result = mapping_first if isinstance(mapping_first, MagicMock) else _make_mapping(
+                mapping_first.get("feature_key", "hr.core.employees"),
+                mapping_first.get("state", ENTITLED_AVAILABLE),
+                plan_code=mapping_first.get("plan_code"),
+                mode=mapping_first.get("mode"),
+                limit_ref=mapping_first.get("limit_ref"),
+            )
+        else:
+            map_result = None
+        map_first = MagicMock(return_value=map_result)
+    elif mappings is not None and len(mappings) > 0:
         m = mappings[0]
         map_result = MagicMock()
         map_result.feature_key = m.feature_key
         map_result.state = m.state
         map_result.catalog_version = m.catalog_version
+        map_result.plan_code = getattr(m, "plan_code", None)
+        map_result.mode = getattr(m, "mode", None)
+        map_result.limit_ref = getattr(m, "limit_ref", None)
         map_first = MagicMock(return_value=map_result)
     else:
         map_first = MagicMock(return_value=None)
 
     map_filter_obj = MagicMock()
     map_filter_obj.first = map_first
+    map_filter_obj.all = MagicMock(return_value=mapping_all if mapping_all is not None else (mappings or []))
     map_query_obj = MagicMock()
     map_query_obj.filter.return_value = map_filter_obj
 
@@ -155,8 +206,33 @@ def _build_mock_db(subscription=None, mappings=None, existing_snapshot=None):
             return sub_query_obj
         if model == PlanEntitlementMapping:
             return map_query_obj
+        if model == BillingPlanChange:
+            # Pending-downgrade probe: controllers_state from plain rows.
+            change_query = MagicMock()
+            change_filter = MagicMock()
+            change_filter.all = MagicMock(return_value=pending_changes or [])
+            change_query.filter.return_value = change_filter
+            return change_query
         if model == BillingEntitlementSnapshot:
             return snap_query_obj
+        if model == CommercialExceptionEntitlement:
+            # Resolver consults live exceptions after the cache miss; a mocked
+            # db has none, so the query must read as "no active exception".
+            exc_query = MagicMock()
+            exc_filter = MagicMock()
+            exc_filter.first.return_value = None
+            exc_filter.all.return_value = []
+            exc_query.filter.return_value = exc_filter
+            return exc_query
+        if model == FeatureKeyAlias:
+            # Alias canonicalization (Phase 11): no alias rows by default, so
+            # the resolver must read "not an alias" — every other default MagicMock
+            # is truthy and would silently corrupt the canonical key.
+            alias_query = MagicMock()
+            alias_filter = MagicMock()
+            alias_filter.first.return_value = None
+            alias_query.filter.return_value = alias_filter
+            return alias_query
         return MagicMock()
 
     db.query.side_effect = mock_query
@@ -190,7 +266,7 @@ class TestCheckEntitlement:
 
         result = self._call(db, org_id=999, feature_key="hr.core.employees")
         assert result["state"] == ENTITLED_NOT_CONFIGURED
-        assert result["feature_key"] == "hr.core.employees"
+        assert result["feature_key"] == "hr.records"  # Phase 11: canonical echo
 
     def test_no_plan_code_returns_not_configured(self):
         """Subscription exists but plan_code is None → ENTITLED_NOT_CONFIGURED."""
@@ -244,15 +320,15 @@ class TestCheckEntitlement:
             result = check_entitlement(db, 1, "nonexistent.typo")
             assert result["state"] == NOT_ENTITLED
 
-    def test_ai_autonomous_action_hard_block(self):
-        """hr.ai.autonomous_action → NOT_ENTITLED unconditionally,
-        regardless of subscription or mapping. Section 8 E4."""
+    def test_retired_autonomous_action_canonicalizes_to_hard_block(self):
+        """hr.ai.autonomous_action → canonical → NOT_ENTITLED unconditionally,
+        regardless of subscription or mapping. Section 8 E4 (Phase 11)."""
         sub = _make_subscription(plan_code=PlanCode.ENTERPRISE)
         db = _build_mock_db(subscription=sub)
 
         result = check_entitlement(db, 1, "hr.ai.autonomous_action")
         assert result["state"] == NOT_ENTITLED
-        assert result["feature_key"] == "hr.ai.autonomous_action"
+        assert result["feature_key"] == "hr.ai.autonomous_decision"
 
     def test_ai_autonomous_action_hard_block_even_with_row(self):
         """hr.ai.autonomous_action → NOT_ENTITLED even if someone manually
@@ -317,12 +393,14 @@ class TestComputeEntitlementSnapshot:
             assert state == ENTITLED_NOT_CONFIGURED
 
     def test_snapshot_ai_key_always_not_entitled(self):
-        """Snapshot always marks hr.ai.autonomous_action as NOT_ENTITLED."""
+        """Snapshot always marks the canonical autonomous key as NOT_ENTITLED
+        and never resurrects the retired legacy spelling (Phase 11)."""
         sub = _make_subscription(plan_code=PlanCode.ENTERPRISE)
         db = _build_mock_db(subscription=sub)
 
         result = compute_entitlement_snapshot(db, 1)
-        assert result["feature_states"]["hr.ai.autonomous_action"] == NOT_ENTITLED
+        assert result["feature_states"]["hr.ai.autonomous_decision"] == NOT_ENTITLED
+        assert "hr.ai.autonomous_action" not in result["feature_states"]
 
     def test_snapshot_persists_to_db(self):
         """compute_entitlement_snapshot creates a BillingEntitlementSnapshot row."""
@@ -413,11 +491,195 @@ class TestEvaluationTrialProfile:
         result = compute_entitlement_snapshot(db, 1)
         assert result["feature_states"][_TRIAL_KEY] == ENTITLED_AVAILABLE
         assert result["feature_states"][_NON_TRIAL_KEY] == TRIAL_RESTRICTED
-        assert result["feature_states"]["hr.ai.autonomous_action"] == NOT_ENTITLED
+        assert result["feature_states"]["hr.ai.autonomous_decision"] == NOT_ENTITLED
+        assert "hr.ai.autonomous_action" not in result["feature_states"]
         # None of the trial-profile keys should still read as a plan gap.
         assert ENTITLED_NOT_CONFIGURED not in {
             result["feature_states"][k] for k in TRIAL_PROFILE_FEATURE_KEYS
         }
+
+
+# ── Phase 2: Section 15.1 reason codes + mapping mode/limit_ref ─────────────
+
+class TestReasonCodeVocabulary:
+    """Section 15.1 mandates exactly 13 reason codes."""
+
+    def test_all_13_mandatory_codes_present(self):
+        from app.modules.billing.entitlement_service import REASON_CODES
+        assert REASON_CODES == {
+            "PLAN_REQUIRED",
+            "ROLE_DENIED",
+            "TENANT_SCOPE_DENIED",
+            "TRIAL_RESTRICTED",
+            "SUBSCRIPTION_INACTIVE",
+            "PAYMENT_RESTRICTED",
+            "CONFIG_REQUIRED",
+            "DEPENDENCY_REQUIRED",
+            "POLICY_BLOCKED",
+            "JURISDICTION_BLOCKED",
+            "LIMIT_REACHED",
+            "INCIDENT_DISABLED",
+            "DOWNGRADE_PENDING_READ_ONLY",
+        }
+
+
+class TestDecisionContract:
+    """Section 15 decision object carries allowed/required_plan/limit_ref."""
+
+    KEY = "hr.recruitment.core"
+
+    def _call(self, db, org_id=700):
+        invalidate_entitlement_cache(org_id)
+        return check_entitlement(db, org_id, self.KEY)
+
+    def test_happy_decision_carries_spec_keys(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        mapping = _make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        r = self._call(db)
+        assert r["allowed"] is True
+        assert r["required_plan"] == "core"
+        assert r["limit_ref"] is None
+        assert r["reason_code"] is None
+        for key in ("state", "feature_key", "catalog_version", "allowed", "mode",
+                    "reason_code", "required_plan", "limit_ref", "retryable",
+                    "snapshot_version", "correlation_id"):
+            assert key in r
+
+    def test_not_entitled_reports_upgrade_target(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        db = _build_mock_db(
+            subscription=sub,
+            mapping_first={"feature_key": self.KEY, "state": NOT_ENTITLED,
+                           "plan_code": PlanCode.CORE},
+            mappings=[_make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.ADVANCED)],
+        )
+        r = self._call(db)
+        assert r["state"] == NOT_ENTITLED
+        assert r["allowed"] is False
+        assert r["reason_code"] == "PLAN_REQUIRED"
+        assert r["required_plan"] == "advanced"
+        assert r["mode"] == "disabled_plan"
+
+    def test_missing_mapping_reports_upgrade_target(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        db = _build_mock_db(
+            subscription=sub,
+            mapping_first=None,
+            mappings=[_make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.ADVANCED)],
+        )
+        r = self._call(db)
+        assert r["state"] == ENTITLED_NOT_CONFIGURED
+        assert r["required_plan"] == "advanced"
+
+    def test_mapping_mode_and_limit_ref_surface(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        mapping = _make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE,
+                                mode="read_only", limit_ref="core.exports.limit=20/min")
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        r = self._call(db)
+        assert r["mode"] == "read_only"
+        assert r["limit_ref"] == "core.exports.limit=20/min"
+        assert r["allowed"] is True
+
+
+class TestSubscriptionInactive:
+    """Phase 2: inactive subscriptions stop resolving plan mappings
+    (reason SUBSCRIPTION_INACTIVE) instead of leaking entitled decisions."""
+
+    KEY = "hr.identity.sso"
+
+    def _call(self, db, org_id=710):
+        invalidate_entitlement_cache(org_id)
+        return check_entitlement(db, org_id, self.KEY)
+
+    def test_canceled_subscription_is_inactive(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE, status=SubscriptionStatus.CANCELED)
+        mapping = _make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        r = self._call(db)
+        assert r["state"] == NOT_ENTITLED
+        assert r["reason_code"] == "SUBSCRIPTION_INACTIVE"
+        assert r["allowed"] is False
+
+    def test_terminated_subscription_is_inactive(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE, status=SubscriptionStatus.TERMINATED)
+        mapping = _make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        r = self._call(db)
+        assert r["reason_code"] == "SUBSCRIPTION_INACTIVE"
+
+    def test_cancel_at_period_end_keeps_full_access(self):
+        # Grace: plan remains usable through the current billing period.
+        sub = _make_subscription(plan_code=PlanCode.CORE, status=SubscriptionStatus.CANCEL_AT_PERIOD_END)
+        mapping = _make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        r = self._call(db)
+        assert r["state"] == ENTITLED_AVAILABLE
+        assert r["allowed"] is True
+
+    def test_active_subscription_unaffected(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE, status=SubscriptionStatus.ACTIVE)
+        mapping = _make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        r = self._call(db)
+        assert r["state"] == ENTITLED_AVAILABLE
+        assert r["reason_code"] is None
+
+
+class TestDowngradePendingReadOnly:
+    """Phase 2: a scheduled downgrade clamps losing features to READ_ONLY with
+    reason DOWNGRADE_PENDING_READ_ONLY until execution."""
+
+    LOST_KEY = "hr.documents.bulk_distribution"
+    KEPT_KEY = "hr.recruitment.core"
+
+    def _lost_pending(self):
+        lost = MagicMock()
+        lost.entitlement_delta = {"lost": [self.LOST_KEY], "gained": []}
+        return lost
+
+    def test_lost_feature_is_read_only(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        mapping = _make_mapping(self.LOST_KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping], pending_changes=[self._lost_pending()])
+        invalidate_entitlement_cache(780)
+        r = check_entitlement(db, 780, self.LOST_KEY)
+        assert r["state"] == READ_ONLY
+        assert r["reason_code"] == "DOWNGRADE_PENDING_READ_ONLY"
+        assert r["mode"] == "read_only"
+
+    def test_unaffected_feature_keeps_mapping_state(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        mapping = _make_mapping(self.KEPT_KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping], pending_changes=[self._lost_pending()])
+        invalidate_entitlement_cache(781)
+        r = check_entitlement(db, 781, self.KEPT_KEY)
+        assert r["state"] == ENTITLED_AVAILABLE
+        assert r["reason_code"] is None
+
+    def test_no_pending_downgrade_no_clamp(self):
+        sub = _make_subscription(plan_code=PlanCode.CORE)
+        mapping = _make_mapping(self.LOST_KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping])
+        invalidate_entitlement_cache(782)
+        r = check_entitlement(db, 782, self.LOST_KEY)
+        assert r["state"] == ENTITLED_AVAILABLE
+
+
+class TestSnapshotDowngradePending:
+    """The compiled snapshot also reflects READ_ONLY during a pending downgrade."""
+
+    LOST_KEY = "hr.identity.sso"
+
+    def test_snapshot_marks_lost_feature_read_only(self):
+        lost = MagicMock()
+        lost.entitlement_delta = {"lost": [self.LOST_KEY], "gained": []}
+        sub = _make_subscription(plan_code=PlanCode.CORE, status=SubscriptionStatus.ACTIVE)
+        mapping = _make_mapping(self.LOST_KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.CORE)
+        db = _build_mock_db(subscription=sub, mappings=[mapping], pending_changes=[lost])
+        snap = compute_entitlement_snapshot(db, 790)
+        assert snap["feature_states"][self.LOST_KEY] == READ_ONLY
 
 
 # ── Integration tests (require real DB) ─────────────────────────────────────

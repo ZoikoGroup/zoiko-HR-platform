@@ -34,10 +34,12 @@ from app.modules.billing import service
 from app.modules.billing import catalog_service
 from app.modules.billing import plan_change_service
 from app.modules.billing import refund_service
+from app.modules.billing import exception_service
 from app.modules.billing.models import (
     BillingAuditAction, BillingAuditLog, BillingInvoice, BillingPlan, BillingWebhookEvent,
     BillingPlanChange, BillingRefundRequest, DelinquencyCase,
     ProviderRef, RefundRequestStatus, SubscriptionStatus,
+    CommercialExceptionStatus, EntitlementMode,
 )
 from app.modules.billing.entitlement_service import compute_entitlement_snapshot
 from app.modules.billing.idempotency import execute_idempotent, require_idempotency_key
@@ -119,6 +121,10 @@ from app.modules.billing.schemas import (
     MeReactivateResponse,
     MeDowngradeImpactRequest,
     MeDowngradeImpactResponse,
+    CommercialExceptionRequest,
+    CommercialExceptionResponse,
+    CommercialExceptionListResponse,
+    CommercialExceptionDecisionRequest,
 )
 
 logger = logging.getLogger("zoiko.billing")
@@ -836,15 +842,28 @@ def create_discount(
     summary="Compiled entitlement snapshot for an organization",
     description=(
         "Returns the resolved entitlement state for every feature key, "
-        "backed by the organization's plan and contract overrides."
+        "backed by the organization's plan and contract overrides. Pass an "
+        "optional feature_key query param to get a single Section 15 decision "
+        "(state/mode/reason_code/required_plan/limit_ref) instead of the full "
+        "snapshot — client-safe modes/reasons only (§16)."
     ),
 )
 def get_entitlement_snapshot(
     org_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_viewer),
+    feature_key: str | None = None,
 ):
     _check_org_scope(current_user, org_id)
+    if feature_key is not None:
+        from app.modules.billing.entitlement_service import check_entitlement
+        from app.modules.billing.feature_keys import FEATURE_KEYS
+
+        if feature_key not in FEATURE_KEYS:
+            raise BadRequestException(
+                f"'{feature_key}' is not a registered feature key."
+            )
+        return check_entitlement(db, org_id, feature_key)
     return compute_entitlement_snapshot(db, org_id)
 
 
@@ -1713,6 +1732,9 @@ def reactivate_me_subscription(
     subscription.status = SubscriptionStatus.ACTIVE
     db.commit()
     db.refresh(subscription)
+    from app.modules.billing.entitlement_service import invalidate_entitlement_cache
+
+    invalidate_entitlement_cache(org_id)
 
     service.log_billing_audit(
         db,
@@ -1765,4 +1787,124 @@ def me_downgrade_impact(
         blockers=blockers_to_dict(blockers),
         current_plan_code=current_plan,
         target_plan_code=data.target_plan_code,
+    )
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Commercial Exception Entitlements — ZHR-COM-ENT-001 §19.1
+# ═══════════════════════════════════════════════════════════════════════════
+# Two-step workflow: tenant billing authority requests → Platform Billing Ops
+# (super_admin) approves/rejects. Approval is cross-actor by construction
+# (approver must not equal requester) and every lifecycle event is audited.
+
+def _exception_actor_email(current_user) -> str:
+    return getattr(current_user, "email", None) or f"user-{getattr(current_user, 'id', 'unknown')}"
+
+
+@billing_router.post(
+    "/exceptions/request",
+    response_model=CommercialExceptionResponse,
+    summary="Request a time-bound entitlement exception (org billing authority)",
+)
+def request_exception_endpoint(
+    org_id: int,
+    data: CommercialExceptionRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    _check_org_scope(current_user, org_id)
+    try:
+        mode = EntitlementMode(data.mode)
+    except ValueError:
+        raise BadRequestException(
+            f"'{data.mode}' is not a valid entitlement mode. "
+            "Grantable modes: enabled, read_only."
+        )
+    exception = exception_service.request_exception(
+        db,
+        organization_id=org_id,
+        feature_key=data.feature_key,
+        mode=mode,
+        reason=data.reason,
+        requested_by=_exception_actor_email(current_user),
+        starts_at=data.starts_at,
+        expires_at=data.expires_at,
+    )
+    return exception
+
+
+@billing_router.post(
+    "/exceptions/{exception_id}/approve",
+    response_model=CommercialExceptionResponse,
+    summary="Approve a pending exception (Platform Billing Ops only)",
+)
+def approve_exception_endpoint(
+    exception_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    exception = exception_service.approve_exception(
+        db,
+        exception_id=exception_id,
+        approved_by=_exception_actor_email(current_user),
+    )
+    return exception
+
+
+@billing_router.post(
+    "/exceptions/{exception_id}/reject",
+    response_model=CommercialExceptionResponse,
+    summary="Reject a pending exception (Platform Billing Ops only)",
+)
+def reject_exception_endpoint(
+    exception_id: int,
+    data: CommercialExceptionDecisionRequest = CommercialExceptionDecisionRequest(),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    exception = exception_service.reject_exception(
+        db,
+        exception_id=exception_id,
+        rejected_by=_exception_actor_email(current_user),
+        rejection_reason=data.decision_reason or "",
+    )
+    return exception
+
+
+@billing_router.post(
+    "/exceptions/{exception_id}/revoke",
+    response_model=CommercialExceptionResponse,
+    summary="Revoke a live exception immediately (Platform Billing Ops only)",
+)
+def revoke_exception_endpoint(
+    exception_id: int,
+    data: CommercialExceptionDecisionRequest = CommercialExceptionDecisionRequest(),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    exception = exception_service.revoke_exception(
+        db,
+        exception_id=exception_id,
+        revoked_by=_exception_actor_email(current_user),
+        revocation_reason=data.decision_reason or "",
+    )
+    return exception
+
+
+@billing_router.get(
+    "/exceptions/{org_id}",
+    response_model=CommercialExceptionListResponse,
+    summary="List entitlement exceptions for an organization",
+)
+def list_exceptions_endpoint(
+    org_id: int,
+    status: Optional[CommercialExceptionStatus] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    _check_org_scope(current_user, org_id)
+    exceptions = exception_service.list_exceptions(db, organization_id=org_id, status=status)
+    return CommercialExceptionListResponse(
+        list=[CommercialExceptionResponse.model_validate(e) for e in exceptions],
+        total=len(exceptions),
     )

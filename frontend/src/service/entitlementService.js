@@ -5,16 +5,14 @@ import { api } from "./api";
  * for an organization from the server-authoritative resolver.
  */
 export const entitlementService = {
-  /**
-   * Get the full entitlement snapshot for an organization.
-   * Returns { organization_id, package, plan_code, feature_states,
-   *           contract_overrides, catalog_version, feature_key_registry_version }
-   */
+  /** Get the full entitlement snapshot for an organization. */
   getSnapshot: (orgId) => api.get(`/billing/entitlements/${orgId}`),
 
   /**
-   * Check a single feature key for the current user's organization.
-   * Returns { state, feature_key, catalog_version }
+   * Resolve one feature key to a Section 15 decision.
+   * Returns { state, feature_key, allowed, mode, reason_code, required_plan,
+   *           limit_ref, retryable, catalog_version, snapshot_version, correlation_id }
+   * Client-safe modes/reasons only; the server stays authoritative.
    */
   checkFeature: (orgId, featureKey) =>
     api.get(`/billing/entitlements/${orgId}`, {

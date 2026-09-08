@@ -45,8 +45,17 @@ def test_no_coverage_gaps():
     assert rem.coverage_gap_keys() == set()
 
 
-def test_hard_blocked_key_is_unmapped_by_design():
-    assert "hr.ai.autonomous_action" not in rem.mapped_feature_keys()
+def test_hard_blocked_keys_are_unmapped_by_design():
+    for key in ("hr.ai.autonomous_action", "hr.ai.autonomous_decision"):
+        assert key not in rem.mapped_feature_keys()
+
+
+def test_all_appendix_a_keys_are_registered_or_allowlisted():
+    from app.modules.billing.feature_keys import FEATURE_KEYS
+    import app.modules.billing.feature_keys as fk
+    for key in fk._APPENDIX_A_KEYS:
+        assert key in FEATURE_KEYS
+        assert key in rem.NOT_BUILT_FEATURE_KEYS or key in rem.mapped_feature_keys()
 
 
 def test_sweep_reports_no_drift_and_no_unmapped_built_keys():

@@ -229,6 +229,24 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{g.organization_id}",
         ))
 
+    # Pending commercial exception approvals (ZHR-COM-ENT-001 §19.1) — the
+    # two-step workflow's operator queue. Keeping the list here forces every
+    # request into a visible review path before it can grant anything.
+    from app.modules.billing.models import CommercialExceptionEntitlement, CommercialExceptionStatus
+
+    for exc in db.query(CommercialExceptionEntitlement).filter(
+        CommercialExceptionEntitlement.status == CommercialExceptionStatus.PENDING_APPROVAL
+    ).all():
+        items.append(AttentionItem(
+            severity="high",
+            issue=f"Entitlement exception request: '{exc.feature_key}' ({exc.mode.value})",
+            organization_id=exc.organization_id,
+            organization_name=org_names.get(exc.organization_id),
+            detected_at=exc.created_at,
+            action_label="Review",
+            action_href=f"/super-admin/billing/exceptions?org_id={exc.organization_id}",
+        ))
+
     for t in db.query(SupportTicket).filter(
         SupportTicket.priority.in_(["urgent", "high"]), SupportTicket.status == "open"
     ).all():
@@ -331,6 +349,11 @@ def command_center_overview(days: int = 30, db: Session = Depends(get_db), _=Dep
     attention = _compute_attention(db)
     critical_attention_count = sum(1 for a in attention if a.severity in ("critical", "high"))
 
+    from app.modules.billing.models import CommercialExceptionEntitlement, CommercialExceptionStatus
+    pending_exceptions = db.query(CommercialExceptionEntitlement).filter(
+        CommercialExceptionEntitlement.status == CommercialExceptionStatus.PENDING_APPROVAL
+    ).count()
+
     pricing_configured = db.query(BillingPlan).filter(BillingPlan.monthly_price.isnot(None)).first() is not None
 
     return OverviewResponse(
@@ -356,6 +379,7 @@ def command_center_overview(days: int = 30, db: Session = Depends(get_db), _=Dep
         banner_status=banner_status,
         active_p1_incidents=active_p1,
         mrr_pricing_configured=pricing_configured,
+        pending_exception_approvals=pending_exceptions,
     )
 
 

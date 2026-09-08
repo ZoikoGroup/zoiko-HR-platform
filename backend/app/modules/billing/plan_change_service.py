@@ -27,6 +27,8 @@ from app.modules.billing.models import (
     BillingPlan,
     BillingPlanChange,
     BillingSubscription,
+    DowngradeImpactItem,
+    DowngradeImpactSeverity,
     PlanChangeStatus,
     PlanChangeType,
     PlanCode,
@@ -256,6 +258,9 @@ def schedule_plan_change(
     db.commit()
     db.refresh(change)
 
+    _sync_impact_items(db, change, blockers)
+    _invalidate_entitlement_cache(organization_id)
+
     if blockers_blocked:
         logger.warning(
             "[plan_change] Org %d downgrade BLOCKED — %d blocking blockers",
@@ -263,6 +268,55 @@ def schedule_plan_change(
         )
 
     return change
+
+
+# ── DowngradeImpactItem persistence (ZHR-COM-ENT-001 §14) ──────────────────
+
+def _impact_severity(blocker_severity: str) -> DowngradeImpactSeverity:
+    """Map a Blocker severity to the Section 14 vocabulary. Unknown/check-error
+    severities fail closed to BLOCKING so a broken check can never slip a
+    downgrade through silently."""
+    try:
+        return DowngradeImpactSeverity(blocker_severity)
+    except ValueError:
+        return DowngradeImpactSeverity.BLOCKING
+
+
+def _sync_impact_items(db: Session, change: BillingPlanChange, blockers) -> None:
+    """Replace the durable per-change impact rows with the current blocker
+    set. Called at schedule time and again at execution-time re-check so the
+    concrete downgrade_impact_item rows always mirror the resolved blockers
+    instead of only living in the JSON blockers_snapshot."""
+    db.query(DowngradeImpactItem).filter(
+        DowngradeImpactItem.plan_change_id == change.id
+    ).delete(synchronize_session=False)
+    for b in blockers:
+        db.add(DowngradeImpactItem(
+            plan_change_id=change.id,
+            feature_key=b.feature_key,
+            severity=_impact_severity(b.severity),
+            remediation=b.message,
+        ))
+    db.commit()
+
+
+def _resolve_impact_items(db: Session, change: BillingPlanChange) -> None:
+    """Mark every outstanding impact item for a change as resolved once the
+    change executes (the feared loss actually happened — the item is now a
+    historical auditable record, no longer an open concern)."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = (
+        db.query(DowngradeImpactItem)
+        .filter(
+            DowngradeImpactItem.plan_change_id == change.id,
+            DowngradeImpactItem.resolved_at.is_(None),
+        )
+        .all()
+    )
+    for r in rows:
+        r.resolved_at = now
+    if rows:
+        db.commit()
 
 
 # ── Cancel scheduled change ───────────────────────────────────────────────
@@ -349,6 +403,7 @@ def execute_due_changes(db: Session) -> dict:
                 change.status = PlanChangeStatus.BLOCKED
                 change.blockers_snapshot = blockers_to_dict(blockers)
                 db.commit()
+                _sync_impact_items(db, change, blockers)
                 blocked += 1
                 results.append({
                     "change_id": change.id,
@@ -372,6 +427,7 @@ def execute_due_changes(db: Session) -> dict:
             change.executed_at = now
             db.commit()
 
+            _resolve_impact_items(db, change)
             _invalidate_entitlement_cache(change.organization_id)
 
             _log_plan_change_audit(db, change, "executed")
