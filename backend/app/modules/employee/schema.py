@@ -230,6 +230,11 @@ class RegisterRequest(BaseModel):
         description="Evaluation package scope. Enterprise is contract-priced "
         "and sales-led only (Section 2) — not a valid self-serve value.",
     )
+    billing_cycle: Literal["monthly", "annual"] = Field(
+        "monthly",
+        description="Pricing cycle used for the registration quotation emailed "
+        "to the registrant (see quotation_service.create_and_send_quotation).",
+    )
     product: Optional[str] = Field(None, example="payroll")
     products: Optional[List[str]] = Field(None, example=["hr", "payroll"])
     org_type: Optional[str] = Field(None, example="corporation")

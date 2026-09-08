@@ -25,6 +25,7 @@ from app.modules.billing.models import (
     BillingAuditLog,
     BillingRefundRequest,
     BillingSubscription,
+    ProviderRef,
     RefundRequestStatus,
     RefundRequestType,
 )
@@ -238,7 +239,29 @@ def get_refund_requests(
     return q.order_by(BillingRefundRequest.created_at.desc()).all()
 
 
+def get_all_refund_requests(
+    db: Session,
+    organization_id: Optional[int] = None,
+    status: Optional[RefundRequestStatus] = None,
+) -> list[BillingRefundRequest]:
+    """Return refund requests across all orgs or for a specific org."""
+    q = db.query(BillingRefundRequest)
+    if organization_id:
+        q = q.filter(BillingRefundRequest.organization_id == organization_id)
+    if status:
+        q = q.filter(BillingRefundRequest.status == status)
+    return q.order_by(BillingRefundRequest.created_at.desc()).all()
+
+
 # ── Stripe execution helpers ──────────────────────────────────────────────
+
+def _get_stripe_subscription_id(db: Session, organization_id: int) -> Optional[str]:
+    """BillingSubscription has no stripe_subscription_id column of its own —
+    that lives on ProviderRef, one row per org (see create_checkout_session's
+    provider_ref lookup in router.py for the same pattern)."""
+    ref = db.query(ProviderRef).filter(ProviderRef.organization_id == organization_id).first()
+    return ref.stripe_subscription_id if ref else None
+
 
 def _execute_stripe_refund(
     db: Session,
@@ -254,13 +277,14 @@ def _execute_stripe_refund(
         logger.warning("[refund] Stripe not configured — recording refund without Stripe execution")
         return {"refund_id": f"local_refund_{request_id}", "status": "local"}
 
-    if not subscription.stripe_subscription_id:
+    stripe_subscription_id = _get_stripe_subscription_id(db, subscription.organization_id)
+    if not stripe_subscription_id:
         raise BadRequestException("No Stripe subscription ID — cannot execute refund")
 
     try:
         from app.modules.billing.stripe_client import get_stripe
         stripe = get_stripe()
-        sub = stripe.Subscription.retrieve(subscription.stripe_subscription_id)
+        sub = stripe.Subscription.retrieve(stripe_subscription_id)
         if not sub.latest_invoice:
             raise BadRequestException("No invoice found on subscription")
 
@@ -292,13 +316,14 @@ def _execute_stripe_credit(
         logger.warning("[refund] Stripe not configured — recording credit without Stripe execution")
         return {"invoice_id": "local_credit", "status": "local"}
 
-    if not subscription.stripe_subscription_id:
+    stripe_subscription_id = _get_stripe_subscription_id(db, subscription.organization_id)
+    if not stripe_subscription_id:
         raise BadRequestException("No Stripe subscription ID — cannot execute credit")
 
     try:
         from app.modules.billing.stripe_client import get_stripe
         stripe = get_stripe()
-        sub = stripe.Subscription.retrieve(subscription.stripe_subscription_id)
+        sub = stripe.Subscription.retrieve(stripe_subscription_id)
         customer_id = sub.customer
 
         return create_credit_balance_adjustment(

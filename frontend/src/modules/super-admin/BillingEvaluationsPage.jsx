@@ -4,7 +4,14 @@ import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { billingService } from "../../service/billingService";
 
-const DATA_CLASSIFICATIONS = ["SYNTHETIC", "PRODUCTION_LIKE", "PRODUCTION"];
+// Must match app.modules.billing.models.DataClassification exactly (lowercase
+// enum values) — this previously listed SYNTHETIC/PRODUCTION_LIKE/PRODUCTION,
+// none of which the backend accepts, so every "Start Evaluation" submission
+// failed with a 422 regardless of which option was picked.
+const DATA_CLASSIFICATIONS = [
+  { value: "synthetic", label: "Synthetic" },
+  { value: "customer_controlled", label: "Customer Controlled" },
+];
 
 export default function BillingEvaluationsPage() {
   const [selectedOrg, setSelectedOrg] = useState(null);
@@ -15,7 +22,7 @@ export default function BillingEvaluationsPage() {
   const [busy, setBusy] = useState(null);
 
   const [startModal, setStartModal] = useState(false);
-  const [startForm, setStartForm] = useState({ evaluation_ends_at: "", approved_package_scope: "", data_classification: "SYNTHETIC", conversion_owner: "" });
+  const [startForm, setStartForm] = useState({ evaluation_ends_at: "", approved_package_scope: "", data_classification: "synthetic", conversion_owner: "" });
 
   const [plans, setPlans] = useState([]);
 
@@ -28,16 +35,21 @@ export default function BillingEvaluationsPage() {
 
 
   const loadData = useCallback(async () => {
-    if (!selectedOrg) return;
     setLoading(true);
     setError(null);
     try {
-      const [evalData, convData] = await Promise.all([
-        billingService.getEvaluations(selectedOrg.id),
-        billingService.getConversions(selectedOrg.id),
-      ]);
-      setEvaluations(evalData.list || []);
-      setConversions(convData.list || []);
+      if (selectedOrg) {
+        const [evalData, convData] = await Promise.all([
+          billingService.getEvaluations(selectedOrg.id),
+          billingService.getConversions(selectedOrg.id),
+        ]);
+        setEvaluations(evalData.list || []);
+        setConversions(convData.list || []);
+      } else {
+        const evalData = await billingService.getPlatformEvaluations();
+        setEvaluations(evalData.list || []);
+        setConversions([]);
+      }
     } catch (e) {
       setError(e.message || "Failed to load evaluations");
     } finally {
@@ -59,7 +71,7 @@ export default function BillingEvaluationsPage() {
         conversion_owner: startForm.conversion_owner || null,
       });
       setStartModal(false);
-      setStartForm({ evaluation_ends_at: "", approved_package_scope: "", data_classification: "SYNTHETIC", conversion_owner: "" });
+      setStartForm({ evaluation_ends_at: "", approved_package_scope: "", data_classification: "synthetic", conversion_owner: "" });
       loadData();
     } catch (e) {
       setError(e.message || "Failed to start evaluation");
@@ -120,15 +132,7 @@ export default function BillingEvaluationsPage() {
         </div>
       )}
 
-      {!selectedOrg ? (
-        <div className="rounded-3xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
-          <Search className="mx-auto mb-3 h-10 w-10 text-slate-300" />
-          <p className="text-sm font-semibold text-slate-600">Search for an organization to view its evaluations.</p>
-          <p className="mt-1 text-sm text-slate-400 max-w-md mx-auto">
-            A cross-organization view isn't available yet — this page will add one automatically once that endpoint exists.
-          </p>
-        </div>
-      ) : loading ? (
+      {loading ? (
         <div className="flex items-center justify-center py-16">
           <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
         </div>
@@ -137,28 +141,49 @@ export default function BillingEvaluationsPage() {
           <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-                <Hourglass className="h-5 w-5 text-[#3B82F6]" /> Evaluations for {selectedOrg.name}
+                <Hourglass className="h-5 w-5 text-[#3B82F6]" />{" "}
+                {selectedOrg ? `Evaluations for ${selectedOrg.name}` : `All Platform Evaluations (${evaluations.length})`}
               </h3>
-              <button
-                onClick={() => setStartModal(true)}
-                className="flex items-center gap-2 rounded-full bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2563EB]"
-              >
-                <PlayCircle className="h-4 w-4" /> Start Evaluation
-              </button>
+              {selectedOrg && (
+                <button
+                  onClick={() => setStartModal(true)}
+                  className="flex items-center gap-2 rounded-full bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#2563EB]"
+                >
+                  <PlayCircle className="h-4 w-4" /> Start Evaluation
+                </button>
+              )}
             </div>
 
             {evaluations.length === 0 ? (
-              <div className="text-center py-8 text-slate-400 text-sm">No evaluations for this organization yet</div>
+              <div className="text-center py-8 text-slate-400 text-sm">
+                {selectedOrg ? "No evaluations for this organization yet" : "No active or historical evaluations found"}
+              </div>
             ) : (
               <div className="space-y-3">
-                {evaluations.map((ev) => (
+                {evaluations.map((ev) => {
+                  // EvaluationStatus.ACTIVE.value on the backend is the
+                  // lowercase string "active" (enum.value, not enum.name) —
+                  // comparing against "ACTIVE" here never matched, so the
+                  // badge always rendered gray and Convert/End never showed
+                  // up for a real active evaluation.
+                  const isActive = String(ev.status).toLowerCase() === "active";
+                  return (
                   <div key={ev.id} className="rounded-2xl border border-slate-100 bg-slate-50/50 p-4 flex items-start justify-between gap-4">
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold ${ev.status === "ACTIVE" ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
+                        <span className={`inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${isActive ? "bg-emerald-50 text-emerald-700 border-emerald-200" : "bg-slate-100 text-slate-600 border-slate-200"}`}>
                           {ev.status}
                         </span>
-                        <span className="text-xs font-medium text-slate-500">{ev.data_classification}</span>
+                        <span className="text-xs font-medium text-slate-500 capitalize">{String(ev.data_classification || "").replace(/_/g, " ")}</span>
+                        {ev.organization_name ? (
+                          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                            {ev.organization_name}
+                          </span>
+                        ) : ev.organization_id ? (
+                          <span className="text-xs font-bold text-slate-700 bg-slate-100 px-2 py-0.5 rounded-md">
+                            Org #{ev.organization_id}
+                          </span>
+                        ) : null}
                       </div>
                       <div className="mt-1 flex items-center gap-3 text-xs text-slate-500">
                         <span className="flex items-center gap-1"><Clock size={12} /> Ends {ev.evaluation_ends_at ? new Date(ev.evaluation_ends_at).toLocaleString() : "—"}</span>
@@ -166,7 +191,7 @@ export default function BillingEvaluationsPage() {
                         {ev.conversion_owner && <span>Owner: {ev.conversion_owner}</span>}
                       </div>
                     </div>
-                    {ev.status === "ACTIVE" && (
+                    {isActive && (
                       <div className="flex gap-2 shrink-0">
                         <button
                           onClick={() => setConvertModal(ev)}
@@ -184,7 +209,8 @@ export default function BillingEvaluationsPage() {
                       </div>
                     )}
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>
@@ -234,7 +260,7 @@ export default function BillingEvaluationsPage() {
                   onChange={(e) => setStartForm((f) => ({ ...f, data_classification: e.target.value }))}
                   className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]"
                 >
-                  {DATA_CLASSIFICATIONS.map((c) => <option key={c} value={c}>{c}</option>)}
+                  {DATA_CLASSIFICATIONS.map((c) => <option key={c.value} value={c.value}>{c.label}</option>)}
                 </select>
               </div>
               <div>

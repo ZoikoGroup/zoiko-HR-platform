@@ -34,7 +34,7 @@ def _cors_headers(request: Request) -> dict:
     origin = request.headers.get("origin", "")
     headers = {
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Idempotency-Key",
         "Access-Control-Expose-Headers": "Content-Disposition",
     }
     if origin in _ALLOWED_ORIGINS:

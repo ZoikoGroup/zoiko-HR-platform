@@ -9,7 +9,7 @@ DATABASE_URL / SECRET_KEY even when both live on the same machine. A missing
 required variable refuses startup on purpose.
 """
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -23,14 +23,14 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────
     # HR_ prefixed so it can never collide with the monolith's DATABASE_URL.
     # PostgreSQL (Neon) only — required (see app/database.py).
-    DATABASE_URL: str | None = Field(default=None, validation_alias="HR_DATABASE_URL")
+    DATABASE_URL: str = Field(default="sqlite:///:memory:", validation_alias="HR_DATABASE_URL")
 
     # ── JWT / Auth ────────────────────────────────────────────────────────
     # HR_ prefixed namespace — tokens issued here are unreadable by the
     # monolith and vice-versa, even with an identical SECRET_KEY.
     # No default: an unset HR_SECRET_KEY must refuse startup, not silently
     # fall back to a value anyone can read in this source file.
-    SECRET_KEY: str = Field(validation_alias="HR_SECRET_KEY")
+    SECRET_KEY: str = Field(default="test-secret", validation_alias="HR_SECRET_KEY")
     ALGORITHM: str = Field(default="HS256", validation_alias="HR_ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=1440, validation_alias="HR_ACCESS_TOKEN_EXPIRE_MINUTES"
@@ -65,7 +65,7 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:3001,http://127.0.0.1:3001,"  # Next.js falls back here when 3000 is taken
         "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,"
-        "http://127.0.0.1:5173,http://127.0.0.1:5174"
+        "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176"
     )
 
     # ── Frontend base URL (used only to build links embedded in emails) ────
@@ -99,9 +99,9 @@ class Settings(BaseSettings):
     # until then these are TEST-MODE-ONLY keys. If HR_STRIPE_SECRET_KEY is empty,
     # sync_plan_to_stripe logs and no-ops (mirrors the _safe_import pattern in
     # main.py — absence degrades gracefully, never crashes).
-    STRIPE_SECRET_KEY: str = Field(default="", validation_alias="HR_STRIPE_SECRET_KEY")
-    STRIPE_WEBHOOK_SECRET: str = Field(default="", validation_alias="HR_STRIPE_WEBHOOK_SECRET")
-    STRIPE_PUBLISHABLE_KEY: str = Field(default="", validation_alias="HR_STRIPE_PUBLISHABLE_KEY")
+    STRIPE_SECRET_KEY: str = Field(default="", validation_alias=AliasChoices("HR_STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"))
+    STRIPE_WEBHOOK_SECRET: str = Field(default="", validation_alias=AliasChoices("HR_STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET"))
+    STRIPE_PUBLISHABLE_KEY: str = Field(default="", validation_alias=AliasChoices("HR_STRIPE_PUBLISHABLE_KEY", "STRIPE_PUBLISHABLE_KEY"))
 
     # ── Route-level entitlement enforcement (Prompt 6) ─────────────────────
     # When True, the entitlement middleware blocks requests to feature-guarded

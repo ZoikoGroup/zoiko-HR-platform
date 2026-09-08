@@ -348,6 +348,29 @@ class DiscountListResponse(BaseModel):
     total: int
 
 
+# ── Registration quotation decision (public, token-based) ──────────────────
+
+class QuotationDecisionRequest(BaseModel):
+    token: str
+    decision: str  # "accept" | "reject" — validated in quotation_service.decide_quotation
+
+
+class QuotationInvoiceResponse(BaseModel):
+    """Authenticated, org-scoped invoice summary for the pay-invoice page —
+    distinct from QuotationDecisionRequest's public token-based flow."""
+    quote_number: str
+    invoice_number: Optional[str] = None
+    plan_id: int
+    plan_code: str
+    plan_name: str
+    billing_cycle: str
+    currency: str
+    amount_display: str
+    status: str
+    organization_id: int
+    organization_name: str
+
+
 # ── Checkout session schemas (Prompt 3) ────────────────────────────────────
 
 class CheckoutSessionRequest(BaseModel):
@@ -418,7 +441,11 @@ class InvoiceListResponse(BaseModel):
 # ── Reconciliation schemas ──────────────────────────────────────────────────
 
 class ReconciliationCaseResponse(BaseModel):
-    id: int
+    # Optional: a clean-match result (or the no-case-found fallback) has no
+    # BillingReconciliationCase row to report an id for — router.py's
+    # reconcile_subscription omits it in both of those branches, which a
+    # required int field would reject at response-validation time.
+    id: Optional[int] = None
     organization_id: int
     reason: str
     status: str
@@ -503,9 +530,12 @@ class PlanChangeScheduleRequest(BaseModel):
 class PlanChangeResponse(BaseModel):
     id: int
     organization_id: int
+    organization_name: Optional[str] = None
     change_type: str
     from_plan_id: Optional[int] = None
+    from_plan_code: Optional[str] = None
     to_plan_id: int
+    to_plan_code: Optional[str] = None
     billing_cycle: str
     effective_at: datetime
     status: str
@@ -547,6 +577,7 @@ class RefundApproveRequest(BaseModel):
 class RefundResponse(BaseModel):
     id: int
     organization_id: int
+    organization_name: Optional[str] = None
     request_type: str
     amount_cents: int
     currency: str

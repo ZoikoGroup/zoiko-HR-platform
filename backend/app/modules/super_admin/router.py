@@ -213,8 +213,14 @@ def list_organizations(
         q = q.filter(Organization.status.ilike(status))
     if search:
         term = f"%{search}%"
+        # Organization.name is a Python @property (organization_name or
+        # display_name — the old `name` column was never created), so it has
+        # no SQL expression to filter on; querying it directly crashes with
+        # "'property' object has no attribute 'ilike'". Filter on the real
+        # underlying columns instead.
         q = q.filter(
-            Organization.name.ilike(term)
+            Organization.organization_name.ilike(term)
+            | Organization.display_name.ilike(term)
             | Organization.organization_code.ilike(term)
         )
     total = q.count()

@@ -18,10 +18,12 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request
+from fastapi.responses import HTMLResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import (
+    get_current_billing_actor,
     get_current_billing_admin,
     get_current_billing_owner,
     get_current_billing_viewer,
@@ -29,12 +31,14 @@ from app.core.dependencies import (
     require_organization_access,
     get_current_super_admin,
 )
-from app.core.exceptions import ForbiddenException, AlreadyExistsException, BadRequestException
+from app.core.exceptions import ForbiddenException, AlreadyExistsException, BadRequestException, NotFoundException
+from app.core.rate_limiter import limiter
 from app.modules.billing import service
 from app.modules.billing import catalog_service
 from app.modules.billing import plan_change_service
 from app.modules.billing import refund_service
 from app.modules.billing import exception_service
+from app.modules.billing import quotation_service
 from app.modules.billing.models import (
     BillingAuditAction, BillingAuditLog, BillingInvoice, BillingPlan, BillingWebhookEvent,
     BillingPlanChange, BillingRefundRequest, DelinquencyCase,
@@ -85,6 +89,8 @@ from app.modules.billing.schemas import (
     PlatformDelinquencyListResponse,
     PlanChangeCancelRequest,
     PlanChangeListResponse,
+    QuotationDecisionRequest,
+    QuotationInvoiceResponse,
     PlanChangePreviewRequest,
     PlanChangePreviewResponse,
     PlanChangeResponse,
@@ -878,7 +884,7 @@ def create_checkout(
     data: CheckoutSessionRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_billing_owner),
+    current_user=Depends(get_current_billing_actor),
     idempotency_key: str = Depends(require_idempotency_key),
 ):
     if not stripe_enabled():
@@ -890,10 +896,16 @@ def create_checkout(
     plan = service.get_plan_by_id(db, data.plan_id)
 
     if not plan.stripe_monthly_price_id and not plan.stripe_annual_price_id:
-        raise BadRequestException(
-            "Selected plan does not have Stripe price IDs configured. "
-            "Run catalog sync first."
-        )
+        # Auto-sync the plan to Stripe on demand if price IDs are missing
+        try:
+            from app.modules.billing.stripe_sync_service import sync_plan_to_stripe
+            sync_plan_to_stripe(db, plan)
+            db.refresh(plan)
+        except Exception as sync_err:
+            raise BadRequestException(
+                f"Selected plan does not have Stripe price IDs configured and "
+                f"auto-sync failed: {sync_err}"
+            )
 
     price_id = (
         plan.stripe_annual_price_id if data.billing_cycle.value == "annual"
@@ -935,7 +947,14 @@ def create_checkout(
             before=None,
             after={"checkout_session_id": result["checkout_session_id"], "plan_id": data.plan_id},
         )
-        return result, 200
+        # Augment result with required fields for response model
+        response_payload = {
+            "checkout_session_id": result["checkout_session_id"],
+            "checkout_url": result["checkout_url"],
+            "organization_id": data.organization_id,
+            "plan_id": data.plan_id,
+        }
+        return response_payload, 200
 
     result, status_code, _ = execute_idempotent(
         db, idempotency_key, data.organization_id, "checkout-session",
@@ -1108,6 +1127,107 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
     result = process_webhook_event(db, event)
     status_code = 200 if result.get("status") != "error" else 500
     return result, status_code
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Registration Quotation — PUBLIC, token-based (no auth; the emailed link IS
+# the credential, matching /auth/accept-invite and /auth/reset-password)
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Separate router — mounted directly in main.py, not via billing_router
+quotation_router = APIRouter(prefix="/billing/quotations", tags=["Billing / Quotations"])
+
+
+def _invalid_quotation_page() -> HTMLResponse:
+    return HTMLResponse(
+        status_code=400,
+        content=(
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>"
+            "<body style=\"font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:40px;\">"
+            "<div style=\"max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;"
+            "padding:32px;text-align:center;\">"
+            "<h1 style=\"color:#7C3AED;\">Zoiko HR</h1>"
+            "<p style=\"color:#374151;line-height:1.6;\">This quotation link is no longer valid — it may have "
+            "expired or already been decided.</p>"
+            "</div></body></html>"
+        ),
+    )
+
+
+def _quotation_decision_page(quotation, raw_token: str) -> HTMLResponse:
+    amount_display = f"{quotation.currency} {quotation.amount_cents / 100:,.2f}"
+    plan_label = quotation.plan_code.value.title() if hasattr(quotation.plan_code, "value") else str(quotation.plan_code).title()
+    return HTMLResponse(
+        content=(
+            "<!DOCTYPE html><html><head><meta charset=\"utf-8\"></head>"
+            "<body style=\"font-family:Arial,sans-serif;background:#f4f4f4;margin:0;padding:40px;\">"
+            "<div style=\"max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;\">"
+            f"<h1 style=\"color:#7C3AED;\">Quotation {quotation.quote_number}</h1>"
+            f"<p style=\"color:#374151;font-size:14px;line-height:1.6;\">Plan: <b>{plan_label}</b> "
+            f"({quotation.billing_cycle.value if hasattr(quotation.billing_cycle, 'value') else quotation.billing_cycle})"
+            f"<br>Amount: <b>{amount_display}</b></p>"
+            "<p id=\"error\" style=\"color:#DC2626;font-size:13px;display:none;\"></p>"
+            "<div style=\"display:flex;gap:12px;margin-top:16px;\">"
+            "<button onclick=\"decide('accept')\" "
+            "style=\"flex:1;background:#059669;color:#ffffff;padding:12px;border:none;border-radius:24px;"
+            "font-size:15px;font-weight:bold;cursor:pointer;\">Accept Quote</button>"
+            "<button onclick=\"decide('reject')\" "
+            "style=\"flex:1;background:#DC2626;color:#ffffff;padding:12px;border:none;border-radius:24px;"
+            "font-size:15px;font-weight:bold;cursor:pointer;\">Reject Quote</button>"
+            "</div>"
+            "<script>"
+            f"var TOKEN={json.dumps(raw_token)};"
+            "var busy=false;"
+            "function decide(choice){"
+            "if(busy)return;busy=true;"
+            "var btns=document.querySelectorAll('button');"
+            "for(var i=0;i<btns.length;i++){btns[i].disabled=true;}"
+            "fetch('/billing/quotations/decide',{method:'POST',headers:{'Content-Type':'application/json'},"
+            "body:JSON.stringify({token:TOKEN,decision:choice})})"
+            ".then(function(r){return r.json().then(function(j){return {ok:r.ok,json:j};});})"
+            ".then(function(res){"
+            "if(res.ok){document.body.innerHTML="
+            "'<div style=\"max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;text-align:center;\">"
+            "<h1 style=\"color:#059669;\">Thank you</h1><p style=\"color:#374151;\">Your decision has been recorded. "
+            "Check your email for confirmation.</p></div>';}"
+            "else{busy=false;for(var i=0;i<btns.length;i++){btns[i].disabled=false;}"
+            "document.getElementById('error').textContent=res.json.detail||'Something went wrong.';"
+            "document.getElementById('error').style.display='block';}"
+            "})"
+            ".catch(function(){busy=false;for(var i=0;i<btns.length;i++){btns[i].disabled=false;}"
+            "document.getElementById('error').textContent='Network error. Please try again.';"
+            "document.getElementById('error').style.display='block';});}"
+            "</script>"
+            "</div></body></html>"
+        ),
+    )
+
+
+@quotation_router.get(
+    "/decide",
+    response_class=HTMLResponse,
+    summary="Render the Accept/Reject decision page for a registration quotation",
+    include_in_schema=False,
+)
+def quotation_decision_form(token: str = Query(...), db: Session = Depends(get_db)):
+    quotation = quotation_service.get_quotation_by_token(db, token)
+    if quotation is None:
+        return _invalid_quotation_page()
+    return _quotation_decision_page(quotation, token)
+
+
+@quotation_router.post(
+    "/decide",
+    summary="Accept or reject a registration quotation from its emailed link",
+)
+@limiter.limit("10/minute")
+def quotation_decision_submit(request: Request, data: QuotationDecisionRequest, db: Session = Depends(get_db)):
+    quotation = quotation_service.decide_quotation(db, data.token, data.decision)
+    return {
+        "status": "ok",
+        "quote_number": quotation.quote_number,
+        "decision": data.decision,
+    }
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1321,6 +1441,38 @@ def cancel_plan_change(
 
 
 @billing_router.get(
+    "/plan-changes",
+    response_model=PlanChangeListResponse,
+    summary="Platform-wide list of plan changes (Super Admin / Billing Viewer)",
+)
+def list_platform_plan_changes(
+    organization_id: Optional[int] = Query(None, description="Filter by organization ID"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    if _get_billing_role(current_user) != "super_admin" and organization_id is None:
+        organization_id = getattr(current_user, "organization_id", None)
+    changes = plan_change_service.get_all_plan_changes(db, organization_id=organization_id)
+    
+    from app.modules.organization.models import Organization
+    from app.modules.billing.models import BillingPlan
+    org_map = {o.id: o.name for o in db.query(Organization.id, Organization.name).all()}
+    plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
+    
+    response_items = []
+    for c in changes:
+        data = PlanChangeResponse.model_validate(c).model_dump()
+        data["organization_name"] = org_map.get(c.organization_id)
+        if c.from_plan_id and not data.get("from_plan_code"):
+            data["from_plan_code"] = plan_map.get(c.from_plan_id)
+        if c.to_plan_id and not data.get("to_plan_code"):
+            data["to_plan_code"] = plan_map.get(c.to_plan_id)
+        response_items.append(PlanChangeResponse(**data))
+        
+    return PlanChangeListResponse(list=response_items, total=len(response_items))
+
+
+@billing_router.get(
     "/plan-changes/{org_id}",
     response_model=PlanChangeListResponse,
     summary="Get pending plan changes for an organization",
@@ -1332,10 +1484,53 @@ def list_plan_changes(
 ):
     _check_org_scope(current_user, org_id)
     changes = plan_change_service.get_pending_changes(db, org_id)
-    return PlanChangeListResponse(list=changes, total=len(changes))
+    
+    from app.modules.organization.models import Organization
+    from app.modules.billing.models import BillingPlan
+    org_map = {o.id: o.name for o in db.query(Organization.id, Organization.name).all()}
+    plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
+    
+    response_items = []
+    for c in changes:
+        data = PlanChangeResponse.model_validate(c).model_dump()
+        data["organization_name"] = org_map.get(c.organization_id)
+        if c.from_plan_id and not data.get("from_plan_code"):
+            data["from_plan_code"] = plan_map.get(c.from_plan_id)
+        if c.to_plan_id and not data.get("to_plan_code"):
+            data["to_plan_code"] = plan_map.get(c.to_plan_id)
+        response_items.append(PlanChangeResponse(**data))
+        
+    return PlanChangeListResponse(list=response_items, total=len(response_items))
 
 
 # ── Refund / Credit endpoints (Section 12 I3) ─────────────────────────────
+
+@billing_router.get(
+    "/refunds",
+    response_model=RefundListResponse,
+    summary="Platform-wide list of refund/credit requests (Super Admin / Billing Viewer)",
+)
+def list_platform_refund_requests(
+    organization_id: Optional[int] = Query(None, description="Filter by organization ID"),
+    status: Optional[RefundRequestStatus] = Query(None, description="Filter by status"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    if _get_billing_role(current_user) != "super_admin" and organization_id is None:
+        organization_id = getattr(current_user, "organization_id", None)
+    requests = refund_service.get_all_refund_requests(db, organization_id=organization_id, status=status)
+    
+    from app.modules.organization.models import Organization
+    org_map = {o.id: o.name for o in db.query(Organization.id, Organization.name).all()}
+    
+    response_items = []
+    for r in requests:
+        data = RefundResponse.model_validate(r).model_dump()
+        data["organization_name"] = org_map.get(r.organization_id)
+        response_items.append(RefundResponse(**data))
+        
+    return RefundListResponse(list=response_items, total=len(response_items))
+
 
 @billing_router.post(
     "/refunds/request",
@@ -1373,10 +1568,11 @@ def approve_refund(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_admin),
 ):
+    actor_str = getattr(current_user, "email", None) or getattr(current_user, "username", None) or str(getattr(current_user, "id", current_user))
     request = refund_service.approve_refund(
         db,
         request_id=request_id,
-        approved_by=current_user,
+        approved_by=actor_str,
     )
     return request
 
@@ -1392,10 +1588,11 @@ def reject_refund(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_admin),
 ):
+    actor_str = getattr(current_user, "email", None) or getattr(current_user, "username", None) or str(getattr(current_user, "id", current_user))
     request = refund_service.reject_refund(
         db,
         request_id=request_id,
-        rejected_by=current_user,
+        rejected_by=actor_str,
         rejection_reason=data.rejection_reason or "",
     )
     return request
@@ -1787,6 +1984,59 @@ def me_downgrade_impact(
         blockers=blockers_to_dict(blockers),
         current_plan_code=current_plan,
         target_plan_code=data.target_plan_code,
+    )
+
+
+@billing_router.get(
+    "/me/quotation-invoice/{invoice_number}",
+    response_model=QuotationInvoiceResponse,
+    summary="Invoice summary for the pay-invoice page (self-serve, org-scoped)",
+)
+def me_quotation_invoice(
+    invoice_number: str,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    """Backs the "Pay Now" link in the accepted-quotation invoice email.
+    Scoped to the caller's own organization — an org admin from a different
+    org cannot look up someone else's invoice number."""
+    from app.modules.billing.models import BillingQuotation
+    from app.modules.hr.models import Organization
+
+    org_id = _me_org_id(current_user)
+    quotation = (
+        db.query(BillingQuotation)
+        .filter(
+            BillingQuotation.invoice_number == invoice_number,
+            BillingQuotation.organization_id == org_id,
+        )
+        .first()
+    )
+    if quotation is None:
+        raise NotFoundException("Invoice", invoice_number)
+
+    plan = (
+        db.query(BillingPlan)
+        .filter(BillingPlan.code == quotation.plan_code)
+        .first()
+    )
+    if plan is None:
+        raise NotFoundException("BillingPlan", quotation.plan_code)
+
+    organization = db.query(Organization).filter(Organization.id == org_id).first()
+
+    return QuotationInvoiceResponse(
+        quote_number=quotation.quote_number,
+        invoice_number=quotation.invoice_number,
+        plan_id=plan.id,
+        plan_code=service.role_value(quotation.plan_code),
+        plan_name=plan.name or service.role_value(quotation.plan_code),
+        billing_cycle=service.role_value(quotation.billing_cycle),
+        currency=quotation.currency,
+        amount_display=f"{quotation.currency} {quotation.amount_cents / 100:,.2f}",
+        status=service.role_value(quotation.status),
+        organization_id=org_id,
+        organization_name=organization.name if organization else "",
     )
 
 
