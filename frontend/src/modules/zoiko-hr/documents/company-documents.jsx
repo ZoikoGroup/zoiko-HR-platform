@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
+import { useAuth } from "../../../context/AuthContext";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import { fileTypeIcon, fmtDate } from "../../../utils/documents";
 import {
@@ -38,6 +39,9 @@ const ACCESS_ROLE_LABELS = {
 };
 
 export default function CompanyDocuments() {
+  const { role } = useAuth();
+  const isAdmin = role === "admin" || role === "hr_admin" || role === "super_admin";
+
   const [docs, setDocs]         = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
@@ -283,14 +287,18 @@ export default function CompanyDocuments() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setFolderModal(true)}
-              className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
-              <FolderPlus className="w-4 h-4" /> New Folder
-            </button>
-            <button onClick={() => setUploadModal(true)}
-              className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
-              <Upload className="w-4 h-4" /> Upload
-            </button>
+            {isAdmin && (
+              <>
+                <button onClick={() => setFolderModal(true)}
+                  className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
+                  <FolderPlus className="w-4 h-4" /> New Folder
+                </button>
+                <button onClick={() => setUploadModal(true)}
+                  className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
+                  <Upload className="w-4 h-4" /> Upload
+                </button>
+              </>
+            )}
             <button onClick={load} className="flex items-center gap-2 text-sm font-medium text-slate-600 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
               <RefreshCw className="w-4 h-4" /> Refresh
             </button>
@@ -332,14 +340,18 @@ export default function CompanyDocuments() {
                     <p className="text-xs text-slate-400">{f.document_count || 0} doc{(f.document_count || 0) !== 1 ? "s" : ""}</p>
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f.id, f.name); }}
-                  className="absolute top-2 right-2 p-1 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete folder">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); openFolderAssign(f); }}
-                  className="absolute bottom-2 right-2 p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-all" title="Assign folder to employees">
-                  <UserPlus className="w-3.5 h-3.5" />
-                </button>
+                {isAdmin && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f.id, f.name); }}
+                      className="absolute top-2 right-2 p-1 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete folder">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); openFolderAssign(f); }}
+                      className="absolute bottom-2 right-2 p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-all" title="Assign folder to employees">
+                      <UserPlus className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -420,10 +432,12 @@ export default function CompanyDocuments() {
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => openAssignModal(d)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-                      <UserPlus className="w-3.5 h-3.5" /> Assign
-                    </button>
+                    {isAdmin && (
+                      <button onClick={() => openAssignModal(d)}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
+                        <UserPlus className="w-3.5 h-3.5" /> Assign
+                      </button>
+                    )}
                     <button onClick={() => openViewAssignments(d)}
                       className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">
                       <Users className="w-3.5 h-3.5" /> Assignees
@@ -605,20 +619,24 @@ export default function CompanyDocuments() {
                           {a.acknowledged_at && <span className="text-xs text-slate-400 ml-2">{fmtDate(a.acknowledged_at)}</span>}
                         </div>
                       </div>
-                      <button onClick={() => handleRemoveAssignment(a.id)}
-                        className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0" title="Remove">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isAdmin && (
+                        <button onClick={() => handleRemoveAssignment(a.id)}
+                          className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0" title="Remove">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
             <div className="p-6 pt-0 border-t border-slate-100 shrink-0">
-              <button onClick={() => { setViewAssignModal(null); setAssignments([]); openAssignModal(viewAssignModal); }}
-                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2">
-                <UserPlus className="w-4 h-4" /> Assign More
-              </button>
+              {isAdmin && (
+                <button onClick={() => { setViewAssignModal(null); setAssignments([]); openAssignModal(viewAssignModal); }}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                  <UserPlus className="w-4 h-4" /> Assign More
+                </button>
+              )}
             </div>
           </div>
         </div>

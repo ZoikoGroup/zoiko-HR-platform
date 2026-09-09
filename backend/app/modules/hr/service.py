@@ -3270,7 +3270,7 @@ def check_and_seed_performance(db: Session):
         if goal_count > 0 or review_count > 0 or appraisal_count > 0:
             return
             
-        employees = db.query(Employee).all()
+        employees = db.query(Employee).filter(Employee.organization_id.isnot(None)).all()
         emp_ids = [e.id for e in employees] if employees else []
         if not emp_ids:
             from app.modules.hr.models import Organization
@@ -3293,8 +3293,11 @@ def check_and_seed_performance(db: Session):
             emp_ids = [fallback.id]
             
         num_emps = len(emp_ids)
+        emp_orgs = {e.id: e.organization_id for e in employees}
         def get_emp_id(idx):
             return emp_ids[idx % num_emps]
+        def get_org_id(emp_id):
+            return emp_orgs.get(emp_id)
 
         # Seed 10 Goals
         goals_data = [
@@ -3312,8 +3315,10 @@ def check_and_seed_performance(db: Session):
         
         seeded_goals = []
         for idx, gd in enumerate(goals_data):
+            emp_id = get_emp_id(idx)
             goal = PerformanceGoal(
-                employee_id=get_emp_id(idx),
+                employee_id=emp_id,
+                organization_id=get_org_id(emp_id),
                 **gd
             )
             db.add(goal)
@@ -3324,6 +3329,7 @@ def check_and_seed_performance(db: Session):
             kpi1 = PerformanceKpi(
                 employee_id=g.employee_id,
                 goal_id=g.id,
+                organization_id=g.organization_id,
                 name=f"Key Result 1 for {g.title[:20]}...",
                 target_value=100.0,
                 actual_value=float(g.progress),
@@ -3334,6 +3340,7 @@ def check_and_seed_performance(db: Session):
             kpi2 = PerformanceKpi(
                 employee_id=g.employee_id,
                 goal_id=g.id,
+                organization_id=g.organization_id,
                 name=f"Milestone Check for {g.title[:20]}...",
                 target_value=5.0,
                 actual_value=round(g.progress / 20.0, 1),
@@ -3365,6 +3372,7 @@ def check_and_seed_performance(db: Session):
             review = PerformanceReview(
                 employee_id=emp_id,
                 reviewer_id=rev_id,
+                organization_id=get_org_id(emp_id),
                 **rd
             )
             db.add(review)
@@ -3390,6 +3398,7 @@ def check_and_seed_performance(db: Session):
             appraisal = Appraisal(
                 employee_id=emp_id,
                 reviewer_id=rev_id,
+                organization_id=get_org_id(emp_id),
                 **ad
             )
             db.add(appraisal)
