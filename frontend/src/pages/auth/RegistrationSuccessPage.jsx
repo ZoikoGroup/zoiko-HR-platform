@@ -5,7 +5,6 @@ import {
   ArrowRight,
   Mail,
   ShieldCheck,
-  Clock3,
   Building2,
   FileText,
   Users,
@@ -97,11 +96,11 @@ export default function RegistrationSuccessPage() {
 
           <div className="mt-6 text-center">
             <h1 className="text-xl font-semibold tracking-tight text-slate-900">
-              Evaluation request submitted
+              Your workspace is ready
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">
               <span className="font-medium text-slate-700">{orgName}</span>{" "}
-              evaluation workspace is pending approval. We've sent a confirmation to
+              is active and ready to use. We've sent a confirmation to
             </p>
             <p className="mt-0.5 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-700">
               <Mail size={14} className="text-slate-400" />
@@ -121,35 +120,25 @@ export default function RegistrationSuccessPage() {
             </div>
             <div className="ml-3 h-3 w-px bg-slate-200" />
             <div className="flex items-center gap-3">
-              <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
-                <Clock3 size={13} />
-              </div>
-              <span className="text-sm text-slate-700">
-                Pending admin approval
-              </span>
-            </div>
-            <div className="ml-3 h-3 w-px bg-slate-200" />
-            <div className="flex items-center gap-3">
-              <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-slate-100 text-slate-400">
+              <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-emerald-100 text-emerald-600">
                 <ShieldCheck size={13} />
               </div>
-              <span className="text-sm text-slate-400">
-                Evaluation workspace activated
+              <span className="text-sm text-slate-700">
+                Workspace activated — no approval needed
               </span>
             </div>
           </div>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-slate-400">
-            Your {evaluationDays}-day evaluation will begin once approved.
-            No credit card required. You'll get an email as
-            soon as your organization is approved.
+            Your {evaluationDays}-day evaluation has started.
+            No credit card required. Sign in now to set up your organization.
           </p>
 
           <button
             onClick={() => navigate("/login")}
             className="mt-7 flex w-full items-center justify-center gap-2 rounded-xl bg-[#3B82F6] px-4 py-3 text-sm font-medium text-white shadow-sm shadow-[#3B82F6]/20 transition-colors hover:bg-[#2563EB] focus:outline-none focus:ring-4 focus:ring-blue-100"
           >
-            Go to login
+            Sign In
             <ArrowRight size={16} />
           </button>
         </div>

@@ -446,7 +446,7 @@ export default function RegisterPage() {
                       </div>
                     </div>
                     <p style={{ fontSize: "11px", color: "#6B7280", margin: "12px 0 0 0", lineHeight: "1.4" }}>
-                      Your 14-day evaluation will begin once approved. No credit card required.
+                      Your 14-day evaluation starts the moment you sign up. No credit card required.
                     </p>
                   </div>
                 </>

@@ -18,6 +18,8 @@ from email.mime.application import MIMEApplication
 
 logger = logging.getLogger("zoiko")
 
+LOGIN_URL = "https://zoikoone.com/login"
+
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "email_templates")
 
 _IF_BLOCK_RE = re.compile(r"\{\{#if (\w+)\}\}(.*?)\{\{/if\}\}", re.DOTALL)
@@ -310,10 +312,11 @@ def send_approval_email(
 
 
 
-def send_registration_received(email: str, org_name: str, db=None):
+def send_registration_received(email: str, org_name: str, login_url: str = LOGIN_URL, db=None):
     return send_approval_email(email, "registration_received.html", {
-        "subject": f"Registration Received — {org_name} | Zoiko One",
+        "subject": f"Welcome to Zoiko One — {org_name}",
         "organization_name": org_name,
+        "action_url": login_url,
     }, db=db)
 
 
@@ -417,9 +420,6 @@ def send_leave_rejected(
         "request_reference": request_reference,
         "leave_request_url": leave_request_url,
     }, db=db, organization_id=organization_id)
-
-
-LOGIN_URL = "https://zoikoone.com/login"
 
 
 def send_approved(email: str, org_name: str, login_url: str = LOGIN_URL, db=None):
