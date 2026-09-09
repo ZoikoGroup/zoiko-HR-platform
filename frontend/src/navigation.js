@@ -265,17 +265,20 @@ const products = {
           { label: "Profile",            href: "/zoiko-hr/ess/profile",           icon: User },
           { label: "Leave Management",   href: "/zoiko-hr/ess/leave",             icon: Calendar },
           { label: "Attendance",         href: "/zoiko-hr/ess/attendance",        icon: Clock },
-          { label: "My Documents",       href: "/zoiko-hr/ess/my-documents",      icon: FileText },
           { label: "Learning",           href: "/zoiko-hr/ess/requests",          icon: BookOpen },
           { label: "Settings",           href: "/zoiko-hr/ess/settings",          icon: SlidersHorizontal },
         ]},
-        { label: "Employee Documents", icon: FolderOpen, excludeRoles: [ROLES.ADMIN], featureKey: "hr.documents.core", children: [
-          { label: "My Files",           href: "/zoiko-hr/ess/documents/my-files",        icon: FolderOpen },
-          { label: "Payslips",           href: "/zoiko-hr/ess/documents/payslips",        icon: Receipt },
-          { label: "Offer & Contracts",  href: "/zoiko-hr/ess/documents/contracts",       icon: FileSignature },
-          { label: "Tax & Compliance",   href: "/zoiko-hr/ess/documents/tax",             icon: ShieldCheck },
-          { label: "Upload Request",     href: "/zoiko-hr/ess/documents/upload-request",  icon: UploadCloud },
-        ]},
+        // "Employee Documents" (/zoiko-hr/ess/documents/*) removed: confirmed via
+        // `grep -n "/zoiko-hr/ess/documents" src/App.jsx` that none of its 5 routes
+        // were ever registered — dead nav entries. "/zoiko-hr/ess/my-documents"
+        // (formerly linked here as "My Documents") is also removed from this
+        // sidebar as redundant with the "Documents" section under MY WORKSPACE
+        // (/employee/documents/*, the actively-designed surface) — but its route
+        // stays registered and unlinked-but-reachable: 8 other zoiko-hr/ess/*.jsx
+        // pages (dashboard, profile, leave-management, attendance, settings,
+        // requests, assigned-documents) cross-link to it from their own internal
+        // tab strip, so removing the route would 404 from within that
+        // self-contained mini nav. See PR description.
         { label: "Travel",             icon: Plane, children: [
           { label: "Dashboard",          href: "/zoiko-hr/travel",                icon: LayoutDashboard },
           { label: "Travel Requests",    href: "/zoiko-hr/travel/requests",       icon: Plane },

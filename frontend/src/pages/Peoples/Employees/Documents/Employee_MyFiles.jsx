@@ -1,11 +1,14 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
-import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
+import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
+import DocumentRow from "../../../../components/documents/DocumentRow";
+import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
+import DocumentErrorState from "../../../../components/documents/DocumentErrorState";
+import { useDocumentFile } from "../../../../hooks/useDocumentFile";
 import { uploadDocument, getDocuments, deleteDocument } from "../../../../service/employee";
-import { API_BASE_URL } from "../../../../service/api";
 import {
   UploadCloud, FileText, X, Check,
-  Clock, AlertCircle, Download, RefreshCw, CloudUpload, Trash2
+  RefreshCw, CloudUpload, Trash2, Loader2
 } from "lucide-react";
 
 // ── helpers ────────────────────────────────────────────────────────────────
@@ -30,13 +33,6 @@ const DOC_TYPES = [
   { value: "Other",       label: "Other" },
 ];
 
-const STATUS_META = {
-  pending:  { Icon: Clock },
-  approved: { Icon: Check },
-  rejected: { Icon: X },
-  expired:  { Icon: AlertCircle },
-};
-
 function formatBytes(bytes) {
   if (!bytes || bytes === 0) return "";
   const k = 1024;
@@ -56,9 +52,13 @@ function fileTypeColor(filename) {
   const map = {
     pdf: "#DC2626", jpg: "#3B82F6", jpeg: "#3B82F6", png: "#3B82F6",
     doc: "#2563EB", docx: "#2563EB", xls: "#059669", xlsx: "#059669",
-    csv: "#D97706", txt: "#6B7280",
+    csv: "#D97706", txt: "#64748B",
   };
-  return map[ext] || "#3B82F6";
+  return map[ext] || "#64748B";
+}
+
+function documentId(doc) {
+  return doc.id ?? doc.document_id;
 }
 
 // ── main component ────────────────────────────────────────────────────────
@@ -83,6 +83,9 @@ export default function MyFiles() {
 
   const inputRef = useRef(null);
 
+  /* authenticated view/download — the ONE correct pattern (see useDocumentFile.js) */
+  const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
+
   // fetch uploaded docs ─────────────────────────────────────────────────────
   const loadUploads = useCallback(async () => {
     setLoading(true);
@@ -106,7 +109,6 @@ export default function MyFiles() {
           document_type: d.document_type || d.type || "Other",
           category: d.category || d.document_category || "employee",
           status: d.status || "pending",
-          file_url: d.file_url || d.url || d.download_url || null,
         }))
         .filter((d) => {
           const category = String(d.category || "").toLowerCase();
@@ -220,57 +222,34 @@ export default function MyFiles() {
 
         {/* SUCCESS BANNER */}
         {uploadSuccess && (
-          <div
-            className="flex items-center gap-3 px-5 py-4 rounded-2xl border"
-            style={{ background: "#D1FAE5", borderColor: "#6EE7B7" }}
-          >
-            <span
-              className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
-              style={{ background: "#059669" }}
-            >
+          <div className="flex items-center gap-3 px-5 py-4 rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-900/30">
+            <span className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 bg-emerald-600">
               <Check size={16} className="text-white" />
             </span>
             <div>
-              <p className="text-sm font-semibold" style={{ color: "#065F46" }}>File uploaded successfully!</p>
-              <p className="text-xs" style={{ color: "#047857" }}>Your document has been submitted and is pending HR review.</p>
+              <p className="text-sm font-semibold text-emerald-800 dark:text-emerald-300">File uploaded successfully!</p>
+              <p className="text-xs text-emerald-700 dark:text-emerald-400">Your document has been submitted and is pending HR review.</p>
             </div>
-            <button onClick={() => setUploadSuccess(false)} className="ml-auto text-emerald-600 hover:text-emerald-800">
+            <button onClick={() => setUploadSuccess(false)} className="ml-auto text-emerald-600 hover:text-emerald-800 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary rounded">
               <X size={16} />
             </button>
           </div>
         )}
 
-        {/* DELETE ERROR BANNER */}
-        {deleteError && (
-          <div
-            className="flex items-center gap-3 px-5 py-4 rounded-2xl border"
-            style={{ background: "#FEF2F2", borderColor: "#FCA5A5" }}
-          >
-            <AlertCircle size={16} style={{ color: "#DC2626" }} className="flex-shrink-0" />
-            <p className="text-sm" style={{ color: "#DC2626" }}>{deleteError}</p>
-            <button onClick={() => setDeleteError(null)} className="ml-auto" style={{ color: "#DC2626" }}>
-              <X size={16} />
-            </button>
-          </div>
-        )}
+        {/* DELETE ERROR */}
+        <DocumentErrorState message={deleteError} />
 
         {/* UPLOAD CARD */}
-        <div className="bg-white dark:bg-[#1e293b] rounded-3xl border border-gray-200 dark:border-[#334155] shadow-sm overflow-hidden">
+        <div className="bg-doc-surface dark:bg-[#1e293b] rounded-3xl border border-doc-border dark:border-[#334155] shadow-sm overflow-hidden">
           {/* header */}
-          <div
-            className="px-8 pt-8 pb-6 border-b border-gray-100"
-            style={{ background: "linear-gradient(135deg, #EFF6FF 0%, #EEF2FF 100%)" }}
-          >
+          <div className="px-8 pt-8 pb-6 border-b border-doc-border dark:border-[#334155] bg-doc-surface-soft dark:bg-[#0f172a]/40">
             <div className="flex items-center gap-4">
-              <div
-                className="w-12 h-12 rounded-2xl flex items-center justify-center"
-                style={{ background: "linear-gradient(135deg, #3B82F6, #3B82F6)" }}
-              >
+              <div className="w-12 h-12 rounded-2xl flex items-center justify-center bg-doc-primary">
                 <CloudUpload size={22} className="text-white" />
               </div>
               <div>
-                <h2 className="text-xl font-bold text-gray-900 dark:text-[#f1f5f9]">Upload Document</h2>
-                <p className="text-sm text-gray-500 dark:text-[#94a3b8] mt-0.5">
+                <h2 className="text-xl font-bold text-doc-ink dark:text-[#f1f5f9]">Upload Document</h2>
+                <p className="text-sm text-doc-ink-soft dark:text-[#94a3b8] mt-0.5">
                   Supports PDF, Word, Excel, Images and more &middot; Max 10 MB
                 </p>
               </div>
@@ -288,42 +267,34 @@ export default function MyFiles() {
                 onDragLeave={() => setDragActive(false)}
                 onDrop={handleDrop}
                 onClick={() => inputRef.current?.click()}
-                className="relative flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-200"
-                style={{
-                  borderColor: dragActive ? "#3B82F6" : "#D1D5DB",
-                  background: dragActive
-                    ? "linear-gradient(135deg, #DBEAFE 0%, #EEF2FF 100%)"
-                    : "#FAFAFA",
-                  minHeight: "220px",
-                }}
+                onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); inputRef.current?.click(); } }}
+                role="button"
+                tabIndex={0}
+                className={`relative flex flex-col items-center justify-center gap-4 rounded-2xl border-2 border-dashed cursor-pointer transition-all duration-200 min-h-[220px] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary ${
+                  dragActive
+                    ? "border-doc-primary bg-doc-primary/5"
+                    : "border-doc-border dark:border-[#334155] bg-doc-surface-soft dark:bg-[#0f172a]/40"
+                }`}
               >
                 <div
-                  className="w-20 h-20 rounded-full flex items-center justify-center transition-transform duration-200"
-                  style={{
-                    background: dragActive ? "#3B82F622" : "#F3F4F6",
-                    transform: dragActive ? "scale(1.12)" : "scale(1)",
-                  }}
+                  className={`w-20 h-20 rounded-full flex items-center justify-center transition-transform duration-200 ${
+                    dragActive ? "bg-doc-primary/10 scale-110" : "bg-doc-border/40 dark:bg-[#334155]/40"
+                  }`}
                 >
-                  <UploadCloud
-                    size={36}
-                    style={{ color: dragActive ? "#3B82F6" : "#9CA3AF" }}
-                  />
+                  <UploadCloud size={36} className={dragActive ? "text-doc-primary" : "text-doc-ink-soft dark:text-[#64748b]"} />
                 </div>
 
                 <div className="text-center">
-                  <p className="text-base font-semibold text-gray-700 dark:text-[#e2e8f0]">
+                  <p className="text-base font-semibold text-doc-ink dark:text-[#e2e8f0]">
                     {dragActive ? "Drop file here" : "Drag & drop your file here"}
                   </p>
-                  <p className="text-sm text-gray-400 dark:text-[#94a3b8] mt-1">or</p>
-                  <span
-                    className="inline-block mt-2 px-5 py-2 rounded-xl text-sm font-semibold text-white"
-                    style={{ background: "linear-gradient(135deg, #3B82F6, #3B82F6)" }}
-                  >
+                  <p className="text-sm text-doc-ink-soft dark:text-[#94a3b8] mt-1">or</p>
+                  <span className="inline-block mt-2 px-5 py-2 rounded-xl text-sm font-semibold text-white bg-doc-primary">
                     Browse Files
                   </span>
                 </div>
 
-                <p className="text-xs text-gray-400 dark:text-[#64748b]">
+                <p className="text-xs text-doc-ink-soft dark:text-[#64748b]">
                   PDF &middot; Word &middot; Excel &middot; Image &middot; CSV &middot; TXT
                 </p>
 
@@ -336,41 +307,36 @@ export default function MyFiles() {
                 />
               </div>
             ) : (
-              <div
-                className="flex items-center gap-4 px-5 py-4 rounded-2xl border"
-                style={{ background: "#EFF6FF", borderColor: "#93C5FD" }}
-              >
+              <div className="flex items-center gap-4 px-5 py-4 rounded-2xl border border-doc-primary/30 bg-doc-primary/5">
                 <div
                   className="w-12 h-12 rounded-xl flex items-center justify-center flex-shrink-0"
-                  style={{
-                    background: fileTypeColor(selectedFile.name) + "18",
-                    color: fileTypeColor(selectedFile.name)
-                  }}
+                  style={{ background: fileTypeColor(selectedFile.name) + "18", color: fileTypeColor(selectedFile.name) }}
                 >
                   <FileText size={22} />
                 </div>
                 <div className="flex-1 min-w-0">
-                  <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9] truncate">{selectedFile.name}</p>
-                  <p className="text-xs text-gray-500 dark:text-[#94a3b8] mt-0.5">{formatBytes(selectedFile.size)}</p>
+                  <p className="text-sm font-semibold text-doc-ink dark:text-[#f1f5f9] truncate">{selectedFile.name}</p>
+                  <p className="text-xs text-doc-ink-soft dark:text-[#94a3b8] mt-0.5">{formatBytes(selectedFile.size)}</p>
                 </div>
                 <button
                   onClick={clearFile}
-                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-gray-200 dark:hover:bg-[#334155] transition"
+                  className="w-8 h-8 rounded-full flex items-center justify-center hover:bg-doc-border/60 dark:hover:bg-[#334155] transition focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
                 >
-                  <X size={14} className="text-gray-500" />
+                  <X size={14} className="text-doc-ink-soft" />
                 </button>
               </div>
             )}
 
             {/* Document type selector */}
             <div>
-              <label className="block text-sm font-semibold text-gray-700 dark:text-[#e2e8f0] mb-2">
+              <label htmlFor="my-files-doc-type" className="block text-sm font-semibold text-doc-ink dark:text-[#e2e8f0] mb-2">
                 Document Type
               </label>
               <select
+                id="my-files-doc-type"
                 value={docType}
                 onChange={(e) => setDocType(e.target.value)}
-                className="w-full px-4 py-3 rounded-xl border border-gray-200 dark:border-[#334155] text-sm bg-white dark:bg-[#0f172a] focus:outline-none focus:ring-2 focus:ring-blue-400 text-gray-800 dark:text-[#e2e8f0]"
+                className="w-full px-4 py-3 rounded-xl border border-doc-border dark:border-[#334155] text-sm bg-doc-surface dark:bg-[#0f172a] focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary text-doc-ink dark:text-[#e2e8f0]"
               >
                 {DOC_TYPES.map((t) => (
                   <option key={t.value} value={t.value}>{t.label}</option>
@@ -378,30 +344,13 @@ export default function MyFiles() {
               </select>
             </div>
 
-            {/* Upload error */}
-            {uploadError && (
-              <div
-                className="flex items-center gap-2 px-4 py-3 rounded-xl border text-sm"
-                style={{ background: "#FEF2F2", borderColor: "#FCA5A5", color: "#DC2626" }}
-              >
-                <AlertCircle size={15} className="flex-shrink-0" />
-                {uploadError}
-              </div>
-            )}
+            <DocumentErrorState message={uploadError} />
 
             {/* Upload button */}
             <button
               onClick={handleUpload}
               disabled={!selectedFile || uploading}
-              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl text-sm font-semibold text-white transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed"
-              style={{
-                background: selectedFile && !uploading
-                  ? "linear-gradient(135deg, #3B82F6, #3B82F6)"
-                  : "#93C5FD",
-                boxShadow: selectedFile && !uploading
-                  ? "0 4px 20px rgba(59, 130, 246, 0.35)"
-                  : "none",
-              }}
+              className="w-full flex items-center justify-center gap-2.5 py-3.5 rounded-xl text-sm font-semibold text-white transition-all duration-150 disabled:opacity-50 disabled:cursor-not-allowed bg-doc-primary hover:bg-doc-primary-deep focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary-deep"
             >
               {uploading ? (
                 <>
@@ -416,7 +365,7 @@ export default function MyFiles() {
               )}
             </button>
 
-            <p className="text-xs text-center text-gray-400 dark:text-[#64748b]">
+            <p className="text-xs text-center text-doc-ink-soft dark:text-[#64748b]">
               Uploaded files will be reviewed by HR &middot; Your data is encrypted &amp; secure
             </p>
           </div>
@@ -425,134 +374,71 @@ export default function MyFiles() {
         {/* UPLOADED FILES LIST */}
         <div>
           <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9]">
+            <h3 className="text-base font-bold text-doc-ink dark:text-[#f1f5f9]">
               Your Uploaded Files
               {uploads.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold bg-doc-primary/10 dark:bg-blue-900/30 text-doc-primary dark:text-blue-300">
                   {uploads.length}
                 </span>
               )}
             </h3>
             <button
               onClick={loadUploads}
-              className="flex items-center gap-1.5 text-xs text-gray-500 dark:text-[#94a3b8] hover:text-blue-600 dark:hover:text-blue-400 transition font-medium px-3 py-1.5 rounded-lg hover:bg-blue-50 dark:hover:bg-blue-900/20"
+              className="flex items-center gap-1.5 text-xs text-doc-ink-soft dark:text-[#94a3b8] hover:text-doc-primary dark:hover:text-blue-400 transition font-medium px-3 py-1.5 rounded-lg hover:bg-doc-primary/5 dark:hover:bg-blue-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
             >
               <RefreshCw size={12} />
               Refresh
             </button>
           </div>
 
+          <DocumentErrorState message={fileError} />
+
           {loading ? (
-            <div className="flex items-center justify-center gap-3 py-14 text-gray-400 dark:text-[#94a3b8]">
-              <RefreshCw size={18} className="animate-spin text-blue-400" />
+            <div className="flex items-center justify-center gap-3 py-14 text-doc-ink-soft dark:text-[#94a3b8]">
+              <RefreshCw size={18} className="animate-spin text-doc-primary" />
               <span className="text-sm">Loading your files&hellip;</span>
             </div>
           ) : fetchError ? (
-            <div
-              className="flex items-center gap-2 px-4 py-3 rounded-xl border text-sm"
-              style={{ background: "#FEF2F2", borderColor: "#FCA5A5", color: "#DC2626" }}
-            >
-              <AlertCircle size={15} />
-              {fetchError}
-            </div>
+            <DocumentErrorState message={fetchError} onRetry={loadUploads} />
           ) : uploads.length === 0 ? (
-            <div className="flex flex-col items-center justify-center gap-3 py-16 bg-white dark:bg-[#1e293b] rounded-2xl border border-dashed border-gray-200 dark:border-[#334155]">
-              <div className="w-16 h-16 rounded-2xl bg-gray-100 dark:bg-[#0f172a] flex items-center justify-center">
-                <FileText size={28} className="text-gray-300 dark:text-[#475569]" />
-              </div>
-              <p className="text-sm font-semibold text-gray-500 dark:text-[#94a3b8]">No files uploaded yet</p>
-              <p className="text-xs text-gray-400 dark:text-[#64748b]">Upload your first document using the panel above.</p>
-            </div>
+            <DocumentEmptyState
+              title="No files uploaded yet"
+              message="Upload your first document using the panel above."
+            />
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-3 mt-3">
               {uploads.map((f) => {
+                const id = documentId(f);
                 const name = f.title || f.name || f.document_type || "Untitled";
                 const iconColor = fileTypeColor(name);
-                const statusKey = (f.status || "pending").toLowerCase();
-                const meta = STATUS_META[statusKey] || STATUS_META.pending;
-                const StatusIcon = meta.Icon;
-                const downloadUrl = f.file_url || f.url
-                  || (f.file_path ? (API_BASE_URL + "/" + f.file_path.replace(/\\/g, "/")) : null);
+                const isDeleting = deletingId === id;
                 const dateLabel = f.created_at ? formatDate(f.created_at)
                   : f.updated_at ? formatDate(f.updated_at) : "";
-                const isDeleting = deletingId === f.id;
 
                 return (
-                  <div
-                    key={f.id || name}
-                    className="flex items-center gap-4 px-5 py-4 bg-white dark:bg-[#1e293b] rounded-2xl border border-gray-100 dark:border-[#334155] shadow-sm hover:shadow-md hover:border-blue-100 dark:hover:border-blue-800 transition-all duration-200"
-                    style={{ opacity: isDeleting ? 0.5 : 1 }}
-                  >
-                    {/* file type icon */}
-                    <div
-                      className="w-11 h-11 rounded-xl flex items-center justify-center flex-shrink-0"
-                      style={{ background: iconColor + "15", color: iconColor }}
-                    >
-                      <FileText size={20} />
-                    </div>
-
-                    {/* info */}
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9] truncate">{name}</p>
-                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-                        {f.document_type && f.document_type !== name && (
-                          <span className="text-xs text-gray-400 dark:text-[#94a3b8]">{f.document_type}</span>
-                        )}
-                        {dateLabel && (
-                          <span className="text-xs text-gray-400 dark:text-[#94a3b8]">{dateLabel}</span>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* status badge */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <StatusIcon size={11} className="dark:text-[#94a3b8]" />
-                      <EmployeeStatusBadge status={statusKey} />
-                    </div>
-
-                    {/* download */}
-                    {downloadUrl && (
-                      <a
-                        href={downloadUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="w-9 h-9 flex items-center justify-center rounded-xl border border-gray-200 dark:border-[#334155] text-gray-400 dark:text-[#64748b] hover:text-blue-600 dark:hover:text-blue-400 hover:border-blue-300 dark:hover:border-blue-700 hover:bg-blue-50 dark:hover:bg-blue-900/20 transition-all flex-shrink-0"
-                        title="Download"
+                  <DocumentRow
+                    key={id || name}
+                    icon={FileText}
+                    iconTone={{ bg: iconColor + "15", color: iconColor }}
+                    title={name}
+                    meta={[f.document_type && f.document_type !== name ? f.document_type : null, dateLabel].filter(Boolean).join(" · ")}
+                    status={f.status}
+                    onView={() => view(id)}
+                    onDownload={() => download(id)}
+                    busy={busyId === id}
+                    busyAction={busyAction}
+                    actionsAfter={
+                      <button
+                        type="button"
+                        onClick={() => handleDelete(id, name)}
+                        disabled={isDeleting}
+                        aria-label={`Delete ${name}`}
+                        className="w-9 h-9 flex items-center justify-center rounded-lg border border-red-200 dark:border-red-800/60 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-red-500"
                       >
-                        <Download size={15} />
-                      </a>
-                    )}
-
-                    {/* delete */}
-                    <button
-                      onClick={() => handleDelete(f.id, name)}
-                      disabled={isDeleting}
-                      className="w-9 h-9 flex items-center justify-center rounded-xl border transition-all flex-shrink-0 disabled:cursor-not-allowed"
-                      style={{
-                        borderColor: isDeleting ? "#FCA5A5" : "#FEE2E2",
-                        background: isDeleting ? "#FEF2F2" : "white",
-                        color: isDeleting ? "#FCA5A5" : "#EF4444",
-                      }}
-                      onMouseEnter={e => {
-                        if (!isDeleting) {
-                          e.currentTarget.style.background = "#FEF2F2";
-                          e.currentTarget.style.borderColor = "#F87171";
-                        }
-                      }}
-                      onMouseLeave={e => {
-                        if (!isDeleting) {
-                          e.currentTarget.style.background = "white";
-                          e.currentTarget.style.borderColor = "#FEE2E2";
-                        }
-                      }}
-                      title="Delete file"
-                    >
-                      {isDeleting
-                        ? <RefreshCw size={14} className="animate-spin" />
-                        : <Trash2 size={15} />
-                      }
-                    </button>
-                  </div>
+                        {isDeleting ? <Loader2 size={15} className="animate-spin" /> : <Trash2 size={15} />}
+                      </button>
+                    }
+                  />
                 );
               })}
             </div>
@@ -560,6 +446,7 @@ export default function MyFiles() {
         </div>
 
       </div>
+      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
     </EmployeePageShell>
   );
 }

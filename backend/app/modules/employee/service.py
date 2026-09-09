@@ -441,8 +441,8 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         uuid=org_uuid,
         organization_code=org_code,
         organization_name=data.organization,
-        status=OrganizationStatus.PENDING,
-        is_active=False,
+        status=OrganizationStatus.ACTIVE,
+        is_active=True,
         address=data.address,
         city=data.city,
         state=data.state,
@@ -525,7 +525,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         details={
             "organization": org.name,
             "code": org.code,
-            "status": "PENDING",
+            "status": org.status.value,
             "evaluation_id": evaluation.id,
             "plan_code": data.plan_code,
         },
@@ -533,8 +533,8 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.add(audit)
 
     notification = Notification(
-        title="Organization Evaluation Requested",
-        message=f"Organization '{org.name}' requested a {data.plan_code} evaluation.",
+        title="New Organization Signed Up",
+        message=f"Organization '{org.name}' signed up and started a {data.plan_code} evaluation. It is active immediately — no action needed.",
         notification_type="org_registration",
         priority="high",
         target_org_id=org.id,

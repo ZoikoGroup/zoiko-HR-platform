@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from "react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
+import DocumentRow from "../../../../components/documents/DocumentRow";
+import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
+import DocumentErrorState from "../../../../components/documents/DocumentErrorState";
+import { useDocumentFile } from "../../../../hooks/useDocumentFile";
 import { getDocuments, uploadDocument } from "../../../../service/employee";
 import { useAuth } from "../../../../context/AuthContext";
-
-const statusColor = {
-  Uploaded: { color: "text-emerald-700 dark:text-emerald-300", bg: "bg-emerald-50 dark:bg-emerald-900/30" },
-  Pending: { color: "text-amber-700 dark:text-amber-300", bg: "bg-amber-50 dark:bg-amber-900/30" },
-  Rejected: { color: "text-red-700 dark:text-red-300", bg: "bg-red-50 dark:bg-red-900/30" },
-};
+import { FileText } from "lucide-react";
 
 const docTypeOptions = [
   "Identity Proof",
@@ -20,10 +20,10 @@ const docTypeOptions = [
 
 function normalizeStatus(s) {
   const t = String(s || "").toLowerCase();
-  if (t.includes("upload") || t.includes("approved") || t.includes("completed")) return "Uploaded";
-  if (t.includes("pending") || t.includes("processing") || t.includes("request")) return "Pending";
-  if (t.includes("reject") || t.includes("denied") || t.includes("failed")) return "Rejected";
-  return "Pending";
+  if (t.includes("upload") || t.includes("approved") || t.includes("completed")) return "approved";
+  if (t.includes("pending") || t.includes("processing") || t.includes("request")) return "pending";
+  if (t.includes("reject") || t.includes("denied") || t.includes("failed")) return "rejected";
+  return "pending";
 }
 
 export default function UploadRequest() {
@@ -37,6 +37,8 @@ export default function UploadRequest() {
   const [submitted, setSubmitted] = useState(false);
   const [submitError, setSubmitError] = useState(null);
 
+  const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
+
   useEffect(() => {
     let mounted = true;
     loadDocuments(mounted);
@@ -47,6 +49,8 @@ export default function UploadRequest() {
     setLoading(true);
     setError(null);
     try {
+      // category "employee" is deliberate here — must stay in sync with the
+      // TABS mapping in organization-admin/EmployeeDocumentsPage.jsx.
       const res = await getDocuments({ category: "employee" });
       const raw = res?.data;
       const data = Array.isArray(raw) ? raw : (raw?.items || raw?.data || []);
@@ -64,7 +68,7 @@ export default function UploadRequest() {
       const docType = d.title || d.name || d.document_type || d.type || "Document";
       const requestedOn = d.created_at || d.requested_on || d.uploaded_at || "";
       const status = normalizeStatus(d.status || d.document_status);
-      const id = d.id || d.document_id || docType;
+      const id = d.id || d.document_id;
       const formattedDate = requestedOn
         ? new Date(requestedOn).toLocaleDateString("en-IN", {
             day: "numeric",
@@ -106,8 +110,8 @@ export default function UploadRequest() {
     return (
       <EmployeePageShell title="Upload Request" subtitle="Request HR to upload or collect a document from you.">
         <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600" />
-          <span className="ml-3 text-gray-500 dark:text-[#94a3b8]">Loading upload history...</span>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-doc-primary" />
+          <span className="ml-3 text-doc-ink-soft dark:text-[#94a3b8]">Loading upload history...</span>
         </div>
       </EmployeePageShell>
     );
@@ -115,26 +119,23 @@ export default function UploadRequest() {
 
   return (
     <EmployeePageShell title="Upload Request" subtitle="Request HR to upload or collect a document from you.">
-      {error && (
-        <div className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg">{error}</div>
-      )}
+      <DocumentErrorState message={error} />
 
       {!error && (
         <>
           {/* Request Form */}
           {!submitted ? (
-            <div className="p-6 rounded-xl bg-white dark:bg-[#1e293b] border border-gray-200 dark:border-[#334155] max-w-lg mb-7">
-              <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9] m-0 mb-4">New Upload Request</h3>
+            <div className="p-6 rounded-xl bg-doc-surface dark:bg-[#1e293b] border border-doc-border dark:border-[#334155] max-w-lg mb-7">
+              <h3 className="text-base font-bold text-doc-ink dark:text-[#f1f5f9] m-0 mb-4">New Upload Request</h3>
               <div className="flex flex-col gap-3.5">
-                {submitError && (
-                  <div className="px-3 py-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{submitError}</div>
-                )}
+                <DocumentErrorState message={submitError} />
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 dark:text-[#e2e8f0] block mb-1.5">Document Type</label>
+                  <label htmlFor="upload-req-doc-type" className="text-xs font-semibold text-doc-ink dark:text-[#e2e8f0] block mb-1.5">Document Type</label>
                   <select
+                    id="upload-req-doc-type"
                     value={form.docType}
                     onChange={(e) => setForm({ ...form, docType: e.target.value })}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] bg-white dark:bg-[#0f172a] text-sm text-gray-800 dark:text-[#e2e8f0]"
+                    className="w-full px-3 py-2.5 rounded-lg border border-doc-border dark:border-[#334155] bg-doc-surface dark:bg-[#0f172a] text-sm text-doc-ink dark:text-[#e2e8f0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
                   >
                     {docTypeOptions.map((d) => (
                       <option key={d}>{d}</option>
@@ -142,27 +143,29 @@ export default function UploadRequest() {
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 dark:text-[#e2e8f0] block mb-1.5">Upload File</label>
+                  <label htmlFor="upload-req-file" className="text-xs font-semibold text-doc-ink dark:text-[#e2e8f0] block mb-1.5">Upload File</label>
                   <input
+                    id="upload-req-file"
                     type="file"
                     onChange={(e) => setForm({ ...form, file: e.target.files[0] })}
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 dark:file:bg-blue-900/30 file:text-blue-700 dark:file:text-blue-300 file:text-xs file:font-semibold hover:file:bg-blue-100 dark:hover:file:bg-blue-900/50 bg-white dark:bg-[#0f172a] text-gray-800 dark:text-[#e2e8f0]"
+                    className="w-full px-3 py-2.5 rounded-lg border border-doc-border dark:border-[#334155] text-sm file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-doc-primary/10 dark:file:bg-blue-900/30 file:text-doc-primary dark:file:text-blue-300 file:text-xs file:font-semibold hover:file:bg-doc-primary/20 dark:hover:file:bg-blue-900/50 bg-doc-surface dark:bg-[#0f172a] text-doc-ink dark:text-[#e2e8f0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-semibold text-gray-700 dark:text-[#e2e8f0] block mb-1.5">Additional Note (optional)</label>
+                  <label htmlFor="upload-req-note" className="text-xs font-semibold text-doc-ink dark:text-[#e2e8f0] block mb-1.5">Additional Note (optional)</label>
                   <textarea
+                    id="upload-req-note"
                     value={form.note}
                     onChange={(e) => setForm({ ...form, note: e.target.value })}
                     rows={3}
                     placeholder="Any specific details for HR..."
-                    className="w-full px-3 py-2.5 rounded-lg border border-gray-200 dark:border-[#334155] text-sm resize-y box-border bg-white dark:bg-[#0f172a] text-gray-800 dark:text-[#e2e8f0]"
+                    className="w-full px-3 py-2.5 rounded-lg border border-doc-border dark:border-[#334155] text-sm resize-y box-border bg-doc-surface dark:bg-[#0f172a] text-doc-ink dark:text-[#e2e8f0] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
                   />
                 </div>
                 <button
                   onClick={handleSubmit}
                   disabled={submitting}
-                  className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 dark:bg-blue-700 dark:hover:bg-blue-800 text-white border-none rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full py-2.5 bg-doc-primary hover:bg-doc-primary-deep text-white border-none rounded-lg text-sm font-semibold cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary-deep"
                 >
                   {submitting ? (
                     <span className="flex items-center justify-center gap-2">
@@ -181,7 +184,7 @@ export default function UploadRequest() {
               <p className="text-xs text-emerald-800 dark:text-emerald-300 m-0 mb-4">HR will process your request and notify you shortly.</p>
               <button
                 onClick={resetForm}
-                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-800 text-white border-none rounded-lg text-xs font-semibold cursor-pointer"
+                className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 dark:bg-emerald-700 dark:hover:bg-emerald-800 text-white border-none rounded-lg text-xs font-semibold cursor-pointer focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-emerald-800"
               >
                 New Request
               </button>
@@ -189,32 +192,34 @@ export default function UploadRequest() {
           )}
 
           {/* History */}
-          <div className="p-6 rounded-xl bg-white dark:bg-[#1e293b] border border-gray-200 dark:border-[#334155]">
-            <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9] m-0 mb-4">Upload History</h3>
+          <div>
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-base font-bold text-doc-ink dark:text-[#f1f5f9] m-0">Upload History</h3>
+            </div>
+            <DocumentErrorState message={fileError} />
             {historyItems.length === 0 ? (
-              <div className="text-center py-8 text-gray-500 dark:text-[#94a3b8]">No upload history found.</div>
+              <DocumentEmptyState title="No upload history found" message="Documents you request or upload will appear here." />
             ) : (
-              historyItems.map((h) => {
-                const sc = statusColor[h.status] || { color: "text-gray-700 dark:text-gray-300", bg: "bg-gray-100 dark:bg-gray-800/30" };
-                return (
-                  <div
-                    key={h.id}
-                    className="flex justify-between items-center py-3 border-t border-gray-100 dark:border-[#334155] first:border-t-0"
-                  >
-                    <div>
-                      <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9] m-0 mb-0.5">{h.docType}</p>
-                      <p className="text-xs text-gray-400 dark:text-[#94a3b8] m-0">Requested on {h.requestedOn}</p>
-                    </div>
-                    <span className={`text-xs font-semibold px-2.5 py-1 rounded-full ${sc.color} ${sc.bg}`}>
-                      {h.status}
-                    </span>
-                  </div>
-                );
-              })
+              <div className="space-y-3 mt-3">
+                {historyItems.map((h) => (
+                  <DocumentRow
+                    key={h.id || h.docType}
+                    icon={FileText}
+                    title={h.docType}
+                    status={h.status}
+                    meta={`Requested on ${h.requestedOn}`}
+                    onView={h.id ? () => view(h.id) : undefined}
+                    onDownload={h.id ? () => download(h.id) : undefined}
+                    busy={busyId === h.id}
+                    busyAction={busyAction}
+                  />
+                ))}
+              </div>
             )}
           </div>
         </>
       )}
+      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
     </EmployeePageShell>
   );
 }

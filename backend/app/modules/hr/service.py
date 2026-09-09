@@ -8,7 +8,7 @@ import logging
 import os
 from datetime import date, datetime, timedelta
 from typing import List, Optional
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -4859,11 +4859,17 @@ def get_hr_documents(
         role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
         is_admin = role_val in ["admin", "hr_admin", "super_admin"]
         if not is_admin:
+            # Organization membership is necessary but not sufficient: a plain
+            # employee may only see documents they uploaded or that are
+            # assigned to them via employee_id, not every document in the org
+            # (that was the bug — org_id alone used to satisfy the whole OR).
             org_id = current_user.organization_id
             query = query.filter(
-                (HrDocument.organization_id == org_id) |
-                (HrDocument.uploaded_by == current_user.id) |
-                (HrDocument.employee_id == current_user.id)
+                HrDocument.organization_id == org_id,
+                or_(
+                    HrDocument.uploaded_by == current_user.id,
+                    HrDocument.employee_id == current_user.id,
+                ),
             )
         elif organization_id:
             query = query.filter(HrDocument.organization_id == organization_id)
