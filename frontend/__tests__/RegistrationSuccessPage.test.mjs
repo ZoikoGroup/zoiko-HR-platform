@@ -26,6 +26,8 @@ const SUCCESS_STATE = {
 };
 
 async function flushRender(t, locationState, navigate) {
+  cleanup();
+
   t.mock.module("react-router-dom", {
     exports: {
       useNavigate: () => navigate,
@@ -36,10 +38,14 @@ async function flushRender(t, locationState, navigate) {
   const mod = await import(
     `../src/pages/auth/RegistrationSuccessPage.jsx?t=${Date.now()}-${Math.random()}`
   );
-  render(React.createElement(mod.default));
-  for (let i = 0; i < 4; i++) {
-    await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
-  }
+
+  await act(async () => {
+    render(React.createElement(mod.default));
+  });
+
+  await act(async () => {
+    await new Promise((r) => setTimeout(r, 100));
+  });
 }
 
 test("RegistrationSuccessPage: renders immediate-usability copy (no approval messaging)", async (t) => {
@@ -61,8 +67,6 @@ test("RegistrationSuccessPage: renders immediate-usability copy (no approval mes
     null,
     "no 'once approved' copy may remain"
   );
-
-  cleanup();
 });
 
 test("RegistrationSuccessPage: Sign In button navigates to /login", async (t) => {
@@ -77,8 +81,6 @@ test("RegistrationSuccessPage: Sign In button navigates to /login", async (t) =>
   await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
 
   assert.deepEqual(navCalls, ["/login"], "Sign In must navigate to /login");
-
-  cleanup();
 });
 
 test("RegistrationSuccessPage: redirects to /register when arrived with no state", async (t) => {
@@ -87,5 +89,4 @@ test("RegistrationSuccessPage: redirects to /register when arrived with no state
   await flushRender(t, null, navigate);
 
   assert.deepEqual(navCalls, ["/register"], "missing org state must bounce to /register");
-  cleanup();
 });
