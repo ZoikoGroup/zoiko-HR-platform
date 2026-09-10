@@ -52,6 +52,7 @@ _PATH_TTL = [
     (r"/hr/dashboard", 60),
     (r"/hr/organization/dashboard", 60),
     (r"/hr/organization/metrics", 60),
+    (r"/hr/organization", 60),
     (r"/hr/overview", 60),
     (r"/hr/compensation/dashboard", 60),
     (r"/hr/performance/dashboard", 60),

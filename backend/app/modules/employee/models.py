@@ -120,10 +120,12 @@ class SecurityActionToken(Base):
 
 class Employee(Base):
     __tablename__ = "employees"
-    __table_args__ = ()
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email", name="uq_employees_organization_email"),
+    )
 
     id                  = Column(Integer, primary_key=True, index=True)
-    email               = Column(String(255), unique=True, nullable=False, index=True)
+    email               = Column(String(255), nullable=False, index=True)
     hashed_password     = Column(String(255), nullable=False)
     employee_id         = Column(String(20), nullable=True, index=True)
     employee_code       = Column(String(20), unique=True, nullable=False)

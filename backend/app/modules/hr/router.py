@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.entitlements import require_entitlement
+from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASHBOARD
 
 # Assuming these are imported from your config or database modules
 # from app.database import get_db
@@ -270,6 +271,7 @@ def dashboard_stats(
     summary="Get current user's organization details",
     description="Returns organization info with admin details, subscription, employee counts."
 )
+@cached_response(prefix="hr:organization", ttl=TTL_DASHBOARD)
 def get_my_organization(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -289,7 +291,10 @@ def update_my_organization(
 ):
     if not current_user.organization_id:
         raise HTTPException(status_code=403, detail="Your account is not linked to an organization.")
-    return service.update_organization(db, current_user.organization_id, data)
+    result = service.update_organization(db, current_user.organization_id, data)
+    invalidate_prefix("hr:organization", org_id=current_user.organization_id)
+    invalidate_prefix("hr:org-dashboard", org_id=current_user.organization_id)
+    return result
 
 
 @hr_router.get(
@@ -297,6 +302,7 @@ def update_my_organization(
     summary="Organization Admin dashboard stats",
     description="Returns dashboard statistics for the organization admin."
 )
+@cached_response(prefix="hr:org-dashboard", ttl=TTL_DASHBOARD)
 def organization_dashboard_stats(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
