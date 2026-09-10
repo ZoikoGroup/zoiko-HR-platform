@@ -865,3 +865,14 @@ def health(db: Session = Depends(get_db)):
         logger.error("Health check DB connectivity failed: %s", exc_info)
         raise ZoikoException(503, "SERVICE_UNAVAILABLE", "Database unreachable") from exc_info
     return {"status": "ok"}
+
+
+@router.get("/cache-stats", summary="Redis response cache stats", tags=["Super Admin"])
+def cache_stats(current_user=Depends(get_current_super_admin)):
+    """Return basic cache health and connection info for monitoring."""
+    from app.core.response_cache import cache_stats
+    from app.core.redis_client import ping as redis_ping
+    return {
+        "redis_ping": redis_ping(),
+        "stats": cache_stats(),
+    }

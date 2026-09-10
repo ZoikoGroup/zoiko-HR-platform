@@ -163,6 +163,16 @@ app.add_middleware(
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Redis response cache ─────────────────────────────────────────────────────
+# Transparently caches GET responses and invalidates on writes. Only active
+# when HR_REDIS_URL is set; zero overhead when Redis is unavailable.
+try:
+    from app.core.cache_middleware import CacheMiddleware
+    app.add_middleware(CacheMiddleware)
+    logger.info("[startup] Response cache middleware loaded.")
+except Exception as e:
+    logger.warning("[startup] Cache middleware could not be loaded: %s", e)
 app.add_exception_handler(ZoikoException, zoiko_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
