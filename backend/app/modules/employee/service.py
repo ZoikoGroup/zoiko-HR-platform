@@ -1246,12 +1246,11 @@ def import_employees_from_file(
             result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": "Invalid email format"})
             continue
 
-        # Check duplicate by email
-        existing = db.query(Employee).filter(Employee.email == email_val).first()
-        if existing and existing.organization_id != organization_id:
-            result["skipped"] += 1
-            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": "Email already used in another organization"})
-            continue
+        # Check duplicate by email within the same org (tenant isolation)
+        existing = db.query(Employee).filter(
+            Employee.email == email_val,
+            Employee.organization_id == organization_id,
+        ).first()
 
         # Check in-batch duplicates
         if email_val in seen_emails:
