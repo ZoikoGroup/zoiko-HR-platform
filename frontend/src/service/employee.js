@@ -4,7 +4,7 @@
 //
 // Shared HR functions are re-exported from hrService.js to avoid duplication.
 
-import { api, API_BASE_URL } from "./api";
+import { api, API_BASE_URL, getAccessToken } from "./api";
 
 // Re-export shared functions from hrService to eliminate duplication
 export {
@@ -79,7 +79,6 @@ export const exportEmployeeReports = (payload) => api.post("/hr/employee-managem
 // ════════════════════════════════════════════════════════════════════════════
 
 export async function importEmployees(file) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const formData = new FormData();
   formData.append("file", file);
@@ -98,7 +97,6 @@ export async function importEmployees(file) {
 }
 
 export async function downloadImportTemplate() {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}/hr/employee-management/employees/import/template`, {
     headers: { Authorization: `Bearer ${token}` },

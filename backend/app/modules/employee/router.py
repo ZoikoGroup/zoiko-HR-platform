@@ -55,6 +55,15 @@ auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 employee_router = APIRouter(prefix="/hr", tags=["Employees"])
 
 
+def _is_super_admin(user) -> bool:
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    return role == UserRole.SUPER_ADMIN.value
+
+
+def _role_str(user) -> str:
+    return user.role.value if hasattr(user.role, "value") else str(user.role)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -377,9 +386,19 @@ def create_user(
     current_user=Depends(get_current_user),
 ):
     # Validate role hierarchy: what roles can the current user create?
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
-    
-    if current_role == "admin":
+    current_role = _role_str(current_user)
+
+    if current_role == "super_admin":
+        # Super Admin manages users platform-wide and may create any role in
+        # any organization, so the target organization must be supplied.
+        allowed_create_roles = list(UserRole)
+        target_organization_id = data.organization_id
+        if not target_organization_id:
+            raise HTTPException(
+                status_code=422,
+                detail="organization_id is required when creating a user as Super Admin."
+            )
+    elif current_role == "admin":
         # Organization Admin can create any role except SUPER_ADMIN
         if data.role == UserRole.SUPER_ADMIN:
             raise HTTPException(
@@ -387,16 +406,18 @@ def create_user(
                 detail="Cannot create SUPER_ADMIN role. Only platform admins can create super admins."
             )
         allowed_create_roles = [UserRole.ADMIN, UserRole.HR_ADMIN, UserRole.BILLING_ADMIN, UserRole.EMPLOYEE]
+        target_organization_id = current_user.organization_id
     elif current_role == "hr_admin":
         # HR Admin can only create EMPLOYEE
         allowed_create_roles = [UserRole.EMPLOYEE]
+        target_organization_id = current_user.organization_id
     else:
         # Other roles cannot create users (should not reach here due to dependency check)
         raise HTTPException(
             status_code=403,
             detail=f"Role '{current_role}' does not have permission to create users."
         )
-    
+
     if data.role not in allowed_create_roles:
         raise HTTPException(
             status_code=422,
@@ -405,7 +426,7 @@ def create_user(
 
     employee, temp_password = service.create_organization_user(
         db, data,
-        organization_id=current_user.organization_id,
+        organization_id=target_organization_id,
         created_by_id=current_user.id,
     )
 
@@ -434,7 +455,10 @@ def get_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_organization_user(db, user_id, current_user.organization_id)
+    return service.get_organization_user(
+        db, user_id, current_user.organization_id,
+        skip_org_filter=_is_super_admin(current_user),
+    )
 
 
 @employee_router.put(
@@ -450,10 +474,13 @@ def update_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy: what roles can the current user edit?
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -468,6 +495,7 @@ def update_user(
         db, user_id, data,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -483,10 +511,13 @@ def deactivate_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -501,6 +532,7 @@ def deactivate_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -516,10 +548,14 @@ def hard_delete_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+    target_name = existing_user.full_name
 
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
 
     if current_role == "hr_admin":
@@ -533,8 +569,16 @@ def hard_delete_user(
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot delete your own account.")
 
-    service.hard_delete_employee(db, user_id, organization_id=current_user.organization_id)
-    return {"message": f"User {existing_user.full_name} has been permanently deleted."}
+    try:
+        service.hard_delete_employee(db, user_id, organization_id=current_user.organization_id)
+    except Exception as exc:
+        db.rollback()
+        logger.error("Hard-delete of user %s failed: %s", user_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to permanently delete user '{target_name}'. No changes were committed.",
+        ) from exc
+    return {"message": f"User {target_name} has been permanently deleted."}
 
 
 @employee_router.post(
@@ -549,10 +593,13 @@ def activate_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -567,6 +614,7 @@ def activate_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -581,8 +629,11 @@ def suspend_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     if current_role == "hr_admin":
         if target_role in [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.BILLING_ADMIN]:
@@ -591,6 +642,7 @@ def suspend_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -605,8 +657,11 @@ def archive_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     if current_role == "hr_admin":
         if target_role in [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.BILLING_ADMIN]:
@@ -615,6 +670,7 @@ def archive_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -630,10 +686,13 @@ def reset_user_password(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -648,6 +707,7 @@ def reset_user_password(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
     if temp_password is None:

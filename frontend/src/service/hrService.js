@@ -1,4 +1,4 @@
-import { api, API_BASE_URL } from "./api";
+import { api, API_BASE_URL, getAccessToken } from "./api";
 
 // ── CORE GENERIC FETCHERS ──────────────────────────────────────────────────
 export async function fetchList(resource) {
@@ -230,9 +230,8 @@ export const getAssetSettings = () => api.get("/hr/assets/settings");
 export const updateAssetSetting = (key, payload) => api.put(`/hr/assets/settings/${key}`, payload);
 
 export async function exportAssetsCsv() {
-  const { getAccessToken, API_BASE_URL: DynamicBaseUrl } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${DynamicBaseUrl}/hr/assets/export/csv`, {
+  const res = await fetch(`${API_BASE_URL}/hr/assets/export/csv`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Failed to export CSV");
@@ -246,9 +245,8 @@ export async function exportAssetsCsv() {
 }
 
 export async function exportAssetsExcel() {
-  const { getAccessToken, API_BASE_URL: DynamicBaseUrl } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${DynamicBaseUrl}/hr/assets/export/excel`, {
+  const res = await fetch(`${API_BASE_URL}/hr/assets/export/excel`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Failed to export Excel");
@@ -305,7 +303,6 @@ export const getCertificationReport = () => api.get("/hr/learning/reports/certif
 export const getSkillGapAnalysis = () => api.get("/hr/learning/reports/skill-gap");
 
 async function downloadLearningReport(endpoint, filename) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -434,7 +431,6 @@ export const importHolidays = (payload) => api.post("/hr/attendance/holidays/imp
 
 // ── Exports ────────────────────────────────────────────────────────────────
 export async function exportAttendanceCsv(params = {}) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const queryString = Object.entries(params)
     .filter(([_, v]) => v !== undefined && v !== null && v !== "")
@@ -454,7 +450,6 @@ export async function exportAttendanceCsv(params = {}) {
 }
 
 export async function exportAttendanceExcel(params = {}) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const queryString = Object.entries(params)
     .filter(([_, v]) => v !== undefined && v !== null && v !== "")
@@ -548,7 +543,6 @@ export const getWfReports = (params = {}) => api.get("/hr/workforce/reports", { 
 export const generateWfReport = (payload) => api.post("/hr/workforce/reports/generate", payload);
 
 async function downloadWfExport(endpoint, filename) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -601,9 +595,8 @@ export const getDocumentById = (documentId) =>
   api.get(`/hr/documents/${documentId}`).then(data => ({ data }));
 
 async function fetchDocumentFile(path, fallbackName) {
-  const { getAccessToken, API_BASE_URL: base } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${base}${path}`, {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error(`Failed to load document: ${res.status}`);
@@ -647,11 +640,10 @@ export const getDocumentVersionFile = (documentId, versionId) =>
  *   fd.append("tags", JSON.stringify(["onboarding"])); // optional
  */
 export async function uploadDocument(formData) {
-  const { getAccessToken, API_BASE_URL: base } = await import("./api");
   const token = getAccessToken();
   // Do NOT set Content-Type — browser sets it automatically with the correct
   // multipart boundary when body is a FormData instance.
-  const res = await fetch(`${base}/hr/documents/upload`, {
+  const res = await fetch(`${API_BASE_URL}/hr/documents/upload`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -695,9 +687,8 @@ export const getDocumentVersions = (documentId) =>
   api.get(`/hr/documents/${documentId}/versions`).then(data => ({ data }));
 
 export async function uploadDocumentVersion(documentId, formData) {
-  const { getAccessToken, API_BASE_URL: base } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${base}/hr/documents/${documentId}/versions`, {
+  const res = await fetch(`${API_BASE_URL}/hr/documents/${documentId}/versions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
