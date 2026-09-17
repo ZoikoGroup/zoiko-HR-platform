@@ -151,7 +151,11 @@ app.add_middleware(
     # literal 400 ("Disallowed CORS headers") — the browser then blocks the
     # real request before it's ever sent, which is what made the "Pay &
     # Upgrade via Stripe" button silently do nothing.
-    allow_headers=["Authorization", "Content-Type", "Accept", "Idempotency-Key"],
+    # X-Confirmation-Id / X-Confirmation-Token: sent by superAdminService.deleteOrganization
+    # on the hard-delete DELETE call (two-step confirmation, Prompt 5). Missing them here
+    # made the CORS preflight fail, so the browser blocked the real DELETE before it was
+    # ever sent — the super-admin "delete organization" button silently did nothing.
+    allow_headers=["Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Confirmation-Id", "X-Confirmation-Token"],
     # Content-Disposition isn't on the CORS response-header safelist, so
     # without this, frontend `fetch()` calls against /hr/documents/{id}/file
     # (frontend and backend run on different origins/ports) can never read

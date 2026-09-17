@@ -753,11 +753,12 @@ def get_organization_user(
     db: Session,
     user_id: int,
     organization_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = db.query(Employee).filter(
-        Employee.id == user_id,
-        Employee.organization_id == organization_id,
-    ).first()
+    query = db.query(Employee).filter(Employee.id == user_id)
+    if not skip_org_filter:
+        query = query.filter(Employee.organization_id == organization_id)
+    user = query.first()
     if not user:
         raise NotFoundException("User", user_id)
     return user
@@ -769,8 +770,9 @@ def update_organization_user(
     data: "UserUpdateRequest",
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     old_role = user.role
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
@@ -799,8 +801,9 @@ def deactivate_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = False
     user.status = EmployeeStatus.INACTIVE
     user.updated_by = updated_by_id
@@ -835,8 +838,9 @@ def activate_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = True
     user.status = EmployeeStatus.ACTIVE
     user.updated_by = updated_by_id
@@ -870,8 +874,9 @@ def suspend_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = False
     user.status = EmployeeStatus.SUSPENDED
     user.updated_by = updated_by_id
@@ -904,8 +909,9 @@ def archive_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = False
     user.status = EmployeeStatus.ARCHIVED
     user.updated_by = updated_by_id
@@ -974,8 +980,9 @@ def reset_user_password(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> tuple[Employee, Optional[str]]:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
 
     if user.role in LINK_RESET_ROLES:
         raw_token, expires_at = _issue_action_token(db, user.email, user.organization_id, SecurityActionPurpose.RESET)
@@ -2578,6 +2585,119 @@ def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organizatio
     return {"deleted": deleted, "failed": failed}
 
 
+def _project_fk_values(db: Session, table, ref_col_name: str, marked_pks: set) -> set:
+    """Map a parent table's marked primary keys onto the column an FK targets."""
+    pk_cols = list(table.primary_key.columns)
+    if len(pk_cols) == 1 and pk_cols[0].name == ref_col_name:
+        return {pk for (pk,) in marked_pks}
+    vals = [pk for (pk,) in marked_pks]
+    if not vals:
+        return set()
+    rows = db.execute(table.select().where(pk_cols[0].in_(vals))).all()
+    return {getattr(r, ref_col_name) for r in rows if getattr(r, ref_col_name) is not None}
+
+
+def _purge_employee_residuals(db: Session, employee_id: int) -> list[str]:
+    """Delete every remaining row that references an employee being removed.
+
+    `hard_delete_employee` cleans up the HR-owned tables explicitly, but many
+    other modules (billing, assistant/chat, super-admin, knowledge, documents)
+    also hold foreign keys onto `employees.id`. Rather than enumerate them,
+    walk the FK graph from the employee — following only NOT NULL edges, which
+    are the ones that actually block a hard delete — and remove the closure.
+    Nullable FKs anywhere in the schema are severed with an UPDATE, then the
+    owned rows are deleted children-before-parents."""
+    from app.database import Base
+    from sqlalchemy import tuple_
+
+    # Force-register every model module so the FK graph is complete.
+    import app.modules.hr.models  # noqa: F401
+    import app.modules.employee.models  # noqa: F401
+    import app.modules.billing.models  # noqa: F401
+    import app.modules.assistant.models  # noqa: F401
+    from app.modules.super_admin import models as _sam  # noqa: F401
+    from app.modules.super_admin import command_center_models as _ccm  # noqa: F401
+
+    tables = list(Base.metadata.tables.values())
+    marked: dict[str, set] = {"employees": {(employee_id,)}}
+
+    # Mark owned descendants through NOT NULL FKs only. Nullable references are
+    # passive (approved_by, created_by, ...) and must not pull in whole other
+    # entities such as the organization.
+    changed = True
+    while changed:
+        changed = False
+        for child in tables:
+            for fk in child.foreign_keys:
+                if fk.parent.nullable:
+                    continue
+                parent = fk.column.table
+                parent_vals = marked.get(parent.name)
+                if not parent_vals:
+                    continue
+                projected = _project_fk_values(db, parent, fk.column.name, parent_vals)
+                if not projected:
+                    continue
+                pk_cols = list(child.primary_key.columns)
+                if len(pk_cols) != 1:
+                    continue
+                rows = db.execute(child.select().where(fk.parent.in_(projected))).all()
+                bucket = marked.setdefault(child.name, set())
+                for r in rows:
+                    pk = (getattr(r, pk_cols[0].name),)
+                    if pk not in bucket:
+                        bucket.add(pk)
+                        changed = True
+
+    covered = {name for name, pks in marked.items() if pks}
+
+    # Sever every nullable FK that points at a row we are about to delete.
+    for child in tables:
+        for fk in child.foreign_keys:
+            if not fk.parent.nullable or fk.column.table.name not in covered:
+                continue
+            ref_vals = _project_fk_values(db, fk.column.table, fk.column.name, marked[fk.column.table.name])
+            if not ref_vals:
+                continue
+            db.execute(
+                child.update().where(fk.parent.in_(ref_vals)).values({fk.parent.name: None})
+            )
+
+    # Order the remaining deletes children-before-parents on NOT NULL FKs.
+    child_map: dict[str, set] = {}
+    for tname in covered:
+        for fk in Base.metadata.tables[tname].foreign_keys:
+            parent_name = fk.column.table.name
+            if parent_name == tname or parent_name not in covered or fk.parent.nullable:
+                continue
+            child_map.setdefault(parent_name, set()).add(tname)
+
+    remaining = set(covered)
+    order: list[str] = []
+    while remaining:
+        ready = sorted(t for t in remaining if not (child_map.get(t, set()) & remaining))
+        if not ready:
+            raise RuntimeError(
+                f"Circular NOT NULL foreign-key dependency prevents deletion of employee "
+                f"{employee_id}: {sorted(remaining)}"
+            )
+        for tname in ready:
+            order.append(tname)
+            remaining.discard(tname)
+
+    purged = []
+    for tname in order:
+        table = Base.metadata.tables[tname]
+        pks = marked[tname]
+        pk_cols = list(table.primary_key.columns)
+        if len(pk_cols) == 1:
+            db.execute(table.delete().where(pk_cols[0].in_([pk for (pk,) in pks])))
+        else:
+            db.execute(table.delete().where(tuple_(*pk_cols).in_(list(pks))))
+        purged.append(tname)
+    return purged
+
+
 def hard_delete_employee(db: Session, employee_id: int, organization_id: int = None) -> None:
     q = db.query(Employee).filter(Employee.id == employee_id)
     if organization_id is not None:
@@ -2753,5 +2873,6 @@ def hard_delete_employee(db: Session, employee_id: int, organization_id: int = N
     db.query(LoginActivity).filter(LoginActivity.user_id == employee_id).update({"user_id": None}, synchronize_session=False)
 
     db.flush()
+    _purge_employee_residuals(db, employee_id)
     db.query(Employee).filter(Employee.id == employee_id).delete()
     db.commit()

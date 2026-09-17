@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import {
   Search, Eye, ShieldCheck, History, CheckCircle2, XCircle,
   ChevronDown, Building2, Filter, Plus, SlidersHorizontal,
-  ChevronLeft, ChevronRight, MoreVertical, RotateCcw, AlertTriangle, X
+  ChevronLeft, ChevronRight, MoreVertical, RotateCcw, AlertTriangle, X, Trash2
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
 import EvaluationTimeRemaining from "../../components/EvaluationTimeRemaining";
@@ -22,6 +22,7 @@ export default function SuperAdminOrganizationsPage() {
 
   const [rejectModal, setRejectModal] = useState(null);
   const [rejectReason, setRejectReason] = useState("");
+  const [deleteOrg, setDeleteOrg] = useState(null);
 
   const loadOrgs = useCallback(async () => {
     setLoading(true);
@@ -94,6 +95,23 @@ export default function SuperAdminOrganizationsPage() {
     setActionLoading(org.id);
     try {
       await superAdminService.reactivateOrganization(org.id);
+      loadOrgs();
+    } catch (e) { setError(e.message); }
+    finally { setActionLoading(null); }
+  };
+
+  const handleDeleteClick = (org) => setDeleteOrg(org);
+
+  const confirmDeleteOrg = async () => {
+    if (!deleteOrg) return;
+    setActionLoading(deleteOrg.id);
+    try {
+      const confirm = await superAdminService.mintConfirmationToken(deleteOrg.id, "delete_organization");
+      await superAdminService.deleteOrganization(deleteOrg.id, {
+        id: confirm.confirmation_id,
+        token: confirm.token,
+      });
+      setDeleteOrg(null);
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
@@ -375,6 +393,12 @@ export default function SuperAdminOrganizationsPage() {
                               <History className="w-4 h-4" />
                             </button>
 
+                            {/* Delete */}
+                            <button onClick={() => handleDeleteClick(o)} disabled={actionLoading === o.id}
+                              className="p-1.5 text-slate-400 hover:text-white hover:bg-red-600 rounded-xl transition-all shadow-none hover:shadow-xs disabled:opacity-40" title="Permanently delete">
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+
                             <button onClick={() => navigate(`/super-admin/organizations/${o.id}`)}
                               className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-white rounded-xl transition-all shadow-none hover:shadow-xs" title="More options">
                               <MoreVertical className="w-4 h-4" />
@@ -435,6 +459,33 @@ export default function SuperAdminOrganizationsPage() {
             )}
           </div>
         </div>
+
+      {/* Delete Organization Modal */}
+      {deleteOrg && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+                <Trash2 className="h-5 w-5 text-red-600" />
+              </div>
+              <h3 className="text-lg font-bold text-slate-800">Delete Organization</h3>
+            </div>
+            <p className="text-sm text-slate-600 mb-4">
+              Permanently delete <strong>{deleteOrg.name}</strong> and all of its users and records?
+              This irreversible action requires a one-time confirmation token and cannot be undone.
+            </p>
+            <div className="flex gap-3 mt-6 justify-end">
+              <button onClick={() => setDeleteOrg(null)}
+                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button onClick={confirmDeleteOrg} disabled={actionLoading === deleteOrg.id}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                <Trash2 className="h-4 w-4" />
+                {actionLoading === deleteOrg.id ? "Deleting..." : "Delete Forever"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Reject Reason Modal */}
       {rejectModal && (

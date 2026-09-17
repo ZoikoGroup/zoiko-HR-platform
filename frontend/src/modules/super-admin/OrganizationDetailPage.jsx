@@ -316,19 +316,20 @@ export default function OrganizationDetailPage() {
               </div>
             )}
 
-            {/* Hard-delete for REJECTED orgs (Prompt 5 confirmation safeguards) */}
-            {org.status === "rejected" && (
-              <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-between">
-                <div>
-                  <h4 className="text-sm font-bold text-red-800">Rejected Organization</h4>
-                  <p className="text-xs text-red-600 mt-1">Delete removes the rejected registration permanently (requires a confirmation token).</p>
-                </div>
-                <button onClick={() => setDeleteModal(true)}
-                  className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
-                  <Trash2 className="h-4 w-4" /> Delete
-                </button>
+            {/* Hard-delete for any org (Prompt 5 confirmation safeguards) */}
+            <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-between">
+              <div>
+                <h4 className="text-sm font-bold text-red-800">Delete Organization</h4>
+                <p className="text-xs text-red-600 mt-1">
+                  Permanently removes this organization, all of its users, and every associated
+                  record (requires a confirmation token). This cannot be undone.
+                </p>
               </div>
-            )}
+              <button onClick={() => setDeleteModal(true)}
+                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 whitespace-nowrap">
+                <Trash2 className="h-4 w-4" /> Delete
+              </button>
+            </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
               <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">

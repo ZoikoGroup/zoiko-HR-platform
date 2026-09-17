@@ -256,6 +256,7 @@ class UserCreateRequest(BaseModel):
     phone:      Optional[str] = Field(None, example="+1-555-0100")
     role:       UserRole = Field(..., example="hr_admin")
     job_title:  Optional[str] = Field(None, max_length=150, example="Software Engineer")
+    organization_id: Optional[int] = Field(None, description="Target organization (Super Admin only)")
 
 
 class UserUpdateRequest(BaseModel):
