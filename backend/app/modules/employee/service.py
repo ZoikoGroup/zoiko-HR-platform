@@ -355,23 +355,14 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
                     "Your organization has been deactivated. Please contact support."
                 )
 
-            # Evaluation expiry check: approved orgs with expired evaluations
+            # Evaluation access gate: blocks login when the org's evaluation
+            # was ended (manually or expired) and no paying subscription is
+            # active — catches evaluations the super admin "End"-ed directly.
             if org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-                from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
                 from app.modules.billing import service as billing_svc
-                evaluation = (
-                    db.query(OrganizationEvaluation)
-                    .filter(
-                        OrganizationEvaluation.organization_id == org.id,
-                        OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
-                    )
-                    .first()
-                )
-                if evaluation and evaluation.evaluation_ends_at < datetime.utcnow():
-                    billing_svc.end_evaluation(db, evaluation.id)
-                    raise UnauthorizedException(
-                        "Your evaluation period has expired. Contact sales to continue."
-                    )
+                block_reason = billing_svc.evaluation_access_block_reason(db, org.id)
+                if block_reason:
+                    raise UnauthorizedException(block_reason)
 
     if not employee.is_active:
         raise UnauthorizedException("Your account has been deactivated.")
@@ -449,6 +440,10 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         country=data.country,
         timezone=data.timezone or "UTC",
         industry=data.industry,
+        org_type=data.org_type,
+        phone=data.phone,
+        tax_number=data.tax_number,
+        registered_email=data.registered_email,
         employee_id_prefix=derive_employee_id_prefix(data.organization),
     )
     db.add(org)

@@ -9,6 +9,7 @@ import {
   BadgeCheck, Ban, Info, Zap, ExternalLink, Check,
 } from "lucide-react";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
+import { formatDate } from "../../utils/dateTime";
 
 const BLUE = "#3B82F6";
 const EMERALD = "#10B981";
@@ -43,7 +44,7 @@ function fmtDate(value) {
   const d = new Date(value);
   return Number.isNaN(d.getTime())
     ? "—"
-    : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+    : formatDate(d);
 }
 
 function StatTile({ icon: Icon, color, bg, label, value, sub }) {

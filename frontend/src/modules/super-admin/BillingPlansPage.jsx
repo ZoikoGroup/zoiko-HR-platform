@@ -31,10 +31,14 @@ function FieldLabel({ children, required }) {
   );
 }
 
+function FieldError({ children }) {
+  return <p className="mt-1.5 text-xs font-medium text-red-600">{children}</p>;
+}
+
 function Input({ ...props }) {
   return (
     <input
-      className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00] focus:ring-2 focus:ring-[#FF7A00]/20 transition"
+      className="w-full rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-[#3B82F6]/30 transition"
       {...props}
     />
   );
@@ -43,7 +47,7 @@ function Input({ ...props }) {
 function Select({ children, ...props }) {
   return (
     <select
-      className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00] focus:ring-2 focus:ring-[#FF7A00]/20 transition"
+      className="appearance-none w-full rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2.5 pl-4 pr-9 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-[#3B82F6]/30 transition cursor-pointer"
       {...props}
     >
       {children}
@@ -153,6 +157,24 @@ export default function BillingPlansPage() {
       setFormError("Catalog version is required.");
       return;
     }
+    if (!form.is_contract_priced) {
+      const hasMonthly = form.monthly_price !== "";
+      const hasAnnual = form.annual_price !== "";
+      if (!hasMonthly || !hasAnnual) {
+        setFormError(
+          !hasMonthly && !hasAnnual
+            ? "Monthly Price and Annual Price are required for self-serve plans."
+            : !hasMonthly
+              ? "Monthly Price is required for self-serve plans."
+              : "Annual Price is required for self-serve plans."
+        );
+        return;
+      }
+      if (Number(form.monthly_price) < 0 || Number(form.annual_price) < 0) {
+        setFormError("Prices cannot be negative.");
+        return;
+      }
+    }
     setSaving(true);
     try {
       const payload = {
@@ -216,7 +238,7 @@ export default function BillingPlansPage() {
       <div className="space-y-6 font-sans">
         <PageHeader title="Plans & Catalog" description="Manage the billing plan catalog" />
         <div className="flex items-center justify-center py-24">
-          <Loader2 className="h-8 w-8 animate-spin text-[#FF7A00]" />
+          <Loader2 className="h-8 w-8 animate-spin text-blue-600" />
         </div>
       </div>
     );
@@ -231,7 +253,7 @@ export default function BillingPlansPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={loadPlans}
-              className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 text-slate-500 transition"
+              className="p-2 rounded-xl border border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 text-slate-500 transition"
               title="Refresh"
             >
               <RefreshCw className="h-4 w-4" />
@@ -239,14 +261,14 @@ export default function BillingPlansPage() {
             <button
               onClick={() => openPublish(versions.find(v => v.published < v.total)?.version || plans[0]?.catalog_version || "")}
               disabled={versions.length === 0}
-              className="flex items-center gap-2 rounded-full border border-[#FF7A00] text-[#FF7A00] px-4 py-2.5 text-sm font-semibold hover:bg-orange-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
+              className="flex items-center gap-2 rounded-lg border border-blue-600 text-blue-600 px-4 py-2.5 text-sm font-semibold hover:bg-blue-50 transition disabled:opacity-40 disabled:cursor-not-allowed"
               title="Publish a catalog version (irreversible, confirms by typed version)"
             >
               <Send className="h-4 w-4" /> Publish Version
             </button>
             <button
               onClick={openCreate}
-              className="flex items-center gap-2 rounded-full bg-[#FF7A00] hover:bg-[#e56e00] text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(255,122,0,0.3)]"
+              className="flex items-center gap-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 text-sm font-semibold transition shadow-[0_4px_14px_rgba(59,130,246,0.3)]"
             >
               <Plus className="h-4 w-4" /> Add Plan
             </button>
@@ -255,20 +277,20 @@ export default function BillingPlansPage() {
       />
 
       {error && (
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <span>{error}</span>
           <button onClick={loadPlans} className="ml-auto text-red-600 underline text-xs font-semibold">Retry</button>
         </div>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
+      <div className="rounded-2xl border border-slate-200 bg-white shadow-sm overflow-hidden">
         {plans.length === 0 ? (
           <div className="text-center py-16 text-slate-400">
             <Package className="h-12 w-12 mx-auto mb-3 opacity-30" />
             <p className="font-medium">No plans configured yet.</p>
             <p className="text-xs mt-1">Plans are seeded automatically on first server startup.</p>
-            <button onClick={openCreate} className="mt-4 text-sm font-semibold text-[#FF7A00] hover:underline">+ Add a plan manually</button>
+            <button onClick={openCreate} className="mt-4 text-sm font-semibold text-blue-600 hover:underline">+ Add a plan manually</button>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -288,22 +310,22 @@ export default function BillingPlansPage() {
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {plans.map((plan) => (
-                  <tr key={plan.id} className="text-sm hover:bg-slate-50/50 transition group">
+                  <tr key={plan.id} className="text-sm hover:bg-blue-50/40 transition group">
                     <td className="py-4 px-5">
                       <div className="flex items-center gap-2.5">
                         <div className={`w-8 h-8 rounded-xl flex items-center justify-center text-xs font-bold shrink-0 ${
                           plan.is_contract_priced
                             ? "bg-amber-50 text-amber-600"
-                            : "bg-orange-50 text-[#FF7A00]"
+                            : "bg-blue-50 text-blue-600"
                         }`}>
                           {plan.code?.charAt(0)?.toUpperCase() || "?"}
                         </div>
                         <div>
-                          <p className="font-semibold text-slate-800">{plan.name || "—"}</p>
+                          <p className="font-semibold text-slate-900">{plan.name || "—"}</p>
                           <span className={`text-[10px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded-md ${
                             plan.is_contract_priced
                               ? "bg-amber-50 text-amber-600"
-                              : "bg-orange-50 text-[#FF7A00]"
+                              : "bg-blue-50 text-blue-600"
                           }`}>
                             {plan.code}
                           </span>
@@ -361,7 +383,7 @@ export default function BillingPlansPage() {
                       ) : (
                         <button
                           onClick={() => openEdit(plan)}
-                          className="p-1.5 rounded-lg text-slate-300 hover:text-[#FF7A00] hover:bg-orange-50 opacity-0 group-hover:opacity-100 transition"
+                          className="p-1.5 rounded-lg text-slate-300 hover:text-blue-600 hover:bg-blue-100/70 opacity-0 group-hover:opacity-100 transition"
                           title="Edit draft plan"
                         >
                           <Edit3 className="h-4 w-4" />
@@ -379,14 +401,14 @@ export default function BillingPlansPage() {
       {/* Create / Edit Modal */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl w-full max-w-lg shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
+          <div className="bg-white rounded-2xl w-full max-w-lg shadow-2xl border border-slate-200 max-h-[90vh] overflow-y-auto">
             {/* Modal header */}
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
-                  <Package className="h-5 w-5 text-[#FF7A00]" />
+                <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <Package className="h-5 w-5 text-blue-600" />
                 </div>
-                <h3 className="text-base font-bold text-slate-800">
+                <h3 className="text-base font-bold text-slate-900">
                   {creating ? "Add Plan" : `Edit: ${editing?.name || editing?.code}`}
                 </h3>
               </div>
@@ -451,7 +473,7 @@ export default function BillingPlansPage() {
 
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <FieldLabel>Monthly Price</FieldLabel>
+                  <FieldLabel required={!form.is_contract_priced}>Monthly Price</FieldLabel>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
                     <Input
@@ -464,9 +486,12 @@ export default function BillingPlansPage() {
                       style={{ paddingLeft: "1.75rem" }}
                     />
                   </div>
+                  {!form.is_contract_priced && form.monthly_price === "" && formError?.includes("Monthly") && (
+                    <FieldError>Monthly Price is required for self-serve plans.</FieldError>
+                  )}
                 </div>
                 <div>
-                  <FieldLabel>Annual Price</FieldLabel>
+                  <FieldLabel required={!form.is_contract_priced}>Annual Price</FieldLabel>
                   <div className="relative">
                     <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm">$</span>
                     <Input
@@ -479,8 +504,16 @@ export default function BillingPlansPage() {
                       style={{ paddingLeft: "1.75rem" }}
                     />
                   </div>
+                  {!form.is_contract_priced && form.annual_price === "" && formError?.includes("Annual") && (
+                    <FieldError>Annual Price is required for self-serve plans.</FieldError>
+                  )}
                 </div>
               </div>
+              {!form.is_contract_priced && (
+                <p className="text-xs text-slate-400 -mt-2">
+                  Required for self-serve plans. Leave blank only when <span className="font-semibold text-slate-500">Contract Priced</span> is on.
+                </p>
+              )}
 
               <div>
                 <FieldLabel>Currency</FieldLabel>
@@ -500,7 +533,7 @@ export default function BillingPlansPage() {
                   value={form.description}
                   onChange={e => set("description", e.target.value)}
                   placeholder="Brief description of this plan…"
-                  className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00] focus:ring-2 focus:ring-[#FF7A00]/20 transition resize-none"
+                  className="w-full rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-blue-500 focus:ring-2 focus:ring-[#3B82F6]/30 transition resize-none"
                 />
               </div>
 
@@ -510,7 +543,7 @@ export default function BillingPlansPage() {
                     type="checkbox"
                     checked={form.is_active}
                     onChange={e => set("is_active", e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 accent-[#FF7A00]"
+                    className="w-4 h-4 rounded border-slate-300 accent-blue-600"
                   />
                   <span className="text-sm font-medium text-slate-700">Active</span>
                 </label>
@@ -519,7 +552,7 @@ export default function BillingPlansPage() {
                     type="checkbox"
                     checked={form.is_contract_priced}
                     onChange={e => set("is_contract_priced", e.target.checked)}
-                    className="w-4 h-4 rounded border-slate-300 accent-[#FF7A00]"
+                    className="w-4 h-4 rounded border-slate-300 accent-blue-600"
                   />
                   <span className="text-sm font-medium text-slate-700">Contract Priced</span>
                 </label>
@@ -530,14 +563,14 @@ export default function BillingPlansPage() {
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50">
               <button
                 onClick={closeModal}
-                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-100 font-medium transition"
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 font-medium transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handleSave}
                 disabled={saving}
-                className="flex items-center gap-2 px-5 py-2 rounded-full bg-[#FF7A00] text-white text-sm font-semibold hover:bg-[#e56e00] disabled:opacity-60 transition shadow-sm"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 transition shadow-sm"
               >
                 {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
                 {creating ? "Create Plan" : "Save Changes"}
@@ -550,13 +583,13 @@ export default function BillingPlansPage() {
       {/* Publish Version Modal (Section 17: append-only, typed confirmation) */}
       {publishOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-white rounded-3xl w-full max-w-md shadow-2xl border border-slate-200">
+          <div className="bg-white rounded-2xl w-full max-w-md shadow-2xl border border-slate-200">
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100">
               <div className="flex items-center gap-2.5">
-                <div className="w-9 h-9 rounded-xl bg-orange-50 flex items-center justify-center">
-                  <Send className="h-5 w-5 text-[#FF7A00]" />
+                <div className="w-9 h-9 rounded-xl bg-blue-50 flex items-center justify-center">
+                  <Send className="h-5 w-5 text-blue-600" />
                 </div>
-                <h3 className="text-base font-bold text-slate-800">Publish Catalog Version</h3>
+                <h3 className="text-base font-bold text-slate-900">Publish Catalog Version</h3>
               </div>
               <button onClick={closePublish} className="p-1.5 hover:bg-slate-100 rounded-lg transition">
                 <X className="h-5 w-5 text-slate-400" />
@@ -601,14 +634,14 @@ export default function BillingPlansPage() {
             <div className="flex items-center justify-end gap-3 px-6 py-4 border-t border-slate-100 bg-slate-50/50">
               <button
                 onClick={closePublish}
-                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-100 font-medium transition"
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200 font-medium transition"
               >
                 Cancel
               </button>
               <button
                 onClick={handlePublish}
                 disabled={publishing}
-                className="flex items-center gap-2 px-5 py-2 rounded-full bg-[#FF7A00] text-white text-sm font-semibold hover:bg-[#e56e00] disabled:opacity-60 transition shadow-sm"
+                className="flex items-center gap-2 px-5 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-60 transition shadow-sm"
               >
                 {publishing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
                 Publish Version

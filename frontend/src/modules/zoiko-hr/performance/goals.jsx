@@ -7,6 +7,7 @@ import {
   getPerformanceGoals, createPerformanceGoal, updatePerformanceGoal, deletePerformanceGoal,
   getPerformanceKpis, createPerformanceKpi, updatePerformanceKpi, deletePerformanceKpi,
 } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/performance" },
@@ -44,7 +45,7 @@ function TypeBadge({ type }) {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  try { return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }); }
+  try { return formatDateUtil(dateStr); }
   catch { return dateStr; }
 }
 

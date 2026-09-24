@@ -47,6 +47,10 @@ class OrganizationDetail(OrganizationSummary):
     city: Optional[str] = None
     timezone: Optional[str] = None
     industry: Optional[str] = None
+    org_type: Optional[str] = None
+    phone: Optional[str] = None
+    tax_number: Optional[str] = None
+    registered_email: Optional[str] = None
     hr_admins: int = 0
     managers: int = 0
     evaluation_ends_at: Optional[datetime] = None

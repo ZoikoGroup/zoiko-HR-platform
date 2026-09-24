@@ -11,6 +11,7 @@ import { billingService } from "../../service/billingService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import EvaluationTimeRemaining from "../../components/EvaluationTimeRemaining";
+import { formatDate, formatDateTime } from "../../utils/dateTime";
 
 const STATUS_BADGE = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -241,7 +242,7 @@ export default function OrganizationDetailPage() {
     return (
       <div className="space-y-6 font-sans">
         <PageHeader title="Organization Details" description="Error loading" />
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
           <AlertTriangle className="h-5 w-5" /><span>{error}</span>
           <button onClick={loadAll} className="ml-auto text-red-600 underline text-xs font-semibold">Retry</button>
         </div>
@@ -253,14 +254,18 @@ export default function OrganizationDetailPage() {
     <div className="space-y-6 font-sans">
       <div className="flex items-center gap-4">
         <button onClick={() => navigate("/super-admin/organizations")}
-          className="p-2 rounded-xl border border-slate-200 hover:bg-slate-50 transition">
-          <ChevronLeft className="h-4 w-4 text-slate-500" />
+          className="p-2 rounded-xl border border-slate-200 bg-white text-slate-500 hover:text-blue-600 hover:bg-blue-50 hover:border-blue-200 transition">
+          <ChevronLeft className="h-4 w-4" />
         </button>
         <PageHeader title={org?.name || "Organization"} description={org?.organization_code ? `Code: ${org.organization_code}` : "Organization"} />
+        <button onClick={() => setDeleteModal(true)}
+          className="ml-auto text-xs text-slate-400 hover:text-red-600 transition-colors">
+          Delete organization
+        </button>
       </div>
 
       {error && (
-        <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
           <AlertTriangle className="h-5 w-5" /><span>{error}</span>
           <button onClick={() => setError(null)} className="ml-auto text-red-600 underline text-xs font-semibold">Dismiss</button>
         </div>
@@ -268,20 +273,20 @@ export default function OrganizationDetailPage() {
 
       {org && (
         <>
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
             <div className="flex items-start justify-between">
               <div className="flex items-center gap-4">
-                <div className="h-16 w-16 bg-[#3B82F6]/10 rounded-2xl flex items-center justify-center">
-                  <Building className="h-8 w-8 text-[#3B82F6]" />
+                <div className="h-16 w-16 bg-blue-50 rounded-xl flex items-center justify-center">
+                  <Building className="h-8 w-8 text-blue-600" />
                 </div>
                 <div>
-                  <h2 className="text-xl font-bold text-slate-800">{org.name}</h2>
+                  <h2 className="text-xl font-bold text-slate-900">{org.name}</h2>
                   <div className="flex items-center gap-3 mt-1">
                     <span className="text-xs text-slate-400 font-mono">{org.organization_code}</span>
                     <StatusBadge status={org.status} />
                   </div>
                   <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
-                    <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Created {org.created_at ? new Date(org.created_at).toLocaleDateString() : "—"}</span>
+                    <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Created {org.created_at ? formatDate(org.created_at) : "—"}</span>
                     <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {org.total_employees} employees</span>
                     {org.subscription_plan && (
                       <span className="flex items-center gap-1"><CreditCard className="h-3 w-3" /> {org.subscription_plan}</span>
@@ -296,7 +301,7 @@ export default function OrganizationDetailPage() {
 
             {/* Quick Actions for PENDING orgs */}
             {org.status === "pending" && (
-              <div className="mt-4 p-4 rounded-2xl bg-amber-50 border border-amber-200">
+              <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="text-sm font-bold text-amber-800">Pending Approval</h4>
@@ -304,11 +309,11 @@ export default function OrganizationDetailPage() {
                   </div>
                   <div className="flex gap-2">
                     <button onClick={handleQuickApprove} disabled={actionLoading === "approve"}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-semibold hover:bg-emerald-700 disabled:opacity-50">
                       <ThumbsUp className="h-4 w-4" /> Approve
                     </button>
                     <button onClick={() => setRejectModal(true)}
-                      className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
+                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700">
                       <ThumbsDown className="h-4 w-4" /> Reject
                     </button>
                   </div>
@@ -317,45 +322,31 @@ export default function OrganizationDetailPage() {
             )}
 
             {/* Hard-delete for any org (Prompt 5 confirmation safeguards) */}
-            <div className="mt-4 p-4 rounded-2xl bg-red-50 border border-red-200 flex items-center justify-between">
-              <div>
-                <h4 className="text-sm font-bold text-red-800">Delete Organization</h4>
-                <p className="text-xs text-red-600 mt-1">
-                  Permanently removes this organization, all of its users, and every associated
-                  record (requires a confirmation token). This cannot be undone.
-                </p>
-              </div>
-              <button onClick={() => setDeleteModal(true)}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 whitespace-nowrap">
-                <Trash2 className="h-4 w-4" /> Delete
-              </button>
-            </div>
-
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">Total Employees</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">{org.total_employees || 0}</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">{org.total_employees || 0}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">Active Employees</p>
-                <p className="text-2xl font-bold text-emerald-600 mt-1">{org.active_employees || 0}</p>
+                <p className="text-2xl font-bold text-blue-600 mt-1">{org.active_employees || 0}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">HR Admins</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">{org.hr_admins || 0}</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">{org.hr_admins || 0}</p>
               </div>
-              <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+              <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">Managers</p>
-                <p className="text-2xl font-bold text-slate-800 mt-1">{org.managers || 0}</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">{org.managers || 0}</p>
               </div>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
-            <h3 className="text-lg font-bold text-slate-800 mb-4">Organization Profile</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Organization Profile</h3>
             <div className="grid grid-cols-2 md:grid-cols-3 gap-6 text-sm">
               <div><span className="text-slate-400 block text-xs">Name</span><span className="font-semibold text-slate-700">{org.name}</span></div>
-              <div><span className="text-slate-400 block text-xs">Organization Code</span><span className="font-mono text-xs font-semibold text-[#3B82F6]">{org.organization_code || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Organization Code</span><span className="font-mono text-xs font-semibold text-blue-600">{org.organization_code || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Status</span><StatusBadge status={org.status} /></div>
               <div><span className="text-slate-400 block text-xs">Plan</span><span className="font-semibold text-slate-700">{org.subscription_plan || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Admin Contact</span><span className="font-semibold text-slate-700">{org.admin_name || "—"}</span></div>
@@ -367,9 +358,13 @@ export default function OrganizationDetailPage() {
               <div><span className="text-slate-400 block text-xs">Industry</span><span className="font-semibold text-slate-700">{org.industry || "—"}</span></div>
               <div className="col-span-2"><span className="text-slate-400 block text-xs">Address</span><span className="font-semibold text-slate-700">{org.address || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Domain</span><span className="font-semibold text-slate-700">{org.domain || "—"}</span></div>
-              <div><span className="text-slate-400 block text-xs">Created At</span><span className="font-semibold text-slate-700">{org.created_at ? new Date(org.created_at).toLocaleString() : "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Organization Type</span><span className="font-semibold text-slate-700 capitalize">{org.org_type || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Phone</span><span className="font-semibold text-slate-700">{org.phone || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Tax / Registration No.</span><span className="font-semibold text-slate-700">{org.tax_number || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Registered Email</span><span className="font-semibold text-slate-700">{org.registered_email || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Created At</span><span className="font-semibold text-slate-700">{org.created_at ? formatDateTime(org.created_at) : "—"}</span></div>
               {org.approved_at && (
-                <div><span className="text-slate-400 block text-xs">Approved At</span><span className="font-semibold text-slate-700">{new Date(org.approved_at).toLocaleString()}</span></div>
+                <div><span className="text-slate-400 block text-xs">Approved At</span><span className="font-semibold text-slate-700">{formatDateTime(org.approved_at)}</span></div>
               )}
               {org.approved_by_name && (
                 <div><span className="text-slate-400 block text-xs">Approved By</span><span className="font-semibold text-slate-700">{org.approved_by_name}</span></div>
@@ -384,9 +379,9 @@ export default function OrganizationDetailPage() {
           </div>
 
           {/* Billing Section */}
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <CreditCard className="h-5 w-5 text-[#3B82F6]" />
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900 mb-4 flex items-center gap-2">
+              <CreditCard className="h-5 w-5 text-blue-600" />
               Billing & Subscription
             </h3>
             {billingLoading ? (
@@ -403,28 +398,28 @@ export default function OrganizationDetailPage() {
                   <EvaluationTimeRemaining evaluationEndsAt={org.evaluation_ends_at} />
                 )}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Classification</p>
-                    <p className="text-sm font-bold text-slate-800 mt-1 capitalize">{subscription.billing_classification || "—"}</p>
+                    <p className="text-sm font-bold text-slate-900 mt-1 capitalize">{subscription.billing_classification || "—"}</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Status</p>
-                    <p className="text-sm font-bold text-slate-800 mt-1 capitalize">{subscription.status || "—"}</p>
+                    <p className="text-sm font-bold text-slate-900 mt-1 capitalize">{subscription.status || "—"}</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Plan</p>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{subscription.plan_code?.toUpperCase() || org.subscription_plan || "—"}</p>
+                    <p className="text-sm font-bold text-slate-900 mt-1">{subscription.plan_code?.toUpperCase() || org.subscription_plan || "—"}</p>
                   </div>
-                  <div className="rounded-2xl bg-slate-50 border border-slate-100 p-4">
+                  <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                     <p className="text-xs text-slate-400">Workforce</p>
-                    <p className="text-sm font-bold text-slate-800 mt-1">{subscription.quantity ?? "—"}</p>
+                    <p className="text-sm font-bold text-slate-900 mt-1">{subscription.quantity ?? "—"}</p>
                   </div>
                 </div>
 
                 {subscription.billing_cycle && (
                   <div className="text-xs text-slate-500">
                     Billing cycle: <span className="font-semibold">{subscription.billing_cycle}</span>
-                    {subscription.renewal_anchor_date && <> · Renewal: <span className="font-semibold">{new Date(subscription.renewal_anchor_date).toLocaleDateString()}</span></>}
+                    {subscription.renewal_anchor_date && <> · Renewal: <span className="font-semibold">{formatDate(subscription.renewal_anchor_date)}</span></>}
                   </div>
                 )}
               </div>
@@ -462,7 +457,7 @@ export default function OrganizationDetailPage() {
                         <span className="ml-2 text-xs text-slate-400">· {c.quantity_basis}</span>
                       </div>
                       <div className="text-xs text-slate-400">
-                        {new Date(c.commercial_effective_at).toLocaleDateString()} · {c.approver}
+                        {formatDate(c.commercial_effective_at)} · {c.approver}
                       </div>
                     </div>
                   ))}
@@ -482,7 +477,7 @@ export default function OrganizationDetailPage() {
                   <p className="text-xs mt-1 opacity-90">
                     Stage: <span className="font-semibold uppercase">{delinquency.stage?.replace(/_/g, " ") || "recovery"}</span>
                     {delinquency.retention_hold_until && (
-                      <> · Retention hold until {new Date(delinquency.retention_hold_until).toLocaleDateString()}</>
+                      <> · Retention hold until {formatDate(delinquency.retention_hold_until)}</>
                     )}
                   </p>
                   <p className="text-xs mt-1 opacity-70">
@@ -497,7 +492,7 @@ export default function OrganizationDetailPage() {
               <div className="flex items-center justify-between mb-2">
                 <h4 className="text-sm font-bold text-slate-700">Support Access Grants</h4>
                 <button onClick={() => setSupportModal(true)}
-                  className="text-xs font-semibold text-[#3B82F6] hover:underline">
+                  className="text-xs font-semibold text-blue-600 hover:underline">
                   + Grant Billing Ops access
                 </button>
               </div>
@@ -515,7 +510,7 @@ export default function OrganizationDetailPage() {
                             {active ? "Active" : "Expired/Revoked"}
                           </span>
                           <div className="text-xs text-slate-400 mt-0.5">
-                            Expires {g.expires_at ? new Date(g.expires_at).toLocaleString() : "—"}
+                            Expires {g.expires_at ? formatDateTime(g.expires_at) : "—"}
                             {g.revoked_by && <> · revoked by {g.revoked_by}</>}
                           </div>
                         </div>
@@ -531,14 +526,14 @@ export default function OrganizationDetailPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
-            <h3 className="text-lg font-bold text-slate-800 mb-4">Organization Audit Activity</h3>
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-slate-900 mb-4">Organization Audit Activity</h3>
             {auditLogs.length === 0 ? (
               <div className="text-center py-8 text-slate-400">No audit logs for this organization</div>
             ) : (
               <div className="space-y-3">
                 {auditLogs.map((log) => (
-                  <div key={log.id} className="flex items-start gap-3 p-3 rounded-2xl bg-slate-50/50 border border-slate-100">
+                  <div key={log.id} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-slate-100 hover:bg-blue-50/40 transition-colors duration-150">
                     <div className="h-8 w-8 rounded-full flex items-center justify-center flex-shrink-0 bg-blue-100">
                       <FileText className="h-4 w-4 text-blue-600" />
                     </div>
@@ -546,7 +541,7 @@ export default function OrganizationDetailPage() {
                       <div className="text-sm font-semibold text-slate-700 capitalize">{log.action}</div>
                       <div className="text-xs text-slate-500">
                         {log.entity_type} {log.entity_id ? `#${log.entity_id} · ` : "· "}
-                        {log.performed_by_email || "system"} · {log.created_at ? new Date(log.created_at).toLocaleString() : ""}
+                        {log.performed_by_email || "system"} · {log.created_at ? formatDateTime(log.created_at) : ""}
                       </div>
                       {log.details && (
                         <div className="text-xs text-slate-400 mt-1 font-mono">
@@ -565,12 +560,12 @@ export default function OrganizationDetailPage() {
       {/* Contextual Status Change Modal */}
       {statusModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl border border-slate-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-[#3B82F6]/10 flex items-center justify-center">
-                <ShieldAlert className="h-5 w-5 text-[#3B82F6]" />
+              <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <ShieldAlert className="h-5 w-5 text-blue-600" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">{statusModal.label} Organization</h3>
+              <h3 className="text-lg font-bold text-slate-900">{statusModal.label} Organization</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">
               Change <strong>{org?.name}</strong> from <StatusBadge status={org?.status} /> to <span className="font-bold">{statusModal.label}</span>.
@@ -580,21 +575,21 @@ export default function OrganizationDetailPage() {
                 value={statusReason}
                 onChange={(e) => setStatusReason(e.target.value)}
                 placeholder="Reason for rejection (required)..."
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-red-400 min-h-[80px] resize-y"
+                className="w-full rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2.5 px-4 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-red-400/30 focus:border-red-400 min-h-[80px] resize-y transition"
               />
             ) : (
               <textarea
                 value={statusReason}
                 onChange={(e) => setStatusReason(e.target.value)}
                 placeholder="Optional reason for this status change..."
-                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6] min-h-[80px] resize-y"
+                className="w-full rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2.5 px-4 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-[#3B82F6]/30 focus:border-blue-500 min-h-[80px] resize-y transition"
               />
             )}
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => { setStatusModal(null); setStatusReason(""); }}
-                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
               <button onClick={handleStatusChange} disabled={actionLoading === "status" || (statusModal.value === "rejected" && !statusReason.trim())}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB] disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
                 {actionLoading === "status" ? "Updating..." : `Confirm ${statusModal.label}`}
               </button>
             </div>
@@ -605,12 +600,12 @@ export default function OrganizationDetailPage() {
       {/* Reject Modal (for quick reject from pending banner) */}
       {rejectModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl border border-slate-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+              <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center">
                 <XCircle className="h-5 w-5 text-red-600" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Reject Organization</h3>
+              <h3 className="text-lg font-bold text-slate-900">Reject Organization</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">
               Reject <strong>{org?.name}</strong> registration. Provide a reason (required):
@@ -619,13 +614,13 @@ export default function OrganizationDetailPage() {
               value={rejectReason}
               onChange={(e) => setRejectReason(e.target.value)}
               placeholder="Reason for rejection..."
-              className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-red-400 min-h-[100px] resize-y"
+              className="w-full rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2.5 px-4 text-sm text-slate-800 outline-none focus:ring-2 focus:ring-red-400/30 focus:border-red-400 min-h-[100px] resize-y transition"
             />
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => { setRejectModal(false); setRejectReason(""); }}
-                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
               <button onClick={handleReject} disabled={!rejectReason.trim() || actionLoading === "reject"}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
                 {actionLoading === "reject" ? "Rejecting..." : "Reject"}
               </button>
             </div>
@@ -636,12 +631,12 @@ export default function OrganizationDetailPage() {
       {/* Delete Organization (confirmation-token protected) */}
       {deleteModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl border border-slate-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
+              <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center">
                 <Trash2 className="h-5 w-5 text-red-600" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Delete Organization</h3>
+              <h3 className="text-lg font-bold text-slate-900">Delete Organization</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">
               Permanently delete <strong>{org?.name}</strong>? This irreversible action
@@ -649,9 +644,9 @@ export default function OrganizationDetailPage() {
             </p>
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => setDeleteModal(false)}
-                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
               <button onClick={handleDeleteOrg} disabled={actionLoading === "delete"}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
                 {actionLoading === "delete" ? "Deleting..." : "Delete"}
               </button>
             </div>
@@ -662,12 +657,12 @@ export default function OrganizationDetailPage() {
       {/* Grant Support Access */}
       {supportModal && (
         <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl border border-slate-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-[#3B82F6]/10 flex items-center justify-center">
-                <KeyRound className="h-5 w-5 text-[#3B82F6]" />
+              <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center">
+                <KeyRound className="h-5 w-5 text-blue-600" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Grant Billing Ops Access</h3>
+              <h3 className="text-lg font-bold text-slate-900">Grant Billing Ops Access</h3>
             </div>
             <p className="text-sm text-slate-600 mb-4">
               Mint a time-bounded (24h) support-access token for <strong>{org?.name}</strong>.
@@ -675,9 +670,9 @@ export default function OrganizationDetailPage() {
             </p>
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => setSupportModal(false)}
-                className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Cancel</button>
+                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
               <button onClick={handleMintSupport} disabled={supportBusy}
-                className="flex items-center gap-2 px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB] disabled:opacity-50">
+                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
                 {supportBusy ? "Minting..." : "Mint Token"}
               </button>
             </div>
@@ -688,18 +683,18 @@ export default function OrganizationDetailPage() {
       {/* Support token result (shown once) */}
       {supportResult && (
         <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-lg shadow-xl border border-slate-200">
+          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl border border-slate-200">
             <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">
+              <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center">
                 <KeyRound className="h-5 w-5 text-emerald-600" />
               </div>
-              <h3 className="text-lg font-bold text-slate-800">Support Access Token</h3>
+              <h3 className="text-lg font-bold text-slate-900">Support Access Token</h3>
             </div>
             <p className="text-xs text-slate-500 mb-2">Copy this now — the raw token is shown once and cannot be retrieved again.</p>
             <pre className="bg-slate-900 text-emerald-300 rounded-xl p-4 text-xs whitespace-pre-wrap break-all font-mono select-all">{supportResult.token}</pre>
             <div className="flex gap-3 mt-6 justify-end">
               <button onClick={() => { setSupportResult(null); loadAll(); }}
-                className="px-4 py-2 rounded-full bg-[#3B82F6] text-white text-sm font-semibold hover:bg-[#2563EB]">Done</button>
+                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">Done</button>
             </div>
           </div>
         </div>

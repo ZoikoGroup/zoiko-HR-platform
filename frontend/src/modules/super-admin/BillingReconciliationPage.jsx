@@ -6,6 +6,7 @@ import {
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { billingService } from "../../service/billingService";
+import { formatDate, formatDateTime } from "../../utils/dateTime";
 
 const BLUE = "#3B82F6";
 const BLUE_DEEP = "#2563EB";
@@ -238,7 +239,7 @@ export default function BillingReconciliationPage() {
             </div>
             <div>
               <span className="block" style={{ color: "#94A3B8" }}>Created At</span>
-              <span className="font-semibold" style={{ color: INK }}>{result.created_at ? new Date(result.created_at).toLocaleString() : "Just now"}</span>
+              <span className="font-semibold" style={{ color: INK }}>{result.created_at ? formatDateTime(result.created_at) : "Just now"}</span>
             </div>
           </div>
 
@@ -323,13 +324,13 @@ export default function BillingReconciliationPage() {
                     </td>
                     <td className="py-4 px-4"><StatusBadge status={c.status} /></td>
                     <td className="py-4 px-4 text-[12px]" style={{ color: "#94A3B8" }}>
-                      {c.created_at ? new Date(c.created_at).toLocaleString() : "—"}
+                      {c.created_at ? formatDateTime(c.created_at) : "—"}
                     </td>
                     <td className="py-4 px-4 text-[12px]">
                       {c.status === "resolved" ? (
                         <div>
                           <span className="font-semibold" style={{ color: EMERALD }}>{c.resolved_by || "Resolved"}</span>
-                          <p className="text-[11px]" style={{ color: "#94A3B8" }}>{c.resolved_at ? new Date(c.resolved_at).toLocaleDateString() : ""}</p>
+                          <p className="text-[11px]" style={{ color: "#94A3B8" }}>{c.resolved_at ? formatDate(c.resolved_at) : ""}</p>
                         </div>
                       ) : (
                         <span className="font-medium" style={{ color: AMBER }}>Pending Review</span>

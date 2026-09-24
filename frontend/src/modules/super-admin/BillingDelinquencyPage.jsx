@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { billingService } from "../../service/billingService";
+import { formatDateTime } from "../../utils/dateTime";
 
 const STAGE_META = {
   recovery: { label: "Recovery (Days 1–9)", badge: "bg-amber-50 text-amber-800 border-amber-200", desc: "Dunning retry active" },
@@ -162,7 +163,7 @@ export default function BillingDelinquencyPage() {
                         {meta.desc}
                       </td>
                       <td className="py-4 px-4 text-xs text-slate-400">
-                        {c.failed_at ? new Date(c.failed_at).toLocaleString() : "—"}
+                        {c.failed_at ? formatDateTime(c.failed_at) : "—"}
                       </td>
                       <td className="py-4 px-4 text-right">
                         <button

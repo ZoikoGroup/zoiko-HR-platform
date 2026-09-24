@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getDepartments } from "../../../service/hrService";
+import { formatDate } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard",            href: "/zoiko-hr/departments" },
@@ -300,7 +301,7 @@ export default function DepartmentDashboard() {
                       <td className="px-4 py-3 text-xs font-mono font-semibold text-rose-600">{r.code}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">{r.head || "—"}</td>
                       <td className="px-4 py-3 text-sm text-gray-600">
-                        {r.created_at ? new Date(r.created_at).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" }) : "—"}
+                        {r.created_at ? formatDate(r.created_at) : "—"}
                       </td>
                       <td className="px-4 py-3 text-sm font-semibold text-gray-900 text-right">{r.employee_count || 0}</td>
                       <td className="px-4 py-3 text-center">

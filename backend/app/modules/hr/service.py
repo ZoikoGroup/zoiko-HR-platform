@@ -261,6 +261,15 @@ def refresh_access_token(db: Session, refresh_token_str: str) -> dict:
     if not employee or not employee.is_active:
         raise UnauthorizedException("Employee not found or inactive.")
 
+    if employee.organization_id:
+        from app.modules.billing import service as billing_service
+        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
+        if org and org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
+            if billing_service.evaluation_access_block_reason(db, employee.organization_id):
+                raise UnauthorizedException(
+                    "Your evaluation period has ended. Contact sales to continue."
+                )
+
     # Re-fetch org for org_code
     from app.modules.hr.models import Organization as HrOrganization
     org_obj = None

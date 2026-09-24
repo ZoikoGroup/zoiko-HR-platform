@@ -14,6 +14,7 @@
 
 import { useEffect, useState } from "react";
 import { AlertTriangle, CreditCard } from "lucide-react";
+import { formatDate } from "../utils/dateTime";
 
 const STAGE_STYLES = {
   recovery: "bg-amber-50 border-amber-200 text-amber-900",
@@ -83,7 +84,7 @@ export default function DelinquencyBanner({ organizationId }) {
         <p className="text-xs mt-2 opacity-70">
           {state.data.days_elapsed ?? 0} day(s) overdue
           {state.data.retention_hold_until && (
-            <> &middot; Retention hold until {new Date(state.data.retention_hold_until).toLocaleDateString()}</>
+            <> &middot; Retention hold until {formatDate(state.data.retention_hold_until)}</>
           )}
         </p>
       </div>

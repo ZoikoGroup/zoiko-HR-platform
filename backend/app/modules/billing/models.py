@@ -414,7 +414,10 @@ class BillingAuditLog(Base):
     __tablename__ = "billing_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    # organization_id is NULL for platform-level events (super-admin plan
+    # catalog ops, webhooks that don't map to any org). A 0 sentinel breaks
+    # the organizations FK — platform events record no org, not a fake one.
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     action = Column(CaseInsensitiveEnum(BillingAuditAction), nullable=False)
     entity_type = Column(String(100), nullable=False)
     entity_id = Column(Integer, nullable=True)

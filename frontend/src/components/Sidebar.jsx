@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Link, NavLink, useLocation } from "react-router-dom";
 import { ChevronDown, X } from "lucide-react";
 import useFilteredNavigation from "../hooks/useFilteredNavigation";
+import { collectNavMatches } from "../utils/navigationSearch";
 import { ROLE_LABELS } from "../config/roles";
 import { useAuth } from "../context/AuthContext";
 
@@ -93,6 +94,18 @@ export default function Sidebar({ open, onClose }) {
   const { pathname, search } = useLocation();
   const { role, product, products } = useAuth();
   const filteredSections = useFilteredNavigation(role, product, products);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  useEffect(() => {
+    setSearchQuery("");
+  }, [pathname]);
+
+  const searchResults = useMemo(
+    () => collectNavMatches(filteredSections, searchQuery),
+    [filteredSections, searchQuery]
+  );
+
+  const searching = searchQuery.trim().length > 0;
 
   return (
     <div>
@@ -125,23 +138,58 @@ export default function Sidebar({ open, onClose }) {
         </div>
 
         <div className="mb-6">
-          <SearchBar />
+          <SearchBar value={searchQuery} onChange={setSearchQuery} />
         </div>
 
-        <div className="space-y-7 pb-8">
-          {filteredSections.map((section, idx) => (
-            <div key={`${section.title}-${idx}`}>
-              <p className="mb-4 text-[10px] uppercase tracking-[0.32em] text-[#64748B]">
-                {section.title}
-              </p>
+        {searching ? (
+          <div className="pb-8">
+            {searchResults.length > 0 ? (
               <div className="space-y-2">
-                {section.items.map((item) => (
-                  <MenuItem key={item.label} item={item} pathname={pathname} search={search} />
+                {searchResults.map((item) => (
+                  <NavLink
+                    key={item.href}
+                    to={item.href ?? "/"}
+                    className={({ isActive: navActive }) =>
+                      `group flex items-center gap-3 rounded-[14px] border px-4 py-3 text-sm transition duration-200 ${
+                        navActive
+                          ? "border-[#3A86FF]/40 bg-gradient-to-r from-[#2563EB] to-[#3A86FF] text-white shadow-[0_18px_40px_rgba(58,134,255,0.18)]"
+                          : "border-white/10 bg-white/5 text-[#94A3B8] hover:border-white/20 hover:bg-white/10 hover:text-white"
+                      }`
+                    }
+                    end
+                  >
+                    {item.icon ? <item.icon className="h-4 w-4 shrink-0" /> : null}
+                    <span className="flex-1 truncate">{item.label}</span>
+                    {item.badge ? (
+                      <span className="ml-auto min-w-[22px] rounded-full bg-[#3A86FF] px-2 py-0.5 text-[10px] font-semibold text-white shadow-[0_8px_24px_rgba(58,134,255,0.18)]">
+                        {item.badge}
+                      </span>
+                    ) : null}
+                  </NavLink>
                 ))}
               </div>
-            </div>
-          ))}
-        </div>
+            ) : (
+              <p className="px-2 py-3 text-sm text-[#64748B]">
+                No results for &ldquo;{searchQuery.trim()}&rdquo;
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-7 pb-8">
+            {filteredSections.map((section, idx) => (
+              <div key={`${section.title}-${idx}`}>
+                <p className="mb-4 text-[10px] uppercase tracking-[0.32em] text-[#64748B]">
+                  {section.title}
+                </p>
+                <div className="space-y-2">
+                  {section.items.map((item) => (
+                    <MenuItem key={item.label} item={item} pathname={pathname} search={search} />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
 
         <div className="mt-auto border-t border-white/10 pt-5">
           <p className="text-[9px] tracking-[0.28em] text-[#64748B]">POWERED BY</p>

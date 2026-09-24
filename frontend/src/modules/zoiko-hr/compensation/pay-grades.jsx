@@ -6,6 +6,7 @@ import {
   updatePayGrade,
   deletePayGrade,
 } from "../../../service/hrService";
+import { formatDate, formatDateTime } from "../../../utils/dateTime";
 
 const ITEMS_PER_PAGE = 8;
 
@@ -251,7 +252,7 @@ export default function PayGradesPage() {
                         <td className="px-4 py-3 text-gray-700">${parseFloat(g.min_salary || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-gray-700">${parseFloat(g.max_salary || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-gray-700">{g.description || <span className="text-gray-300">-</span>}</td>
-                        <td className="px-4 py-3 text-gray-700">{g.created_at ? new Date(g.created_at).toLocaleDateString() : <span className="text-gray-300">-</span>}</td>
+                        <td className="px-4 py-3 text-gray-700">{g.created_at ? formatDate(g.created_at) : <span className="text-gray-300">-</span>}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button
@@ -432,7 +433,7 @@ export default function PayGradesPage() {
                 />
               </div>
               {editItem.created_at && (
-                <div className="text-xs text-gray-400">Created: {new Date(editItem.created_at).toLocaleString()}</div>
+                <div className="text-xs text-gray-400">Created: {formatDateTime(editItem.created_at)}</div>
               )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowEditModal(false); setEditItem(null); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>

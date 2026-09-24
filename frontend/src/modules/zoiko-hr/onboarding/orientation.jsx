@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { getOnboardingOrientationSessions, createOnboardingOrientationSession, updateOnboardingOrientationSession, deleteOnboardingOrientationSession, getOnboardingOrientationAttendees, createOnboardingOrientationAttendee, updateOnboardingOrientationAttendee, deleteOnboardingOrientationAttendee, getOnboardingRecords } from "../../../service/hrService";
+import { formatDate } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -441,7 +442,7 @@ export default function Orientation() {
                       <h3 className="text-base font-bold text-gray-800 truncate">{session.title}</h3>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
                         <span className="text-sm text-gray-500">
-                          {session.date ? new Date(session.date).toLocaleDateString("en-US", { weekday: "short", year: "numeric", month: "short", day: "numeric" }) : "TBD"}
+                          {session.date ? formatDate(session.date) : "TBD"}
                           {session.time ? ` at ${session.time}` : ""}
                         </span>
                         {session.location && <span className="text-sm text-gray-400">{session.location}</span>}

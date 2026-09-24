@@ -1,7 +1,9 @@
 import { useState, useEffect, useCallback } from "react";
+import { useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
-import { AlertTriangle, Search, FileText, ChevronLeft, ChevronRight, Clock, Activity, Shield } from "lucide-react";
+import { AlertTriangle, Search, FileText, ChevronLeft, ChevronRight, Clock, Activity, Shield, X } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import { formatDateTime } from "../../utils/dateTime";
 
 const ACTION_COLORS = {
   create: "bg-emerald-50 text-emerald-600 border border-emerald-100",
@@ -15,12 +17,14 @@ const ACTION_COLORS = {
 };
 
 export default function AuditLogsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [logs, setLogs] = useState([]);
   const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(50);
-  const [actionFilter, setActionFilter] = useState("");
-  const [entityFilter, setEntityFilter] = useState("");
+  const [actionFilter, setActionFilter] = useState(searchParams.get("action") || "");
+  const [entityFilter, setEntityFilter] = useState(searchParams.get("entity_type") || "");
+  const [entityId, setEntityId] = useState(searchParams.get("entity_id") ? Number(searchParams.get("entity_id")) : null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -31,6 +35,7 @@ export default function AuditLogsPage() {
       const params = { page, page_size: pageSize };
       if (actionFilter) params.action = actionFilter;
       if (entityFilter) params.entity_type = entityFilter;
+      if (entityId != null) params.entity_id = entityId;
       const data = await superAdminService.getAuditLogs(params);
       setLogs(data.logs || []);
       setTotal(data.total || 0);
@@ -40,15 +45,36 @@ export default function AuditLogsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, actionFilter, entityFilter]);
+  }, [page, pageSize, actionFilter, entityFilter, entityId]);
 
   useEffect(() => { loadLogs(); }, [loadLogs]);
+
+  const clearOrgFilter = () => {
+    setEntityFilter("");
+    setEntityId(null);
+    setPage(1);
+    const next = new URLSearchParams(searchParams);
+    next.delete("entity_type");
+    next.delete("entity_id");
+    next.delete("action");
+    setSearchParams(next, { replace: true });
+  };
 
   const totalPages = Math.ceil(total / pageSize);
 
   return (
     <div className="space-y-6 font-sans">
       <PageHeader title="Audit Logs" description="Track all platform-level actions and configuration changes." />
+
+      {entityId != null && (
+        <div className="rounded-2xl border border-[#3B82F6]/20 bg-[#3B82F6]/5 px-4 py-3 flex items-center gap-3 text-sm text-[#1E40AF]">
+          <Activity className="h-4 w-4" />
+          <span>Showing audit trail for Organization <strong>#{entityId}</strong> ({entityFilter || "Organization"})</span>
+          <button onClick={clearOrgFilter} className="ml-auto flex items-center gap-1 text-xs font-semibold text-[#1E40AF] hover:underline">
+            <X className="h-3 w-3" /> Clear
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
@@ -58,12 +84,12 @@ export default function AuditLogsPage() {
         </div>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-[0_4px_24px_rgba(0,0,0,0.03)]">
+      <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <h3 className="text-lg font-bold text-slate-800">Platform Audit Trail ({total})</h3>
+          <h3 className="text-lg font-bold text-slate-900">Platform Audit Trail ({total})</h3>
           <div className="flex gap-3 items-center flex-wrap">
             <select value={actionFilter} onChange={(e) => { setActionFilter(e.target.value); setPage(1); }}
-              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]">
+              className="rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2 px-4 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#3B82F6]/30 focus:border-blue-500 cursor-pointer transition">
               <option value="">All Actions</option>
               <option value="create">Create</option>
               <option value="update">Update</option>
@@ -73,7 +99,7 @@ export default function AuditLogsPage() {
               <option value="config_change">Config Change</option>
             </select>
             <select value={entityFilter} onChange={(e) => { setEntityFilter(e.target.value); setPage(1); }}
-              className="rounded-full border border-slate-200 bg-slate-50 py-2 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]">
+              className="rounded-lg border border-slate-200 bg-white hover:border-blue-400 py-2 px-4 text-sm text-slate-700 outline-none focus:ring-2 focus:ring-[#3B82F6]/30 focus:border-blue-500 cursor-pointer transition">
               <option value="">All Entities</option>
               <option value="Organization">Organization</option>
               <option value="Subscription">Subscription</option>
@@ -88,7 +114,7 @@ export default function AuditLogsPage() {
           <div className="text-center py-12 text-slate-400">Loading...</div>
         ) : logs.length === 0 ? (
           <div className="text-center py-12 text-slate-400">
-            <FileText className="h-10 w-10 mx-auto mb-3 opacity-40" />
+            <FileText className="h-10 w-10 mx-auto mb-3 opacity-40 text-blue-300" />
             No audit logs found
           </div>
         ) : (
@@ -96,7 +122,7 @@ export default function AuditLogsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse">
                 <thead>
-                  <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
+                  <tr className="bg-slate-50 text-xs font-semibold uppercase tracking-wider text-slate-500 border-b border-slate-200">
                     <th className="py-3 px-4">Action</th>
                     <th className="py-3 px-4">Entity</th>
                     <th className="py-3 px-4">Performed By</th>
@@ -104,9 +130,9 @@ export default function AuditLogsPage() {
                     <th className="py-3 px-4">Timestamp</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-slate-100">
+                <tbody className="divide-y divide-slate-100/80">
                   {logs.map((log) => (
-                    <tr key={log.id} className="text-sm text-slate-650 hover:bg-slate-50/50 transition">
+                    <tr key={log.id} className="text-sm text-slate-700 hover:bg-blue-50/40 transition-colors duration-150">
                       <td className="py-4 px-4">
                         <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${ACTION_COLORS[log.action] || "bg-slate-50 text-slate-600"}`}>
                           <Activity className="h-3 w-3" />
@@ -115,7 +141,7 @@ export default function AuditLogsPage() {
                       </td>
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-1">
-                          <FileText className="h-3.5 w-3.5 text-slate-400" />
+                          <FileText className="h-3.5 w-3.5 text-blue-400" />
                           <span className="font-semibold text-slate-700">{log.entity_type}</span>
                           {log.entity_id && <span className="text-slate-400">#{log.entity_id}</span>}
                         </div>
@@ -129,7 +155,7 @@ export default function AuditLogsPage() {
                       <td className="py-4 px-4">
                         <div className="flex items-center gap-1 text-slate-400 text-xs">
                           <Clock className="h-3 w-3" />
-                          {new Date(log.created_at).toLocaleString()}
+                          {formatDateTime(log.created_at)}
                         </div>
                       </td>
                     </tr>
@@ -139,12 +165,12 @@ export default function AuditLogsPage() {
             </div>
 
             {totalPages > 1 && (
-              <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100">
+              <div className="flex items-center justify-between mt-6 pt-4 border-t border-slate-100 bg-slate-50/60 -mx-6 -mb-6 px-6 py-4 rounded-b-2xl">
                 <span className="text-sm text-slate-500">{total} total logs</span>
                 <div className="flex gap-2 items-center">
-                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+                  <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page === 1} className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600"><ChevronLeft className="h-4 w-4" /></button>
                   <span className="text-sm text-slate-600">Page {page} of {totalPages}</span>
-                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+                  <button onClick={() => setPage(p => Math.min(totalPages, p + 1))} disabled={page === totalPages} className="p-2 rounded-lg border border-slate-200 bg-white hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 disabled:opacity-40 disabled:hover:bg-white disabled:hover:text-slate-600"><ChevronRight className="h-4 w-4" /></button>
                 </div>
               </div>
             )}

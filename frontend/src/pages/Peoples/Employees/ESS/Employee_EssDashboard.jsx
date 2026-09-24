@@ -4,6 +4,7 @@ import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusB
 import StatCard from "../../../../components/employee/StatCard";
 import { getMyProfile, getLeaveBalances, getAttendanceRecords, getEss, getDocuments } from "../../../../service/employee";
 import { getStoredUser } from "../../../../service/api";
+import { formatDate } from "../../../../utils/dateTime";
 
 export default function EssDashboard() {
   const [profile, setProfile] = useState(null);
@@ -143,11 +144,7 @@ export default function EssDashboard() {
                 <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9]">{a.action}</p>
                 <p className="text-xs text-gray-500 dark:text-[#94a3b8]">
                   {a.date
-                    ? new Date(a.date).toLocaleDateString("en-US", {
-                        year: "numeric",
-                        month: "short",
-                        day: "numeric",
-                      })
+                    ? formatDate(a.date)
                     : "-"}
                 </p>
               </div>

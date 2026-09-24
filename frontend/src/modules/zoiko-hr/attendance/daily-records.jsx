@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Search, Download, Plus, Pencil, Trash2, Calendar, Filter, Loader2, UserX } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getAttendanceRecords, createAttendanceRecord, updateAttendanceRecord, deleteAttendanceRecord, exportAttendanceCsv, exportAttendanceExcel, getHrEmployees } from "../../../service/hrService";
+import { formatDate as formatDateUtil, formatTime as formatTimeUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
@@ -56,12 +57,12 @@ function StatusBadge({ status }) {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDateUtil(dateStr);
 }
 
 function formatTime(timeStr) {
   if (!timeStr) return "-";
-  return new Date(timeStr).toLocaleTimeString("en-US", { hour: "2-digit", minute: "2-digit" });
+  return formatTimeUtil(timeStr);
 }
 
 export default function DailyRecords() {

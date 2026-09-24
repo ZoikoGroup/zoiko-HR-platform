@@ -5,6 +5,7 @@ import EmployeeBulkActions from "../../../../components/EmployeeBulkActions";
 import { getEmployees, getDepartments, getDesignations, createEmployee, updateEmployee, deleteEmployee, getEmployeeById, importEmployees, downloadImportTemplate } from "../../../../service/employee";
 import { resetPassword } from "../../../../service/userService";
 import { User, Edit, Trash2, Plus, Search, Filter, X, CheckCircle, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Eye, UserCheck, UserX, FileText, Unlock, Upload, Download } from "lucide-react";
+import { formatDate } from "../../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/employee-management" },
@@ -584,7 +585,7 @@ export default function Employees() {
                         <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[e.status] || ""}`}>{STATUS_OPTIONS.find((opt) => opt.value === e.status)?.label || e.status}</span>
                       </td>
                       <td className="px-3 py-3">
-                        <p className="text-xs text-gray-500">{(e.dateOfJoining || e.date_of_joining) ? new Date(e.dateOfJoining || e.date_of_joining).toLocaleDateString() : "-"}</p>
+                        <p className="text-xs text-gray-500">{(e.dateOfJoining || e.date_of_joining) ? formatDate(e.dateOfJoining || e.date_of_joining) : "-"}</p>
                       </td>
                       <td className="px-3 py-3 text-right">
                         <div className="flex items-center justify-end gap-1 flex-wrap">

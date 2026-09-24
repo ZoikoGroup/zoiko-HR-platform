@@ -8,6 +8,7 @@ import {
   listKnowledgeSources, createKnowledgeSource, publishKnowledgeSource, retireKnowledgeSource, suspendKnowledgeSource,
   listKnowledgeVersions, listControls, setControl, addKnowledgeSourceVersion, updateKnowledgeSource, deleteKnowledgeSource,
 } from "../../../service/assistantService";
+import { formatDate } from "../../../utils/dateTime";
 
 const SOURCE_TYPES = ["policy", "faq", "sop", "compliance", "handbook", "guide", "form"];
 const TIERS = ["A", "B", "C", "D"];
@@ -56,9 +57,9 @@ function VersionHistory({ sourceId, onSourceChanged }) {
         <div key={v.id} className="flex items-center justify-between text-[11px] text-slate-500">
           <span>
             Version {v.version_no} · hash {v.content_hash.slice(0, 8)}
-            {v.effective_to ? ` · superseded ${new Date(v.effective_to).toLocaleDateString()}` : ""}
+            {v.effective_to ? ` · superseded ${formatDate(v.effective_to)}` : ""}
           </span>
-          <span>{v.published_at ? `Published ${new Date(v.published_at).toLocaleDateString()}` : "Unpublished"}</span>
+          <span>{v.published_at ? `Published ${formatDate(v.published_at)}` : "Unpublished"}</span>
         </div>
       ))}
       {versions.length === 0 && <p className="text-[11px] text-slate-400">No versions found.</p>}

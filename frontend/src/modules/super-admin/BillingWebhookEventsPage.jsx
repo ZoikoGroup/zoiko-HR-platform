@@ -2,6 +2,7 @@ import { useState, useCallback, useEffect } from "react";
 import { Webhook, AlertTriangle, CheckCircle, XCircle, Clock, Search, RefreshCw, Eye, X, Play } from "lucide-react";
 import PageHeader from "../../components/PageHeader";
 import { billingService } from "../../service/billingService";
+import { formatDateTime } from "../../utils/dateTime";
 
 const PAGE_SIZE = 50;
 
@@ -182,9 +183,9 @@ export default function BillingWebhookEventsPage() {
                         )}
                       </td>
                       <td className="py-4 px-4 text-xs text-slate-500">
-                        <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-slate-400" /> {ev.created_at ? new Date(ev.created_at).toLocaleString() : "—"}</span>
+                        <span className="flex items-center gap-1"><Clock className="h-3 w-3 text-slate-400" /> {ev.created_at ? formatDateTime(ev.created_at) : "—"}</span>
                       </td>
-                      <td className="py-4 px-4 text-xs text-slate-500">{ev.processed_at ? new Date(ev.processed_at).toLocaleString() : "—"}</td>
+                      <td className="py-4 px-4 text-xs text-slate-500">{ev.processed_at ? formatDateTime(ev.processed_at) : "—"}</td>
                       <td className="py-4 px-4 text-right space-x-2">
                         <button
                           onClick={() => setSelectedEvent(ev)}
@@ -256,11 +257,11 @@ export default function BillingWebhookEventsPage() {
               </div>
               <div>
                 <span className="text-slate-400 block">Received At</span>
-                <span className="text-slate-700">{selectedEvent.created_at ? new Date(selectedEvent.created_at).toLocaleString() : "—"}</span>
+                <span className="text-slate-700">{selectedEvent.created_at ? formatDateTime(selectedEvent.created_at) : "—"}</span>
               </div>
               <div>
                 <span className="text-slate-400 block">Processed At</span>
-                <span className="text-slate-700">{selectedEvent.processed_at ? new Date(selectedEvent.processed_at).toLocaleString() : "—"}</span>
+                <span className="text-slate-700">{selectedEvent.processed_at ? formatDateTime(selectedEvent.processed_at) : "—"}</span>
               </div>
             </div>
 

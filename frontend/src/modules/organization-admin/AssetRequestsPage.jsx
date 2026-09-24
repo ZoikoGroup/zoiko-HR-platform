@@ -11,6 +11,7 @@ import {
   Package, Search, CheckCircle, XCircle,
   Clock, AlertCircle, Loader2,
 } from "lucide-react";
+import { formatDate } from "../../utils/dateTime";
 
 const STATUS_COLORS = {
   pending: "bg-yellow-100 text-yellow-800",
@@ -184,7 +185,7 @@ export default function OrgAdminAssetRequestsPage() {
                       <td className="px-5 py-3.5 text-sm text-slate-600">{r.approved_by_name || "-"}</td>
                       <td className="px-5 py-3.5 text-sm text-slate-400">
                         {r.requested_on || r.created_at
-                          ? new Date(r.requested_on || r.created_at).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })
+                          ? formatDate(r.requested_on || r.created_at)
                           : "-"}
                       </td>
                       <td className="px-5 py-3.5 text-right">

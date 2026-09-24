@@ -12,8 +12,6 @@ Role model (lowest number = highest privilege):
   employee       4  self-service (ESS) only
 """
 
-from datetime import datetime
-
 from fastapi import Depends
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
@@ -163,26 +161,16 @@ def get_current_user(
             raise UnauthorizedException("Your session is outdated. Please log in again.")
 
     # Evaluation expiry enforcement: every authenticated request re-validates
-    # so a valid refresh token cannot extend access past evaluation_ends_at.
+    # so a valid refresh token cannot extend access past evaluation_ends_at
+    # or past a super-admin "End" action.
     if user.organization_id:
-        from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
-        from app.modules.billing import service as billing_service
         from app.modules.hr.models import Organization, OrganizationStatus
+        from app.modules.billing import service as billing_service
         org = db.query(Organization).filter(Organization.id == user.organization_id).first()
         if org and org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-            evaluation = (
-                db.query(OrganizationEvaluation)
-                .filter(
-                    OrganizationEvaluation.organization_id == user.organization_id,
-                    OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
-                )
-                .first()
-            )
-            if evaluation and evaluation.evaluation_ends_at < datetime.utcnow():
-                billing_service.end_evaluation(db, evaluation.id)
-                raise UnauthorizedException(
-                    "Your evaluation period has expired. Contact sales to continue."
-                )
+            block_reason = billing_service.evaluation_access_block_reason(db, user.organization_id)
+            if block_reason:
+                raise UnauthorizedException(block_reason)
 
     return user
 

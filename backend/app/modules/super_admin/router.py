@@ -13,7 +13,7 @@ import logging
 import secrets
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -194,15 +194,62 @@ def dashboard_stats(db: Session = Depends(get_db), _=Depends(get_current_super_a
 # ORGANIZATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _org_ids_by_plan(db: Session, plan: str):
+    """Resolve a plan filter value to the set of organization ids that match.
+
+    Accepted values: ``core|advanced|enterprise`` (billing subscription plan
+    code), ``evaluation`` (active OrganizationEvaluation row) and
+    ``not_assigned`` (no subscription and no active evaluation). Unknown plan
+    values return ``None``, meaning "no organizations match".
+    """
+    from app.modules.hr.models import Organization
+    from app.modules.billing.models import BillingSubscription, OrganizationEvaluation, PlanCode
+
+    norm = plan.strip().lower().replace(" ", "_")
+
+    if norm in ("evaluation", "trial"):
+        return {
+            org_id
+            for (org_id,) in db.query(OrganizationEvaluation.organization_id)
+            .filter(OrganizationEvaluation.status == "active")
+            .all()
+        }
+
+    if norm in ("not_assigned", "none", "no_plan"):
+        subscribed = {org_id for (org_id,) in db.query(BillingSubscription.organization_id).all()}
+        evaluating = {
+            org_id
+            for (org_id,) in db.query(OrganizationEvaluation.organization_id)
+            .filter(OrganizationEvaluation.status == "active")
+            .all()
+        }
+        return {o_id for (o_id,) in db.query(Organization.id).all()} - subscribed - evaluating
+
+    code = next((c for c in PlanCode if c.value == norm), None)
+    if code is None:
+        return None
+    return {
+        org_id
+        for (org_id,) in db.query(BillingSubscription.organization_id)
+        .filter(BillingSubscription.plan_code == code)
+        .all()
+    }
+
+
 @router.get("/organizations", summary="List all organizations")
 def list_organizations(
     status: Optional[str] = None,
     search: Optional[str] = None,
+    plan: Optional[str] = None,
+    created_from: Optional[str] = None,
+    created_to: Optional[str] = None,
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
     _=Depends(get_current_super_admin),
 ):
+    from datetime import datetime, timedelta
+    import sqlalchemy as sa
     from app.modules.hr.models import Organization, OrganizationStatus
     from app.modules.employee.models import Employee, EmployeeStatus, UserRole
     from app.modules.billing.models import BillingSubscription, OrganizationEvaluation
@@ -223,6 +270,28 @@ def list_organizations(
             | Organization.display_name.ilike(term)
             | Organization.organization_code.ilike(term)
         )
+    if created_from:
+        try:
+            q = q.filter(Organization.created_at >= datetime.fromisoformat(created_from))
+        except ValueError:
+            pass
+    if created_to:
+        try:
+            end = datetime.fromisoformat(created_to)
+            q = q.filter(
+                Organization.created_at
+                <= end.replace(hour=23, minute=59, second=59, microsecond=999999)
+            )
+        except ValueError:
+            pass
+    if plan:
+        plan_org_ids = _org_ids_by_plan(db, plan)
+        if plan_org_ids is None:
+            q = q.filter(sa.sql.false())
+        elif plan_org_ids:
+            q = q.filter(Organization.id.in_(plan_org_ids))
+        else:
+            q = q.filter(sa.sql.false())
     total = q.count()
     orgs = q.order_by(Organization.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
@@ -373,6 +442,10 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
         city=org.city,
         timezone=org.timezone,
         industry=org.industry,
+        org_type=org.org_type,
+        phone=org.phone,
+        tax_number=org.tax_number,
+        registered_email=org.registered_email,
         hr_admins=hr_admins,
         managers=managers,
         evaluation_ends_at=evaluation.evaluation_ends_at if evaluation else None,
@@ -850,10 +923,22 @@ def list_users(
 @router.get("/audit-logs", summary="Recent audit logs")
 def list_audit_logs(
     limit: int = 50,
+    action: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
     db: Session = Depends(get_db),
     _=Depends(get_current_super_admin),
 ):
     q = db.query(AuditLog)
+    if action:
+        try:
+            q = q.filter(AuditLog.action == AuditAction(action))
+        except ValueError:
+            raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
+    if entity_type:
+        q = q.filter(AuditLog.entity_type == entity_type)
+    if entity_id is not None:
+        q = q.filter(AuditLog.entity_id == entity_id)
     total = q.count()
     rows = q.order_by(AuditLog.created_at.desc()).limit(min(limit, 200)).all()
     return {"logs": rows, "total": total}

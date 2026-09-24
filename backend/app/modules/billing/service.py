@@ -460,6 +460,20 @@ def end_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
         raise BadRequestException("Evaluation is not active.")
 
     evaluation.status = EvaluationStatus.EVALUATION_ENDED
+
+    # A trial that ends without a conversion is no longer a live entitlements
+    # source: flip the subscription out of EVALUATION so the entitlement
+    # resolver and the auth gate revoke access immediately (mirrors
+    # expire_overdue_evaluations). A real ACTIVE/commercial subscription is
+    # never overwritten.
+    subscription = (
+        db.query(BillingSubscription)
+        .filter(BillingSubscription.organization_id == evaluation.organization_id)
+        .first()
+    )
+    if subscription and subscription.status == SubscriptionStatus.EVALUATION:
+        subscription.status = SubscriptionStatus.EVALUATION_EXPIRED
+
     db.commit()
     db.refresh(evaluation)
     return evaluation
@@ -690,6 +704,39 @@ def _invalidate_entitlement_cache(organization_id: int) -> None:
         invalidate_entitlement_cache(organization_id)
     except Exception as e:
         logger.warning("[billing] Entitlement cache invalidation failed: %s", e)
+
+
+def evaluation_access_block_reason(db: Session, organization_id: int) -> Optional[str]:
+    """Return a user-facing denial message when an APPROVED/ACTIVE org must no
+    longer sign in (evaluation ended or expired with no paying subscription),
+    or None when access is still granted. Used by the login and per-request
+    auth gates so a manually ended evaluation revokes access immediately —
+    previously only *overdue ACTIVE* evaluations were caught (ZHR-COM-ENT-001
+    §9). An overdue ACTIVE evaluation is ended in place so its subscription
+    flips to EVALUATION_EXPIRED instead of lingering."""
+    now = datetime.utcnow()
+
+    active_eval = get_active_evaluation(db, organization_id)
+    if active_eval:
+        if active_eval.evaluation_ends_at >= now:
+            return None
+        end_evaluation(db, active_eval.id)
+
+    subscription = (
+        db.query(BillingSubscription)
+        .filter(BillingSubscription.organization_id == organization_id)
+        .first()
+    )
+    if subscription and subscription.status not in {
+        SubscriptionStatus.EVALUATION,
+        SubscriptionStatus.EVALUATION_EXPIRED,
+        SubscriptionStatus.CANCELED,
+        SubscriptionStatus.TERMINATED,
+        SubscriptionStatus.SUSPENDED,
+    }:
+        return None
+
+    return "Your evaluation period has ended. Contact sales to continue."
 
 
 def upgrade_subscription(
