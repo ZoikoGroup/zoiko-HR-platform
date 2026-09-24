@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { getWfReports, generateWfReport, exportWfCsv, exportWfExcel, exportWfPdf } from "../../../service/hrService";
+import { formatDateTime } from "../../../utils/dateTime";
 import { FileText, Download, Plus, Search, X, Loader } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -183,7 +184,7 @@ export default function WorkforceReports() {
                     </td>
                     <td className="px-4 py-3 text-sm text-gray-600">{r.generated_by_name || "System"}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">
-                      {r.generated_at ? new Date(r.generated_at).toLocaleString() : "-"}
+                      {r.generated_at ? formatDateTime(r.generated_at) : "-"}
                     </td>
                   </tr>
                 ))}

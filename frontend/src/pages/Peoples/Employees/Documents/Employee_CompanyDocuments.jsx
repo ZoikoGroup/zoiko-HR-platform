@@ -7,6 +7,7 @@ import DocumentErrorState from "../../../../components/documents/DocumentErrorSt
 import { useDocumentFile } from "../../../../hooks/useDocumentFile";
 import { getMyAssignedDocuments } from "../../../../service/hrService";
 import { Search, FileText, ShieldCheck, BookOpen, RefreshCw } from "lucide-react";
+import { formatDate as formatDateUtil } from "../../../../utils/dateTime";
 
 const CATEGORY_STYLES = {
   Policy: { icon: FileText, color: "#1D4ED8", bg: "#EFF6FF" },
@@ -35,7 +36,7 @@ function documentId(doc) {
 function formatDate(iso) {
   if (!iso) return "";
   const d = new Date(iso);
-  return isNaN(d) ? "" : d.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
+  return isNaN(d) ? "" : formatDateUtil(iso);
 }
 
 export default function CompanyDocuments() {

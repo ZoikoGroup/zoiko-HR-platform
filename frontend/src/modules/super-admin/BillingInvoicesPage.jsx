@@ -6,6 +6,7 @@ import {
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { billingService } from "../../service/billingService";
+import { formatDate, formatDateTime } from "../../utils/dateTime";
 
 const STATUS_TONES = {
   paid: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -323,11 +324,11 @@ export default function BillingInvoicesPage() {
                       <td className="py-4 px-4 font-semibold text-slate-800">{formatCents(inv.amount_due_cents, inv.currency)}</td>
                       <td className="py-4 px-4 text-slate-600">{formatCents(inv.amount_paid_cents, inv.currency)}</td>
                       <td className="py-4 px-4 text-xs text-slate-500">
-                        {inv.period_start ? new Date(inv.period_start).toLocaleDateString() : "—"}
+                        {inv.period_start ? formatDate(inv.period_start) : "—"}
                         {" – "}
-                        {inv.period_end ? new Date(inv.period_end).toLocaleDateString() : "—"}
+                        {inv.period_end ? formatDate(inv.period_end) : "—"}
                       </td>
-                      <td className="py-4 px-4 text-xs text-slate-400">{inv.created_at ? new Date(inv.created_at).toLocaleDateString() : "—"}</td>
+                      <td className="py-4 px-4 text-xs text-slate-400">{inv.created_at ? formatDate(inv.created_at) : "—"}</td>
                       <td className="py-4 px-4 text-right">
                         <div className="flex items-center justify-end gap-2">
                           <button
@@ -419,14 +420,14 @@ export default function BillingInvoicesPage() {
               <div>
                 <span className="text-slate-400 block font-medium">Billing Period</span>
                 <span className="text-slate-700">
-                  {activeInvoice.period_start ? new Date(activeInvoice.period_start).toLocaleDateString() : "—"}
+                  {activeInvoice.period_start ? formatDate(activeInvoice.period_start) : "—"}
                   {" to "}
-                  {activeInvoice.period_end ? new Date(activeInvoice.period_end).toLocaleDateString() : "—"}
+                  {activeInvoice.period_end ? formatDate(activeInvoice.period_end) : "—"}
                 </span>
               </div>
               <div>
                 <span className="text-slate-400 block font-medium">Created At</span>
-                <span className="text-slate-700">{activeInvoice.created_at ? new Date(activeInvoice.created_at).toLocaleString() : "—"}</span>
+                <span className="text-slate-700">{activeInvoice.created_at ? formatDateTime(activeInvoice.created_at) : "—"}</span>
               </div>
             </div>
 

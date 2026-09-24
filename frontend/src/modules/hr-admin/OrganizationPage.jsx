@@ -4,6 +4,7 @@ import PageHeader from "../../components/PageHeader";
 import { getOrganizationDetails } from "../../service/orgAdminService";
 import { Building, Calendar, Shield, MapPin, Globe, Clock, BadgeDollarSign, HardDrive, Users, Coins, Briefcase, User, Phone, Mail, FileText } from "lucide-react";
 import DelinquencyBanner from "../../components/DelinquencyBanner";
+import { formatDate } from "../../utils/dateTime";
 
 const statusColors = {
   active: "bg-emerald-50 text-emerald-700 border-emerald-200",
@@ -66,7 +67,7 @@ export default function HrAdminOrganizationPage() {
       </span>
     )},
     { label: "Max Users", value: org.max_users ?? "—" },
-    { label: "Registration Date", value: org.created_at ? new Date(org.created_at).toLocaleDateString() : "—" },
+    { label: "Registration Date", value: org.created_at ? formatDate(org.created_at) : "—" },
     { label: "Industry", value: org.industry || "—" },
     { label: "Admin Phone", value: org.admin_phone || "—", icon: Phone },
     { label: "Address", value: org.address || "—" },

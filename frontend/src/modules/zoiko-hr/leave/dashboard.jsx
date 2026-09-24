@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Calendar, Clock, CheckCircle, XCircle, CalendarDays, TrendingUp, Users, Briefcase, Home, Minus, TrendingDown, BarChart3 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getLeaveDashboard, getLeaveBalances, getLeaveRequests } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/leave" },
@@ -103,8 +104,7 @@ function InitialsAvatar({ name, size = "sm" }) {
 
 function formatDate(dateStr) {
   if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDateUtil(dateStr);
 }
 
 const STATUS_BADGE = {

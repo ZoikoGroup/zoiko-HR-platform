@@ -6,6 +6,7 @@ import {
   updateSalaryStructure,
   deleteSalaryStructure,
 } from "../../../service/hrService";
+import { formatDateTime } from "../../../utils/dateTime";
 
 const ITEMS_PER_PAGE = 8;
 
@@ -364,7 +365,7 @@ export default function SalaryStructuresPage() {
                 <label htmlFor="edit_is_active" className="text-sm font-medium text-gray-700">Active</label>
               </div>
               {editItem.created_at && (
-                <div className="text-xs text-gray-400">Created: {new Date(editItem.created_at).toLocaleString()}</div>
+                <div className="text-xs text-gray-400">Created: {formatDateTime(editItem.created_at)}</div>
               )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowEditModal(false); setEditItem(null); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>

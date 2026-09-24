@@ -1,4 +1,5 @@
 import { api } from "./api";
+import { formatDate } from "../utils/dateTime";
 
 const mockDocuments = [
   { id: 1, name: "Employee Handbook 2026.pdf", category: "HR Policies", size: "2.4 MB", updated: "June 10, 2026", author: "Sarah Jenkins" },
@@ -28,7 +29,7 @@ export async function createDocument(data, file) {
     });
   } catch (err) {
     console.warn("documentsService: create failed:", err.message || err);
-    const newDoc = { id: Date.now(), ...data, file_name: file?.name, size: file ? `${(file.size / 1024).toFixed(1)} KB` : null, updated: new Date().toLocaleDateString(), author: "Current User" };
+    const newDoc = { id: Date.now(), ...data, file_name: file?.name, size: file ? `${(file.size / 1024).toFixed(1)} KB` : null, updated: formatDate(new Date()), author: "Current User" };
     mockDocuments.unshift(newDoc);
     return newDoc;
   }
@@ -41,7 +42,7 @@ export async function updateDocument(id, data) {
     console.warn("documentsService: update failed:", err.message || err);
     const idx = mockDocuments.findIndex(d => d.id === id);
     if (idx !== -1) {
-      mockDocuments[idx] = { ...mockDocuments[idx], ...data, updated: new Date().toLocaleDateString() };
+      mockDocuments[idx] = { ...mockDocuments[idx], ...data, updated: formatDate(new Date()) };
     }
     return mockDocuments[idx];
   }

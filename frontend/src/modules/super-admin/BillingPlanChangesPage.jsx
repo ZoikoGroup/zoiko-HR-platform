@@ -10,6 +10,7 @@ import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
+import { formatDate } from "../../utils/dateTime";
 
 const STATUS_TONES = {
   scheduled: "bg-blue-50 text-blue-700 border-blue-200",
@@ -345,7 +346,7 @@ export default function BillingPlanChangesPage() {
 
                     <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
                       <span className="flex items-center gap-1">
-                        <Calendar size={12} /> Effective {change.effective_at ? new Date(change.effective_at).toLocaleDateString() : "—"}
+                        <Calendar size={12} /> Effective {change.effective_at ? formatDate(change.effective_at) : "—"}
                       </span>
                       {change.requested_by && <span>Requested by {change.requested_by}</span>}
                     </div>

@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Plus, X, Building2, Search, AlertCircle, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getDepartments, createDepartment, updateDepartment } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const ITEMS_PER_PAGE = 10;
 
@@ -211,7 +212,7 @@ export default function DepartmentList() {
 
   const formatDate = (dateStr) => {
     if (!dateStr) return "—";
-    return new Date(dateStr).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+    return formatDateUtil(dateStr);
   };
 
   return (

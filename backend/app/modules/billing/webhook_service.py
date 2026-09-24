@@ -537,9 +537,10 @@ def _log_audit(
 def _log_unhandled_event(db: Session, event_id: str, event_type: str, event: dict):
     """Log unhandled event type for review — never silently dropped."""
     # Write to audit log with WEBHOOK_UNHANDLED action; no org_id known
-    # (unhandled events may not map to any org), use org_id=0 as sentinel.
+    # (unhandled events may not map to any org), so record NULL — a 0
+    # sentinel would violate the organizations FK.
     log = BillingAuditLog(
-        organization_id=0,
+        organization_id=None,
         action=BillingAuditAction.WEBHOOK_UNHANDLED,
         entity_type="StripeEvent",
         entity_id=None,
@@ -581,7 +582,7 @@ def replay_webhook_event(db: Session, stripe_event_id: str, actor: str = "super_
 
         _log_audit(
             db,
-            organization_id=0,
+            organization_id=None,
             action=BillingAuditAction.WEBHOOK_RECEIVED,
             entity_type="BillingWebhookEvent",
             entity_id=event_row.id,

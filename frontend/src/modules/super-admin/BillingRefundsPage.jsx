@@ -9,6 +9,7 @@ import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
+import { formatDateTime } from "../../utils/dateTime";
 
 const STATUS_TONES = {
   pending: "bg-amber-50 text-amber-700 border-amber-200",
@@ -312,7 +313,7 @@ export default function BillingRefundsPage() {
                       <p className="text-sm text-slate-700">{req.reason}</p>
                       <div className="flex items-center gap-4 text-xs text-slate-400 flex-wrap">
                         <span className="flex items-center gap-1">
-                          <Clock size={12} /> {req.created_at ? new Date(req.created_at).toLocaleString() : "—"}
+                          <Clock size={12} /> {req.created_at ? formatDateTime(req.created_at) : "—"}
                         </span>
                         {req.requested_by && <span>Requested by {req.requested_by}</span>}
                         {req.stripe_refund_id && <span className="font-mono text-xs">Stripe: {req.stripe_refund_id}</span>}

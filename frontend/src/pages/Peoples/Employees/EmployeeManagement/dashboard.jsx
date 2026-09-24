@@ -4,6 +4,7 @@ import { TrendingUp, Users, UserCheck, Clock, AlertCircle, RefreshCw, Building2,
 import { SearchInput, StatCard, TopBarButton } from "../../../../components/DashboardWidgets";
 import HRPage from "../../../../components/HRPage";
 import { getEmployeeDashboard } from "../../../../service/employee";
+import { formatDate } from "../../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/employee-management" },
@@ -277,7 +278,7 @@ export default function EmployeeManagementDashboard() {
                   </div>
                   <div>
                     <p className="text-sm font-medium text-gray-900">{emp.employee_name}</p>
-                    <p className="text-xs text-gray-500">Birthday: {new Date(emp.next_birthday).toLocaleDateString()}</p>
+                    <p className="text-xs text-gray-500">Birthday: {formatDate(emp.next_birthday)}</p>
                   </div>
                 </div>
               ))}

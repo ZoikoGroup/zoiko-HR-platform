@@ -181,6 +181,51 @@ app.add_exception_handler(ZoikoException, zoiko_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
 
 
+# ── Platform-wide UTC timestamp normalization ──────────────────────────────
+# Every module stores timestamps as naive UTC; FastAPI serializes them without
+# a timezone designator, which browsers then parse as local time (wrong).
+# This outermost middleware appends "Z" to any timezone-less ISO timestamp in
+# JSON responses so the frontend renders the correct instant everywhere.
+@app.middleware("http")
+async def normalize_utc_datetimes_middleware(request: Request, call_next):
+    from starlette.responses import Response
+
+    from app.core.utc_datetimes import append_utc_suffix
+
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type.lower():
+        return response
+    content_encoding = response.headers.get("content-encoding", "")
+    if content_encoding and "gzip" in content_encoding.lower():
+        return response
+
+    # Inside a BaseHTTPMiddleware Starlette hands us a _StreamingResponse, so
+    # the body must be drained from `body_iterator` (there is no `.body()`).
+    body_parts = []
+    if hasattr(response, "body"):
+        body_parts.append(response.body())
+    elif hasattr(response, "body_iterator"):
+        async for chunk in response.body_iterator:
+            body_parts.append(chunk)
+    if not body_parts:
+        return response
+
+    original_body = b"".join(body_parts)
+    normalized = append_utc_suffix(original_body)
+    if normalized is None:
+        normalized = original_body
+
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    return Response(
+        status_code=response.status_code,
+        headers=headers,
+        media_type=response.media_type,
+        content=normalized,
+    )
+
+
 # ── Route-level entitlement enforcement (Prompt 6) ─────────────────────────
 # Opt-in via HR_ENFORCE_ENTITLEMENTS (default OFF). When enabled, requests to
 # routes listed in route_entitlement_map.py are blocked (403) unless the caller's

@@ -4,6 +4,7 @@ import StatCard from "../../../../components/employee/StatCard";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
 import { getLeaveBalances, getLeaveRequests } from "../../../../service/employee";
 import { getStoredUser } from "../../../../service/api";
+import { formatDate } from "../../../../utils/dateTime";
 
 const colorToAccent = {
   "#3B82F6": "text-blue-600 dark:text-blue-400",
@@ -13,10 +14,9 @@ const colorToAccent = {
   "#6B7280": "text-gray-500 dark:text-gray-400",
 };
 
-function formatDate(dateStr) {
+function formatLeaveDate(dateStr) {
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDate(dateStr);
 }
 
 export default function MyLeave() {
@@ -141,7 +141,7 @@ export default function MyLeave() {
                     {h.leave_type || h.type || "Leave"}
                   </p>
                   <p className="text-xs text-gray-500 dark:text-[#94a3b8]">
-                  {formatDate(h.start_date)} &rarr; {formatDate(h.end_date)} &middot;{" "}
+                  {formatLeaveDate(h.start_date)} &rarr; {formatLeaveDate(h.end_date)} &middot;{" "}
                   {h.days || 1} day(s)
                 </p>
               </div>

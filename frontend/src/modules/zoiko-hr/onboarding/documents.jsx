@@ -8,6 +8,7 @@ import {
   deleteOnboardingDocument,
   getOnboardingRecords,
 } from "../../../service/hrService";
+import { formatDate } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -328,7 +329,7 @@ export default function OnboardingDocuments() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">
-                          {doc.created_at ? new Date(doc.created_at).toLocaleDateString() : "-"}
+                          {doc.created_at ? formatDate(doc.created_at) : "-"}
                         </td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1 flex-wrap">

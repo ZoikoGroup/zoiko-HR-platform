@@ -7,6 +7,7 @@ import {
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
 import { superAdminService } from "../../service/superAdminService";
+import { formatDate } from "../../utils/dateTime";
 
 function FieldLabel({ children, required }) {
   return (
@@ -42,9 +43,9 @@ function isExpired(dateStr) {
   return new Date(dateStr) < new Date();
 }
 
-function formatDate(dateStr) {
+function formatLocalDate(dateStr) {
   if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString(undefined, { dateStyle: "medium" });
+  return formatDate(dateStr);
 }
 
 export default function BillingDiscountsPage() {
@@ -245,10 +246,10 @@ export default function BillingDiscountsPage() {
                       </td>
                       <td className="py-4 px-5 text-slate-500">{d.currency || "USD"}</td>
                       <td className="py-4 px-5">
-                        <span className="text-slate-600 text-[13px]">{formatDate(d.effective_start)}</span>
+                        <span className="text-slate-600 text-[13px]">{formatLocalDate(d.effective_start)}</span>
                         <span className="text-slate-400 mx-1">→</span>
                         <span className={`text-[13px] ${expired ? "text-red-400" : "text-slate-600"}`}>
-                          {d.effective_end ? formatDate(d.effective_end) : "Ongoing"}
+                          {d.effective_end ? formatLocalDate(d.effective_end) : "Ongoing"}
                         </span>
                       </td>
                       <td className="py-4 px-5">

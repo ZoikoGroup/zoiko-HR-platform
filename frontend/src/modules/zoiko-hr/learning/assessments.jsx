@@ -13,6 +13,7 @@ import {
   getCourses,
   getQuizAttempts,
 } from "../../../service/hrService";
+import { formatDateTime } from "../../../utils/dateTime";
 
 const ASSESS_STATUS_COLORS = {
   draft: "bg-yellow-100 text-yellow-800",
@@ -589,8 +590,8 @@ export default function ZoikoHRAssessments({ isTab }) {
                                   {a.status ? a.status.replace(/_/g, " ") : "-"}
                                 </span>
                               </td>
-                              <td className="px-4 py-3 text-xs text-gray-500">{a.started_at ? new Date(a.started_at).toLocaleString() : "-"}</td>
-                              <td className="px-4 py-3 text-xs text-gray-500">{a.completed_at ? new Date(a.completed_at).toLocaleString() : "-"}</td>
+                              <td className="px-4 py-3 text-xs text-gray-500">{a.started_at ? formatDateTime(a.started_at) : "-"}</td>
+                              <td className="px-4 py-3 text-xs text-gray-500">{a.completed_at ? formatDateTime(a.completed_at) : "-"}</td>
                             </tr>
                           ))}
                         </tbody>
@@ -822,7 +823,7 @@ export default function ZoikoHRAssessments({ isTab }) {
                 </div>
               </div>
               {editItem.created_at && (
-                <div className="text-xs text-gray-400">Created: {new Date(editItem.created_at).toLocaleString()}</div>
+                <div className="text-xs text-gray-400">Created: {formatDateTime(editItem.created_at)}</div>
               )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowEditModal(false); setEditItem(null); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -928,8 +929,8 @@ export default function ZoikoHRAssessments({ isTab }) {
               <div className="pt-4 border-t border-gray-100">
                 <h3 className="text-sm font-medium text-gray-500 mb-2">Timeline</h3>
                 <div className="space-y-1 text-xs text-gray-600">
-                  <div>Created: {detailItem.created_at ? new Date(detailItem.created_at).toLocaleString() : <span className="text-gray-400">-</span>}</div>
-                  <div>Updated: {detailItem.updated_at ? new Date(detailItem.updated_at).toLocaleString() : <span className="text-gray-400">-</span>}</div>
+                  <div>Created: {detailItem.created_at ? formatDateTime(detailItem.created_at) : <span className="text-gray-400">-</span>}</div>
+                  <div>Updated: {detailItem.updated_at ? formatDateTime(detailItem.updated_at) : <span className="text-gray-400">-</span>}</div>
                 </div>
               </div>
               <div className="flex justify-end gap-3 pt-4">

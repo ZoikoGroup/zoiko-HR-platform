@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { getAssets, getMaintenanceByAsset, createMaintenance, resolveMaintenance } from "../../../service/hrService";
+import { formatDate } from "../../../utils/dateTime";
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Low" }, { value: "medium", label: "Medium" },
@@ -255,7 +256,7 @@ export default function Maintenance() {
                       <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${PRIORITY_COLORS[priority] || "bg-gray-100 text-gray-700"}`}>{priority}</span></td>
                       <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[status] || "bg-gray-100 text-gray-800"}`}>{status.replace(/_/g, " ")}</span></td>
                       <td className="px-4 py-3 text-sm text-gray-700">{reporter}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{date ? new Date(date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "-"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{date ? formatDate(date) : "-"}</td>
                       <td className="px-4 py-3 text-right">
                         {status !== "resolved" && status !== "cancelled" ? (
                           <button onClick={() => setResolveId(r.id)} className="flex items-center justify-end gap-1 text-xs font-medium text-green-600 hover:text-green-800 transition-colors">

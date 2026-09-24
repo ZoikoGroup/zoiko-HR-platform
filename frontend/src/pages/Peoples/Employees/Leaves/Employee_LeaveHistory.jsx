@@ -4,11 +4,11 @@ import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusB
 import EmployeeDataTable from "../../../../components/employee/EmployeeDataTable";
 import { getLeaveRequests } from "../../../../service/employee";
 import { getStoredUser } from "../../../../service/api";
+import { formatDate } from "../../../../utils/dateTime";
 
-function formatDate(dateStr) {
+function formatLeaveDate(dateStr) {
   if (!dateStr) return "-";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDate(dateStr);
 }
 
 export default function LeaveHistory() {
@@ -90,10 +90,11 @@ export default function LeaveHistory() {
           if (col.key === "status") return <EmployeeStatusBadge status={row.status} />;
           if (col.key === "id") return <span className="text-xs font-semibold text-gray-400 dark:text-[#94a3b8]">{row.id || row.leaveId || "-"}</span>;
           if (col.key === "type") return <span className="text-xs font-semibold text-gray-900 dark:text-[#f1f5f9]">{row.leave_type || row.type || "Leave"}</span>;
-          if (col.key === "from") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatDate(row.start_date)}</span>;
-          if (col.key === "to") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatDate(row.end_date)}</span>;
-          if (col.key === "days") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.days || 1}</span>;
-          if (col.key === "appliedOn") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatDate(row.created_at || row.appliedOn)}</span>;
+if (col.key === "from") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.start_date)}</span>;
+          if (col.key === "to") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.end_date)}</span>;
+          if (col.key === "status") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.status?.toUpperCase?.() || row.status}</span>;
+          if (col.key === "days") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.days}</span>;
+          if (col.key === "appliedOn") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.created_at || row.appliedOn)}</span>;
           if (col.key === "approver") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.approver || row.approved_by || "-"}</span>;
           return row[col.key];
         }}

@@ -3,6 +3,7 @@ import { KeyRound, AlertTriangle, Plus, XCircle, X } from "lucide-react";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { billingService } from "../../service/billingService";
+import { formatDateTime } from "../../utils/dateTime";
 
 export default function SupportAccessPage() {
   const [filterOrg, setFilterOrg] = useState(null);
@@ -126,7 +127,7 @@ export default function SupportAccessPage() {
                       <td className="py-4 px-4 font-semibold text-slate-700">#{g.organization_id}</td>
                       <td className="py-4 px-4 text-slate-600">{g.granted_by}</td>
                       <td className="py-4 px-4 text-slate-600 max-w-xs truncate" title={g.reason || ""}>{g.reason || "—"}</td>
-                      <td className="py-4 px-4 text-xs text-slate-400">{g.expires_at ? new Date(g.expires_at).toLocaleString() : "—"}</td>
+                      <td className="py-4 px-4 text-xs text-slate-400">{g.expires_at ? formatDateTime(g.expires_at) : "—"}</td>
                       <td className="py-4 px-4">
                         {active ? (
                           <span className="inline-flex items-center rounded-full border border-emerald-200 bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-700">Active</span>

@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Plus, Search, Pencil, Trash2, ChevronLeft, ChevronRight, CheckCircle, X, AlertCircle } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getLeaveRequests, createLeaveRequest, updateLeaveRequest, deleteLeaveRequest, getLeaveBalances, reviewLeaveRequest } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
@@ -54,7 +55,7 @@ const initialForm = {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  try { return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }); }
+  try { return formatDateUtil(dateStr); }
   catch { return dateStr; }
 }
 

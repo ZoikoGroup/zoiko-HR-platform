@@ -144,6 +144,14 @@ def initialize_database() -> None:
         "ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE plan_entitlement_mappings ADD COLUMN IF NOT EXISTS mode VARCHAR(30)",
         "ALTER TABLE plan_entitlement_mappings ADD COLUMN IF NOT EXISTS limit_ref VARCHAR(100)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS org_type VARCHAR(100)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS phone VARCHAR(50)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_number VARCHAR(100)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS registered_email VARCHAR(255)",
+        # Platform-level billing audit events carry NO org (super-admin catalog
+        # ops, unorg-mapped webhooks) — 0 breaks the organizations FK. Make the
+        # column nullable so log_billing_audit(organization_id=None) works.
+        "ALTER TABLE billing_audit_logs ALTER COLUMN organization_id DROP NOT NULL",
     ]
     try:
         from sqlalchemy import text as sql_text

@@ -8,6 +8,7 @@ import HRPage from "../../../components/HRPage";
 import { getMyAssignedDocuments } from "../../../service/hrService";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
+import { formatDate } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/ess" },
@@ -202,7 +203,7 @@ function DocRow({ d, view, download, busyId, busyAction }) {
           <div className="flex items-center gap-2 mt-1">
             <span className="text-xs text-slate-400 capitalize">{d.document_category}</span>
             <span className="text-slate-300">·</span>
-            <span className="text-xs text-slate-400">Assigned {d.assigned_at ? new Date(d.assigned_at).toLocaleDateString() : ""}</span>
+            <span className="text-xs text-slate-400">Assigned {d.assigned_at ? formatDate(d.assigned_at) : ""}</span>
           </div>
         </div>
       </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import PageHeader from "../../components/PageHeader";
 import { Bell, Mail, MailOpen, Trash2, Send, ChevronLeft, ChevronRight, Info, AlertTriangle, AlertCircle } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import { formatDateTime } from "../../utils/dateTime";
 
 export default function NotificationCenter() {
   const [notifications, setNotifications] = useState([]);
@@ -221,7 +222,7 @@ export default function NotificationCenter() {
                     }`}>{n.priority}</span>
                   </div>
                   <p className="mt-1 text-sm text-slate-500 line-clamp-2">{n.message}</p>
-                  <p className="mt-1 text-xs text-slate-400">{new Date(n.created_at).toLocaleString()}</p>
+                  <p className="mt-1 text-xs text-slate-400">{formatDateTime(n.created_at)}</p>
                 </div>
                 <div className="flex gap-1">
                   {!n.is_read ? (

@@ -343,6 +343,11 @@ def create_plan(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_owner),
 ):
+    if not data.is_contract_priced and (data.monthly_price is None or data.annual_price is None):
+        raise BadRequestException(
+            "Monthly Price and Annual Price are required for self-serve plans. "
+            "Enter both, or enable Contract Priced to skip numeric pricing."
+        )
     plan = BillingPlan(
         code=data.code,
         name=data.name,
@@ -362,7 +367,7 @@ def create_plan(
     service.log_billing_audit(
         db,
         actor=current_user,
-        organization_id=0,
+        organization_id=None,
         action=BillingAuditAction.PLAN_CREATED,
         entity_type="BillingPlan",
         entity_id=plan.id,
@@ -401,6 +406,19 @@ def update_plan(
 
     before = service.plan_to_dict(plan)
 
+    # Validate against the EFFECTIVE state after this update (unset fields keep
+    # current values). A non-contract-priced plan must carry both prices —
+    # otherwise the draft would sit broken until an irreversible publish.
+    updated = data.model_dump(exclude_unset=True)
+    eff_contract = updated.get("is_contract_priced", plan.is_contract_priced)
+    eff_monthly = updated.get("monthly_price", plan.monthly_price)
+    eff_annual = updated.get("annual_price", plan.annual_price)
+    if not eff_contract and (eff_monthly is None or eff_annual is None):
+        raise BadRequestException(
+            "Monthly Price and Annual Price are required for self-serve plans. "
+            "Enter both, or enable Contract Priced to skip numeric pricing."
+        )
+
     for field, value in data.model_dump(exclude_unset=True).items():
         setattr(plan, field, value)
     db.commit()
@@ -409,7 +427,7 @@ def update_plan(
     service.log_billing_audit(
         db,
         actor=current_user,
-        organization_id=0,
+        organization_id=None,
         action=BillingAuditAction.PLAN_UPDATED,
         entity_type="BillingPlan",
         entity_id=plan.id,

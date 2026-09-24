@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import PageHeader from "../../components/PageHeader";
 import { AlertTriangle, Settings, Plus, Save, X, Edit3, Trash2, Eye } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import { formatDateTime } from "../../utils/dateTime";
 
 export default function PlatformSettingsPage() {
   const [settings, setSettings] = useState([]);
@@ -169,7 +170,7 @@ export default function PlatformSettingsPage() {
               <div><span className="text-slate-400">Value:</span><p className="mt-1 text-slate-700 bg-slate-50 rounded-xl p-3 border">{viewingSetting.value}</p></div>
               <div><span className="text-slate-400">Description:</span><p className="mt-1 text-slate-600">{viewingSetting.description || "No description"}</p></div>
               <div><span className="text-slate-400">Category:</span><span className="ml-2 text-slate-700 capitalize">{viewingSetting.category}</span></div>
-              <div><span className="text-slate-400">Created:</span><span className="ml-2 text-slate-500">{new Date(viewingSetting.created_at).toLocaleString()}</span></div>
+              <div><span className="text-slate-400">Created:</span><span className="ml-2 text-slate-500">{formatDateTime(viewingSetting.created_at)}</span></div>
             </div>
             <div className="flex mt-6 justify-end">
               <button onClick={() => setViewingSetting(null)} className="px-4 py-2 rounded-full border border-slate-200 text-sm text-slate-600 hover:bg-slate-50">Close</button>
