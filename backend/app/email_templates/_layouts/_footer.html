@@ -1,0 +1,24 @@
+{#-
+  Footer (§4.1): product name + legal operator, a monitored support route and
+  the reason the recipient got this email. The preferences/unsubscribe link
+  is rendered only for class E (promotional) mail.
+-#}
+{%- set _reason = footer_reason if footer_reason is defined and footer_reason else "" -%}
+<tr>
+<td class="px card-foot dm-bg-footer" style="padding:24px 40px 28px 40px;background-color:#f3f6f9;border-top:1px solid #e3e8ee;border-radius:0 0 12px 12px;">
+<p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
+{% if _reason %}{{ _reason }}{% else %}You are receiving this email because you have a Zoiko HR account{% if tenant_name %} with {{ tenant_name }}{% endif %} and this is a service notification about it.{% endif %}
+</p>
+<p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
+Questions? <a class="dm-link" href="{{ support_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:underline;">Contact Zoiko HR Support</a>{% if support_email is defined and support_email %} or email <a class="dm-link" href="mailto:{{ support_email }}" style="color:{{ PALETTE.primary }};text-decoration:underline;">{{ support_email }}</a>{% endif %}.
+</p>
+{% if delivery_class == "E" and unsubscribe_url %}
+<p class="dm-text-muted" style="margin:0 0 10px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
+<a class="dm-link" href="{{ unsubscribe_url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:underline;">Manage email preferences or unsubscribe</a>
+</p>
+{% endif %}
+<p class="dm-text-muted" style="margin:0;font-family:{{ FONT_STACK }};font-size:12px;line-height:18px;color:#4b5563;">
+<strong>Zoiko HR</strong> is operated by Zoiko Tech Inc., a Zoiko Group company.
+</p>
+</td>
+</tr>

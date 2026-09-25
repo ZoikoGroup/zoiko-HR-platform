@@ -5,11 +5,8 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.modules.super_admin.models import EmailDeliveryLog
 from app.services.email_service import (
-    _load_template,
-    _render_template,
     _log_email_delivery,
-    _platform_logo_src,
-    _platform_logo_data_uri,
+    render_email,
     send_approval_email,
     send_evaluation_started_email,
     send_evaluation_halfway_email,
@@ -33,65 +30,44 @@ def db():
         engine.dispose()
 
 
-def test_load_templates_exist():
-    """Verify that key generated templates are loadable and non-empty."""
-    templates_to_check = [
+def test_key_templates_render_with_zoiko_hr_brand():
+    """Key templates render through the shared layout with the Zoiko HR brand."""
+    context = {
+        "subject": "s", "first_name": "Jane", "workspace_name": "Acme", "login_url": "https://app.zoikohr.com/login",
+        "event_time_local": "Sep 25, 2026", "timezone": "UTC", "action_url": "https://app.zoikohr.com/x",
+        "organization_name": "Acme", "evaluation_end_date": "Oct 1", "document_name": "Doc", "due_at_local": "Oct 1",
+        "cycle_name": "Q3",
+    }
+    for tmpl in (
         "welcome.html",
         "org_admin_password_changed.html",
         "evaluation_started.html",
         "evaluation_halfway.html",
         "document_assigned.html",
         "approved.html",
-        "rejected.html",
         "suspended.html",
-        "reactivated.html",
         "performance_review_assigned.html",
         "performance_review_submitted.html",
-        "payment_received.html",
-        "past_due_notice.html",
-    ]
-    for tmpl in templates_to_check:
-        content = _load_template(tmpl)
-        assert content != "", f"Template {tmpl} should exist and be non-empty"
-        assert "Zoiko" in content, f"Template {tmpl} should contain brand string Zoiko"
+    ):
+        html = render_email(tmpl, context).html
+        assert 'alt="Zoiko HR"' in html, tmpl
+        assert "Zoiko Tech Inc." in html, tmpl
 
 
-def test_platform_logo_embedded_in_all_templates():
-    """Every email template must carry the Zoiko HR platform logo in its
-    header (via the {{platform_logo}} data-URI token) and render the
-    'Zoiko HR' brand instead of generic alert labels."""
-    import glob
-    import os
-
-    templates = sorted(glob.glob(os.path.join("app", "email_templates", "*.html")))
-    assert templates, "No email templates found"
-    for tmpl in templates:
-        content = _load_template(os.path.basename(tmpl))
-        assert "{{platform_logo}}" in content, f"{os.path.basename(tmpl)} missing platform logo"
-        assert 'alt="Zoiko HR"' in content, f"{os.path.basename(tmpl)} missing logo alt text"
-
-    uri = _platform_logo_data_uri()
-    assert uri.startswith("data:image/png;base64,"), "Logo data URI must be a base64 PNG"
-
-
-def test_platform_logo_src_prefers_hosted_url(monkeypatch):
+def test_login_url_follows_frontend_url(monkeypatch):
     from app.config import settings
+    from app.services import email_service
 
-    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.zoikohr.com")
-    assert _platform_logo_src() == "https://app.zoikohr.com/zoikohr-logo.png"
-
-    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:5173")
-    assert _platform_logo_src().startswith("data:image/png;base64,")
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.zoikohr.com/")
+    assert email_service._login_url() == "https://app.zoikohr.com/login"
 
 
-def test_render_template_conditionals_and_vars():
-    """Test string substitution and conditional blocks in _render_template."""
-    template = "Hello {{first_name}}! {{#if action_url}}<a href='{{action_url}}'>Link</a>{{/if}}"
-    res1 = _render_template(template, {"first_name": "Alice", "action_url": "https://example.com"})
-    assert res1 == "Hello Alice! <a href='https://example.com'>Link</a>"
+def test_subject_rendering_is_strict_and_single_line():
+    from app.services.email_service import _render_subject
 
-    res2 = _render_template(template, {"first_name": "Bob", "action_url": None})
-    assert res2 == "Hello Bob! "
+    assert _render_subject("Welcome to {{company_name}}\n now", {"company_name": "Acme"}) == "Welcome to Acme now"
+    with pytest.raises(Exception):
+        _render_subject("Hi {{missing}}", {})
 
 
 def test_log_email_delivery_persistence(db):

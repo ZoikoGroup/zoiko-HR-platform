@@ -1,0 +1,37 @@
+{#-
+  Single import for templates: {% import "_layouts/_components.html" as ui %}
+  Re-exports the CTA and detail-row partials plus small body components.
+-#}
+{% import "_layouts/_cta_button.html" as _cta %}
+{% import "_layouts/_detail_row.html" as _rows %}
+
+{% macro button(url, label) -%}{{ _cta.button(url, label) }}{%- endmacro %}
+
+{% macro details() -%}{% set _caller = caller %}{% call _rows.details() %}{{ _caller() }}{% endcall %}{%- endmacro %}
+
+{% macro detail_row(label, value, first=False, mono=False) -%}{{ _rows.detail_row(label, value, first=first, mono=mono) }}{%- endmacro %}
+
+{#- Highlighted callout, e.g. "Didn't request this?" security guidance. -#}
+{% macro notice(title=None, tone="info") -%}
+{%- set _t = BADGE_TONES[tone] -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="dm-bg-panel" style="width:100%;margin:0 0 24px 0;background-color:{{ _t.bg }};border-left:4px solid {{ _t.fg }};border-radius:6px;">
+<tr>
+<td class="dm-text-body" style="padding:14px 18px;font-family:{{ FONT_STACK }};font-size:15px;line-height:22px;color:#1f2937;">
+{% if title %}<strong class="dm-text-strong" style="display:block;margin:0 0 4px 0;color:#0f172a;">{{ title }}</strong>{% endif %}
+{{ caller() }}
+</td>
+</tr>
+</table>
+{%- endmacro %}
+
+{#- Plain-link fallback under a CTA for clients that break buttons. -#}
+{% macro link_fallback(url) -%}
+<p class="dm-text-muted" style="margin:0 0 24px 0;font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;color:#4b5563;">
+If the button doesn't work, copy and paste this link into your browser:<br>
+<a class="dm-link" href="{{ url }}" target="_blank" style="color:{{ PALETTE.primary }};text-decoration:underline;word-break:break-all;">{{ url }}</a>
+</p>
+{%- endmacro %}
+
+{% macro signoff(name="The Zoiko HR Team") -%}
+<p class="t-body dm-text-body" style="{{ S.p }}margin:8px 0 0 0;">Thank you,<br><strong class="dm-text-strong" style="{{ S.strong }}">{{ name }}</strong></p>
+{%- endmacro %}

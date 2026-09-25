@@ -84,6 +84,18 @@ class Settings(BaseSettings):
     SMTP_FROM_EMAIL: str = "Info@zoikoone.com"
     SMTP_USE_TLS: str = "true"
 
+    # ── Email branding / layout (app/email_templates/_layouts) ─────────────
+    # Absolute public HTTPS base the email logo PNGs are served from
+    # (frontend/public/email/ is published at {FRONTEND_URL}/email). Blank ->
+    # {FRONTEND_URL}/email when FRONTEND_URL is https, else the production app
+    # host, so an email never embeds a relative/localhost image URL.
+    HR_EMAIL_ASSET_BASE_URL: str = ""
+    # Attach the logo as a CID inline part instead of a remote URL (for
+    # image-blocking recipient environments). Off by default.
+    HR_EMAIL_INLINE_LOGO: bool = False
+    # Monitored support route linked from every email footer.
+    HR_EMAIL_SUPPORT_URL: str = "https://zoikohr.com/contact"
+
     # ── Assistant / LLM (app/modules/assistant) ─────────────────────────────
     # Groq is the chat-completion provider (llm_client.py); embeddings are a
     # separate local model (embeddings.py) since Groq has no embeddings API.
