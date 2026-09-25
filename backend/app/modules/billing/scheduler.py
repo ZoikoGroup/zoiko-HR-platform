@@ -98,8 +98,8 @@ def _execute_evaluation_reminder_job():
         try:
             result = send_evaluation_reminders(db)
             logger.info(
-                "[scheduler] Evaluation reminders: %d 7-day, %d 2-day sent",
-                result["sent_7d"], result["sent_2d"],
+                "[scheduler] Evaluation reminders: %d 7-day, %d halfway, %d 2-day sent",
+                result["sent_7d"], result["sent_halfway"], result["sent_2d"],
             )
         finally:
             db.close()

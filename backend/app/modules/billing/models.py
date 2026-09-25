@@ -139,6 +139,7 @@ class BillingAuditAction(str, enum.Enum):
     SUBSCRIPTION_DELETED = "subscription_deleted"
     SUBSCRIPTION_STATUS_CHANGED = "subscription_status_changed"
     INVOICE_PAID = "invoice_paid"
+    INVOICE_CREATED = "invoice_created"
     INVOICE_PAYMENT_FAILED = "invoice_payment_failed"
     WEBHOOK_RECEIVED = "webhook_received"
     WEBHOOK_UNHANDLED = "webhook_unhandled"
@@ -332,6 +333,7 @@ class OrganizationEvaluation(Base):
     # Milestone-reminder guards (Section 8.1) — set immediately after a
     # successful send so a scheduler retry/replay never double-sends.
     reminder_7d_sent_at = Column(DateTime, nullable=True)
+    reminder_halfway_sent_at = Column(DateTime, nullable=True)
     reminder_2d_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())

@@ -7,6 +7,7 @@ The SMTP password is read only from app.config.settings (.env), never from the D
 
 import os
 import re
+import base64
 import html as _html
 import ssl
 import smtplib
@@ -21,6 +22,41 @@ logger = logging.getLogger("zoiko")
 LOGIN_URL = "https://zoikoone.com/login"
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "email_templates")
+
+_EMAIL_LOGO_FILE = os.path.join(TEMPLATE_DIR, "assets", "zoikohr-logo.png")
+_PLATFORM_LOGO_CACHE = None
+
+
+def _platform_logo_src() -> str:
+    """Return the URL for the Zoiko HR logo to embed in emails.
+
+    Prefers the platform-hosted https asset (`{FRONTEND_URL}/zoikohr-logo.png`)
+    so clients like Gmail render it reliably. Falls back to an embedded base64
+    data URI only when no public frontend URL is configured (e.g. local dev).
+    """
+    from app.config import settings
+
+    frontend_url = (getattr(settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
+    if frontend_url and not any(
+        h in frontend_url for h in ("localhost", "127.0.0.1", "0.0.0.0", "::1")
+    ):
+        return f"{frontend_url}/zoikohr-logo.png"
+    return _platform_logo_data_uri()
+
+
+def _platform_logo_data_uri() -> str:
+    """Return a base64 PNG data URI of the Zoiko HR platform logo (fallback
+    when no public frontend URL is configured)."""
+    global _PLATFORM_LOGO_CACHE
+    if _PLATFORM_LOGO_CACHE is None:
+        try:
+            with open(_EMAIL_LOGO_FILE, "rb") as f:
+                data = f.read()
+            _PLATFORM_LOGO_CACHE = "data:image/png;base64," + base64.b64encode(data).decode("ascii")
+        except Exception as e:
+            logger.warning(f"[email] Could not load platform logo for embedding: {e}")
+            _PLATFORM_LOGO_CACHE = ""
+    return _PLATFORM_LOGO_CACHE
 
 _IF_BLOCK_RE = re.compile(r"\{\{#if (\w+)\}\}(.*?)\{\{/if\}\}", re.DOTALL)
 _TAG_RE = re.compile(r"<[^>]+>")
@@ -195,7 +231,7 @@ def _log_email_delivery(
                 subject=subject[:300] if subject else None,
                 status=status,
                 error_message=error_message[:1000] if error_message else None,
-                context_data={k: str(v) for k, v in (context_data or {}).items() if k not in ("password", "token")},
+                context_data={k: str(v) for k, v in (context_data or {}).items() if k not in ("password", "token", "platform_logo")},
             )
             db.add(log_row)
             db.commit()
@@ -226,7 +262,7 @@ def send_approval_email(
 
     subject = context.get("subject", "Zoiko HR — Notification")
     branding = _get_org_branding(organization_id, db=db)
-    full_context = {**branding, **context}
+    full_context = {**branding, **context, "platform_logo": _platform_logo_src()}
     if "{{" in subject:
         subject = _render_template(subject, full_context)
 
@@ -422,35 +458,86 @@ def send_leave_rejected(
     }, db=db, organization_id=organization_id)
 
 
-def send_approved(email: str, org_name: str, login_url: str = LOGIN_URL, db=None):
+def _lifecycle_login_url() -> str:
+    """Resolve the login link from runtime settings (frontend URL) with the
+    hardcoded fallback, so these emails never embed dead or default links."""
+    try:
+        from app.config import settings
+        if getattr(settings, "FRONTEND_URL", None):
+            return f"{settings.FRONTEND_URL.rstrip('/')}/login"
+    except Exception:
+        pass
+    return LOGIN_URL
+
+
+def send_approved(
+    email: str,
+    org_name: str,
+    recipient_first_name: str = "",
+    login_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "approved.html", {
         "subject": f"Registration Approved — {org_name} | Zoiko One",
         "organization_name": org_name,
-        "login_url": login_url,
-    }, db=db)
+        "first_name": recipient_first_name or "there",
+        "login_url": login_url or _lifecycle_login_url(),
+    }, db=db, organization_id=organization_id)
 
 
-def send_rejected(email: str, org_name: str, reason: str, db=None):
+def send_rejected(
+    email: str,
+    org_name: str,
+    reason: str = "",
+    recipient_first_name: str = "",
+    action_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "rejected.html", {
         "subject": f"Registration Rejected — {org_name} | Zoiko One",
         "organization_name": org_name,
+        "first_name": recipient_first_name or "there",
         "reason": reason,
-    }, db=db)
+        "action_url": action_url or _lifecycle_login_url(),
+    }, db=db, organization_id=organization_id)
 
 
-def send_suspended(email: str, org_name: str, db=None):
+def send_suspended(
+    email: str,
+    org_name: str,
+    recipient_first_name: str = "",
+    action_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "suspended.html", {
         "subject": f"Account Suspended — {org_name} | Zoiko One",
         "organization_name": org_name,
-    }, db=db)
+        "first_name": recipient_first_name or "there",
+        "action_url": action_url or _lifecycle_login_url(),
+    }, db=db, organization_id=organization_id)
 
 
-def send_reactivated(email: str, org_name: str, login_url: str = LOGIN_URL, db=None):
+def send_reactivated(
+    email: str,
+    org_name: str,
+    recipient_first_name: str = "",
+    event_time_local: str = "",
+    timezone: str = "UTC",
+    login_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "reactivated.html", {
         "subject": f"Account Reactivated — {org_name} | Zoiko One",
         "organization_name": org_name,
-        "login_url": login_url,
-    }, db=db)
+        "first_name": recipient_first_name or "there",
+        "event_time_local": event_time_local,
+        "timezone": timezone,
+        "login_url": login_url or _lifecycle_login_url(),
+    }, db=db, organization_id=organization_id)
 
 
 def send_password_reset(email: str, temp_password: str, first_name: str, db=None, organization_id=None):
@@ -464,9 +551,7 @@ def send_password_reset(email: str, temp_password: str, first_name: str, db=None
 
 # ── Registration Quotation Workflow ─────────────────────────────────────────
 # quote_sent.html / quote_accepted.html use the simple {{action_url}} +
-# {{first_name}} + {{organization_name}} style (single info card, single CTA)
-# — distinct from send_quote_email below, whose richer line-items/totals
-# context doesn't match either template and has no real call site.
+# {{first_name}} + {{organization_name}} style (single info card, single CTA).
 
 def send_quotation_proposal_email(
     email: str,
@@ -679,119 +764,6 @@ def _render_invoice_totals_html(subtotal, tax_amount, amount_paid, balance_due, 
     return "".join(rows)
 
 
-def send_quote_email(
-    email: str,
-    customer_name: str,
-    quote_number: str,
-    issue_date: str,
-    valid_until: str,
-    total_amount: str,
-    currency: str = "USD",
-    status: str = "Sent",
-    notes: str = "",
-    recipient_first_name: str = "",
-    line_items: list = None,
-    subtotal: str = "",
-    discount_amount: str = "",
-    tax_amount: str = "",
-    reference: str = "",
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    attachments = [(pdf_filename or f"{quote_number}.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "quote_sent.html", {
-        "subject": f"Estimate {quote_number} from {{{{company_name}}}}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "recipient_first_name": recipient_first_name or customer_name,
-        "quote_number": quote_number,
-        "issue_date": issue_date,
-        "valid_until": valid_until,
-        "total_amount": total_amount,
-        "subtotal": subtotal,
-        "discount_amount": discount_amount,
-        "tax_amount": tax_amount,
-        "currency": currency,
-        "status": status,
-        "reference": reference,
-        "notes": notes,
-        "line_items_html": _render_quote_items_html(line_items, currency),
-        "totals_html": _render_quote_totals_html(subtotal, discount_amount, tax_amount, total_amount, currency),
-    }, db=db, organization_id=organization_id, attachments=attachments)
-
-
-def send_dunning_reminder_email(
-    email: str,
-    customer_name: str,
-    invoice_number: str,
-    days_overdue: str,
-    overdue_amount: str,
-    currency: str = "USD",
-    late_fee: str = "0",
-    organization_id=None,
-    db=None,
-    template_name: str = "dunning_reminder.html",
-    custom_body: str = None,
-    subject_override: str = None,
-) -> bool:
-    return send_approval_email(email, template_name, {
-        "subject": subject_override or f"Collection workflow started for invoice {invoice_number}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "invoice_number": invoice_number,
-        "days_overdue": days_overdue,
-        "overdue_amount": overdue_amount,
-        "currency": currency,
-        "late_fee": late_fee,
-    }, db=db, organization_id=organization_id, template_body=custom_body)
-
-
-def send_contract_activated_email(
-    email: str,
-    customer_name: str,
-    contract_number: str,
-    start_date: str,
-    end_date: str,
-    total_amount: str,
-    currency: str = "USD",
-    organization_id=None,
-    db=None,
-) -> bool:
-    return send_approval_email(email, "contract_activated.html", {
-        "subject": f"Contract {contract_number} activated",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "contract_number": contract_number,
-        "start_date": start_date,
-        "end_date": end_date,
-        "total_amount": total_amount,
-        "currency": currency,
-    }, db=db, organization_id=organization_id)
-
-
-def send_contract_renewed_email(
-    email: str,
-    customer_name: str,
-    contract_number: str,
-    new_end_date: str,
-    total_amount: str,
-    currency: str = "USD",
-    organization_id=None,
-    db=None,
-) -> bool:
-    return send_approval_email(email, "contract_renewed.html", {
-        "subject": f"Contract {contract_number} renewed",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "contract_number": contract_number,
-        "new_end_date": new_end_date,
-        "total_amount": total_amount,
-        "currency": currency,
-    }, db=db, organization_id=organization_id)
-
-
 def send_subscription_renewed_email(
     email: str,
     customer_name: str,
@@ -838,34 +810,6 @@ def send_past_due_notice_email(
         "overdue_amount": overdue_amount,
         "currency": currency,
     }, db=db, organization_id=organization_id)
-
-
-def send_collections_notice_email(
-    email: str,
-    customer_name: str,
-    invoice_number: str,
-    days_overdue: str,
-    overdue_amount: str,
-    currency: str = "USD",
-    late_fee: str = "0",
-    organization_id=None,
-    db=None,
-    custom_body: str = None,
-) -> bool:
-    """Final-stage notice used when a debt is escalated to collections. Uses
-    the same invoice-friendly reminder layout as dunning (optionally
-    overridden by BillingConfiguration.final_notice_template) but under a
-    clear 'collections' subject."""
-    return send_approval_email(email, "dunning_reminder.html", {
-        "subject": f"Collection workflow started for invoice {invoice_number}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "invoice_number": invoice_number,
-        "days_overdue": days_overdue,
-        "overdue_amount": overdue_amount,
-        "currency": currency,
-        "late_fee": late_fee,
-    }, db=db, organization_id=organization_id, template_body=custom_body)
 
 
 def send_payment_receipt_email(
@@ -915,137 +859,6 @@ def send_refund_email(
         "currency": currency,
         "reason": reason,
     }, db=db, organization_id=organization_id, attachments=attachments)
-
-
-def send_write_off_email(
-    email: str,
-    customer_name: str,
-    write_off_number: str,
-    write_off_date: str,
-    amount: str,
-    currency: str = "USD",
-    reason: str = "",
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    attachments = [(pdf_filename or f"{write_off_number}.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "write_off_executed.html", {
-        "subject": f"Write-off decision recorded for {customer_name}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "write_off_number": write_off_number,
-        "write_off_date": write_off_date,
-        "amount": amount,
-        "currency": currency,
-        "reason": reason,
-    }, db=db, organization_id=organization_id, attachments=attachments)
-
-
-# ── Payroll Module Emails ────────────────────────────────────────────────
-
-
-def _resolve_payroll_send_identity(organization_id, db=None):
-    """Look up this org's PayrollEmailSettings from-identity override, if
-    any. Returns (from_email, from_display_name), both None when the org
-    hasn't configured one (i.e. keep using the platform default)."""
-    if not organization_id:
-        return None, None
-    try:
-        from app.modules.payroll.mail.service import resolve_send_identity
-
-        own_session = False
-        if db is None:
-            from app.database import SessionLocal
-            db = SessionLocal()
-            own_session = True
-        try:
-            return resolve_send_identity(db, organization_id)
-        finally:
-            if own_session:
-                db.close()
-    except Exception as e:
-        logger.warning(f"[email] Could not resolve payroll send identity for org={organization_id}: {e}")
-        return None, None
-
-
-def send_payslip_ready_email(
-    email: str,
-    employee_name: str,
-    pay_period: str,
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    attachments = [(pdf_filename or "payslip.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "payslip_ready.html", {
-        "subject": f"Your Payslip is Ready — {pay_period} | Zoiko One",
-        "employee_name": employee_name,
-        "pay_period": pay_period,
-    }, db=db, organization_id=organization_id, attachments=attachments,
-        from_email_override=from_email, from_display_name_override=from_display_name)
-
-
-def send_payroll_run_approved_email(
-    email: str,
-    employee_name: str,
-    pay_period: str,
-    organization_id=None,
-    db=None,
-) -> bool:
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    return send_approval_email(email, "payroll_run_approved.html", {
-        "subject": f"Payroll Approved — {pay_period} | Zoiko One",
-        "employee_name": employee_name,
-        "pay_period": pay_period,
-    }, db=db, organization_id=organization_id,
-        from_email_override=from_email, from_display_name_override=from_display_name)
-
-
-def send_update_form_invite_email(
-    email: str,
-    employee_name: str,
-    form_name: str,
-    form_link: str,
-    expires_at_display: str,
-    organization_id=None,
-    db=None,
-) -> bool:
-    """"Send Template" — email an employee a no-login link to fill in a
-    data-collection form. Reuses the same SMTP send path as every other
-    payroll email; only the template and context differ."""
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    return send_approval_email(email, "update_form_invite.html", {
-        "subject": f"{form_name} — Action Requested | Zoiko One",
-        "employee_name": employee_name,
-        "form_name": form_name,
-        "form_link": form_link,
-        "expires_at": expires_at_display,
-    }, db=db, organization_id=organization_id,
-        from_email_override=from_email, from_display_name_override=from_display_name)
-
-
-def send_leave_request_received_email(
-    email: str,
-    employee_name: str,
-    start_date: str,
-    end_date: str,
-    request_code: str,
-    organization_id=None,
-    db=None,
-) -> bool:
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    return send_approval_email(email, "leave_request_received.html", {
-        "subject": f"Leave Request Received — {request_code} | Zoiko One",
-        "employee_name": employee_name,
-        "start_date": start_date,
-        "end_date": end_date,
-        "request_code": request_code,
-    }, db=db, organization_id=organization_id,
-        from_email_override=from_email, from_display_name_override=from_display_name)
 
 
 # ── Employee / HR Module Emails ──────────────────────────────────────────────
@@ -1275,32 +1088,6 @@ def send_employee_lifecycle_email(
         "effective_date": effective_date or "",
         "details": details or "",
     }, db=db, organization_id=organization_id)
-
-
-def send_credit_note_email(
-    email: str,
-    customer_name: str,
-    credit_note_number: str,
-    issue_date: str,
-    total_amount: str,
-    currency: str = "USD",
-    reason: str = "",
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    attachments = [(pdf_filename or f"{credit_note_number}.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "credit_note_issued.html", {
-        "subject": f"Credit note {credit_note_number} from {{{{company_name}}}}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "credit_note_number": credit_note_number,
-        "issue_date": issue_date,
-        "total_amount": total_amount,
-        "currency": currency,
-        "reason": reason,
-    }, db=db, organization_id=organization_id, attachments=attachments)
 
 
 # ── Delinquency Notices & Support Access (Section 10 G1–G5, Section 18 O3) ──
@@ -1559,20 +1346,6 @@ def send_document_assigned_email(
         "subject": "A document is required in Zoiko HR",
         "first_name": first_name,
         "document_name": document_name,
-        "due_at_local": due_at_local,
-        "action_url": action_url,
-    }, db=db, organization_id=organization_id)
-
-
-def send_policy_acknowledgement_requested_email(
-    email: str, first_name: str, policy_display_name: str, due_at_local: str,
-    action_url: str = LOGIN_URL, db=None, organization_id=None,
-):
-    """ZHR-POL-001 Policy acknowledgment assigned."""
-    return send_approval_email(email, "policy_acknowledgement_requested.html", {
-        "subject": "Policy acknowledgment required",
-        "first_name": first_name,
-        "policy_display_name": policy_display_name,
         "due_at_local": due_at_local,
         "action_url": action_url,
     }, db=db, organization_id=organization_id)

@@ -1716,6 +1716,30 @@ def create_support_access(
         reason=data.reason,
         ttl_hours=data.ttl_hours,
     )
+
+    # Internal Billing Operations notice (Section 18 O3) — never blocks the
+    # API response over an SMTP failure.
+    try:
+        from app.config import settings
+        from app.services.email_service import send_support_access_granted_email
+
+        ops_email = getattr(settings, "BILLING_OPS_EMAIL", None) or getattr(
+            settings, "SMTP_FROM_EMAIL", ""
+        )
+        if ops_email:
+            send_support_access_granted_email(
+                organization_id=grant.organization_id,
+                recipient_email=ops_email,
+                grant_duration_hours=data.ttl_hours,
+                expires_at=grant.expires_at.isoformat() if grant.expires_at else "",
+                db=db,
+            )
+    except Exception as exc:
+        logger.error(
+            "[billing] Support-access notification email failed for org %d: %s",
+            data.organization_id, exc,
+        )
+
     return SupportAccessCreatedResponse(
         **{
             "id": grant.id,

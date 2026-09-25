@@ -8,11 +8,13 @@ from app.services.email_service import (
     _load_template,
     _render_template,
     _log_email_delivery,
+    _platform_logo_src,
+    _platform_logo_data_uri,
     send_approval_email,
     send_evaluation_started_email,
     send_evaluation_halfway_email,
     send_document_assigned_email,
-    send_policy_acknowledgement_requested_email,
+    send_approved,
     send_performance_review_assigned_email,
     send_performance_review_submitted_email,
 )
@@ -39,7 +41,10 @@ def test_load_templates_exist():
         "evaluation_started.html",
         "evaluation_halfway.html",
         "document_assigned.html",
-        "policy_acknowledgement_requested.html",
+        "approved.html",
+        "rejected.html",
+        "suspended.html",
+        "reactivated.html",
         "performance_review_assigned.html",
         "performance_review_submitted.html",
         "payment_received.html",
@@ -49,6 +54,34 @@ def test_load_templates_exist():
         content = _load_template(tmpl)
         assert content != "", f"Template {tmpl} should exist and be non-empty"
         assert "Zoiko" in content, f"Template {tmpl} should contain brand string Zoiko"
+
+
+def test_platform_logo_embedded_in_all_templates():
+    """Every email template must carry the Zoiko HR platform logo in its
+    header (via the {{platform_logo}} data-URI token) and render the
+    'Zoiko HR' brand instead of generic alert labels."""
+    import glob
+    import os
+
+    templates = sorted(glob.glob(os.path.join("app", "email_templates", "*.html")))
+    assert templates, "No email templates found"
+    for tmpl in templates:
+        content = _load_template(os.path.basename(tmpl))
+        assert "{{platform_logo}}" in content, f"{os.path.basename(tmpl)} missing platform logo"
+        assert 'alt="Zoiko HR"' in content, f"{os.path.basename(tmpl)} missing logo alt text"
+
+    uri = _platform_logo_data_uri()
+    assert uri.startswith("data:image/png;base64,"), "Logo data URI must be a base64 PNG"
+
+
+def test_platform_logo_src_prefers_hosted_url(monkeypatch):
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.zoikohr.com")
+    assert _platform_logo_src() == "https://app.zoikohr.com/zoikohr-logo.png"
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    assert _platform_logo_src().startswith("data:image/png;base64,")
 
 
 def test_render_template_conditionals_and_vars():
@@ -107,20 +140,20 @@ def test_send_helper_functions_log_audit(db, monkeypatch):
     assert log.status in ("sent", "failed")  # SMTP send recorded in log
     assert log.organization_id == 10
 
-    # Test policy acknowledgement helper
-    send_policy_acknowledgement_requested_email(
-        email="policy_user@example.com",
-        first_name="John",
-        policy_display_name="Code of Conduct",
-        due_at_local="2026-10-15",
+    # Test organization approval lifecycle helper (approved template)
+    send_approved(
+        email="org_admin@example.com",
+        org_name="Acme Corp",
+        recipient_first_name="John",
         db=db,
         organization_id=10,
     )
-    log_pol = db.query(EmailDeliveryLog).filter(
-        EmailDeliveryLog.recipient_email == "policy_user@example.com",
-        EmailDeliveryLog.template_name == "policy_acknowledgement_requested.html",
+    log_approval = db.query(EmailDeliveryLog).filter(
+        EmailDeliveryLog.recipient_email == "org_admin@example.com",
+        EmailDeliveryLog.template_name == "approved.html",
     ).first()
-    assert log_pol is not None
+    assert log_approval is not None
+    assert log_approval.status in ("sent", "failed")  # SMTP send recorded in log
 
     # Test performance review assigned helper
     send_performance_review_assigned_email(

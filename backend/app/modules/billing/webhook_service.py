@@ -356,11 +356,49 @@ def _handle_invoice_paid(db, event_id, data, full_event):
             "stripe_invoice_id": stripe_invoice_id,
             "amount_paid_cents": data.get("amount_paid", 0),
         },
+source="stripe_webhook",
+        stripe_event_id=event_id,
+    )
+
+    _send_payment_receipt_emails(db, org_id, data)
+    _send_subscription_renewed_emails(db, org_id, data, subscription)
+
+    return {"status": "ok", "message": "invoice paid"}
+
+
+def _handle_invoice_created(db, event_id, data, full_event):
+    """invoice.created — persist the issued invoice and notify billing
+    recipients so the invoice reaches the customer immediately."""
+    customer_id = data.get("customer")
+    subscription_id = data.get("subscription")
+
+    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id)
+    if not org_id:
+        logger.warning("[webhook] invoice.created for unknown customer/subscription")
+        return {"status": "ok", "message": "no matching org"}
+
+    _upsert_invoice(db, org_id, data)
+    _upsert_provider_ref(db, org_id, stripe_latest_invoice_id=data.get("id"))
+
+    _log_audit(
+        db,
+        organization_id=org_id,
+        action=BillingAuditAction.INVOICE_CREATED,
+        entity_type="BillingInvoice",
+        entity_id=None,
+        before=None,
+        after={
+            "stripe_invoice_id": data.get("id"),
+            "amount_due_cents": data.get("amount_due", 0),
+            "status": data.get("status", "draft"),
+        },
         source="stripe_webhook",
         stripe_event_id=event_id,
     )
 
-    return {"status": "ok", "message": "invoice paid"}
+    _send_invoice_created_emails(db, org_id, data)
+
+    return {"status": "ok", "message": "invoice created"}
 
 
 def _handle_invoice_payment_failed(db, event_id, data, full_event):
@@ -401,7 +439,141 @@ def _handle_invoice_payment_failed(db, event_id, data, full_event):
         stripe_event_id=event_id,
     )
 
+    _send_past_due_emails(db, org_id, data)
+
     return {"status": "ok", "message": "payment failed — past_due"}
+
+
+# ── Email notification helpers ────────────────────────────────────────────
+
+def _send_to_billing_recipients(db, org_id, send_fn):
+    """Send one email (built by send_fn(email, org)) to every authorized
+    billing recipient for the org. Never raises; failures are logged only."""
+    from app.modules.hr.models import Organization
+    from app.services.email_service import resolve_billing_recipients
+
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    if org is None:
+        return
+    recipients = resolve_billing_recipients(db, org_id)
+    if not recipients and getattr(org, "registered_email", None):
+        recipients = [org.registered_email]
+    for email in recipients:
+        if not email:
+            continue
+        try:
+            send_fn(email, org)
+        except Exception as e:
+            logger.error("[webhook] Email to %s failed for org %d: %s", email, org_id, e)
+
+
+def _send_invoice_created_emails(db, org_id, data):
+    from app.services.email_service import send_invoice_email
+
+    def _send(email, org):
+        total = (data.get("amount_due") or 0) / 100
+        currency = (data.get("currency") or "USD").upper()
+        issue_date = ""
+        if data.get("created"):
+            issue_date = datetime.utcfromtimestamp(data["created"]).strftime("%Y-%m-%d")
+        due_date = ""
+        due = data.get("due_date") or data.get("period_end")
+        if due:
+            due_date = datetime.utcfromtimestamp(due).strftime("%Y-%m-%d")
+        send_invoice_email(
+            email=email,
+            customer_name=org.name,
+            invoice_number=data.get("number") or data.get("id", ""),
+            issue_date=issue_date,
+            due_date=due_date,
+            total_amount=f"{total:.2f}",
+            status=(data.get("status") or "open").replace("_", " ").title(),
+            balance_due=f"{total:.2f}",
+            organization_id=org_id,
+            db=db,
+        )
+
+    _send_to_billing_recipients(db, org_id, _send)
+
+
+def _send_payment_receipt_emails(db, org_id, data):
+    from app.services.email_service import send_payment_receipt_email
+
+    def _send(email, org):
+        amount = (data.get("amount_paid") or data.get("amount_due") or 0) / 100
+        payment_date = ""
+        if data.get("created"):
+            payment_date = datetime.utcfromtimestamp(data["created"]).strftime("%Y-%m-%d")
+        send_payment_receipt_email(
+            email=email,
+            customer_name=org.name,
+            payment_number=data.get("number") or data.get("id", ""),
+            payment_date=payment_date,
+            amount=f"{amount:.2f}",
+            currency=(data.get("currency") or "USD").upper(),
+            payment_method="card",
+            organization_id=org_id,
+            db=db,
+        )
+
+    _send_to_billing_recipients(db, org_id, _send)
+
+
+def _send_subscription_renewed_emails(db, org_id, data, subscription):
+    from app.services.email_service import send_subscription_renewed_email
+
+    def _send(email, org):
+        plan_name = subscription.plan_code if subscription and subscription.plan_code else plan_name_fallback
+        term_start = ""
+        term_end = ""
+        period = data.get("period_start") or data.get("created")
+        if period:
+            term_start = datetime.utcfromtimestamp(period).strftime("%Y-%m-%d")
+        period_end = data.get("period_end")
+        if period_end:
+            term_end = datetime.utcfromtimestamp(period_end).strftime("%Y-%m-%d")
+        amount = (data.get("amount_paid") or data.get("amount_due") or 0) / 100
+        send_subscription_renewed_email(
+            email=email,
+            customer_name=org.name,
+            subscription_number=data.get("number") or data.get("id", ""),
+            plan_name=plan_name_fallback,
+            term_start=term_start,
+            term_end=term_end,
+            amount=f"{amount:.2f}",
+            currency=(data.get("currency") or "USD").upper(),
+            organization_id=org_id,
+            db=db,
+        )
+
+    plan_name_fallback = (
+        subscription.plan_code if subscription and subscription.plan_code else "Your"
+    )
+    _send_to_billing_recipients(db, org_id, _send)
+
+
+def _send_past_due_emails(db, org_id, data):
+    from app.services.email_service import send_past_due_notice_email
+
+    def _send(email, org):
+        amount_due = (data.get("amount_due") or 0) / 100
+        subscription = db.query(BillingSubscription).filter(
+            BillingSubscription.organization_id == org_id
+        ).first()
+        plan_name = subscription.plan_code if subscription and subscription.plan_code else "Your"
+        send_past_due_notice_email(
+            email=email,
+            customer_name=org.name,
+            subscription_number=data.get("number") or data.get("id", ""),
+            plan_name=plan_name,
+            days_overdue="Pending",
+            overdue_amount=f"{amount_due:.2f}",
+            currency=(data.get("currency") or "USD").upper(),
+            organization_id=org_id,
+            db=db,
+        )
+
+    _send_to_billing_recipients(db, org_id, _send)
 
 
 # ── Handler registry ───────────────────────────────────────────────────────
@@ -410,6 +582,7 @@ _HANDLERS = {
     "checkout.session.completed": _handle_checkout_completed,
     "customer.subscription.updated": _handle_subscription_updated,
     "customer.subscription.deleted": _handle_subscription_deleted,
+    "invoice.created": _handle_invoice_created,
     "invoice.paid": _handle_invoice_paid,
     "invoice.payment_failed": _handle_invoice_payment_failed,
 }
