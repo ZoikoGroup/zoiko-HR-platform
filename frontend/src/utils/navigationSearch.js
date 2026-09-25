@@ -26,11 +26,14 @@ export function collectNavMatches(sections, query) {
     }
   };
 
+  const parts = q.split(/[^a-z0-9]+/).filter(Boolean);
+
   const collectMatching = (items) => {
     for (const item of items || []) {
       if (!item || item.sidebar === false) continue;
       const haystack = `${item.label || ""} ${item.href || ""} ${item.badge || ""}`.toLowerCase();
-      if (item.href && haystack.includes(q)) add(item);
+      const matched = parts.every((part) => haystack.includes(part));
+      if (item.href && matched) add(item);
       if (item.children) collectMatching(item.children);
     }
   };
