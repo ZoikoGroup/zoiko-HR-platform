@@ -1,0 +1,131 @@
+{#-
+  Zoiko HR base email layout (Email Communications System v2.0, §5.2 / §7.1).
+
+  Every template extends this file and fills {% block content %}. Templates may
+  set, at top level (outside blocks):
+    title          <title> / accessible label (required)
+    preheader      inbox preview text (required)
+    badge          short status label shown in the header (optional; the same
+                   status MUST also appear as plain text in the body)
+    badge_tone     success | warning | danger | info | neutral (default info)
+    footer_reason  why the recipient received this email (optional)
+
+  Fluid/hybrid build: renders single-column and legible with <style> stripped
+  (e.g. Gmail app with non-Google accounts); media queries only enhance.
+-#}
+{%- set _title = title if title is defined else "Zoiko HR" -%}
+{%- set _preheader = preheader if preheader is defined else "" -%}
+{%- set _badge = badge if badge is defined else "" -%}
+{%- set _badge_tone = badge_tone if badge_tone is defined and badge_tone in BADGE_TONES else "info" -%}
+<!DOCTYPE html>
+<html lang="{{ lang }}" dir="{{ dir }}" xmlns="http://www.w3.org/1999/xhtml" xmlns:v="urn:schemas-microsoft-com:vml" xmlns:o="urn:schemas-microsoft-com:office:office">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="X-UA-Compatible" content="IE=edge">
+<meta name="x-apple-disable-message-reformatting">
+<meta name="format-detection" content="telephone=no,date=no,address=no,email=no,url=no">
+<meta name="color-scheme" content="light dark">
+<meta name="supported-color-schemes" content="light dark">
+<title>{{ _title }}</title>
+<!--[if mso]>
+<noscript>
+<xml>
+<o:OfficeDocumentSettings>
+<o:AllowPNG/>
+<o:PixelsPerInch>96</o:PixelsPerInch>
+</o:OfficeDocumentSettings>
+</xml>
+</noscript>
+<style>table,td,div,p,a,h1{font-family:Arial,Helvetica,sans-serif !important;}</style>
+<![endif]-->
+<style type="text/css">
+:root { color-scheme: light dark; supported-color-schemes: light dark; }
+body, table, td, a { -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+table, td { mso-table-lspace: 0pt; mso-table-rspace: 0pt; }
+img { -ms-interpolation-mode: bicubic; border: 0; outline: none; text-decoration: none; }
+table { border-collapse: collapse !important; }
+body { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+a[x-apple-data-detectors] { color: inherit !important; text-decoration: none !important; font-size: inherit !important; font-family: inherit !important; font-weight: inherit !important; line-height: inherit !important; }
+u + #body a { color: inherit; text-decoration: none; font-size: inherit; font-family: inherit; font-weight: inherit; line-height: inherit; }
+
+@media screen and (max-width: 600px) {
+  .outer-pad { padding: 0 !important; }
+  .card, .card-foot { border-radius: 0 !important; }
+  .px { padding-left: 20px !important; padding-right: 20px !important; }
+  .zhr-logo { width: 150px !important; max-width: 150px !important; height: auto !important; }
+  .stack { display: block !important; width: 100% !important; max-width: 100% !important; }
+  .stack-badge { text-align: left !important; padding: 12px 0 0 0 !important; }
+  .detail-label { padding: 12px 0 2px 0 !important; }
+  .detail-value { padding: 0 0 12px 0 !important; border-top: 0 !important; }
+  .btn-table { width: 100% !important; }
+  .btn-link { display: block !important; }
+  .h1 { font-size: 22px !important; line-height: 28px !important; }
+  .t-body { font-size: 16px !important; line-height: 24px !important; }
+}
+
+@media (prefers-color-scheme: dark) {
+  .dm-bg-body { background-color: #0b1220 !important; }
+  .dm-bg-card { background-color: #111827 !important; }
+  .dm-bg-panel { background-color: #1f2937 !important; border-color: #374151 !important; }
+  .dm-bg-footer { background-color: #0f172a !important; border-color: #1f2937 !important; }
+  .dm-border { border-color: #374151 !important; }
+  .dm-text-strong { color: #f9fafb !important; }
+  .dm-text-body { color: #e5e7eb !important; }
+  .dm-text-muted { color: #cbd5e1 !important; }
+  .dm-link { color: #8ecbff !important; }
+  .zhr-logo-light { display: none !important; max-height: 0 !important; overflow: hidden !important; }
+  .zhr-logo-dark-wrap { display: block !important; max-height: none !important; overflow: visible !important; }
+{% for tone, c in BADGE_TONES.items() %}
+  .badge-{{ tone }} { color: {{ c.dark_fg }} !important; background-color: {{ c.dark_bg }} !important; border-color: {{ c.dark_fg }} !important; }
+{% endfor %}
+}
+
+/* Outlook.com / Outlook apps dark mode */
+[data-ogsb] .dm-bg-body { background-color: #0b1220 !important; }
+[data-ogsb] .dm-bg-card { background-color: #111827 !important; }
+[data-ogsb] .dm-bg-panel { background-color: #1f2937 !important; }
+[data-ogsb] .dm-bg-footer { background-color: #0f172a !important; }
+[data-ogsc] .dm-text-strong { color: #f9fafb !important; }
+[data-ogsc] .dm-text-body { color: #e5e7eb !important; }
+[data-ogsc] .dm-text-muted { color: #cbd5e1 !important; }
+[data-ogsc] .dm-link { color: #8ecbff !important; }
+[data-ogsc] .zhr-logo-light { display: none !important; }
+[data-ogsc] .zhr-logo-dark-wrap { display: block !important; max-height: none !important; overflow: visible !important; }
+</style>
+</head>
+<body id="body" class="dm-bg-body" style="margin:0;padding:0;width:100%;word-spacing:normal;background-color:#eef2f6;">
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;color:#eef2f6;">{{ _preheader }}</div>
+<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{% for _ in range(60) %}&zwnj;&nbsp;{% endfor %}</div>
+<div role="article" aria-roledescription="email" aria-label="{{ _title }}" lang="{{ lang }}" dir="{{ dir }}" class="dm-bg-body" style="background-color:#eef2f6;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="dm-bg-body" style="width:100%;background-color:#eef2f6;">
+<tr>
+<td align="center" class="outer-pad" style="padding:32px 12px;">
+<!--[if mso]><table role="presentation" align="center" width="600" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="card dm-bg-card" style="width:100%;max-width:600px;margin:0 auto;background-color:#ffffff;border-radius:12px;">
+<tr>
+<td style="padding:0;font-size:0;line-height:0;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td width="60%" height="4" bgcolor="{{ PALETTE.primary }}" style="height:4px;font-size:0;line-height:0;background-color:{{ PALETTE.primary }};">&nbsp;</td>
+<td width="25%" height="4" bgcolor="{{ PALETTE.accent_cyan }}" style="height:4px;font-size:0;line-height:0;background-color:{{ PALETTE.accent_cyan }};">&nbsp;</td>
+<td width="15%" height="4" bgcolor="{{ PALETTE.accent_gold }}" style="height:4px;font-size:0;line-height:0;background-color:{{ PALETTE.accent_gold }};">&nbsp;</td>
+</tr>
+</table>
+</td>
+</tr>
+{% include "_layouts/_header.html" %}
+<tr>
+<td class="px" style="padding:8px 40px 16px 40px;">
+{% block content %}{% endblock %}
+</td>
+</tr>
+{% include "_layouts/_footer.html" %}
+</table>
+<!--[if mso]></td></tr></table><![endif]-->
+</td>
+</tr>
+</table>
+</div>
+</body>
+</html>

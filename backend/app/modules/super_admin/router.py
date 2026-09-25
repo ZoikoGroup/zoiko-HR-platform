@@ -14,7 +14,7 @@ import secrets
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import text
+from sqlalchemy import case, text
 from sqlalchemy.orm import Session
 
 from app.config import settings
@@ -514,6 +514,61 @@ def mint_confirmation_token_endpoint(
     }
 
 
+def _notify_lifecycle_email(db, org, previous_status, new_status, reason):
+    """Send organization lifecycle emails (approval / rejection / suspension /
+    reactivation). Non-blocking: recipient = highest-privilege active admin,
+    else the org's registered email."""
+    try:
+        from app.modules.employee.models import Employee, UserRole
+        from app.modules.hr.models import OrganizationStatus
+        from app.services.email_service import (
+            send_approved,
+            send_rejected,
+            send_suspended,
+            send_reactivated,
+        )
+
+        contact = (
+            db.query(Employee)
+            .filter(
+                Employee.organization_id == org.id,
+                Employee.is_active == True,  # noqa: E712
+                Employee.role.in_([UserRole.SUPER_ADMIN, UserRole.ADMIN]),
+            )
+            .order_by(
+                case((Employee.role == UserRole.SUPER_ADMIN, 0), else_=1),
+                Employee.id.asc(),
+            )
+            .first()
+        )
+        email = (contact.email if contact else None) or getattr(org, "registered_email", None)
+        if not email:
+            return
+        first_name = contact.first_name if contact else ""
+        org_name = org.name
+
+        from datetime import datetime
+        if new_status == OrganizationStatus.REJECTED:
+            send_rejected(email, org_name, reason=reason or "", recipient_first_name=first_name, db=db, organization_id=org.id)
+        elif new_status == OrganizationStatus.SUSPENDED:
+            send_suspended(email, org_name, recipient_first_name=first_name, db=db, organization_id=org.id)
+        elif new_status == OrganizationStatus.APPROVED:
+            send_approved(email, org_name, recipient_first_name=first_name, db=db, organization_id=org.id)
+        elif (
+            new_status == OrganizationStatus.ACTIVE
+            and previous_status
+            and previous_status.lower() in ("suspended", "on_hold")
+        ):
+            send_reactivated(
+                email, org_name, recipient_first_name=first_name,
+                event_time_local=datetime.utcnow().strftime("%Y-%m-%d %H:%M"),
+                timezone=org.timezone or "UTC",
+                db=db, organization_id=org.id,
+            )
+    except Exception:  # never fail the API call over an email
+        logger.exception("[super_admin] lifecycle email notification failed")
+
+
 @router.post("/organizations/{org_id}/status", summary="Update organization status")
 def update_organization_status(
     org_id: int,
@@ -598,6 +653,8 @@ def update_organization_status(
         details={"previous_status": previous, "new_status": new_status.value, "reason": data.reason},
     ))
     db.commit()
+
+    _notify_lifecycle_email(db, org, previous, new_status, data.reason)
 
     return {"message": f"Organization {org.name} status set to {new_status.value}."}
 

@@ -24,7 +24,12 @@ from app.modules.hr.models import Organization
 
 logger = logging.getLogger("zoiko.assistant")
 
-TICKETS_URL = "https://zoikoone.com/hr-admin/assistant-handoffs"
+TICKETS_PATH = "/hr-admin/assistant-handoffs"
+
+
+def _tickets_url() -> str:
+    from app.config import settings
+    return f"{settings.FRONTEND_URL.rstrip('/')}{TICKETS_PATH}"
 
 
 def _notify_admins_of_new_ticket(db: Session, organization_id: int, employee: Employee, handoff: ChatHandoff) -> None:
@@ -45,7 +50,7 @@ def _notify_admins_of_new_ticket(db: Session, organization_id: int, employee: Em
                 continue
             email_service.send_hr_ticket_created(
                 admin.email, employee.full_name, handoff.ticket_reference,
-                handoff.issue_summary, org_name, TICKETS_URL,
+                handoff.issue_summary, org_name, _tickets_url(),
                 db=db, organization_id=organization_id,
             )
     except Exception as e:

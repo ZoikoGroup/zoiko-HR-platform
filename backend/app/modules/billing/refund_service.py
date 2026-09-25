@@ -346,7 +346,8 @@ def _send_refund_notification(
     """Send email notification for refund approval/rejection."""
     try:
         from app.services.email_service import send_refund_email
-        org_email = subscription.organization.billing_owner_email if hasattr(subscription, 'organization') and subscription.organization else None
+        organization = subscription.organization if hasattr(subscription, "organization") and subscription.organization else None
+        org_email = getattr(organization, "registered_email", None) if organization else None
         if not org_email:
             return
         send_refund_email(

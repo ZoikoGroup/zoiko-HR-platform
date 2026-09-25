@@ -5,14 +5,13 @@ from sqlalchemy.orm import sessionmaker
 from app.database import Base
 from app.modules.super_admin.models import EmailDeliveryLog
 from app.services.email_service import (
-    _load_template,
-    _render_template,
     _log_email_delivery,
+    render_email,
     send_approval_email,
     send_evaluation_started_email,
     send_evaluation_halfway_email,
     send_document_assigned_email,
-    send_policy_acknowledgement_requested_email,
+    send_approved,
     send_performance_review_assigned_email,
     send_performance_review_submitted_email,
 )
@@ -31,34 +30,44 @@ def db():
         engine.dispose()
 
 
-def test_load_templates_exist():
-    """Verify that key generated templates are loadable and non-empty."""
-    templates_to_check = [
+def test_key_templates_render_with_zoiko_hr_brand():
+    """Key templates render through the shared layout with the Zoiko HR brand."""
+    context = {
+        "subject": "s", "first_name": "Jane", "workspace_name": "Acme", "login_url": "https://app.zoikohr.com/login",
+        "event_time_local": "Sep 25, 2026", "timezone": "UTC", "action_url": "https://app.zoikohr.com/x",
+        "organization_name": "Acme", "evaluation_end_date": "Oct 1", "document_name": "Doc", "due_at_local": "Oct 1",
+        "cycle_name": "Q3",
+    }
+    for tmpl in (
         "welcome.html",
         "org_admin_password_changed.html",
         "evaluation_started.html",
         "evaluation_halfway.html",
         "document_assigned.html",
-        "policy_acknowledgement_requested.html",
+        "approved.html",
+        "suspended.html",
         "performance_review_assigned.html",
         "performance_review_submitted.html",
-        "payment_received.html",
-        "past_due_notice.html",
-    ]
-    for tmpl in templates_to_check:
-        content = _load_template(tmpl)
-        assert content != "", f"Template {tmpl} should exist and be non-empty"
-        assert "Zoiko" in content, f"Template {tmpl} should contain brand string Zoiko"
+    ):
+        html = render_email(tmpl, context).html
+        assert 'alt="Zoiko HR"' in html, tmpl
+        assert "Zoiko Tech Inc." in html, tmpl
 
 
-def test_render_template_conditionals_and_vars():
-    """Test string substitution and conditional blocks in _render_template."""
-    template = "Hello {{first_name}}! {{#if action_url}}<a href='{{action_url}}'>Link</a>{{/if}}"
-    res1 = _render_template(template, {"first_name": "Alice", "action_url": "https://example.com"})
-    assert res1 == "Hello Alice! <a href='https://example.com'>Link</a>"
+def test_login_url_follows_frontend_url(monkeypatch):
+    from app.config import settings
+    from app.services import email_service
 
-    res2 = _render_template(template, {"first_name": "Bob", "action_url": None})
-    assert res2 == "Hello Bob! "
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.zoikohr.com/")
+    assert email_service._login_url() == "https://app.zoikohr.com/login"
+
+
+def test_subject_rendering_is_strict_and_single_line():
+    from app.services.email_service import _render_subject
+
+    assert _render_subject("Welcome to {{company_name}}\n now", {"company_name": "Acme"}) == "Welcome to Acme now"
+    with pytest.raises(Exception):
+        _render_subject("Hi {{missing}}", {})
 
 
 def test_log_email_delivery_persistence(db):
@@ -107,20 +116,20 @@ def test_send_helper_functions_log_audit(db, monkeypatch):
     assert log.status in ("sent", "failed")  # SMTP send recorded in log
     assert log.organization_id == 10
 
-    # Test policy acknowledgement helper
-    send_policy_acknowledgement_requested_email(
-        email="policy_user@example.com",
-        first_name="John",
-        policy_display_name="Code of Conduct",
-        due_at_local="2026-10-15",
+    # Test organization approval lifecycle helper (approved template)
+    send_approved(
+        email="org_admin@example.com",
+        org_name="Acme Corp",
+        recipient_first_name="John",
         db=db,
         organization_id=10,
     )
-    log_pol = db.query(EmailDeliveryLog).filter(
-        EmailDeliveryLog.recipient_email == "policy_user@example.com",
-        EmailDeliveryLog.template_name == "policy_acknowledgement_requested.html",
+    log_approval = db.query(EmailDeliveryLog).filter(
+        EmailDeliveryLog.recipient_email == "org_admin@example.com",
+        EmailDeliveryLog.template_name == "approved.html",
     ).first()
-    assert log_pol is not None
+    assert log_approval is not None
+    assert log_approval.status in ("sent", "failed")  # SMTP send recorded in log
 
     # Test performance review assigned helper
     send_performance_review_assigned_email(

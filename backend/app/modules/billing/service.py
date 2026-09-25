@@ -361,6 +361,21 @@ def start_evaluation(
 
     db.commit()
     db.refresh(evaluation)
+
+    # ZHR-COM-009 — notify the conversion owner (or billing recipients) that
+    # the evaluation workspace is live. Courtesy email only: never break the
+    # registration/onboarding call over a send failure.
+    try:
+        from app.services.email_service import resolve_billing_recipients, send_evaluation_started_email
+        recipients = [conversion_owner] if conversion_owner else resolve_billing_recipients(db, organization_id)
+        org_name = _org_display_name(db, organization_id)
+        end_display = evaluation.evaluation_ends_at.strftime("%B %d, %Y") if evaluation.evaluation_ends_at else ""
+        for email in recipients:
+            if email:
+                send_evaluation_started_email(email, org_name, end_display, db=db, organization_id=organization_id)
+    except Exception as e:
+        logger.error("[evaluation] Failed to send evaluation-start email for org %d: %s", organization_id, e)
+
     return evaluation
 
 
@@ -528,10 +543,10 @@ def _org_display_name(db: Session, organization_id: int) -> str:
 
 
 def _send_evaluation_milestone_email(db: Session, evaluation: OrganizationEvaluation, milestone: str) -> None:
-    """milestone: '7d' | '2d' | 'expired'. No-op (logged, not raised) if the
-    evaluation has no conversion_owner or if sending fails — a milestone
-    email is a courtesy notification, never allowed to break the scheduler
-    job (expiry/reminder walks) that calls it."""
+    """milestone: '7d' | 'halfway' | '2d' | 'expired'. No-op (logged, not
+    raised) if the evaluation has no conversion_owner or if sending fails —
+    a milestone email is a courtesy notification, never allowed to break the
+    scheduler job (expiry/reminder walks) that calls it."""
     if not evaluation.conversion_owner:
         return
     from app.services import email_service
@@ -540,6 +555,7 @@ def _send_evaluation_milestone_email(db: Session, evaluation: OrganizationEvalua
     ends_at_display = evaluation.evaluation_ends_at.strftime("%B %d, %Y") if evaluation.evaluation_ends_at else ""
     sender = {
         "7d": email_service.send_evaluation_7_days_remaining,
+        "halfway": email_service.send_evaluation_halfway_email,
         "2d": email_service.send_evaluation_2_days_remaining,
         "expired": email_service.send_evaluation_expired,
     }[milestone]
@@ -600,7 +616,31 @@ def send_evaluation_reminders(db: Session) -> dict:
         db.commit()
         sent_2d += 1
 
-    return {"sent_7d": sent_7d, "sent_2d": sent_2d}
+    # Halfway (ZHR-COM-010) — the midpoint between evaluation creation and
+    # its deadline. Center-windowed (±12h) like the fixed-day reminders so a
+    # job restart or clock skew cannot skip or double-send it.
+    sent_halfway = 0
+    halfway_candidates = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.reminder_halfway_sent_at.is_(None),
+        )
+        .all()
+    )
+    for evaluation in halfway_candidates:
+        if not evaluation.created_at or not evaluation.evaluation_ends_at:
+            continue
+        midpoint = evaluation.created_at + (evaluation.evaluation_ends_at - evaluation.created_at) / 2
+        if (
+            now - timedelta(hours=12) <= midpoint <= now + timedelta(hours=12)
+        ):
+            _send_evaluation_milestone_email(db, evaluation, "halfway")
+            evaluation.reminder_halfway_sent_at = now
+            db.commit()
+            sent_halfway += 1
+
+    return {"sent_7d": sent_7d, "sent_halfway": sent_halfway, "sent_2d": sent_2d}
 
 
 # ── Conversion ────────────────────────────────────────────────────────────────

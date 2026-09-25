@@ -31,6 +31,14 @@ def db():
     engine.dispose()
 
 
+@pytest.fixture(autouse=True)
+def _silence_start_email():
+    """start_evaluation() fires the ZHR-COM-009 'evaluation started' email to
+    the conversion owner; silence it so reminder tests never touch SMTP."""
+    with patch("app.services.email_service.send_evaluation_started_email"):
+        yield
+
+
 def _org(db, org_id: int):
     from app.modules.hr.models import Organization, OrganizationStatus
     org = Organization(id=org_id, name=f"Org {org_id}", status=OrganizationStatus.APPROVED)
@@ -139,9 +147,57 @@ class TestTwoDayReminder:
              patch("app.services.email_service.send_evaluation_2_days_remaining") as mock_2d:
             result = billing_service.send_evaluation_reminders(db)
 
-        assert result == {"sent_7d": 1, "sent_2d": 1}
+        assert result == {"sent_7d": 1, "sent_halfway": 0, "sent_2d": 1}
         mock_7d.assert_called_once()
         mock_2d.assert_called_once()
+
+
+class TestHalfwayReminder:
+    def test_sends_once_at_midpoint(self, db):
+        _org(db, 10)
+        evaluation = billing_service.start_evaluation(
+            db, organization_id=10,
+            evaluation_ends_at=datetime.utcnow() + timedelta(days=1),
+            conversion_owner="owner-10@z.test",
+        )
+
+        with patch("app.services.email_service.send_evaluation_halfway_email") as mock_halfway:
+            result = billing_service.send_evaluation_reminders(db)
+
+        assert result["sent_halfway"] == 1
+        mock_halfway.assert_called_once()
+        db.refresh(evaluation)
+        assert evaluation.reminder_halfway_sent_at is not None
+
+    def test_no_conversion_owner_is_a_noop(self, db):
+        _org(db, 11)
+        evaluation = billing_service.start_evaluation(
+            db, organization_id=11,
+            evaluation_ends_at=datetime.utcnow() + timedelta(days=1),
+            conversion_owner=None,
+        )
+
+        with patch("app.services.email_service.send_evaluation_halfway_email") as mock_halfway:
+            result = billing_service.send_evaluation_reminders(db)
+
+        assert result["sent_halfway"] == 1
+        mock_halfway.assert_not_called()
+        db.refresh(evaluation)
+        assert evaluation.reminder_halfway_sent_at is not None
+
+    def test_does_not_double_send_on_second_sweep(self, db):
+        _org(db, 12)
+        billing_service.start_evaluation(
+            db, organization_id=12,
+            evaluation_ends_at=datetime.utcnow() + timedelta(days=1),
+            conversion_owner="owner-12@z.test",
+        )
+
+        with patch("app.services.email_service.send_evaluation_halfway_email") as mock_halfway:
+            billing_service.send_evaluation_reminders(db)
+            billing_service.send_evaluation_reminders(db)
+
+        assert mock_halfway.call_count == 1
 
 
 class TestExpiredEmailFiresFromExpiryJobOnly:
