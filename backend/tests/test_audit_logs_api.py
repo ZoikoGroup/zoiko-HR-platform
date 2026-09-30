@@ -38,6 +38,18 @@ from app.modules.super_admin.models import AuditAction, AuditLog
 from app.modules.super_admin.router import router as super_admin_router
 
 
+def _with_peer(app, peer):
+    """Present requests as coming from `peer` (host, port). Works on every
+    Starlette version; TestClient(client=...) only exists in newer ones."""
+
+    async def wrapped(scope, receive, send):
+        if scope["type"] in ("http", "websocket"):
+            scope = {**scope, "client": peer}
+        await app(scope, receive, send)
+
+    return wrapped
+
+
 class _Caller:
     def __init__(self, role="super_admin"):
         self.email = "root@zoiko.test"
@@ -257,7 +269,7 @@ class TestClientIP:
             s.commit()
             return {"ok": True}
 
-        with TestClient(app, client=("10.0.0.5", 5000)) as c:
+        with TestClient(_with_peer(app, ("10.0.0.5", 5000))) as c:
             c.post("/act", headers={"X-Forwarded-For": "2001:db8:85a3:1:2:3:4:5, 10.0.0.9"})
         assert s.query(AuditLog).one().ip_address == "2001:db8:85a3:1:2:3:4:5"
         assert s.query(BillingAuditLog).one().ip_address == "2001:db8:85a3:1:2:3:4:5"
@@ -279,7 +291,7 @@ class TestClientIP:
             s.commit()
             return {}
 
-        with TestClient(app, client=("::ffff:192.0.2.44", 1)) as c:
+        with TestClient(_with_peer(app, ("::ffff:192.0.2.44", 1))) as c:
             c.post("/act", headers={"X-Forwarded-For": "6.6.6.6"})  # ignored: nobody trusted
         assert s.query(AuditLog).one().ip_address == "192.0.2.44"
         s.close()
