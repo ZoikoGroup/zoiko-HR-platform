@@ -8,7 +8,7 @@ List responses use { list, total } convention per super_admin pattern.
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.billing.models import (
     BillingClassification,
@@ -185,6 +185,41 @@ class CatalogPublishResponse(BaseModel):
     version: str
 
 
+class CatalogCloneRequest(BaseModel):
+    """Seed a new DRAFT catalog version from an existing one.
+
+    Optional `from_version`; defaults to the latest published version. Every
+    plan is copied across as an unpublished draft with published_at left NULL,
+    so the new version can be re-priced freely and only becomes customer-visible
+    once it is published as a complete set.
+    """
+    from_version: Optional[str] = None
+
+
+class CatalogCloneResponse(BaseModel):
+    from_version: str
+    catalog_version: str
+    plans: List[CatalogPlanResponse]
+    total: int
+
+
+class PlanRepriceRequest(BaseModel):
+    """Change a published plan's rates.
+
+    Published plans are append-only, so a rate change is expressed as: cut the
+    next catalog version, apply the new rate there, sync Stripe, and publish.
+    Existing subscribers keep the rate they signed up at — only new checkouts
+    see the new one.
+    """
+    code: str
+    monthly_price: Optional[float] = None
+    annual_price: Optional[float] = None
+    publish: bool = True
+    # Optional override; defaults to the newest unpublished version, else a clone
+    # of the latest published one.
+    catalog_version: Optional[str] = None
+
+
 # ── Evaluation schemas ────────────────────────────────────────────────────────
 
 class EvaluationStartRequest(BaseModel):
@@ -228,11 +263,13 @@ class PlatformEvaluationListResponse(BaseModel):
 # ── Conversion schemas ────────────────────────────────────────────────────────
 
 class ConversionRequest(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+
     plan_id: int
     billing_cycle: BillingCycle
-    quantity_basis: str
+    quantity_basis: str = Field(min_length=1, max_length=200)
     commercial_effective_at: datetime
-    approver: str
+    approver: str = Field(min_length=1, max_length=255)
     order_form_reference: Optional[str] = None
     implementation_sow_reference: Optional[str] = None
     signed_agreement_reference: Optional[str] = None
@@ -598,6 +635,20 @@ class RefundResponse(BaseModel):
 class RefundListResponse(BaseModel):
     list: List[RefundResponse]
     total: int
+    page: int = 1
+    page_size: int = 20
+    # Set when the payment provider is unavailable; the list is still served.
+    provider_warning: Optional[str] = None
+
+
+class RefundSummaryResponse(BaseModel):
+    """Stat-card figures. Money is integer cents; every value is 0 on empty data."""
+    pending_count: int = 0
+    approved_total_cents: int = 0
+    credits_issued_cents: int = 0
+    processed_count: int = 0
+    currency: str = "USD"
+    provider_warning: Optional[str] = None
 
 
 # ── Delinquency & Support Access (Section 10 G1-G5, Section 18 O3) ─────────

@@ -86,6 +86,14 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.warning("[startup] Scheduler could not be started: %s", e)
 
+    # Webhook delivery + workflow execution worker (ZHR-24/25).
+    try:
+        from app.modules.integrations.worker import start_worker
+
+        start_worker()
+    except Exception as e:
+        logger.warning("[startup] Integrations worker could not be started: %s", e)
+
     # Route→feature sweep (Prompt 6): report FEATURE_KEYS with zero mapped
     # routes and flag any mapped route that no longer exists (drift). Report-only
     # by design; enable hard enforcement via HR_ENFORCE_ENTITLEMENTS.
@@ -101,6 +109,12 @@ async def lifespan(application: FastAPI):
         logger.warning("[startup] Entitlement map sweep could not run: %s", e)
 
     yield
+    try:
+        from app.modules.integrations.worker import stop_worker
+
+        stop_worker()
+    except Exception:
+        pass
     # Dispose all pooled connections before shutdown so Neon's SSL teardown
     # doesn't race with SQLAlchemy's pool-reset rollback.
     try:
@@ -166,6 +180,14 @@ app.add_middleware(
 
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+
+# Real client IP for audit rows (trusted-proxy aware) — see core/client_ip.py.
+from app.core.client_ip import ClientIPMiddleware, register_ip_stamping  # noqa: E402
+from app.modules.billing.models import BillingAuditLog as _BillingAuditLog  # noqa: E402
+from app.modules.super_admin.models import AuditLog as _AuditLog, LoginActivity as _LoginActivity  # noqa: E402
+
+register_ip_stamping(_AuditLog, _LoginActivity, _BillingAuditLog)
+app.add_middleware(ClientIPMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ── Redis response cache ─────────────────────────────────────────────────────
@@ -278,8 +300,16 @@ workforce_router   = _safe_import(lambda: __import__("app.modules.hr.workforce_r
 org_config_router  = _safe_import(lambda: __import__("app.modules.hr.org_config_router", fromlist=["org_config_router"]).org_config_router, "hr.org_config_router")
 super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.router", fromlist=["router"]).router, "super_admin.router")
 command_center_router = _safe_import(lambda: __import__("app.modules.super_admin.command_center_router", fromlist=["router"]).router, "super_admin.command_center_router")
+notification_recipient_router = _safe_import(lambda: __import__("app.modules.super_admin.notification_router", fromlist=["recipient_router"]).recipient_router, "super_admin.notification_router")
+integrations_connect_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["connect_router"]).connect_router, "integrations.connect_router")
+integrations_hub_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["hub_router"]).hub_router, "integrations.hub_router")
+integrations_workflow_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["workflow_router"]).workflow_router, "integrations.workflow_router")
+sa_documents_router = _safe_import(lambda: __import__("app.modules.super_admin.documents_router", fromlist=["router"]).router, "super_admin.documents_router")
+sa_expenses_router = _safe_import(lambda: __import__("app.modules.super_admin.expenses_router", fromlist=["router"]).router, "super_admin.expenses_router")
+sa_approvals_router = _safe_import(lambda: __import__("app.modules.super_admin.approvals_router", fromlist=["router"]).router, "super_admin.approvals_router")
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
+billing_public_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["public_billing_router"]).public_billing_router, "billing.public_billing_router")
 billing_webhook_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["webhook_router"]).webhook_router, "billing.webhook_router")
 billing_quotation_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["quotation_router"]).quotation_router, "billing.quotation_router")
 
@@ -293,9 +323,17 @@ app.include_router(recruitment_router)
 app.include_router(workforce_router)
 app.include_router(org_config_router)
 app.include_router(super_admin_router)
+app.include_router(notification_recipient_router)
 app.include_router(command_center_router)
+app.include_router(integrations_connect_router)
+app.include_router(integrations_hub_router)
+app.include_router(integrations_workflow_router)
+app.include_router(sa_documents_router)
+app.include_router(sa_approvals_router)
+app.include_router(sa_expenses_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
+app.include_router(billing_public_router)
 app.include_router(billing_webhook_router)
 app.include_router(billing_quotation_router)
 

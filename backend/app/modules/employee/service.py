@@ -16,6 +16,7 @@ from sqlalchemy import cast, extract, func, Integer, text
 from sqlalchemy.orm import Session
 
 from app.database import Base
+from app.modules.integrations.events import emit_event
 
 logger = logging.getLogger("zoiko.employee.service")
 
@@ -57,7 +58,7 @@ from app.modules.super_admin.models import (
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.exceptions import (
     NotFoundException, AlreadyExistsException,
-    UnauthorizedException, BadRequestException,
+    UnauthorizedException, BadRequestException, ZoikoException,
 )
 
 
@@ -173,7 +174,9 @@ def _notify_email_async(sender_name: str, **kwargs) -> None:
 # SECURITY ACTION TOKENS (single-use, expiring)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-TOKEN_TTL_HOURS = 24
+TOKEN_TTL_HOURS = 24            # invitations
+RESET_TOKEN_TTL_MINUTES = 60    # password-reset links (short-lived)
+RESET_RATE_LIMIT_PER_HOUR = 5   # admin-initiated resets per target user
 TOKEN_TIMEZONE = "UTC"
 
 LINK_RESET_ROLES = (
@@ -202,11 +205,66 @@ def _org_workspace_name(db: Session, organization_id) -> str:
     return (org.organization_name or org.display_name or "") if org else ""
 
 
+def _revoke_outstanding_tokens(db: Session, email: str, purpose) -> int:
+    return (
+        db.query(SecurityActionToken)
+        .filter(
+            SecurityActionToken.email == email,
+            SecurityActionToken.purpose == purpose,
+            SecurityActionToken.used_at.is_(None),
+        )
+        .update({SecurityActionToken.used_at: datetime.utcnow()}, synchronize_session=False)
+    )
+
+
+PASSWORD_POLICY_MESSAGE = "Password must be at least 8 characters and include a letter and a number."
+
+
+def validate_password_policy(password: str) -> None:
+    if (
+        not password
+        or len(password) < 8
+        or not any(c.isalpha() for c in password)
+        or not any(c.isdigit() for c in password)
+    ):
+        raise BadRequestException(PASSWORD_POLICY_MESSAGE)
+
+
+def _send_email_sync(db: Session, sender_name: str, recipient: str, **kwargs) -> tuple[bool, Optional[str]]:
+    """Send an email now and report the real outcome (ok, reason). Used where
+    the caller must know whether the email went out."""
+    from app.services import email_service
+
+    try:
+        ok = getattr(email_service, sender_name)(email=recipient, db=db, **kwargs)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Email send raised via %s", sender_name)
+        return False, f"{type(exc).__name__}"
+    if ok:
+        return True, None
+    from app.modules.super_admin.models import EmailDeliveryLog
+
+    row = (
+        db.query(EmailDeliveryLog)
+        .filter(EmailDeliveryLog.recipient_email == recipient, EmailDeliveryLog.status != "sent")
+        .order_by(EmailDeliveryLog.id.desc())
+        .first()
+    )
+    reason = (row.error_message if row and row.error_message else "the mail server rejected or could not deliver it")
+    return False, reason[:200]
+
+
 def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tuple[str, datetime]:
     """Create a single-use token row; returns (raw_token, expires_at). Only the
     SHA-256 hash is stored — the raw token is embedded in the emailed link."""
     raw_token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=TOKEN_TTL_HOURS)
+    now = datetime.utcnow()
+    if purpose == SecurityActionPurpose.RESET:
+        expires_at = now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+    else:
+        expires_at = now + timedelta(hours=TOKEN_TTL_HOURS)
+    # A new link supersedes every outstanding one for this user and purpose.
+    _revoke_outstanding_tokens(db, email, purpose)
     token = SecurityActionToken(
         email=email,
         organization_id=organization_id,
@@ -298,6 +356,7 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
     flag back with it. Raises BadRequestException (generic) for every invalid
     state — the same message whether the token never existed, expired, or was used.
     """
+    validate_password_policy(new_password)
     consumed = _consume_action_token(db, raw_token, purpose)
     if consumed is None:
         raise BadRequestException(INVALID_TOKEN_MESSAGE)
@@ -307,6 +366,8 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
         raise BadRequestException(INVALID_TOKEN_MESSAGE)
 
     employee.hashed_password = hash_password(new_password)
+    employee.password_changed_at = datetime.utcnow()  # signs out every earlier session
+    employee.must_change_password = False
     db.commit()
     db.refresh(employee)
 
@@ -449,6 +510,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.add(org)
     db.commit()
     db.refresh(org)
+    emit_event(db, "organization.created", {"id": org.id, "name": org.name, "code": org.organization_code}, org.id)
 
     dept_code = f"MGMT_{org.id}"
     dept_department_code = f"{org_code}DEP001"
@@ -532,6 +594,10 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         message=f"Organization '{org.name}' signed up and started a {data.plan_code} evaluation. It is active immediately — no action needed.",
         notification_type="org_registration",
         priority="high",
+        # Internal Super Admin event: target_org_id / target_user_id mean "the org this
+        # is ABOUT", not recipients. "system" keeps it out of every recipient inbox
+        # (the column default, "all", would broadcast it to the whole platform).
+        target_type="system",
         target_org_id=org.id,
         target_user_id=employee.id,
     )
@@ -614,7 +680,12 @@ def change_password(
     if not verify_password(current_password, employee.hashed_password):
         raise UnauthorizedException("Current password is incorrect.")
 
+    validate_password_policy(new_password)
+    if verify_password(new_password, employee.hashed_password):
+        raise BadRequestException("Your new password must be different from the current one.")
+
     employee.hashed_password = hash_password(new_password)
+    employee.must_change_password = False
     db.commit()
     db.refresh(employee)
 
@@ -636,6 +707,10 @@ def change_password(
 # USER MANAGEMENT SERVICE (Organization Admin)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def role_str(role) -> str:
+    return getattr(role, "value", str(role))
+
+
 def create_organization_user(
     db: Session,
     data: "UserCreateRequest",
@@ -656,7 +731,8 @@ def create_organization_user(
         email=data.email,
         hashed_password=hash_password(temp_password),
         employee_code=new_employee_code,
-        employee_id=_generate_employee_id(db, organization_id=organization_id),
+        # Platform-level users (Super Admin) have no organization, so no org-scoped employee ID.
+        employee_id=_generate_employee_id(db, organization_id=organization_id) if organization_id else None,
         role=role,
         is_active=True,
         first_name=data.first_name,
@@ -672,8 +748,9 @@ def create_organization_user(
     db.add(employee)
     db.commit()
     db.refresh(employee)
+    emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(role)}, organization_id)
 
-    if role == UserRole.ADMIN:
+    if role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.INVITE)
         db.commit()
         inviter = db.query(Employee).filter(Employee.id == created_by_id).first() if created_by_id else None
@@ -976,38 +1053,75 @@ def reset_user_password(
     organization_id: int,
     updated_by_id: int,
     skip_org_filter: bool = False,
+    method: str = "link",
 ) -> tuple[Employee, Optional[str]]:
+    """Admin-initiated password reset.
+
+    method="link": single-use, 60-minute emailed link. If the email cannot be
+        sent the token is revoked and a clear 502 is raised (no dangling link).
+    method="temporary": a temporary password is set (returned once); the user
+        must change it at next login.
+    Either way every session issued before now is invalidated.
+    Returns (user, temp_password_or_None).
+    """
     user = get_organization_user(db, user_id, organization_id, skip_org_filter)
 
-    if user.role in LINK_RESET_ROLES:
+    if user.id == updated_by_id:
+        raise BadRequestException(
+            "You cannot reset your own password here. Use your account settings to change it."
+        )
+    if method not in ("link", "temporary"):
+        raise BadRequestException("Reset method must be 'link' or 'temporary'.")
+    if not user.is_active:
+        raise BadRequestException("This account is deactivated. Reactivate it before resetting the password.")
+
+    # Per-user rate limit, counted from the audit trail of completed resets.
+    from app.modules.super_admin.models import AuditAction, AuditLog
+
+    recent = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == AuditAction.PASSWORD_RESET,
+            AuditLog.entity_type == "Employee",
+            AuditLog.entity_id == user.id,
+            AuditLog.created_at >= datetime.utcnow() - timedelta(hours=1),
+        )
+        .count()
+    )
+    if recent >= RESET_RATE_LIMIT_PER_HOUR:
+        raise ZoikoException(
+            429, "RATE_LIMITED",
+            "Too many password resets for this user in the last hour. Please try again later.",
+        )
+
+    if method == "link":
         raw_token, expires_at = _issue_action_token(db, user.email, user.organization_id, SecurityActionPurpose.RESET)
-        user.updated_by = updated_by_id
         db.commit()
-        _notify_email_async(
-            "send_org_admin_password_reset_email",
-            email=user.email,
+        ok, reason = _send_email_sync(
+            db, "send_org_admin_password_reset_email", user.email,
             first_name=user.first_name or _full_name(user),
             expires_at_local=_format_token_datetime(expires_at),
             timezone=TOKEN_TIMEZONE,
             action_url=_action_link(SecurityActionPurpose.RESET, raw_token),
-            organization_id=organization_id,
+            organization_id=user.organization_id,
         )
+        if not ok:
+            _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET)
+            db.commit()
+            raise ZoikoException(502, "EMAIL_SEND_FAILED", f"Email could not be sent: {reason}")
+        user.updated_by = updated_by_id
+        user.password_changed_at = datetime.utcnow()  # end existing sessions now
+        db.commit()
         return user, None
 
     temp_password = _generate_temp_password()
+    _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET)
     user.hashed_password = hash_password(temp_password)
+    user.must_change_password = True
+    user.password_changed_at = datetime.utcnow()
     user.updated_by = updated_by_id
     db.commit()
     db.refresh(user)
-
-    _notify_email_async(
-        "send_password_reset",
-        email=user.email,
-        temp_password=temp_password,
-        first_name=user.first_name or _full_name(user),
-        organization_id=organization_id,
-    )
-
     return user, temp_password
 
 
@@ -1042,6 +1156,7 @@ def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional
     db.add(employee)
     db.commit()
     db.refresh(employee)
+    emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
 
     _notify_email(
         "send_employee_welcome_email",

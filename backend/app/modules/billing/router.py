@@ -14,7 +14,7 @@ permission system.
 
 import json
 import logging
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request
@@ -31,7 +31,7 @@ from app.core.dependencies import (
     require_organization_access,
     get_current_super_admin,
 )
-from app.core.exceptions import ForbiddenException, AlreadyExistsException, BadRequestException, NotFoundException
+from app.core.exceptions import ForbiddenException, AlreadyExistsException, BadRequestException, NotFoundException, ZoikoException
 from app.core.rate_limiter import limiter
 from app.modules.billing import service
 from app.modules.billing import catalog_service
@@ -42,7 +42,7 @@ from app.modules.billing import quotation_service
 from app.modules.billing.models import (
     BillingAuditAction, BillingAuditLog, BillingInvoice, BillingPlan, BillingWebhookEvent,
     BillingPlanChange, BillingRefundRequest, DelinquencyCase,
-    ProviderRef, RefundRequestStatus, SubscriptionStatus,
+    ProviderRef, RefundRequestStatus, RefundRequestType, SubscriptionStatus,
     CommercialExceptionStatus, EntitlementMode,
 )
 from app.modules.billing.entitlement_service import compute_entitlement_snapshot
@@ -63,11 +63,14 @@ from app.modules.billing.schemas import (
     BillingInvoiceResponse,
     BillingOverviewResponse,
     CancelRequest,
+    CatalogCloneRequest,
+    CatalogCloneResponse,
     CatalogPublishRequest,
     CatalogPublishResponse,
     CatalogResponse,
     CheckoutSessionRequest,
     CheckoutSessionResponse,
+    PlanRepriceRequest,
     ClassificationUpdateRequest,
     ConversionListResponse,
     ConversionRequest,
@@ -109,6 +112,7 @@ from app.modules.billing.schemas import (
     RefundListResponse,
     RefundRequest,
     RefundResponse,
+    RefundSummaryResponse,
     SubscriptionResponse,
     UpgradeRequest,
     WebhookEventListResponse,
@@ -136,6 +140,10 @@ from app.modules.billing.schemas import (
 logger = logging.getLogger("zoiko.billing")
 
 billing_router = APIRouter(prefix="/billing", tags=["Billing"])
+
+# Pre-auth routes (registration / public pricing). Deliberately a separate
+# router so it is obvious at a glance which billing endpoints need no session.
+public_billing_router = APIRouter(prefix="/billing", tags=["Billing / Public"])
 
 
 # ── RBAC Permission Table (Section 19) ────────────────────────────────────────
@@ -348,6 +356,29 @@ def create_plan(
             "Monthly Price and Annual Price are required for self-serve plans. "
             "Enter both, or enable Contract Priced to skip numeric pricing."
         )
+
+    # (code, catalog_version) is the catalog's identity but has no unique
+    # constraint, so reject the duplicate explicitly — a 409 naming the existing
+    # draft beats silently adding an ambiguous second row to the same version.
+    existing = service.get_plan_by_code_and_version(db, data.code, data.catalog_version)
+    if existing is not None:
+        used = service.get_plans(db)
+        used_in_version = sorted(
+            {service.role_value(p.code) for p in used if p.catalog_version == data.catalog_version}
+        )
+        nxt = service.suggest_next_catalog_version(db, data.catalog_version)
+        raise ZoikoException(
+            status_code=409,
+            error_code="ALREADY_EXISTS",
+            message=(
+                f"A {service.role_value(data.code)} plan already exists in catalog version "
+                f"'{data.catalog_version}' (plan #{existing.id}). A catalog version holds one "
+                f"plan per code, and '{data.catalog_version}' already uses: "
+                f"{', '.join(used_in_version)}. Edit that draft to change its pricing, or use a "
+                f"new catalog version such as '{nxt}'."
+            ),
+        )
+
     plan = BillingPlan(
         code=data.code,
         name=data.name,
@@ -439,6 +470,35 @@ def update_plan(
 
 # ── Catalog publication endpoints (Section 17) ───────────────────────────────
 
+@public_billing_router.get(
+    "/public/catalog",
+    response_model=CatalogResponse,
+    summary="Public plan rates for the registration/pricing pages (no auth)",
+)
+def get_public_catalog(
+    catalog_version: str = Query(None, alias="catalog_version"),
+    db: Session = Depends(get_db),
+):
+    """Pre-auth view of the same customer-visible catalog.
+
+    Registration and the public pricing page run BEFORE a user has an account,
+    so they cannot use the authenticated /billing/catalog route. Exposes exactly
+    the same published+active plan set and nothing more — no Stripe ids, no
+    draft or inactive rows, no internal fields.
+
+    Short-TTL cache: rates change on catalog publish, not per-request.
+    """
+    plans = catalog_service.get_customer_visible_plans(db, version=catalog_version)
+    return CatalogResponse(
+        version=catalog_service.get_latest_published_catalog_version(db),
+        # include_provider_ids=False: Stripe ids must never reach a
+        # pre-auth caller.
+        list=[catalog_service.catalog_plan_to_dict(p, include_provider_ids=False)
+              for p in plans],
+        total=len(plans),
+    )
+
+
 @billing_router.get(
     "/catalog",
     response_model=CatalogResponse,
@@ -477,11 +537,135 @@ def publish_catalog(
     # The JSON body IS the echo/confirmation — a non-empty exact string is required.
     if not version:
         raise BadRequestException("catalog_version is required to confirm publication.")
-    plans = catalog_service.publish_catalog_version(
+    plans = catalog_service.publish_billing_plans(
         db, version=version, actor_email=getattr(current_user, "email", "unknown")
     )
     published = [catalog_service.catalog_plan_to_dict(p) for p in plans]
     return CatalogPublishResponse(published=published, total=len(published), version=version)
+
+
+@billing_router.post(
+    "/catalog/versions",
+    response_model=CatalogCloneResponse,
+    summary="Create the next catalog version as a full draft copy (Super Admin only)",
+    status_code=201,
+)
+def create_catalog_version_draft(
+    data: CatalogCloneRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    """Seed version N+1 from an existing version so it can be re-priced and
+    re-published later.
+
+    The customer catalog serves only the latest published version, so a version
+    must contain every plan or the ones it omits disappear from sale. Cloning
+    guarantees completeness. Clones are drafts (published_at NULL) and carry no
+    Stripe price ids."""
+    from_version, plans = catalog_service.clone_plan_version(
+        db,
+        from_version=data.from_version,
+        actor=getattr(current_user, "email", "unknown"),
+    )
+    new_version = plans[0].catalog_version if plans else from_version
+    return CatalogCloneResponse(
+        from_version=from_version,
+        catalog_version=new_version,
+        plans=[catalog_service.catalog_plan_to_dict(p) for p in plans],
+        total=len(plans),
+    )
+
+
+@billing_router.post(
+    "/plans/reprice",
+    summary="Change a plan's rates and make them live (Super Admin only)",
+)
+def reprice_plan_endpoint(
+    data: PlanRepriceRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    """Set a plan's monthly/annual rate and publish it to the customer catalog.
+
+    A published plan is append-only, so the new rate is applied to the next
+    catalog version (reusing an existing unpublished draft when present) and
+    that version is published — which is what makes the registration page and
+    the customer catalog show the new rate. Stripe is reconciled in the same
+    call.
+
+    Existing subscribers are NOT re-priced: they keep the catalog version they
+    converted onto.
+    """
+    result = catalog_service.reprice_plan(
+        db,
+        code=data.code,
+        monthly_price=data.monthly_price,
+        annual_price=data.annual_price,
+        publish=data.publish,
+        catalog_version=data.catalog_version,
+        actor=getattr(current_user, "email", "unknown"),
+    )
+    service.log_billing_audit(
+        db,
+        actor=current_user,
+        organization_id=None,
+        action=BillingAuditAction.PLAN_UPDATED,
+        entity_type="BillingPlan",
+        entity_id=result["plan"]["id"],
+        before=result["before"],
+        after=result["after"],
+    )
+    return result
+
+
+@billing_router.get(
+    "/plans/stripe-drift",
+    summary="Catalog-vs-Stripe price agreement per plan (Super Admin only)",
+)
+def stripe_drift_report(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    """Surfaces any plan whose Stripe Price disagrees with the catalog rate.
+
+    The checkout path refuses to charge a drifted price, so anything reported
+    here as "mismatch" would block purchase until re-synced.
+    """
+    from app.modules.billing.stripe_sync_service import stripe_price_drift
+    plans = service.get_plans(db)
+    rows = []
+    for p in plans:
+        if not p.is_active:
+            continue
+        drift = stripe_price_drift(p)
+        if any(d.get("status") in {"mismatch", "missing", "archived", "unreadable"}
+               for d in drift.values()):
+            rows.append({
+                "id": p.id,
+                "code": service.role_value(p.code),
+                "catalog_version": p.catalog_version,
+                "monthly_price": float(p.monthly_price) if p.monthly_price is not None else None,
+                "annual_price": float(p.annual_price) if p.annual_price is not None else None,
+                "drift": drift,
+            })
+    return {"drifted": rows, "total": len(rows)}
+
+
+@billing_router.post(
+    "/plans/sync-stripe",
+    summary="Re-sync a plan's Stripe product/prices to match the catalog",
+)
+def sync_plan_stripe(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_owner),
+):
+    """Force a Stripe reconcile for one plan (idempotent)."""
+    from app.modules.billing.stripe_sync_service import sync_plan_to_stripe
+    plan = service.get_plan_by_id(db, plan_id)
+    result = sync_plan_to_stripe(db, plan)
+    return {"plan_id": plan_id, "result": result}
+
 
 @billing_router.post(
     "/evaluations",
@@ -619,22 +803,7 @@ def convert_evaluation(
         order_form_reference=data.order_form_reference,
         implementation_sow_reference=data.implementation_sow_reference,
         signed_agreement_reference=data.signed_agreement_reference,
-    )
-
-    service.log_billing_audit(
-        db,
-        actor=current_user,
-        organization_id=conversion.organization_id,
-        action=BillingAuditAction.EVALUATION_CONVERTED,
-        entity_type="BillingConversion",
-        entity_id=conversion.id,
-        before=None,
-        after={
-            "catalog_version": conversion.catalog_version,
-            "quantity_basis": conversion.quantity_basis,
-            "commercial_effective_at": conversion.commercial_effective_at.isoformat(),
-            "approver": conversion.approver,
-        },
+        actor=current_user,  # audit entry is written in the conversion's transaction
     )
     return conversion
 
@@ -912,18 +1081,26 @@ def create_checkout(
 
     _check_org_scope(current_user, data.organization_id)
     plan = service.get_plan_by_id(db, data.plan_id)
+    if not plan.is_active or not plan.is_published:
+        raise BadRequestException(
+            f"Plan '{plan.name or plan.code}' is not available for purchase."
+        )
 
-    if not plan.stripe_monthly_price_id and not plan.stripe_annual_price_id:
-        # Auto-sync the plan to Stripe on demand if price IDs are missing
-        try:
-            from app.modules.billing.stripe_sync_service import sync_plan_to_stripe
+    # Reconcile Stripe with the catalog rate BEFORE taking money. Without this,
+    # editing a rate on the page would leave the old Stripe Price live and
+    # checkout would silently charge the previous amount.
+    from app.modules.billing.stripe_sync_service import (
+        has_drift,
+        sync_plan_to_stripe,
+    )
+    try:
+        if has_drift(plan):
             sync_plan_to_stripe(db, plan)
             db.refresh(plan)
-        except Exception as sync_err:
-            raise BadRequestException(
-                f"Selected plan does not have Stripe price IDs configured and "
-                f"auto-sync failed: {sync_err}"
-            )
+    except Exception as sync_err:
+        raise BadRequestException(
+            f"Could not reconcile Stripe pricing for this plan: {sync_err}"
+        )
 
     price_id = (
         plan.stripe_annual_price_id if data.billing_cycle.value == "annual"
@@ -931,7 +1108,8 @@ def create_checkout(
     )
     if not price_id:
         raise BadRequestException(
-            f"No Stripe price ID for {data.billing_cycle.value} billing cycle."
+            f"No Stripe price for the {data.billing_cycle.value} billing cycle "
+            f"(plan {plan.name or plan.code} is not self-serve priced)."
         )
 
     def _do_checkout():
@@ -1472,9 +1650,9 @@ def list_platform_plan_changes(
         organization_id = getattr(current_user, "organization_id", None)
     changes = plan_change_service.get_all_plan_changes(db, organization_id=organization_id)
     
-    from app.modules.organization.models import Organization
+    from app.modules.hr.models import Organization
     from app.modules.billing.models import BillingPlan
-    org_map = {o.id: o.name for o in db.query(Organization.id, Organization.name).all()}
+    org_map = {o.id: o.name for o in db.query(Organization).all()}  # .name is a property, not a column
     plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
     
     response_items = []
@@ -1503,9 +1681,9 @@ def list_plan_changes(
     _check_org_scope(current_user, org_id)
     changes = plan_change_service.get_pending_changes(db, org_id)
     
-    from app.modules.organization.models import Organization
+    from app.modules.hr.models import Organization
     from app.modules.billing.models import BillingPlan
-    org_map = {o.id: o.name for o in db.query(Organization.id, Organization.name).all()}
+    org_map = {o.id: o.name for o in db.query(Organization).all()}  # .name is a property, not a column
     plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
     
     response_items = []
@@ -1523,6 +1701,18 @@ def list_plan_changes(
 
 # ── Refund / Credit endpoints (Section 12 I3) ─────────────────────────────
 
+def _utc_naive(value: Optional[datetime]) -> Optional[datetime]:
+    """Query bounds arrive as tz-aware instants; the DB stores naive UTC."""
+    from app.core.utc_datetimes import to_naive_utc
+    return to_naive_utc(value)
+
+
+def _refund_scope_org(current_user, organization_id: Optional[int]) -> Optional[int]:
+    if _get_billing_role(current_user) != "super_admin" and organization_id is None:
+        return getattr(current_user, "organization_id", None)
+    return organization_id
+
+
 @billing_router.get(
     "/refunds",
     response_model=RefundListResponse,
@@ -1531,23 +1721,53 @@ def list_plan_changes(
 def list_platform_refund_requests(
     organization_id: Optional[int] = Query(None, description="Filter by organization ID"),
     status: Optional[RefundRequestStatus] = Query(None, description="Filter by status"),
+    request_type: Optional[RefundRequestType] = Query(None, description="refund or credit"),
+    created_from: Optional[datetime] = Query(None, description="Inclusive lower bound (ISO 8601)"),
+    created_before: Optional[datetime] = Query(None, description="EXCLUSIVE upper bound (ISO 8601)"),
+    min_amount_cents: Optional[int] = Query(None, ge=0),
+    max_amount_cents: Optional[int] = Query(None, ge=0),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_viewer),
 ):
-    if _get_billing_role(current_user) != "super_admin" and organization_id is None:
-        organization_id = getattr(current_user, "organization_id", None)
-    requests = refund_service.get_all_refund_requests(db, organization_id=organization_id, status=status)
-    
-    from app.modules.organization.models import Organization
-    org_map = {o.id: o.name for o in db.query(Organization.id, Organization.name).all()}
-    
-    response_items = []
-    for r in requests:
+    rows, total = refund_service.list_refund_requests_page(
+        db,
+        organization_id=_refund_scope_org(current_user, organization_id),
+        status=status,
+        request_type=request_type,
+        created_from=_utc_naive(created_from),
+        created_before=_utc_naive(created_before),
+        min_amount_cents=min_amount_cents,
+        max_amount_cents=max_amount_cents,
+        page=page,
+        page_size=page_size,
+    )
+    items = []
+    for r, org_name in rows:
         data = RefundResponse.model_validate(r).model_dump()
-        data["organization_name"] = org_map.get(r.organization_id)
-        response_items.append(RefundResponse(**data))
-        
-    return RefundListResponse(list=response_items, total=len(response_items))
+        data["organization_name"] = org_name
+        items.append(RefundResponse(**data))
+    return RefundListResponse(
+        list=items, total=total, page=page, page_size=page_size,
+        provider_warning=refund_service.provider_warning(),
+    )
+
+
+@billing_router.get(
+    "/refunds/summary",
+    response_model=RefundSummaryResponse,
+    summary="Refund/credit stat-card aggregates",
+)
+def refund_summary(
+    organization_id: Optional[int] = Query(None, description="Filter by organization ID"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_viewer),
+):
+    data = refund_service.get_refund_summary(
+        db, organization_id=_refund_scope_org(current_user, organization_id)
+    )
+    return RefundSummaryResponse(**data, provider_warning=refund_service.provider_warning())
 
 
 @billing_router.post(
@@ -1570,7 +1790,7 @@ def request_refund(
         request_type=data.request_type,
         stripe_subscription_id=data.stripe_subscription_id,
         stripe_invoice_id=data.stripe_invoice_id,
-        requested_by=current_user,
+        requested_by=current_user,  # user object so the audit row records actor id + email
     )
     return request
 
@@ -1586,11 +1806,10 @@ def approve_refund(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_admin),
 ):
-    actor_str = getattr(current_user, "email", None) or getattr(current_user, "username", None) or str(getattr(current_user, "id", current_user))
     request = refund_service.approve_refund(
         db,
         request_id=request_id,
-        approved_by=actor_str,
+        approved_by=current_user,
     )
     return request
 
@@ -1606,11 +1825,10 @@ def reject_refund(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_admin),
 ):
-    actor_str = getattr(current_user, "email", None) or getattr(current_user, "username", None) or str(getattr(current_user, "id", current_user))
     request = refund_service.reject_refund(
         db,
         request_id=request_id,
-        rejected_by=actor_str,
+        rejected_by=current_user,
         rejection_reason=data.rejection_reason or "",
     )
     return request

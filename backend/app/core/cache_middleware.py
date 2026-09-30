@@ -10,17 +10,22 @@ transparently at the middleware layer.
 How it works:
 
   READS (GET/HEAD):
-    1. Extract org_id from the JWT (Authorization header) — cache is
-       org-scoped so one org's cache never leaks to another.
-    2. Build key: resp:{org}:{method}:{path}:{sorted_query_params_hash}
+    1. Verify the JWT (Authorization header). Requests without a valid token
+       are NEVER served from or stored in the cache, so the route's own
+       authentication always runs for them (a cached response must not be
+       readable by someone who could not have fetched it).
+    2. Build key: resp:{org}:{user}:{method}:{path}:{sorted_query_params_hash}
+       — scoped to the verified user, so one user's data (or role-specific
+       view) is never served to another user, even inside the same org.
     3. Redis GET — on hit, return cached JSON immediately (skips DB).
     4. On miss, pass through to the app, intercept the response, serialize
        the JSON body, and store in Redis with a per-route TTL.
 
   WRITES (POST/PUT/PATCH/DELETE):
     1. Pass through to the app normally.
-    2. After the response is sent, scan and delete all cached keys matching
-       resp:{org}:{path_prefix}:* so the next read is fresh.
+    2. After the response is sent, scan and delete all cached keys of the
+       org whose path starts with the written path prefix, so the next read is
+       fresh.
 
 TTLs are configured per path prefix — dashboards get 60s, list views 45s,
 reference data 120s. Unconfigured paths default to 30s.
@@ -103,34 +108,41 @@ _NO_CACHE_PATHS = [
     r"/auth/reset-password",
     r"/auth/accept-invite",
     r"/super-admin/health",
+    # Platform-admin data is sensitive, low-volume and permission-checked per
+    # request: never cache it.
+    r"/super-admin",
+    # Per-USER data. This cache is keyed per organization, so caching these would
+    # serve one user's notifications / unread count to everyone else in their org.
+    r"/notifications",
     r"/docs",
     r"/redoc",
     r"/openapi.json",
 ]
 
 # Path prefix → cache key segment mapping for invalidation
-# (write endpoint path prefix → cache key prefix to invalidate)
+# (write endpoint path prefix → URL path prefix whose cached GETs are dropped)
 _WRITE_INVALIDATION = [
-    (r"/hr/employees", "hr:employees"),
-    (r"/hr/employee-management", "hr:employees"),
-    (r"/hr/departments", "hr:departments"),
-    (r"/hr/leaves", "hr:leaves"),
-    (r"/hr/attendance", "hr:attendance"),
-    (r"/hr/assets", "hr:assets"),
-    (r"/hr/travel", "hr:travel"),
-    (r"/hr/ess", "hr:ess"),
-    (r"/hr/onboarding", "hr:onboarding"),
-    (r"/hr/learning", "hr:learning"),
-    (r"/hr/recruitment", "hr:recruitment"),
-    (r"/hr/workforce", "hr:workforce"),
-    (r"/hr/performance", "hr:performance"),
-    (r"/hr/compensation", "hr:compensation"),
-    (r"/hr/compliance", "hr:compliance"),
-    (r"/hr/documents", "hr:documents"),
-    (r"/hr/document-folders", "hr:documents"),
-    (r"/hr/holidays", "hr:holidays"),
-    (r"/hr/attendance/shifts", "hr:attendance"),
-    (r"/admin/users", "hr:users"),
+    (r"/hr/employees", "/hr/employees"),
+    (r"/hr/employee-management", "/hr/employee"),
+    (r"/hr/departments", "/hr/departments"),
+    (r"/hr/leaves", "/hr/leaves"),
+    (r"/hr/attendance", "/hr/attendance"),
+    (r"/hr/assets", "/hr/assets"),
+    (r"/hr/travel", "/hr/travel"),
+    (r"/hr/ess", "/hr/ess"),
+    (r"/hr/onboarding", "/hr/onboarding"),
+    (r"/hr/learning", "/hr/learning"),
+    (r"/hr/recruitment", "/hr/recruitment"),
+    (r"/hr/workforce", "/hr/workforce"),
+    (r"/hr/performance", "/hr/performance"),
+    (r"/hr/compensation", "/hr/compensation"),
+    (r"/hr/compliance", "/hr/compliance"),
+    (r"/hr/documents", "/hr/document"),
+    (r"/hr/document-folders", "/hr/document"),
+    (r"/hr/holidays", "/hr/holidays"),
+    (r"/hr/attendance/shifts", "/hr/attendance"),
+    (r"/admin/users", "/hr/admin/users"),
+    (r"/hr/admin/users", "/hr/admin/users"),
 ]
 
 
@@ -150,26 +162,34 @@ def _should_cache_path(path: str) -> bool:
     return True
 
 
-def _extract_org_id(request: Request) -> Optional[int]:
-    """Extract organization_id from the JWT in the Authorization header."""
+def _extract_identity(request: Request) -> Optional[tuple]:
+    """Return (organization_id, user_key) for a request carrying a VALID token,
+    else None. user_key is a short hash of subject + role + org, never the token."""
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
         return None
-    token = auth[7:]
     try:
-        payload = decode_access_token(token)
-        if payload:
-            return payload.get("organization_id")
+        payload = decode_access_token(auth[7:])
     except Exception:
-        pass
-    return None
+        return None
+    if not payload or not payload.get("sub"):
+        return None
+    org_id = payload.get("organization_id")
+    ident = f"{payload.get('sub')}|{payload.get('role')}|{org_id}"
+    return org_id, hashlib.sha256(ident.encode()).hexdigest()[:16]
 
 
-def _build_key(org_id: Optional[int], method: str, path: str, query: str) -> str:
-    """Build a deterministic cache key."""
+def _extract_org_id(request: Request) -> Optional[int]:
+    """Organization id from a valid token (None when absent/invalid)."""
+    identity = _extract_identity(request)
+    return identity[0] if identity else None
+
+
+def _build_key(org_id: Optional[int], user_key: str, method: str, path: str, query: str) -> str:
+    """Build a deterministic, user-scoped cache key."""
     query_hash = hashlib.md5(query.encode()).hexdigest()[:10] if query else "none"
-    org_part = org_id if org_id is not None else "anon"
-    return f"resp:{org_part}:{method}:{path}:{query_hash}"
+    org_part = org_id if org_id is not None else "none"
+    return f"resp:{org_part}:{user_key}:{method}:{path}:{query_hash}"
 
 
 def _get_invalidation_prefixes(path: str) -> list[str]:
@@ -206,9 +226,13 @@ class CacheMiddleware(BaseHTTPMiddleware):
 
         # ── READ (GET/HEAD) — try cache ─────────────────────────────────
         if method in ("GET", "HEAD") and _should_cache_path(path):
-            org_id = _extract_org_id(request)
+            identity = _extract_identity(request)
+            if identity is None:
+                # No verified caller: skip the cache so authentication runs.
+                return await call_next(request)
+            org_id, user_key = identity
             query = str(request.url.query) if request.url.query else ""
-            cache_key = _build_key(org_id, method, path, query)
+            cache_key = _build_key(org_id, user_key, method, path, query)
 
             try:
                 raw = redis_client.get(cache_key)
@@ -260,7 +284,8 @@ class CacheMiddleware(BaseHTTPMiddleware):
                 try:
                     for prefix in prefixes:
                         org_part = org_id if org_id is not None else "*"
-                        pattern = f"resp:{org_part}:*:{prefix}:*"
+                        # keys look like resp:{org}:{user}:{METHOD}:{path}:{hash}
+                        pattern = f"resp:{org_part}:*:*:{prefix}*"
                         cursor = 0
                         while True:
                             cursor, keys = redis_client.scan(

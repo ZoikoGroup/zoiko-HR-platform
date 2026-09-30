@@ -19,6 +19,7 @@ and non-timestamp strings are left untouched.
 
 import json
 import re
+from datetime import datetime, timezone
 from typing import Optional
 
 # Matches a full ISO-8601 datetime with NO trailing timezone designator:
@@ -73,3 +74,14 @@ def append_utc_suffix(body: bytes) -> Optional[bytes]:
         indent=None,
         separators=(",", ":"),
     ).encode("utf-8")
+
+
+def to_naive_utc(value: Optional[datetime]) -> Optional[datetime]:
+    """tz-aware instant -> naive UTC (the storage convention); naive passes through.
+
+    Query-string bounds arrive as aware datetimes (``...Z`` / ``+01:00``); the
+    columns are naive UTC, so a bound must be converted before it is compared.
+    """
+    if value is not None and value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value

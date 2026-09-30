@@ -5,23 +5,6 @@ import { flatRoutes } from "./navigation";
 import { AlertTriangle } from "lucide-react";
 import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES } from "./config/roles";
 
-function PagePlaceholderFallback({ title, path, badge }) {
-  return (
-    <div className="space-y-6 font-sans">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-      </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-600">Route: <span className="font-semibold text-slate-800">{path ?? "unknown"}</span></p>
-        {badge && <p className="mt-2 text-sm text-slate-600">Badge: <span className="font-semibold text-[#3B82F6]">{badge}</span></p>}
-        <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-500">
-          Module page ready for implementation.
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function ModuleSpinner() {
   return (
     <div className="flex items-center justify-center h-64">
@@ -32,6 +15,7 @@ function ModuleSpinner() {
 import HomePage from "./pages/public/HomePage";
 import LoginPage from "./pages/auth/LoginPage";
 import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
+import ChangePasswordPage from "./pages/auth/ChangePasswordPage";
 import RegisterPage from "./pages/auth/RegisterPage";
 import RegistrationSuccessPage from "./pages/auth/RegistrationSuccessPage";
 import ZoikoProductsPage from "./pages/public/ZoikoProductsPage";
@@ -180,8 +164,8 @@ const HrAdminOrganizationPage = lazy(() => import("./modules/hr-admin/Organizati
 const SuperAdminDashboardPage = lazy(() => import("./modules/super-admin/DashboardPage"));
 const SuperAdminOrganizationsPage = lazy(() => import("./modules/super-admin/OrganizationsPage"));
 const SuperAdminAuditLogsPage = lazy(() => import("./modules/super-admin/AuditLogsPage"));
-const SuperAdminPlatformSettingsPage = lazy(() => import("./modules/super-admin/PlatformSettingsPage"));
 const NotificationCenter = lazy(() => import("./modules/super-admin/NotificationCenter"));
+const NotificationsPage = lazy(() => import("./pages/NotificationsPage"));
 const OrganizationDetailPage = lazy(() => import("./modules/super-admin/OrganizationDetailPage"));
 const SuperAdminAccessPage = lazy(() => import("./modules/super-admin/AccessPage"));
 const SuperAdminBillingOverviewPage = lazy(() => import("./modules/super-admin/BillingOverviewPage"));
@@ -398,8 +382,8 @@ const routeOverrides = {
   "/super-admin/organizations/:orgId": <OrganizationDetailPage />,
   "/super-admin/access": <SuperAdminAccessPage />,
   "/super-admin/audit-logs": <SuperAdminAuditLogsPage />,
-  "/super-admin/settings": <SuperAdminPlatformSettingsPage />,
   "/super-admin/notifications": <NotificationCenter />,
+  "/shared/notifications": <NotificationsPage />,
 
   // Super Admin — Billing & Subscription
   "/super-admin/billing": <SuperAdminBillingOverviewPage />,
@@ -472,7 +456,6 @@ export default function App() {
     ...flatRoutes.map(r => routePath(r.href)).filter(Boolean)
   ]));
 
-  const flatRouteMap = new Map(flatRoutes.map(r => [routePath(r.href), r]));
 
   function getAllowedRolesForPath(path) {
     return Object.keys(ROLE_ALLOWED_PREFIXES).filter((role) => {
@@ -496,23 +479,16 @@ export default function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/register/success" element={<RegistrationSuccessPage />} />
 
         {allPaths.map((path) => {
           let element = routeOverrides[path];
-          const routeInfo = flatRouteMap.get(path);
-          const label = routeInfo ? routeInfo.label : path.split('/').pop();
-          const badge = routeInfo ? routeInfo.badge : null;
 
           if (!element) {
-            element = (
-              <PagePlaceholderFallback
-                title={label}
-                path={path}
-                badge={badge}
-              />
-            );
+            // No page built for this route: send the user home instead of a placeholder (ZHR-21).
+            element = <Navigate to="/super-admin/dashboard" replace />;
           }
 
           const allowedRoles = getAllowedRolesForPath(path);
@@ -533,6 +509,9 @@ export default function App() {
             />
           );
         })}
+
+        {/* Platform Settings page was removed (ZHR-18): keep old bookmarks working. */}
+        <Route path="/super-admin/settings" element={<Navigate to="/super-admin/dashboard" replace />} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 
 logger = logging.getLogger("zoiko.billing.service")
 
+from app.modules.integrations.events import emit_event
 from app.core.exceptions import (
     BadRequestException,
     NotFoundException,
@@ -297,6 +298,56 @@ def is_plan_catalog_version_referenced(db: Session, catalog_version: str) -> boo
     return db.query(BillingConversion).filter(
         BillingConversion.catalog_version == catalog_version
     ).first() is not None
+
+
+def get_plan_by_code_and_version(db: Session, code, catalog_version: str) -> Optional[BillingPlan]:
+    """Find an existing plan by (code, catalog_version).
+
+    billing_plans has no unique constraint on this pair, so a duplicate create
+    used to slip through and leave the catalog ambiguous (two ENTERPRISE rows in
+    one version). create_plan uses this to answer with a 409 naming the existing
+    draft instead of silently adding another one.
+    """
+    return (
+        db.query(BillingPlan)
+        .filter(
+            BillingPlan.code == code,
+            BillingPlan.catalog_version == catalog_version,
+        )
+        .order_by(BillingPlan.id)
+        .first()
+    )
+
+
+def suggest_next_catalog_version(db: Session, base_version: str) -> str:
+    """Next unused version string after `base_version`.
+
+    Bumps a trailing `-vN` when present (ZHR-COM-BILL-001-v1 -> ...-v2) so the
+    answer stays inside the project's naming convention, and falls back to an
+    incrementing suffix otherwise. Used to turn a dead-end "already exists"
+    into an actionable next step.
+    """
+    import re
+
+    existing = {
+        v for (v,) in db.query(BillingPlan.catalog_version).distinct().all() if v
+    }
+    clean = (base_version or "").strip()
+    match = re.match(r"^(.*?)(\d+)$", clean)
+
+    if match:
+        prefix, digits = match.group(1), match.group(2)
+        n = int(digits)
+        while True:
+            n += 1
+            candidate = f"{prefix}{n}"
+            if candidate not in existing:
+                return candidate
+
+    n = 2
+    while f"{clean}-v{n}" in existing:
+        n += 1
+    return f"{clean}-v{n}"
 
 
 def plan_to_dict(plan: BillingPlan) -> dict:
@@ -656,15 +707,29 @@ def convert_evaluation(
     order_form_reference: Optional[str] = None,
     implementation_sow_reference: Optional[str] = None,
     signed_agreement_reference: Optional[str] = None,
+    actor=None,
 ) -> BillingConversion:
     evaluation = get_evaluation(db, evaluation_id)
+    if evaluation.status == EvaluationStatus.CONVERTED:
+        raise BadRequestException(
+            "This account has already been converted to a commercial account."
+        )
     if evaluation.status != EvaluationStatus.ACTIVE:
-        raise BadRequestException("Evaluation is not active.")
+        raise BadRequestException(
+            f"Evaluation is {role_value(evaluation.status).replace('_', ' ')}, "
+            "not active, so it cannot be converted."
+        )
 
     plan = get_plan_by_id(db, plan_id)
 
     # Back-billing rejection (Section 17): reject if commercial_effective_at
     # is earlier than now minus tolerance, unless signed agreement provided.
+    # The API hands us a tz-aware UTC instant (browser `toISOString()`); the
+    # platform stores naive UTC, so normalise before comparing or persisting.
+    if commercial_effective_at.tzinfo is not None:
+        commercial_effective_at = (
+            commercial_effective_at.astimezone(timezone.utc).replace(tzinfo=None)
+        )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if commercial_effective_at < (now - BACK_BILLING_TOLERANCE):
         if not signed_agreement_reference:
@@ -683,10 +748,25 @@ def convert_evaluation(
 
     subscription = get_or_create_subscription(db, evaluation.organization_id)
 
+    if (
+        subscription.billing_classification == BillingClassification.COMMERCIAL
+        and subscription.status == SubscriptionStatus.ACTIVE
+    ):
+        raise BadRequestException(
+            "This account is already a commercial account."
+        )
+
     if subscription.committed_quantity and not order_form_reference:
         raise BadRequestException(
             "order_form_reference is required when committed_quantity is set."
         )
+
+    before_state = {
+        "evaluation_status": role_value(evaluation.status),
+        "billing_classification": role_value(subscription.billing_classification),
+        "subscription_status": role_value(subscription.status),
+        "plan_code": role_value(subscription.plan_code) if subscription.plan_code else None,
+    }
 
     # Write immutable billing_conversion record
     conversion = BillingConversion(
@@ -719,8 +799,40 @@ def convert_evaluation(
         subscription.service_start_at = commercial_effective_at
     subscription.renewal_anchor_date = commercial_effective_at
 
-    db.commit()
+    # Audit row rides in the same transaction as the conversion: no commit has
+    # happened since the first write above, so it is all-or-nothing.
+    if actor is not None:
+        log_billing_audit(
+            db,
+            actor=actor,
+            organization_id=evaluation.organization_id,
+            action=BillingAuditAction.EVALUATION_CONVERTED,
+            entity_type="BillingConversion",
+            entity_id=conversion.id,
+            before=before_state,
+            after={
+                "evaluation_status": "converted",
+                "billing_classification": "commercial",
+                "subscription_status": "active",
+                "plan_code": role_value(plan.code),
+                "billing_cycle": role_value(billing_cycle),
+                "catalog_version": conversion.catalog_version,
+                "quantity_basis": conversion.quantity_basis,
+                "commercial_effective_at": commercial_effective_at.isoformat(),
+                "approver": conversion.approver,
+            },
+            commit=False,
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(conversion)
+    _invalidate_entitlement_cache(evaluation.organization_id)
+    emit_event(db, "subscription.converted", {"conversion_id": conversion.id, "plan_code": role_value(plan.code),
+                                              "billing_cycle": role_value(billing_cycle)}, evaluation.organization_id)
     return conversion
 
 
@@ -934,14 +1046,19 @@ def log_billing_audit(
     reason: Optional[str] = None,
     source: Optional[str] = None,
     stripe_event_id: Optional[str] = None,
+    commit: bool = True,
 ) -> BillingAuditLog:
+    """``commit=False`` stages the row in the caller's open transaction so the
+    audit entry and the change it describes succeed or fail together."""
     log = BillingAuditLog(
         organization_id=organization_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        actor_id=getattr(actor, "id", None),
-        actor_email=getattr(actor, "email", None),
+        actor_id=None if isinstance(actor, str) else getattr(actor, "id", None),
+        # Callers that only have an identity string (webhooks, services handed an
+        # email) must still be attributed — getattr(str, "email") is None.
+        actor_email=actor if isinstance(actor, str) else getattr(actor, "email", None),
         before=before,
         after=after,
         reason=reason,
@@ -949,8 +1066,11 @@ def log_billing_audit(
         stripe_event_id=stripe_event_id,
     )
     db.add(log)
-    db.commit()
-    db.refresh(log)
+    if commit:
+        db.commit()
+        db.refresh(log)
+    else:
+        db.flush()
     return log
 
 

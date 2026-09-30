@@ -342,12 +342,23 @@ def sweep_route_entitlement_map(app) -> None:
     import logging
     logger = logging.getLogger("zoiko.billing.entitlement")
 
+    def _flatten(routes, prefix=""):
+        # Newer FastAPI wraps include_router() results in an _IncludedRouter
+        # (no .path/.methods); older versions inline the routes. Handle both.
+        for route in routes:
+            inner = getattr(route, "original_router", None)
+            if inner is not None:
+                ctx_prefix = getattr(getattr(route, "include_context", None), "prefix", "") or ""
+                yield from _flatten(inner.routes, prefix + ctx_prefix)
+            else:
+                yield prefix + getattr(route, "path", ""), getattr(route, "methods", None) or []
+
     registered = set()
-    for route in app.routes:
-        for method in getattr(route, "methods", []):
+    for path, methods in _flatten(app.routes):
+        for method in methods:
             if method in ("HEAD", "OPTIONS"):
                 continue
-            registered.add((method.upper(), getattr(route, "path", "")))
+            registered.add((method.upper(), path))
 
     # Keys with no mapped route.
     mapped = mapped_feature_keys()

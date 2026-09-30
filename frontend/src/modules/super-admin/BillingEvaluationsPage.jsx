@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { Hourglass, AlertTriangle, PlayCircle, Square, ArrowUpRight, Clock, X } from "lucide-react";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
@@ -39,7 +39,10 @@ export default function BillingEvaluationsPage() {
   }, []);
 
   const [convertModal, setConvertModal] = useState(null);
-  const [convertForm, setConvertForm] = useState({ plan_id: "", billing_cycle: "monthly", quantity_basis: "", commercial_effective_at: "", approver: "", order_form_reference: "" });
+  const [convertError, setConvertError] = useState(null);
+  const [success, setSuccess] = useState(null);
+  const convertInFlight = useRef(false);
+  const [convertForm, setConvertForm] = useState({ plan_id: "", billing_cycle: "monthly", quantity_basis: "", commercial_effective_at: "", approver: "", order_form_reference: "", signed_agreement_reference: "" });
 
 
   const loadData = useCallback(async () => {
@@ -100,23 +103,44 @@ export default function BillingEvaluationsPage() {
     }
   };
 
+  const openConvert = (ev) => {
+    setConvertError(null);
+    setConvertModal(ev);
+  };
+
+  const closeConvert = () => {
+    if (convertInFlight.current) return;
+    setConvertModal(null);
+    setConvertError(null);
+  };
+
   const handleConvert = async () => {
-    if (!convertModal) return;
+    // A ref (not `busy` state) so a fast double-click can't slip a second
+    // request through before React re-renders the disabled button.
+    if (!convertModal || convertInFlight.current) return;
+    convertInFlight.current = true;
     setBusy("convert");
+    setConvertError(null);
     try {
       await billingService.convertEvaluation(convertModal.id, {
         plan_id: Number(convertForm.plan_id),
         billing_cycle: convertForm.billing_cycle,
-        quantity_basis: convertForm.quantity_basis,
+        quantity_basis: convertForm.quantity_basis.trim(),
         commercial_effective_at: new Date(convertForm.commercial_effective_at).toISOString(),
-        approver: convertForm.approver,
-        order_form_reference: convertForm.order_form_reference || null,
+        approver: convertForm.approver.trim(),
+        order_form_reference: convertForm.order_form_reference.trim() || null,
+        signed_agreement_reference: convertForm.signed_agreement_reference.trim() || null,
       });
+      const orgName = convertModal.organization_name || `Organization #${convertModal.organization_id}`;
       setConvertModal(null);
-      loadData();
+      setConvertForm({ plan_id: "", billing_cycle: "monthly", quantity_basis: "", commercial_effective_at: "", approver: "", order_form_reference: "", signed_agreement_reference: "" });
+      setSuccess(`${orgName} was converted to a commercial account.`);
+      await loadData();
     } catch (e) {
-      setError(e.message || "Failed to convert evaluation");
+      // Keep the dialog open and show the server's message where the user is looking.
+      setConvertError(e.message || "Failed to convert evaluation");
     } finally {
+      convertInFlight.current = false;
       setBusy(null);
     }
   };
@@ -137,6 +161,15 @@ export default function BillingEvaluationsPage() {
       <div className="rounded-2xl border border-[#E2E8F0] bg-white p-6 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_4px_16px_rgba(15,23,42,0.06)] transition-all duration-200 ease-in-out">
         <OrgPicker selectedOrg={selectedOrg} onSelect={setSelectedOrg} placeholder="Search organizations by name or code..." />
       </div>
+
+      {success && (
+        <div role="status" className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800 shadow-sm">
+          <span>{success}</span>
+          <button onClick={() => setSuccess(null)} className="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold underline underline-offset-2">
+            <X className="h-3.5 w-3.5" /> Dismiss
+          </button>
+        </div>
+      )}
 
       {error && (
         <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
@@ -218,7 +251,7 @@ export default function BillingEvaluationsPage() {
                     {isActive && (
                       <div className="flex shrink-0 items-center gap-2">
                         <button
-                          onClick={() => setConvertModal(ev)}
+                          onClick={() => openConvert(ev)}
                           className="flex items-center gap-1.5 rounded-lg border border-[#E2E8F0] bg-white px-3 py-2 text-xs font-semibold text-[#334155] shadow-sm transition-all duration-200 ease-in-out hover:border-blue-300 hover:bg-[#EFF6FF] hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 active:translate-y-0.5"
                         >
                           <ArrowUpRight size={14} /> Convert
@@ -383,14 +416,30 @@ export default function BillingEvaluationsPage() {
                 <input type="text" value={convertForm.approver} onChange={(e) => setConvertForm((f) => ({ ...f, approver: e.target.value }))}
                   className={inputClass} />
               </div>
+              <div>
+                <label className={labelClass}>Order Form Reference</label>
+                <input type="text" value={convertForm.order_form_reference} onChange={(e) => setConvertForm((f) => ({ ...f, order_form_reference: e.target.value }))}
+                  placeholder="Required for contract-priced plans" className={inputClass} />
+              </div>
+              <div>
+                <label className={labelClass}>Signed Agreement Reference</label>
+                <input type="text" value={convertForm.signed_agreement_reference} onChange={(e) => setConvertForm((f) => ({ ...f, signed_agreement_reference: e.target.value }))}
+                  placeholder="Required only to back-date the start" className={inputClass} />
+              </div>
             </div>
+            {convertError && (
+              <div role="alert" className="mt-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{convertError}</span>
+              </div>
+            )}
             <div className="mt-6 flex justify-end gap-3">
-              <button onClick={() => setConvertModal(null)} className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-[#334155] transition-all duration-200 ease-in-out hover:border-blue-300 hover:bg-[#EFF6FF] hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 active:translate-y-0.5">
+              <button onClick={closeConvert} disabled={busy === "convert"} className="rounded-lg border border-[#E2E8F0] bg-white px-4 py-2 text-sm font-medium text-[#334155] transition-all duration-200 ease-in-out hover:border-blue-300 hover:bg-[#EFF6FF] hover:text-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/20 active:translate-y-0.5">
                 Cancel
               </button>
               <button
                 onClick={handleConvert}
-                disabled={!convertForm.plan_id || !convertForm.quantity_basis || !convertForm.commercial_effective_at || !convertForm.approver || busy === "convert"}
+                disabled={!convertForm.plan_id || !convertForm.quantity_basis.trim() || !convertForm.commercial_effective_at || !convertForm.approver.trim() || busy === "convert"}
                 className="rounded-lg bg-[#2563EB] px-4 py-2 text-sm font-semibold text-white shadow-sm transition-all duration-200 ease-in-out hover:bg-blue-700 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-blue-500/30 active:translate-y-0.5 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {busy === "convert" ? "Converting..." : "Convert"}
