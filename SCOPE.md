@@ -7,12 +7,12 @@
 |---|---|---|
 | `employee` | auth (12) + employee CRUD | `employees`, `employee_profiles`, `employee_history`, `employee_lifecycle`, `employee_reporting`, `employee_benefits`, `employee_compensations` |
 | `hr` | 452 | attendance, shifts, holidays, leave, assets, compensation/payroll structures, compliance, engagement, ESS, onboarding, performance, recruitment, travel, learning, HR documents, workforce planning, org config |
-| `super_admin` | 14 | organizations, status control, audit logs, login activity, notifications (CRUD), platform settings, bootstrap |
+| `super_admin` | 14 | organizations, status control, audit logs, login activity, notifications (CRUD), bootstrap |
 
 ~482 business routes, 99 tables.
 
 ### Roles
-- **Super Admin** — platform-wide: org management, audit, notifications, platform settings.
+- **Super Admin** — platform-wide: org management, audit, notifications.
 - **Org Admin** — owns one organization; created via register, active immediately.
 - **HR Admin** — HR operations within the org.
 - **Manager** — team-level HR operations.
@@ -20,7 +20,7 @@
 
 ### Super-admin surface (frontend)
 - Dashboard, Organizations + detail (profile / status control / audit activity)
-- Audit Logs, Notifications (create/read/delete), Platform Settings
+- Audit Logs, Notifications (create/read/delete)
 
 ## Out of scope (monolith-owned products)
 
