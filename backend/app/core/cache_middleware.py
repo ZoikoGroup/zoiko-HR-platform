@@ -103,6 +103,9 @@ _NO_CACHE_PATHS = [
     r"/auth/reset-password",
     r"/auth/accept-invite",
     r"/super-admin/health",
+    # Per-USER data. This cache is keyed per organization, so caching these would
+    # serve one user's notifications / unread count to everyone else in their org.
+    r"/notifications",
     r"/docs",
     r"/redoc",
     r"/openapi.json",

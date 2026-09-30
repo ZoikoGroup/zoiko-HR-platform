@@ -68,6 +68,13 @@ class Settings(BaseSettings):
         "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176"
     )
 
+    # ── Reverse proxy ─────────────────────────────────────────────────────
+    # Comma-separated IPs/CIDRs of proxies / load balancers allowed to set
+    # X-Forwarded-For (e.g. "10.0.0.0/8,35.191.0.0/16"). Empty = trust nobody, so
+    # the audit trail records the direct peer. Set this in any proxied deployment
+    # or every audit row will show the load balancer's address.
+    TRUSTED_PROXIES: str = Field(default="", validation_alias="HR_TRUSTED_PROXIES")
+
     # ── Frontend base URL (used only to build links embedded in emails) ────
     FRONTEND_URL: str = "http://localhost:5173"
 
@@ -79,9 +86,9 @@ class Settings(BaseSettings):
     # ── Email / SMTP (used by app/services/email_service.py) ───────────────
     SMTP_HOST: str = "smtpout.secureserver.net"
     SMTP_PORT: str = "465"
-    SMTP_USERNAME: str = "Info@zoikoone.com"
+    SMTP_USERNAME: str = "info@zoikohr.com"
     SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = "Info@zoikoone.com"
+    SMTP_FROM_EMAIL: str = "info@zoikohr.com"
     SMTP_USE_TLS: str = "true"
 
     # ── Email branding / layout (app/email_templates/_layouts) ─────────────

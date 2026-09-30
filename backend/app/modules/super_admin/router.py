@@ -11,12 +11,14 @@ endpoint (or scripts/seed_super_admin.py) and then logs in through the normal
 
 import logging
 import secrets
+from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from sqlalchemy import case, text
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from sqlalchemy import Text, case, cast, func, or_, text
 from sqlalchemy.orm import Session
 
+from app.modules.integrations.events import emit_event
 from app.config import settings
 from app.database import get_db
 from app.core.dependencies import get_current_super_admin
@@ -24,6 +26,7 @@ from app.core.exceptions import (
     BadRequestException, NotFoundException, UnauthorizedException, ZoikoException,
 )
 from app.core.security import hash_password
+from app.modules.super_admin import notification_service
 
 from app.modules.super_admin.models import (
     AuditAction, AuditLog, LoginActivity, Notification, PlatformSetting, ApprovalHistory, EmailDeliveryLog,
@@ -866,6 +869,7 @@ def delete_organization(
         details={"name": org_name, "code": org_code, "purged_tables": purged},
     ))
     db.commit()
+    emit_event(db, "organization.deleted", {"id": org_id, "name": org_name, "code": org_code}, None)
 
     return {"message": f"Organization '{org_name}' has been permanently deleted successfully."}
 
@@ -977,28 +981,87 @@ def list_users(
 # AUDIT / ACTIVITY / NOTIFICATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@router.get("/audit-logs", summary="Recent audit logs")
-def list_audit_logs(
-    limit: int = 50,
-    action: Optional[str] = None,
-    entity_type: Optional[str] = None,
-    entity_id: Optional[int] = None,
+def _enum_value(action) -> str:
+    return action.value if hasattr(action, "value") else str(action)
+
+
+@router.get("/audit-logs/filters", summary="Filter options for the audit log (single source of truth)")
+def audit_log_filter_options(
     db: Session = Depends(get_db),
     _=Depends(get_current_super_admin),
 ):
+    """Every action the platform can log, plus the entity types actually present,
+    so the dropdowns can never drift from what is really recorded."""
+    entity_types = [
+        row[0] for row in db.query(AuditLog.entity_type).distinct().order_by(AuditLog.entity_type).all()
+        if row[0]
+    ]
+    return {"actions": [a.value for a in AuditAction], "entity_types": entity_types}
+
+
+@router.get("/audit-logs", summary="Audit logs (filterable, paginated)")
+def list_audit_logs(
+    limit: int = 50,  # legacy page-size alias (dashboard uses it)
+    page: int = Query(1, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=200),
+    action: Optional[str] = None,
+    entity_type: Optional[str] = None,
+    entity_id: Optional[int] = None,
+    actor: Optional[str] = Query(None, description="Performer email (contains)"),
+    search: Optional[str] = Query(None, description="Free text over actor, entity type and details"),
+    ip: Optional[str] = Query(None, description="Client IP (contains)"),
+    created_from: Optional[datetime] = Query(None, description="Inclusive lower bound (ISO 8601)"),
+    created_before: Optional[datetime] = Query(None, description="EXCLUSIVE upper bound (ISO 8601)"),
+    db: Session = Depends(get_db),
+    _=Depends(get_current_super_admin),
+):
+    """All supplied filters are ANDed. ``created_before`` is exclusive so a caller
+    selecting an end *day* passes the start of the following day; both bounds are
+    converted to the naive-UTC storage convention."""
+    from app.core.utc_datetimes import to_naive_utc
+
+    size = min(page_size or limit, 200)
     q = db.query(AuditLog)
     if action:
         try:
-            q = q.filter(AuditLog.action == AuditAction(action))
+            q = q.filter(AuditLog.action == AuditAction(action.strip().lower()))
         except ValueError:
             raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
     if entity_type:
-        q = q.filter(AuditLog.entity_type == entity_type)
+        q = q.filter(func.lower(AuditLog.entity_type) == entity_type.strip().lower())
     if entity_id is not None:
         q = q.filter(AuditLog.entity_id == entity_id)
+    if actor and actor.strip():
+        q = q.filter(AuditLog.performed_by_email.ilike(f"%{actor.strip()}%"))
+    if ip and ip.strip():
+        q = q.filter(AuditLog.ip_address.ilike(f"%{ip.strip()}%"))
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        q = q.filter(or_(
+            AuditLog.performed_by_email.ilike(term),
+            AuditLog.entity_type.ilike(term),
+            AuditLog.ip_address.ilike(term),
+            cast(AuditLog.details, Text).ilike(term),
+        ))
+    lower, upper = to_naive_utc(created_from), to_naive_utc(created_before)
+    if lower is not None:
+        q = q.filter(AuditLog.created_at >= lower)
+    if upper is not None:
+        q = q.filter(AuditLog.created_at < upper)
+
     total = q.count()
-    rows = q.order_by(AuditLog.created_at.desc()).limit(min(limit, 200)).all()
-    return {"logs": rows, "total": total}
+    rows = (
+        q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+    logs = []
+    for r in rows:
+        item = AuditLogItem.model_validate(r).model_dump()
+        item["action"] = _enum_value(r.action)
+        logs.append(item)
+    return {"logs": logs, "total": total, "page": page, "page_size": size}
 
 
 @router.get("/login-activity", summary="Recent login activity")
@@ -1013,16 +1076,74 @@ def list_login_activity(
     return {"activities": rows, "total": total}
 
 
+def _admin_notification_item(n, described: dict) -> dict:
+    info = described.get(n.id, {})
+    return {
+        "id": n.id,
+        "title": n.title,
+        "message": n.message,
+        "notification_type": n.notification_type,
+        "priority": n.priority,
+        "is_read": bool(n.is_read),
+        "created_at": n.created_at,
+        "sent_at": notification_service.sent_time(n),
+        "sender_name": notification_service.sender_name(n),
+        "target_type": n.target_type,
+        "audience": n.audience,
+        "target_summary": info.get("summary"),
+        "content_available": notification_service.content_available(n),
+    }
+
+
 @router.get("/notifications", summary="Platform notifications")
 def list_notifications(
-    limit: int = 50,
+    limit: int = 50,  # legacy page-size alias
+    page: int = Query(1, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=200),
+    is_read: Optional[bool] = Query(None, description="Legacy Super Admin inbox flag"),
     db: Session = Depends(get_db),
     _=Depends(get_current_super_admin),
 ):
+    size = min(page_size or limit, 200)
     q = db.query(Notification)
+    if is_read is not None:
+        q = q.filter(Notification.is_read.is_(is_read))
     total = q.count()
-    rows = q.order_by(Notification.created_at.desc()).limit(min(limit, 200)).all()
-    return {"notifications": rows, "total": total}
+    rows = (
+        q.order_by(Notification.created_at.desc(), Notification.id.desc())
+        .offset((page - 1) * size)
+        .limit(size)
+        .all()
+    )
+    described = notification_service.describe_targets(db, rows)
+    return {
+        "notifications": [_admin_notification_item(n, described) for n in rows],
+        "total": total,
+        "page": page,
+        "page_size": size,
+    }
+
+
+@router.get("/notifications/{notification_id}", summary="Full details of one notification")
+def get_notification_details(
+    notification_id: int,
+    db: Session = Depends(get_db),
+    _=Depends(get_current_super_admin),
+):
+    n = db.query(Notification).filter(Notification.id == notification_id).first()
+    if not n:
+        raise NotFoundException("Notification", notification_id)
+    described = notification_service.describe_targets(db, [n])
+    item = _admin_notification_item(n, described)
+    item.update({
+        "body_html": notification_service.safe_body_html(n),
+        "channels": n.channels or ["in_app"],
+        "status": n.status,
+        "targets": described[n.id]["targets"],
+        "created_by": n.created_by,
+        "stats": notification_service.recipient_stats(db, n),
+    })
+    return item
 
 
 @router.post("/notifications", response_model=NotificationItem, summary="Create a platform notification")
@@ -1031,27 +1152,7 @@ def create_notification(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_super_admin),
 ):
-    row = Notification(
-        title=data.title,
-        message=data.message,
-        notification_type=data.notification_type,
-        priority=data.priority,
-        target_org_id=data.target_org_id,
-        target_user_id=data.target_user_id,
-        created_by=current_user.id,
-    )
-    db.add(row)
-    db.add(AuditLog(
-        action=AuditAction.CONFIG_CHANGE,
-        entity_type="Notification",
-        entity_id=current_user.id,
-        performed_by=current_user.id,
-        performed_by_email=current_user.email,
-        details={"title": data.title},
-    ))
-    db.commit()
-    db.refresh(row)
-    return row
+    return notification_service.create_notification(db, data.model_dump(), current_user)
 
 
 @router.put("/notifications/{notification_id}/read", summary="Mark a notification as read")
@@ -1166,4 +1267,82 @@ def cache_stats(current_user=Depends(get_current_super_admin)):
     return {
         "redis_ping": redis_ping(),
         "stats": cache_stats(),
+    }
+
+# Login flows implemented in this codebase. Google/Microsoft SSO have no
+# OAuth/OIDC/SAML flow yet (follow-up), so they can never be reported "Active".
+_SSO_LOGIN_FLOW_IMPLEMENTED = {"google": False, "microsoft": False}
+
+
+def _mask_client_id(value: str) -> str:
+    return value if len(value) <= 8 else f"{value[:4]}…{value[-4:]}"
+
+
+def compute_identity_providers(env: Optional[dict] = None) -> list[dict]:
+    """Provider status derived from real config. Never includes secrets.
+
+    Active            -> credentials present AND login flow implemented
+    Configured, disabled -> credentials present but no working login flow
+    Not configured    -> credentials missing
+    """
+    import os
+
+    env = os.environ if env is None else env
+    specs = [
+        ("google", "Google Workspace OIDC", "Single Sign-On", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
+        ("microsoft", "Microsoft Entra ID", "Single Sign-On", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"),
+    ]
+    providers = []
+    for key, name, kind, id_var, secret_var in specs:
+        client_id = (env.get(id_var) or "").strip()
+        configured = bool(client_id and (env.get(secret_var) or "").strip())
+        if not configured:
+            status = "Not configured"
+        elif _SSO_LOGIN_FLOW_IMPLEMENTED[key]:
+            status = "Active"
+        else:
+            status = "Configured, disabled"
+        providers.append({
+            "key": key,
+            "name": name,
+            "type": kind,
+            "status": status,
+            "client_id": _mask_client_id(client_id) if configured else None,
+            "required_env": [id_var, secret_var],
+        })
+    providers.append({
+        "key": "email",
+        "name": "Email & Password",
+        "type": "Built-in",
+        "status": "Active",
+        "client_id": None,
+        "required_env": [],
+    })
+    return providers
+
+
+@router.get("/identity-providers", response_model=dict, summary="Identity provider status")
+def identity_providers(current_user=Depends(get_current_super_admin)):
+    """Identity provider status computed server-side. Never returns secrets."""
+    return {"providers": compute_identity_providers()}
+
+
+@router.get("/active-sessions", response_model=dict, summary="Active auth sessions")
+def active_sessions(current_user=Depends(get_current_super_admin)):
+    """Return active authentication sessions across the platform.
+    
+    If session tracking is not enabled (no persisted session table),
+    returns a status indicating this rather than dummy data.
+    """
+    # Check if session tracking is enabled
+    # Currently, there is no active_sessions or refresh_tokens table
+    # that records sessions on login with IP, user agent, last_active, etc.
+    # Until a sessions table is added, report that tracking is not enabled.
+    return {
+        "session_tracking": "not_enabled",
+        "message": "Session tracking is not enabled. No persisted session table found. "
+                   "Login activity is logged via LoginActivity, but current sessions "
+                   "are not tracked. To enable, add a refresh_tokens/sessions table "
+                   "with migration that records sessions on login and supports revocation.",
+        "sessions": [],
     }

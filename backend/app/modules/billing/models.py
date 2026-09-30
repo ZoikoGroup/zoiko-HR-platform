@@ -430,6 +430,8 @@ class BillingAuditLog(Base):
     reason = Column(Text, nullable=True)
     source = Column(String(50), nullable=True)          # "stripe_webhook" / "api" / "reconciliation"
     stripe_event_id = Column(String(255), nullable=True)  # traceability for webhook-driven rows
+    # Real client IP (trusted-proxy aware, IPv4-mapped normalised); 45 = longest IPv6 text.
+    ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     organization = relationship("Organization")

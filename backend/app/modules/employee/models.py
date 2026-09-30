@@ -7,7 +7,7 @@ from sqlalchemy import (
     Text, ForeignKey, UniqueConstraint, JSON, Index,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, false
 from sqlalchemy.types import TypeDecorator, VARCHAR
 
 from app.database import Base
@@ -167,6 +167,12 @@ class Employee(Base):
     updated_at          = Column(DateTime, onupdate=func.now())
     created_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
     updated_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
+
+    # Session invalidation + forced change (ZHR-31). Tokens issued before
+    # password_changed_at are rejected; must_change_password gates every route
+    # except change-password until the user sets their own password.
+    password_changed_at  = Column(DateTime, nullable=True)
+    must_change_password = Column(Boolean, default=False, nullable=False, server_default=false())
 
     department     = relationship("Department", back_populates="employees")
     designation    = relationship("Designation", backref="employees")

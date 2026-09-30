@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
@@ -84,8 +84,11 @@ class AuditLogItem(BaseModel):
     action: Optional[str] = None
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
+    performed_by: Optional[int] = None
     performed_by_email: Optional[str] = None
     details: Optional[dict] = None
+    # Full client address (IPv4 or IPv6, up to 45 chars) — never truncated here.
+    ip_address: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -115,16 +118,31 @@ class NotificationItem(BaseModel):
     is_read: bool = False
     target_org_id: Optional[int] = None
     created_at: Optional[datetime] = None
+    sender_name: Optional[str] = None
+    target_type: Optional[str] = None
+    audience: Optional[str] = None
+    sent_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
 class NotificationCreate(BaseModel):
-    title: str
-    message: str
+    title: str = Field(min_length=1, max_length=300)
+    message: str = ""
+    body_html: Optional[str] = Field(default=None, max_length=50_000)
     notification_type: str = "info"
     priority: str = "normal"
+    sender_name: Optional[str] = Field(default=None, max_length=120)
+    channels: Optional[List[str]] = None
+    # all | organization | user | role. Omitted = inferred from the ids/roles below.
+    target_type: Optional[str] = None
+    target_org_ids: List[int] = Field(default_factory=list)
+    target_user_ids: List[int] = Field(default_factory=list)
+    target_roles: List[str] = Field(default_factory=list)
+    # org_admins (default) | all_members - who in a targeted organization receives it
+    audience: str = "org_admins"
+    # legacy single-target fields (still accepted)
     target_org_id: Optional[int] = None
     target_user_id: Optional[int] = None
 

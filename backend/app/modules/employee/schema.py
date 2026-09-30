@@ -104,6 +104,7 @@ class EmployeeResponse(BaseModel):
     organization_id:      Optional[int] = None
     role:                 UserRole
     is_active:            bool
+    must_change_password: bool = False
     first_name:           str
     last_name:            str
     full_name:            str
@@ -257,6 +258,7 @@ class UserCreateRequest(BaseModel):
     role:       UserRole = Field(..., example="hr_admin")
     job_title:  Optional[str] = Field(None, max_length=150, example="Software Engineer")
     organization_id: Optional[int] = Field(None, description="Target organization (Super Admin only)")
+    confirm_super_admin: bool = Field(False, description="Must be true to create a Super Admin")
 
 
 class UserUpdateRequest(BaseModel):
@@ -266,6 +268,7 @@ class UserUpdateRequest(BaseModel):
     role:       Optional[UserRole] = None
     job_title:  Optional[str] = Field(None, max_length=150)
     is_active:  Optional[bool] = None
+    confirm_super_admin: bool = False
 
 
 class UserResponse(BaseModel):
@@ -311,9 +314,14 @@ class ChangePasswordRequest(BaseModel):
     new_password:     str = Field(..., min_length=8, example="NewSecurePass456!")
 
 
+class PasswordResetRequest(BaseModel):
+    method: Literal["link", "temporary"] = "link"
+
+
 class PasswordResetResponse(BaseModel):
     message:           str
     temporary_password: Optional[str] = None
+    method:            str = "link"
 
 
 class TokenPasswordRequest(BaseModel):

@@ -6,12 +6,13 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.core.client_ip import get_client_ip
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.rate_limiter import limiter
 
@@ -19,13 +20,14 @@ logger = logging.getLogger("zoiko.employee.router")
 
 from app.modules.super_admin.models import AuditLog, AuditAction, LoginActivity
 
+from app.modules.employee import roles as roles_mod
 from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.employee.schema import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeListResponse,
     LoginRequest, RegisterRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
     UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
-    PasswordResetResponse, ChangePasswordRequest, TokenPasswordRequest,
+    PasswordResetResponse, PasswordResetRequest, ChangePasswordRequest, TokenPasswordRequest,
     ChangeManagerRequest, ConfirmProbationRequest,
     EmployeeCompensationCreate, EmployeeCompensationUpdate, EmployeeCompensationResponse,
     EmployeeBenefitCreate, EmployeeBenefitResponse,
@@ -64,6 +66,15 @@ def _role_str(user) -> str:
     return user.role.value if hasattr(user.role, "value") else str(user.role)
 
 
+def _audit_user_action(db, actor, action, target, details: dict) -> None:
+    """Audit row for a sensitive user-management action. Never put passwords,
+    hashes or tokens in `details`."""
+    db.add(AuditLog(
+        action=action, entity_type="Employee", entity_id=target.id,
+        performed_by=actor.id, performed_by_email=actor.email, details=details,
+    ))
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -78,7 +89,7 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
     result = service.login_employee(db, data)
     employee = result.get("employee")
     if employee:
-        ip = request.client.host if request.client else None
+        ip = get_client_ip(request)
         ua = request.headers.get("user-agent")
         login_activity = LoginActivity(
             user_id=employee.id,
@@ -148,7 +159,7 @@ def get_me(
     summary="Logout",
 )
 def logout(current_user=Depends(get_current_user), request: Request = None, db: Session = Depends(get_db)):
-    ip = request.client.host if request and request.client else None
+    ip = get_client_ip(request) if request else None
     audit = AuditLog(
         action=AuditAction.LOGOUT,
         entity_type="User",
@@ -179,6 +190,10 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
     if not employee or not employee.is_active:
         raise UnauthorizedException("Employee not found or inactive.")
+
+    from app.core.security import token_predates_password_change
+    if token_predates_password_change(payload, employee):
+        raise UnauthorizedException("Your password was changed. Please log in again.")
 
     if employee.organization_id:
         from app.modules.hr.models import Organization, OrganizationStatus
@@ -395,44 +410,12 @@ def create_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Validate role hierarchy: what roles can the current user create?
+    # One rule set (employee/roles.py) decides who may assign which role and
+    # which organization the new user belongs to.
+    target_organization_id = roles_mod.resolve_target_organization(
+        db, current_user, data.role, data.organization_id, data.confirm_super_admin,
+    )
     current_role = _role_str(current_user)
-
-    if current_role == "super_admin":
-        # Super Admin manages users platform-wide and may create any role in
-        # any organization, so the target organization must be supplied.
-        allowed_create_roles = list(UserRole)
-        target_organization_id = data.organization_id
-        if not target_organization_id:
-            raise HTTPException(
-                status_code=422,
-                detail="organization_id is required when creating a user as Super Admin."
-            )
-    elif current_role == "admin":
-        # Organization Admin can create any role except SUPER_ADMIN
-        if data.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=403,
-                detail="Cannot create SUPER_ADMIN role. Only platform admins can create super admins."
-            )
-        allowed_create_roles = [UserRole.ADMIN, UserRole.HR_ADMIN, UserRole.BILLING_ADMIN, UserRole.EMPLOYEE]
-        target_organization_id = current_user.organization_id
-    elif current_role == "hr_admin":
-        # HR Admin can only create EMPLOYEE
-        allowed_create_roles = [UserRole.EMPLOYEE]
-        target_organization_id = current_user.organization_id
-    else:
-        # Other roles cannot create users (should not reach here due to dependency check)
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{current_role}' does not have permission to create users."
-        )
-
-    if data.role not in allowed_create_roles:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Cannot create user with role '{data.role.value}'. Your role '{current_role}' can only create: {', '.join([r.value for r in allowed_create_roles])}."
-        )
 
     employee, temp_password = service.create_organization_user(
         db, data,
@@ -440,7 +423,14 @@ def create_user(
         created_by_id=current_user.id,
     )
 
-    if data.role == UserRole.ADMIN:
+    _audit_user_action(
+        db, current_user, AuditAction.CREATE, employee,
+        {"event": "user.created", "role": data.role.value, "organization_id": target_organization_id,
+         "target_email": employee.email, "confirmed_super_admin": bool(data.confirm_super_admin) or None},
+    )
+    db.commit()
+
+    if data.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         return {
             "message": f"Invitation sent to {employee.email}. They will set up their own password via the secure link.",
             "user": UserResponse.model_validate(employee),
@@ -501,12 +491,35 @@ def update_user(
                 detail=f"You do not have permission to edit users with role '{target_role}'. HR Admins can only edit HR staff and employees."
             )
     
-    return service.update_organization_user(
+    old_role = target_role
+    if data.role is not None and data.role.value != old_role:
+        if existing_user.id == current_user.id:
+            raise HTTPException(status_code=403, detail="You cannot change your own role.")
+        # Same rules as creation: the caller must be allowed to assign the new
+        # role, and the user must stay in a valid organization for it.
+        roles_mod.resolve_target_organization(
+            db, current_user, data.role,
+            None if roles_mod.is_platform_role(data.role) else existing_user.organization_id,
+            data.confirm_super_admin,
+        )
+        if roles_mod.is_platform_role(data.role):
+            raise HTTPException(status_code=400, detail="Convert an existing user to Super Admin by creating a new Super Admin account instead.")
+        if roles_mod.is_platform_role(old_role):
+            raise HTTPException(status_code=400, detail="A Super Admin's role cannot be changed here.")
+
+    updated = service.update_organization_user(
         db, user_id, data,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
         skip_org_filter=skip_org_filter,
     )
+    if data.role is not None and data.role.value != old_role:
+        _audit_user_action(
+            db, current_user, AuditAction.UPDATE, updated,
+            {"event": "user.role_changed", "from": old_role, "to": data.role.value, "target_email": updated.email},
+        )
+        db.commit()
+    return updated
 
 
 @employee_router.delete(
@@ -687,49 +700,67 @@ def archive_user(
 @employee_router.post(
     "/admin/users/{user_id}/reset-password",
     response_model=PasswordResetResponse,
-    summary="Reset user password",
+    summary="Reset user password (email link or temporary password)",
     dependencies=[Depends(get_current_admin)],
 )
+@limiter.limit("10/minute")
 def reset_user_password(
+    request: Request,
     user_id: int,
+    data: PasswordResetRequest = Body(default_factory=PasswordResetRequest),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Get the existing user to check their role
     skip_org_filter = _is_super_admin(current_user)
     existing_user = service.get_organization_user(
         db, user_id, current_user.organization_id, skip_org_filter,
     )
-    
-    # Validate role hierarchy
+
     current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
-    
+
     if current_role == "hr_admin":
         # HR Admin cannot reset password for ADMIN or SUPER_ADMIN roles
-        if target_role in [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.BILLING_ADMIN]:
+        if target_role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.BILLING_ADMIN.value]:
             raise HTTPException(
                 status_code=403,
                 detail=f"You do not have permission to reset password for users with role '{target_role}'."
             )
-    
+    if current_role == "admin" and target_role == UserRole.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="Only a Super Admin can reset a Super Admin's password.")
+
     user, temp_password = service.reset_user_password(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
         skip_org_filter=skip_org_filter,
+        method=data.method,
     )
+    _audit_user_action(
+        db, current_user, AuditAction.PASSWORD_RESET, user,
+        {"event": "user.password_reset", "method": data.method, "target_email": user.email,
+         "target_role": target_role, "organization_id": user.organization_id},
+    )
+    db.commit()
 
     if temp_password is None:
         return PasswordResetResponse(
-            message=f"Password reset link sent to {user.email}.",
-            temporary_password=None,
+            message=f"Reset link sent to {user.email}. It expires in {service.RESET_TOKEN_TTL_MINUTES} minutes.",
+            temporary_password=None, method="link",
         )
-
     return PasswordResetResponse(
-        message=f"Password reset for {user.full_name}.",
-        temporary_password=temp_password,
+        message=f"Temporary password set for {user.full_name}. They must change it at next login.",
+        temporary_password=temp_password, method="temporary",
     )
+
+
+@employee_router.get(
+    "/admin/roles",
+    summary="Roles the current user may assign (single source of truth)",
+    dependencies=[Depends(get_current_admin)],
+)
+def list_assignable_roles(current_user=Depends(get_current_user)):
+    return {"roles": roles_mod.assignable_roles(current_user.role)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

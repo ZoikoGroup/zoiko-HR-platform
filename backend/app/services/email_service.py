@@ -1486,3 +1486,37 @@ def send_performance_review_submitted_email(
         "action_url": action_url or _login_url(),
     }, db=db, organization_id=organization_id)
 
+
+
+def send_plain_email(to_email: str, subject: str, body: str, db=None, organization_id=None):
+    """Send a simple text email (used by Zoiko Workflow steps). Returns
+    (ok, error_message) and records an EmailDeliveryLog row either way."""
+    smtp = _get_smtp_settings(db=db)
+    if not (smtp.get("host") and smtp.get("from_email")):
+        err = "SMTP is not configured."
+        _log_email_delivery(to_email, "workflow_plain", subject, "failed", err, organization_id, db=db)
+        return False, err
+    msg = MIMEText(body, "plain", "utf-8")
+    msg["Subject"] = subject
+    msg["From"] = smtp["from_email"]
+    msg["To"] = to_email
+    try:
+        port = int(smtp["port"])
+        use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
+        context_ssl = ssl.create_default_context(cafile=certifi.where())
+        if use_tls and port != 465:
+            with smtplib.SMTP(smtp["host"], port, timeout=30) as server:
+                server.starttls(context=context_ssl)
+                if smtp["username"] and smtp["password"]:
+                    server.login(smtp["username"], smtp["password"])
+                server.sendmail(smtp["from_email"], to_email, msg.as_string())
+        else:
+            with smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=30) as server:
+                if smtp["username"] and smtp["password"]:
+                    server.login(smtp["username"], smtp["password"])
+                server.sendmail(smtp["from_email"], to_email, msg.as_string())
+    except Exception as e:
+        _log_email_delivery(to_email, "workflow_plain", subject, "failed", str(e), organization_id, db=db)
+        return False, str(e)[:300]
+    _log_email_delivery(to_email, "workflow_plain", subject, "sent", None, organization_id, db=db)
+    return True, None

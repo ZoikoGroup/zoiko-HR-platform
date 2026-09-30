@@ -12,13 +12,13 @@ Role model (lowest number = highest privilege):
   employee       4  self-service (ESS) only
 """
 
-from fastapi import Depends
+from fastapi import Depends, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import decode_access_token
-from app.core.exceptions import ForbiddenException, UnauthorizedException
+from app.core.exceptions import ForbiddenException, UnauthorizedException, ZoikoException
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -130,7 +130,12 @@ def _role_value(role) -> str:
 
 
 # ── Get Current Logged-In User ──────────────────────────────────────────────
+# Routes a user may call while a temporary password is still pending.
+_PASSWORD_CHANGE_ALLOWED_PATHS = ("/auth/change-password", "/auth/me", "/auth/logout", "/auth/refresh")
+
+
 def get_current_user(
+    request: Request = None,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
@@ -148,6 +153,17 @@ def get_current_user(
     user = db.query(Employee).filter(Employee.email == email).first()
     if user is None:
         raise UnauthorizedException("User account not found. Please log in again.")
+
+    from app.core.security import token_predates_password_change
+    if token_predates_password_change(payload, user):
+        raise UnauthorizedException("Your password was changed. Please log in again.")
+
+    if getattr(user, "must_change_password", False) and request is not None:
+        if request.url.path.rstrip("/") not in _PASSWORD_CHANGE_ALLOWED_PATHS:
+            raise ZoikoException(
+                403, "PASSWORD_CHANGE_REQUIRED",
+                "You must change your temporary password before continuing.",
+            )
 
     jwt_org_id = payload.get("organization_id")
     if jwt_org_id is not None and user.organization_id is not None:

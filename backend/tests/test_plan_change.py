@@ -451,10 +451,20 @@ class TestBlockerDetection:
 # Refund Request Tests
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _paid(db, cents=100_000, org_id=1):
+    """Refunds are capped at what the org actually paid, so seed a paid invoice."""
+    from app.modules.billing.models import BillingInvoice
+    db.add(BillingInvoice(organization_id=org_id, stripe_invoice_id=f"in_test_{org_id}",
+                          amount_due_cents=cents, amount_paid_cents=cents,
+                          currency="USD", status="paid"))
+    db.commit()
+
+
 class TestRefundRequest:
     def test_request_creates_refund(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test refund")
         assert req.id is not None
         assert req.status == RefundRequestStatus.PENDING_APPROVAL
@@ -463,12 +473,14 @@ class TestRefundRequest:
     def test_request_zero_amount_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         with pytest.raises(BadRequestException):
             request_refund(db, 1, 0, "Zero refund")
 
     def test_request_empty_reason_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         with pytest.raises(BadRequestException):
             request_refund(db, 1, 5000, "")
 
@@ -498,6 +510,7 @@ class TestRefundApproval:
 
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         approved = approve_refund(db, req.id, approved_by="ops@test.com")
         assert approved.status == RefundRequestStatus.APPROVED_AND_PROCESSED
@@ -506,6 +519,7 @@ class TestRefundApproval:
     def test_approve_same_actor_rejected(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         with pytest.raises(ForbiddenException):
             approve_refund(db, req.id, approved_by="owner@test.com")
@@ -513,6 +527,7 @@ class TestRefundApproval:
     def test_approve_non_pending_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         req.status = RefundRequestStatus.APPROVED_AND_PROCESSED
         db.commit()
@@ -522,6 +537,7 @@ class TestRefundApproval:
     def test_reject_sets_status(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         rejected = reject_refund(db, req.id, rejected_by="ops@test.com", rejection_reason="Insufficient docs")
         assert rejected.status == RefundRequestStatus.REJECTED
@@ -530,6 +546,7 @@ class TestRefundApproval:
     def test_reject_non_pending_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         req.status = RefundRequestStatus.REJECTED
         db.commit()
@@ -541,6 +558,7 @@ class TestRefundCredit:
     def test_credit_request_type(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 2500, "Credit adjustment",
                              request_type=RefundRequestType.CREDIT)
         assert req.request_type == RefundRequestType.CREDIT
