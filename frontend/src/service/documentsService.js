@@ -1,69 +1,94 @@
-import { api } from "./api";
-import { formatDate } from "../utils/dateTime";
+import { api, getAccessToken, API_BASE_URL } from "./api";
+import { saveBlobAs } from "../utils/documents";
 
-const mockDocuments = [
-  { id: 1, name: "Employee Handbook 2026.pdf", category: "HR Policies", size: "2.4 MB", updated: "June 10, 2026", author: "Sarah Jenkins" },
-  { id: 2, name: "Corporate NDA Agreement.pdf", category: "Legal Agreements", size: "1.8 MB", updated: "June 08, 2026", author: "Liam O'Connor" },
-  { id: 3, name: "PostgreSQL Database Backup Schema.sql", category: "Database Tech", size: "940 KB", updated: "June 05, 2026", author: "System Admin" },
-  { id: 4, name: "Quarterly Financial Statement.xlsx", category: "Billing & Finance", size: "4.5 MB", updated: "May 28, 2026", author: "David Kim" },
-];
+// Super Admin document repository (ZHR-27/28). Talks to /super-admin/documents.
+// There is deliberately no mock/fallback data here: a failed call must surface.
 
-export async function getDocuments() {
-  try {
-    return await api.get("/hr/documents");
-  } catch (err) {
-    console.warn("documentsService: fetch failed, using mock data:", err.message || err);
-    return mockDocuments;
-  }
+export const ALLOWED_EXTENSIONS = ["pdf", "doc", "docx", "xls", "xlsx", "csv", "txt", "rtf", "odt", "png", "jpg", "jpeg", "gif"];
+export const MAX_FILE_SIZE_MB = 10;
+
+export function validateFile(file) {
+  if (!file) return "Choose a file to upload.";
+  const ext = (file.name.split(".").pop() || "").toLowerCase();
+  if (!ALLOWED_EXTENSIONS.includes(ext)) return `“.${ext}” files are not allowed. Allowed: ${ALLOWED_EXTENSIONS.join(", ")}.`;
+  if (file.size === 0) return "The file is empty.";
+  if (file.size > MAX_FILE_SIZE_MB * 1024 * 1024) return `File is too large. Maximum size is ${MAX_FILE_SIZE_MB} MB.`;
+  return null;
 }
 
-export async function createDocument(data, file) {
-  const formData = new FormData();
-  formData.append("data", JSON.stringify(data));
-  if (file) {
-    formData.append("file", file);
-  }
-  try {
-    return await api.post("/hr/documents", formData, {
-      headers: { "Content-Type": "multipart/form-data" },
-    });
-  } catch (err) {
-    console.warn("documentsService: create failed:", err.message || err);
-    const newDoc = { id: Date.now(), ...data, file_name: file?.name, size: file ? `${(file.size / 1024).toFixed(1)} KB` : null, updated: formatDate(new Date()), author: "Current User" };
-    mockDocuments.unshift(newDoc);
-    return newDoc;
-  }
+export const getOrganizations = () => api.get("/super-admin/documents/organizations");
+
+export const getDocuments = (params) => api.get("/super-admin/documents", { params });
+
+export const deleteDocument = (id) => api.delete(`/super-admin/documents/${id}`);
+
+/** multipart upload with progress (fetch cannot report upload progress). */
+export function uploadDocument({ file, organization_id, title, description, category }, onProgress) {
+  return new Promise((resolve, reject) => {
+    const form = new FormData();
+    form.append("file", file);
+    form.append("organization_id", String(organization_id));
+    if (title) form.append("title", title);
+    if (description) form.append("description", description);
+    if (category) form.append("category", category);
+
+    const xhr = new XMLHttpRequest();
+    xhr.open("POST", `${API_BASE_URL}/super-admin/documents`);
+    const token = getAccessToken();
+    if (token) xhr.setRequestHeader("Authorization", `Bearer ${token}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
+    };
+    xhr.onerror = () => reject(new Error("Network error while uploading. Please try again."));
+    xhr.onload = () => {
+      let body = null;
+      try {
+        body = JSON.parse(xhr.responseText);
+      } catch {
+        body = null;
+      }
+      if (xhr.status >= 200 && xhr.status < 300) return resolve(body);
+      let detail = body?.message || body?.detail;
+      if (Array.isArray(detail)) detail = detail.map((d) => d.msg || String(d)).join(", ");
+      reject(new Error(detail || `Upload failed (${xhr.status}).`));
+    };
+    xhr.send(form);
+  });
 }
 
-export async function updateDocument(id, data) {
-  try {
-    return await api.put(`/hr/documents/${id}`, data);
-  } catch (err) {
-    console.warn("documentsService: update failed:", err.message || err);
-    const idx = mockDocuments.findIndex(d => d.id === id);
-    if (idx !== -1) {
-      mockDocuments[idx] = { ...mockDocuments[idx], ...data, updated: formatDate(new Date()) };
+/** Filename from Content-Disposition, supporting RFC 5987 (filename*=UTF-8''...). */
+export function filenameFromDisposition(header, fallback) {
+  if (!header) return fallback;
+  const star = header.match(/filename\*\s*=\s*(?:UTF-8|utf-8)''([^;]+)/);
+  if (star) {
+    try {
+      return decodeURIComponent(star[1].trim());
+    } catch {
+      /* fall through */
     }
-    return mockDocuments[idx];
   }
+  const plain = header.match(/filename\s*=\s*"?([^";]+)"?/);
+  return plain ? plain[1] : fallback;
 }
 
-export async function deleteDocument(id) {
-  try {
-    return await api.delete(`/hr/documents/${id}`);
-  } catch (err) {
-    console.warn("documentsService: delete failed:", err.message || err);
-    const idx = mockDocuments.findIndex(d => d.id === id);
-    if (idx !== -1) mockDocuments.splice(idx, 1);
-    return { success: true };
+/** Authenticated download -> browser save-as with the original filename. */
+export async function downloadDocument(doc) {
+  const token = getAccessToken();
+  const res = await fetch(`${API_BASE_URL}/super-admin/documents/${doc.id}/download`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
+  if (!res.ok) {
+    let msg = `Download failed (${res.status}).`;
+    try {
+      const body = await res.json();
+      msg = body?.message || body?.detail || msg;
+    } catch {
+      /* keep default */
+    }
+    throw new Error(msg);
   }
-}
-
-export async function getDocumentById(id) {
-  try {
-    return await api.get(`/hr/documents/${id}`);
-  } catch (err) {
-    console.warn("documentsService: get by id failed:", err.message || err);
-    return mockDocuments.find(d => d.id === id);
-  }
+  const blob = await res.blob();
+  const name = filenameFromDisposition(res.headers.get("Content-Disposition"), doc.file_name || `document-${doc.id}`);
+  saveBlobAs(blob, name); // creates and revokes the object URL
+  return name;
 }

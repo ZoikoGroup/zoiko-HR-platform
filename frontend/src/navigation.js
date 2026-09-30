@@ -45,7 +45,6 @@ import {
   Tags,
   Target,
   TrendingUp,
-  User,
   UserCheck,
   UserCircle,
   UserPlus,
@@ -56,7 +55,6 @@ import {
   UserRoundCheck,
   ThumbsUp,
   Wrench,
-  Settings,
   Server,
   Database,
   HardDrive,
@@ -86,19 +84,6 @@ const platform = {
   items: [
     { label: "Dashboard", href: "/dashboard", icon: LayoutDashboard },
     { label: "Organizations", href: "/organizations", icon: ShieldCheck, badge: "3" },
-  ],
-};
-
-// Super Admin / Platform Owner profile
-const superAdminProfile = {
-  title: "PROFILE",
-  items: [
-    {
-      label: "Platform Owner",
-      href: "/admin-profile",
-      icon: User,
-      dp: true,
-    },
   ],
 };
 
@@ -161,7 +146,6 @@ const superAdminAccessSecurity = {
 const superAdminPlatformAdministration = {
   title: "PLATFORM ADMINISTRATION",
   items: [
-    { label: "Platform Settings", href: "/super-admin/settings", icon: Settings },
     { label: "Notifications", href: "/super-admin/notifications", icon: Bell },
   ],
 };
@@ -260,9 +244,9 @@ const products = {
           { label: "Allowances",         href: "/zoiko-hr/compensation/allowances",     icon: WalletCards },
           { label: "Benefits",           href: "/zoiko-hr/compensation/benefits",       icon: HeartHandshake },
         ]},
-        { label: "ESS",                icon: User, excludeRoles: [ROLES.ADMIN], children: [
+        { label: "ESS",                icon: LayoutDashboard, excludeRoles: [ROLES.ADMIN], children: [
           { label: "Dashboard",          href: "/zoiko-hr/ess",                   icon: LayoutDashboard },
-          { label: "Profile",            href: "/zoiko-hr/ess/profile",           icon: User },
+          { label: "Profile",            href: "/zoiko-hr/ess/profile",           icon: UserCircle },
           { label: "Leave Management",   href: "/zoiko-hr/ess/leave",             icon: Calendar },
           { label: "Attendance",         href: "/zoiko-hr/ess/attendance",        icon: Clock },
           { label: "Learning",           href: "/zoiko-hr/ess/requests",          icon: BookOpen },
@@ -391,6 +375,15 @@ const settings = {
   ],
 };
 
+// Notifications inbox for the Organization and User portals (ZHR-20). Hidden for
+// super_admin in useFilteredNavigation - they use the Notification Center.
+const notificationsSection = {
+  title: "NOTIFICATIONS",
+  items: [
+    { label: "Notifications", href: "/shared/notifications", icon: Bell },
+  ],
+};
+
 // Shared Layers collapsible section
 const sharedLayersSection = {
   title: "SHARED LAYERS",
@@ -399,7 +392,7 @@ const sharedLayersSection = {
       label: "Shared Layers",
       icon: Layers,
       children: [
-        { label: "Zoiko ID", href: "/shared/id", icon: User },
+        { label: "Zoiko ID", href: "/shared/id", icon: UserCheck },
         { label: "Zoiko Workflow", href: "/shared/workflow", icon: Workflow },
         { label: "Zoiko Hub", href: "/shared/hub", icon: Layers },
         { label: "Zoiko Connect", href: "/shared/connect", icon: Globe },
@@ -439,13 +432,13 @@ export const sections = [
   superAdminPaymentsReconciliation,
   superAdminAccessSecurity,
   superAdminPlatformAdministration,
-  superAdminProfile,
   organizationAdminDashboard,
   hrAdminDashboard,
   platform,
   products,
   // Employee-only workspace section (filtered to role=employee by useFilteredNavigation)
   employeeWorkspace,
+  notificationsSection,
   sharedLayersSection,
   userManagement,
   settings,

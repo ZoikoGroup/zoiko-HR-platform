@@ -1,4 +1,6 @@
 
+import { humanizeValidationError } from "../utils/validationMessage";
+
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "zoiko_access_token";
 const REFRESH_KEY = "zoiko_refresh_token";
@@ -101,10 +103,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
       detail = data?.detail || data?.message || data?.error;
       if (Array.isArray(detail)) {
         // Handle FastAPI 422 validation errors nicely
-        detail = detail.map(err => {
-          const field = err.loc ? err.loc[err.loc.length - 1] : "Field";
-          return `${field}: ${err.msg}`;
-        }).join(", ");
+        detail = detail.map(humanizeValidationError).join(", ");
       } else if (typeof detail === "object" && detail !== null) {
         detail = JSON.stringify(detail);
       }

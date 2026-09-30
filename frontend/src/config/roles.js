@@ -22,13 +22,7 @@ export const ROLE_DEFAULT_REDIRECT = {
   [ROLES.EMPLOYEE]: "/employee/ess",
 };
 
-// Define who can create which roles (fixes the UserManagementPage bug)
-export const ROLE_CREATION_RULES = {
-  [ROLES.SUPER_ADMIN]: [ROLES.ADMIN],
-  [ROLES.ADMIN]: [ROLES.ADMIN, ROLES.HR_ADMIN, ROLES.EMPLOYEE],
-  [ROLES.HR_ADMIN]: [ROLES.EMPLOYEE],
-  [ROLES.EMPLOYEE]: [],
-};
+// Which roles a user may create/assign comes from the server (GET /hr/admin/roles).
 
 // Route-prefix access matrix (authoritative for both guards and sidebar filtering)
 // Every product's primary path MUST appear in every role that should see it.
@@ -54,7 +48,6 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/super-admin/access",
     "/super-admin/support-access",
     "/super-admin/audit-logs",
-    "/super-admin/settings",
     "/super-admin/notifications",
     // ── Shared & platform ──
     "/dashboard",

@@ -10,6 +10,7 @@ import {
 } from "../../utils/registrationRegions";
 import LandingHeader from "../../landing/LandingHeader";
 import Footer from "../../landing/Footer";
+import { usePublicCatalog, formatRate } from "../../hooks/usePublicCatalog";
 
 const STEPS = ["Plan Selection", "Organization Details", "Admin Account"];
 
@@ -39,6 +40,11 @@ export default function RegisterPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
+
+  // Live published rates. The plan cards below render these, so a Super Admin
+  // re-price reaches registration with no redeploy. Null on failure => the cards
+  // simply omit the price.
+  const { byCode } = usePublicCatalog();
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
@@ -218,11 +224,18 @@ export default function RegisterPage() {
                     Choose the package you would like to evaluate. Enterprise is contract-priced and sales-led only.
                   </p>
                   <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "14px" }}>
-                    {[
-                      { code: "core", name: "Core", icon: <Building2 size={22} />, desc: "Essential HR tools for small to mid-size teams \u2014 employee management, leave, attendance, and basics." },
-                      { code: "advanced", name: "Advanced", icon: <Crown size={22} />, desc: "Advanced HR, payroll, and compliance \u2014 full suite for growing organisations." },
+                      {[
+                      { code: "core", name: "Core", icon: <Building2 size={22} />, desc: "Essential HR tools for small to mid-size teams — employee management, leave, attendance, and basics." },
+                      { code: "advanced", name: "Advanced", icon: <Crown size={22} />, desc: "Advanced HR, payroll, and compliance — full suite for growing organisations." },
                     ].map((plan) => {
                       const isSelected = form.selectedPlan === plan.code;
+                      // Live rate from the published customer catalog. Renders
+                      // nothing when unavailable, so a fetch failure can never
+                      // display a wrong or zero price.
+                      const live = byCode[plan.code];
+                      const monthly = formatRate(live, "monthly");
+                      const annual = formatRate(live, "annual");
+                      const showRates = !!(monthly || annual);
                       return (
                         <button
                           key={plan.code}
@@ -236,6 +249,21 @@ export default function RegisterPage() {
                             boxShadow: isSelected ? "0 4px 16px rgba(59,130,246,0.18)" : "none",
                           }}
                         >
+                          {showRates && (
+                            <div style={{ marginBottom: "8px" }}>
+                              <span style={{ fontSize: "26px", fontWeight: "800", color: isSelected ? "#1D4ED8" : "#111827", letterSpacing: "-0.02em" }}>
+                                {monthly !== null ? `$${monthly}` : ""}
+                              </span>
+                              <span style={{ fontSize: "12px", fontWeight: "600", color: "#6B7280", marginLeft: "4px" }}>
+                                {monthly !== null ? "/month" : ""}
+                              </span>
+                              {annual !== null && (
+                                <div style={{ fontSize: "11px", fontWeight: "600", color: "#6B7280", marginTop: "2px" }}>
+                                  ${annual}/year
+                                </div>
+                              )}
+                            </div>
+                          )}
                           <div style={{ display: "flex", alignItems: "center", gap: "10px", marginBottom: "10px" }}>
                             <div style={{ color: isSelected ? "#3B82F6" : "#6B7280", transition: "color 0.2s" }}>
                               {plan.icon}

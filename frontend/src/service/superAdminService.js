@@ -39,12 +39,14 @@ export const superAdminService = {
 
   // Audit Logs
   getAuditLogs: (params) => api.get("/super-admin/audit-logs", { params }),
+  getAuditLogFilters: () => api.get("/super-admin/audit-logs/filters"),
 
   // Login Activity
   getLoginActivity: (params) => api.get("/super-admin/login-activity", { params }),
 
   // Notifications
   getNotifications: (params) => api.get("/super-admin/notifications", { params }),
+  getNotification: (id) => api.get(`/super-admin/notifications/${id}`),
   createNotification: (data) => api.post("/super-admin/notifications", data),
   markNotificationRead: (id) => api.put(`/super-admin/notifications/${id}/read`),
   deleteNotification: (id) => api.delete(`/super-admin/notifications/${id}`),
@@ -52,9 +54,6 @@ export const superAdminService = {
   // Users
   getUsers: (params) => api.get("/super-admin/users", { params }),
 
-  // Platform Settings
-  getSettings: () => api.get("/super-admin/platform-settings"),
-  updateSetting: (key, data) => api.put(`/super-admin/platform-settings/${key}`, data),
 
   // Platform Command Center
   getCommandCenterOverview: (params) => api.get("/super-admin/command-center/overview", { params }),

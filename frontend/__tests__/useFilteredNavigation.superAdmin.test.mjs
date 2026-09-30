@@ -63,7 +63,6 @@ test("every new billing/payments/access item survives filtering for super_admin"
     "/super-admin/access",
     "/super-admin/support-access",
     "/super-admin/audit-logs",
-    "/super-admin/settings",
     "/super-admin/notifications",
   ];
 

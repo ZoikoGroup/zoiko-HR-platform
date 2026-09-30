@@ -1,114 +1,124 @@
-import React from "react";
+import React, { useEffect, useState } from "react";
 import PageHeader from "../../components/PageHeader";
-import { UserCheck, Shield, Key, Eye, Lock, Smartphone } from "lucide-react";
+import { Shield, Key } from "lucide-react";
+import { api } from "../../service/api";
+
+const STATUS_STYLES = {
+  Active: "bg-emerald-50 text-emerald-700 border border-emerald-100",
+  "Configured, disabled": "bg-amber-50 text-amber-700 border border-amber-100",
+};
 
 export default function ZoikoIdPage() {
-  const providers = [
-    { name: "Google Workspace OIDC", status: "Connected", type: "Single Sign-On", users: "142 users" },
-    { name: "Microsoft Entra ID (SAML)", status: "Active", type: "Active Directory", users: "8 admins" },
-    { name: "Okta Integration", status: "Inactive", type: "Enterprise SSO", users: "0 users" }
-  ];
+  const [providers, setProviders] = useState([]);
+  const [sessions, setSessions] = useState({ session_tracking: "not_enabled", sessions: [] });
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
 
-  const sessions = [
-    { user: "admin@zoiko.com", role: "Super Admin", status: "Active Now", ip: "192.168.1.52", device: "Chrome / macOS" },
-    { user: "marcus.t@zoiko.com", role: "Admin", status: "2 hours ago", ip: "127.0.0.1", device: "Safari / iPhone" },
-    { user: "e.carter@zoiko.com", role: "HR Manager", status: "1 day ago", ip: "10.0.4.15", device: "Firefox / Windows" }
-  ];
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchData() {
+      try {
+        const [idp, sess] = await Promise.all([
+          api.get("/super-admin/identity-providers"),
+          api.get("/super-admin/active-sessions"),
+        ]);
+        if (cancelled) return;
+        setProviders(idp?.providers || []);
+        setSessions(sess || { session_tracking: "not_enabled", sessions: [] });
+      } catch (err) {
+        if (!cancelled) setError(err?.message || "Failed to load Zoiko ID data.");
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    }
+    fetchData();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const header = (
+    <PageHeader
+      title="Zoiko ID"
+      description="Identity providers and authentication sessions."
+    />
+  );
+
+  if (loading) {
+    return (
+      <div className="space-y-6 font-sans">
+        {header}
+        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex items-center justify-center py-20">
+            <div className="animate-spin rounded-full h-8 w-8 border-4 border-[#3B82F6] border-t-transparent" />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const rows = sessions.sessions || [];
 
   return (
     <div className="space-y-6 font-sans">
-      <PageHeader 
-        title="Zoiko ID" 
-        description="Configure enterprise Single Sign-On (SSO), multi-factor authentication (MFA), and secure identity governance."
-      />
+      {header}
 
-      <div className="grid gap-6 md:grid-cols-2">
-        {/* SSO Providers */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
-          <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-            <Shield className="h-5 w-5 text-[#3B82F6]" /> Identity Providers (IdP)
-          </h3>
-          <div className="space-y-3">
-            {providers.map((p, idx) => (
-              <div key={idx} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
-                <div>
-                  <p className="text-sm font-bold text-slate-800">{p.name}</p>
-                  <p className="text-xs text-slate-400 mt-1">{p.type} • {p.users}</p>
-                </div>
-                <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                  p.status === "Connected" || p.status === "Active" ? "bg-emerald-50 text-emerald-700 border border-emerald-100" : "bg-slate-100 text-slate-400 border border-slate-200"
-                }`}>
-                  {p.status}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
+      {error && (
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-4 text-sm text-red-600">{error}</div>
+      )}
 
-        {/* Global Security Settings */}
-        <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm flex flex-col justify-between">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
-              <Lock className="h-5 w-5 text-[#3B82F6]" /> Password & MFA Policies
-            </h3>
-            <div className="space-y-4 text-xs font-medium text-slate-700">
-              <div className="flex justify-between border-b border-slate-100 pb-2">
-                <span>Enforce 2FA for all accounts</span>
-                <span className="text-emerald-600 font-bold">YES</span>
+      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm space-y-4">
+        <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
+          <Shield className="h-5 w-5 text-[#3B82F6]" /> Identity Providers
+        </h3>
+        <div className="space-y-3">
+          {providers.map((p) => (
+            <div key={p.key} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
+              <div>
+                <p className="text-sm font-bold text-slate-800">{p.name}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {p.type}
+                  {p.client_id ? ` · Client ID ${p.client_id}` : ""}
+                </p>
+                {p.status === "Not configured" && p.required_env?.length > 0 && (
+                  <p className="text-xs text-slate-400 mt-1">Requires env: {p.required_env.join(", ")}</p>
+                )}
               </div>
-              <div className="flex justify-between border-b border-slate-100 pb-2">
-                <span>Minimum password length</span>
-                <span className="text-slate-800 font-bold">12 characters</span>
-              </div>
-              <div className="flex justify-between border-b border-slate-100 pb-2">
-                <span>Lockout threshold</span>
-                <span className="text-red-500 font-bold">5 failed attempts</span>
-              </div>
-              <div className="flex justify-between pt-1">
-                <span>Session duration limit</span>
-                <span className="text-slate-800 font-bold">24 hours</span>
-              </div>
+              <span
+                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                  STATUS_STYLES[p.status] || "bg-slate-100 text-slate-500 border border-slate-200"
+                }`}
+              >
+                {p.status}
+              </span>
             </div>
-          </div>
-          <button className="mt-6 flex w-full items-center justify-center gap-2 rounded-full bg-slate-150 hover:bg-slate-200 border border-slate-200 text-slate-700 px-4 py-2 text-xs font-semibold transition">
-            <Smartphone className="h-4 w-4" /> Setup MFA Backup Controls
-          </button>
+          ))}
+          {!error && providers.length === 0 && <p className="text-sm text-slate-500">No identity providers found.</p>}
         </div>
       </div>
 
-      {/* Active Identity Sessions */}
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
         <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
           <Key className="h-5 w-5 text-[#3B82F6]" /> Active Auth Sessions
         </h3>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse">
-            <thead>
-              <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                <th className="py-3 px-4">User Session</th>
-                <th className="py-3 px-4">Role</th>
-                <th className="py-3 px-4">IP Address</th>
-                <th className="py-3 px-4">Device Info</th>
-                <th className="py-3 px-4 text-right">Last Login</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100 text-xs font-medium">
-              {sessions.map((s, idx) => (
-                <tr key={idx} className="text-slate-650 hover:bg-slate-50/50 transition">
-                  <td className="py-4 px-4 font-bold text-slate-800">{s.user}</td>
-                  <td className="py-4 px-4">{s.role}</td>
-                  <td className="py-4 px-4 font-mono">{s.ip}</td>
-                  <td className="py-4 px-4">{s.device}</td>
-                  <td className="py-4 px-4 text-right">
-                    <span className={`inline-block font-semibold ${s.status === "Active Now" ? "text-emerald-600" : "text-slate-400"}`}>
-                      {s.status}
-                    </span>
-                  </td>
+        {sessions.session_tracking === "not_enabled" ? (
+          <p className="p-4 text-sm text-slate-500">Session tracking is not enabled.</p>
+        ) : rows.length === 0 ? (
+          <p className="p-4 text-sm text-slate-500">No active sessions.</p>
+        ) : (
+          <table className="w-full text-left text-sm">
+            <tbody>
+              {rows.map((s, idx) => (
+                <tr key={s.id ?? idx} className="hover:bg-slate-50/50 transition">
+                  <td className="py-3 px-4 font-bold text-slate-800">{s.user}</td>
+                  <td className="py-3 px-4">{s.role}</td>
+                  <td className="py-3 px-4 font-mono">{s.ip}</td>
+                  <td className="py-3 px-4">{s.device}</td>
                 </tr>
               ))}
             </tbody>
           </table>
-        </div>
+        )}
       </div>
     </div>
   );

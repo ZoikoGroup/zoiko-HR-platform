@@ -3,7 +3,8 @@ import { Menu } from "lucide-react";
 import { Link } from "react-router-dom";
 import UserMenu from "./UserMenu";
 import { useAuth } from "../context/AuthContext";
-import { ROLE_LABELS } from "../config/roles";
+import { ROLE_LABELS, ROLES } from "../config/roles";
+import NotificationBell from "./NotificationBell";
 import logo from "../assets/zoikohr-logo-svg.svg";
 
 /**
@@ -47,7 +48,9 @@ export default function Header({ onMenuClick, onSearch }) {
         </div>
 
         {/* User menu */}
-        <div className="ml-auto">
+        <div className="ml-auto flex items-center gap-3">
+          {/* Recipients only: super admins send from their own Notification Center. */}
+          {role && role !== ROLES.SUPER_ADMIN && <NotificationBell />}
           <UserMenu />
         </div>
       </div>

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   getUsers, createUser, updateUser, deactivateUser,
-  activateUser, resetPassword, suspendUser, archiveUser, hardDeleteUser,
+  activateUser, resetPassword, suspendUser, archiveUser, hardDeleteUser, getAssignableRoles,
 } from "../../service/userService";
 import { superAdminService } from "../../service/superAdminService";
 import {
@@ -12,17 +12,17 @@ import {
   UserCheck, UserX, Filter,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { ROLE_CREATION_RULES, ROLE_LABELS } from "../../config/roles";
+import { ROLE_LABELS } from "../../config/roles";
 
-const ALL_ROLE_OPTIONS = [
-  { value: "admin", label: "Organization Admin" },
-  { value: "hr_admin", label: "HR Admin" },
-  { value: "employee", label: "Employee" },
-];
-
+// Role options come from GET /hr/admin/roles (single source of truth on the
+// server: label, description, platform/organization scope, and what the
+// signed-in user is allowed to assign). Nothing is hardcoded here.
 const ROLE_BADGES = {
+  super_admin: "bg-purple-100 text-purple-800 ring-purple-200",
   admin: "bg-blue-100 text-blue-800 ring-blue-200",
   hr_admin: "bg-blue-100 text-blue-800 ring-blue-200",
+  billing_admin: "bg-amber-100 text-amber-800 ring-amber-200",
+  manager: "bg-teal-100 text-teal-800 ring-teal-200",
   employee: "bg-green-100 text-green-800 ring-green-200",
 };
 
@@ -44,9 +44,10 @@ const initialForm = {
   first_name: "",
   last_name: "",
   phone: "",
-  role: "employee",
+  role: "",
   job_title: "",
   organization_id: "",
+  confirm_super_admin: false,
 };
 
 function ConfirmDialog({ open, title, message, confirmLabel, danger, onConfirm, onCancel }) {
@@ -91,9 +92,11 @@ export default function UserManagementPage() {
   const navigate = useNavigate();
   const { user, role } = useAuth();
   const isSuperAdmin = role === "super_admin";
-  const allowedRoles = ROLE_CREATION_RULES[role] || [];
-  const canCreateUsers = allowedRoles.length > 0;
-  const ROLE_OPTIONS = ALL_ROLE_OPTIONS.filter((r) => allowedRoles.includes(r.value));
+  const [roleOptions, setRoleOptions] = useState([]);
+  const ROLE_OPTIONS = roleOptions;
+  const canCreateUsers = roleOptions.length > 0;
+  const roleInfo = (value) => roleOptions.find((r) => r.value === value);
+  const roleLabel = (value) => roleInfo(value)?.label || ROLE_LABELS[value] || value;
 
   const [users, setUsers] = useState([]);
   const [total, setTotal] = useState(0);
@@ -112,6 +115,11 @@ export default function UserManagementPage() {
   const [createdPassword, setCreatedPassword] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetMethod, setResetMethod] = useState("link");
+  const [resetPending, setResetPending] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState({ message: null, type: "success" });
 
   const STATUS_OPTIONS = [
@@ -134,7 +142,7 @@ export default function UserManagementPage() {
           page: currentPage,
           page_size: ITEMS_PER_PAGE,
           search: search || undefined,
-          role: "admin",
+          role: roleFilter || undefined,
           status: statusFilter || undefined,
           organization_id: orgFilter ? parseInt(orgFilter) : undefined,
         });
@@ -179,12 +187,7 @@ export default function UserManagementPage() {
   const openCreate = () => {
     resetForm();
     setCreatedPassword(null);
-    if (isSuperAdmin) {
-      const defaultRole = getDefaultRole();
-      if (defaultRole !== "employee") {
-        setFormData(prev => ({ ...prev, role: defaultRole }));
-      }
-    }
+    setFormData((prev) => ({ ...prev, role: getDefaultRole() }));
     setShowModal(true);
   };
 
@@ -199,6 +202,7 @@ export default function UserManagementPage() {
       role: user.role || "employee",
       job_title: user.job_title || "",
       organization_id: user.organization_id || "",
+      confirm_super_admin: false,
     });
     setFormErrors({});
     setShowModal(true);
@@ -222,23 +226,22 @@ export default function UserManagementPage() {
     }
   }, [isSuperAdmin]);
 
+  useEffect(() => {
+    let cancelled = false;
+    getAssignableRoles()
+      .then((res) => { if (!cancelled) setRoleOptions(res.roles || []); })
+      .catch((err) => { if (!cancelled) setToast({ message: err.message || "Failed to load roles", type: "error" }); });
+    return () => { cancelled = true; };
+  }, []);
+
   const getDefaultRole = () => {
-    if (allowedRoles.length > 0) {
-      const firstAllowed = allowedRoles[0];
-      const roleOption = ALL_ROLE_OPTIONS.find(r => r.value === firstAllowed);
-      if (roleOption) return roleOption.value;
-    }
-    return "employee";
+    const preferred = roleOptions.find((r) => r.value === "employee") || roleOptions[0];
+    return preferred ? preferred.value : "";
   };
 
-  useEffect(() => {
-    if (isSuperAdmin && formData.role === "employee") {
-      const defaultRole = getDefaultRole();
-      if (defaultRole !== "employee") {
-        setFormData(prev => ({ ...prev, role: defaultRole }));
-      }
-    }
-  }, [isSuperAdmin, allowedRoles]);
+  const selectedRole = roleInfo(formData.role);
+  const needsOrganization = isSuperAdmin && selectedRole?.scope === "organization";
+  const isPlatformRole = selectedRole?.scope === "platform";
 
   const validate = () => {
     const errors = {};
@@ -247,7 +250,8 @@ export default function UserManagementPage() {
     if (!formData.first_name.trim()) errors.first_name = "First name is required";
     if (!formData.last_name.trim()) errors.last_name = "Last name is required";
     if (!formData.role) errors.role = "Role is required";
-    if (isSuperAdmin && !formData.organization_id) errors.organization_id = "Organization is required";
+    if (!editId && needsOrganization && !formData.organization_id) errors.organization_id = "Select an organization for this role";
+    if (!editId && isPlatformRole && !formData.confirm_super_admin) errors.confirm_super_admin = "Confirm that this person should get full platform access";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -264,7 +268,6 @@ export default function UserManagementPage() {
         phone: formData.phone.trim() || null,
         role: formData.role,
         job_title: formData.job_title.trim() || null,
-        organization_id: isSuperAdmin ? parseInt(formData.organization_id) : undefined,
       };
       if (editId) {
         await updateUser(editId, payload);
@@ -272,15 +275,17 @@ export default function UserManagementPage() {
         setShowModal(false);
         resetForm();
       } else {
+        if (needsOrganization) payload.organization_id = parseInt(formData.organization_id);
+        if (isPlatformRole) payload.confirm_super_admin = true;
         const res = await createUser(payload);
         setShowModal(false);
         setCreatedPassword(res.temporary_password || null);
-        setToast({ message: "User created successfully.", type: "success" });
+        setToast({ message: res.message || "User created successfully.", type: "success" });
         resetForm();
       }
       await fetchUsers();
     } catch (err) {
-      setFormErrors({ submit: err.response?.data?.detail || err.message || "Failed to save user" });
+      setFormErrors({ submit: err.message || "Failed to save user" });
     } finally {
       setSubmitting(false);
     }
@@ -339,28 +344,46 @@ export default function UserManagementPage() {
     successMsg: "User deleted.",
   });
 
-  const handleResetPassword = async (user) => {
-    setConfirmDialog({
-      open: true,
-      title: "Reset Password",
-      message: `Reset password for ${user.first_name} ${user.last_name}? A new temporary password will be generated.`,
-      confirmLabel: "Reset",
-      onConfirm: async () => {
-        setConfirmDialog({ open: false });
-        try {
-          const res = await resetPassword(user.id);
-          setCreatedPassword(res.temporary_password || null);
-          setToast({ message: "Password reset successfully.", type: "success" });
-        } catch (err) {
-          setToast({ message: err.response?.data?.detail || err.message || "Failed to reset password.", type: "error" });
-        }
-      },
-      onCancel: () => setConfirmDialog({ open: false }),
-    });
+  const handleResetPassword = (target) => {
+    setResetTarget(target);
+    setResetMethod("link");
+    setResetError("");
+  };
+
+  const submitReset = async () => {
+    if (resetPending || !resetTarget) return;
+    setResetPending(true);
+    setResetError("");
+    try {
+      const res = await resetPassword(resetTarget.id, resetMethod);
+      const target = resetTarget;
+      setResetTarget(null);
+      if (res.temporary_password) {
+        setShowPassword(false);
+        setCopied(false);
+        setCreatedPassword(res.temporary_password);
+        setToast({ message: `Temporary password set for ${target.email}. Share it securely.`, type: "success" });
+      } else {
+        setToast({ message: `Reset link sent to ${target.email}.`, type: "success" });
+      }
+    } catch (err) {
+      setResetError(err.message || "Failed to reset password.");
+    } finally {
+      setResetPending(false);
+    }
+  };
+
+  const copyPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(createdPassword);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
   };
 
   const stats = isSuperAdmin ? [
-    { label: "Total Org Admins", value: total, color: "text-blue-600", bg: "bg-blue-50", icon: Users },
+    { label: "Total Users", value: total, color: "text-blue-600", bg: "bg-blue-50", icon: Users },
     { label: "Active", value: users.filter((u) => u.is_active !== false).length, color: "text-emerald-600", bg: "bg-emerald-50", icon: UserCheck },
     { label: "Inactive", value: users.filter((u) => u.is_active === false).length, color: "text-red-500", bg: "bg-red-50", icon: UserX },
   ] : [
@@ -398,7 +421,7 @@ export default function UserManagementPage() {
             <div>
               <h1 className="text-2xl font-bold text-gray-900 tracking-tight">User Management</h1>
               <p className="mt-1 text-sm text-gray-500">
-                {isSuperAdmin ? "Manage organization administrators across all organizations." : "Manage organization users and their roles."}
+                {isSuperAdmin ? "Manage users and roles across all organizations." : "Manage organization users and their roles."}
               </p>
             </div>
             {canCreateUsers && (
@@ -458,7 +481,7 @@ export default function UserManagementPage() {
                 />
               </div>
               <div className="h-8 w-px bg-gray-200 hidden sm:block" />
-              {!isSuperAdmin && (
+              {(
                 <div className="relative">
                   <select
                     value={roleFilter}
@@ -519,7 +542,7 @@ export default function UserManagementPage() {
                       <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">User</th>
                       <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Email</th>
                       {isSuperAdmin && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Organization</th>}
-                      {!isSuperAdmin && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Role</th>}
+                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Role</th>
                       <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Job Title</th>
                       <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Status</th>
                       <th className="text-right px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Actions</th>
@@ -554,13 +577,11 @@ export default function UserManagementPage() {
                               </div>
                             </td>
                           )}
-                          {!isSuperAdmin && (
-                            <td className="px-5 py-4">
-                              <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ring-1 ring-inset ${ROLE_BADGES[u.role] || "bg-gray-100 text-gray-800 ring-gray-200"}`}>
-                                {ROLE_LABELS[u.role] || u.role}
-                              </span>
-                            </td>
-                          )}
+                          <td className="px-5 py-4">
+                            <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ring-1 ring-inset ${ROLE_BADGES[u.role] || "bg-gray-100 text-gray-800 ring-gray-200"}`}>
+                              {roleLabel(u.role)}
+                            </span>
+                          </td>
                           <td className="px-5 py-4 text-gray-600 max-w-[160px] truncate">{u.job_title || "-"}</td>
                           <td className="px-5 py-4">
                             <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full ring-1 ring-inset ${st.class}`}>
@@ -590,7 +611,7 @@ export default function UserManagementPage() {
                               <button onClick={() => handleArchive(u)} className="p-2 text-gray-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-all" title="Archive">
                                 <Archive className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleResetPassword(u)} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all" title="Reset password">
+                              <button onClick={() => handleResetPassword(u)} disabled={u.id === user?.id} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed" title={u.id === user?.id ? "Use account settings to change your own password" : "Reset password"}>
                                 <Unlock className="w-4 h-4" />
                               </button>
                               <button onClick={() => handleDelete(u)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Delete">
@@ -698,6 +719,7 @@ export default function UserManagementPage() {
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                     </div>
+                    {selectedRole && <p className="text-xs text-gray-500 mt-1.5">{selectedRole.description}</p>}
                     {formErrors.role && <p className="text-xs text-red-500 mt-1.5 font-medium">{formErrors.role}</p>}
                   </div>
                   <div>
@@ -707,7 +729,17 @@ export default function UserManagementPage() {
                       placeholder="+1-555-0100" />
                   </div>
                 </div>
-                {isSuperAdmin && (
+                {isPlatformRole && !editId && (
+                  <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                    <input type="checkbox" className="mt-0.5" checked={formData.confirm_super_admin}
+                      onChange={(e) => setFormData({ ...formData, confirm_super_admin: e.target.checked })} />
+                    <span>
+                      I understand this account will have full access to every organization. This action is audit-logged.
+                      {formErrors.confirm_super_admin && <span className="block text-red-600 font-medium mt-1">{formErrors.confirm_super_admin}</span>}
+                    </span>
+                  </label>
+                )}
+                {needsOrganization && !editId && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">Organization <span className="text-red-500">*</span></label>
                     <div className="relative">
@@ -743,6 +775,42 @@ export default function UserManagementPage() {
           </div>
         )}
 
+        {resetTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Reset password"
+            onClick={() => { if (!resetPending) setResetTarget(null); }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-lg font-bold text-gray-900">Reset password</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {resetTarget.first_name} {resetTarget.last_name} · <span className="font-mono">{resetTarget.email}</span>
+              </p>
+              {resetError && (
+                <div className="mt-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl" role="alert">{resetError}</div>
+              )}
+              <fieldset className="mt-4 space-y-2" disabled={resetPending}>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer ${resetMethod === "link" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}>
+                  <input type="radio" name="reset-method" className="mt-1" checked={resetMethod === "link"} onChange={() => setResetMethod("link")} />
+                  <span><span className="block text-sm font-semibold text-gray-900">Email a reset link (recommended)</span>
+                    <span className="block text-xs text-gray-500">The user gets a single-use link valid for 60 minutes and chooses their own password.</span></span>
+                </label>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer ${resetMethod === "temporary" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}>
+                  <input type="radio" name="reset-method" className="mt-1" checked={resetMethod === "temporary"} onChange={() => setResetMethod("temporary")} />
+                  <span><span className="block text-sm font-semibold text-gray-900">Set a temporary password</span>
+                    <span className="block text-xs text-gray-500">Shown to you once. The user must change it at next sign-in.</span></span>
+                </label>
+              </fieldset>
+              <p className="text-xs text-gray-400 mt-3">Either way, the user's current sessions are signed out and the action is audit-logged.</p>
+              <div className="flex justify-end gap-3 mt-5">
+                <button onClick={() => setResetTarget(null)} disabled={resetPending}
+                  className="px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button onClick={submitReset} disabled={resetPending}
+                  className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50">
+                  {resetPending ? "Working…" : resetMethod === "link" ? "Send reset link" : "Set temporary password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {createdPassword && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setCreatedPassword(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
@@ -752,7 +820,7 @@ export default function UserManagementPage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">Temporary Password</h2>
-                  <p className="text-sm text-gray-500 mt-0.5">Share this with the user securely.</p>
+                  <p className="text-sm text-gray-500 mt-0.5">Shown once. Share it securely; the user must change it at next sign-in.</p>
                 </div>
               </div>
               <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 mb-5">
@@ -760,9 +828,12 @@ export default function UserManagementPage() {
                   <code className="text-sm font-mono font-bold text-gray-800 select-all">
                     {showPassword ? createdPassword : "••••••••••••"}
                   </code>
-                  <button onClick={() => setShowPassword(!showPassword)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={copyPassword} className="px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-all">{copied ? "Copied" : "Copy"}</button>
+                    <button onClick={() => setShowPassword(!showPassword)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all" aria-label="Toggle password visibility">
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="flex justify-end">
