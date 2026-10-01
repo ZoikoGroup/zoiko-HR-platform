@@ -9,7 +9,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.dependencies import get_current_admin, get_organization_id
+from app.core.dependencies import get_current_admin, get_scoped_organization_id as get_organization_id
 
 from app.modules.assistant import audit_service
 from app.modules.assistant.models import ChatOperationalControl, ControlType

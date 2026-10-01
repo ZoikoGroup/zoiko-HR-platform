@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.dependencies import get_current_user, get_current_admin, get_organization_id
+from app.core.dependencies import get_current_user, get_current_admin, get_organization_id, get_scoped_organization_id
 
 from app.modules.assistant import handoff_service
 from app.modules.assistant.schemas import HandoffCreate, HandoffResponse, HandoffAdminResponse, HandoffResolve
@@ -80,7 +80,7 @@ def list_handoffs(
     status: Optional[str] = None,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
-    organization_id: int = Depends(get_organization_id),
+    organization_id: int = Depends(get_scoped_organization_id),
 ):
     """Org-scoped ticket queue — every admin sees every ticket raised in
     their organization (confirmed with HR: no per-reviewer restriction)."""
@@ -94,7 +94,7 @@ def resolve_handoff(
     payload: HandoffResolve,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
-    organization_id: int = Depends(get_organization_id),
+    organization_id: int = Depends(get_scoped_organization_id),
 ):
     handoff = handoff_service.resolve_handoff(
         db, organization_id, handoff_id, current_user.id, payload.resolution_note,

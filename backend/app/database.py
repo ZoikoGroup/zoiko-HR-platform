@@ -113,6 +113,9 @@ def initialize_database() -> None:
 
     # -- Schema migration: add columns that create_all won't retroactively add -----
     _ALTER_SQL = [
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS assigned_to INTEGER REFERENCES employees(id)",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP",
         "ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS plan_id INTEGER",

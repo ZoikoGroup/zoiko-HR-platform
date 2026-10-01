@@ -47,6 +47,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/super-admin/organizations",
     "/super-admin/access",
     "/super-admin/support-access",
+    "/super-admin/support-tickets",
+    "/super-admin/assistant-knowledge",
     "/super-admin/audit-logs",
     "/super-admin/notifications",
     // ── Shared & platform ──
