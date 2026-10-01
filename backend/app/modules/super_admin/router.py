@@ -672,157 +672,6 @@ def update_organization_status(
     return {"message": f"Organization {org.name} status set to {new_status.value}."}
 
 
-def _project_marked_values(db: Session, table, ref_col_name: str, marked_pks: set) -> set:
-    """Map marked parent primary keys onto the column referenced by an FK.
-
-    Most FKs reference the parent's single-column PK, so we project directly.
-    Anything else is resolved with a real query (covers unique-column FKs)."""
-    pk_cols = list(table.primary_key.columns)
-    if len(pk_cols) == 1:
-        pk_col = pk_cols[0]
-        if pk_col.name == ref_col_name:
-            return {pk for (pk,) in marked_pks}
-        vals = [pk for (pk,) in marked_pks]
-        rows = db.execute(table.select().where(pk_col.in_(vals))).all()
-        return {getattr(r, ref_col_name) for r in rows if getattr(r, ref_col_name) is not None}
-    from sqlalchemy import tuple_
-    from app.database import Base
-    ref_col = Base.metadata.tables[table.name].c[ref_col_name]
-    rows = db.execute(table.select().where(tuple_(*pk_cols).in_(list(marked_pks)))).all()
-    return {getattr(r, ref_col_name) for r in rows if getattr(r, ref_col_name) is not None}
-
-
-def _teardown_organization(db: Session, org_id: int) -> list[str]:
-    """Recursively collect and delete every row tied to an organization.
-
-    Seeds the purge set with the organization itself, its members
-    (employees) and every row carrying a direct organizations FK, then
-    walks the foreign-key graph until a fixpoint so grandchildren rows
-    (records referencing employees, departments, etc.) are removed too.
-    Deletion order is children-before-parents (reverse topological)."""
-    from app.database import Base
-    from sqlalchemy import tuple_
-
-    # Force-register every model module so the FK graph below is complete.
-    import app.modules.hr.models  # noqa: F401
-    import app.modules.employee.models  # noqa: F401
-    import app.modules.billing.models  # noqa: F401
-    import app.modules.assistant.models  # noqa: F401
-    from app.modules.super_admin import command_center_models  # noqa: F401
-
-    from app.modules.employee.models import Employee
-
-    tables = list(Base.metadata.tables.values())
-    marked_pks: dict[str, set] = {"organizations": {(org_id,)}}
-
-    member_ids = [row[0] for row in db.query(Employee.id).filter(Employee.organization_id == org_id).all()]
-    if member_ids:
-        marked_pks["employees"] = {(eid,) for eid in member_ids}
-
-    # Seed: every table with a direct FK to organizations.
-    for table in tables:
-        if table.name == "organizations":
-            continue
-        for fk in table.foreign_keys:
-            if fk.column.table.name != "organizations":
-                continue
-            pk_cols = list(table.primary_key.columns)
-            if len(pk_cols) != 1:
-                continue
-            rows = db.execute(table.select().where(fk.parent == org_id)).all()
-            if rows:
-                marked_pks.setdefault(table.name, set()).update(
-                    (getattr(r, pk_cols[0].name),) for r in rows
-                )
-            break
-
-    # Propagate: mark child rows whose parent rows are marked. Idempotent fixpoint.
-    changed = True
-    while changed:
-        changed = False
-        for child in tables:
-            for fk in child.foreign_keys:
-                parent = fk.column.table
-                parent_vals = marked_pks.get(parent.name)
-                if not parent_vals:
-                    continue
-                projected = _project_marked_values(db, parent, fk.column.name, parent_vals)
-                if not projected:
-                    continue
-                pk_cols = list(child.primary_key.columns)
-                if len(pk_cols) != 1:
-                    continue
-                rows = db.execute(child.select().where(fk.parent.in_(projected))).all()
-                for r in rows:
-                    pk = (getattr(r, pk_cols[0].name),)
-                    bucket = marked_pks.setdefault(child.name, set())
-                    if pk in bucket:
-                        continue
-                    bucket.add(pk)
-                    changed = True
-
-    # The schema has FK cycles (departments <-> employees <-> organizations,
-    # etc.), so a simple topological table order is unreliable. Two-phase
-    # delete instead:
-    #   1. NULL out every *nullable* FK that points at a table inside the purge
-    #      set. This severs the cycles (all cyclic edges are nullable).
-    #   2. Delete remaining rows leaf-first, ordering only by NOT NULL FKs.
-    covered = {name for name, pks in marked_pks.items() if pks}
-
-    for tname in covered:
-        table = Base.metadata.tables[tname]
-        pk_cols = list(table.primary_key.columns)
-        if len(pk_cols) != 1:
-            continue
-        pk_values = [pk[0] for pk in marked_pks[tname]]
-        for fk in table.foreign_keys:
-            if fk.column.table.name not in covered or not fk.parent.nullable:
-                continue
-            db.execute(
-                table.update()
-                .where(pk_cols[0].in_(pk_values))
-                .values({fk.parent.name: None})
-            )
-
-    # Leaf-first ordering: a table is safe to delete once no other remaining
-    # table holds a NOT NULL FK pointing at it.
-    child_map: dict[str, set] = {}
-    for tname in covered:
-        for fk in Base.metadata.tables[tname].foreign_keys:
-            parent_name = fk.column.table.name
-            if parent_name == tname or parent_name not in covered:
-                continue
-            if fk.parent.nullable:
-                continue
-            child_map.setdefault(parent_name, set()).add(tname)
-
-    remaining = set(covered)
-    order: list[str] = []
-    while remaining:
-        ready = sorted(t for t in remaining if not (child_map.get(t, set()) & remaining))
-        if not ready:
-            raise ZoikoException(
-                500, "DELETE_ORGANIZATION_FAILED",
-                "Circular NOT NULL foreign-key dependency prevents deletion of "
-                f"organization {org_id}: {sorted(remaining)}",
-            )
-        for tname in ready:
-            order.append(tname)
-            remaining.discard(tname)
-
-    purged = []
-    for tname in order:
-        table = Base.metadata.tables[tname]
-        pks = marked_pks[tname]
-        pk_cols = list(table.primary_key.columns)
-        if len(pk_cols) == 1:
-            db.execute(table.delete().where(pk_cols[0].in_([pk for (pk,) in pks])))
-        else:
-            db.execute(table.delete().where(tuple_(*pk_cols).in_(list(pks))))
-        purged.append(tname)
-    return purged
-
-
 class OrganizationDeleteRequest(BaseModel):
     confirm_name: str = Field(min_length=1, max_length=200, description="The organization's exact name")
     reason: Optional[str] = Field(default=None, max_length=1000)
@@ -857,9 +706,10 @@ def restore_organization(org_id: int, db: Session = Depends(get_db), current_use
     return {"message": f"Organization '{org.name}' was restored. Its users can sign in again."}
 
 
-# NOTE: _teardown_organization (above) is the old permanent-delete walk. It is no
-# longer reachable from any endpoint: permanent deletion is a follow-up that needs
-# an explicit decision (retention policy, billing/legal records it would destroy).
+# Permanent deletion of an organization is intentionally not implemented (ZHR-35
+# follow-up: it needs a retention policy and a decision on billing/legal records).
+# The old recursive FK-walk teardown was removed with the hard-delete endpoint; it
+# is in git history (before commit "organization deletion is one soft delete").
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

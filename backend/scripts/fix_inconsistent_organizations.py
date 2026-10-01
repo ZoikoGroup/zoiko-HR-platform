@@ -85,7 +85,13 @@ def main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--actor", help="Super Admin email the change is attributed to (required with --apply)")
     args = parser.parse_args(argv)
 
-    from app.database import SessionLocal
+    from sqlalchemy import inspect
+    from app.database import SessionLocal, engine
+
+    if "deleted_at" not in {c["name"] for c in inspect(engine).get_columns("organizations")}:
+        print("The database has not been migrated for ZHR-35 yet (organizations.deleted_at is missing). "
+              "Run `alembic upgrade head` first, then re-run this script.", file=sys.stderr)
+        return 3
 
     db = SessionLocal()
     try:

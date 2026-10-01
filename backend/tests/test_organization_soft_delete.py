@@ -339,3 +339,83 @@ def test_data_fix_apply_is_limited_to_approved_ids_and_uses_the_same_soft_delete
     assert db.query(Employee).filter_by(email="orphan-emp@example.com").one().is_active is False  # retained, deactivated
     with pytest.raises(SystemExit):
         apply_fix(db, [4], p["emp1"].email)  # the actor must be a Super Admin
+
+
+# ───────────────────────── billing side effects ─────────────────────────
+
+def _subscription(db, org_id, status):
+    from app.modules.billing.models import BillingSubscription, SubscriptionStatus
+
+    sub = BillingSubscription(organization_id=org_id, status=SubscriptionStatus(status))
+    db.add(sub)
+    db.commit()
+    return sub
+
+
+def _sub_status(db, org_id):
+    from app.modules.billing.models import BillingSubscription
+
+    db.expire_all()
+    return db.query(BillingSubscription).filter_by(organization_id=org_id).one().status.value
+
+
+@pytest.mark.parametrize("before", ["active", "past_due"])
+def test_paying_subscription_is_scheduled_to_cancel_and_restore_puts_it_back(world, before):
+    from app.modules.billing.models import BillingAuditLog
+
+    db, c, p = world["db"], world["c"], world["p"]
+    _subscription(db, 1, before)
+    impact = c.get("/super-admin/organizations/1/deletion-impact", headers=_token(p["sa"])).json()
+    assert impact["subscription"]["will_be_scheduled_to_cancel"] is True
+    assert any("scheduled to cancel" in e for e in impact["effects"])
+    _delete(world)
+    assert _sub_status(db, 1) == "cancel_at_period_end"
+    snap = db.query(Organization).execution_options(include_deleted=True).filter_by(id=1).one().deletion_snapshot
+    assert snap["subscription"]["previous_status"] == before
+    audit = db.query(BillingAuditLog).filter_by(organization_id=1).all()
+    assert [a.reason for a in audit] == ["Organization deleted"] and audit[0].actor_id == p["sa"].id
+    assert c.post("/super-admin/organizations/1/restore", headers=_token(p["sa"])).status_code == 200
+    assert _sub_status(db, 1) == before
+    assert [a.reason for a in db.query(BillingAuditLog).filter_by(organization_id=1).all()] == ["Organization deleted", "Organization restored"]
+    restored = [l for l in db.query(AuditLog).all() if (l.details or {}).get("event") == "organization.restored"][0]
+    assert restored.details["subscription_restored"] is True
+
+
+@pytest.mark.parametrize("status", ["evaluation", "suspended", "canceled", "terminated"])
+def test_other_subscriptions_are_left_alone(world, status):
+    db, c, p = world["db"], world["c"], world["p"]
+    _subscription(db, 1, status)
+    impact = c.get("/super-admin/organizations/1/deletion-impact", headers=_token(p["sa"])).json()
+    assert impact["subscription"]["will_be_scheduled_to_cancel"] is False
+    _delete(world)
+    assert _sub_status(db, 1) == status
+    c.post("/super-admin/organizations/1/restore", headers=_token(p["sa"]))
+    assert _sub_status(db, 1) == status
+
+
+def test_restore_does_not_override_a_status_billing_changed_in_the_meantime(world):
+    db, c, p = world["db"], world["c"], world["p"]
+    sub = _subscription(db, 1, "active")
+    _delete(world)
+    sub.status = type(sub.status)("terminated")  # billing moved on while the organization was deleted
+    db.commit()
+    c.post("/super-admin/organizations/1/restore", headers=_token(p["sa"]))
+    assert _sub_status(db, 1) == "terminated"
+
+
+def test_no_subscription_is_fine(world):
+    r = _delete(world)
+    assert r.status_code == 200
+    assert world["c"].post("/super-admin/organizations/1/restore", headers=_token(world["p"]["sa"])).status_code == 200
+
+
+def test_data_fix_script_explains_when_the_database_is_not_migrated_yet(monkeypatch, capsys):
+    import app.database as appdb
+    from scripts.fix_inconsistent_organizations import main
+
+    old = create_engine("sqlite:///:memory:", poolclass=StaticPool)
+    with old.begin() as conn:
+        conn.exec_driver_sql("CREATE TABLE organizations (id INTEGER PRIMARY KEY)")  # pre-ZHR-35 shape
+    monkeypatch.setattr(appdb, "engine", old)
+    assert main([]) == 3
+    assert "alembic upgrade head" in capsys.readouterr().err

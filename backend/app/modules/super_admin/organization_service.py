@@ -14,10 +14,12 @@ What a delete changes, in a single transaction:
     restore reactivates exactly those users and nobody who was already inactive;
   * an audit row is written.
 
-Billing is deliberately NOT touched: cancelling or pausing a subscription has
-external effects (the payment provider, scheduled invoices) and needs an
-explicit product decision. The impact summary reports the subscription so the
-Super Admin can see what they are deleting."""
+Billing follows the existing cancel logic (billing.service.cancel_subscription is
+a local status change, it never calls the payment provider): a paying (active or
+past-due) subscription is moved to "cancel at period end" and its previous status
+is stored in deletion_snapshot, so restore puts it back. Trials are left alone
+(they end by themselves, with no charge), as are subscriptions that are already
+suspended, canceled or terminated."""
 
 from datetime import datetime, timedelta
 from typing import Optional
@@ -30,6 +32,8 @@ from app.modules.hr.models import Organization
 from app.modules.super_admin.models import AuditAction, AuditLog
 
 RESTORE_WINDOW_DAYS = 90
+# Paying subscriptions are scheduled to cancel when their organization is deleted.
+_CANCELLABLE = ("active", "past_due")
 DELETED_ORG_MESSAGE = "This organization's account has been deactivated. Please contact support."
 
 
@@ -71,19 +75,30 @@ def _members(db: Session, org_id: int):
     return db.query(Employee).filter(Employee.organization_id == org_id, Employee.role != UserRole.SUPER_ADMIN).all()
 
 
+def _subscription(db: Session, org_id: int):
+    from app.modules.billing.models import BillingSubscription
+
+    return db.query(BillingSubscription).filter(BillingSubscription.organization_id == org_id).first()
+
+
+def _status_value(sub) -> Optional[str]:
+    v = getattr(sub.status, "value", sub.status) if sub is not None else None
+    return str(v).lower() if v else None
+
+
 def deletion_impact(db: Session, org_id: int) -> dict:
     """What deleting this organization would do, for the confirmation dialog."""
     org = get_organization(db, org_id)
     members = _members(db, org_id)
     subscription = None
+    will_cancel = False
     try:
-        from app.modules.billing.models import BillingSubscription
-
-        sub = db.query(BillingSubscription).filter(BillingSubscription.organization_id == org_id).first()
+        sub = _subscription(db, org_id)
         if sub is not None:
-            status = getattr(sub.status, "value", sub.status)
             plan = getattr(sub.plan_code, "value", sub.plan_code)
-            subscription = {"status": str(status) if status else None, "plan": str(plan) if plan else None}
+            will_cancel = _status_value(sub) in _CANCELLABLE
+            subscription = {"status": _status_value(sub), "plan": str(plan) if plan else None,
+                            "will_be_scheduled_to_cancel": will_cancel}
     except Exception:  # impact is informational; never block the dialog on billing
         subscription = None
     return {
@@ -96,9 +111,19 @@ def deletion_impact(db: Session, org_id: int) -> dict:
             "The organization disappears from every list and from dashboard counts.",
             "Documents, invoices, refunds, audit logs and other records are kept.",
             f"A Super Admin can restore it within {RESTORE_WINDOW_DAYS} days.",
-            "The subscription is not changed automatically; review billing separately.",
+            ("The paid subscription is scheduled to cancel at the end of its period; restoring the organization undoes this."
+             if will_cancel else "Its subscription (if any) is left as it is: trials end on their own and nothing is charged."),
         ],
     }
+
+
+def _invalidate_entitlements(org_id: int) -> None:
+    try:
+        from app.modules.billing.entitlement_service import invalidate_entitlement_cache
+
+        invalidate_entitlement_cache(org_id)
+    except Exception:  # a cache problem must not undo a committed delete/restore
+        pass
 
 
 def delete_organization(db: Session, org_id: int, actor, confirm_name: Optional[str], reason: Optional[str] = None,
@@ -117,11 +142,26 @@ def delete_organization(db: Session, org_id: int, actor, confirm_name: Optional[
             deactivated.append(m.id)
             m.is_active = False
         m.password_changed_at = now  # every earlier token (session or refresh) is now rejected
-    org.deletion_snapshot = {
+    snapshot = {
         "deactivated_user_ids": deactivated,
         "was_active": bool(org.is_active),
         "status": getattr(org.status, "value", str(org.status)),
+        "subscription": None,
     }
+    sub = _subscription(db, org.id)
+    if sub is not None and _status_value(sub) in _CANCELLABLE:
+        from app.modules.billing.models import BillingAuditAction, SubscriptionStatus
+        from app.modules.billing.service import log_billing_audit
+
+        snapshot["subscription"] = {"id": sub.id, "previous_status": _status_value(sub)}
+        sub.status = SubscriptionStatus.CANCEL_AT_PERIOD_END
+        log_billing_audit(
+            db, actor=actor, organization_id=org.id, action=BillingAuditAction.SUBSCRIPTION_CANCELED,
+            entity_type="BillingSubscription", entity_id=sub.id,
+            before={"status": snapshot["subscription"]["previous_status"]}, after={"status": "cancel_at_period_end"},
+            reason="Organization deleted", source="organization-delete", commit=False,
+        )
+    org.deletion_snapshot = snapshot
     org.is_active = False
     org.deleted_at, org.deleted_by = now, actor.id
     org.delete_reason = (reason or "").strip()[:1000] or None
@@ -129,9 +169,11 @@ def delete_organization(db: Session, org_id: int, actor, confirm_name: Optional[
         action=AuditAction.DELETE, entity_type="Organization", entity_id=org.id,
         performed_by=actor.id, performed_by_email=actor.email,
         details={"event": "organization.deleted", "name": org.name, "reason": org.delete_reason, "source": source,
-                 "users_deactivated": len(deactivated), "users_total": len(members), "soft_delete": True},
+                 "users_deactivated": len(deactivated), "users_total": len(members), "soft_delete": True,
+                 "subscription_scheduled_to_cancel": snapshot["subscription"] is not None},
     ))
     db.commit()
+    _invalidate_entitlements(org.id)
     return org
 
 
@@ -151,11 +193,30 @@ def restore_organization(db: Session, org_id: int, actor) -> Organization:
             m.is_active = True  # sessions stay revoked: password_changed_at is untouched, users sign in again
             restored += 1
     org.is_active = bool(snapshot.get("was_active", True))
+    reverted_subscription = False
+    sub_info = snapshot.get("subscription")
+    if sub_info:
+        from app.modules.billing.models import BillingAuditAction, SubscriptionStatus
+        from app.modules.billing.service import log_billing_audit
+
+        sub = _subscription(db, org.id)
+        # Only undo OUR change: if billing moved the subscription since, leave it alone.
+        if sub is not None and _status_value(sub) == "cancel_at_period_end":
+            sub.status = SubscriptionStatus(sub_info["previous_status"])
+            reverted_subscription = True
+            log_billing_audit(
+                db, actor=actor, organization_id=org.id, action=BillingAuditAction.SUBSCRIPTION_REACTIVATED,
+                entity_type="BillingSubscription", entity_id=sub.id,
+                before={"status": "cancel_at_period_end"}, after={"status": sub_info["previous_status"]},
+                reason="Organization restored", source="organization-restore", commit=False,
+            )
     org.deleted_at = org.deleted_by = org.delete_reason = org.deletion_snapshot = None
     db.add(AuditLog(
         action=AuditAction.UPDATE, entity_type="Organization", entity_id=org.id,
         performed_by=actor.id, performed_by_email=actor.email,
-        details={"event": "organization.restored", "name": org.name, "users_reactivated": restored},
+        details={"event": "organization.restored", "name": org.name, "users_reactivated": restored,
+                 "subscription_restored": reverted_subscription},
     ))
     db.commit()
+    _invalidate_entitlements(org.id)
     return org
