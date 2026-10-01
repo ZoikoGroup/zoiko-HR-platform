@@ -72,6 +72,7 @@ export default function OrgActivityFeed() {
   const [options, setOptions] = useState({ organizations: [], action_groups: [] });
   const [draft, setDraft] = useState(EMPTY);
   const [applied, setApplied] = useState(EMPTY);
+  const [nonce, setNonce] = useState(0); // bumps on every Apply/Refresh so the list always reloads
   const [page, setPage] = useState(1);
   const [data, setData] = useState(null);
   const [error, setError] = useState("");
@@ -101,13 +102,13 @@ export default function OrgActivityFeed() {
     } finally {
       if (id === seq.current) setLoading(false);
     }
-  }, [applied, page]);
+  }, [applied, page, nonce]);
 
   useEffect(() => { load(); }, [load]);
 
   const set = (k) => (e) => setDraft((d) => ({ ...d, [k]: e.target.value }));
-  const apply = (e) => { e?.preventDefault(); setPage(1); setApplied(draft); };
-  const clear = () => { setDraft(EMPTY); setApplied(EMPTY); setPage(1); };
+  const apply = (e) => { e?.preventDefault(); setPage(1); setApplied({ ...draft }); setNonce((n) => n + 1); };
+  const clear = () => { setDraft(EMPTY); setApplied(EMPTY); setPage(1); setNonce((n) => n + 1); };
   const events = data?.events || [];
   const pages = Math.max(1, Math.ceil((data?.total || 0) / PAGE_SIZE));
   const filtered = Object.values(applied).some((v) => v !== "");
@@ -132,9 +133,10 @@ export default function OrgActivityFeed() {
         <input aria-label="From date" type="date" className={inputCls} value={draft.date_from} onChange={set("date_from")} />
         <input aria-label="To date" type="date" className={inputCls} value={draft.date_to} onChange={set("date_to")} />
         <input aria-label="Search" className={inputCls} placeholder="Search target, actor, organization" value={draft.q} onChange={set("q")} />
-        <div className="flex gap-2"><Btn tone="primary" type="submit">Apply</Btn><Btn onClick={clear}>Clear</Btn></div>
+        <div className="flex gap-2"><Btn tone="primary" type="submit">Apply</Btn><Btn onClick={clear}>Clear</Btn><Btn onClick={() => setNonce((n) => n + 1)}>Refresh</Btn></div>
       </form>
 
+      {loading && data ? <p className="mb-2 text-xs text-slate-400" role="status">Updating…</p> : null}
       <ErrorNote message={error} />
       {error ? <div className="mb-2"><Btn onClick={load}>Retry</Btn></div> : null}
       {loading && !data ? <Spinner /> : events.length === 0 && !error ? (
