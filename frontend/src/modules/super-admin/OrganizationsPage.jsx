@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
 import { useNavigate } from "react-router-dom";
 import {
   Search, Eye, ShieldCheck, History, CheckCircle2, XCircle,
@@ -17,6 +18,7 @@ export default function SuperAdminOrganizationsPage() {
   const [pageSize] = useState(20);
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState("All statuses");
+  const [lifecycle, setLifecycle] = useState("active"); // active | deleted
   const [planFilter, setPlanFilter] = useState("all");
   const [createdFrom, setCreatedFrom] = useState("");
   const [createdTo, setCreatedTo] = useState("");
@@ -36,7 +38,7 @@ export default function SuperAdminOrganizationsPage() {
     setLoading(true);
     try {
       setError(null);
-      const params = { page, page_size: pageSize };
+      const params = { page, page_size: pageSize, deleted: lifecycle };
       if (searchTerm) params.search = searchTerm;
       if (statusFilter !== "All statuses") params.status = statusFilter.toLowerCase().replace(" ", "_");
       if (planFilter !== "all") params.plan = planFilter;
@@ -51,7 +53,7 @@ export default function SuperAdminOrganizationsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, pageSize, searchTerm, statusFilter, planFilter, createdFrom, createdTo]);
+  }, [page, pageSize, searchTerm, statusFilter, lifecycle, planFilter, createdFrom, createdTo]);
 
   useEffect(() => { loadOrgs(); }, [loadOrgs]);
 
@@ -126,20 +128,21 @@ export default function SuperAdminOrganizationsPage() {
 
   const handleDeleteClick = (org) => setDeleteOrg(org);
 
-  const confirmDeleteOrg = async () => {
-    if (!deleteOrg) return;
-    const orgName = deleteOrg.name;
-    setActionLoading(deleteOrg.id);
+  const handleOrgDeleted = (res) => {
+    const name = deleteOrg?.name;
+    setDeleteOrg(null);
+    setError(null);
+    setSuccessMessage(res?.message || `Organization "${name}" was deleted.`);
+    if (page !== 1 && organizations.length === 1) setPage(page - 1);
+    loadOrgs(); // the list re-reads from the server, so the deleted organization is gone immediately
+  };
+
+  const handleRestore = async (org) => {
+    setActionLoading(org.id);
     try {
       setError(null);
-      setSuccessMessage(null);
-      const confirm = await superAdminService.mintConfirmationToken(deleteOrg.id, "delete_organization");
-      const res = await superAdminService.deleteOrganization(deleteOrg.id, {
-        id: confirm.confirmation_id,
-        token: confirm.token,
-      });
-      setDeleteOrg(null);
-      setSuccessMessage(res?.message || `Organization "${orgName}" deleted successfully.`);
+      const res = await superAdminService.restoreOrganization(org.id);
+      setSuccessMessage(res?.message || `Organization "${org.name}" was restored.`);
       loadOrgs();
     } catch (e) { setError(e.message); }
     finally { setActionLoading(null); }
@@ -259,6 +262,17 @@ export default function SuperAdminOrganizationsPage() {
             </div>
 
             <div className="flex items-center flex-wrap gap-3">
+              {/* Active / Deleted */}
+              <div className="inline-flex rounded-lg border border-slate-200 bg-white p-0.5 text-xs font-semibold shadow-sm" role="group" aria-label="Organization lifecycle">
+                {[["active", "Active"], ["deleted", "Deleted"]].map(([value, label]) => (
+                  <button key={value} type="button" aria-pressed={lifecycle === value}
+                    onClick={() => { setLifecycle(value); setPage(1); }}
+                    className={`rounded-md px-3 py-2 transition ${lifecycle === value ? "bg-blue-600 text-white" : "text-slate-600 hover:bg-slate-50"}`}>
+                    {label}
+                  </button>
+                ))}
+              </div>
+
               {/* Status Filter Dropdown */}
               <div className="relative">
                 <Filter className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
@@ -328,7 +342,7 @@ export default function SuperAdminOrganizationsPage() {
               </div>
               <p className="text-sm font-semibold text-slate-600">No organizations found</p>
               <p className="mt-1 text-sm text-slate-400">
-                {searchTerm || statusFilter !== "All statuses" ? "Try adjusting your search or filter." : "New registrations will appear here."}
+                {lifecycle === "deleted" ? "No organizations have been deleted." : searchTerm || statusFilter !== "All statuses" ? "Try adjusting your search or filter." : "New registrations will appear here."}
               </p>
             </div>
           ) : (
@@ -351,6 +365,30 @@ export default function SuperAdminOrganizationsPage() {
                     const avatar = getOrgAvatar(o.name);
                     const s = o.status?.toUpperCase();
                     const userCount = o.user_count ?? o.total_employees ?? 0;
+                    if (o.deleted_at) {
+                      return (
+                        <tr key={o.id} className="bg-slate-50/60" data-testid={`deleted-org-${o.id}`}>
+                          <td className="px-6 py-4">
+                            <div className="font-bold text-slate-500 line-through decoration-slate-300">{o.name}</div>
+                            <div className="text-xs text-slate-400">ID: {o.organization_code || "—"}</div>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-400" colSpan={2}>
+                            {o.delete_reason ? `Reason: ${o.delete_reason}` : "No reason recorded"}
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500">{userCount} {userCount === 1 ? "user" : "users"}</td>
+                          <td className="px-6 py-4">
+                            <span className="inline-flex items-center rounded-full border border-red-200 bg-red-50 px-3 py-1 text-xs font-bold text-red-700">Deleted</span>
+                          </td>
+                          <td className="px-6 py-4 text-xs text-slate-500">{formatDate(o.deleted_at)}</td>
+                          <td className="px-6 py-4 text-right pr-6">
+                            <button onClick={() => handleRestore(o)} disabled={actionLoading === o.id}
+                              className="inline-flex items-center gap-1.5 rounded-lg border border-emerald-200 bg-white px-3 py-1.5 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 disabled:opacity-50">
+                              <RotateCcw className="h-3.5 w-3.5" />{actionLoading === o.id ? "Restoring…" : "Restore"}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
                     return (
                       <tr key={o.id} className="hover:bg-blue-50/40 transition-colors duration-150 group">
                         {/* Organization Details */}
@@ -476,7 +514,7 @@ export default function SuperAdminOrganizationsPage() {
 
                             {/* Delete */}
                             <button onClick={() => handleDeleteClick(o)} disabled={actionLoading === o.id}
-                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-100/70 rounded-lg transition-all shadow-none disabled:opacity-40" title="Permanently delete">
+                              className="p-1.5 text-slate-400 hover:text-red-600 hover:bg-red-100/70 rounded-lg transition-all shadow-none disabled:opacity-40" title="Delete organization">
                               <Trash2 className="w-4 h-4" />
                             </button>
 
@@ -665,31 +703,9 @@ export default function SuperAdminOrganizationsPage() {
         </div>
       )}
 
-      {/* Delete Organization Modal */}
+      {/* Delete Organization (shared with the detail page and User Management) */}
       {deleteOrg && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-3xl p-6 w-full max-w-md shadow-xl border border-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-full bg-red-100 flex items-center justify-center">
-                <Trash2 className="h-5 w-5 text-red-600" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-800">Delete Organization</h3>
-            </div>
-            <p className="text-sm text-slate-600 mb-4">
-              Permanently delete <strong>{deleteOrg.name}</strong> and all of its users and records?
-              This irreversible action requires a one-time confirmation token and cannot be undone.
-            </p>
-            <div className="flex gap-3 mt-6 justify-end">
-              <button onClick={() => setDeleteOrg(null)}
-                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
-              <button onClick={confirmDeleteOrg} disabled={actionLoading === deleteOrg.id}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
-                <Trash2 className="h-4 w-4" />
-                {actionLoading === deleteOrg.id ? "Deleting..." : "Delete Forever"}
-              </button>
-            </div>
-          </div>
-        </div>
+        <DeleteOrganizationDialog org={deleteOrg} onClose={() => setDeleteOrg(null)} onDeleted={handleOrgDeleted} />
       )}
 
       {/* Reject Reason Modal */}

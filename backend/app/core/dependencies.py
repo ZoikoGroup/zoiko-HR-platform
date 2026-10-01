@@ -156,6 +156,13 @@ def get_current_user(
     if user is None:
         raise UnauthorizedException("User account not found. Please log in again.")
 
+    # Deleting an organization ends its users' sessions immediately (checked first
+    # so the user is told why, not just "log in again").
+    if user.organization_id:
+        from app.modules.super_admin import organization_service
+        if organization_service.is_deleted(db, user.organization_id):
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
+
     from app.core.security import token_predates_password_change
     if token_predates_password_change(payload, user):
         raise UnauthorizedException("Your password was changed. Please log in again.")

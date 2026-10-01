@@ -394,6 +394,12 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
 
+    # A deleted organization is invisible to normal queries, so check it explicitly
+    # and tell the user why, instead of a generic "invalid credentials".
+    from app.modules.super_admin import organization_service
+    if organization_service.is_deleted(db, employee.organization_id):
+        raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
+
     if employee.organization_id:
         org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
         if org:

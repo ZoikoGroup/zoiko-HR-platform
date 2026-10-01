@@ -188,12 +188,17 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         raise UnauthorizedException("Invalid or expired refresh token.")
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
+    if employee:  # before the is_active check: a deleted organization deactivates its users
+        from app.modules.super_admin import organization_service
+        if organization_service.is_deleted(db, employee.organization_id):
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
     if not employee or not employee.is_active:
         raise UnauthorizedException("Employee not found or inactive.")
 
     from app.core.security import token_predates_password_change
     if token_predates_password_change(payload, employee):
         raise UnauthorizedException("Your password was changed. Please log in again.")
+
 
     if employee.organization_id:
         from app.modules.hr.models import Organization, OrganizationStatus

@@ -14,6 +14,7 @@ import secrets
 from datetime import datetime
 from typing import Optional
 
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import Text, case, cast, func, or_, text
 from sqlalchemy.orm import Session
@@ -26,7 +27,7 @@ from app.core.exceptions import (
     BadRequestException, NotFoundException, UnauthorizedException, ZoikoException,
 )
 from app.core.security import hash_password
-from app.modules.super_admin import notification_service
+from app.modules.super_admin import notification_service, organization_service
 
 from app.modules.super_admin.models import (
     AuditAction, AuditLog, LoginActivity, Notification, PlatformSetting, ApprovalHistory, EmailDeliveryLog,
@@ -151,7 +152,7 @@ def dashboard_stats(db: Session = Depends(get_db), _=Depends(get_current_super_a
     from app.modules.employee.models import Employee, UserRole, EmployeeStatus
 
     orgs = db.query(Organization).all()
-    employees = db.query(Employee).all()
+    employees = organization_service.visible_employees(db).all()
 
     def _count_org(status) -> int:
         return sum(1 for o in orgs if o.status and o.status.value == status.value)
@@ -246,6 +247,7 @@ def list_organizations(
     plan: Optional[str] = None,
     created_from: Optional[str] = None,
     created_to: Optional[str] = None,
+    deleted: str = Query("active", description="active (default) | deleted | all"),
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
@@ -258,7 +260,13 @@ def list_organizations(
     from app.modules.billing.models import BillingSubscription, OrganizationEvaluation
     from app.modules.billing.models import PlanCode as BillingPlanCode
 
+    if deleted not in ("active", "deleted", "all"):
+        raise HTTPException(status_code=400, detail="deleted must be one of: active, deleted, all.")
     q = db.query(Organization)
+    if deleted == "deleted":
+        q = q.execution_options(include_deleted=True).filter(Organization.deleted_at.isnot(None))
+    elif deleted == "all":
+        q = q.execution_options(include_deleted=True)
     if status:
         q = q.filter(Organization.status.ilike(status))
     if search:
@@ -375,6 +383,8 @@ def list_organizations(
             reactivated_at=o.reactivated_at,
             rejection_reason=o.rejection_reason,
             created_at=o.created_at,
+            deleted_at=o.deleted_at,
+            delete_reason=o.delete_reason,
         ))
     return {"organizations": result, "total": total}
 
@@ -813,65 +823,43 @@ def _teardown_organization(db: Session, org_id: int) -> list[str]:
     return purged
 
 
-@router.delete("/organizations/{org_id}", summary="Delete an organization permanently (hard delete)")
+class OrganizationDeleteRequest(BaseModel):
+    confirm_name: str = Field(min_length=1, max_length=200, description="The organization's exact name")
+    reason: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.get("/organizations/{org_id}/deletion-impact", summary="What deleting this organization would do")
+def organization_deletion_impact(org_id: int, db: Session = Depends(get_db), _=Depends(get_current_super_admin)):
+    return organization_service.deletion_impact(db, org_id)
+
+
+@router.delete("/organizations/{org_id}", summary="Delete an organization (soft delete, restorable)")
 def delete_organization(
     org_id: int,
-    x_confirmation_id: Optional[str] = Header(None, alias=_CONFIRMATION_HEADER_ID),
-    x_confirmation_token: Optional[str] = Header(None, alias=_CONFIRMATION_HEADER_TOKEN),
+    body: OrganizationDeleteRequest,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_super_admin),
 ):
-    from app.modules.hr.models import Organization
+    """The single deletion path for organizations. Soft delete: users lose
+    access and are signed out, the organization leaves every list, and all
+    related records are retained. See organization_service for the details."""
+    org = organization_service.delete_organization(db, org_id, current_user, body.confirm_name, body.reason)
+    return {
+        "message": f"Organization '{org.name}' was deleted. It can be restored for "
+                   f"{organization_service.RESTORE_WINDOW_DAYS} days.",
+        "deleted_at": org.deleted_at.isoformat() + "Z",
+    }
 
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise NotFoundException("Organization", org_id)
 
-    # Snapshot display fields now — the teardown below deletes the ORM row, so
-    # any later attribute access on `org` would raise ObjectDeletedError.
-    org_name = org.name
-    org_code = org.organization_code
+@router.post("/organizations/{org_id}/restore", summary="Restore a deleted organization")
+def restore_organization(org_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_super_admin)):
+    org = organization_service.restore_organization(db, org_id, current_user)
+    return {"message": f"Organization '{org.name}' was restored. Its users can sign in again."}
 
-    # Two-step confirmation for irreversible hard-delete (Prompt 5).
-    if not x_confirmation_id or not x_confirmation_token:
-        raise BadRequestException(
-            "Deleting an organization requires a confirmation token. "
-            "POST /super-admin/organizations/{org_id}/confirmation-tokens with "
-            "purpose='delete_organization' first, then send X-Confirmation-Id and "
-            "X-Confirmation-Token headers."
-        )
-    try:
-        confirmation_id = int(x_confirmation_id)
-    except (TypeError, ValueError):
-        raise BadRequestException("Invalid X-Confirmation-Id.")
-    _consume_confirmation(
-        db, current_user, org.id, "delete_organization",
-        confirmation_id, x_confirmation_token,
-    )
 
-    # Full recursive teardown: organization + employees + every row that
-    # references them, transitively (FK graph fixpoint). Single transaction.
-    try:
-        purged = _teardown_organization(db, org.id)
-    except Exception as exc:
-        db.rollback()
-        logger.error("Organization %s hard-delete failed: %s", org_id, exc, exc_info=True)
-        raise ZoikoException(500, "DELETE_ORGANIZATION_FAILED",
-                             f"Failed to permanently delete organization '{org_name}'. "
-                             "No changes were committed.") from exc
-
-    db.add(AuditLog(
-        action=AuditAction.DELETE,
-        entity_type="Organization",
-        entity_id=org_id,
-        performed_by=current_user.id,
-        performed_by_email=current_user.email,
-        details={"name": org_name, "code": org_code, "purged_tables": purged},
-    ))
-    db.commit()
-    emit_event(db, "organization.deleted", {"id": org_id, "name": org_name, "code": org_code}, None)
-
-    return {"message": f"Organization '{org_name}' has been permanently deleted successfully."}
+# NOTE: _teardown_organization (above) is the old permanent-delete walk. It is no
+# longer reachable from any endpoint: permanent deletion is a follow-up that needs
+# an explicit decision (retention policy, billing/legal records it would destroy).
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -915,7 +903,7 @@ def list_users(
 ):
     from app.modules.employee.models import Employee, EmployeeStatus, UserRole
 
-    q = db.query(Employee)
+    q = organization_service.visible_employees(db)
 
     if search:
         term = f"%{search}%"

@@ -146,6 +146,20 @@ _WRITE_INVALIDATION = [
 ]
 
 
+# Deleting or restoring an organization must drop everything cached for it, so
+# its users cannot read stale cached data after the lifecycle change (ZHR-35).
+_ORG_LIFECYCLE = re.compile(r"^/super-admin/organizations/(\d+)(?:/restore)?$")
+
+
+def _lifecycle_org_id(method: str, path: str) -> Optional[int]:
+    m = _ORG_LIFECYCLE.match(path)
+    if not m:
+        return None
+    is_delete = method == "DELETE" and not path.endswith("/restore")
+    is_restore = method == "POST" and path.endswith("/restore")
+    return int(m.group(1)) if (is_delete or is_restore) else None
+
+
 def _get_ttl(path: str) -> Optional[int]:
     """Return the TTL for a given path, or None if it shouldn't be cached."""
     for pattern, ttl in _PATH_TTL:
@@ -278,6 +292,18 @@ class CacheMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         if method in ("POST", "PUT", "PATCH", "DELETE") and response.status_code < 400:
+            lifecycle_org = _lifecycle_org_id(method, path)
+            if lifecycle_org is not None:
+                try:
+                    cursor = 0
+                    while True:
+                        cursor, keys = redis_client.scan(cursor=cursor, match=f"resp:{lifecycle_org}:*", count=500)
+                        if keys:
+                            redis_client.delete(*keys)
+                        if cursor == 0:
+                            break
+                except Exception as exc:
+                    logger.debug("[cache] org lifecycle invalidation failed for %s: %s", lifecycle_org, exc)
             org_id = _extract_org_id(request)
             prefixes = _get_invalidation_prefixes(path)
             if prefixes:

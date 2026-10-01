@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_super_admin
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.modules.super_admin import organization_service
 
 from app.modules.super_admin.command_center_models import (
     PlatformServiceHealth, PlatformIncident, PlatformDailySnapshot,
@@ -71,7 +72,7 @@ def _compute_platform_totals(db: Session) -> dict:
     active_organizations = sum(
         1 for o in orgs if o.status and o.status.value == OrganizationStatus.ACTIVE.value
     )
-    total_workforce = db.query(Employee).filter(Employee.status == EmployeeStatus.ACTIVE).count()
+    total_workforce = organization_service.visible_employees(db).filter(Employee.status == EmployeeStatus.ACTIVE).count()
 
     cutoff = datetime.utcnow() - timedelta(days=30)
     activated_org_ids = {
@@ -646,7 +647,7 @@ def security_overview(days: int = 30, db: Session = Depends(get_db), _=Depends(g
     from app.modules.hr.models import Organization, OrganizationStatus
     from app.modules.super_admin.models import LoginActivity, AuditLog, AuditAction
 
-    admin_users = db.query(Employee).filter(Employee.role == UserRole.ADMIN).count()
+    admin_users = organization_service.visible_employees(db).filter(Employee.role == UserRole.ADMIN).count()
     super_admins = db.query(Employee).filter(Employee.role == UserRole.SUPER_ADMIN).count()
 
     cutoff = datetime.utcnow() - timedelta(days=days)

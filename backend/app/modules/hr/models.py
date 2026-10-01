@@ -159,6 +159,13 @@ class Organization(Base):
     tax_number        = Column(String(100), nullable=True)
     registered_email  = Column(String(255), nullable=True)
 
+    # Soft delete (ZHR-35). A row with deleted_at set is hidden from every query
+    # by the global filter in app/database.py unless include_deleted is requested.
+    deleted_at        = Column(DateTime, nullable=True, index=True)
+    deleted_by        = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    delete_reason     = Column(Text, nullable=True)
+    deletion_snapshot = Column(JSON, nullable=True)  # what the delete changed, so restore can undo it
+
     @property
     def name(self):
         """Legacy alias for the org's display name. The old `name` column was
