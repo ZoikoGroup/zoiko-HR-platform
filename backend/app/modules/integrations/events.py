@@ -49,9 +49,14 @@ def emit_event(db: Session, event_type: str, data: dict, organization_id: int | 
         for wf in db.query(Workflow).filter(
             Workflow.is_active.is_(True), Workflow.trigger_event == event_type
         ).all():
+            # A workflow in an organization-scoped workspace only reacts to that
+            # organization's events; a platform-wide workspace reacts to all of them.
+            scope = wf.workspace.organization_id if wf.workspace is not None else None
+            if scope is not None and scope != organization_id:
+                continue
             db.add(WorkflowExecution(
                 workflow_id=wf.id, workflow_name=wf.name, trigger_event=event_type,
-                trigger_payload=envelope, triggered_by="event",
+                organization_id=organization_id, trigger_payload=envelope, triggered_by="event",
                 steps_snapshot=wf.steps or [], status="pending",
             ))
         db.commit()

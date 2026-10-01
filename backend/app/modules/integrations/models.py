@@ -109,6 +109,10 @@ class WorkflowExecution(Base):
     workflow_id = Column(Integer, ForeignKey("workflow_workflows.id", ondelete="SET NULL"), nullable=True, index=True)
     workflow_name = Column(String(120), nullable=False)
     trigger_event = Column(String(80), nullable=False)
+    # Organization the run is about (from the triggering event, or the workflow's
+    # workspace for a manual run); NULL = platform-level. Lets the page show and
+    # filter runs per organization without digging into the JSON payload.
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     trigger_payload = Column(JSON, nullable=True)
     triggered_by = Column(String(20), nullable=False, default="event")  # event | manual
     steps_snapshot = Column(JSON, nullable=False, default=list)

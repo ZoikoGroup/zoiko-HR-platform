@@ -134,6 +134,7 @@ def initialize_database() -> None:
         "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_by INTEGER REFERENCES employees(id)",
         "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS delete_reason TEXT",
         "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deletion_snapshot JSON",
+        "ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id)",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'normal'",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS assigned_to INTEGER REFERENCES employees(id)",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",

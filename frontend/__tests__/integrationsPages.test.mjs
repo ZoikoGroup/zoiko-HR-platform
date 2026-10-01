@@ -33,6 +33,7 @@ function setup(t, overrides = {}, role = "super_admin") {
     getWebhooks: async () => ({ webhooks: [] }),
     createWebhook: async () => ({ id: 1, signing_secret: "whsec_ABCDEF" }),
     getWorkspaces: async () => ({ workspaces: [] }),
+    getWorkflowOverview: async () => ({ organizations: [], totals: { workspaces: 0, workflows: 0, active_workflows: 0, runs_7d: 0, failed_7d: 0 } }),
     getWorkflows: async () => ({ workflows: [] }),
     getExecutions: async () => ({ executions: [], total: 0 }),
     getWorkflowMeta: async () => ({ triggers: [{ key: "user.created", description: "d" }], step_types: [] }),
@@ -43,6 +44,7 @@ function setup(t, overrides = {}, role = "super_admin") {
   mocked.add(t);
   t.mock.module("../src/service/integrationsService.js", { exports: { integrationsService: service } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
+  t.mock.module("../src/service/documentsService.js", { exports: { getOrganizations: async () => ({ organizations: [] }) } });
   t.mock.module("react-router-dom", {
     exports: { Link: ({ to, children }) => React.createElement("a", { href: to }, children) },
   });

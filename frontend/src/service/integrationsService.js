@@ -24,7 +24,8 @@ export const integrationsService = {
 
   // Workflow
   getWorkflowMeta: () => api.get("/super-admin/workflow/meta"),
-  getWorkspaces: () => api.get("/super-admin/workflow/workspaces"),
+  getWorkflowOverview: () => api.get("/super-admin/workflow/overview"),
+  getWorkspaces: (params) => api.get("/super-admin/workflow/workspaces", { params }),
   createWorkspace: (data) => api.post("/super-admin/workflow/workspaces", data),
   deleteWorkspace: (id) => api.delete(`/super-admin/workflow/workspaces/${id}`),
   getWorkflows: (params) => api.get("/super-admin/workflow/workflows", { params }),
