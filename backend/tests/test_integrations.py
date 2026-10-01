@@ -7,7 +7,7 @@ import httpx
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -20,6 +20,7 @@ from app.modules.employee.models import (
 )
 from app.modules.integrations import channels, delivery, engine
 from app.modules.integrations.events import emit_event
+from app.modules.integrations.models import WorkflowWorkspace
 from app.modules.integrations.models import (
     ConnectChannel, Webhook, WebhookDelivery, Workflow, WorkflowExecution,
 )
@@ -784,6 +785,90 @@ def test_overview_has_one_row_per_organization_plus_platform(world):
     assert (rows["Globex Inc"]["runs_7d"], rows["Globex Inc"]["failed_7d"], rows["Globex Inc"]["last_run_status"]) == (1, 1, "failed")
     assert (rows["Platform-wide"]["runs_7d"], rows["Platform-wide"]["succeeded_7d"]) == (1, 1)
     assert o["totals"] == {"workspaces": 4, "workflows": 4, "active_workflows": 1, "runs_7d": 2, "failed_7d": 1}
+
+
+def test_overview_lists_every_organization_even_without_automation(world):
+    """ZHR-24 follow-up: an organization with no workspace/workflow/run used to be
+    missing from the page entirely. It must appear, with honest zeros."""
+    db, c = world["db"], world["client"]
+    _orgs(db)
+    from app.modules.hr.models import Organization, OrganizationStatus
+
+    db.add(Organization(id=3, display_name="Initech", status=OrganizationStatus.ACTIVE))  # no organization_name
+    db.commit()
+    _workflow(c, _ws(c, "A", 1).json()["id"], steps=NOTIFY, name="a1")  # only Acme gets automation
+    rows = c.get("/super-admin/workflow/overview").json()["organizations"]
+    names = [r["organization_name"] for r in rows]
+    assert names == ["Acme Ltd", "Globex Inc", "Initech"]  # Platform-wide absent: nothing platform-scoped
+    assert next(r for r in rows if r["organization_name"] == "Initech")["organization_id"] == 3
+    zero = next(r for r in rows if r["organization_name"] == "Globex Inc")
+    assert (zero["workspaces"], zero["workflows"], zero["active_workflows"], zero["runs_7d"], zero["failed_7d"]) == (0, 0, 0, 0, 0)
+    assert zero["last_run_at"] is None and zero["organization_status"] == "active"
+
+
+def test_overview_hides_soft_deleted_organizations(world):
+    from app.modules.hr.models import Organization
+
+    db, c = world["db"], world["client"]
+    _orgs(db)
+    db.query(Organization).filter(Organization.id == 2).one().deleted_at = datetime.utcnow()
+    db.commit()
+    names = [r["organization_name"] for r in c.get("/super-admin/workflow/overview").json()["organizations"]]
+    assert names == ["Acme Ltd"]  # a deleted organization is not counted
+
+
+def test_overview_keeps_automation_of_a_soft_deleted_organization(world):
+    """The organization row is hidden, but its workflows must not vanish from
+    the totals - they still exist and still run."""
+    from app.modules.hr.models import Organization
+
+    db, c = world["db"], world["client"]
+    _orgs(db)
+    _workflow(c, _ws(c, "G", 2).json()["id"], steps=NOTIFY, name="g1")
+    db.query(Organization).filter(Organization.id == 2).one().deleted_at = datetime.utcnow()
+    db.commit()
+    o = c.get("/super-admin/workflow/overview").json()
+    assert [r["organization_name"] for r in o["organizations"]] == ["Acme Ltd", "Organization 2"]
+    assert o["totals"]["workflows"] == 1
+
+
+def test_overview_survives_an_orphaned_workflow(world):
+    """A workflow whose workspace row is gone must still be counted and listed
+    (as platform-wide), not silently dropped by an inner join."""
+    db, c = world["db"], world["client"]
+    _orgs(db)
+    wf = _workflow(c, _ws(c, "A", 1).json()["id"], steps=NOTIFY, name="orphan")
+    db.execute(text("PRAGMA foreign_keys=OFF") if db.bind.dialect.name == "sqlite"
+               else text("SET session_replication_role = replica"))
+    db.query(WorkflowWorkspace).delete()
+    db.commit()
+    o = c.get("/super-admin/workflow/overview").json()
+    assert o["totals"]["workflows"] == 1
+    assert o["totals"]["workspaces"] == 0
+    assert o["organizations"][-1]["organization_name"] == "Platform-wide"  # falls back, does not vanish
+    listed = c.get("/super-admin/workflow/workflows").json()["workflows"]
+    assert [w["name"] for w in listed] == ["orphan"]
+    assert listed[0]["organization_name"] == "Platform-wide"
+    assert c.get("/super-admin/workflow/workflows", params={"organization_id": 0}).json()["workflows"]
+
+
+def test_overview_last_run_is_the_newest_not_the_last_inserted(world):
+    """`last run` must follow created_at, not row order."""
+    db, c = world["db"], world["client"]
+    _orgs(db)
+    ws = _ws(c, "A", 1).json()
+    older = _workflow(c, ws["id"], steps=NOTIFY, name="older").json()
+    newer = _workflow(c, ws["id"], steps=NOTIFY, name="newer").json()
+    for w, when, status in ((older, datetime.utcnow() - timedelta(days=3), "failed"),
+                            (newer, datetime.utcnow() - timedelta(hours=2), "succeeded")):
+        ex = c.post(f"/super-admin/workflow/workflows/{w['id']}/run").json()
+        db.query(WorkflowExecution).filter(WorkflowExecution.id == ex["id"]).update(
+            {"created_at": when, "status": status})
+    db.commit()
+    row = next(r for r in c.get("/super-admin/workflow/overview").json()["organizations"]
+               if r["organization_name"] == "Acme Ltd")
+    assert row["last_run_status"] == "succeeded" and row["last_run_at"].startswith(
+        (datetime.utcnow() - timedelta(hours=2)).strftime("%Y-%m-%dT%H"))
 
 
 def test_overview_is_empty_without_data_and_super_admin_only(world):

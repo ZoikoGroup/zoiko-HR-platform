@@ -426,6 +426,7 @@ def create_user(
         db, data,
         organization_id=target_organization_id,
         created_by_id=current_user.id,
+        actor=current_user,
     )
 
     _audit_user_action(
@@ -791,7 +792,7 @@ def update_my_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.update_employee(db, current_user.id, data, current_user.organization_id)
+    return service.update_employee(db, current_user.id, data, current_user.organization_id, actor=current_user)
 
 
 @employee_router.post(
@@ -802,7 +803,7 @@ def update_my_profile(
     dependencies=[Depends(get_current_admin)],
 )
 def create_employee(data: EmployeeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_employee(db, data, current_user.organization_id)
+    return service.create_employee(db, data, current_user.organization_id, actor=current_user)
 
 
 @employee_router.get(
@@ -851,7 +852,7 @@ def update_employee(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.update_employee(db, employee_id, data, current_user.organization_id)
+    return service.update_employee(db, employee_id, data, current_user.organization_id, actor=current_user)
 
 
 @employee_router.delete(
@@ -865,7 +866,7 @@ def deactivate_employee(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    service.deactivate_employee(db, employee_id, current_user.organization_id)
+    service.deactivate_employee(db, employee_id, current_user.organization_id, actor=current_user)
     return {"message": f"Employee {employee_id} has been deactivated successfully."}
 
 
@@ -886,7 +887,7 @@ def create_leave(
 ):
     if data.employee_id is None:
         data.employee_id = current_user.id
-    return hr_service.create_leave_request(db, data, org_id=current_user.organization_id)
+    return hr_service.create_leave_request(db, data, org_id=current_user.organization_id, actor=current_user)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1001,7 +1002,7 @@ def get_employee_mgmt(
     dependencies=[Depends(get_current_admin)],
 )
 def create_employee_mgmt(data: EmployeeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_employee(db, data, current_user.organization_id)
+    return service.create_employee(db, data, current_user.organization_id, actor=current_user)
 
 
 @employee_router.post(
@@ -1023,6 +1024,7 @@ async def import_employees_mgmt(
         filename=filename,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
     return ImportResultResponse(**result)
 
@@ -1056,7 +1058,7 @@ def update_employee_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    return service.update_employee(db, employee_id, data, organization_id=current_user.organization_id)
+    return service.update_employee(db, employee_id, data, organization_id=current_user.organization_id, actor=current_user)
 
 
 @employee_router.delete(
@@ -1074,6 +1076,7 @@ def delete_employee_mgmt(employee_id: int, db: Session = Depends(get_db), curren
         employee_id,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
     return {"message": result["message"]}
 
@@ -1094,6 +1097,7 @@ def bulk_delete_employees_mgmt(
         data.ids,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
 
 
@@ -1108,6 +1112,7 @@ def delete_all_employees_mgmt(db: Session = Depends(get_db), current_user=Depend
         db,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
 
 
@@ -1121,7 +1126,7 @@ def hard_delete_employee(employee_id: int, db: Session = Depends(get_db), curren
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    service.hard_delete_employee(db, employee_id, organization_id=current_user.organization_id)
+    service.hard_delete_employee(db, employee_id, organization_id=current_user.organization_id)  # event recorded by bulk_hard_delete_employees
     return {"message": f"Employee {employee_id} has been permanently deleted."}
 
 
@@ -1143,6 +1148,7 @@ def bulk_hard_delete_employees(
     result = service.bulk_hard_delete_employees(
         db, body.employee_ids,
         organization_id=current_user.organization_id,
+        actor=current_user,
     )
     return {
         "message": f"{len(result['deleted'])} employee(s) deleted. {len(result['failed'])} failed.",
@@ -1180,7 +1186,7 @@ def update_employee_profile_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    return service.update_employee_profile(db, employee_id, data, organization_id=current_user.organization_id)
+    return service.update_employee_profile(db, employee_id, data, organization_id=current_user.organization_id, actor=current_user)
 
 
 # ── ORGANIZATION STRUCTURE ────────────────────────────────────────────────────
@@ -1348,20 +1354,20 @@ def get_employee_compensations(db: Session = Depends(get_db), current_user=Depen
 
 @employee_router.post("/compensation/employee-compensation", response_model=EmployeeCompensationResponse, summary="Assign compensation", dependencies=[Depends(get_current_admin)])
 def create_employee_compensation(data: EmployeeCompensationCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_employee_compensation(db, data, current_user.organization_id)
+    return service.create_employee_compensation(db, data, current_user.organization_id, actor=current_user)
 
 @employee_router.put("/compensation/employee-compensation/{id}", response_model=EmployeeCompensationResponse, summary="Update employee compensation", dependencies=[Depends(get_current_admin)])
 def update_employee_compensation(id: int, data: EmployeeCompensationUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.update_employee_compensation(db, id, data, current_user.organization_id)
+    return service.update_employee_compensation(db, id, data, current_user.organization_id, actor=current_user)
 
 @employee_router.delete("/compensation/employee-compensation/{id}", summary="Delete employee compensation", dependencies=[Depends(get_current_admin)])
 def delete_employee_compensation(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    service.delete_employee_compensation(db, id, current_user.organization_id)
+    service.delete_employee_compensation(db, id, current_user.organization_id, actor=current_user)
     return {"message": "Employee compensation deleted successfully."}
 
 @employee_router.post("/compensation/employee-benefits", response_model=EmployeeBenefitResponse, summary="Enroll in benefit", dependencies=[Depends(get_current_admin)])
 def create_employee_benefit(data: EmployeeBenefitCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_employee_benefit(db, data, current_user.organization_id)
+    return service.create_employee_benefit(db, data, current_user.organization_id, actor=current_user)
 
 @employee_router.get("/compensation/employee-benefits", response_model=list[EmployeeBenefitResponse], summary="List employee benefits")
 def get_employee_benefits(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -1369,5 +1375,5 @@ def get_employee_benefits(db: Session = Depends(get_db), current_user=Depends(ge
 
 @employee_router.delete("/compensation/employee-benefits/{id}", summary="Remove benefit", dependencies=[Depends(get_current_admin)])
 def delete_employee_benefit(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    service.delete_employee_benefit(db, id, current_user.organization_id)
+    service.delete_employee_benefit(db, id, current_user.organization_id, actor=current_user)
     return {"message": "Employee benefit removed successfully."}

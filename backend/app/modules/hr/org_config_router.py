@@ -74,7 +74,7 @@ def bulk_update(
     current_user=Depends(get_current_org_admin),
 ):
     configs = [cfg.model_dump() for cfg in data.configs]
-    return org_config_service.bulk_set_configs(db, current_user.organization_id, configs)
+    return org_config_service.bulk_set_configs(db, current_user.organization_id, configs, actor=current_user)
 
 
 @org_config_router.put("/{key}", response_model=OrgConfigResponse, summary="Set or update a config value")
@@ -91,6 +91,7 @@ def set_config(
         value=data.value,
         description=data.description,
         category=data.category or "general",
+        actor=current_user,
     )
 
 
@@ -100,7 +101,7 @@ def delete_config(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_org_admin),
 ):
-    deleted = org_config_service.delete_config(db, current_user.organization_id, key)
+    deleted = org_config_service.delete_config(db, current_user.organization_id, key, actor=current_user)
     if not deleted:
         return {"message": f"Config key '{key}' not found."}
     return {"message": f"Config key '{key}' deleted."}
@@ -111,5 +112,5 @@ def reset_configs(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_org_admin),
 ):
-    count = org_config_service.reset_to_defaults(db, current_user.organization_id)
+    count = org_config_service.reset_to_defaults(db, current_user.organization_id, actor=current_user)
     return {"message": f"Reset {count} config entries to defaults."}

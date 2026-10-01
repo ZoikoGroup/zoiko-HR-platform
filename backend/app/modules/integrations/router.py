@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import BaseModel, Field
-from sqlalchemy import func
+from sqlalchemy import case, func
 from sqlalchemy.orm import Session
 
 from app.core.crypto import decrypt_secret
@@ -377,6 +377,18 @@ def _org_names(db: Session, ids) -> dict:
     return {o.id: (o.organization_name or o.display_name or o.name) for o in db.query(Organization).filter(Organization.id.in_(ids)).all()}
 
 
+def _all_orgs(db: Session) -> tuple:
+    """Every live organization as {id: display name} plus {id: {code, status}}."""
+    from app.modules.hr.models import Organization
+
+    rows = db.query(Organization.id, Organization.organization_name, Organization.display_name,
+                    Organization.organization_code, Organization.status).all()
+    names = {oid: (nm or dn or "") for oid, nm, dn, _c, _s in rows}
+    meta = {oid: {"organization_code": code, "organization_status": str(getattr(st, "value", st) or "")}
+            for oid, _n, _d, code, st in rows}
+    return names, meta
+
+
 def _scope_label(org_id, names) -> str:
     return "Platform-wide" if not org_id else (names.get(org_id) or f"Organization {org_id}")
 
@@ -408,9 +420,19 @@ def _run_stats(db: Session, workflow_ids) -> dict:
     return out
 
 
+def _wf_org_id(w: Workflow):
+    """The workflow's organization via its workspace; None if it has no
+    workspace row (orphaned) or the workspace is platform-wide."""
+    return w.workspace.organization_id if w.workspace is not None else None
+
+
+def _wf_names(db: Session, rows) -> dict:
+    return _org_names(db, [_wf_org_id(w) for w in rows])
+
+
 def _workflow_view(w: Workflow, names=None, stats=None) -> dict:
     names = names or {}
-    org_id = w.workspace.organization_id if w.workspace else None
+    org_id = _wf_org_id(w)
     s = (stats or {}).get(w.id) or {"runs": 0, "succeeded": 0, "failed": 0}
     return {"id": w.id, "workspace_id": w.workspace_id, "workspace_name": w.workspace.name if w.workspace else None,
             "organization_id": org_id, "organization_name": _scope_label(org_id, names),
@@ -510,7 +532,12 @@ def delete_workspace(workspace_id: int, db: Session = Depends(get_db), user=Depe
 def workflow_overview(db: Session = Depends(get_db)):
     """One row per organization (plus Platform-wide) so every organization's
     automation is visible at a glance: workspaces, workflows, how many are on,
-    and how its last 7 days of runs went."""
+    and how its last 7 days of runs went.
+
+    Every live organization gets a row, including the ones with no automation
+    yet (all zeros). Building the rows only from workspaces/workflows/runs would
+    hide exactly the organizations that need attention.
+    """
     since = datetime.utcnow() - timedelta(days=7)
     buckets: dict = {}
 
@@ -519,25 +546,63 @@ def workflow_overview(db: Session = Depends(get_db)):
             "organization_id": org_id or None, "workspaces": 0, "workflows": 0, "active_workflows": 0,
             "runs_7d": 0, "succeeded_7d": 0, "failed_7d": 0, "last_run_at": None, "last_run_status": None})
 
-    ws_org = {w.id: w.organization_id for w in db.query(WorkflowWorkspace).all()}
-    for org in ws_org.values():
-        bucket(org)["workspaces"] += 1
-    for wf in db.query(Workflow).all():
-        b = bucket(ws_org.get(wf.workspace_id))
-        b["workflows"] += 1
-        b["active_workflows"] += 1 if wf.is_active else 0
-    for e in db.query(WorkflowExecution).order_by(WorkflowExecution.id).all():
-        b = bucket(e.organization_id)
-        if e.created_at and e.created_at >= since:
-            b["runs_7d"] += 1
-            b["succeeded_7d"] += 1 if e.status == "succeeded" else 0
-            b["failed_7d"] += 1 if e.status == "failed" else 0
-        if b["last_run_at"] is None or (e.created_at and _iso(e.created_at) >= b["last_run_at"]):
-            b["last_run_at"], b["last_run_status"] = _iso(e.created_at), e.status
-    names = _org_names(db, [k for k in buckets if k])
+    # Seed one bucket per live organization (soft-deleted ones are already
+    # filtered out by the global Organization criteria in app/database.py).
+    names, meta = _all_orgs(db)
+    for oid in names:
+        bucket(oid)
+
+    for org_id, n in (
+        db.query(WorkflowWorkspace.organization_id, func.count(WorkflowWorkspace.id))
+        .group_by(WorkflowWorkspace.organization_id).all()
+    ):
+        bucket(org_id)["workspaces"] += n
+
+    # Workflows counted in SQL, grouped by their workspace's organization. A
+    # workflow whose workspace row is missing still counts (as platform-wide)
+    # so a broken link cannot make automation disappear from the totals.
+    for org_id, n, active in (
+        db.query(WorkflowWorkspace.organization_id,
+                 func.count(Workflow.id),
+                 func.coalesce(func.sum(case((Workflow.is_active.is_(True), 1), else_=0)), 0))
+        .select_from(Workflow)
+        .join(WorkflowWorkspace, WorkflowWorkspace.id == Workflow.workspace_id, isouter=True)
+        .group_by(WorkflowWorkspace.organization_id).all()
+    ):
+        b = bucket(org_id)
+        b["workflows"] += n
+        b["active_workflows"] += active
+
+    # Last 7 days of runs, per organization, aggregated in SQL.
+    for org_id, status, n in (
+        db.query(WorkflowExecution.organization_id, WorkflowExecution.status, func.count(WorkflowExecution.id))
+        .filter(WorkflowExecution.created_at >= since)
+        .group_by(WorkflowExecution.organization_id, WorkflowExecution.status).all()
+    ):
+        b = bucket(org_id)
+        b["runs_7d"] += n
+        b["succeeded_7d"] += n if status == "succeeded" else 0
+        b["failed_7d"] += n if status == "failed" else 0
+
+    # Most recent run per organization. One row per organization via row_number
+    # instead of loading every execution into memory.
+    _rn = func.row_number().over(
+        partition_by=WorkflowExecution.organization_id,
+        order_by=(WorkflowExecution.created_at.desc(), WorkflowExecution.id.desc())).label("rn")
+    latest = db.query(
+        _rn.label("rn"), WorkflowExecution.organization_id,
+        WorkflowExecution.created_at.label("created_at"), WorkflowExecution.status.label("status")).subquery()
+    for row in db.query(latest).filter(latest.c.rn == 1).all():
+        b = bucket(row.organization_id)
+        b["last_run_at"], b["last_run_status"] = _iso(row.created_at), row.status
+
+    # A workspace/execution can point at an organization that was deleted since;
+    # keep those rows (labelled by id) so no automation silently disappears.
+    names.update(_org_names(db, [k for k in buckets if k and k not in names]))
+
     rows = []
     for key, b in buckets.items():
-        rows.append({**b, "organization_name": _scope_label(key or None, names)})
+        rows.append({**b, "organization_name": _scope_label(key or None, names), **meta.get(key, {})})
     rows.sort(key=lambda r: (r["organization_id"] is None, (r["organization_name"] or "").lower()))
     totals = {k: sum(r[k] for r in rows) for k in ("workspaces", "workflows", "active_workflows", "runs_7d", "failed_7d")}
     return {"organizations": rows, "totals": totals}
@@ -546,12 +611,14 @@ def workflow_overview(db: Session = Depends(get_db)):
 @workflow_router.get("/workflows")
 def list_workflows(workspace_id: Optional[int] = None, organization_id: Optional[int] = None,
                    db: Session = Depends(get_db)):
-    q = db.query(Workflow).join(WorkflowWorkspace, WorkflowWorkspace.id == Workflow.workspace_id)
+    # outerjoin, not join: a workflow whose workspace row went missing must still
+    # be listed (as platform-wide) instead of silently disappearing from the page.
+    q = db.query(Workflow).outerjoin(WorkflowWorkspace, WorkflowWorkspace.id == Workflow.workspace_id)
     if workspace_id:
         q = q.filter(Workflow.workspace_id == workspace_id)
     q = _org_filter(q, WorkflowWorkspace.organization_id, organization_id)
     rows = q.order_by(Workflow.id.desc()).all()
-    names = _org_names(db, [w.workspace.organization_id for w in rows if w.workspace])
+    names = _wf_names(db, rows)
     stats = _run_stats(db, [w.id for w in rows])
     return {"workflows": [_workflow_view(w, names, stats) for w in rows]}
 
@@ -568,13 +635,13 @@ def create_workflow(body: WorkflowIn, db: Session = Depends(get_db), user=Depend
     _audit(db, user, AuditAction.CREATE, "Workflow", w.id,
            {"event": "workflow.created", "name": w.name, "trigger": w.trigger_event})
     db.commit()
-    return _workflow_view(w, _org_names(db, [w.workspace.organization_id]))
+    return _workflow_view(w, _wf_names(db, [w]))
 
 
 @workflow_router.get("/workflows/{workflow_id}")
 def get_workflow(workflow_id: int, db: Session = Depends(get_db)):
     w = _get_workflow(db, workflow_id)
-    return _workflow_view(w, _org_names(db, [w.workspace.organization_id]), _run_stats(db, [w.id]))
+    return _workflow_view(w, _wf_names(db, [w]), _run_stats(db, [w.id]))
 
 
 @workflow_router.patch("/workflows/{workflow_id}")
@@ -596,7 +663,7 @@ def update_workflow(workflow_id: int, body: WorkflowPatch, db: Session = Depends
         changed.append("steps")
     _audit(db, user, AuditAction.UPDATE, "Workflow", w.id, {"event": "workflow.updated", "fields": changed})
     db.commit()
-    return _workflow_view(w, _org_names(db, [w.workspace.organization_id]), _run_stats(db, [w.id]))
+    return _workflow_view(w, _wf_names(db, [w]), _run_stats(db, [w.id]))
 
 
 @workflow_router.delete("/workflows/{workflow_id}")
@@ -616,7 +683,7 @@ def _set_active(db: Session, workflow_id: int, user, active: bool) -> dict:
     _audit(db, user, AuditAction.ENABLE if active else AuditAction.DISABLE, "Workflow", w.id,
            {"event": "workflow.activated" if active else "workflow.deactivated"})
     db.commit()
-    return _workflow_view(w, _org_names(db, [w.workspace.organization_id]), _run_stats(db, [w.id]))
+    return _workflow_view(w, _wf_names(db, [w]), _run_stats(db, [w.id]))
 
 
 @workflow_router.post("/workflows/{workflow_id}/activate")
@@ -635,7 +702,7 @@ def run_workflow(request: Request, workflow_id: int, db: Session = Depends(get_d
                  user=Depends(get_current_super_admin)):
     """Manual test run. Executes immediately so the result is visible right away."""
     w = _get_workflow(db, workflow_id)
-    scope = w.workspace.organization_id if w.workspace else None
+    scope = _wf_org_id(w)
     ex = WorkflowExecution(
         workflow_id=w.id, workflow_name=w.name, trigger_event=w.trigger_event, organization_id=scope,
         trigger_payload={"id": None, "type": w.trigger_event, "manual": True, "organization_id": scope,

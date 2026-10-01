@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import PageHeader from "../../components/PageHeader";
 import { Activity, Building2, Globe2, Workflow as WorkflowIcon } from "lucide-react";
 import { integrationsService } from "../../service/integrationsService";
+import OrgActivityFeed from "./OrgActivityFeed";
 import { getOrganizations } from "../../service/documentsService";
 import {
   Btn, Card, ErrorNote, Field, Modal, Spinner, StatusPill, SuperAdminOnly, fmt, inputCls, useAction,
@@ -81,8 +82,15 @@ function OrgCard({ row, selected, onSelect }) {
         <p className="truncate text-sm font-bold text-slate-800">{row.organization_name}</p>
       </div>
       <p className="mt-2 text-xs text-slate-600">
-        <span className="font-bold text-slate-800">{row.active_workflows}</span> of {row.workflows} workflow{row.workflows === 1 ? "" : "s"} active
+        {row.workflows === 0 ? (
+          <span className="text-slate-500">No automation yet</span>
+        ) : (
+          <>
+            <span className="font-bold text-slate-800">{row.active_workflows}</span> of {row.workflows} workflow{row.workflows === 1 ? "" : "s"} active
+          </>
+        )}
         <span className="text-slate-400"> · {row.workspaces} workspace{row.workspaces === 1 ? "" : "s"}</span>
+        {row.organization_code ? <span className="text-slate-400"> · {row.organization_code}</span> : null}
       </p>
       <p className="mt-1 text-[11px] text-slate-500">
         {row.runs_7d} run{row.runs_7d === 1 ? "" : "s"} in 7 days
@@ -383,6 +391,7 @@ export default function ZoikoWorkflowPage() {
   const [selected, setSelected] = useState(ALL);
   const [loadError, setLoadError] = useState("");
   const [view, setView] = useState("main");
+  const [tab, setTab] = useState("activity"); // activity | automations
   const [dialog, setDialog] = useState(null); // {kind, workflow?}
   const [detail, setDetail] = useState(null);
   const [confirmDelete, setConfirmDelete] = useState(null);
@@ -449,6 +458,7 @@ export default function ZoikoWorkflowPage() {
     return <SuperAdminOnly><ExecutionsLog workflows={workflows} orgs={orgs} initialOrg={selected} onBack={() => { setView("main"); load(); }} /></SuperAdminOnly>;
   }
 
+  const orgRowCount = overview?.organizations.length;
   const selectedName = selected === ALL ? "All organizations"
     : overview?.organizations.find((o) => scopeKey(o.organization_id) === selected)?.organization_name || "Selected organization";
   const totals = overview?.totals;
@@ -464,10 +474,18 @@ export default function ZoikoWorkflowPage() {
                 title={workspaces && workspaces.length === 0 ? "Create a workspace first" : ""}>Create Workflow</Btn>
             </div>
           } />
+        <div className="flex gap-2" role="tablist" aria-label="Workflow sections">
+          {[["activity", "Activity"], ["automations", "Automations"]].map(([key, label]) => (
+            <button key={key} type="button" role="tab" aria-selected={tab === key} onClick={() => setTab(key)}
+              className={`rounded-xl border px-4 py-1.5 text-xs font-semibold ${tab === key ? "border-[#3B82F6] bg-[#3B82F6] text-white" : "border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
         <ErrorNote message={loadError || act.error} />
         {notice ? <div className="rounded-xl border border-slate-200 bg-white p-3 text-xs text-slate-600">{notice}</div> : null}
 
-        {workspaces === null ? <Spinner /> : (
+        {tab === "activity" ? <OrgActivityFeed /> : workspaces === null ? <Spinner /> : (
           <>
             {totals ? (
               <div className="grid gap-3 md:grid-cols-5" aria-label="Workflow totals">
@@ -481,10 +499,10 @@ export default function ZoikoWorkflowPage() {
               </div>
             ) : null}
 
-            <Card title="Organizations" icon={Building2}
+            <Card title={orgRowCount ? `Organizations (${orgRowCount})` : "Organizations"} icon={Building2}
               action={selected !== ALL ? <Btn onClick={() => setSelected(ALL)}>Show all organizations</Btn> : null}>
               {overview && overview.organizations.length === 0 ? (
-                <p className="text-sm text-slate-500">No organization has any workspace or workflow yet. Create a workspace and choose who it applies to.</p>
+                <p className="text-sm text-slate-500">There are no organizations on the platform yet. Create one first, then give it a workspace.</p>
               ) : (
                 <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
                   {(overview?.organizations || []).map((row) => (

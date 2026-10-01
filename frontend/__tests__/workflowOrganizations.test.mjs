@@ -27,7 +27,8 @@ const WORKFLOWS = [
 const OVERVIEW = {
   organizations: [
     { organization_id: 1, organization_name: "Acme Ltd", workspaces: 1, workflows: 1, active_workflows: 1, runs_7d: 4, succeeded_7d: 3, failed_7d: 1, last_run_at: "2026-09-30T10:00:00Z", last_run_status: "succeeded" },
-    { organization_id: 2, organization_name: "Globex Inc", workspaces: 1, workflows: 1, active_workflows: 0, runs_7d: 0, succeeded_7d: 0, failed_7d: 0, last_run_at: null, last_run_status: null },
+    { organization_id: 2, organization_name: "Globex Inc", organization_code: "GLX", organization_status: "active", workspaces: 1, workflows: 1, active_workflows: 0, runs_7d: 0, succeeded_7d: 0, failed_7d: 0, last_run_at: null, last_run_status: null },
+    { organization_id: 3, organization_name: "Initech", organization_code: "INI", organization_status: "active", workspaces: 0, workflows: 0, active_workflows: 0, runs_7d: 0, succeeded_7d: 0, failed_7d: 0, last_run_at: null, last_run_status: null },
     { organization_id: null, organization_name: "Platform-wide", workspaces: 1, workflows: 1, active_workflows: 1, runs_7d: 1, succeeded_7d: 1, failed_7d: 0, last_run_at: "2026-09-30T09:00:00Z", last_run_status: "succeeded" },
   ],
   totals: { workspaces: 3, workflows: 3, active_workflows: 2, runs_7d: 5, failed_7d: 1 },
@@ -38,7 +39,14 @@ function reset(over = {}) {
   for (const k of Object.keys(calls)) calls[k].length = 0;
   Object.assign(svc, {
     getWorkflowOverview: async () => OVERVIEW,
-    getWorkspaces: async (p) => { calls.workspaces.push(p); return { workspaces: [{ id: 1, name: "Acme ops", organization_id: 1, organization_name: "Acme Ltd", workflow_count: 1 }] }; },
+    getWorkspaces: async (p) => {
+    calls.workspaces.push(p);
+    const org = p?.organization_id;
+    const rows = org === undefined || String(org) === "1"
+      ? [{ id: 1, name: "Acme ops", organization_id: 1, organization_name: "Acme Ltd", workflow_count: 1 }]
+      : [];
+    return { workspaces: rows };
+  },
     getWorkflows: async (p) => {
       calls.workflows.push(p);
       const org = p?.organization_id;
@@ -58,6 +66,7 @@ function register(t) {
   mocked.add(t);
   t.mock.module("../src/service/integrationsService.js", { exports: { integrationsService: new Proxy({}, { get: (_, n) => (...a) => svc[n](...a) }) } });
   t.mock.module("../src/service/documentsService.js", { exports: { getOrganizations: async () => ({ organizations: [{ id: 1, name: "Acme Ltd" }, { id: 2, name: "Globex Inc" }] }) } });
+  t.mock.module("../src/service/activityService.js", { exports: { activityService: { list: async () => ({ total: 0, events: [] }), filters: async () => ({ organizations: [], action_groups: [] }), get: async () => ({}) } } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
 }
 
@@ -66,6 +75,7 @@ async function open(t, over) {
   register(t);
   const { default: Page } = await import("../src/modules/shared-layers/ZoikoWorkflowPage.jsx");
   render(React.createElement(Page));
+  fireEvent.click(screen.getByRole("tab", { name: "Automations" }));
   await settle();
 }
 
@@ -73,11 +83,27 @@ test("overview strip and one card per organization plus Platform-wide", async (t
   await open(t);
   const totals = within(screen.getByLabelText("Workflow totals"));
   assert.ok(totals.getByText("Workspaces") && totals.getByText("Runs (7 days)"));
-  for (const name of ["Acme Ltd", "Globex Inc", "Platform-wide"]) assert.ok(screen.getByRole("button", { name: `${name} workflows` }), name);
+  for (const name of ["Acme Ltd", "Globex Inc", "Initech", "Platform-wide"]) assert.ok(screen.getByRole("button", { name: `${name} workflows` }), name);
+  assert.ok(screen.getByText("Organizations (4)")); // every organization is counted, not just those with automation
   const acme = screen.getByRole("button", { name: "Acme Ltd workflows" });
   assert.ok(within(acme).getByText(/of 1 workflow active/));
   assert.ok(within(acme).getByText("1 failed")); // failures are called out
   assert.ok(within(screen.getByRole("button", { name: "Globex Inc workflows" })).getByText("No runs yet"));
+  cleanup();
+});
+
+test("an organization with no automation is listed with honest zeros", async (t) => {
+  await open(t);
+  const initech = within(screen.getByRole("button", { name: "Initech workflows" }));
+  assert.ok(initech.getByText("No automation yet"));
+  assert.ok(initech.getByText(/0 workspaces/));
+  assert.ok(initech.getByText(/INI/));
+  assert.ok(initech.getByText("No runs yet"));
+  fireEvent.click(initech.getByText("No automation yet").closest("button"));
+  await settle();
+  assert.equal(calls.workflows.at(-1).organization_id, "3"); // it is a real, filterable scope
+  assert.ok(screen.getByText("Workflows · Initech"));
+  assert.ok(screen.getByText(/No workspaces yet\./));
   cleanup();
 });
 
@@ -167,7 +193,7 @@ test("executions log has an organization filter", async (t) => {
 test("honest empty overview", async (t) => {
   await open(t, { getWorkflowOverview: async () => ({ organizations: [], totals: { workspaces: 0, workflows: 0, active_workflows: 0, runs_7d: 0, failed_7d: 0 } }),
     getWorkspaces: async () => ({ workspaces: [] }), getWorkflows: async () => ({ workflows: [] }), getExecutions: async () => ({ executions: [], total: 0 }) });
-  assert.ok(screen.getByText(/No organization has any workspace or workflow yet/));
+  assert.ok(screen.getByText(/There are no organizations on the platform yet/));
   assert.ok(screen.getByText("No workflows yet."));
   assert.ok(screen.getByText(/No executions yet/));
   cleanup();

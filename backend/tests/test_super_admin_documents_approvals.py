@@ -135,7 +135,7 @@ def test_download_returns_original_bytes_and_attachment_filename(world):
     assert cd.startswith("attachment") and "R%C3%A9port%202026.pdf" in cd
     assert r.headers["content-type"].startswith("application/pdf")
     assert r.headers["x-content-type-options"] == "nosniff"
-    events = [l.details["event"] for l in world["db"].query(AuditLog).all()]
+    events = [(l.details or {}).get("event") for l in world["db"].query(AuditLog).all()]
     assert "document.downloaded" in events
 
 
@@ -214,7 +214,7 @@ def test_delete_soft_deletes_and_is_idempotent(world):
     again = c.delete(f"/super-admin/documents/{doc['id']}")
     assert again.status_code == 200 and again.json()["already_deleted"] is True
     assert c.delete("/super-admin/documents/9999").status_code == 404
-    deletes = [l for l in world["db"].query(AuditLog).all() if l.details["event"] == "document.deleted"]
+    deletes = [l for l in world["db"].query(AuditLog).all() if (l.details or {}).get("event") == "document.deleted"]
     assert len(deletes) == 1
 
 
@@ -308,7 +308,7 @@ def test_approve_updates_status_balance_and_audit(world, people):
     db.refresh(leave)
     bal = db.query(LeaveBalance).filter(LeaveBalance.employee_id == people["b"].id).one()
     assert (bal.pending_days, bal.used_days) == (0, 3)  # same math as the org portal
-    log = [l for l in db.query(AuditLog).all() if l.details["event"] == "approval.leave_approved"][0]
+    log = [l for l in db.query(AuditLog).all() if (l.details or {}).get("event") == "approval.leave_approved"][0]
     assert log.details["organization_id"] == 2 and log.details["comment"] == "ok"
 
 

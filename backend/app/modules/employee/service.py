@@ -141,6 +141,85 @@ def _full_name(employee) -> str:
     return f"{employee.first_name} {employee.last_name}".strip() or employee.email
 
 
+# ── Organization activity recording (ZHR-36) ──────────────────────────────────
+# Every employee mutation funnels through these two helpers so the Super Admin's
+# Workflows page shows the same shape for every action: which organization, which
+# actor and role, which employee, what changed, success or failure, when (UTC).
+# `activity` is imported lazily inside the helpers: activity_service reads the
+# super_admin models, and importing it at module scope would close a cycle.
+
+def _activity_org_name(db: Session, organization_id: Optional[int]) -> Optional[str]:
+    """Denormalised onto the event so the sentence survives an org rename."""
+    if organization_id is None:
+        return None
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    return (org.organization_name or org.display_name or org.name) if org else None
+
+
+def _resolve_actor(db: Session, actor):
+    """Accepts an ORM row or a bare id, so call sites that only have an id still
+    get a named actor and a role in the feed."""
+    if actor is None or not isinstance(actor, int):
+        return actor
+    return db.query(Employee).filter(Employee.id == actor).first()
+
+
+def _record(db: Session, action_type: str, actor, organization_id, *, commit: bool = True, **kwargs) -> None:
+    from app.modules.super_admin import activity_service
+
+    actor = _resolve_actor(db, actor)
+    activity_service.record_activity(
+        db,
+        action_type=action_type,
+        actor=actor,
+        organization_id=organization_id,
+        organization_name=_activity_org_name(db, organization_id),
+        commit=commit,
+        **kwargs,
+    )
+
+
+def _record_failure(action_type: str, db: Session, actor, organization_id, error,
+                    **kwargs) -> None:
+    """An action that was attempted and failed still belongs in the feed."""
+    from app.modules.super_admin import activity_service
+
+    activity_service.record_failure(
+        db,
+        action_type=action_type,
+        actor=_resolve_actor(db, actor),
+        organization_id=organization_id,
+        error=error,
+        **kwargs,
+    )
+
+
+def _employee_target(employee) -> dict:
+    """Target bits for an employee row: name for the sentence, code for the label."""
+    return {
+        "target": employee,
+        "target_name": _full_name(employee) if employee is not None else None,
+        "entity_type": "Employee",
+        "entity_id": getattr(employee, "id", None),
+    }
+
+
+def _record_employee_added(db: Session, actor, employee, organization_id) -> None:
+    _record(db, "employee.added", actor, organization_id,
+            **_employee_target(employee),
+            changes=activity_diff_new(employee))
+
+
+def activity_diff_new(employee) -> list:
+    """A create event lists the fields it set, so the detail panel is not empty."""
+    from app.modules.super_admin.activity_service import diff, json_safe
+
+    # Table columns only: __dict__ also carries relationship collections, which
+    # would lazy-load whole child tables just to describe one insert.
+    return diff({}, {c.name: json_safe(getattr(employee, c.name, None))
+                     for c in Employee.__table__.columns})
+
+
 def _notify_email(sender_name: str, **kwargs) -> bool:
     """Best-effort outbound email — never blocks the underlying action."""
     try:
@@ -722,70 +801,87 @@ def create_organization_user(
     data: "UserCreateRequest",
     organization_id: int,
     created_by_id: int,
+    actor=None,
 ) -> Employee:
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("User", "email")
+    """Invite a user into an organization and record the invite for the feed."""
+    try:
+        existing = db.query(Employee).filter(Employee.email == data.email).first()
+        if existing:
+            raise AlreadyExistsException("User", "email")
 
-    temp_password = _generate_temp_password()
-    role = data.role
+        temp_password = _generate_temp_password()
+        role = data.role
 
-    from app.core.code_generation import generate_employee_code
-    new_employee_code = generate_employee_code(db, organization_id=organization_id)
+        from app.core.code_generation import generate_employee_code
+        new_employee_code = generate_employee_code(db, organization_id=organization_id)
 
-    employee = Employee(
-        email=data.email,
-        hashed_password=hash_password(temp_password),
-        employee_code=new_employee_code,
-        # Platform-level users (Super Admin) have no organization, so no org-scoped employee ID.
-        employee_id=_generate_employee_id(db, organization_id=organization_id) if organization_id else None,
-        role=role,
-        is_active=True,
-        first_name=data.first_name,
-        last_name=data.last_name,
-        phone=data.phone or "",
-        job_title=data.job_title or _role_to_default_title(role),
-        employment_type=EmploymentType.FULL_TIME,
-        status=EmployeeStatus.ACTIVE,
-        date_of_joining=date.today(),
-        organization_id=organization_id,
-        created_by=created_by_id,
-    )
-    db.add(employee)
-    db.commit()
-    db.refresh(employee)
-    emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(role)}, organization_id)
-
-    if role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
-        raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.INVITE)
+        employee = Employee(
+            email=data.email,
+            hashed_password=hash_password(temp_password),
+            employee_code=new_employee_code,
+            # Platform-level users (Super Admin) have no organization, so no org-scoped employee ID.
+            employee_id=_generate_employee_id(db, organization_id=organization_id) if organization_id else None,
+            role=role,
+            is_active=True,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            phone=data.phone or "",
+            job_title=data.job_title or _role_to_default_title(role),
+            employment_type=EmploymentType.FULL_TIME,
+            status=EmployeeStatus.ACTIVE,
+            date_of_joining=date.today(),
+            organization_id=organization_id,
+            created_by=created_by_id,
+        )
+        db.add(employee)
         db.commit()
-        inviter = db.query(Employee).filter(Employee.id == created_by_id).first() if created_by_id else None
-        inviter_name = _full_name(inviter) if inviter else ""
-        _notify_email(
-            "send_org_admin_invite_email",
-            email=employee.email,
-            first_name=employee.first_name or _full_name(employee),
-            inviter_name=inviter_name,
-            workspace_name=_org_workspace_name(db, employee.organization_id),
-            expires_at_local=_format_token_datetime(expires_at),
-            timezone=TOKEN_TIMEZONE,
-            action_url=_action_link(SecurityActionPurpose.INVITE, raw_token),
-            organization_id=employee.organization_id,
-            db=db,
-        )
-    else:
-        _notify_email(
-            "send_employee_welcome_email",
-            email=employee.email,
-            employee_name=_full_name(employee),
-            first_name=employee.first_name or _full_name(employee),
-            workspace_name=_org_workspace_name(db, employee.organization_id),
-            temporary_password=temp_password,
-            organization_id=employee.organization_id,
-            db=db,
+        db.refresh(employee)
+        emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(role)}, organization_id)
+        _record(
+            db, "employee.invited", actor or created_by_id, organization_id,
+            entity_type="Employee", entity_id=employee.id,
+            target_name=_full_name(employee), target_code=employee.employee_code,
+            changes=[{"field": "role", "label": "Role", "before": None,
+                      "after": role_str(role)},
+                     {"field": "email", "label": "Email", "before": None,
+                      "after": employee.email}],
+            details={"invite_link_sent": role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)},
         )
 
-    return employee, temp_password
+        if role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.INVITE)
+            db.commit()
+            inviter = db.query(Employee).filter(Employee.id == created_by_id).first() if created_by_id else None
+            inviter_name = _full_name(inviter) if inviter else ""
+            _notify_email(
+                "send_org_admin_invite_email",
+                email=employee.email,
+                first_name=employee.first_name or _full_name(employee),
+                inviter_name=inviter_name,
+                workspace_name=_org_workspace_name(db, employee.organization_id),
+                expires_at_local=_format_token_datetime(expires_at),
+                timezone=TOKEN_TIMEZONE,
+                action_url=_action_link(SecurityActionPurpose.INVITE, raw_token),
+                organization_id=employee.organization_id,
+                db=db,
+            )
+        else:
+            _notify_email(
+                "send_employee_welcome_email",
+                email=employee.email,
+                employee_name=_full_name(employee),
+                first_name=employee.first_name or _full_name(employee),
+                workspace_name=_org_workspace_name(db, employee.organization_id),
+                temporary_password=temp_password,
+                organization_id=employee.organization_id,
+                db=db,
+            )
+
+        return employee, temp_password
+    except Exception as exc:
+        _record_failure("employee.invited", db, actor or created_by_id,
+                        organization_id, exc, target_name=data.email)
+        raise
 
 
 def get_organization_users(
@@ -1135,47 +1231,65 @@ def reset_user_password(
 # EMPLOYEE CRUD
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional[int] = None) -> Employee:
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("Employee", "email")
+def create_employee(
+    db: Session,
+    data: EmployeeCreate,
+    organization_id: Optional[int] = None,
+    actor=None,
+) -> Employee:
+    """Create one employee and record the action for the platform activity feed.
 
-    if data.department_id:
-        dept = db.query(Department).filter(Department.id == data.department_id).first()
-        if not dept:
-            raise NotFoundException("Department", data.department_id)
+    ``actor`` is the Employee who asked for it (the router passes
+    ``current_user``); it is what the Super Admin's Workflows page shows, so an
+    add is always attributable to a person and a role.
+    """
+    resolved_org_id = organization_id or (data.organization_id if hasattr(data, "organization_id") else None)
+    try:
+        existing = db.query(Employee).filter(Employee.email == data.email).first()
+        if existing:
+            raise AlreadyExistsException("Employee", "email")
 
-    from app.core.code_generation import generate_employee_code
+        if data.department_id:
+            dept = db.query(Department).filter(Department.id == data.department_id).first()
+            if not dept:
+                raise NotFoundException("Department", data.department_id)
 
-    employee_data = data.model_dump(exclude={"password"})
-    employee_data.pop("employee_id", None)
-    resolved_org_id = organization_id or employee_data.get("organization_id")
-    if not resolved_org_id:
-        raise BadRequestException("organization_id is required to create an employee")
-    employee = Employee(
-        **employee_data,
-        hashed_password=hash_password(data.password),
-        employee_code=generate_employee_code(db, organization_id=resolved_org_id),
-        organization_id=resolved_org_id,
-    )
+        from app.core.code_generation import generate_employee_code
 
-    db.add(employee)
-    db.commit()
-    db.refresh(employee)
-    emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
+        employee_data = data.model_dump(exclude={"password"})
+        employee_data.pop("employee_id", None)
+        employee_data.pop("organization_id", None)
+        if not resolved_org_id:
+            raise BadRequestException("organization_id is required to create an employee")
+        employee = Employee(
+            **employee_data,
+            hashed_password=hash_password(data.password),
+            employee_code=generate_employee_code(db, organization_id=resolved_org_id),
+            organization_id=resolved_org_id,
+        )
 
-    _notify_email(
-        "send_employee_welcome_email",
-        email=employee.email,
-        employee_name=_full_name(employee),
-        first_name=employee.first_name or _full_name(employee),
-        workspace_name=_org_workspace_name(db, resolved_org_id),
-        temporary_password=data.password,
-        organization_id=resolved_org_id,
-        db=db,
-    )
+        db.add(employee)
+        db.commit()
+        db.refresh(employee)
+        emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
 
-    return employee
+        _record_employee_added(db, actor, employee, resolved_org_id)
+
+        _notify_email(
+            "send_employee_welcome_email",
+            email=employee.email,
+            employee_name=_full_name(employee),
+            first_name=employee.first_name or _full_name(employee),
+            workspace_name=_org_workspace_name(db, resolved_org_id),
+            temporary_password=data.password,
+            organization_id=resolved_org_id,
+            db=db,
+        )
+
+        return employee
+    except Exception as exc:
+        _record_failure("employee.added", db, actor, resolved_org_id, exc)
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1319,7 +1433,13 @@ def import_employees_from_file(
     filename: str,
     organization_id: int,
     current_user_id: int,
+    actor=None,
 ) -> dict:
+    """Bulk-import employees and record ONE grouped activity event for the whole file.
+
+    A 500-row import is one action by one person in one organization, so it is one
+    event with success/failure counts — not 500 rows in the Super Admin's feed.
+    """
     result = {
         "total_rows": 0,
         "created": 0,
@@ -1575,7 +1695,52 @@ def import_employees_from_file(
             )
 
     result["total_rows"] = len(rows)
+
+    # One grouped event for the whole file: what was imported, what failed, and
+    # whether the transaction committed at all.
+    _record_import_summary(db, actor, organization_id, result, filename, import_committed)
     return result
+
+
+def _record_import_summary(db: Session, actor, organization_id: int, result: dict,
+                           filename: str, import_committed: bool) -> None:
+    """One activity event summarising a bulk import, with success/failure counts."""
+    succeeded = (result.get("created", 0) or 0) + (result.get("updated", 0) or 0)
+    failed = result.get("failed", 0) or 0
+    counts = {
+        "total": result.get("total_rows", 0) or 0,
+        "created": result.get("created", 0) or 0,
+        "updated": result.get("updated", 0) or 0,
+        "skipped": result.get("skipped", 0) or 0,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+    # Failed only when nothing landed. A partially successful import is a success
+    # that reports its failures, so the feed does not show a red row for a file
+    # that mostly worked.
+    status = "success" if (import_committed and (succeeded > 0 or failed == 0)) else "failed"
+    error = None if status == "success" else (
+        result["errors"][0]["error"] if result.get("errors") else "Import failed")
+    first_errors = [
+        {"row": e.get("row"), "email": e.get("email"), "error": str(e.get("error"))[:200]}
+        for e in (result.get("errors") or [])[:10]
+    ]
+    _record(
+        db, "employee.bulk_imported", actor, organization_id,
+        entity_type="Employee", entity_id=None,
+        target_name=f"{counts['total']} rows from {filename}",
+        counts=counts,
+        status=status,
+        error=error,
+        details={
+            "filename": filename,
+            "departments_created": result.get("departments_created", 0),
+            "designations_created": result.get("designations_created", 0),
+            "committed": import_committed,
+            "first_errors": first_errors,
+        },
+        commit=True,
+    )
 
 
 def _parse_file(file_bytes: bytes, filename: str, result: dict) -> list[dict]:
@@ -1806,53 +1971,91 @@ def get_employee_by_id(db: Session, employee_id: int, organization_id: Optional[
     return employee
 
 
-def update_employee(db: Session, employee_id: int, data: EmployeeUpdate, organization_id: Optional[int] = None) -> Employee:
+def update_employee(
+    db: Session,
+    employee_id: int,
+    data: EmployeeUpdate,
+    organization_id: Optional[int] = None,
+    actor=None,
+) -> Employee:
+    """Update an employee and record exactly which fields moved, and to what."""
     employee = get_employee_by_id(db, employee_id, organization_id)
+    org_id = employee.organization_id
+    try:
+        if data.department_id:
+            dept_query = db.query(Department).filter(Department.id == data.department_id)
+            if organization_id:
+                dept_query = dept_query.filter(Department.organization_id == organization_id)
+            dept = dept_query.first()
+            if not dept:
+                raise NotFoundException("Department", data.department_id)
 
-    if data.department_id:
-        dept_query = db.query(Department).filter(Department.id == data.department_id)
-        if organization_id:
-            dept_query = dept_query.filter(Department.organization_id == organization_id)
-        dept = dept_query.first()
-        if not dept:
-            raise NotFoundException("Department", data.department_id)
+        update_data = data.model_dump(exclude_unset=True)
+        from app.modules.super_admin.activity_service import changes_from, snapshot
 
-    update_data = data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(employee, field, value)
+        before = snapshot(employee, update_data.keys())
+        for field, value in update_data.items():
+            setattr(employee, field, value)
 
-    db.commit()
-    db.refresh(employee)
-    return employee
+        db.commit()
+        db.refresh(employee)
+        _record(
+            db, "employee.updated", actor, org_id,
+            **_employee_target(employee),
+            changes=changes_from(before, update_data),
+        )
+        return employee
+    except Exception as exc:
+        _record_failure("employee.updated", db, actor, org_id, exc,
+                        **_employee_target(employee))
+        raise
 
 
-def deactivate_employee(db: Session, employee_id: int, organization_id: Optional[int] = None) -> Employee:
+def deactivate_employee(db: Session, employee_id: int, organization_id: Optional[int] = None,
+                         actor=None) -> Employee:
+    """Deactivate an employee and record the account-state change it caused."""
     employee = get_employee_by_id(db, employee_id, organization_id)
-    employee.is_active = False
-    employee.status = EmployeeStatus.TERMINATED
+    org_id = employee.organization_id
+    try:
+        from app.modules.super_admin.activity_service import diff, json_safe
 
-    event = EmployeeLifecycle(
-        employee_id=employee_id,
-        organization_id=employee.organization_id,
-        event_type="exit",
-        event_date=datetime.now().date(),
-        status="completed",
-        reason="Employee deactivated via admin action",
-    )
-    db.add(event)
-    db.commit()
-    db.refresh(employee)
+        before = {"status": json_safe(employee.status), "is_active": json_safe(employee.is_active)}
+        employee.is_active = False
+        employee.status = EmployeeStatus.TERMINATED
 
-    _notify_email(
-        "send_employee_account_status_email",
-        email=employee.email,
-        employee_name=_full_name(employee),
-        status="deactivated",
-        organization_id=employee.organization_id,
-        db=db,
-    )
+        event = EmployeeLifecycle(
+            employee_id=employee_id,
+            organization_id=employee.organization_id,
+            event_type="exit",
+            event_date=datetime.now().date(),
+            status="completed",
+            reason="Employee deactivated via admin action",
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(employee)
 
-    return employee
+        _record(
+            db, "employee.deactivated", actor, org_id,
+            **_employee_target(employee),
+            changes=diff(before, {"status": json_safe(employee.status),
+                                  "is_active": json_safe(employee.is_active)}),
+        )
+
+        _notify_email(
+            "send_employee_account_status_email",
+            email=employee.email,
+            employee_name=_full_name(employee),
+            status="deactivated",
+            organization_id=employee.organization_id,
+            db=db,
+        )
+
+        return employee
+    except Exception as exc:
+        _record_failure("employee.deactivated", db, actor, org_id, exc,
+                        **_employee_target(employee))
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1935,34 +2138,61 @@ def delete_employee(
     employee_id: int,
     organization_id: Optional[int] = None,
     current_user_id: Optional[int] = None,
+    actor=None,
 ) -> dict:
-    """Hybrid delete for a single employee.
+    """Hybrid delete for a single employee, recorded for the activity feed.
 
     Mirrors the existing UI behavior: the trash action deactivates active
-    employees and permanently removes already-inactive ones.
+    employees and permanently removes already-inactive ones. Whichever branch
+    runs, the event says which one it was — a deactivated employee is not
+    reported as deleted.
     """
-    employee = get_employee_by_id(db, employee_id)
-    if employee.status == EmployeeStatus.ACTIVE:
-        _soft_delete_employee_record(db, employee_id)
+    employee = get_employee_by_id(db, employee_id, organization_id)
+    org_id = employee.organization_id
+    actor = actor or (db.query(Employee).filter(Employee.id == current_user_id).first()
+                      if current_user_id else None)
+    # Captured up front: the hard-delete branch removes the row with raw SQL, so
+    # every attribute access on `employee` after the commit would try to reload a
+    # row that no longer exists.
+    target_name = _full_name(employee)
+    target_code = employee.employee_code
+    action = "deactivated" if employee.status == EmployeeStatus.ACTIVE else "deleted"
+    try:
+        if action == "deactivated":
+            _soft_delete_employee_record(db, employee_id)
+            db.commit()
+            _notify_email(
+                "send_employee_account_status_email",
+                email=employee.email,
+                employee_name=target_name,
+                status="deactivated",
+                organization_id=org_id,
+                db=db,
+            )
+            _record(db, "employee.deactivated", actor, org_id,
+                    target_name=target_name, target_code=target_code,
+                    entity_type="Employee", entity_id=employee_id)
+            return {
+                "action": "deactivated",
+                "message": f"Employee {employee_id} has been deactivated.",
+            }
+        _hard_delete_employee(db, employee_id)
         db.commit()
-        _notify_email(
-            "send_employee_account_status_email",
-            email=employee.email,
-            employee_name=_full_name(employee),
-            status="deactivated",
-            organization_id=employee.organization_id,
-            db=db,
-        )
+        _record(db, "employee.deleted", actor, org_id,
+                target_name=target_name, target_code=target_code,
+                entity_type="Employee", entity_id=employee_id)
         return {
-            "action": "deactivated",
-            "message": f"Employee {employee_id} has been deactivated.",
+            "action": "deleted",
+            "message": f"Employee {employee_id} has been permanently deleted.",
         }
-    _hard_delete_employee(db, employee_id)
-    db.commit()
-    return {
-        "action": "deleted",
-        "message": f"Employee {employee_id} has been permanently deleted.",
-    }
+    except Exception as exc:
+        _record_failure(
+            "employee.deactivated" if action == "deactivated" else "employee.deleted",
+            db, actor, org_id, exc,
+            target_name=target_name, target_code=target_code,
+            entity_type="Employee", entity_id=employee_id,
+        )
+        raise
 
 
 def bulk_delete_employees(
@@ -1970,12 +2200,15 @@ def bulk_delete_employees(
     employee_ids: List[int],
     organization_id: Optional[int] = None,
     current_user_id: Optional[int] = None,
+    actor=None,
+    action_type: str = "employee.bulk_removed",
+    target_name: Optional[str] = None,
 ) -> dict:
-    """Delete multiple employees.
+    """Delete multiple employees and record ONE grouped activity event.
 
     Each row is processed in its own savepoint so a single failure does not
     roll back the rest. Active employees are deactivated; inactive ones are
-    permanently removed.
+    permanently removed. The event reports how many of each happened.
     """
     result = {
         "deactivated": 0,
@@ -2018,24 +2251,54 @@ def bulk_delete_employees(
             organization_id=employee.organization_id,
             db=db,
         )
+    _record_bulk_removal(db, actor or (db.query(Employee).filter(Employee.id == current_user_id).first()
+                                       if current_user_id else None),
+                         organization_id, result, action_type, target_name)
     return result
+
+
+def _record_bulk_removal(db: Session, actor, organization_id, result: dict,
+                         action_type: str, target_name: Optional[str]) -> None:
+    counts = {
+        "total": result.get("total", 0),
+        "succeeded": (result.get("deactivated", 0) or 0) + (result.get("deleted", 0) or 0),
+        "deactivated": result.get("deactivated", 0) or 0,
+        "deleted": result.get("deleted", 0) or 0,
+        "failed": result.get("failed", 0) or 0,
+    }
+    _record(
+        db, action_type, actor, organization_id,
+        entity_type="Employee", entity_id=None,
+        target_name=target_name or f"{counts['total']} employees",
+        counts=counts,
+        status="success" if counts["failed"] == 0 or counts["succeeded"] > 0 else "failed",
+        details={"first_errors": [
+            {"employee_id": e.get("employee_id"), "error": str(e.get("error"))[:200]}
+            for e in (result.get("errors") or [])[:10]
+        ]},
+        commit=True,
+    )
 
 
 def delete_all_employees(
     db: Session,
     organization_id: Optional[int] = None,
     current_user_id: Optional[int] = None,
+    actor=None,
 ) -> dict:
     """Deactivate every active employee and permanently remove every inactive
     employee in the organization (excluding the current admin, to avoid
-    self-deletion)."""
+    self-deletion). One grouped event, distinct from a selected bulk delete."""
     query = db.query(Employee).filter(Employee.role == UserRole.EMPLOYEE)
     if organization_id:
         query = query.filter(Employee.organization_id == organization_id)
     if current_user_id:
         query = query.filter(Employee.id != current_user_id)
     employee_ids = [row[0] for row in query.with_entities(Employee.id).all()]
-    return bulk_delete_employees(db, employee_ids, organization_id=organization_id, current_user_id=current_user_id)
+    return bulk_delete_employees(
+        db, employee_ids, organization_id=organization_id, current_user_id=current_user_id,
+        actor=actor, action_type="employee.all_removed", target_name="all employees",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2207,9 +2470,15 @@ def create_employee_profile(db: Session, data) -> EmployeeProfile:
     return profile
 
 
-def update_employee_profile(db: Session, employee_id: int, data, organization_id: Optional[int] = None) -> EmployeeProfile:
+def update_employee_profile(db: Session, employee_id: int, data, organization_id: Optional[int] = None,
+                            actor=None) -> EmployeeProfile:
+    """Update personal/bank/statutory details; recorded with sensitive values masked
+    (bank account, IFSC, PAN, UAN never reach the activity feed)."""
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
     profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == employee_id).first()
     update_data = data.model_dump(exclude_unset=True)
+    before = snapshot(profile, update_data.keys()) if profile else {k: None for k in update_data}
 
     if not profile:
         profile = EmployeeProfile(
@@ -2224,6 +2493,11 @@ def update_employee_profile(db: Session, employee_id: int, data, organization_id
 
     db.commit()
     db.refresh(profile)
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if employee is not None:
+        _record(db, "employee.updated", actor, employee.organization_id,
+                **_employee_target(employee), changes=changes_from(before, update_data),
+                details={"section": "profile"})
     return profile
 
 
@@ -2625,11 +2899,18 @@ def export_employee_reports(db: Session, data: EmployeeExportRequest, organizati
 # EMPLOYEE COMPENSATION & BENEFITS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def create_employee_compensation(db: Session, data: EmployeeCompensationCreate, org_id: int) -> EmployeeCompensation:
+def create_employee_compensation(db: Session, data: EmployeeCompensationCreate, org_id: int,
+                                 actor=None) -> EmployeeCompensation:
     comp = EmployeeCompensation(**data.model_dump(), organization_id=org_id)
     db.add(comp)
     db.commit()
     db.refresh(comp)
+    _record(
+        db, "payroll.compensation_added", actor, org_id,
+        entity_type="EmployeeCompensation", entity_id=comp.id,
+        **_compensation_target(db, comp),
+        changes=activity_diff_object(comp),
+    )
     return comp
 
 def get_employee_compensations(db: Session, org_id: int, employee_id: Optional[int] = None) -> list[EmployeeCompensation]:
@@ -2644,44 +2925,99 @@ def get_employee_compensation(db: Session, comp_id: int, org_id: int) -> Employe
         raise NotFoundException("EmployeeCompensation", comp_id)
     return comp
 
-def update_employee_compensation(db: Session, comp_id: int, data: EmployeeCompensationUpdate, org_id: int) -> EmployeeCompensation:
-    comp = db.query(EmployeeCompensation).filter(EmployeeCompensation.id == comp_id, EmployeeCompensation.organization_id == org_id).first()
-    if not comp:
-        raise NotFoundException("EmployeeCompensation", comp_id)
-    for key, value in data.model_dump(exclude_unset=True).items():
+def update_employee_compensation(db: Session, comp_id: int, data: EmployeeCompensationUpdate,
+                                 org_id: int, actor=None) -> EmployeeCompensation:
+    comp = get_employee_compensation(db, comp_id, org_id)
+    update_data = data.model_dump(exclude_unset=True)
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
+    before = snapshot(comp, update_data.keys())
+    for key, value in update_data.items():
         setattr(comp, key, value)
     db.commit()
     db.refresh(comp)
+    _record(
+        db, "payroll.compensation_updated", actor, org_id,
+        entity_type="EmployeeCompensation", entity_id=comp.id,
+        **_compensation_target(db, comp),
+        changes=changes_from(before, update_data),
+    )
     return comp
 
-def delete_employee_compensation(db: Session, comp_id: int, org_id: int) -> None:
-    comp = db.query(EmployeeCompensation).filter(EmployeeCompensation.id == comp_id, EmployeeCompensation.organization_id == org_id).first()
-    if not comp:
-        raise NotFoundException("EmployeeCompensation", comp_id)
+def delete_employee_compensation(db: Session, comp_id: int, org_id: int, actor=None) -> None:
+    comp = get_employee_compensation(db, comp_id, org_id)
+    target = _compensation_target(db, comp)
     from app.modules.hr.models import SalaryRevision
     db.query(SalaryRevision).filter(SalaryRevision.employee_compensation_id == comp_id).delete()
     db.delete(comp)
     db.commit()
+    _record(db, "payroll.compensation_deleted", actor, org_id,
+            entity_type="EmployeeCompensation", entity_id=comp_id, **target)
 
-def create_employee_benefit(db: Session, data: EmployeeBenefitCreate, org_id: int) -> EmployeeBenefit:
+def create_employee_benefit(db: Session, data: EmployeeBenefitCreate, org_id: int,
+                            actor=None) -> EmployeeBenefit:
     emp_benefit = EmployeeBenefit(**data.model_dump(), organization_id=org_id)
     db.add(emp_benefit)
     db.commit()
     db.refresh(emp_benefit)
+    _record(
+        db, "payroll.benefit_added", actor, org_id,
+        entity_type="EmployeeBenefit", entity_id=emp_benefit.id,
+        **_employee_target_for(db, emp_benefit.employee_id),
+        changes=activity_diff_object(emp_benefit),
+    )
     return emp_benefit
+
+
+def _compensation_target(db: Session, comp) -> dict:
+    """A compensation row is about an employee, so the feed names that employee.
+
+    Only the target bits are returned; the caller owns ``entity_type``/
+    ``entity_id``, which must stay the compensation row, not the employee.
+    """
+    employee_id = getattr(comp, "employee_id", None)
+    if employee_id:
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        if employee is not None:
+            return {"target_name": _full_name(employee),
+                    "target_code": employee.employee_code}
+    return {"target_name": f"compensation #{getattr(comp, 'id', '?')}"}
+
+
+def _employee_target_for(db: Session, employee_id) -> dict:
+    """Target bits only — the caller owns ``entity_type``/``entity_id``, which for
+    a benefit is the benefit row, not the employee it belongs to."""
+    if employee_id:
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        if employee is not None:
+            return {"target_name": _full_name(employee),
+                    "target_code": employee.employee_code}
+    return {"target_name": f"employee #{employee_id}"}
+
+
+def activity_diff_object(row) -> list:
+    """Fields set on a freshly created row, for the detail panel."""
+    from app.modules.super_admin.activity_service import diff, json_safe
+
+    return diff({}, {c.name: json_safe(getattr(row, c.name, None))
+                     for c in row.__table__.columns})
 
 def get_employee_benefits(db: Session, org_id: int) -> list[EmployeeBenefit]:
     return db.query(EmployeeBenefit).filter(EmployeeBenefit.organization_id == org_id).all()
 
-def delete_employee_benefit(db: Session, emp_benefit_id: int, org_id: int) -> None:
+def delete_employee_benefit(db: Session, emp_benefit_id: int, org_id: int, actor=None) -> None:
     emp_benefit = db.query(EmployeeBenefit).filter(EmployeeBenefit.id == emp_benefit_id, EmployeeBenefit.organization_id == org_id).first()
     if not emp_benefit:
         raise NotFoundException("EmployeeBenefit", emp_benefit_id)
+    target = _employee_target_for(db, getattr(emp_benefit, "employee_id", None))
     db.delete(emp_benefit)
     db.commit()
+    _record(db, "payroll.benefit_deleted", actor, org_id,
+            entity_type="EmployeeBenefit", entity_id=emp_benefit_id, **target)
 
 
-def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organization_id: int = None) -> dict:
+def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organization_id: int = None,
+                               actor=None) -> dict:
     deleted = []
     failed = []
     for eid in employee_ids:
@@ -2698,6 +3034,18 @@ def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organizatio
         except Exception as ex:
             db.rollback()
             failed.append({"id": eid, "reason": str(ex)})
+    _record(
+        db, "employee.permanently_deleted", actor, organization_id,
+        entity_type="Employee", entity_id=None,
+        target_name=f"{len(employee_ids)} employees",
+        counts={"total": len(employee_ids), "succeeded": len(deleted),
+                "deleted": len(deleted), "failed": len(failed)},
+        status="success" if not failed or deleted else "failed",
+        details={"deleted_ids": deleted[:50],
+                 "first_errors": [{"id": f["id"], "error": str(f["reason"])[:200]}
+                                  for f in failed[:10]]},
+        commit=True,
+    )
     return {"deleted": deleted, "failed": failed}
 
 

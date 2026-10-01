@@ -755,19 +755,38 @@ def get_leave_request_by_id(db: Session, leave_id: int, organization_id: Optiona
     return leave
 
 
+def _leave_activity(db: Session, action_type: str, actor, leave: LeaveRequest, changes=None, target=None) -> None:
+    """Same activity events as the main leave service, so the Super Admin feed is
+    identical whichever leave endpoint the organization used."""
+    from app.modules.hr import service as hr_service
+
+    hr_service._activity_record(
+        db, action_type, hr_service._actor_of(db, actor), leave.organization_id,
+        entity_type="LeaveRequest", entity_id=leave.id, **(target or hr_service._leave_target(db, leave)),
+        changes=changes,
+    )
+
+
 def create_leave_request(db: Session, data: dict, created_by: int = None, organization_id: Optional[int] = None) -> LeaveRequest:
     if organization_id:
         data["organization_id"] = organization_id
-    leave = LeaveRequest(**data, created_by=created_by)
+    leave = LeaveRequest(**data)  # LeaveRequest has no created_by column; created_by is the activity actor
     db.add(leave)
     db.commit()
     db.refresh(leave)
+    _leave_activity(db, "leave.requested", created_by, leave, changes=[
+        {"field": "days", "label": "Days", "before": None, "after": leave.days},
+        {"field": "status", "label": "Status", "before": None, "after": getattr(leave.status, "value", leave.status)},
+    ])
     return leave
 
 
 def update_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: int = None, organization_id: Optional[int] = None) -> LeaveRequest:
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
     leave = get_leave_request_by_id(db, leave_id, organization_id)
     update_data = sanitize_dict(data)
+    before = snapshot(leave, update_data.keys())
     for field, value in update_data.items():
         setattr(leave, field, value)
     if reviewed_by:
@@ -775,17 +794,24 @@ def update_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: in
         leave.reviewed_at = func.now()
     db.commit()
     db.refresh(leave)
+    _leave_activity(db, "leave.updated", reviewed_by, leave, changes=changes_from(before, update_data))
     return leave
 
 
-def delete_leave_request(db: Session, leave_id: int, organization_id: Optional[int] = None) -> None:
+def delete_leave_request(db: Session, leave_id: int, organization_id: Optional[int] = None, actor=None) -> None:
+    from app.modules.hr import service as hr_service
+
     leave = get_leave_request_by_id(db, leave_id, organization_id)
+    target = hr_service._leave_target(db, leave)  # read before the row is gone
+    gone = LeaveRequest(id=leave.id, organization_id=leave.organization_id, employee_id=leave.employee_id)
     db.delete(leave)
     db.commit()
+    _leave_activity(db, "leave.deleted", actor, gone, target=target)
 
 
 def review_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: int = None, organization_id: Optional[int] = None) -> LeaveRequest:
     leave = get_leave_request_by_id(db, leave_id, organization_id)
+    before_status = getattr(leave.status, "value", leave.status)
     if reviewed_by:
         leave.reviewed_by = reviewed_by
         leave.reviewed_at = func.now()
@@ -794,6 +820,12 @@ def review_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: in
         setattr(leave, field, value)
     db.commit()
     db.refresh(leave)
+    if leave.status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
+        _leave_activity(
+            db, "leave.approved" if leave.status == RequestStatus.APPROVED else "leave.rejected", reviewed_by, leave,
+            changes=[{"field": "status", "label": "Status", "before": before_status,
+                      "after": getattr(leave.status, "value", leave.status)}],
+        )
 
     # Notify the employee about the review decision (non-blocking)
     if leave.status in (RequestStatus.APPROVED, RequestStatus.REJECTED):

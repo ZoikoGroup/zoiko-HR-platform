@@ -165,7 +165,7 @@ def test_update_status_priority_assignee_with_audit(world):
     url = f"/super-admin/support/tickets/{h.id}"
     d = c.patch(url, json={"priority": "urgent", "status": "in_progress", "assigned_to": p["sa2"].id}).json()
     assert (d["priority"], d["status"], d["assignee_name"]) == ("urgent", "in_progress", "Sam Support")
-    ev = [l for l in db.query(AuditLog).all() if l.details["event"] == "support.ticket_updated"][0]
+    ev = [l for l in db.query(AuditLog).all() if (l.details or {}).get("event") == "support.ticket_updated"][0]
     assert set(ev.details["changes"]) == {"priority", "status", "assignee"} and ev.performed_by == p["sa"].id
     d = c.patch(url, json={"status": "resolved", "resolution_note": "Done"}).json()
     assert d["status"] == "resolved" and d["resolved_at"] and d["resolution_note"] == "Done"
