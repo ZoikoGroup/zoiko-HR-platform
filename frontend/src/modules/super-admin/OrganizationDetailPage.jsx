@@ -7,6 +7,7 @@ import {
   ThumbsUp, ThumbsDown, RotateCcw, Pause, Clock, Trash2, KeyRound,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
+import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
 import { billingService } from "../../service/billingService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
@@ -214,15 +215,9 @@ export default function OrganizationDetailPage() {
     } catch (e) { setError(e.message); }
   };
 
-  const handleDeleteOrg = async () => {
-    setActionLoading("delete");
-    try {
-      const confirm = await superAdminService.mintConfirmationToken(orgId, "delete_organization");
-      await superAdminService.deleteOrganization(orgId, { id: confirm.confirmation_id, token: confirm.token });
-      setDeleteModal(false);
-      navigate("/super-admin/organizations");
-    } catch (e) { setError(e.message); }
-    finally { setActionLoading(null); }
+  const handleOrgDeleted = () => {
+    setDeleteModal(false);
+    navigate("/super-admin/organizations");
   };
 
   const availableTransitions = org ? getStatusOptions(org.status) : [];
@@ -628,30 +623,9 @@ export default function OrganizationDetailPage() {
         </div>
       )}
 
-      {/* Delete Organization (confirmation-token protected) */}
-      {deleteModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl border border-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-red-50 flex items-center justify-center">
-                <Trash2 className="h-5 w-5 text-red-600" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Delete Organization</h3>
-            </div>
-            <p className="text-sm text-slate-600 mb-4">
-              Permanently delete <strong>{org?.name}</strong>? This irreversible action
-              requires a one-time confirmation token and removes the registration.
-            </p>
-            <div className="flex gap-3 mt-6 justify-end">
-              <button onClick={() => setDeleteModal(false)}
-                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
-              <button onClick={handleDeleteOrg} disabled={actionLoading === "delete"}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-red-600 text-white text-sm font-semibold hover:bg-red-700 disabled:opacity-50">
-                {actionLoading === "delete" ? "Deleting..." : "Delete"}
-              </button>
-            </div>
-          </div>
-        </div>
+      {/* Delete Organization (shared with the list and User Management) */}
+      {deleteModal && org && (
+        <DeleteOrganizationDialog org={{ id: org.id ?? Number(orgId), name: org.name }} onClose={() => setDeleteModal(false)} onDeleted={handleOrgDeleted} />
       )}
 
       {/* Grant Support Access */}

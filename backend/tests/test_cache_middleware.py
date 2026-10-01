@@ -120,3 +120,37 @@ def test_key_shape_and_path_rules():
     assert _should_cache_path("/hr/employees") is True
     assert "/hr/employee" in _get_invalidation_prefixes("/hr/employee-management/promote")
     assert "/hr/document" in _get_invalidation_prefixes("/hr/document-folders")
+
+
+def test_deleting_or_restoring_an_organization_drops_everything_cached_for_it(world):
+    from app.core.cache_middleware import _lifecycle_org_id
+
+    assert _lifecycle_org_id("DELETE", "/super-admin/organizations/7") == 7
+    assert _lifecycle_org_id("POST", "/super-admin/organizations/7/restore") == 7
+    assert _lifecycle_org_id("GET", "/super-admin/organizations/7") is None
+    assert _lifecycle_org_id("POST", "/super-admin/organizations/7/status") is None
+    assert _lifecycle_org_id("DELETE", "/super-admin/organizations/7/restore") is None
+
+
+def test_lifecycle_write_flushes_that_orgs_cache_only(world):
+    from fastapi import FastAPI
+
+    app = FastAPI()
+    app.add_middleware(CacheMiddleware)
+
+    @app.get("/hr/employees")
+    def employees(authorization: str = Header(None)):
+        return {"ok": True}
+
+    @app.delete("/super-admin/organizations/{org_id}")
+    def delete_org(org_id: int):
+        return {"deleted": org_id}
+
+    c = TestClient(app)
+    org1, org2 = _token("a@example.com", org=1), _token("b@example.com", org=2)
+    c.get("/hr/employees", headers=org1)
+    c.get("/hr/employees", headers=org2)
+    assert c.get("/hr/employees", headers=org1).headers.get("x-cache") == "HIT"
+    assert c.delete("/super-admin/organizations/1").status_code == 200
+    assert c.get("/hr/employees", headers=org1).headers.get("x-cache") != "HIT"  # org 1 flushed
+    assert c.get("/hr/employees", headers=org2).headers.get("x-cache") == "HIT"  # org 2 untouched

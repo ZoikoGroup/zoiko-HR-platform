@@ -10,8 +10,8 @@ import logging
 import os
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, exc, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine, event, exc, text
+from sqlalchemy.orm import Session, declarative_base, sessionmaker, with_loader_criteria
 
 from app.config import settings
 
@@ -95,6 +95,23 @@ import app.modules.billing.models  # noqa: F401,E402
 import app.modules.billing.feature_keys  # noqa: F401,E402
 
 
+# -- 4. Soft-deleted organizations are invisible by default (ZHR-35) ----------
+# One rule for the whole app instead of a filter in every query: every ORM
+# SELECT that touches Organization (lists, lookups, joins, lazy loads, counts)
+# gets `deleted_at IS NULL`. Code that must see deleted organizations (restore,
+# the "Deleted" filter, the login/session checks) opts out per query with
+# `.execution_options(include_deleted=True)`.
+@event.listens_for(Session, "do_orm_execute")
+def _hide_deleted_organizations(state):
+    if not state.is_select or state.execution_options.get("include_deleted", False):
+        return
+    from app.modules.hr.models import Organization
+
+    state.statement = state.statement.options(
+        with_loader_criteria(Organization, lambda cls: cls.deleted_at.is_(None), include_aliases=True)
+    )
+
+
 def initialize_database() -> None:
     """Create tables in development; production runs `alembic upgrade head`
     as a deploy step instead (see backend/alembic/)."""
@@ -113,6 +130,22 @@ def initialize_database() -> None:
 
     # -- Schema migration: add columns that create_all won't retroactively add -----
     _ALTER_SQL = [
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_by INTEGER REFERENCES employees(id)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS delete_reason TEXT",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deletion_snapshot JSON",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS actor_name VARCHAR(200)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(50)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS action_type VARCHAR(100)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS target_label VARCHAR(300)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS changes JSON",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS error_message VARCHAR(500)",
+        "ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id)",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS assigned_to INTEGER REFERENCES employees(id)",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
         "ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP",
         "ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS plan_id INTEGER",

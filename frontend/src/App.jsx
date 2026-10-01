@@ -193,6 +193,8 @@ const ApprovalsPage = lazy(() => import("./modules/shared-layers/ApprovalsPage")
 const ExpensesPage = lazy(() => import("./modules/shared-layers/ExpensesPage"));
 const AdminKnowledgePage = lazy(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
 const AdminHandoffsPage = lazy(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
+const SuperAdminKnowledgePage = lazy(() => import("./modules/shared-layers/assistant/SuperAdminKnowledgePage"));
+const SuperAdminSupportTicketsPage = lazy(() => import("./modules/shared-layers/assistant/SuperAdminSupportTicketsPage"));
 const AssistantLauncher = lazy(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
 const UserManagementPage = lazy(() => import("./modules/settings/UserManagementPage"));
 
@@ -400,6 +402,8 @@ const routeOverrides = {
   "/super-admin/billing/reconciliation": <SuperAdminBillingReconciliationPage />,
 
   // Super Admin — Access & Security
+  "/super-admin/assistant-knowledge": <SuperAdminKnowledgePage />,
+  "/super-admin/support-tickets": <SuperAdminSupportTicketsPage />,
   "/super-admin/support-access": <SuperAdminSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────

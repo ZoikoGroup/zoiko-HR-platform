@@ -27,12 +27,12 @@ export const superAdminService = {
   approveOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "approved" }),
   rejectOrganization: (id, data) => api.post(`/super-admin/organizations/${id}/status`, { status: "rejected", reason: data?.reason }),
   reactivateOrganization: (id) => api.post(`/super-admin/organizations/${id}/status`, { status: "active" }),
-  deleteOrganization: (id, confirmation) =>
-    api.delete(`/super-admin/organizations/${id}`, {
-      headers: confirmation
-        ? { "X-Confirmation-Id": String(confirmation.id), "X-Confirmation-Token": confirmation.token }
-        : undefined,
-    }),
+  // Organization deletion is a soft delete with ONE endpoint (ZHR-35): the caller
+  // must send the organization's exact name; the server verifies it.
+  getOrganizationDeletionImpact: (id) => api.get(`/super-admin/organizations/${id}/deletion-impact`),
+  deleteOrganization: (id, { confirm_name, reason } = {}) =>
+    api.delete(`/super-admin/organizations/${id}`, { body: { confirm_name, reason: reason || null } }),
+  restoreOrganization: (id) => api.post(`/super-admin/organizations/${id}/restore`),
 
   // Organization audit logs (org-scoped)
   getOrganizationAuditLogs: (orgId, params) => api.get(`/super-admin/organizations/${orgId}/audit-logs`, { params }),

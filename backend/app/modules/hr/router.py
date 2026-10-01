@@ -490,7 +490,7 @@ def create_leave_type_config(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.create_leave_type_config(db, data, current_user.organization_id)
+    return service.create_leave_type_config(db, data, current_user.organization_id, actor=current_user)
 
 
 @hr_router.put(
@@ -504,7 +504,7 @@ def update_leave_type_config(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.update_leave_type_config(db, config_id, data, current_user.organization_id)
+    return service.update_leave_type_config(db, config_id, data, current_user.organization_id, actor=current_user)
 
 
 @hr_router.delete(
@@ -517,7 +517,7 @@ def delete_leave_type_config(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    service.delete_leave_type_config(db, config_id, current_user.organization_id)
+    service.delete_leave_type_config(db, config_id, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave type config deleted")
 
 
@@ -590,7 +590,7 @@ def update_leave_settings(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.update_leave_settings(db, current_user.organization_id, data)
+    return service.update_leave_settings(db, current_user.organization_id, data, actor=current_user)
 
 
 @hr_router.delete(
@@ -602,7 +602,7 @@ def reset_leave_settings(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    service.reset_leave_settings(db, current_user.organization_id)
+    service.reset_leave_settings(db, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave settings reset to defaults")
 
 
@@ -632,7 +632,7 @@ def update_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.update_leave_request(db, leave_id, data, current_user.organization_id)
+    return service.update_leave_request(db, leave_id, data, current_user.organization_id, actor=current_user)
 
 
 @hr_router.delete(
@@ -645,7 +645,7 @@ def delete_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    service.delete_leave_request(db, leave_id, current_user.organization_id)
+    service.delete_leave_request(db, leave_id, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave request deleted")
 
 

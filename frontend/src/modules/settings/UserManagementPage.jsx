@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { ROLE_LABELS } from "../../config/roles";
+import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
 
 // Role options come from GET /hr/admin/roles (single source of truth on the
 // server: label, description, platform/organization scope, and what the
@@ -115,6 +116,7 @@ export default function UserManagementPage() {
   const [createdPassword, setCreatedPassword] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  const [deleteOrgTarget, setDeleteOrgTarget] = useState(null);
   const [resetTarget, setResetTarget] = useState(null);
   const [resetMethod, setResetMethod] = useState("link");
   const [resetPending, setResetPending] = useState(false);
@@ -343,6 +345,15 @@ export default function UserManagementPage() {
     confirmLabel: "Delete",
     successMsg: "User deleted.",
   });
+
+  // Deleting an organization from here is the same soft delete the Organizations
+  // page uses (one service, one endpoint), then this list re-reads from the server.
+  const handleOrganizationDeleted = async (res) => {
+    const name = deleteOrgTarget?.name;
+    setDeleteOrgTarget(null);
+    setToast({ message: res?.message || `Organization "${name}" was deleted.`, type: "success" });
+    await fetchUsers();
+  };
 
   const handleResetPassword = (target) => {
     setResetTarget(target);
@@ -614,9 +625,15 @@ export default function UserManagementPage() {
                               <button onClick={() => handleResetPassword(u)} disabled={u.id === user?.id} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed" title={u.id === user?.id ? "Use account settings to change your own password" : "Reset password"}>
                                 <Unlock className="w-4 h-4" />
                               </button>
-                              <button onClick={() => handleDelete(u)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Delete">
+                              <button onClick={() => handleDelete(u)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Delete user permanently">
                                 <Trash2 className="w-4 h-4" />
                               </button>
+                              {isSuperAdmin && u.organization_id && (
+                                <button onClick={() => setDeleteOrgTarget({ id: u.organization_id, name: u.organization_name })}
+                                  className="p-2 text-gray-400 hover:text-red-700 hover:bg-red-50 rounded-lg transition-all" title="Delete organization">
+                                  <Building2 className="w-4 h-4" />
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -773,6 +790,10 @@ export default function UserManagementPage() {
               </form>
             </div>
           </div>
+        )}
+
+        {deleteOrgTarget && (
+          <DeleteOrganizationDialog org={deleteOrgTarget} onClose={() => setDeleteOrgTarget(null)} onDeleted={handleOrganizationDeleted} />
         )}
 
         {resetTarget && (

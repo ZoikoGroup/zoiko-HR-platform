@@ -12,7 +12,9 @@ Role model (lowest number = highest privilege):
   employee       4  self-service (ESS) only
 """
 
-from fastapi import Depends, Request
+from typing import Optional
+
+from fastapi import Depends, Query, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
@@ -119,7 +121,7 @@ def get_allowed_creation_roles(creator_role) -> list:
 __all__ = [
     "get_db", "get_current_user", "get_current_admin",
     "get_current_org_admin", "get_current_super_admin",
-    "get_organization_id", "get_super_admin_organization_id",
+    "get_organization_id", "get_scoped_organization_id", "get_super_admin_organization_id",
     "require_organization_access",
     "get_current_billing_owner", "get_current_billing_admin", "get_current_billing_viewer",
 ]
@@ -153,6 +155,13 @@ def get_current_user(
     user = db.query(Employee).filter(Employee.email == email).first()
     if user is None:
         raise UnauthorizedException("User account not found. Please log in again.")
+
+    # Deleting an organization ends its users' sessions immediately (checked first
+    # so the user is told why, not just "log in again").
+    if user.organization_id:
+        from app.modules.super_admin import organization_service
+        if organization_service.is_deleted(db, user.organization_id):
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
 
     from app.core.security import token_predates_password_change
     if token_predates_password_change(payload, user):
@@ -236,6 +245,34 @@ def get_organization_id(current_user=Depends(get_current_user)) -> int:
         )
     if current_user.organization_id is None:
         raise ForbiddenException("User is not associated with any organization.")
+    return current_user.organization_id
+
+
+def get_scoped_organization_id(
+    organization_id: Optional[int] = Query(None, description="Super Admin only: the organization to act on"),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> int:
+    """Organization an admin-tools request applies to.
+
+    Organization users are always scoped to their own organization (a different
+    `organization_id` is rejected). A Super Admin has no organization of their
+    own, so they must name an existing, non-deleted one."""
+    from app.core.exceptions import BadRequestException, NotFoundException
+
+    role_val = _role_value(current_user.role)
+    if role_val == "super_admin":
+        if organization_id is None:
+            raise BadRequestException("Select an organization first.")
+        from app.modules.hr.models import Organization
+
+        if db.query(Organization.id).filter(Organization.id == organization_id).first() is None:
+            raise NotFoundException("Organization", organization_id)
+        return organization_id
+    if current_user.organization_id is None:
+        raise ForbiddenException("User is not associated with any organization.")
+    if organization_id is not None and organization_id != current_user.organization_id:
+        raise ForbiddenException("You can only act on your own organization.")
     return current_user.organization_id
 
 

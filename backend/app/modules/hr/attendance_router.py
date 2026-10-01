@@ -345,7 +345,7 @@ def delete_leave_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    attendance_service.delete_leave_request(db, leave_id, organization_id=current_user.organization_id)
+    attendance_service.delete_leave_request(db, leave_id, organization_id=current_user.organization_id, actor=current_user)
     return {"message": f"Leave request {leave_id} has been deleted successfully."}
 
 @attendance_router.put("/leaves/{leave_id}/review", response_model=SuccessResponse)

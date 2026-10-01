@@ -1465,9 +1465,47 @@ def get_attendance_records(db: Session, employee_id: Optional[int] = None, organ
 def _compute_leave_days(start_date: date, end_date: date) -> int:
     return (end_date - start_date).days + 1
 
+# ── Organization activity recording (ZHR-36) ──────────────────────────────────
+# Lazy import: activity_service reads the super_admin models, which must not be
+# pulled in at hr.service import time.
+
+def _activity_record(db: Session, action_type: str, actor, organization_id, **kwargs) -> None:
+    from app.modules.super_admin import activity_service
+
+    organization_name = None
+    if organization_id is not None:
+        org = db.query(Organization).filter(Organization.id == organization_id).first()
+        organization_name = (org.organization_name or org.display_name or org.name) if org else None
+    activity_service.record_activity(
+        db, action_type=action_type, actor=actor, organization_id=organization_id,
+        organization_name=organization_name, **kwargs,
+    )
+
+
+def _actor_of(db: Session, actor):
+    """Accept an Employee row, an id, or nothing."""
+    if actor is None or isinstance(actor, Employee):
+        return actor
+    return db.query(Employee).filter(Employee.id == actor).first()
+
+
+def _org_label(db: Session, org_id: int) -> str:
+    org = db.query(Organization).filter(Organization.id == org_id).first()
+    return (org.organization_name or org.display_name or org.name) if org else f"Organization {org_id}"
+
+
+def _leave_target(db: Session, record) -> dict:
+    employee = db.query(Employee).filter(Employee.id == record.employee_id).first()
+    if employee is None:
+        return {"target_name": f"leave request LV-{record.organization_id}-{record.id:04d}"}
+    name = f"{employee.first_name} {employee.last_name}".strip() or employee.email
+    return {"target_name": name,
+            "target_code": f"LV-{record.organization_id}-{record.id:04d}"}
+
+
 # ── Leave Requests ─────────────────────────────────────────────────────────
 
-def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int) -> LeaveRequest:
+def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, actor=None) -> LeaveRequest:
     days = _compute_leave_days(data.start_date, data.end_date)
     record = LeaveRequest(
         employee_id=data.employee_id,
@@ -1492,6 +1530,18 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int) -> 
     if balance:
         balance.pending_days += days
         db.commit()
+
+    _activity_record(
+        db, "leave.requested", _actor_of(db, actor), org_id,
+        entity_type="LeaveRequest", entity_id=record.id,
+        **_leave_target(db, record),
+        changes=[
+            {"field": "leave_type", "label": "Leave type", "before": None, "after": data.leave_type},
+            {"field": "days", "label": "Days", "before": None, "after": days},
+            {"field": "status", "label": "Status", "before": None, "after": "pending"},
+        ],
+        commit=True,
+    )
 
     # Notify the employee that their leave request was submitted (non-blocking)
     try:
@@ -1603,30 +1653,45 @@ def get_leave_request(db: Session, leave_id: int, org_id: int) -> LeaveRequest:
     return record
 
 
-def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, org_id: int) -> LeaveRequest:
+def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, org_id: int, actor=None) -> LeaveRequest:
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
     record = get_leave_request(db, leave_id, org_id)
     update_data = data.model_dump(exclude_unset=True)
     if "start_date" in update_data or "end_date" in update_data:
         start = update_data.get("start_date", record.start_date)
         end = update_data.get("end_date", record.end_date)
         update_data["days"] = _compute_leave_days(start, end)
+    before = snapshot(record, update_data.keys())
     for key, value in update_data.items():
         setattr(record, key, value)
     if "status" in update_data:
         record.reviewed_at = datetime.utcnow()
     db.commit()
     db.refresh(record)
+    _activity_record(
+        db, "leave.updated", _actor_of(db, actor), record.organization_id,
+        entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
+        changes=changes_from(before, update_data),
+    )
     return record
 
 
-def delete_leave_request(db: Session, leave_id: int, org_id: int) -> None:
+def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) -> None:
     record = get_leave_request(db, leave_id, org_id)
+    target = _leave_target(db, record)  # read before the row is gone
+    record_id, record_org = record.id, record.organization_id
     db.delete(record)
     db.commit()
+    _activity_record(
+        db, "leave.deleted", _actor_of(db, actor), record_org,
+        entity_type="LeaveRequest", entity_id=record_id, **target,
+    )
 
 
 def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, org_id: int, reviewer_id: int) -> LeaveRequest:
     record = get_leave_request(db, leave_id, org_id)
+    before_status = getattr(record.status, "value", record.status)
     update_data = data.model_dump(exclude_unset=True)
     if "status" in update_data:
         record.status = update_data["status"]
@@ -1650,6 +1715,13 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
         elif balance and record.status == RequestStatus.REJECTED:
             balance.pending_days -= record.days
         db.commit()
+        approved = record.status == RequestStatus.APPROVED
+        _activity_record(
+            db, "leave.approved" if approved else "leave.rejected", _actor_of(db, reviewer_id), record.organization_id,
+            entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
+            changes=[{"field": "status", "label": "Status", "before": before_status,
+                      "after": getattr(record.status, "value", record.status)}],
+        )
 
     # Notify the employee about the review decision (non-blocking)
     if record.status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
@@ -1689,7 +1761,7 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
 
 # ── Leave Type Configs ─────────────────────────────────────────────────────
 
-def create_leave_type_config(db: Session, data: LeaveTypeConfigCreate, org_id: int) -> LeaveTypeConfig:
+def create_leave_type_config(db: Session, data: LeaveTypeConfigCreate, org_id: int, actor=None) -> LeaveTypeConfig:
     raw = data.model_dump()
     raw["code"] = raw["code"].strip().lower()
     existing = db.query(LeaveTypeConfig).filter(
@@ -1706,6 +1778,12 @@ def create_leave_type_config(db: Session, data: LeaveTypeConfigCreate, org_id: i
         db.rollback()
         raise AlreadyExistsException("LeaveTypeConfig", field=f"code '{raw['code']}'")
     db.refresh(record)
+    _activity_record(
+        db, "leave.type_created", _actor_of(db, actor), org_id,
+        entity_type="LeaveTypeConfig", entity_id=record.id, target_name=record.name, target_code=record.code,
+        changes=[{"field": "default_days_per_year", "label": "Days per year", "before": None,
+                  "after": record.default_days_per_year}],
+    )
     return record
 
 
@@ -1725,20 +1803,33 @@ def get_leave_type_config(db: Session, config_id: int, org_id: int) -> LeaveType
     return record
 
 
-def update_leave_type_config(db: Session, config_id: int, data: LeaveTypeConfigUpdate, org_id: int) -> LeaveTypeConfig:
+def update_leave_type_config(db: Session, config_id: int, data: LeaveTypeConfigUpdate, org_id: int, actor=None) -> LeaveTypeConfig:
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
     record = get_leave_type_config(db, config_id, org_id)
     update_data = data.model_dump(exclude_unset=True)
+    before = snapshot(record, update_data.keys())
     for key, value in update_data.items():
         setattr(record, key, value)
     db.commit()
     db.refresh(record)
+    _activity_record(
+        db, "leave.type_updated", _actor_of(db, actor), org_id,
+        entity_type="LeaveTypeConfig", entity_id=record.id, target_name=record.name, target_code=record.code,
+        changes=changes_from(before, update_data),
+    )
     return record
 
 
-def delete_leave_type_config(db: Session, config_id: int, org_id: int) -> None:
+def delete_leave_type_config(db: Session, config_id: int, org_id: int, actor=None) -> None:
     record = get_leave_type_config(db, config_id, org_id)
+    name, code, record_id = record.name, record.code, record.id
     db.delete(record)
     db.commit()
+    _activity_record(
+        db, "leave.type_deleted", _actor_of(db, actor), org_id,
+        entity_type="LeaveTypeConfig", entity_id=record_id, target_name=name, target_code=code,
+    )
 
 
 # ── Leave Settings ─────────────────────────────────────────────────────────
@@ -1755,23 +1846,37 @@ def get_leave_settings(db: Session, org_id: int) -> LeaveSetting:
     return record
 
 
-def update_leave_settings(db: Session, org_id: int, data: LeaveSettingUpdate) -> LeaveSetting:
+def update_leave_settings(db: Session, org_id: int, data: LeaveSettingUpdate, actor=None) -> LeaveSetting:
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
     record = get_leave_settings(db, org_id)
     update_data = data.model_dump(exclude_unset=True)
+    before = snapshot(record, update_data.keys())
     for key, value in update_data.items():
         setattr(record, key, value)
     db.commit()
     db.refresh(record)
+    _activity_record(
+        db, "leave.settings_updated", _actor_of(db, actor), org_id,
+        entity_type="LeaveSetting", entity_id=record.id, target_name=_org_label(db, org_id),
+        changes=changes_from(before, update_data),
+    )
     return record
 
 
-def reset_leave_settings(db: Session, org_id: int) -> None:
+def reset_leave_settings(db: Session, org_id: int, actor=None) -> None:
     record = db.query(LeaveSetting).filter(
         LeaveSetting.organization_id == org_id,
     ).first()
     if record:
+        record_id = record.id
         db.delete(record)
         db.commit()
+        _activity_record(
+            db, "leave.settings_updated", _actor_of(db, actor), org_id,
+            entity_type="LeaveSetting", entity_id=record_id, target_name=_org_label(db, org_id),
+            details={"reset_to_defaults": True},
+        )
 
 
 # ── Leave Balances ─────────────────────────────────────────────────────────

@@ -238,14 +238,14 @@ def test_budget_validation_archive_and_audit(world):
     assert _budget(c, allocated_amount="-5").status_code == 422
     assert _budget(c, currency="US").status_code == 422
     b = _budget(c).json()
-    assert [l.details["event"] for l in db.query(AuditLog).all()] == ["expenses.budget_created"]
+    assert [(l.details or {}).get("event") for l in db.query(AuditLog).all()] == ["expenses.budget_created"]
     r = c.delete(f"/super-admin/expenses/budgets/{b['id']}")
     assert r.status_code == 200 and r.json()["already_archived"] is False
     assert c.get("/super-admin/expenses/budgets").json()["budgets"] == []
     assert db.query(ExpenseBudget).count() == 1  # archived, never hard-deleted
     assert c.delete(f"/super-admin/expenses/budgets/{b['id']}").json()["already_archived"] is True
     assert c.delete("/super-admin/expenses/budgets/9999").status_code == 404
-    assert "expenses.budget_archived" in [l.details["event"] for l in db.query(AuditLog).all()]
+    assert "expenses.budget_archived" in [(l.details or {}).get("event") for l in db.query(AuditLog).all()]
 
 
 def test_budgets_filter_by_org(world):

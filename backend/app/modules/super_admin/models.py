@@ -42,6 +42,18 @@ class PlatformSetting(Base):
 
 
 class AuditLog(Base):
+    """The platform's single append-only audit ledger.
+
+    The original columns answer "which platform record changed". The activity
+    columns (organization_id .. error_message, ZHR-36) answer the question the
+    Super Admin actually asks on the Workflows page: which organization, which
+    person in what role, which target, exactly what changed, and did it work.
+
+    Organization activity is recorded here rather than in a second table so there
+    is only ever one ledger to query, retain and audit. Every added column is
+    nullable, so the platform-level rows written before this existed stay valid.
+    """
+
     __tablename__ = "super_admin_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
@@ -54,6 +66,27 @@ class AuditLog(Base):
     ip_address = Column(String(50), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
+    # ── Organization activity (ZHR-36) ──────────────────────────────────────
+    # Which tenant the action belongs to. Deliberately NOT derived at read time
+    # from the target's current organization: an event is attributed to the
+    # organization that was in force when it happened, so a later re-assignment
+    # or an organization merge can never rewrite history onto the wrong tenant.
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True)
+    # Snapshot of the human actor. Kept as text as well as the employees.id FK so
+    # the feed still reads correctly after the account is renamed or deleted.
+    actor_name = Column(String(200), nullable=True)
+    actor_role = Column(String(50), nullable=True)
+    # Fine-grained event key, e.g. "employee.added" / "leave.approved". Stored
+    # as text, not an enum, so a new action never needs a schema migration, and
+    # filterable so "show me only employee changes" is an index lookup.
+    action_type = Column(String(100), nullable=True)
+    # "Rahul Mehta (ACMEE00001)" — pre-rendered so the feed needs no joins.
+    target_label = Column(String(300), nullable=True)
+    status = Column(String(20), nullable=True)      # success | failed
+    # [{field, label, before, after, masked}] with sensitive values masked.
+    changes = Column(JSON, nullable=True)
+    error_message = Column(String(500), nullable=True)
+
     performer = relationship("Employee", backref="audit_logs")
 
     # The audit page filters on all of these; without them every filtered page
@@ -63,6 +96,13 @@ class AuditLog(Base):
         Index("ix_super_admin_audit_logs_actor_email", "performed_by_email"),
         Index("ix_super_admin_audit_logs_action", "action"),
         Index("ix_super_admin_audit_logs_entity", "entity_type", "entity_id"),
+        # The Workflows activity feed filters on organization / action / status
+        # and always sorts by time, so the leading column of each composite is
+        # the equality filter and the trailing one is the sort.
+        Index("ix_super_admin_audit_logs_org_created", "organization_id", "created_at"),
+        Index("ix_super_admin_audit_logs_action_type_created", "action_type", "created_at"),
+        Index("ix_super_admin_audit_logs_status_created", "status", "created_at"),
+        Index("ix_super_admin_audit_logs_actor_name", "actor_name"),
     )
 
 

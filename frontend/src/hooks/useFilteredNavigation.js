@@ -55,6 +55,11 @@ function isAllowedPathForProducts(pathname, products) {
 // component and already branches on isSuperAdmin internally.
 const SUPER_ADMIN_HREF_OVERRIDES = {
   "/hr-admin/settings": "/settings/user-management",
+  // Assistant Knowledge and Support Tickets live under /hr-admin/ for org admins,
+  // which ProtectedRoute hard-blocks for super_admin (the click just bounced back
+  // to the dashboard). Super admin has its own cross-organization pages (ZHR-33/34).
+  "/hr-admin/assistant-knowledge": "/super-admin/assistant-knowledge",
+  "/hr-admin/assistant-handoffs": "/super-admin/support-tickets",
 };
 
 // Entitlement-aware item filtering. When an item carries `featureKey` and an

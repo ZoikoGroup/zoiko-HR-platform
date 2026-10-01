@@ -29,6 +29,8 @@ class OrganizationSummary(BaseModel):
     admin_name: Optional[str] = None
     admin_email: Optional[str] = None
     approved_by_name: Optional[str] = None
+    deleted_at: Optional[datetime] = None
+    delete_reason: Optional[str] = None
     approved_at: Optional[datetime] = None
     suspended_at: Optional[datetime] = None
     reactivated_at: Optional[datetime] = None

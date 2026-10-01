@@ -14,6 +14,7 @@ import secrets
 from datetime import datetime
 from typing import Optional
 
+from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
 from sqlalchemy import Text, case, cast, func, or_, text
 from sqlalchemy.orm import Session
@@ -26,7 +27,7 @@ from app.core.exceptions import (
     BadRequestException, NotFoundException, UnauthorizedException, ZoikoException,
 )
 from app.core.security import hash_password
-from app.modules.super_admin import notification_service
+from app.modules.super_admin import notification_service, organization_service
 
 from app.modules.super_admin.models import (
     AuditAction, AuditLog, LoginActivity, Notification, PlatformSetting, ApprovalHistory, EmailDeliveryLog,
@@ -151,7 +152,7 @@ def dashboard_stats(db: Session = Depends(get_db), _=Depends(get_current_super_a
     from app.modules.employee.models import Employee, UserRole, EmployeeStatus
 
     orgs = db.query(Organization).all()
-    employees = db.query(Employee).all()
+    employees = organization_service.visible_employees(db).all()
 
     def _count_org(status) -> int:
         return sum(1 for o in orgs if o.status and o.status.value == status.value)
@@ -246,6 +247,7 @@ def list_organizations(
     plan: Optional[str] = None,
     created_from: Optional[str] = None,
     created_to: Optional[str] = None,
+    deleted: str = Query("active", description="active (default) | deleted | all"),
     page: int = 1,
     page_size: int = 20,
     db: Session = Depends(get_db),
@@ -258,7 +260,13 @@ def list_organizations(
     from app.modules.billing.models import BillingSubscription, OrganizationEvaluation
     from app.modules.billing.models import PlanCode as BillingPlanCode
 
+    if deleted not in ("active", "deleted", "all"):
+        raise HTTPException(status_code=400, detail="deleted must be one of: active, deleted, all.")
     q = db.query(Organization)
+    if deleted == "deleted":
+        q = q.execution_options(include_deleted=True).filter(Organization.deleted_at.isnot(None))
+    elif deleted == "all":
+        q = q.execution_options(include_deleted=True)
     if status:
         q = q.filter(Organization.status.ilike(status))
     if search:
@@ -375,6 +383,8 @@ def list_organizations(
             reactivated_at=o.reactivated_at,
             rejection_reason=o.rejection_reason,
             created_at=o.created_at,
+            deleted_at=o.deleted_at,
+            delete_reason=o.delete_reason,
         ))
     return {"organizations": result, "total": total}
 
@@ -662,216 +672,44 @@ def update_organization_status(
     return {"message": f"Organization {org.name} status set to {new_status.value}."}
 
 
-def _project_marked_values(db: Session, table, ref_col_name: str, marked_pks: set) -> set:
-    """Map marked parent primary keys onto the column referenced by an FK.
-
-    Most FKs reference the parent's single-column PK, so we project directly.
-    Anything else is resolved with a real query (covers unique-column FKs)."""
-    pk_cols = list(table.primary_key.columns)
-    if len(pk_cols) == 1:
-        pk_col = pk_cols[0]
-        if pk_col.name == ref_col_name:
-            return {pk for (pk,) in marked_pks}
-        vals = [pk for (pk,) in marked_pks]
-        rows = db.execute(table.select().where(pk_col.in_(vals))).all()
-        return {getattr(r, ref_col_name) for r in rows if getattr(r, ref_col_name) is not None}
-    from sqlalchemy import tuple_
-    from app.database import Base
-    ref_col = Base.metadata.tables[table.name].c[ref_col_name]
-    rows = db.execute(table.select().where(tuple_(*pk_cols).in_(list(marked_pks)))).all()
-    return {getattr(r, ref_col_name) for r in rows if getattr(r, ref_col_name) is not None}
+class OrganizationDeleteRequest(BaseModel):
+    confirm_name: str = Field(min_length=1, max_length=200, description="The organization's exact name")
+    reason: Optional[str] = Field(default=None, max_length=1000)
 
 
-def _teardown_organization(db: Session, org_id: int) -> list[str]:
-    """Recursively collect and delete every row tied to an organization.
-
-    Seeds the purge set with the organization itself, its members
-    (employees) and every row carrying a direct organizations FK, then
-    walks the foreign-key graph until a fixpoint so grandchildren rows
-    (records referencing employees, departments, etc.) are removed too.
-    Deletion order is children-before-parents (reverse topological)."""
-    from app.database import Base
-    from sqlalchemy import tuple_
-
-    # Force-register every model module so the FK graph below is complete.
-    import app.modules.hr.models  # noqa: F401
-    import app.modules.employee.models  # noqa: F401
-    import app.modules.billing.models  # noqa: F401
-    import app.modules.assistant.models  # noqa: F401
-    from app.modules.super_admin import command_center_models  # noqa: F401
-
-    from app.modules.employee.models import Employee
-
-    tables = list(Base.metadata.tables.values())
-    marked_pks: dict[str, set] = {"organizations": {(org_id,)}}
-
-    member_ids = [row[0] for row in db.query(Employee.id).filter(Employee.organization_id == org_id).all()]
-    if member_ids:
-        marked_pks["employees"] = {(eid,) for eid in member_ids}
-
-    # Seed: every table with a direct FK to organizations.
-    for table in tables:
-        if table.name == "organizations":
-            continue
-        for fk in table.foreign_keys:
-            if fk.column.table.name != "organizations":
-                continue
-            pk_cols = list(table.primary_key.columns)
-            if len(pk_cols) != 1:
-                continue
-            rows = db.execute(table.select().where(fk.parent == org_id)).all()
-            if rows:
-                marked_pks.setdefault(table.name, set()).update(
-                    (getattr(r, pk_cols[0].name),) for r in rows
-                )
-            break
-
-    # Propagate: mark child rows whose parent rows are marked. Idempotent fixpoint.
-    changed = True
-    while changed:
-        changed = False
-        for child in tables:
-            for fk in child.foreign_keys:
-                parent = fk.column.table
-                parent_vals = marked_pks.get(parent.name)
-                if not parent_vals:
-                    continue
-                projected = _project_marked_values(db, parent, fk.column.name, parent_vals)
-                if not projected:
-                    continue
-                pk_cols = list(child.primary_key.columns)
-                if len(pk_cols) != 1:
-                    continue
-                rows = db.execute(child.select().where(fk.parent.in_(projected))).all()
-                for r in rows:
-                    pk = (getattr(r, pk_cols[0].name),)
-                    bucket = marked_pks.setdefault(child.name, set())
-                    if pk in bucket:
-                        continue
-                    bucket.add(pk)
-                    changed = True
-
-    # The schema has FK cycles (departments <-> employees <-> organizations,
-    # etc.), so a simple topological table order is unreliable. Two-phase
-    # delete instead:
-    #   1. NULL out every *nullable* FK that points at a table inside the purge
-    #      set. This severs the cycles (all cyclic edges are nullable).
-    #   2. Delete remaining rows leaf-first, ordering only by NOT NULL FKs.
-    covered = {name for name, pks in marked_pks.items() if pks}
-
-    for tname in covered:
-        table = Base.metadata.tables[tname]
-        pk_cols = list(table.primary_key.columns)
-        if len(pk_cols) != 1:
-            continue
-        pk_values = [pk[0] for pk in marked_pks[tname]]
-        for fk in table.foreign_keys:
-            if fk.column.table.name not in covered or not fk.parent.nullable:
-                continue
-            db.execute(
-                table.update()
-                .where(pk_cols[0].in_(pk_values))
-                .values({fk.parent.name: None})
-            )
-
-    # Leaf-first ordering: a table is safe to delete once no other remaining
-    # table holds a NOT NULL FK pointing at it.
-    child_map: dict[str, set] = {}
-    for tname in covered:
-        for fk in Base.metadata.tables[tname].foreign_keys:
-            parent_name = fk.column.table.name
-            if parent_name == tname or parent_name not in covered:
-                continue
-            if fk.parent.nullable:
-                continue
-            child_map.setdefault(parent_name, set()).add(tname)
-
-    remaining = set(covered)
-    order: list[str] = []
-    while remaining:
-        ready = sorted(t for t in remaining if not (child_map.get(t, set()) & remaining))
-        if not ready:
-            raise ZoikoException(
-                500, "DELETE_ORGANIZATION_FAILED",
-                "Circular NOT NULL foreign-key dependency prevents deletion of "
-                f"organization {org_id}: {sorted(remaining)}",
-            )
-        for tname in ready:
-            order.append(tname)
-            remaining.discard(tname)
-
-    purged = []
-    for tname in order:
-        table = Base.metadata.tables[tname]
-        pks = marked_pks[tname]
-        pk_cols = list(table.primary_key.columns)
-        if len(pk_cols) == 1:
-            db.execute(table.delete().where(pk_cols[0].in_([pk for (pk,) in pks])))
-        else:
-            db.execute(table.delete().where(tuple_(*pk_cols).in_(list(pks))))
-        purged.append(tname)
-    return purged
+@router.get("/organizations/{org_id}/deletion-impact", summary="What deleting this organization would do")
+def organization_deletion_impact(org_id: int, db: Session = Depends(get_db), _=Depends(get_current_super_admin)):
+    return organization_service.deletion_impact(db, org_id)
 
 
-@router.delete("/organizations/{org_id}", summary="Delete an organization permanently (hard delete)")
+@router.delete("/organizations/{org_id}", summary="Delete an organization (soft delete, restorable)")
 def delete_organization(
     org_id: int,
-    x_confirmation_id: Optional[str] = Header(None, alias=_CONFIRMATION_HEADER_ID),
-    x_confirmation_token: Optional[str] = Header(None, alias=_CONFIRMATION_HEADER_TOKEN),
+    body: OrganizationDeleteRequest,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_super_admin),
 ):
-    from app.modules.hr.models import Organization
+    """The single deletion path for organizations. Soft delete: users lose
+    access and are signed out, the organization leaves every list, and all
+    related records are retained. See organization_service for the details."""
+    org = organization_service.delete_organization(db, org_id, current_user, body.confirm_name, body.reason)
+    return {
+        "message": f"Organization '{org.name}' was deleted. It can be restored for "
+                   f"{organization_service.RESTORE_WINDOW_DAYS} days.",
+        "deleted_at": org.deleted_at.isoformat() + "Z",
+    }
 
-    org = db.query(Organization).filter(Organization.id == org_id).first()
-    if not org:
-        raise NotFoundException("Organization", org_id)
 
-    # Snapshot display fields now — the teardown below deletes the ORM row, so
-    # any later attribute access on `org` would raise ObjectDeletedError.
-    org_name = org.name
-    org_code = org.organization_code
+@router.post("/organizations/{org_id}/restore", summary="Restore a deleted organization")
+def restore_organization(org_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_super_admin)):
+    org = organization_service.restore_organization(db, org_id, current_user)
+    return {"message": f"Organization '{org.name}' was restored. Its users can sign in again."}
 
-    # Two-step confirmation for irreversible hard-delete (Prompt 5).
-    if not x_confirmation_id or not x_confirmation_token:
-        raise BadRequestException(
-            "Deleting an organization requires a confirmation token. "
-            "POST /super-admin/organizations/{org_id}/confirmation-tokens with "
-            "purpose='delete_organization' first, then send X-Confirmation-Id and "
-            "X-Confirmation-Token headers."
-        )
-    try:
-        confirmation_id = int(x_confirmation_id)
-    except (TypeError, ValueError):
-        raise BadRequestException("Invalid X-Confirmation-Id.")
-    _consume_confirmation(
-        db, current_user, org.id, "delete_organization",
-        confirmation_id, x_confirmation_token,
-    )
 
-    # Full recursive teardown: organization + employees + every row that
-    # references them, transitively (FK graph fixpoint). Single transaction.
-    try:
-        purged = _teardown_organization(db, org.id)
-    except Exception as exc:
-        db.rollback()
-        logger.error("Organization %s hard-delete failed: %s", org_id, exc, exc_info=True)
-        raise ZoikoException(500, "DELETE_ORGANIZATION_FAILED",
-                             f"Failed to permanently delete organization '{org_name}'. "
-                             "No changes were committed.") from exc
-
-    db.add(AuditLog(
-        action=AuditAction.DELETE,
-        entity_type="Organization",
-        entity_id=org_id,
-        performed_by=current_user.id,
-        performed_by_email=current_user.email,
-        details={"name": org_name, "code": org_code, "purged_tables": purged},
-    ))
-    db.commit()
-    emit_event(db, "organization.deleted", {"id": org_id, "name": org_name, "code": org_code}, None)
-
-    return {"message": f"Organization '{org_name}' has been permanently deleted successfully."}
+# Permanent deletion of an organization is intentionally not implemented (ZHR-35
+# follow-up: it needs a retention policy and a decision on billing/legal records).
+# The old recursive FK-walk teardown was removed with the hard-delete endpoint; it
+# is in git history (before commit "organization deletion is one soft delete").
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -915,7 +753,7 @@ def list_users(
 ):
     from app.modules.employee.models import Employee, EmployeeStatus, UserRole
 
-    q = db.query(Employee)
+    q = organization_service.visible_employees(db)
 
     if search:
         term = f"%{search}%"
