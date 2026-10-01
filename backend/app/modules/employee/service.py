@@ -1288,7 +1288,9 @@ def create_employee(
 
         return employee
     except Exception as exc:
-        _record_failure("employee.added", db, actor, resolved_org_id, exc)
+        attempted = f"{data.first_name} {data.last_name}".strip()
+        _record_failure("employee.added", db, actor, resolved_org_id, exc,
+                        target_name=attempted or None, entity_type="Employee")
         raise
 
 

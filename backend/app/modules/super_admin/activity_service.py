@@ -138,6 +138,7 @@ FIELD_LABELS = {
 UNINTERESTING_FIELDS = {
     "updated_at", "created_at", "updated_by", "created_by", "hashed_password",
     "must_change_password", "password_changed_at", "emergency_contacts",
+    "id", "organization_id", "is_active", "deleted_at", "failed_login_attempts", "locked_until",
 }
 
 
@@ -309,9 +310,13 @@ def action_groups() -> list:
     return [{"key": g, "label": g} for g in groups]
 
 
+_ADDING_ACTIONS = {"employee.added", "employee.invited", "payroll.compensation_added", "payroll.benefit_added",
+                  "leave.type_created"}
+
+
 def build_sentence(*, action_type: str, actor_name: Optional[str], role_label_text: Optional[str],
                    target_name: Optional[str], organization_name: Optional[str],
-                   counts: Optional[dict] = None) -> str:
+                   counts: Optional[dict] = None, status: str = "success") -> str:
     """The one-line story of an event.
 
     ``"Priya Shah (Org Admin) added employee Rahul Mehta to Acme Ltd"``
@@ -331,7 +336,8 @@ def build_sentence(*, action_type: str, actor_name: Optional[str], role_label_te
         if target_name:
             sentence += f" {target_name}"
         if organization_name:
-            sentence += f" to {org}"
+            joiner = "to" if action_type in _ADDING_ACTIONS else "in"
+            sentence += f" {joiner} {org}"
 
     if counts:
         bits = []
@@ -341,6 +347,8 @@ def build_sentence(*, action_type: str, actor_name: Optional[str], role_label_te
                 bits.append(f"{value} {key}")
         if bits:
             sentence += f" ({', '.join(bits)})"
+    if status == "failed":
+        sentence += " - failed"
     return sentence
 
 
@@ -451,7 +459,7 @@ def record_activity(
             payload["organization_name"] = organization_name
         sentence = build_sentence(
             action_type=action_type, actor_name=name, role_label_text=role_text,
-            target_name=target_name, organization_name=organization_name, counts=counts,
+            target_name=target_name, organization_name=organization_name, counts=counts, status=status,
         )
 
         row = AuditLog(
@@ -571,7 +579,7 @@ def event_view(db: Session, row: AuditLog, org_names: Optional[dict] = None) -> 
     sentence = details.get("sentence") or build_sentence(
         action_type=action_type, actor_name=row.actor_name,
         role_label_text=role_label(row.actor_role), target_name=target_name_of(row),
-        organization_name=org_name, counts=counts,
+        organization_name=org_name, counts=counts, status=row.status or "success",
     )
     return {
         "id": row.id,
