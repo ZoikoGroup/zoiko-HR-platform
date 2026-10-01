@@ -419,3 +419,15 @@ def test_data_fix_script_explains_when_the_database_is_not_migrated_yet(monkeypa
     monkeypatch.setattr(appdb, "engine", old)
     assert main([]) == 3
     assert "alembic upgrade head" in capsys.readouterr().err
+
+
+def test_data_fix_script_imports_in_a_fresh_interpreter():
+    """Regression: importing the script first (as `python -m scripts...` does) hit a circular import."""
+    import subprocess, sys
+
+    out = subprocess.run(
+        [sys.executable, "-c", "import scripts.fix_inconsistent_organizations as m; print(callable(m.main))"],
+        capture_output=True, text=True, timeout=120,
+    )
+    assert out.returncode == 0, out.stderr[-500:]
+    assert out.stdout.strip().endswith("True")

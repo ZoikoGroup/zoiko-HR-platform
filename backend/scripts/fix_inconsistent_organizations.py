@@ -28,6 +28,7 @@ from typing import Optional
 
 from sqlalchemy.orm import Session
 
+import app.database  # noqa: F401  - must load first: it imports the model modules in the order they need
 from app.modules.employee.models import Employee, UserRole
 from app.modules.hr.models import Organization
 from app.modules.super_admin import organization_service

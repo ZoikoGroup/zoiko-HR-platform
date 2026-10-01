@@ -44,9 +44,15 @@ def _is_postgres() -> bool:
 
 
 def upgrade() -> None:
-    op.add_column("billing_audit_logs", sa.Column("ip_address", sa.String(length=45), nullable=True))
+    # Idempotent: a database that was patched by the dev auto-ALTER (or a partial
+    # earlier run) may already have the column / indexes; skip what exists.
+    insp = sa.inspect(op.get_bind())
+    if "ip_address" not in {c["name"] for c in insp.get_columns("billing_audit_logs")}:
+        op.add_column("billing_audit_logs", sa.Column("ip_address", sa.String(length=45), nullable=True))
+    existing = {i["name"] for i in insp.get_indexes("super_admin_audit_logs")}
     for name, cols in _AUDIT_INDEXES:
-        op.create_index(name, "super_admin_audit_logs", cols)
+        if name not in existing:
+            op.create_index(name, "super_admin_audit_logs", cols)
     if _is_postgres():
         for table in _UTC_DEFAULT_TABLES:
             op.execute(

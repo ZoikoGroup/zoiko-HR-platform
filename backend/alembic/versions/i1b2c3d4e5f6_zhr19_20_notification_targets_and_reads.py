@@ -39,41 +39,54 @@ _T = "super_admin_notifications"
 
 
 def upgrade() -> None:
-    op.add_column(_T, sa.Column("body_html", sa.Text(), nullable=True))
-    op.add_column(_T, sa.Column("sender_name", sa.String(120), nullable=False, server_default="Zoiko HR Admin"))
-    op.add_column(_T, sa.Column("channels", sa.JSON(), nullable=True))
-    op.add_column(_T, sa.Column("target_type", sa.String(20), nullable=False, server_default="all"))
-    op.add_column(_T, sa.Column("audience", sa.String(20), nullable=False, server_default="org_admins"))
-    op.add_column(_T, sa.Column("status", sa.String(20), nullable=False, server_default="sent"))
-    op.add_column(_T, sa.Column("sent_at", sa.DateTime(), nullable=True))
-    op.create_index("ix_super_admin_notifications_sent_at", _T, ["sent_at"])
-    op.create_index("ix_super_admin_notifications_target_type", _T, ["target_type"])
+    # Idempotent: a database that was already patched (dev auto-ALTER / create_all,
+    # or a partial earlier attempt) keeps what it has; only the missing pieces are added.
+    insp = sa.inspect(op.get_bind())
+    cols = {c["name"] for c in insp.get_columns(_T)}
 
-    op.create_table(
-        "super_admin_notification_targets",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("notification_id", sa.Integer(), sa.ForeignKey(f"{_T}.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("kind", sa.String(10), nullable=False),
-        sa.Column("ref", sa.String(50), nullable=False),
-        sa.UniqueConstraint("notification_id", "kind", "ref", name="uq_notification_target"),
-    )
-    op.create_index("ix_super_admin_notification_targets_kind_ref",
-                    "super_admin_notification_targets", ["kind", "ref"])
-    op.create_index("ix_super_admin_notification_targets_notification_id",
-                    "super_admin_notification_targets", ["notification_id"])
+    def add(name, column):
+        if name not in cols:
+            op.add_column(_T, column)
 
-    op.create_table(
-        "super_admin_notification_reads",
-        sa.Column("id", sa.Integer(), primary_key=True),
-        sa.Column("notification_id", sa.Integer(), sa.ForeignKey(f"{_T}.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("user_id", sa.Integer(), sa.ForeignKey("employees.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("read_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.UniqueConstraint("notification_id", "user_id", name="uq_notification_read"),
-    )
-    op.create_index("ix_super_admin_notification_reads_user_id",
-                    "super_admin_notification_reads", ["user_id"])
+    add("body_html", sa.Column("body_html", sa.Text(), nullable=True))
+    add("sender_name", sa.Column("sender_name", sa.String(120), nullable=False, server_default="Zoiko HR Admin"))
+    add("channels", sa.Column("channels", sa.JSON(), nullable=True))
+    add("target_type", sa.Column("target_type", sa.String(20), nullable=False, server_default="all"))
+    add("audience", sa.Column("audience", sa.String(20), nullable=False, server_default="org_admins"))
+    add("status", sa.Column("status", sa.String(20), nullable=False, server_default="sent"))
+    add("sent_at", sa.Column("sent_at", sa.DateTime(), nullable=True))
+    have_idx = {i["name"] for i in insp.get_indexes(_T)}
+    for idx, col in (("ix_super_admin_notifications_sent_at", "sent_at"), ("ix_super_admin_notifications_target_type", "target_type")):
+        if idx not in have_idx:
+            op.create_index(idx, _T, [col])
 
-    # -- backfill ---------------------------------------------------------
+    if not insp.has_table("super_admin_notification_targets"):
+        op.create_table(
+            "super_admin_notification_targets",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("notification_id", sa.Integer(), sa.ForeignKey(f"{_T}.id", ondelete="CASCADE"), nullable=False),
+            sa.Column("kind", sa.String(10), nullable=False),
+            sa.Column("ref", sa.String(50), nullable=False),
+            sa.UniqueConstraint("notification_id", "kind", "ref", name="uq_notification_target"),
+        )
+        op.create_index("ix_super_admin_notification_targets_kind_ref",
+                        "super_admin_notification_targets", ["kind", "ref"])
+        op.create_index("ix_super_admin_notification_targets_notification_id",
+                        "super_admin_notification_targets", ["notification_id"])
+
+    if not insp.has_table("super_admin_notification_reads"):
+        op.create_table(
+            "super_admin_notification_reads",
+            sa.Column("id", sa.Integer(), primary_key=True),
+            sa.Column("notification_id", sa.Integer(), sa.ForeignKey(f"{_T}.id", ondelete="CASCADE"), nullable=False),
+            sa.Column("user_id", sa.Integer(), sa.ForeignKey("employees.id", ondelete="CASCADE"), nullable=False),
+            sa.Column("read_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.UniqueConstraint("notification_id", "user_id", name="uq_notification_read"),
+        )
+        op.create_index("ix_super_admin_notification_reads_user_id",
+                        "super_admin_notification_reads", ["user_id"])
+
+    # -- backfill (each statement is safe to repeat) ----------------------
     op.execute(f"UPDATE {_T} SET sent_at = created_at WHERE sent_at IS NULL")
     op.execute(f"UPDATE {_T} SET target_type = 'system' WHERE notification_type = 'org_registration'")
     op.execute(
@@ -86,11 +99,15 @@ def upgrade() -> None:
     )
     op.execute(
         "INSERT INTO super_admin_notification_targets (notification_id, kind, ref) "
-        f"SELECT id, 'user', CAST(target_user_id AS VARCHAR) FROM {_T} WHERE target_type = 'user'"
+        f"SELECT n.id, 'user', CAST(n.target_user_id AS VARCHAR) FROM {_T} n WHERE n.target_type = 'user' "
+        "AND NOT EXISTS (SELECT 1 FROM super_admin_notification_targets t "
+        "WHERE t.notification_id = n.id AND t.kind = 'user' AND t.ref = CAST(n.target_user_id AS VARCHAR))"
     )
     op.execute(
         "INSERT INTO super_admin_notification_targets (notification_id, kind, ref) "
-        f"SELECT id, 'org', CAST(target_org_id AS VARCHAR) FROM {_T} WHERE target_type = 'organization'"
+        f"SELECT n.id, 'org', CAST(n.target_org_id AS VARCHAR) FROM {_T} n WHERE n.target_type = 'organization' "
+        "AND NOT EXISTS (SELECT 1 FROM super_admin_notification_targets t "
+        "WHERE t.notification_id = n.id AND t.kind = 'org' AND t.ref = CAST(n.target_org_id AS VARCHAR))"
     )
 
 
