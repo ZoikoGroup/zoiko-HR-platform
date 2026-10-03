@@ -1107,36 +1107,43 @@ def cache_stats(current_user=Depends(get_current_super_admin)):
         "stats": cache_stats(),
     }
 
-# Login flows implemented in this codebase. Google/Microsoft SSO have no
-# OAuth/OIDC/SAML flow yet (follow-up), so they can never be reported "Active".
-_SSO_LOGIN_FLOW_IMPLEMENTED = {"google": False, "microsoft": False}
-
-
 def _mask_client_id(value: str) -> str:
     return value if len(value) <= 8 else f"{value[:4]}…{value[-4:]}"
 
 
-def compute_identity_providers(env: Optional[dict] = None) -> list[dict]:
+def compute_identity_providers(env: Optional[dict] = None, db=None, paths: Optional[set] = None) -> list[dict]:
     """Provider status derived from real config. Never includes secrets.
 
-    Active            -> credentials present AND login flow implemented
-    Configured, disabled -> credentials present but no working login flow
-    Not configured    -> credentials missing
+    Whether a provider *can actually sign anyone in* is not a flag anyone
+    maintains — it is read off the route table of the running app. The day a
+    Google/Microsoft callback route exists, the provider reports Active with no
+    code change; until then it can only ever report "Configured, disabled".
+
+    Active                    credentials present AND a login route is served
+    Connected                 built-in auth with a served route and real sign-ins
+    Configured, disabled      credentials present but no working login route
+    Not configured            credentials missing
     """
     import os
+
+    from app.modules.integrations.hub_apps import (
+        email_app, provider_login_flows, registered_auth_paths,
+    )
 
     env = os.environ if env is None else env
     specs = [
         ("google", "Google Workspace OIDC", "Single Sign-On", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
         ("microsoft", "Microsoft Entra ID", "Single Sign-On", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"),
     ]
+    paths = registered_auth_paths() if paths is None else paths
     providers = []
     for key, name, kind, id_var, secret_var in specs:
         client_id = (env.get(id_var) or "").strip()
         configured = bool(client_id and (env.get(secret_var) or "").strip())
+        flows = provider_login_flows(paths, key)
         if not configured:
             status = "Not configured"
-        elif _SSO_LOGIN_FLOW_IMPLEMENTED[key]:
+        elif flows:
             status = "Active"
         else:
             status = "Configured, disabled"
@@ -1147,22 +1154,27 @@ def compute_identity_providers(env: Optional[dict] = None) -> list[dict]:
             "status": status,
             "client_id": _mask_client_id(client_id) if configured else None,
             "required_env": [id_var, secret_var],
+            "login_routes": flows,
         })
+    builtin = email_app(db=db, paths=paths)
     providers.append({
         "key": "email",
         "name": "Email & Password",
         "type": "Built-in",
-        "status": "Active",
+        "status": builtin["status"],
         "client_id": None,
         "required_env": [],
+        "login_routes": builtin["details"]["login_routes"],
+        "metrics": builtin["metrics"],
+        "last_activity_at": builtin["last_activity_at"],
     })
     return providers
 
 
 @router.get("/identity-providers", response_model=dict, summary="Identity provider status")
-def identity_providers(current_user=Depends(get_current_super_admin)):
+def identity_providers(db: Session = Depends(get_db), current_user=Depends(get_current_super_admin)):
     """Identity provider status computed server-side. Never returns secrets."""
-    return {"providers": compute_identity_providers()}
+    return {"providers": compute_identity_providers(db=db)}
 
 
 @router.get("/active-sessions", response_model=dict, summary="Active auth sessions")

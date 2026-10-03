@@ -561,7 +561,25 @@ def expire_overdue_evaluations(db: Session) -> list[OrganizationEvaluation]:
 
     expired = []
     for evaluation in overdue:
-        end_evaluation(db, evaluation.id)
+        # ACTIVE -> EVALUATION_ENDED as a conditional UPDATE: two workers walking
+        # the same overdue evaluation must not both end it and both email the
+        # owner. Whoever loses the update skips the row entirely.
+        ended = (
+            db.query(OrganizationEvaluation)
+            .filter(
+                OrganizationEvaluation.id == evaluation.id,
+                OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            )
+            .update(
+                {OrganizationEvaluation.status: EvaluationStatus.EVALUATION_ENDED},
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        if not ended:
+            logger.info("[evaluation] Evaluation %s already expired elsewhere; skipping", evaluation.id)
+            continue
+        db.refresh(evaluation)
 
         subscription = get_or_create_subscription(db, evaluation.organization_id)
         if subscription.status == SubscriptionStatus.EVALUATION:
@@ -591,6 +609,27 @@ def _org_display_name(db: Session, organization_id: int) -> str:
 
     org = db.query(Organization).filter(Organization.id == organization_id).first()
     return (org.name if org else None) or f"Organization #{organization_id}"
+
+
+def _claim_milestone(db: Session, evaluation_id: int, column: str, now) -> bool:
+    """Compare-and-set claim on a milestone marker.
+
+    Scheduled walks can run in more than one worker (and be triggered by hand
+    while the scheduler is running). Reading "was this sent?" and then writing it
+    is a race: both workers see NULL and both send. A single conditional UPDATE
+    makes exactly one of them win, so a milestone is emailed once. Returns True
+    for the winner only.
+    """
+    won = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.id == evaluation_id,
+            getattr(OrganizationEvaluation, column).is_(None),
+        )
+        .update({getattr(OrganizationEvaluation, column): now}, synchronize_session=False)
+    )
+    db.commit()
+    return won == 1
 
 
 def _send_evaluation_milestone_email(db: Session, evaluation: OrganizationEvaluation, milestone: str) -> None:
@@ -646,9 +685,9 @@ def send_evaluation_reminders(db: Session) -> dict:
         .all()
     )
     for evaluation in due_7d:
+        if not _claim_milestone(db, evaluation.id, "reminder_7d_sent_at", now):
+            continue
         _send_evaluation_milestone_email(db, evaluation, "7d")
-        evaluation.reminder_7d_sent_at = now
-        db.commit()
         sent_7d += 1
 
     due_2d = (
@@ -662,9 +701,9 @@ def send_evaluation_reminders(db: Session) -> dict:
         .all()
     )
     for evaluation in due_2d:
+        if not _claim_milestone(db, evaluation.id, "reminder_2d_sent_at", now):
+            continue
         _send_evaluation_milestone_email(db, evaluation, "2d")
-        evaluation.reminder_2d_sent_at = now
-        db.commit()
         sent_2d += 1
 
     # Halfway (ZHR-COM-010) — the midpoint between evaluation creation and
@@ -686,9 +725,9 @@ def send_evaluation_reminders(db: Session) -> dict:
         if (
             now - timedelta(hours=12) <= midpoint <= now + timedelta(hours=12)
         ):
+            if not _claim_milestone(db, evaluation.id, "reminder_halfway_sent_at", now):
+                continue
             _send_evaluation_milestone_email(db, evaluation, "halfway")
-            evaluation.reminder_halfway_sent_at = now
-            db.commit()
             sent_halfway += 1
 
     return {"sent_7d": sent_7d, "sent_halfway": sent_halfway, "sent_2d": sent_2d}

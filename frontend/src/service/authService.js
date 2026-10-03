@@ -53,16 +53,26 @@ export async function register({ name, email, password, organization, planCode, 
   }
 }
 
+// One in-flight /auth/me at a time; the shell and the route guards both mount
+// in dev, and /auth/me is a slow round trip to the database.
+let currentUserRequest = null;
+
 export async function fetchCurrentUser() {
-  try {
-    const user = await api.get("/auth/me");
-    return user;
-  } catch (err) {
-    const cached = getCachedUser();
-    if (cached) return cached;
-    if (err?.authInvalid) clearSession();
-    throw err;
-  }
+  if (currentUserRequest) return currentUserRequest;
+  currentUserRequest = (async () => {
+    try {
+      const user = await api.get("/auth/me");
+      return user;
+    } catch (err) {
+      const cached = getCachedUser();
+      if (cached) return cached;
+      if (err?.authInvalid) clearSession();
+      throw err;
+    }
+  })().finally(() => {
+    currentUserRequest = null;
+  });
+  return currentUserRequest;
 }
 
 export async function logout() {
