@@ -4,7 +4,7 @@ import PageHeader from "../../components/PageHeader";
 import { Layers, Webhook } from "lucide-react";
 import { integrationsService } from "../../service/integrationsService";
 import {
-  Btn, Card, ErrorNote, Field, Modal, Spinner, StatusPill, SuperAdminOnly, fmt, inputCls, useAction,
+  Btn, Card, ErrorNote, Field, Modal, Spinner, StatusPill, SuperAdminOnly, fmt, inputCls, useAction, useIsSuperAdmin,
 } from "./integrationsUi";
 
 function SecretReveal({ secret, onClose }) {
@@ -28,6 +28,58 @@ function SecretReveal({ secret, onClose }) {
         <Btn tone="primary" onClick={onClose}>I've saved it</Btn>
       </div>
     </Modal>
+  );
+}
+
+function label(key) {
+  const s = String(key).replace(/_/g, " ");
+  return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function FactList({ facts }) {
+  const entries = Object.entries(facts || {}).filter(([, v]) => v !== null && v !== undefined && v !== "");
+  if (entries.length === 0) return null;
+  return (
+    <dl className="mt-2 space-y-0.5">
+      {entries.map(([k, v]) => (
+        <div key={k} className="flex gap-2 text-[11px]">
+          <dt className="shrink-0 text-slate-400">{label(k)}</dt>
+          <dd className="min-w-0 break-all text-slate-600">{Array.isArray(v) ? v.join(", ") || "—" : String(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
+function ApplicationCard({ app }) {
+  const metrics = Object.entries(app.metrics || {});
+  const setup = app.href && /not (connected|configured|available)/i.test(app.status || "");
+  return (
+    <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="text-sm font-bold text-slate-800">{app.name}</p>
+          {app.last_activity_at ? (
+            <p className="mt-1 text-xs text-slate-400">
+              Last activity {fmt(app.last_activity_at)}{app.last_activity ? ` · ${app.last_activity}` : ""}
+            </p>
+          ) : null}
+          {setup ? <Link to={app.href} className="mt-1 block text-xs text-[#3B82F6] hover:underline">Set up</Link> : null}
+        </div>
+        <StatusPill status={app.status} />
+      </div>
+      <FactList facts={app.details} />
+      {metrics.length ? (
+        <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+          {metrics.map(([k, v]) => (
+            <span key={k} className="text-[11px] text-slate-500">
+              <span className="font-semibold text-slate-700">{v}</span> {label(k).toLowerCase()}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {app.last_error ? <p className="mt-2 text-[11px] text-red-500">{app.last_error}</p> : null}
+    </div>
   );
 }
 
@@ -58,11 +110,17 @@ function WebhookForm({ events, onClose, onCreated }) {
           <input className={inputCls} type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://example.com/hooks/zoiko" required />
         </Field>
         <p className="mb-1 text-xs font-semibold text-slate-600">Events</p>
-        <div className="mb-3 space-y-1">
+        <div className="mb-3 max-h-64 space-y-1 overflow-y-auto">
           {events.map((ev) => (
             <label key={ev.key} className="flex items-start gap-2 text-xs text-slate-600">
               <input type="checkbox" className="mt-0.5" checked={selected.includes(ev.key)} onChange={() => toggle(ev.key)} />
-              <span><span className="font-semibold text-slate-800">{ev.key}</span> — {ev.description}</span>
+              <span>
+                <span className="font-semibold text-slate-800">{ev.key}</span> — {ev.description}
+                <span className="ml-1 text-slate-400">
+                  · {ev.subscribed_webhooks} subscribed · {ev.deliveries} deliveries
+                  {ev.last_delivery_at ? ` · last ${fmt(ev.last_delivery_at)}` : ""}
+                </span>
+              </span>
             </label>
           ))}
         </div>
@@ -182,6 +240,7 @@ function WebhookRow({ webhook, onAction, busy }) {
 }
 
 export default function ZoikoHubPage() {
+  const isSuperAdmin = useIsSuperAdmin();
   const [apps, setApps] = useState(null);
   const [webhooks, setWebhooks] = useState(null);
   const [events, setEvents] = useState([]);
@@ -194,6 +253,7 @@ export default function ZoikoHubPage() {
   const act = useAction();
 
   const load = useCallback(async () => {
+    if (!isSuperAdmin) return;
     try {
       const [a, w, e] = await Promise.all([
         integrationsService.getApplications(),
@@ -209,7 +269,7 @@ export default function ZoikoHubPage() {
       setApps((p) => p || []);
       setWebhooks((p) => p || []);
     }
-  }, []);
+  }, [isSuperAdmin]);
 
   useEffect(() => {
     load();
@@ -256,19 +316,11 @@ export default function ZoikoHubPage() {
         <Card title="Integrated Applications" icon={Layers}>
           {apps === null ? (
             <Spinner />
+          ) : apps.length === 0 ? (
+            <p className="text-sm text-slate-500">No integration sources are available.</p>
           ) : (
             <div className="grid gap-3 md:grid-cols-2">
-              {apps.map((a) => (
-                <div key={a.key} className="flex items-center justify-between rounded-2xl border border-slate-100 bg-slate-50 p-4">
-                  <div>
-                    <p className="text-sm font-bold text-slate-800">{a.name}</p>
-                    {a.href && a.status === "Not connected" ? (
-                      <Link to={a.href} className="mt-1 block text-xs text-[#3B82F6] hover:underline">Set up</Link>
-                    ) : null}
-                  </div>
-                  <StatusPill status={a.status} />
-                </div>
-              ))}
+              {apps.map((a) => <ApplicationCard key={a.key} app={a} />)}
             </div>
           )}
         </Card>

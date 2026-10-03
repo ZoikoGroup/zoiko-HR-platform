@@ -1,4 +1,4 @@
-import { api, getAccessToken, API_BASE_URL } from "./api";
+import { api, getAccessToken, refreshSession, API_BASE_URL } from "./api";
 import { saveBlobAs } from "../utils/documents";
 
 // Super Admin document repository (ZHR-27/28). Talks to /super-admin/documents.
@@ -18,12 +18,12 @@ export function validateFile(file) {
 
 export const getOrganizations = () => api.get("/super-admin/documents/organizations");
 
-export const getDocuments = (params) => api.get("/super-admin/documents", { params });
+export const getDocuments = (params, signal) => api.get("/super-admin/documents", { params, signal });
 
 export const deleteDocument = (id) => api.delete(`/super-admin/documents/${id}`);
 
 /** multipart upload with progress (fetch cannot report upload progress). */
-export function uploadDocument({ file, organization_id, title, description, category }, onProgress) {
+export function uploadDocument({ file, organization_id, title, description, category }, onProgress, allowRetry = true) {
   return new Promise((resolve, reject) => {
     const form = new FormData();
     form.append("file", file);
@@ -40,7 +40,7 @@ export function uploadDocument({ file, organization_id, title, description, cate
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded / e.total) * 100));
     };
     xhr.onerror = () => reject(new Error("Network error while uploading. Please try again."));
-    xhr.onload = () => {
+    xhr.onload = async () => {
       let body = null;
       try {
         body = JSON.parse(xhr.responseText);
@@ -48,6 +48,13 @@ export function uploadDocument({ file, organization_id, title, description, cate
         body = null;
       }
       if (xhr.status >= 200 && xhr.status < 300) return resolve(body);
+      // The access token can expire mid-session; refresh once and retry the upload.
+      if (xhr.status === 401 && allowRetry) {
+        const refreshed = await refreshSession();
+        if (refreshed) {
+          return uploadDocument({ file, organization_id, title, description, category }, onProgress, false).then(resolve, reject);
+        }
+      }
       let detail = body?.message || body?.detail;
       if (Array.isArray(detail)) detail = detail.map((d) => d.msg || String(d)).join(", ");
       reject(new Error(detail || `Upload failed (${xhr.status}).`));

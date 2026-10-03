@@ -6,6 +6,8 @@ const TOKEN_KEY = "zoiko_access_token";
 const REFRESH_KEY = "zoiko_refresh_token";
 const USER_KEY = "zoiko_user";
 const AUTH_INVALID_EVENT = "zoiko-auth-session-invalid";
+// A stalled request must never wedge a loading spinner forever.
+const REQUEST_TIMEOUT_MS = 20000;
 
 let refreshPromise = null;
 let sessionInvalidNotified = false;
@@ -56,7 +58,7 @@ function createApiError(message, status, extra = {}) {
  * Automatically attaches the bearer token (if present) and JSON headers,
  * and attempts a single silent refresh on a 401 response.
  */
-export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params } = {}) {
+export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params, signal } = {}) {
   let url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   if (params) {
     const query = Object.entries(params)
@@ -75,16 +77,26 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     if (token) finalHeaders["Authorization"] = `Bearer ${token}`;
   }
 
+  // A caller-supplied signal cancels a superseded request (newer search,
+  // filter or page); the timeout keeps a stalled call from hanging forever.
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const finalSignal =
+    signal && typeof AbortSignal.any === "function" ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
   const res = await fetch(url, {
     method,
     headers: finalHeaders,
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+    signal: finalSignal,
+  }).catch((e) => {
+    if (e?.name === "TimeoutError") throw createApiError("The server took too long to respond. Please try again.", 0);
+    throw e;
   });
 
   if (res.status === 401 && auth && retry) {
     const refreshResult = await tryRefreshToken();
     if (refreshResult.ok) {
-      return apiRequest(path, { method, body, headers, auth, retry: false });
+      return apiRequest(path, { method, body, headers, auth, retry: false, signal });
     }
     if (refreshResult.invalidSession) {
       clearSession();
@@ -128,6 +140,12 @@ async function tryRefreshToken() {
   return refreshPromise;
 }
 
+/** Silent token refresh for callers outside apiRequest (e.g. XHR uploads). */
+export async function refreshSession() {
+  const result = await tryRefreshToken();
+  return result.ok;
+}
+
 async function refreshAccessToken() {
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
@@ -139,6 +157,10 @@ async function refreshAccessToken() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }).catch((e) => {
+      if (e?.name === "TimeoutError") return { ok: false, invalidSession: false, reason: "refresh_timeout" };
+      throw e;
     });
 
     if (res.status === 401 || res.status === 403) {

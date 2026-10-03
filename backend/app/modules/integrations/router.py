@@ -180,36 +180,75 @@ def _get_webhook(db: Session, webhook_id: int) -> Webhook:
 
 
 @hub_router.get("/events")
-def list_events():
-    return {"events": [{"key": k, "description": v} for k, v in EVENT_CATALOG.items()]}
+def list_events(db: Session = Depends(get_db)):
+    """Catalog plus the real delivery history for each event: how many
+    subscriptions exist, how many deliveries have been attempted, and when the
+    last one landed. An event nobody has ever emitted says so."""
+    rows = (
+        db.query(
+            WebhookDelivery.event_type,
+            func.count(WebhookDelivery.id),
+            func.max(WebhookDelivery.created_at),
+        )
+        .group_by(WebhookDelivery.event_type)
+        .all()
+    )
+    stats = {r[0]: {"deliveries": r[1], "last_delivery_at": _iso(r[2])} for r in rows}
+    subs = {k: 0 for k in EVENT_CATALOG}
+    for w in db.query(Webhook).all():
+        for ev in (w.events or []):
+            if ev in subs:
+                subs[ev] += 1
+    return {
+        "events": [
+            {
+                "key": k, "description": v,
+                "subscribed_webhooks": subs.get(k, 0),
+                "deliveries": stats.get(k, {}).get("deliveries", 0),
+                "last_delivery_at": stats.get(k, {}).get("last_delivery_at"),
+            }
+            for k, v in EVENT_CATALOG.items()
+        ]
+    }
 
 
 @hub_router.get("/applications")
 def list_applications(db: Session = Depends(get_db)):
-    """Integrated applications, derived only from real stored/config state."""
-    from app.config import settings
+    """Integrated applications, every field derived from live config + real
+    evidence rows. No status is asserted from a literal."""
+    from app.modules.integrations import hub_apps
     from app.modules.super_admin.router import compute_identity_providers
 
-    def norm(status: str) -> str:
-        return "Not connected" if status == "Not configured" else status
-
-    apps = [
-        {"key": "smtp", "name": "SMTP Email Server", "status": norm(channels.smtp_view(db)["status"]),
-         "href": "/shared/connect"},
-    ]
-    rows = {r.channel: r for r in db.query(ConnectChannel).all()}
+    paths = hub_apps.registered_auth_paths()
+    apps = [hub_apps.smtp_app(db)]
     for key in ("slack", "twilio"):
-        apps.append({"key": key, "name": channels.CHANNEL_NAMES[key],
-                     "status": norm(channels.compute_status(rows.get(key))), "href": "/shared/connect"})
-    for p in compute_identity_providers():
+        apps.append(hub_apps.channel_app(db, key, channels.CHANNEL_NAMES[key], "/shared/connect"))
+    for p in compute_identity_providers(paths=paths):
         if p["key"] != "email":
-            apps.append({"key": p["key"], "name": p["name"], "status": norm(p["status"]), "href": "/shared/id"})
-    apps.append({"key": "stripe", "name": "Stripe Billing",
-                 "status": "Configured (untested)" if settings.STRIPE_SECRET_KEY else "Not connected",
-                 "href": "/super-admin/billing"})
+            apps.append({
+                "key": p["key"], "name": p["name"], "status": p["status"], "href": "/shared/id",
+                "details": {"login_routes": p.get("login_routes", [])},
+                "metrics": {}, "last_activity_at": None, "last_activity": None,
+                "last_checked_at": None, "last_error": None,
+            })
+    apps.append(hub_apps.stripe_app(db))
+
+    total = db.query(Webhook).count()
     active = db.query(Webhook).filter(Webhook.is_active.is_(True)).count()
-    apps.append({"key": "webhooks", "name": "Outbound Webhooks",
-                 "status": f"{active} active" if active else "Not connected", "href": None})
+    delivered = db.query(WebhookDelivery).filter(WebhookDelivery.status == "success").count()
+    attempted = db.query(WebhookDelivery).count()
+    last_delivery = db.query(WebhookDelivery).order_by(WebhookDelivery.id.desc()).first()
+    apps.append({
+        "key": "webhooks", "name": "Outbound Webhooks",
+        "status": f"{active} active" if active else "Not connected",
+        "href": None,
+        "details": {"registered": total, "auto_disabled": db.query(Webhook).filter(Webhook.auto_disabled.is_(True)).count()},
+        "metrics": {"deliveries_attempted": attempted, "deliveries_succeeded": delivered},
+        "last_activity_at": _iso(last_delivery.created_at if last_delivery else None),
+        "last_activity": None,
+        "last_checked_at": None,
+        "last_error": None,
+    })
     return {"applications": apps}
 
 

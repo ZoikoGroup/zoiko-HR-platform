@@ -18,7 +18,7 @@ function formatSize(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function AddDocumentDialog({ organizations, onClose, onUploaded }) {
+function AddDocumentDialog({ organizations, orgsLoading, orgsError, onRetryOrgs, onClose, onUploaded }) {
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState("");
   const [dragging, setDragging] = useState(false);
@@ -41,6 +41,16 @@ function AddDocumentDialog({ organizations, onClose, onUploaded }) {
     if (created) onUploaded(created);
   }
 
+  const blockedReason = orgsLoading
+    ? "Organizations are still loading."
+    : orgsError
+      ? "Organizations could not be loaded. Retry above."
+      : !file
+        ? "Choose a file to upload."
+        : !form.organization_id
+          ? "Select an organization."
+          : "";
+
   return (
     <Modal title="Add Document" onClose={pending ? () => {} : onClose}>
       <form onSubmit={submit}>
@@ -60,12 +70,19 @@ function AddDocumentDialog({ organizations, onClose, onUploaded }) {
         </div>
         <ErrorNote message={fileError} />
         <Field label="Organization" hint="Every document belongs to one organization.">
-          <select className={inputCls} required value={form.organization_id} disabled={pending}
+          <select className={inputCls} required value={form.organization_id} disabled={pending || orgsLoading || Boolean(orgsError)}
             onChange={(e) => setForm({ ...form, organization_id: e.target.value })}>
             <option value="">Select an organization…</option>
             {organizations.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}
           </select>
         </Field>
+        {orgsLoading ? <p className="mb-3 text-[11px] text-slate-500">Loading organizations…</p> : null}
+        {orgsError ? (
+          <div className="mb-3 rounded-xl border border-red-100 bg-red-50 p-3 text-xs text-red-600">
+            <p>{orgsError}</p>
+            <Btn className="mt-2" onClick={onRetryOrgs} disabled={pending}>Retry</Btn>
+          </div>
+        ) : null}
         <Field label="Title">
           <input className={inputCls} maxLength={200} value={form.title} disabled={pending}
             onChange={(e) => setForm({ ...form, title: e.target.value })} />
@@ -89,10 +106,11 @@ function AddDocumentDialog({ organizations, onClose, onUploaded }) {
         ) : null}
         <div className="mt-4 flex justify-end gap-2">
           <Btn onClick={onClose} disabled={pending}>Cancel</Btn>
-          <Btn tone="primary" type="submit" disabled={pending || !file || !form.organization_id}>
+          <Btn tone="primary" type="submit" disabled={pending || Boolean(blockedReason)}>
             {pending ? "Uploading…" : "Upload"}
           </Btn>
         </div>
+        {blockedReason && !pending ? <p className="mt-2 text-right text-[11px] text-slate-500">{blockedReason}</p> : null}
       </form>
     </Modal>
   );
@@ -101,6 +119,8 @@ function AddDocumentDialog({ organizations, onClose, onUploaded }) {
 export default function DocumentsPage() {
   const [data, setData] = useState(null);
   const [orgs, setOrgs] = useState([]);
+  const [orgsLoading, setOrgsLoading] = useState(true);
+  const [orgsError, setOrgsError] = useState("");
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [adding, setAdding] = useState(false);
@@ -110,11 +130,30 @@ export default function DocumentsPage() {
   const [query, setQuery] = useState("");
   const [filters, setFilters] = useState({ organization_id: "", category: "", file_type: "", date_from: "", date_to: "" });
   const [page, setPage] = useState(1);
+  const [listLoading, setListLoading] = useState(false);
+  const loadSeq = useRef(0);
+  const loadAbort = useRef(null);
   const del = useAction();
 
-  useEffect(() => {
-    getOrganizations().then((r) => setOrgs(r.organizations || [])).catch(() => setOrgs([]));
+  useEffect(() => () => loadAbort.current?.abort(), []);
+
+  const loadOrgs = useCallback(async () => {
+    setOrgsLoading(true);
+    setOrgsError("");
+    try {
+      const r = await getOrganizations();
+      setOrgs(r.organizations || []);
+    } catch (e) {
+      setOrgs([]);
+      setOrgsError(e?.message || "Could not load organizations.");
+    } finally {
+      setOrgsLoading(false);
+    }
   }, []);
+
+  useEffect(() => {
+    loadOrgs();
+  }, [loadOrgs]);
 
   // Debounce the search box; a new query always returns to page 1.
   useEffect(() => {
@@ -123,17 +162,37 @@ export default function DocumentsPage() {
   }, [search]);
 
   const load = useCallback(async () => {
+    // Only the newest request may write state: a slow earlier response (a
+    // duplicated mount load, an unfiltered list) used to land last and undo a
+    // search or bring a deleted document back.
+    const seq = ++loadSeq.current;
+    loadAbort.current?.abort();
+    const controller = new AbortController();
+    loadAbort.current = controller;
+
     const params = { page, page_size: PAGE_SIZE };
     if (query) params.q = query;
     Object.entries(filters).forEach(([k, v]) => {
       if (v) params[k] = k.startsWith("date_") ? new Date(v).toISOString() : v;
     });
+    setListLoading(true);
     try {
-      setData(await getDocuments(params));
+      const result = await getDocuments(params, controller.signal);
+      if (seq !== loadSeq.current) return;
+      // The last row of the last page was removed/deleted: step back instead of
+      // claiming the repository is empty.
+      if (result.documents.length === 0 && page > 1) {
+        setPage((p) => p - 1);
+        return;
+      }
+      setData(result);
       setError("");
     } catch (e) {
+      if (seq !== loadSeq.current || controller.signal.aborted) return;
       setError(e?.message || "Failed to load documents.");
       setData((p) => p || { documents: [], total: 0 });
+    } finally {
+      if (seq === loadSeq.current) setListLoading(false);
     }
   }, [page, query, filters]);
 
@@ -159,7 +218,7 @@ export default function DocumentsPage() {
     if (res) {
       setNotice(res.already_deleted ? "That document was already deleted." : res.message);
       setConfirmDelete(null);
-      load();
+      await load();
     }
   }
 
@@ -189,6 +248,15 @@ export default function DocumentsPage() {
                   className="w-full rounded-full border border-slate-200 bg-slate-50 py-1.5 pl-9 pr-4 text-xs text-slate-800 outline-none focus:border-[#3B82F6] focus:bg-white" />
               </div>
             </div>
+            <p aria-live="polite" className="text-[11px] text-slate-500">
+              {listLoading
+                ? "Searching documents…"
+                : query
+                  ? `${data ? data.total : 0} result${data && data.total === 1 ? "" : "s"} for “${query}”`
+                  : data
+                    ? `${data.total} document${data.total === 1 ? "" : "s"}`
+                    : ""}
+            </p>
             <div className="grid gap-2 md:grid-cols-5">
               <select className={inputCls} aria-label="Organization" value={filters.organization_id} onChange={(e) => setFilter("organization_id", e.target.value)}>
                 <option value="">All organizations</option>
@@ -252,11 +320,13 @@ export default function DocumentsPage() {
                       </td>
                       <td className="px-4 py-3 text-slate-500">{fmt(doc.created_at)}</td>
                       <td className="px-4 py-3 text-right">
-                        <button type="button" aria-label={`Download ${doc.title}`} disabled={busyId === doc.id}
+                        // Titles repeat across organizations and uploads, so the id keeps every
+                        // row's action unambiguous.
+                        <button type="button" aria-label={`Download ${doc.title} (#${doc.id})`} disabled={busyId === doc.id}
                           onClick={() => handleDownload(doc)} className="p-1 text-slate-400 transition hover:text-[#3B82F6] disabled:opacity-40">
                           <Download className="h-4 w-4" />
                         </button>
-                        <button type="button" aria-label={`Delete ${doc.title}`} onClick={() => setConfirmDelete(doc)}
+                        <button type="button" aria-label={`Delete ${doc.title} (#${doc.id})`} onClick={() => setConfirmDelete(doc)}
                           className="p-1 text-slate-400 transition hover:text-red-500">
                           <Trash2 className="h-4 w-4" />
                         </button>
@@ -277,7 +347,8 @@ export default function DocumentsPage() {
         </div>
 
         {adding ? (
-          <AddDocumentDialog organizations={orgs} onClose={() => setAdding(false)}
+          <AddDocumentDialog organizations={orgs} orgsLoading={orgsLoading} orgsError={orgsError}
+            onRetryOrgs={loadOrgs} onClose={() => setAdding(false)}
             onUploaded={(doc) => { setAdding(false); setNotice(`“${doc.title}” was uploaded to ${doc.organization_name}.`); setPage(1); load(); }} />
         ) : null}
         {confirmDelete ? (

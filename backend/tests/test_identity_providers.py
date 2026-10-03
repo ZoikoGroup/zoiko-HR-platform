@@ -1,10 +1,13 @@
-"""ZHR-22: identity provider status is computed from real config, never faked."""
+"""ZHR-22: identity provider status is computed from real config, never faked.
+
+The login-flow question is answered by reading the route table of the running
+app, not by a maintained flag."""
 
 from app.modules.super_admin.router import compute_identity_providers
 
 
-def _by_key(env):
-    return {p["key"]: p for p in compute_identity_providers(env)}
+def _by_key(env, **kw):
+    return {p["key"]: p for p in compute_identity_providers(env, **kw)}
 
 
 def test_unconfigured_providers_are_not_configured():
@@ -12,13 +15,38 @@ def test_unconfigured_providers_are_not_configured():
     assert p["google"]["status"] == "Not configured"
     assert p["microsoft"]["status"] == "Not configured"
     assert p["google"]["client_id"] is None
-    assert p["email"]["status"] == "Active"
 
 
 def test_credentials_without_login_flow_is_never_active():
     p = _by_key({"GOOGLE_CLIENT_ID": "abcd1234efgh5678", "GOOGLE_CLIENT_SECRET": "s3cret"})
     assert p["google"]["status"] == "Configured, disabled"
     assert p["google"]["client_id"] == "abcd…5678"
+
+
+def test_served_login_route_makes_provider_active():
+    """No flag to flip: registering the callback route is what turns it on."""
+    paths = {"/auth/login", "/auth/google/start", "/auth/google/callback"}
+    p = _by_key({"GOOGLE_CLIENT_ID": "abcd1234efgh5678", "GOOGLE_CLIENT_SECRET": "s3cret"}, paths=paths)
+    assert p["google"]["status"] == "Active"
+    assert p["google"]["login_routes"] == ["/auth/google/callback", "/auth/google/start"]
+
+
+def test_unrelated_route_is_not_a_login_flow():
+    p = _by_key({"MICROSOFT_CLIENT_ID": "id-1234", "MICROSOFT_CLIENT_SECRET": "s3cret"},
+                paths={"/super-admin/microsoft-reports"})
+    assert p["microsoft"]["status"] == "Configured, disabled"
+    assert p["microsoft"]["login_routes"] == []
+
+
+def test_builtin_email_reports_real_route():
+    p = _by_key({}, paths={"/auth/login"})
+    assert p["email"]["status"] == "Active"
+    assert p["email"]["login_routes"] == ["/auth/login"]
+
+
+def test_builtin_email_without_login_route_is_not_available():
+    p = _by_key({}, paths=set())
+    assert p["email"]["status"] == "Not available"
 
 
 def test_half_configured_is_not_configured():
