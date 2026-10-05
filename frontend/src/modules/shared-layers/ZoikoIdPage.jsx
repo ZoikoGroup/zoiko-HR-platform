@@ -2,11 +2,7 @@ import React, { useEffect, useState } from "react";
 import PageHeader from "../../components/PageHeader";
 import { Shield, Key } from "lucide-react";
 import { api } from "../../service/api";
-
-const STATUS_STYLES = {
-  Active: "bg-emerald-50 text-emerald-700 border border-emerald-100",
-  "Configured, disabled": "bg-amber-50 text-amber-700 border border-amber-100",
-};
+import { StatusPill, fmt } from "./integrationsUi";
 
 export default function ZoikoIdPage() {
   const [providers, setProviders] = useState([]);
@@ -73,24 +69,31 @@ export default function ZoikoIdPage() {
         </h3>
         <div className="space-y-3">
           {providers.map((p) => (
-            <div key={p.key} className="flex items-center justify-between p-4 rounded-2xl bg-slate-50 border border-slate-100">
-              <div>
-                <p className="text-sm font-bold text-slate-800">{p.name}</p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {p.type}
-                  {p.client_id ? ` · Client ID ${p.client_id}` : ""}
-                </p>
-                {p.status === "Not configured" && p.required_env?.length > 0 && (
-                  <p className="text-xs text-slate-400 mt-1">Requires env: {p.required_env.join(", ")}</p>
-                )}
+            <div key={p.key} className="p-4 rounded-2xl bg-slate-50 border border-slate-100">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-bold text-slate-800">{p.name}</p>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {p.type}
+                    {p.client_id ? ` · Client ID ${p.client_id}` : ""}
+                  </p>
+                </div>
+                <StatusPill status={p.status} />
               </div>
-              <span
-                className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                  STATUS_STYLES[p.status] || "bg-slate-100 text-slate-500 border border-slate-200"
-                }`}
-              >
-                {p.status}
-              </span>
+              {p.status === "Not configured" && p.required_env?.length > 0 && (
+                <p className="text-xs text-slate-400 mt-1">Requires env: {p.required_env.join(", ")}</p>
+              )}
+              {p.login_routes?.length > 0 && (
+                <p className="text-xs text-slate-500 mt-1 font-mono break-all">{p.login_routes.join("  ")}</p>
+              )}
+              {p.last_activity_at && (
+                <p className="text-xs text-slate-400 mt-1">Last successful sign-in {fmt(p.last_activity_at)}</p>
+              )}
+              {p.metrics?.successful_sign_ins != null && (
+                <p className="text-xs text-slate-500 mt-1">
+                  <span className="font-semibold text-slate-700">{p.metrics.successful_sign_ins}</span> successful sign-ins
+                </p>
+              )}
             </div>
           ))}
           {!error && providers.length === 0 && <p className="text-sm text-slate-500">No identity providers found.</p>}

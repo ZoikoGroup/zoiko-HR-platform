@@ -14,6 +14,8 @@ import html as _html
 import ssl
 import smtplib
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
@@ -350,6 +352,120 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
         return dict(_BRANDING_DEFAULTS)
 
 
+# ═══════════════════════════ SMTP delivery ═══════════════════════════
+#
+# Outgoing mail is serialized per process and spaced out. Scheduled walks
+# (evaluation reminders, expiry, invoice runs) can fire dozens of sends within
+# the same second, and shared-host SMTP relays answer that burst by accepting
+# the TCP/TLS connection and then dropping it mid-session — which surfaced as a
+# bare "Connection unexpectedly closed". One connection at a time plus a short
+# gap keeps the relay happy; a dropped connection is also retried with backoff
+# instead of being recorded as a failed send.
+
+_SMTP_LOCK = threading.Lock()
+_SMTP_MIN_GAP_SECONDS = 0.5
+_SMTP_MAX_ATTEMPTS = 3
+_SMTP_BACKOFF_SECONDS = (2, 7)
+_SMTP_CONNECT_TIMEOUT = 20
+_SMTP_COMMAND_TIMEOUT = 30
+_last_smtp_connect_at = 0.0
+
+
+def _smtp_error_text(e: Exception) -> str:
+    """Actionable, non-cryptic delivery error for the audit log."""
+    code = None
+    smtp_code = getattr(e, "smtp_code", None)
+    if smtp_code is not None:
+        code = smtp_code
+    elif getattr(e, "recipients", None):
+        first = next(iter(e.recipients.values()), None)
+        code = getattr(first, "recip_code", None)
+    parts = [type(e).__name__]
+    if code:
+        parts.append(f"SMTP {code}")
+    parts.append(str(e) or "no response from server")
+    return " | ".join(parts)[:300]
+
+
+def _is_permanent_smtp_error(e: Exception) -> bool:
+    """Auth failures, refused senders/recipients and TLS trust failures will
+    not fix themselves. Retrying them is what gets a mail provider to block the
+    sending IP, so they fail immediately with the provider's own wording."""
+    if isinstance(e, (smtplib.SMTPAuthenticationError, smtplib.SMTPRecipientsRefused,
+                      smtplib.SMTPSenderRefused, ssl.SSLCertVerificationError)):
+        return True
+    if isinstance(e, smtplib.SMTPResponseException):
+        return 500 <= (e.smtp_code or 0) < 600
+    if isinstance(e, smtplib.SMTPDataError):
+        code = None
+        if getattr(e, "recipients", None):
+            first = next(iter(e.recipients.values()), None)
+            code = getattr(first, "recip_code", None)
+        return code is None or code >= 500
+    return False
+
+
+def _smtp_send_once(smtp: dict, envelope_from: str, to_email: str, message: str) -> None:
+    port = int(smtp["port"])
+    use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
+    context_ssl = ssl.create_default_context(cafile=certifi.where())
+    implicit_tls = not (use_tls and port != 465)
+    server = (
+        smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=_SMTP_CONNECT_TIMEOUT)
+        if implicit_tls
+        else smtplib.SMTP(smtp["host"], port, timeout=_SMTP_CONNECT_TIMEOUT)
+    )
+    try:
+        # Connect timeout above covers the TCP/TLS handshake; the command
+        # timeout covers the conversation (a stalled DATA read is the other way
+        # a relay hangs a send on).
+        server.sock.settimeout(_SMTP_COMMAND_TIMEOUT)
+        server.ehlo()
+        if not implicit_tls:
+            server.starttls(context=context_ssl)
+            server.ehlo()
+        if smtp.get("username") and smtp.get("password"):
+            server.login(smtp["username"], smtp["password"])
+        server.sendmail(envelope_from, to_email, message)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            server.close()
+
+
+def _deliver_via_smtp(smtp: dict, envelope_from: str, to_email: str, message) -> str:
+    """Send one message. Returns "" on success, an error string on failure.
+
+    Serialized process-wide, spaced in time, and retried with backoff when the
+    relay drops a connection. Permanent rejections are never retried."""
+    global _last_smtp_connect_at
+
+    body = message.as_string() if hasattr(message, "as_string") else message
+    last_error = "unknown SMTP failure"
+    with _SMTP_LOCK:
+        for attempt in range(1, _SMTP_MAX_ATTEMPTS + 1):
+            wait = _last_smtp_connect_at + _SMTP_MIN_GAP_SECONDS - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                _smtp_send_once(smtp, envelope_from, to_email, body)
+                _last_smtp_connect_at = time.monotonic()
+                return ""
+            except Exception as e:
+                _last_smtp_connect_at = time.monotonic()
+                last_error = _smtp_error_text(e)
+                permanent = _is_permanent_smtp_error(e)
+                logger.warning(
+                    "[email] SMTP attempt %s/%s to %s failed: %s",
+                    attempt, _SMTP_MAX_ATTEMPTS, to_email, last_error,
+                )
+                if permanent or attempt == _SMTP_MAX_ATTEMPTS:
+                    return last_error
+                time.sleep(_SMTP_BACKOFF_SECONDS[min(attempt - 1, len(_SMTP_BACKOFF_SECONDS) - 1)])
+    return last_error
+
+
 def _log_email_delivery(
     email: str,
     template_name: str,
@@ -467,47 +583,32 @@ def send_approval_email(
     if reply_to:
         msg["Reply-To"] = reply_to
 
-    try:
-        port = int(smtp["port"])
-        use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
-        context_ssl = ssl.create_default_context(cafile=certifi.where())
-
-        if use_tls and port != 465:
-            with smtplib.SMTP(smtp["host"], port, timeout=30) as server:
-                server.starttls(context=context_ssl)
-                if smtp["username"] and smtp["password"]:
-                    server.login(smtp["username"], smtp["password"])
-                server.sendmail(envelope_from, to_email, msg.as_string())
-        else:
-            with smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=30) as server:
-                if smtp["username"] and smtp["password"]:
-                    server.login(smtp["username"], smtp["password"])
-                server.sendmail(envelope_from, to_email, msg.as_string())
-
-        logger.info(f"[email] Sent to {to_email} | template={template_name}")
-        _log_email_delivery(
-            email=to_email,
-            template_name=template_name,
-            subject=subject,
-            status="sent",
-            organization_id=organization_id,
-            context_data=context,
-            db=db,
-        )
-        return True
-    except Exception as e:
-        logger.error(f"[email] Failed to send to {to_email} | template={template_name} | error={e}")
+    error = _deliver_via_smtp(smtp, envelope_from, to_email, msg)
+    if error:
+        logger.error(f"[email] Failed to send to {to_email} | template={template_name} | error={error}")
         _log_email_delivery(
             email=to_email,
             template_name=template_name,
             subject=subject,
             status="failed",
-            error_message=str(e),
+            error_message=error,
             organization_id=organization_id,
             context_data=context,
             db=db,
         )
         return False
+
+    logger.info(f"[email] Sent to {to_email} | template={template_name}")
+    _log_email_delivery(
+        email=to_email,
+        template_name=template_name,
+        subject=subject,
+        status="sent",
+        organization_id=organization_id,
+        context_data=context,
+        db=db,
+    )
+    return True
 
 
 
@@ -1500,23 +1601,9 @@ def send_plain_email(to_email: str, subject: str, body: str, db=None, organizati
     msg["Subject"] = subject
     msg["From"] = smtp["from_email"]
     msg["To"] = to_email
-    try:
-        port = int(smtp["port"])
-        use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
-        context_ssl = ssl.create_default_context(cafile=certifi.where())
-        if use_tls and port != 465:
-            with smtplib.SMTP(smtp["host"], port, timeout=30) as server:
-                server.starttls(context=context_ssl)
-                if smtp["username"] and smtp["password"]:
-                    server.login(smtp["username"], smtp["password"])
-                server.sendmail(smtp["from_email"], to_email, msg.as_string())
-        else:
-            with smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=30) as server:
-                if smtp["username"] and smtp["password"]:
-                    server.login(smtp["username"], smtp["password"])
-                server.sendmail(smtp["from_email"], to_email, msg.as_string())
-    except Exception as e:
-        _log_email_delivery(to_email, "workflow_plain", subject, "failed", str(e), organization_id, db=db)
-        return False, str(e)[:300]
+    error = _deliver_via_smtp(smtp, smtp["from_email"], to_email, msg)
+    if error:
+        _log_email_delivery(to_email, "workflow_plain", subject, "failed", error, organization_id, db=db)
+        return False, error[:300]
     _log_email_delivery(to_email, "workflow_plain", subject, "sent", None, organization_id, db=db)
     return True, None

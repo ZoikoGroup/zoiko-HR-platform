@@ -43,7 +43,7 @@ test("Documents and Approvals pages no longer reference undefined helpers or moc
 // ── service helpers ──────────────────────────────────────────────────────────
 test("filenameFromDisposition handles RFC 5987, quoted and missing headers; validateFile", async (t) => {
   t.mock.module("../src/service/api.js", {
-    exports: { api: {}, getAccessToken: () => null, API_BASE_URL: "http://x" },
+    exports: { api: {}, getAccessToken: () => null, refreshSession: async () => false, API_BASE_URL: "http://x" },
   });
   const { filenameFromDisposition, validateFile } = await import("../src/service/documentsService.js");
   assert.equal(filenameFromDisposition("attachment; filename*=utf-8''R%C3%A9port%202026.pdf", "x"), "Réport 2026.pdf");
@@ -132,6 +132,90 @@ test("Documents lists real rows, searches with a debounced query and resets to p
   cleanup();
 });
 
+test("a slow earlier list response cannot undo a newer search (ZHR-28)", async (t) => {
+  setup(t);
+  const OTHER = { ...DOC, id: 2, title: "Unrelated", file_name: "unrelated.pdf" };
+  let releaseFirst;
+  const firstLoad = new Promise((r) => { releaseFirst = r; });
+  let call = 0;
+  docsSvc.getDocuments = async (p) => {
+    call += 1;
+    if (call === 1) { await firstLoad; return { documents: [OTHER], total: 40 }; }
+    return { documents: [DOC], total: 1 };
+  };
+  const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
+  render(React.createElement(Page));
+
+  // A search goes out and lands while the first (unfiltered) load is still open.
+  fireEvent.change(screen.getByLabelText("Search documents"), { target: { value: "hand" } });
+  await settle();
+  assert.ok(screen.getByText("Employee Handbook"));
+
+  releaseFirst();
+  await settle();
+  // The stale unfiltered response must not repaint the filtered list.
+  assert.ok(screen.getByText("Employee Handbook"));
+  assert.equal(screen.queryByText("Unrelated"), null);
+  assert.ok(screen.getByText(/1 result for “hand”/));
+  cleanup();
+});
+
+test("a document deleted while an older list is in flight stays deleted (ZHR-28)", async (t) => {
+  setup(t);
+  const STALE = { ...DOC, id: 1, title: "Employee Handbook" };
+  const GONE = { ...DOC, id: 2, title: "Handbook copy", file_name: "copy.pdf" };
+  let releaseStale;
+  const staleLoad = new Promise((r) => { releaseStale = r; });
+  let deleted = false;
+  let call = 0;
+  docsSvc.getDocuments = async () => {
+    call += 1;
+    // The second load (paging) is slow and still holds the pre-delete snapshot.
+    // total spans two pages so the Next button is enabled (PAGE_SIZE is 15).
+    if (call === 2) { await staleLoad; return { documents: [STALE, GONE], total: 20 }; }
+    return deleted ? { documents: [STALE], total: 19 } : { documents: [STALE, GONE], total: 20 };
+  };
+  docsSvc.deleteDocument = async () => { deleted = true; return { message: "'Handbook copy' was deleted.", already_deleted: false }; };
+  const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+
+  fireEvent.click(screen.getByRole("button", { name: "Next" })); // slow load in flight
+  fireEvent.click(screen.getByLabelText("Delete Handbook copy (#2)"));
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await settle();
+  assert.equal(screen.queryByText("Handbook copy"), null);
+  assert.ok(screen.getByText(/was deleted/));
+
+  releaseStale();
+  await settle();
+  assert.equal(screen.queryByText("Handbook copy"), null);
+  cleanup();
+});
+
+test("deleting the only row of the last page steps back instead of showing an empty repository", async (t) => {
+  setup(t);
+  const last = { ...DOC, id: 5, title: "Last page doc", file_name: "last.pdf" };
+  const pages = { 1: { documents: [DOC], total: 16 }, 2: { documents: [last], total: 16 } };
+  let afterDelete = false;
+  docsSvc.getDocuments = async (p) => (afterDelete ? { documents: [DOC], total: 15 } : pages[p.page] || pages[1]);
+  docsSvc.deleteDocument = async () => { afterDelete = true; return { message: "'Last page doc' was deleted.", already_deleted: false }; };
+  const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Next" }));
+  await settle();
+  assert.ok(screen.getByText("Last page doc"));
+
+  fireEvent.click(screen.getByLabelText("Delete Last page doc (#5)"));
+  fireEvent.click(screen.getByRole("button", { name: "Delete" }));
+  await settle();
+  await settle();
+  assert.equal(screen.queryByText(/No documents yet/), null);
+  assert.ok(screen.getByText("Employee Handbook"));
+  cleanup();
+});
+
 test("Documents empty states: none yet vs. no search match with clear action", async (t) => {
   setup(t);
   docsSvc.getDocuments = async () => ({ documents: [], total: 0 });
@@ -157,10 +241,10 @@ test("Documents download and delete (with confirmation) call the API", async (t)
   const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
   render(React.createElement(Page));
   await settle();
-  fireEvent.click(screen.getByLabelText("Download Employee Handbook"));
+  fireEvent.click(screen.getByLabelText("Download Employee Handbook (#1)"));
   await settle();
   assert.equal(downloaded, 1);
-  fireEvent.click(screen.getByLabelText("Delete Employee Handbook"));
+  fireEvent.click(screen.getByLabelText("Delete Employee Handbook (#1)"));
   assert.ok(screen.getByText(/will be removed from the repository/));
   assert.equal(deleted, undefined);
   fireEvent.click(screen.getByRole("button", { name: "Delete" }));
@@ -185,6 +269,45 @@ test("Add Document opens a dialog, requires file + org, and shows server errors 
   fireEvent.click(screen.getByRole("button", { name: "Upload" }));
   await waitFor(() => screen.getByText(/is not allowed/));
   assert.ok(screen.getByRole("dialog"));
+  cleanup();
+});
+
+test("Add Document explains a blocked upload instead of leaving a dead button", async (t) => {
+  setup(t);
+  const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Add Document/ }));
+
+  assert.ok(screen.getByText(/Choose a file to upload\./));
+  const file = new File(["%PDF-1.4"], "a.pdf", { type: "application/pdf" });
+  fireEvent.change(screen.getByTestId("file-input"), { target: { files: [file] } });
+  assert.ok(screen.getByText(/Select an organization\./));
+  assert.equal(screen.getByRole("button", { name: "Upload" }).disabled, true);
+  cleanup();
+});
+
+test("a failed organization list is reported in the dialog and Retry refetches it", async (t) => {
+  setup(t);
+  let orgCalls = 0;
+  docsSvc.getOrganizations = async () => {
+    orgCalls += 1;
+    if (orgCalls === 1) throw new Error("Failed to load organizations.");
+    return { organizations: [{ id: 1, name: "Acme Ltd" }] };
+  };
+  const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: /Add Document/ }));
+  assert.ok(await screen.findByText("Failed to load organizations."));
+  assert.ok(screen.getByText(/Organizations could not be loaded/));
+  assert.equal(screen.getByRole("button", { name: "Upload" }).disabled, true);
+
+  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+  await settle();
+  const dialog = screen.getByRole("dialog");
+  assert.equal(within(dialog).getByLabelText(/^Organization/).disabled, false);
+  assert.equal(within(dialog).queryByText("Failed to load organizations."), null);
   cleanup();
 });
 

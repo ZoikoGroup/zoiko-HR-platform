@@ -34,7 +34,8 @@ const TONES = {
 
 const STATUS_TONE = {
   Connected: "green", Active: "green", succeeded: "green", success: "green",
-  "Configured (untested)": "amber", "Configured, disabled": "amber", waiting: "amber", pending: "amber",
+  "Configured (untested)": "amber", "Configured, disabled": "amber", "Configured (no traffic)": "amber",
+  waiting: "amber", pending: "amber",
   Error: "red", failed: "red", "Auto-disabled": "red", approved: "green", rejected: "red", Approved: "green", Paid: "green", Pending: "amber", Rejected: "red", Inactive: "slate",
   running: "blue",
 };

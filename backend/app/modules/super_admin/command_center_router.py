@@ -16,6 +16,8 @@ from datetime import date as date_cls, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -115,18 +117,27 @@ def _compute_platform_totals(db: Session) -> dict:
 
 
 def _get_or_create_today_snapshot(db: Session) -> PlatformDailySnapshot:
+    """Upsert today's snapshot atomically.
+
+    Two concurrent dashboard loads both used to see no row for today and both
+    INSERT, tripping the unique constraint on snapshot_date. The INSERT now
+    carries ON CONFLICT DO UPDATE, so the loser of the race updates the winner's
+    row instead of failing."""
     today = date_cls.today()
-    snap = db.query(PlatformDailySnapshot).filter(PlatformDailySnapshot.snapshot_date == today).first()
     stats = _compute_platform_totals(db)
-    if snap is None:
-        snap = PlatformDailySnapshot(snapshot_date=today, **stats)
-        db.add(snap)
-    else:
-        for key, value in stats.items():
-            setattr(snap, key, value)
-    db.commit()
-    db.refresh(snap)
-    return snap
+    stmt = pg_insert(PlatformDailySnapshot).values(snapshot_date=today, **stats)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[PlatformDailySnapshot.snapshot_date],
+        set_=stats,
+    )
+    try:
+        db.execute(stmt)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return db.query(PlatformDailySnapshot).filter(
+        PlatformDailySnapshot.snapshot_date == today
+    ).one()
 
 
 def _compute_attention(db: Session) -> list[AttentionItem]:

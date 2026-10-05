@@ -441,12 +441,60 @@ def test_manual_retry_endpoint(world):
 def test_applications_reflect_real_state(world):
     c = world["client"]
     apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
-    assert apps["slack"]["status"] == "Not connected" and apps["twilio"]["status"] == "Not connected"
-    assert apps["google"]["status"] == "Not connected"
+    assert apps["slack"]["status"] == "Not configured" and apps["twilio"]["status"] == "Not configured"
+    assert apps["google"]["status"] == "Not configured"
     assert "quickbooks" not in apps and "salesforce" not in apps
     c.put("/super-admin/connect/channels/slack", json={"webhook_url": SLACK_URL})
     apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
-    assert apps["slack"]["status"] == "Configured (untested)"
+    assert apps["slack"]["status"] == "Configured (no traffic)"
+    assert apps["slack"]["details"]["webhook_url"].startswith("••••")
+
+
+def test_stripe_status_never_claimed_from_api_key_alone(world, monkeypatch):
+    """A key on its own proves nothing — status must be derived from real rows."""
+    c = world["client"]
+    monkeypatch.setattr("app.modules.billing.stripe_client.stripe_enabled", lambda: True)
+    apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
+    assert apps["stripe"]["status"] == "Configured (no traffic)"
+    assert apps["stripe"]["metrics"] == {"webhook_events": 0, "unprocessed_events": 0, "paid_invoices": 0}
+
+    from app.modules.billing.models import BillingWebhookEvent
+    world["db"].add(BillingWebhookEvent(
+        stripe_event_id="evt_1", event_type="invoice.paid", processed=True, payload={}))
+    world["db"].commit()
+    apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
+    assert apps["stripe"]["status"] == "Connected"
+    assert apps["stripe"]["metrics"]["webhook_events"] == 1
+
+    world["db"].add(BillingWebhookEvent(
+        stripe_event_id="evt_2", event_type="invoice.payment_failed", processed=False,
+        error_message="no such customer", payload={}))
+    world["db"].commit()
+    apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
+    assert apps["stripe"]["status"] == "Error"
+    assert apps["stripe"]["last_error"] == "no such customer"
+    assert apps["stripe"]["metrics"]["unprocessed_events"] == 1
+
+
+def test_applications_report_live_delivery_counts(world):
+    c = world["client"]
+    r = c.post("/super-admin/hub/webhooks", json={
+        "name": "Ops", "url": "https://example.org/hooks/ops", "events": ["user.created"]}).json()
+    apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
+    assert apps["webhooks"]["status"] == "1 active"
+    assert apps["webhooks"]["details"]["registered"] == 1
+    assert apps["webhooks"]["metrics"]["deliveries_attempted"] == 0
+    assert r["id"]
+
+
+def test_events_endpoint_reports_real_history(world):
+    c = world["client"]
+    c.post("/super-admin/hub/webhooks", json={
+        "name": "Ops", "url": "https://example.org/hooks/ops", "events": ["user.created"]})
+    events = {e["key"]: e for e in c.get("/super-admin/hub/events").json()["events"]}
+    assert events["user.created"]["subscribed_webhooks"] == 1
+    assert events["user.created"]["deliveries"] == 0
+    assert events["organization.created"]["subscribed_webhooks"] == 0
 
 
 def test_events_catalog_endpoint(world):
