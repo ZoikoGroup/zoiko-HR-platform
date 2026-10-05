@@ -171,8 +171,9 @@ test("a document deleted while an older list is in flight stays deleted (ZHR-28)
   docsSvc.getDocuments = async () => {
     call += 1;
     // The second load (paging) is slow and still holds the pre-delete snapshot.
-    if (call === 2) { await staleLoad; return { documents: [STALE, GONE], total: 2 }; }
-    return deleted ? { documents: [STALE], total: 1 } : { documents: [STALE, GONE], total: 2 };
+    // total spans two pages so the Next button is enabled (PAGE_SIZE is 15).
+    if (call === 2) { await staleLoad; return { documents: [STALE, GONE], total: 20 }; }
+    return deleted ? { documents: [STALE], total: 19 } : { documents: [STALE, GONE], total: 20 };
   };
   docsSvc.deleteDocument = async () => { deleted = true; return { message: "'Handbook copy' was deleted.", already_deleted: false }; };
   const { default: Page } = await import("../src/modules/shared-layers/DocumentsPage.jsx");
