@@ -6,6 +6,7 @@ export const expensesService = {
   claims: (params) => api.get("/super-admin/expenses/claims", { params }),
   claim: (id) => api.get(`/super-admin/expenses/claims/${id}`),
   summary: (params) => api.get("/super-admin/expenses/summary", { params }),
+  byOrganization: (params) => api.get("/super-admin/expenses/by-organization", { params }),
   categories: () => api.get("/super-admin/expenses/categories"),
   budgets: (params) => api.get("/super-admin/expenses/budgets", { params }),
   createBudget: (data) => api.post("/super-admin/expenses/budgets", data),

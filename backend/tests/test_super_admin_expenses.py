@@ -274,3 +274,39 @@ def test_router_is_guarded_and_real_dependency_rejects_org_roles():
     for role in (UserRole.ADMIN, UserRole.HR_ADMIN, UserRole.EMPLOYEE):
         with pytest.raises(ForbiddenException):
             real(current_user=Employee(email="x@example.com", role=role))
+
+
+# ───────────────────────── by organization ─────────────────────────
+
+def test_by_organization_separates_orgs_and_lists_empty_ones(world):
+    db, c, p = world["db"], world["c"], world["p"]
+    db.add(Organization(id=3, name="Initech", organization_name="Initech", status=OrganizationStatus.ACTIVE))
+    db.commit()
+    _claim(db, p["amy"], "100.00", RequestStatus.PENDING)
+    _claim(db, p["amy"], "50.00", RequestStatus.APPROVED)
+    _claim(db, p["amy"], "20.00", RequestStatus.APPROVED, currency="EUR")
+    _claim(db, p["bob"], "400.00", RequestStatus.COMPLETED)
+    _claim(db, p["bob"], "9.00", RequestStatus.CANCELLED)
+    d = c.get("/super-admin/expenses/by-organization")
+    assert d.status_code == 200
+    orgs = {o["organization_name"]: o for o in d.json()["organizations"]}
+    assert list(orgs) == sorted(orgs, key=str.lower)  # stable alphabetical order
+    assert set(orgs) == {"Acme Ltd", "Globex Inc", "Initech"}  # every org, even with no claims
+    acme = orgs["Acme Ltd"]
+    assert acme["claim_count"] == 3
+    assert acme["totals"]["USD"] == {"claimed": "150.00", "pending": "100.00", "approved": "50.00", "paid": "0.00", "rejected": "0.00"}
+    assert acme["totals"]["EUR"]["approved"] == "20.00"  # currencies never added together
+    globex = orgs["Globex Inc"]
+    assert globex["totals"]["USD"]["paid"] == "400.00" and globex["totals"]["USD"]["claimed"] == "400.00"  # cancelled excluded
+    assert orgs["Initech"]["claim_count"] == 0 and orgs["Initech"]["totals"] == {}
+
+
+def test_by_organization_filters_and_access(world):
+    db, c, p = world["db"], world["c"], world["p"]
+    _claim(db, p["amy"], "10.00", category="Meals")
+    _claim(db, p["amy"], "90.00", category="Travel")
+    d = c.get("/super-admin/expenses/by-organization", params={"category": "Meals"}).json()
+    acme = next(o for o in d["organizations"] if o["organization_name"] == "Acme Ltd")
+    assert acme["totals"]["USD"]["claimed"] == "10.00"
+    world["box"]["user"] = p["amy"]
+    assert c.get("/super-admin/expenses/by-organization").status_code == 403

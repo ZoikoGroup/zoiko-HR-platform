@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useState } from "react";
 import PageHeader from "../../components/PageHeader";
-import { CreditCard, Plus, TrendingUp } from "lucide-react";
+import { Building2, CreditCard, Plus, TrendingUp } from "lucide-react";
 import { expensesService, formatMoney } from "../../service/expensesService";
 import { getOrganizations } from "../../service/documentsService";
 import { Btn, Card, ErrorNote, Field, Modal, Spinner, StatusPill, SuperAdminOnly, fmt, inputCls, useAction } from "./integrationsUi";
@@ -62,6 +62,58 @@ function SummaryCards({ filters }) {
       ))}
       {currencies.length > 1 ? <p className="text-[11px] text-slate-400">Totals are shown per currency and are never added across currencies.</p> : null}
     </div>
+  );
+}
+
+const BREAKDOWN_ROWS = [["Claimed", "claimed"], ["Pending", "pending"], ["Approved", "approved"], ["Paid", "paid"], ["Rejected", "rejected"]];
+
+/** One card per organization: that organization's own totals, never mixed with another's. */
+function OrganizationBreakdown({ filters, selected, onSelect }) {
+  const params = {};
+  ["category", "date_from", "date_to"].forEach((k) => {
+    if (filters[k]) params[k] = k.startsWith("date_") ? new Date(filters[k]).toISOString() : filters[k];
+  });
+  const { data, error, loading, reload } = useSection(() => expensesService.byOrganization(params), [JSON.stringify(params)]);
+  const orgCount = data?.organizations.length;
+  return (
+    <Card title={orgCount ? `Expenses by Organization (${orgCount})` : "Expenses by Organization"} icon={Building2}
+      action={selected ? <Btn onClick={() => onSelect("")}>Show all organizations</Btn> : null}>
+      {error && !data ? <SectionError message={`Organizations: ${error}`} onRetry={reload} /> : loading && !data ? <Spinner /> : orgCount === 0 ? (
+        <p className="text-sm text-slate-500">There are no organizations on the platform yet.</p>
+      ) : (
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {data.organizations.map((o) => {
+            const currencies = Object.keys(o.totals);
+            const active = String(o.organization_id) === String(selected);
+            return (
+              <button key={o.organization_id} type="button" onClick={() => onSelect(active ? "" : String(o.organization_id))}
+                aria-pressed={active} aria-label={`${o.organization_name} expenses`}
+                className={`rounded-2xl border p-4 text-left shadow-sm transition ${active ? "border-[#3B82F6] bg-blue-50/50 ring-1 ring-[#3B82F6]" : "border-slate-200 bg-white hover:bg-slate-50"}`}>
+                <div className="flex items-start justify-between gap-2">
+                  <p className="text-sm font-bold text-slate-800">{o.organization_name}</p>
+                  <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-500">
+                    {o.claim_count} claim{o.claim_count === 1 ? "" : "s"}
+                  </span>
+                </div>
+                {currencies.length === 0 ? (
+                  <p className="mt-3 text-xs text-slate-400">No expense claims{Object.keys(params).length ? " for this filter" : " yet"}.</p>
+                ) : currencies.map((cur) => (
+                  <dl key={cur} className="mt-3 space-y-1 text-xs" aria-label={`${o.organization_name} totals in ${cur}`}>
+                    {currencies.length > 1 ? <dt className="text-[10px] font-bold uppercase tracking-wider text-slate-400">{cur}</dt> : null}
+                    {BREAKDOWN_ROWS.map(([label, key]) => (
+                      <div key={key} className="flex justify-between gap-3">
+                        <dt className="text-slate-500">{label}</dt>
+                        <dd className={`font-semibold ${key === "claimed" ? "text-slate-900" : "text-slate-700"}`}>{formatMoney(o.totals[cur][key], cur)}</dd>
+                      </div>
+                    ))}
+                  </dl>
+                ))}
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </Card>
   );
 }
 
@@ -215,7 +267,14 @@ export default function ExpensesPage() {
       <div className="space-y-6 font-sans">
         <PageHeader title="Expenses" description="Employee expense claims and operational budgets across all organizations." />
 
-        <SummaryCards filters={filters} />
+        <div>
+          <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-slate-500">
+            Overall · {filters.organization_id ? (orgs.find((o) => String(o.id) === String(filters.organization_id))?.name || "Selected organization") : "All organizations"}
+          </h3>
+          <SummaryCards filters={filters} />
+        </div>
+
+        <OrganizationBreakdown filters={filters} selected={filters.organization_id} onSelect={(id) => setFilter("organization_id", id)} />
 
         <div className="grid gap-6 lg:grid-cols-3">
           <div className="lg:col-span-2">
@@ -246,7 +305,7 @@ export default function ExpensesPage() {
                   <table className="w-full border-collapse text-left">
                     <thead>
                       <tr className="border-b border-slate-100 text-xs font-semibold uppercase tracking-wider text-slate-500">
-                        <th className="px-3 py-3">Claim</th><th className="px-3 py-3">Employee</th><th className="px-3 py-3">Amount</th><th className="px-3 py-3">Status</th>
+                        <th className="px-3 py-3">Claim</th><th className="px-3 py-3">Organization</th><th className="px-3 py-3">Employee</th><th className="px-3 py-3">Amount</th><th className="px-3 py-3">Status</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
@@ -254,8 +313,9 @@ export default function ExpensesPage() {
                         <tr key={c.id} className="cursor-pointer text-sm hover:bg-slate-50/50" onClick={() => setDetail(c.id)}>
                           <td className="px-3 py-3">
                             <p className="font-bold text-slate-800">{c.category}{c.has_receipt ? " 📎" : ""}</p>
-                            <p className="text-[10px] text-slate-400">{c.organization_name} · {fmt(c.submitted_at)}</p>
+                            <p className="text-[10px] text-slate-400">{fmt(c.submitted_at)}</p>
                           </td>
+                          <td className="px-3 py-3 text-slate-600">{c.organization_name}</td>
                           <td className="px-3 py-3 text-slate-600">{c.employee_name}</td>
                           <td className="px-3 py-3 font-bold text-slate-800">{formatMoney(c.amount, c.currency)}</td>
                           <td className="px-3 py-3"><StatusPill status={capital(c.status)} /></td>

@@ -44,6 +44,7 @@ function reset(overrides = {}) {
   Object.assign(orgSvc, { getOrganizations: async () => ({ organizations: [{ id: 1, name: "Acme Ltd" }, { id: 2, name: "Globex Inc" }] }) });
   Object.assign(expSvc, {
     claims: async () => ({ claims: [], total: 0 }), claim: async () => ({}), summary: async () => ({ totals: {}, counts: {}, claim_count: 0 }),
+    byOrganization: async () => ({ organizations: [] }),
     categories: async () => ({ categories: [] }), budgets: async () => ({ budgets: [] }), createBudget: async () => ({}), archiveBudget: async () => ({}),
   });
   Object.assign(auth, { user: { id: 1, email: "root@example.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true });
@@ -325,5 +326,40 @@ test("Expenses is super-admin only", async (t) => {
   render(React.createElement(Page));
   await settle();
   assert.ok(screen.getByText(/super admins only/));
+  cleanup();
+});
+
+test("Expenses shows each organization separately, including ones with no claims, and selecting one filters the claims", async (t) => {
+  const claimCalls = [];
+  reset({
+    expSvc: {
+      claims: async (p) => { claimCalls.push(p); return { claims: [CLAIM], total: 1 }; },
+      byOrganization: async () => ({
+        organizations: [
+          { organization_id: 1, organization_name: "Acme Ltd", claim_count: 3, counts: {}, totals: { USD: { claimed: "150.00", pending: "100.00", approved: "50.00", paid: "0.00", rejected: "0.00" }, EUR: { claimed: "20.00", pending: "0.00", approved: "20.00", paid: "0.00", rejected: "0.00" } } },
+          { organization_id: 2, organization_name: "Globex Inc", claim_count: 1, counts: {}, totals: { USD: { claimed: "400.00", pending: "0.00", approved: "0.00", paid: "400.00", rejected: "0.00" } } },
+          { organization_id: 3, organization_name: "Initech", claim_count: 0, counts: {}, totals: {} },
+        ],
+      }),
+    },
+  });
+  register(t);
+  const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  assert.ok(screen.getByText("Expenses by Organization (3)"));
+  const acme = within(screen.getByRole("button", { name: "Acme Ltd expenses" }));
+  assert.ok(acme.getByText("3 claims") && acme.getByText("USD 150.00"));
+  assert.equal(screen.getAllByLabelText(/^Acme Ltd totals in/).length, 2); // per-currency blocks, never merged
+  assert.ok(within(screen.getByRole("button", { name: "Initech expenses" })).getByText(/No expense claims yet/));
+  assert.equal(within(screen.getByRole("button", { name: "Globex Inc expenses" })).getAllByText("USD 400.00", { selector: "dd" }).length, 2); // claimed + paid
+
+  fireEvent.click(screen.getByRole("button", { name: "Globex Inc expenses" }));
+  await settle();
+  assert.equal(claimCalls.at(-1).organization_id, "2");
+  assert.equal(screen.getByRole("button", { name: "Globex Inc expenses" }).getAttribute("aria-pressed"), "true");
+  fireEvent.click(screen.getByRole("button", { name: "Show all organizations" }));
+  await settle();
+  assert.equal(claimCalls.at(-1).organization_id, undefined);
   cleanup();
 });
