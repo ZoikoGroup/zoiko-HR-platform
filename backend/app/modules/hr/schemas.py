@@ -283,6 +283,7 @@ class EmployeeResponse(BaseModel):
     date_of_birth:       Optional[date]
     gender:              Optional[Gender]
     profile_picture:     Optional[str]
+    employee_id:         Optional[str] = None
     employee_code:       str
     legacy_code:         Optional[str] = None
     job_title:           str
@@ -3076,6 +3077,9 @@ class HrDocumentResponse(BaseModel):
     # Convenience fields resolved server-side
     employee_name:     Optional[str] = None
     employee_id_str:   Optional[str] = None
+    employee_code:     Optional[str] = None
+    legacy_code:       Optional[str] = None
+    file_missing:      bool = False
     designation_name:  Optional[str] = None
     uploader_name:     Optional[str] = None
     folder_id:         Optional[int] = None

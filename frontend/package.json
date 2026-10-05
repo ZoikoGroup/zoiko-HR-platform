@@ -25,7 +25,9 @@
   },
   "dependencies": {
     "dompurify": "^3.4.16",
+    "jszip": "^3.10.2",
     "lucide-react": "^1.17.0",
+    "mammoth": "^1.13.0",
     "pdfmake": "^0.3.11",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",

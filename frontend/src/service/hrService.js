@@ -579,7 +579,9 @@ export const exportWfPdf = (reportType = "workforce_summary") =>
  *   category    {string}  – "company" | "employee" | "policy" | "contract" | "other"
  *   status      {string}  – "pending" | "approved" | "rejected" | "expired"
  *   employee_id {number}  – filter to a specific employee
- *   search      {string}  – search by title or document type
+ *   employee_id_str {string} – filter by employee ID, employee code, legacy code
+ *                               or numeric employee id; case-insensitive partial
+ *   search      {string}  – search by title, document type, or employee ID/code/name
  */
 export const getDocuments = (params = {}) => {
   // Build query string from non-empty params
@@ -599,7 +601,28 @@ async function fetchDocumentFile(path, fallbackName) {
   const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`Failed to load document: ${res.status}`);
+  if (!res.ok) {
+    // Prefer the API's `detail` so the user is told *why* the preview failed.
+    // 410 in particular means the record exists but the bytes are not on the
+    // server — "Failed to load document: 410" told the user nothing (ZHR 44).
+    let detail = null;
+    try {
+      const body = await res.clone().json();
+      detail = typeof body?.detail === "string" ? body.detail : null;
+    } catch {
+      detail = null;
+    }
+    if (res.status === 410) {
+      throw new Error(detail || "This file is no longer stored on the server. Please upload it again.");
+    }
+    if (res.status === 403) {
+      throw new Error(detail || "You do not have permission to open this document.");
+    }
+    if (res.status === 401) {
+      throw new Error("Your session has expired. Sign in again to preview documents.");
+    }
+    throw new Error(detail || `Failed to load document: ${res.status}`);
+  }
   const blob = await res.blob();
   const disposition = res.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="?([^"]+)"?/);

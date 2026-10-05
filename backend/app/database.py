@@ -8,9 +8,10 @@ own database (HR_DATABASE_URL).
 
 import logging
 import os
+import time
 from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, event, exc, text
+from sqlalchemy import create_engine, event, exc, inspect, text
 from sqlalchemy.orm import Session, declarative_base, sessionmaker, with_loader_criteria
 
 from app.config import settings
@@ -67,6 +68,9 @@ engine_kwargs = {
 if _is_sqlite:
     engine_kwargs["connect_args"]["check_same_thread"] = False
 else:
+    # Bound the TCP/TLS handshake. psycopg2's default is no timeout at all, so an
+    # unreachable database hangs the boot for minutes instead of failing fast.
+    engine_kwargs["connect_args"]["connect_timeout"] = int(os.getenv("HR_DB_CONNECT_TIMEOUT", "30"))
     engine_kwargs.update({
         "pool_pre_ping": True,
         "pool_size": 5,
@@ -112,6 +116,27 @@ def _hide_deleted_organizations(state):
     )
 
 
+# Sentinels for the ALTER list below: the most recently added columns. If they
+# all resolve, every earlier statement has already been applied.
+_ALTER_PROBES = (
+    "SELECT deleted_at FROM organizations LIMIT 0",
+    "SELECT description FROM billing_plans LIMIT 0",
+    "SELECT priority FROM chat_handoffs LIMIT 0",
+    "SELECT tax_category FROM billing_plans LIMIT 0",
+)
+
+
+def _schema_alterations_needed() -> bool:
+    """True when at least one sentinel column is still missing."""
+    try:
+        with engine.connect() as conn:
+            for stmt in _ALTER_PROBES:
+                conn.execute(text(stmt))
+        return False
+    except exc.SQLAlchemyError:
+        return True
+
+
 def initialize_database() -> None:
     """Create tables in development; production runs `alembic upgrade head`
     as a deploy step instead (see backend/alembic/)."""
@@ -119,14 +144,41 @@ def initialize_database() -> None:
         logger.info("Production DB init skipped; run `alembic upgrade head` before starting.")
         return
 
+    started = time.monotonic()
+
+    # pgvector backs knowledge_sources.embedding. Best-effort: a database where
+    # the extension cannot be created must not block the rest of the boot.
     try:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        Base.metadata.create_all(bind=engine)
-        logger.info("HR platform database tables initialized.")
     except exc.SQLAlchemyError as exc_info:
-        logger.error("Database initialization failed: %s", exc_info)
+        logger.warning("pgvector extension check skipped: %s", exc_info)
+
+    # create_all's checkfirst pass reflects all ~164 tables, which costs ~100s
+    # against a remote Neon instance. One table-name query is enough to know
+    # whether anything is actually missing, so only pay for create_all when it
+    # has work to do.
+    try:
+        with engine.connect() as conn:
+            existing_tables = set(inspect(conn).get_table_names())
+    except exc.SQLAlchemyError as exc_info:
+        logger.error("Schema inspection failed: %s", exc_info)
         raise
+
+    missing_tables = sorted(set(Base.metadata.tables) - existing_tables)
+    if missing_tables:
+        logger.info("Creating %d missing table(s): %s", len(missing_tables), ", ".join(missing_tables[:10]))
+        try:
+            Base.metadata.create_all(bind=engine)
+        except exc.SQLAlchemyError as exc_info:
+            logger.error("Database initialization failed: %s", exc_info)
+            raise
+        logger.info(
+            "HR platform database tables initialized: %d created in %.1fs.",
+            len(missing_tables), time.monotonic() - started,
+        )
+    else:
+        logger.info("Schema up to date (%d tables); skipped create_all (%.1fs).", len(existing_tables), time.monotonic() - started)
 
     # -- Schema migration: add columns that create_all won't retroactively add -----
     _ALTER_SQL = [
@@ -188,17 +240,24 @@ def initialize_database() -> None:
         # column nullable so log_billing_audit(organization_id=None) works.
         "ALTER TABLE billing_audit_logs ALTER COLUMN organization_id DROP NOT NULL",
     ]
-    try:
-        from sqlalchemy import text as sql_text
-        Session = sessionmaker(bind=engine)
-        db = Session()
-        for stmt in _ALTER_SQL:
-            db.execute(sql_text(stmt))
-        db.commit()
-        db.close()
-        logger.info("Billing schema migration: ensured all billing_subscriptions columns exist.")
-    except Exception as exc_info:
-        logger.warning("Billing schema migration skipped: %s", exc_info)
+    # Each ALTER is a network round trip (~15s for the full list), so probe the
+    # newest sentinel columns first and skip the whole list once they exist.
+    if not _schema_alterations_needed():
+        logger.info("Billing schema migration: sentinel columns present; skipped.")
+    else:
+        try:
+            from sqlalchemy import text as sql_text
+            Session = sessionmaker(bind=engine)
+            db = Session()
+            try:
+                for stmt in _ALTER_SQL:
+                    db.execute(sql_text(stmt))
+                db.commit()
+            finally:
+                db.close()
+            logger.info("Billing schema migration: ensured all billing_subscriptions columns exist.")
+        except Exception as exc_info:
+            logger.warning("Billing schema migration skipped: %s", exc_info)
 
     # Backfill: map existing plan_code strings to plan_id FKs
     try:
@@ -263,6 +322,8 @@ def initialize_database() -> None:
         db.close()
     except Exception as exc_info:
         logger.warning("Billing plan seed skipped: %s", exc_info)
+
+    logger.info("Database initialization complete in %.1fs.", time.monotonic() - started)
 
 
 # -- 4. Session dependency -------------------------------------------------------

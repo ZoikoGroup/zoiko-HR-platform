@@ -137,14 +137,21 @@ def _find_or_create_product(stripe, plan):
     except Exception as exc:  # search is best-effort; create still works
         logger.warning("[stripe] product search failed for %s: %s", code, exc)
 
-    product = stripe.Product.create(
-        name=plan.name or code,
-        description=plan.description,
-        metadata={
+    # Stripe treats an empty string as an attempt to unset `description` and
+    # rejects it (parameter_invalid_empty). Plans created before the column
+    # existed carry '' , so only send the field when it actually has content.
+    create_kwargs = {
+        "name": plan.name or code,
+        "metadata": {
             "zoiko_plan_code": code,
             "tax_category": _tax_value(plan),
         },
-    )
+    }
+    description = (plan.description or "").strip()
+    if description:
+        create_kwargs["description"] = description
+
+    product = stripe.Product.create(**create_kwargs)
     return product, True
 
 

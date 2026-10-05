@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   Search, RefreshCw, FileText, Download, User, Hash,
   Clock, Upload, X, Loader2, Check, Receipt, FileSignature, ShieldCheck, Eye, History
@@ -29,6 +29,10 @@ const STATUS_META = {
   expired:  { label: "Expired",  bg: "bg-slate-100",  text: "text-slate-500",  border: "border-slate-200" },
 };
 
+function employeeIdentifier(d) {
+  return d.employee_id_str || d.employee_code || (d.employee_id != null ? String(d.employee_id) : "");
+}
+
 function getExpiryStatus(d) {
   if (!d.expiry_date) return null;
   const days = Math.ceil((new Date(d.expiry_date) - new Date()) / (1000 * 60 * 60 * 24));
@@ -45,6 +49,10 @@ export default function OrgAdminEmployeeDocumentsPage() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
   const [empIdSearch, setEmpIdSearch] = useState("");
+  // Debounced copy of empIdSearch: every keystroke used to fire a backend request.
+  const [debouncedEmpId, setDebouncedEmpId] = useState("");
+  // Guards against out-of-order responses when typing quickly.
+  const requestSeq = useRef(0);
 
   const [uploadModal, setUploadModal] = useState(false);
   const [employees, setEmployees] = useState([]);
@@ -69,6 +77,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
   const currentCategory = TABS.find(t => t.key === tab)?.category;
 
   const load = useCallback(async () => {
+    const seq = ++requestSeq.current;
     setLoading(true); setError(null);
     try {
       const params = {};
@@ -77,20 +86,33 @@ export default function OrgAdminEmployeeDocumentsPage() {
       } else {
         params.exclude_categories = "employee";
       }
-      if (empIdSearch.trim()) params.employee_id_str = empIdSearch.trim();
+      const empId = debouncedEmpId.trim();
+      if (empId) params.employee_id_str = empId;
       const res = await getDocuments(params);
+      if (seq !== requestSeq.current) return;
       const raw = res?.data;
       setDocs(Array.isArray(raw) ? raw : (raw?.items || raw?.data || []));
-    } catch (e) { setError(e?.message || "Failed to load documents."); }
-    finally { setLoading(false); }
-  }, [tab, empIdSearch]);
+    } catch (e) {
+      if (seq !== requestSeq.current) return;
+      setError(e?.message || "Failed to load documents.");
+    } finally {
+      if (seq === requestSeq.current) setLoading(false);
+    }
+  }, [currentCategory, debouncedEmpId]);
+
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedEmpId(empIdSearch), 350);
+    return () => clearTimeout(t);
+  }, [empIdSearch]);
 
   useEffect(() => { load(); }, [load]);
 
   const loadEmployees = async () => {
     setEmployeesLoading(true);
     try {
-      const res = await getHrEmployees({ status: "active" });
+      // include_all_roles: documents belong to every org member, not just employees.
+// No status filter: a payslip for a resigned employee must still be uploadable.
+      const res = await getHrEmployees({ include_all_roles: true, per_page: 100 });
       const raw = res?.items || res?.data || res;
       setEmployees(Array.isArray(raw) ? raw : []);
     } catch { setEmployees([]); }
@@ -150,10 +172,13 @@ export default function OrgAdminEmployeeDocumentsPage() {
     finally { setUploadingVersion(false); }
   };
 
-  const filtered = docs.filter(d =>
-    !search.trim() || (d.title || "").toLowerCase().includes(search.trim().toLowerCase()) ||
-    (d.employee_name || "").toLowerCase().includes(search.trim().toLowerCase())
-  );
+  const filtered = docs.filter(d => {
+    const q = search.trim().toLowerCase();
+    if (!q) return true;
+    return (d.title || "").toLowerCase().includes(q) ||
+      (d.employee_name || "").toLowerCase().includes(q) ||
+      employeeIdentifier(d).toLowerCase().includes(q);
+  });
 
   return (
     <div className="min-h-screen bg-doc-surface-soft p-4 font-sans">
@@ -196,10 +221,17 @@ export default function OrgAdminEmployeeDocumentsPage() {
         </div>
         <div className="relative max-w-[220px]">
           <Hash className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-doc-ink-soft" />
-          <label htmlFor="org-doc-emp-search" className="sr-only">Search by Employee ID</label>
-          <input id="org-doc-emp-search" type="text" placeholder="Search by Employee ID..." value={empIdSearch}
+          <label htmlFor="org-doc-emp-search" className="sr-only">Search by Employee ID or code</label>
+          <input id="org-doc-emp-search" type="text" placeholder="Employee ID or code..." value={empIdSearch}
             onChange={e => setEmpIdSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-doc-border rounded-lg text-sm focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary bg-doc-surface font-mono" />
+            className="w-full pl-9 pr-9 py-2 border border-doc-border rounded-lg text-sm focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary bg-doc-surface font-mono" />
+          {empIdSearch && (
+            <button onClick={() => setEmpIdSearch("")}
+              aria-label="Clear employee ID search"
+              className="absolute right-2 top-1/2 -translate-y-1/2 p-1 rounded-md text-doc-ink-soft hover:bg-doc-surface-soft hover:text-doc-ink transition-colors">
+              <X className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -217,8 +249,12 @@ export default function OrgAdminEmployeeDocumentsPage() {
         <div className="bg-doc-surface rounded-2xl border border-doc-border shadow-sm overflow-hidden">
           {filtered.length === 0 ? (
             <DocumentEmptyState
-              title={search ? "No results found" : "No documents yet"}
-              message={search ? "Try a different search term." : "Upload documents using the Upload Document button above."}
+              title={search || empIdSearch.trim() ? "No results found" : "No documents yet"}
+              message={search || empIdSearch.trim()
+                ? (empIdSearch.trim() && !search.trim()
+                  ? `No documents found for Employee ID or code "${empIdSearch.trim()}".`
+                  : "Try a different search term.")
+                : "Upload documents using the Upload Document button above."}
             />
           ) : (
             <>
@@ -226,7 +262,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
                 <table className="w-full text-sm">
                   <thead className="bg-doc-surface-soft text-xs uppercase text-doc-ink-soft">
                     <tr>
-                      <th className="text-left px-6 py-3 font-semibold"><Hash className="w-3 h-3 inline mr-1" />ID</th>
+                      <th className="text-left px-6 py-3 font-semibold"><Hash className="w-3 h-3 inline mr-1" />Emp. ID / Code</th>
                       <th className="text-left px-6 py-3 font-semibold"><User className="w-3 h-3 inline mr-1" />Employee</th>
                       <th className="text-left px-6 py-3 font-semibold"><FileText className="w-3 h-3 inline mr-1" />Document</th>
                       <th className="text-center px-6 py-3 font-semibold">Type</th>
@@ -241,13 +277,13 @@ export default function OrgAdminEmployeeDocumentsPage() {
                       const expiry = getExpiryStatus(d);
                       return (
                         <tr key={d.id} className="hover:bg-doc-surface-soft/60 transition-colors">
-                          <td className="px-6 py-3 text-xs font-mono text-doc-ink-soft">{d.id}</td>
+                          <td className="px-6 py-3 text-xs font-mono text-doc-ink-soft">{employeeIdentifier(d) || "—"}</td>
                           <td className="px-6 py-3">
                             <div className="flex items-center gap-2">
                               <div className="w-8 h-8 rounded-full bg-doc-primary/10 flex items-center justify-center text-xs font-bold text-doc-primary shrink-0">
                                 {(d.employee_name || "?").charAt(0).toUpperCase()}
                               </div>
-                              <span className="font-medium text-doc-ink">{d.employee_name || "—"}</span>
+                              <span className="font-medium text-doc-ink">{d.employee_name || "Unassigned"}</span>
                             </div>
                           </td>
                           <td className="px-6 py-3">
@@ -256,6 +292,11 @@ export default function OrgAdminEmployeeDocumentsPage() {
                               <div>
                                 <p className="font-medium text-doc-ink truncate max-w-[200px]">{d.title}</p>
                                 {d.file_name && <p className="text-xs text-doc-ink-soft">{d.file_name}</p>}
+                                {d.file_missing && (
+                                  <p className="text-[11px] text-amber-600">
+                                    File not stored on the server — re-upload required
+                                  </p>
+                                )}
                               </div>
                             </div>
                           </td>
@@ -281,12 +322,16 @@ export default function OrgAdminEmployeeDocumentsPage() {
                           <td className="px-6 py-3 text-center text-xs text-doc-ink-soft">{fmtDate(d.created_at)}</td>
                           <td className="px-6 py-3">
                             <div className="flex items-center justify-center gap-2">
-                              <button onClick={() => view(d.id)} disabled={busyId === d.id}
-                                className="p-1.5 rounded-lg text-doc-primary bg-doc-primary/10 border border-doc-primary/20 hover:bg-doc-primary/15 disabled:opacity-50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary" title="View" aria-label="View document">
+                              <button onClick={() => view(d.id)} disabled={busyId === d.id || d.file_missing}
+                                className="p-1.5 rounded-lg text-doc-primary bg-doc-primary/10 border border-doc-primary/20 hover:bg-doc-primary/15 disabled:opacity-50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
+                                title={d.file_missing ? "File not stored on the server" : "View"}
+                                aria-label="View document">
                                 {busyId === d.id && busyAction === "view" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />}
                               </button>
-                              <button onClick={() => download(d.id)} disabled={busyId === d.id}
-                                className="p-1.5 rounded-lg text-doc-primary bg-doc-primary/10 border border-doc-primary/20 hover:bg-doc-primary/15 disabled:opacity-50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary" title="Download" aria-label="Download document">
+                              <button onClick={() => download(d.id)} disabled={busyId === d.id || d.file_missing}
+                                className="p-1.5 rounded-lg text-doc-primary bg-doc-primary/10 border border-doc-primary/20 hover:bg-doc-primary/15 disabled:opacity-50 transition-colors focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
+                                title={d.file_missing ? "File not stored on the server" : "Download"}
+                                aria-label="Download document">
                                 {busyId === d.id && busyAction === "download" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                               </button>
                               <button onClick={() => openVersionHistory(d)}
@@ -311,10 +356,11 @@ export default function OrgAdminEmployeeDocumentsPage() {
 
       {uploadModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-doc-surface rounded-2xl shadow-2xl w-full max-w-lg flex flex-col">
+          <div role="dialog" aria-modal="true" aria-labelledby="upload-doc-title"
+            className="bg-doc-surface rounded-2xl shadow-2xl w-full max-w-lg flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-doc-border">
               <div>
-                <h2 className="text-lg font-bold text-doc-ink">Upload Document</h2>
+                <h2 id="upload-doc-title" className="text-lg font-bold text-doc-ink">Upload Document</h2>
                 <p className="text-xs text-doc-ink-soft mt-0.5">
                   Assign a document to an employee
                 </p>
@@ -326,7 +372,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
             </div>
             <div className="p-6 space-y-4">
               <div>
-                <label className="text-xs font-semibold text-doc-ink-soft mb-1.5 block">
+                <label htmlFor="upload-doc-employee" className="text-xs font-semibold text-doc-ink-soft mb-1.5 block">
                   Employee <span className="text-rose-500">*</span>
                 </label>
                 {employeesLoading ? (
@@ -334,13 +380,13 @@ export default function OrgAdminEmployeeDocumentsPage() {
                     <Loader2 className="w-4 h-4 animate-spin" /> Loading employees...
                   </div>
                 ) : (
-                  <select value={uploadForm.employee_id} onChange={e => setUploadForm(p => ({ ...p, employee_id: e.target.value }))}
+                  <select id="upload-doc-employee" value={uploadForm.employee_id} onChange={e => setUploadForm(p => ({ ...p, employee_id: e.target.value }))}
                     className="w-full px-3 py-2 border border-doc-border rounded-lg text-sm bg-doc-surface focus:outline-none focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary">
                     <option value="">Select employee...</option>
                     {employees.map(emp => (
                       <option key={emp.id} value={emp.id}>
                         {emp.fullName || emp.full_name || `${emp.firstName || emp.first_name || ""} ${emp.lastName || emp.last_name || ""}`}
-                        {emp.employeeCode || emp.employee_code ? ` (${emp.employeeCode || emp.employee_code})` : ""}
+                        {emp.employeeId || emp.employee_id || emp.employeeCode || emp.employee_code ? ` (${emp.employeeId || emp.employee_id || emp.employeeCode || emp.employee_code})` : ""}
                       </option>
                     ))}
                   </select>
@@ -417,10 +463,11 @@ export default function OrgAdminEmployeeDocumentsPage() {
       {/* Version History Modal */}
       {versionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-doc-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+          <div role="dialog" aria-modal="true" aria-labelledby="version-history-title"
+            className="bg-doc-surface rounded-2xl shadow-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between p-6 border-b border-doc-border shrink-0">
               <div>
-                <h2 className="text-lg font-bold text-doc-ink">Version History</h2>
+                <h2 id="version-history-title" className="text-lg font-bold text-doc-ink">Version History</h2>
                 <p className="text-xs text-doc-ink-soft mt-0.5">{versionModal.title} · v{versionModal.current_version || 1}</p>
               </div>
               <button onClick={() => { setVersionModal(null); setVersions([]); }} className="p-2 rounded-xl hover:bg-doc-surface-soft text-doc-ink-soft transition">
@@ -444,11 +491,16 @@ export default function OrgAdminEmployeeDocumentsPage() {
                         <span className="text-xs text-doc-ink-soft">{fmtDate(v.created_at)}</span>
                       </div>
                       {v.change_notes && <p className="text-xs text-doc-ink-soft mt-1">{v.change_notes}</p>}
+                      {v.file_missing && (
+                        <p className="text-[11px] text-amber-600 mt-1">
+                          This version's file is not stored on the server.
+                        </p>
+                      )}
                       <div className="flex items-center justify-between mt-2">
                         <span className="text-xs text-doc-ink-soft">{v.uploader_name ? `by ${v.uploader_name}` : ""}</span>
                         <button
                           onClick={() => view(`v-${v.id}`, () => getDocumentVersionFile(versionModal.id, v.id))}
-                          disabled={busyId === `v-${v.id}`}
+                          disabled={busyId === `v-${v.id}` || v.file_missing}
                           className="flex items-center gap-1 text-xs font-semibold text-doc-primary hover:text-doc-primary-deep disabled:opacity-50"
                         >
                           {busyId === `v-${v.id}` ? <Loader2 className="w-3 h-3 animate-spin" /> : <Eye className="w-3 h-3" />} View
@@ -472,10 +524,11 @@ export default function OrgAdminEmployeeDocumentsPage() {
       {/* Upload Version Modal */}
       {uploadVersionModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4">
-          <div className="bg-doc-surface rounded-2xl shadow-2xl w-full max-w-md">
+          <div role="dialog" aria-modal="true" aria-labelledby="upload-version-title"
+            className="bg-doc-surface rounded-2xl shadow-2xl w-full max-w-md">
             <div className="flex items-center justify-between p-6 border-b border-doc-border">
               <div>
-                <h2 className="text-lg font-bold text-doc-ink">Upload New Version</h2>
+                <h2 id="upload-version-title" className="text-lg font-bold text-doc-ink">Upload New Version</h2>
                 <p className="text-xs text-doc-ink-soft mt-0.5">{uploadVersionModal.docName}</p>
               </div>
               <button onClick={() => setUploadVersionModal(null)} className="p-2 rounded-xl hover:bg-doc-surface-soft text-doc-ink-soft transition"><X size={18} /></button>
