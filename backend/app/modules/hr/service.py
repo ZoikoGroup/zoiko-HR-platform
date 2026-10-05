@@ -90,6 +90,7 @@ from app.modules.hr.schemas import (
 )
 from app.core.security import hash_password, verify_password, create_access_token, decode_access_token
 from app.core.code_generation import generate_employee_code
+from app.modules.hr import file_storage
 from app.core.exceptions import (
     NotFoundException, AlreadyExistsException,
     UnauthorizedException, BadRequestException
@@ -4959,6 +4960,42 @@ def _hr_doc_version_file_url(document_id: Optional[int], version_id: Optional[in
     return f"/hr/documents/{document_id}/versions/{version_id}/file"
 
 
+def resolve_employee_ids_by_identifier(
+    db: Session,
+    term: Optional[str],
+    organization_id: Optional[int] = None,
+) -> list:
+    """Return employee DB ids matching a free-text employee identifier.
+
+    Organizations populate `employee_code` for every employee but `employee_id`
+    on only a handful of rows, so a filter on `employee_id` alone matched
+    nothing. Match every identifier a user can reasonably type: `employee_id`,
+    `employee_code`, `legacy_code`, and the numeric employee primary key.
+    Matching is case-insensitive and substring-based, scoped to one
+    organization when `organization_id` is supplied.
+    """
+    from app.modules.employee.models import Employee
+
+    cleaned = (term or "").strip()
+    if not cleaned:
+        return []
+
+    query = db.query(Employee.id)
+    if organization_id:
+        query = query.filter(Employee.organization_id == organization_id)
+
+    pattern = f"%{cleaned}%"
+    clauses = [
+        Employee.employee_id.ilike(pattern),
+        Employee.employee_code.ilike(pattern),
+        Employee.legacy_code.ilike(pattern),
+    ]
+    if cleaned.isdigit():
+        clauses.append(Employee.id == int(cleaned))
+
+    return [row[0] for row in query.filter(or_(*clauses)).distinct().all()]
+
+
 def get_hr_documents(
     db: Session,
     organization_id: Optional[int] = None,
@@ -4973,8 +5010,10 @@ def get_hr_documents(
 ) -> list:
     """
     Return all non-deleted HR documents, with optional filtering.
-    Resolves employee_name and uploader_name for the response.
-    Supports filtering by Employee ID string (org-scoped, e.g. ZO0001) via employee_id_str.
+    Resolves employee_name, employee_id_str, employee_code, legacy_code and
+    uploader_name for the response.
+    `employee_id_str` matches employee_id / employee_code / legacy_code / numeric
+    employee id, case-insensitively and as a substring, org-scoped (e.g. "TEE00024").
     exclude_categories: comma-separated list of categories to exclude (e.g. "employee,contract")
     """
     from app.modules.hr.models import HrDocument, HrDocumentCategory, HrDocumentStatus
@@ -5031,34 +5070,31 @@ def get_hr_documents(
         else:
             query = query.filter(HrDocument.folder_id == folder_id)
     if employee_id_str:
-        emp = db.query(Employee).filter(
-            Employee.employee_id == employee_id_str,
-            Employee.organization_id == organization_id,
-        ).first()
-        if emp:
-            query = query.filter(HrDocument.employee_id == emp.id)
-        else:
+        emp_ids = resolve_employee_ids_by_identifier(db, employee_id_str, organization_id)
+        if not emp_ids:
             return []
+        query = query.filter(HrDocument.employee_id.in_(emp_ids))
     if search:
-        term = f"%{search}%"
-        emp_ids = [
-            r[0] for r in db.query(Employee.id).filter(Employee.employee_id.ilike(term)).all()
-        ]
+        term = f"%{search.strip()}%"
+        emp_ids = resolve_employee_ids_by_identifier(db, search, organization_id)
+        text_clause = or_(
+            HrDocument.title.ilike(term),
+            HrDocument.document_type.ilike(term),
+        )
         if emp_ids:
-            query = query.filter(
-                (HrDocument.title.ilike(term)) |
-                (HrDocument.document_type.ilike(term)) |
-                (HrDocument.employee_id.in_(emp_ids))
-            )
+            query = query.filter(or_(text_clause, HrDocument.employee_id.in_(emp_ids)))
         else:
-            query = query.filter(
-                (HrDocument.title.ilike(term)) |
-                (HrDocument.document_type.ilike(term))
-            )
+            query = query.filter(text_clause)
 
     docs = query.order_by(HrDocument.created_at.desc()).all()
 
     # Attach convenience name fields without a JOIN (keeps it simple)
+    person_ids = {pid for doc in docs for pid in (doc.employee_id, doc.uploaded_by) if pid}
+    people = {}
+    if person_ids:
+        for emp in db.query(Employee).filter(Employee.id.in_(person_ids)).all():
+            people[emp.id] = emp
+
     result = []
     for doc in docs:
         d = doc.__dict__.copy()
@@ -5069,21 +5105,25 @@ def get_hr_documents(
         if isinstance(d.get("status"), HrDocumentStatus):
             d["status"] = d["status"].value
 
-        if doc.employee_id:
-            emp = db.query(Employee).filter(Employee.id == doc.employee_id).first()
-            d["employee_name"] = f"{emp.first_name} {emp.last_name}" if emp else None
-            d["employee_id_str"] = emp.employee_id if emp else None
+        emp = people.get(doc.employee_id) if doc.employee_id else None
+        if emp:
+            d["employee_name"] = f"{emp.first_name} {emp.last_name}"
+            # employee_id is NULL for most employees, so fall back to the code
+            d["employee_id_str"] = emp.employee_id or emp.employee_code
+            d["employee_code"] = emp.employee_code
+            d["legacy_code"] = emp.legacy_code
         else:
             d["employee_name"] = None
             d["employee_id_str"] = None
+            d["employee_code"] = None
+            d["legacy_code"] = None
 
-        if doc.uploaded_by:
-            uploader = db.query(Employee).filter(Employee.id == doc.uploaded_by).first()
-            d["uploader_name"] = f"{uploader.first_name} {uploader.last_name}" if uploader else None
-        else:
-            d["uploader_name"] = None
+        uploader = people.get(doc.uploaded_by) if doc.uploaded_by else None
+        d["uploader_name"] = f"{uploader.first_name} {uploader.last_name}" if uploader else None
 
         d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
+        # ZHR 44: surface a missing upload instead of failing silently later.
+        d["file_missing"] = file_storage.file_missing(doc.file_path)
 
         result.append(d)
 
@@ -5270,6 +5310,10 @@ def get_hr_document_by_id(db: Session, document_id: int, organization_id: Option
     else:
         d["uploader_name"] = None
     d["file_url"] = _hr_doc_file_url(doc.id, doc.file_path)
+    # ZHR 44: distinguish "the bytes aren't on this host" from "the preview is
+    # broken", so the UI can say the file is unavailable instead of opening a
+    # modal that can only fail.
+    d["file_missing"] = file_storage.file_missing(doc.file_path)
     return d
 
 
@@ -5349,6 +5393,7 @@ def get_document_versions(db: Session, document_id: int, organization_id: int) -
         entry = v.__dict__.copy()
         entry.pop("_sa_instance_state", None)
         entry["file_url"] = _hr_doc_version_file_url(v.document_id, v.id, v.file_path)
+        entry["file_missing"] = file_storage.file_missing(v.file_path)
         if v.uploaded_by:
             uploader = db.query(Employee).filter(Employee.id == v.uploaded_by).first()
             entry["uploader_name"] = f"{uploader.first_name} {uploader.last_name}" if uploader else None

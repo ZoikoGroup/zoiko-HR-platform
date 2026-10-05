@@ -47,6 +47,7 @@ from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASH
 
 
 from app.modules.hr import service
+from app.modules.hr import file_storage
 from app.modules.hr.models import LeaveType, RequestStatus, HrDocument
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.schemas import (
@@ -2412,8 +2413,9 @@ _DOCUMENT_UPLOAD_DIR = os.environ.get(
     description=(
         "Returns all non-deleted HR documents. "
         "Supports optional filtering by `category`, `status`, `employee_id`, "
-        "`employee_id_str` (org-scoped Employee ID), and `search`. "
-        "Employee ID is the primary identifier across modules."
+        "`employee_id_str`, and `search`. "
+        "`employee_id_str` matches employee_id, employee_code, legacy_code or the "
+        "numeric employee id, case-insensitively, scoped to the caller's organization."
     ),
     tags=["📄 HR Documents"],
 )
@@ -2423,8 +2425,8 @@ def list_hr_documents(
     category:       Optional[str] = Query(None, description="Filter by category (company, employee, policy, contract, other)"),
     doc_status:     Optional[str] = Query(None, alias="status", description="Filter by status (pending, approved, rejected, expired)"),
     employee_id:    Optional[int] = Query(None, description="Filter by employee database ID"),
-    employee_id_str: Optional[str] = Query(None, description="Filter by Employee ID (e.g., ZO0001)"),
-    search:         Optional[str] = Query(None, description="Search by title or document type"),
+    employee_id_str: Optional[str] = Query(None, description="Filter by Employee ID/code (e.g., TEE00024, RA0001) — case-insensitive partial match"),
+    search:         Optional[str] = Query(None, description="Search by title, document type, employee name/code/ID"),
     exclude_categories: Optional[str] = Query(None, description="Comma-separated categories to exclude (e.g. employee,contract)"),
     folder_id:      Optional[int] = Query(None, description="Filter by folder ID (null = root)"),
 ):
@@ -2548,12 +2550,22 @@ def get_hr_document_file(
 ):
     doc_data = service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)
     file_path = doc_data.get("file_path")
-    if not file_path or not _os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    resolved = file_storage.resolve_stored_file(file_path)
+    if not resolved:
+        # 410: the document record exists, the bytes are not on this host.
+        # A plain 404 read as "no such document" in the UI and hid the fact
+        # that the file simply is not there (ZHR 44).
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "The file for this document is not available on the server. "
+                "Ask an administrator to upload it again."
+            ),
+        )
     file_name = doc_data.get("file_name") or _os.path.basename(file_path)
     media_type = doc_data.get("mime_type")
     return FileResponse(
-        path=file_path,
+        path=resolved,
         media_type=media_type,
         filename=file_name,
         headers={"Content-Disposition": f'inline; filename="{file_name}"'},
@@ -2695,12 +2707,19 @@ def get_document_version_file(
         db, document_id, version_id, organization_id=current_user.organization_id
     )
     file_path = version_data.get("file_path")
-    if not file_path or not _os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    resolved = file_storage.resolve_stored_file(file_path)
+    if not resolved:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "The file for this document version is not available on the server. "
+                "Ask an administrator to upload it again."
+            ),
+        )
     file_name = version_data.get("file_name") or _os.path.basename(file_path)
     media_type = version_data.get("mime_type")
     return FileResponse(
-        path=file_path,
+        path=resolved,
         media_type=media_type,
         filename=file_name,
         headers={"Content-Disposition": f'inline; filename="{file_name}"'},
