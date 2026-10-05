@@ -1,7 +1,7 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { importEmployees, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
-import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser } from "../../service/userService";
+import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser, getAssignableRoles } from "../../service/userService";
 import {
   Users,
   UserCheck,
@@ -106,6 +106,68 @@ function initials(name) {
     .toUpperCase();
 }
 
+const EMPLOYMENT_TYPES = [["full_time", "Full time"], ["part_time", "Part time"], ["contract", "Contract"], ["intern", "Intern"], ["probation", "Probation"]];
+const GENDERS = [["male", "Male"], ["female", "Female"], ["other", "Other"]];
+const ADD_STATUSES = [["active", "Active"], ["pending", "Pending"], ["inactive", "Inactive"]];
+
+// Mirrors the bulk-import columns, so adding one person captures the same information.
+const ADD_USER_SECTIONS = [
+  { title: "Account", fields: [
+    { name: "first_name", label: "First name", required: true, placeholder: "John" },
+    { name: "last_name", label: "Last name", required: true, placeholder: "Doe" },
+    { name: "email", label: "Email", required: true, type: "email", placeholder: "john.doe@company.com" },
+    { name: "phone", label: "Phone", placeholder: "+1-555-0100" },
+    { name: "role", label: "Role", required: true },
+    { name: "job_title", label: "Job title", required: true, placeholder: "Software Engineer" },
+  ] },
+  { title: "Employment", fields: [
+    { name: "date_of_joining", label: "Date of joining", required: true, type: "date" },
+    { name: "employment_type", label: "Employment type", options: EMPLOYMENT_TYPES, blank: "Full time (default)" },
+    { name: "status", label: "Status", options: ADD_STATUSES, blank: "Active (default)" },
+    { name: "confirmation_date", label: "Confirmation date", type: "date" },
+    { name: "department_name", label: "Department", placeholder: "Created if new" },
+    { name: "designation_name", label: "Designation", placeholder: "Created if new" },
+    { name: "company", label: "Company" },
+    { name: "business_unit", label: "Business unit" },
+    { name: "division", label: "Division" },
+    { name: "team", label: "Team" },
+  ] },
+  { title: "Personal", fields: [
+    { name: "date_of_birth", label: "Date of birth", type: "date" },
+    { name: "gender", label: "Gender", options: GENDERS },
+    { name: "work_email", label: "Work email", type: "email" },
+    { name: "personal_email", label: "Personal email", type: "email" },
+    { name: "current_address", label: "Current address", wide: true },
+    { name: "permanent_address", label: "Permanent address", wide: true },
+    { name: "city", label: "City" },
+    { name: "state", label: "State" },
+    { name: "country", label: "Country" },
+    { name: "pincode", label: "Pincode" },
+  ] },
+  { title: "Compensation & statutory", fields: [
+    { name: "basic_salary", label: "Basic salary", type: "number" },
+    { name: "ctc", label: "CTC", type: "number" },
+    { name: "pan_number", label: "PAN" },
+    { name: "uan_number", label: "UAN" },
+    { name: "bank_account", label: "Bank account number" },
+    { name: "bank_ifsc", label: "IFSC code" },
+  ] },
+];
+
+const emptyAddForm = () => ({
+  ...Object.fromEntries(ADD_USER_SECTIONS.flatMap((sec) => sec.fields.map((f) => [f.name, ""]))),
+  role: "employee",
+  date_of_joining: new Date().toISOString().slice(0, 10),
+});
+
+/** "3 created, 2 updated" - an update-only file must not read as "0 created". */
+function importSummary(result) {
+  const parts = [];
+  if (result.created) parts.push(`${result.created} created`);
+  if (result.updated) parts.push(`${result.updated} updated`);
+  return parts.length ? `${parts.join(", ")}` : "No changes";
+}
+
 export default function OrgAdminUserManagementPage() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
@@ -123,14 +185,10 @@ export default function OrgAdminUserManagementPage() {
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [formData, setFormData] = useState({
-    first_name: "",
-    last_name: "",
-    email: "",
-    phone: "",
-    role: "employee",
-    job_title: "",
-  });
+  const [formData, setFormData] = useState(emptyAddForm);
+  const [roleOptions, setRoleOptions] = useState([
+    { value: "employee", label: "Employee" }, { value: "hr_admin", label: "HR Admin" }, { value: "admin", label: "Admin" },
+  ]);
   const [formErrors, setFormErrors] = useState({});
   const [createdPassword, setCreatedPassword] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -291,7 +349,8 @@ export default function OrgAdminUserManagementPage() {
     try {
       const result = await importEmployees(selectedFile);
       setImportResult(result);
-      if (result.created > 0) {
+      // Updates (e.g. a changed Status column) change the list too, not only new people.
+      if ((result.created || 0) + (result.updated || 0) > 0) {
         await fetchUsers();
       }
     } catch (err) {
@@ -315,7 +374,7 @@ export default function OrgAdminUserManagementPage() {
   }
 
   const resetAddForm = () => {
-    setFormData({ first_name: "", last_name: "", email: "", phone: "", role: "employee", job_title: "" });
+    setFormData(emptyAddForm());
     setFormErrors({});
   };
 
@@ -324,6 +383,14 @@ export default function OrgAdminUserManagementPage() {
     setShowAddModal(true);
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    getAssignableRoles()
+      .then((res) => { if (!cancelled && res?.roles?.length) setRoleOptions(res.roles); })
+      .catch(() => {}); // keep the built-in options if the list cannot be loaded
+    return () => { cancelled = true; };
+  }, []);
+
   const validateAddForm = () => {
     const errors = {};
     if (!formData.first_name.trim()) errors.first_name = "First name is required";
@@ -331,6 +398,11 @@ export default function OrgAdminUserManagementPage() {
     if (!formData.email.trim()) errors.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
     if (!formData.role) errors.role = "Role is required";
+    if (!formData.job_title.trim()) errors.job_title = "Job title is required";
+    if (!formData.date_of_joining) errors.date_of_joining = "Date of joining is required";
+    ["work_email", "personal_email"].forEach((k) => {
+      if (formData[k].trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData[k])) errors[k] = "Invalid email";
+    });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -340,21 +412,20 @@ export default function OrgAdminUserManagementPage() {
     if (!validateAddForm()) return;
     setSubmitting(true);
     try {
-      const res = await createUser({
-        first_name: formData.first_name.trim(),
-        last_name: formData.last_name.trim(),
-        email: formData.email.trim(),
-        phone: formData.phone.trim() || null,
-        role: formData.role,
-        job_title: formData.job_title.trim() || null,
+      // Send only what was filled in; blanks stay out of the request.
+      const payload = {};
+      Object.entries(formData).forEach(([k, v]) => {
+        const value = typeof v === "string" ? v.trim() : v;
+        if (value !== "") payload[k] = value;
       });
+      const res = await createUser(payload);
       setShowAddModal(false);
       resetAddForm();
       setCreatedPassword(res.temporary_password || null);
       setNotice({ message: res.message || "User created successfully.", type: "success" });
       await fetchUsers();
     } catch (err) {
-      setFormErrors({ submit: err.response?.data?.detail || err.message || "Failed to create user" });
+      setFormErrors({ submit: err.message || err.response?.data?.detail || "Failed to create user" });
     } finally {
       setSubmitting(false);
     }
@@ -869,16 +940,15 @@ export default function OrgAdminUserManagementPage() {
                   {importResult.errors.length === 0 ? (
                     <div className="flex items-center gap-2 text-sm text-emerald-700">
                       <CircleCheck className="h-4 w-4" />
-                      {importResult.created} employee{importResult.created !== 1 ? "s" : ""}{" "}
-                      created successfully.
+                      {importSummary(importResult)} successfully.
                     </div>
                   ) : (
                     <div>
                       <div className="mb-1 flex items-center gap-2 text-sm font-medium text-red-700">
                         <CircleAlert className="h-4 w-4" />
-                        {importResult.created > 0 && (
+                        {(importResult.created > 0 || importResult.updated > 0) && (
                           <span className="text-emerald-700">
-                            {importResult.created} created.{" "}
+                            {importSummary(importResult)}.{" "}
                           </span>
                         )}
                         {importResult.errors.length} issue
@@ -891,6 +961,7 @@ export default function OrgAdminUserManagementPage() {
                             {err.error}
                           </li>
                         ))}
+                        {importResult.errors.length > 20 && <li>…and {importResult.errors.length - 20} more.</li>}
                       </ul>
                     </div>
                   )}
@@ -921,7 +992,7 @@ export default function OrgAdminUserManagementPage() {
 
       {showAddModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl">
+          <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <h3 className="text-base font-semibold text-gray-900">Add User</h3>
               <button onClick={() => { setShowAddModal(false); resetAddForm(); }} className="text-gray-400 hover:text-gray-600">
@@ -929,107 +1000,60 @@ export default function OrgAdminUserManagementPage() {
               </button>
             </div>
 
-            <form onSubmit={handleAddUser} className="px-5 py-5 space-y-4">
+            <form onSubmit={handleAddUser} className="max-h-[78vh] overflow-y-auto px-5 pt-5 space-y-5">
               {formErrors.submit && (
-                <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {formErrors.submit}
                 </div>
               )}
 
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    First Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.first_name}
-                    onChange={(e) => setFormData({ ...formData, first_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
-                      formErrors.first_name ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
-                    }`}
-                    placeholder="John"
-                  />
-                  {formErrors.first_name && <p className="mt-1 text-xs text-red-500">{formErrors.first_name}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Last Name <span className="text-red-500">*</span>
-                  </label>
-                  <input
-                    type="text"
-                    value={formData.last_name}
-                    onChange={(e) => setFormData({ ...formData, last_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
-                      formErrors.last_name ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
-                    }`}
-                    placeholder="Doe"
-                  />
-                  {formErrors.last_name && <p className="mt-1 text-xs text-red-500">{formErrors.last_name}</p>}
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
-                  Email <span className="text-red-500">*</span>
-                </label>
-                <input
-                  type="email"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
-                    formErrors.email ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
-                  }`}
-                  placeholder="john.doe@company.com"
-                />
-                {formErrors.email && <p className="mt-1 text-xs text-red-500">{formErrors.email}</p>}
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Role <span className="text-red-500">*</span>
-                  </label>
-                  <div className="relative">
-                    <select
-                      value={formData.role}
-                      onChange={(e) => setFormData({ ...formData, role: e.target.value })}
-                      className={`w-full appearance-none rounded-lg border px-3 py-2.5 pr-10 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
-                        formErrors.role ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
-                      }`}
-                    >
-                      <option value="employee">Employee</option>
-                      <option value="admin">Admin</option>
-                      <option value="hr_admin">HR Admin</option>
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              {ADD_USER_SECTIONS.map((section) => (
+                <fieldset key={section.title} disabled={submitting}>
+                  <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">{section.title}</legend>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {section.fields.map((f) => {
+                      const id = `add-user-${f.name}`;
+                      const cls = `w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
+                        formErrors[f.name] ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
+                      }`;
+                      const value = formData[f.name] ?? "";
+                      const set = (e) => setFormData({ ...formData, [f.name]: e.target.value });
+                      return (
+                        <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
+                          <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
+                            {f.label}{f.required ? <span className="text-red-500"> *</span> : null}
+                          </label>
+                          {f.name === "role" ? (
+                            <div className="relative">
+                              <select id={id} value={value} onChange={set} className={`${cls} appearance-none pr-9`}>
+                                {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                              </select>
+                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          ) : f.options ? (
+                            <div className="relative">
+                              <select id={id} value={value} onChange={set} className={`${cls} appearance-none pr-9`}>
+                                <option value="">{f.blank || "Select…"}</option>
+                                {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                              </select>
+                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          ) : (
+                            <input id={id} type={f.type || "text"} value={value} onChange={set} className={cls}
+                              placeholder={f.placeholder} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
+                          )}
+                          {formErrors[f.name] && <p className="mt-1 text-xs text-red-500">{formErrors[f.name]}</p>}
+                          {f.name === "role" && roleOptions.find((r) => r.value === formData.role)?.description ? (
+                            <p className="mt-1 text-xs text-gray-500">{roleOptions.find((r) => r.value === formData.role).description}</p>
+                          ) : null}
+                        </div>
+                      );
+                    })}
                   </div>
-                  {formErrors.role && <p className="mt-1 text-xs text-red-500">{formErrors.role}</p>}
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input
-                    type="text"
-                    value={formData.phone}
-                    onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]"
-                    placeholder="+1-555-0100"
-                  />
-                </div>
-              </div>
+                </fieldset>
+              ))}
 
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
-                <input
-                  type="text"
-                  value={formData.job_title}
-                  onChange={(e) => setFormData({ ...formData, job_title: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]"
-                  placeholder="Software Engineer"
-                />
-              </div>
-
-              <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
+              <div className="sticky bottom-0 -mx-5 flex justify-end gap-2 border-t border-gray-100 bg-white px-5 py-3">
                 <button
                   type="button"
                   onClick={() => { setShowAddModal(false); resetAddForm(); }}

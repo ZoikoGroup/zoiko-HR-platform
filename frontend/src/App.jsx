@@ -189,7 +189,6 @@ const ZoikoWorkflowPage = lazy(() => import("./modules/shared-layers/ZoikoWorkfl
 const ZoikoHubPage = lazy(() => import("./modules/shared-layers/ZoikoHubPage"));
 const ZoikoConnectPageModule = lazy(() => import("./modules/shared-layers/ZoikoConnectPage"));
 const DocumentsPage = lazy(() => import("./modules/shared-layers/DocumentsPage"));
-const ApprovalsPage = lazy(() => import("./modules/shared-layers/ApprovalsPage"));
 const ExpensesPage = lazy(() => import("./modules/shared-layers/ExpensesPage"));
 const AdminKnowledgePage = lazy(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
 const AdminHandoffsPage = lazy(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
@@ -245,7 +244,6 @@ const routeOverrides = {
   "/shared/hub": <ZoikoHubPage />,
   "/shared/connect": <ZoikoConnectPageModule />,
   "/shared/documents": <DocumentsPage />,
-  "/shared/approvals": <ApprovalsPage />,
   "/shared/expenses": <ExpensesPage />,
   "/zoiko-hr": <ZoikoHRModule />,
   // Departments

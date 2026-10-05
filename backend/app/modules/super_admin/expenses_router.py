@@ -229,6 +229,49 @@ def claims_summary(
     }
 
 
+@router.get("/by-organization")
+def claims_by_organization(
+    category: Optional[str] = None,
+    currency: Optional[str] = Query(None, min_length=3, max_length=3),
+    date_from: Optional[datetime] = None,
+    date_to: Optional[datetime] = None,
+    db: Session = Depends(get_db),
+):
+    """One entry per live organization - including those with no claims - with
+    that organization's own totals per currency. Organizations are never mixed
+    and currencies are never added together."""
+    base = _claims_query(db, None, category, currency, date_from, date_to, None, None, None).subquery()
+    exp = TravelExpense
+    rows = (
+        db.query(exp.organization_id, exp.currency, exp.status, func.count(exp.id), func.coalesce(func.sum(exp.amount), 0))
+        .join(base, base.c.id == exp.id)
+        .group_by(exp.organization_id, exp.currency, exp.status)
+        .all()
+    )
+    per_org: dict = {}
+    for org_id, cur, status, n, amount in rows:
+        entry = per_org.setdefault(org_id, {"totals": {}, "counts": {name: 0 for name in STATUS_GROUPS}})
+        bucket = entry["totals"].setdefault(cur or "USD", {k: ZERO for k in ("claimed", "pending", "approved", "paid", "rejected")})
+        name = _status_name(status)
+        entry["counts"][name] = entry["counts"].get(name, 0) + n
+        if name in bucket:
+            bucket[name] += Decimal(amount)
+        if name != "cancelled":
+            bucket["claimed"] += Decimal(amount)
+    organizations = []
+    for org in db.query(Organization).order_by(Organization.id).all():
+        entry = per_org.get(org.id) or {"totals": {}, "counts": {name: 0 for name in STATUS_GROUPS}}
+        organizations.append({
+            "organization_id": org.id,
+            "organization_name": _org_name(org),
+            "claim_count": sum(entry["counts"].values()),
+            "counts": entry["counts"],
+            "totals": {cur: {k: _money(v) for k, v in vals.items()} for cur, vals in sorted(entry["totals"].items())},
+        })
+    organizations.sort(key=lambda o: (o["organization_name"] or "").lower())
+    return {"organizations": organizations}
+
+
 # ─────────────────────────────── budgets ───────────────────────────────
 
 class BudgetIn(BaseModel):

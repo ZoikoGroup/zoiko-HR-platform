@@ -12,6 +12,7 @@ const userSvc = {};
 const saSvc = {};
 const authSvc = {};
 const expSvc = {};
+const navCalls = [];
 const orgSvc = {};
 const auth = { user: { id: 1, email: "root@example.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true };
 const mocked = new WeakSet();
@@ -39,11 +40,15 @@ function reset(overrides = {}) {
   Object.assign(saSvc, {
     getUsers: async () => ({ users: [USER], total: 1 }),
     getOrganizations: async () => ({ organizations: [{ id: 2, name: "Globex Inc" }] }),
+    createOrganization: async () => ({ organization_id: 9, organization_name: "X", temporary_password: "x" }),
+    mintConfirmationToken: async () => ({ confirmation_id: 1, token: "t" }), updateOrganizationStatus: async () => ({}),
+    reactivateOrganization: async () => ({}), getOrganizationDeletionImpact: async () => ({}), deleteOrganization: async () => ({}),
   });
   Object.assign(authSvc, { changePassword: async () => ({}), fetchCurrentUser: async () => ({ id: 1, mustChangePassword: false }) });
   Object.assign(orgSvc, { getOrganizations: async () => ({ organizations: [{ id: 1, name: "Acme Ltd" }, { id: 2, name: "Globex Inc" }] }) });
   Object.assign(expSvc, {
     claims: async () => ({ claims: [], total: 0 }), claim: async () => ({}), summary: async () => ({ totals: {}, counts: {}, claim_count: 0 }),
+    byOrganization: async () => ({ organizations: [] }),
     categories: async () => ({ categories: [] }), budgets: async () => ({ budgets: [] }), createBudget: async () => ({}), archiveBudget: async () => ({}),
   });
   Object.assign(auth, { user: { id: 1, email: "root@example.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true });
@@ -68,7 +73,7 @@ function register(t) {
   t.mock.module("../src/service/api.js", { exports: { getAccessToken: () => "a", getRefreshToken: () => "r", setSession: () => {}, api: {}, API_BASE_URL: "" } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
   t.mock.module("react-router-dom", {
-    exports: { useNavigate: () => () => {}, Navigate: ({ to }) => React.createElement("div", { "data-testid": "redirect" }, to), Link: ({ to, children }) => React.createElement("a", { href: to }, children) },
+    exports: { useNavigate: () => (...a) => navCalls.push(a), Navigate: ({ to }) => React.createElement("div", { "data-testid": "redirect" }, to), Link: ({ to, children }) => React.createElement("a", { href: to }, children) },
   });
 }
 
@@ -79,6 +84,9 @@ async function openUsers(t, overrides) {
   render(React.createElement(Page));
   await settle();
   await settle();
+  // A super admin picks an organization first; its users are listed after that.
+  const open = screen.queryByRole("button", { name: /^Open Globex Inc$/ });
+  if (open) { fireEvent.click(open); await settle(); await settle(); }
 }
 
 // ───────────────────────── ZHR-32 ─────────────────────────
@@ -110,6 +118,9 @@ test("organization roles require an organization; Super Admin requires confirmat
   fill();
   fireEvent.change(roleSelect(), { target: { value: "manager" } });
   assert.ok(within(dlg()).getByText(/^Organization/, { selector: "label" }));
+  const orgSelect = () => within(dlg()).getByText(/^Organization/, { selector: "label" }).parentElement.querySelector("select");
+  assert.equal(orgSelect().value, "2"); // the organization being viewed is preselected
+  fireEvent.change(orgSelect(), { target: { value: "" } });
   fireEvent.click(within(dlg()).getByRole("button", { name: "Create User" }));
   await settle();
   assert.ok(screen.getByText("Select an organization for this role"));
@@ -325,5 +336,234 @@ test("Expenses is super-admin only", async (t) => {
   render(React.createElement(Page));
   await settle();
   assert.ok(screen.getByText(/super admins only/));
+  cleanup();
+});
+
+test("Expenses shows each organization separately, including ones with no claims, and selecting one filters the claims", async (t) => {
+  const claimCalls = [];
+  reset({
+    expSvc: {
+      claims: async (p) => { claimCalls.push(p); return { claims: [CLAIM], total: 1 }; },
+      byOrganization: async () => ({
+        organizations: [
+          { organization_id: 1, organization_name: "Acme Ltd", claim_count: 3, counts: {}, totals: { USD: { claimed: "150.00", pending: "100.00", approved: "50.00", paid: "0.00", rejected: "0.00" }, EUR: { claimed: "20.00", pending: "0.00", approved: "20.00", paid: "0.00", rejected: "0.00" } } },
+          { organization_id: 2, organization_name: "Globex Inc", claim_count: 1, counts: {}, totals: { USD: { claimed: "400.00", pending: "0.00", approved: "0.00", paid: "400.00", rejected: "0.00" } } },
+          { organization_id: 3, organization_name: "Initech", claim_count: 0, counts: {}, totals: {} },
+        ],
+      }),
+    },
+  });
+  register(t);
+  const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  assert.ok(screen.getByText("Expenses by Organization (3)"));
+  const acme = within(screen.getByRole("button", { name: "Acme Ltd expenses" }));
+  assert.ok(acme.getByText("3 claims") && acme.getByText("USD 150.00"));
+  assert.equal(screen.getAllByLabelText(/^Acme Ltd totals in/).length, 2); // per-currency blocks, never merged
+  assert.ok(within(screen.getByRole("button", { name: "Initech expenses" })).getByText(/No expense claims yet/));
+  assert.equal(within(screen.getByRole("button", { name: "Globex Inc expenses" })).getAllByText("USD 400.00", { selector: "dd" }).length, 2); // claimed + paid
+
+  fireEvent.click(screen.getByRole("button", { name: "Globex Inc expenses" }));
+  await settle();
+  assert.equal(claimCalls.at(-1).organization_id, "2");
+  assert.equal(screen.getByRole("button", { name: "Globex Inc expenses" }).getAttribute("aria-pressed"), "true");
+  fireEvent.click(screen.getByRole("button", { name: "Show all organizations" }));
+  await settle();
+  assert.equal(claimCalls.at(-1).organization_id, undefined);
+  cleanup();
+});
+
+test("when email is unavailable the dialog offers the temporary-password route in one click", async (t) => {
+  const calls = [];
+  await openUsers(t, { userSvc: { resetPassword: async (id, m) => {
+    calls.push(m);
+    if (m === "link") throw new Error("Email could not be sent: SMTP authentication rejected");
+    return { message: "set", temporary_password: "Tmp-Secret-99", method: "temporary" };
+  } } });
+  fireEvent.click(screen.getByTitle("Reset password"));
+  const dlg = screen.getByRole("dialog");
+  fireEvent.click(within(dlg).getByRole("button", { name: "Send reset link" }));
+  await settle();
+  fireEvent.click(within(dlg).getByRole("button", { name: /set a temporary password instead/ }));
+  assert.equal(within(dlg).getAllByRole("radio")[1].checked, true);
+  fireEvent.click(within(dlg).getByRole("button", { name: "Set temporary password" }));
+  await settle();
+  assert.deepEqual(calls, ["link", "temporary"]);
+  assert.ok(screen.getByText("Temporary Password"));
+  cleanup();
+});
+
+test("secondary row actions live in a More menu so the table never needs horizontal scrolling", async (t) => {
+  await openUsers(t);
+  assert.equal(screen.queryByRole("menuitem"), null);
+  fireEvent.click(screen.getAllByRole("button", { name: /^More actions for/ })[0]);
+  const names = screen.getAllByRole("menuitem").map((m) => m.textContent.trim());
+  assert.ok(["Deactivate", "Suspend", "Archive", "Delete user"].every((n) => names.includes(n)), names.join());
+  fireEvent.keyDown(document, { key: "Escape" });
+  assert.equal(screen.queryByRole("menuitem"), null);
+  assert.equal(document.querySelector(".overflow-x-auto"), null);
+  cleanup();
+});
+
+test("super admin can create an organization from User Management and gets the admin's one-time password", async (t) => {
+  const created = [];
+  let orgCalls = 0;
+  await openUsers(t, { saSvc: {
+    getOrganizations: async () => { orgCalls += 1; return { organizations: [{ id: 2, name: "Globex Inc" }] }; },
+    createOrganization: async (b) => {
+      created.push(b);
+      return { message: "Organization 'Initech Corp' was created.", organization_id: 9, organization_name: "Initech Corp", admin_email: "olivia@example.com", temporary_password: "Org-Temp-77" };
+    },
+  } });
+  fireEvent.click(screen.getByRole("button", { name: /Add Organization/ }));
+  const dlg = screen.getByRole("dialog", { name: "Create organization" });
+  fireEvent.change(within(dlg).getByLabelText(/Organization name/), { target: { value: "Initech Corp" } });
+  fireEvent.change(within(dlg).getByLabelText(/Admin name/), { target: { value: "Olivia Owner" } });
+  fireEvent.change(within(dlg).getByLabelText(/Admin email/), { target: { value: "olivia@example.com" } });
+  fireEvent.click(within(dlg).getByRole("button", { name: "Create organization" }));
+  await settle();
+  assert.equal(created.length, 1);
+  assert.deepEqual([created[0].organization, created[0].admin_name, created[0].admin_email, created[0].plan_code],
+    ["Initech Corp", "Olivia Owner", "olivia@example.com", "core"]);
+  assert.equal(created[0].industry, undefined); // blank optional fields are not sent
+  assert.ok(screen.getByText("Temporary Password")); // shown once
+  assert.ok(orgCalls >= 2); // organization list refreshed
+  assert.equal(screen.queryByRole("dialog", { name: "Create organization" }), null);
+  cleanup();
+});
+
+test("organization creation errors stay in the dialog; non-super-admins do not see the button", async (t) => {
+  await openUsers(t, { saSvc: { createOrganization: async () => { throw new Error("An organization named 'Initech Corp' already exists."); } } });
+  fireEvent.click(screen.getByRole("button", { name: /Add Organization/ }));
+  const dlg = screen.getByRole("dialog", { name: "Create organization" });
+  fireEvent.change(within(dlg).getByLabelText(/Organization name/), { target: { value: "Initech Corp" } });
+  fireEvent.change(within(dlg).getByLabelText(/Admin name/), { target: { value: "O O" } });
+  fireEvent.change(within(dlg).getByLabelText(/Admin email/), { target: { value: "o@example.com" } });
+  fireEvent.click(within(dlg).getByRole("button", { name: "Create organization" }));
+  await settle();
+  assert.ok(within(dlg).getByRole("alert").textContent.includes("already exists"));
+  assert.equal(within(dlg).getByRole("button", { name: "Create organization" }).disabled, false);
+  cleanup();
+
+  reset({ userSvc: { getUsers: async () => ({ items: [USER], total: 1 }) } });
+  register(t);
+  auth.user = { id: 99, email: "a@example.com", role: "admin" };
+  auth.role = "admin";
+  const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  assert.equal(screen.queryByRole("button", { name: /Add Organization/ }), null);
+  cleanup();
+});
+
+test("super admin sees organizations first and a user list only after opening one", async (t) => {
+  const calls = [];
+  reset({ saSvc: {
+    getOrganizations: async () => ({ organizations: [
+      { id: 2, name: "Globex Inc", organization_code: "GLX001", status: "active", user_count: 5, active_employees: 4, admin_name: "Gina Lopez", admin_email: "gina@example.com" },
+      { id: 3, name: "Initech", organization_code: "INI001", status: "active", user_count: 0, active_employees: 0 },
+    ], total: 2 }),
+    getUsers: async (p) => { calls.push(p); return { users: [USER], total: 1 }; },
+  } });
+  register(t);
+  const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  await settle();
+  assert.equal(calls.length, 0); // no cross-organization user list
+  assert.equal(screen.queryByText("Bob Brown"), null);
+  const globex = within(screen.getByRole("button", { name: "Open Globex Inc" }));
+  assert.ok(globex.getByText("5") && globex.getByText("4") && globex.getByText(/Admin: Gina Lopez/));
+  fireEvent.change(screen.getByLabelText("Search organizations"), { target: { value: "initech" } });
+  assert.equal(screen.queryByRole("button", { name: "Open Globex Inc" }), null);
+  fireEvent.change(screen.getByLabelText("Search organizations"), { target: { value: "" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "Open Globex Inc" }));
+  await settle();
+  await settle();
+  assert.equal(calls.at(-1).organization_id, 2); // scoped to the opened organization
+  assert.ok(screen.getByText("Bob Brown"));
+  assert.ok(screen.getByRole("navigation", { name: "Breadcrumb" }));
+  assert.equal(screen.queryByText("Organization", { selector: "th" }), null); // redundant inside one organization
+
+  fireEvent.click(screen.getByRole("button", { name: "All organizations" }));
+  await settle();
+  assert.equal(screen.queryByText("Bob Brown"), null);
+  assert.ok(screen.getByRole("button", { name: "Open Initech" }));
+  cleanup();
+});
+
+test("Back goes to the previous page, or to the organization list when inside an organization", async (t) => {
+  navCalls.length = 0;
+  reset();
+  register(t);
+  const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "Back to previous page" }));
+  assert.deepEqual(navCalls, [[-1]]);
+
+  fireEvent.click(screen.getByRole("button", { name: "Open Globex Inc" }));
+  await settle();
+  await settle();
+  assert.ok(screen.getByText("Bob Brown"));
+  fireEvent.click(screen.getByRole("button", { name: "Back to all organizations" }));
+  await settle();
+  assert.equal(screen.queryByText("Bob Brown"), null);
+  assert.ok(screen.getByRole("button", { name: "Open Globex Inc" }));
+  assert.equal(navCalls.length, 1); // inside an organization, Back did not leave the page
+  cleanup();
+});
+
+test("organization cards: suspend, reactivate, reset the admin's password and delete", async (t) => {
+  const calls = [];
+  let status = "active";
+  reset({
+    saSvc: {
+      getOrganizations: async () => ({ organizations: [{ id: 2, name: "Globex Inc", organization_code: "GLX001", status, user_count: 1, active_employees: 1 }], total: 1 }),
+      mintConfirmationToken: async (id, purpose) => { calls.push(["mint", id, purpose]); return { confirmation_id: 11, token: "tok" }; },
+      updateOrganizationStatus: async (id, b) => { calls.push(["status", id, b.status, b.confirmation_id, b.confirmation_token]); status = b.status; return {}; },
+      reactivateOrganization: async (id) => { calls.push(["reactivate", id]); status = "active"; return {}; },
+      getOrganizationDeletionImpact: async () => ({ organization_id: 2, name: "Globex Inc", users_total: 1, users_active: 1, restore_window_days: 90, subscription: null, effects: [] }),
+      getUsers: async (p) => { calls.push(["admins", p.organization_id, p.role]); return { users: [{ id: 21, first_name: "Gina", last_name: "Lopez", email: "gina@example.com", role: "admin", is_active: true, organization_id: 2 }], total: 1 }; },
+    },
+    userSvc: { resetPassword: async (id, m) => { calls.push(["reset", id, m]); return { message: "sent", temporary_password: null }; } },
+  });
+  register(t);
+  const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  await settle();
+
+  // suspend needs a confirmation, then goes through the confirmation-token flow
+  fireEvent.click(screen.getByRole("button", { name: "Suspend Globex Inc" }));
+  assert.deepEqual(calls, []);
+  fireEvent.click(screen.getByRole("button", { name: "Suspend" }));
+  await settle();
+  assert.deepEqual(calls.slice(0, 2), [["mint", 2, "update_organization_status"], ["status", 2, "suspended", 11, "tok"]]);
+  assert.ok(screen.getByRole("button", { name: "Reactivate Globex Inc" })); // card reflects the new status
+
+  fireEvent.click(screen.getByRole("button", { name: "Reactivate Globex Inc" }));
+  fireEvent.click(screen.getByRole("button", { name: "Reactivate", exact: true }));
+  await settle();
+  assert.deepEqual(calls.at(-1), ["reactivate", 2]);
+  assert.ok(screen.getByRole("button", { name: "Suspend Globex Inc" }));
+
+  // reset: finds the organization admin, then uses the normal reset dialog
+  fireEvent.click(screen.getByRole("button", { name: "Reset admin password for Globex Inc" }));
+  await settle();
+  assert.deepEqual(calls.at(-1), ["admins", 2, "admin"]);
+  const dlg = screen.getByRole("dialog", { name: "Reset password" });
+  assert.ok(within(dlg).getByText(/gina@example.com/));
+  fireEvent.click(within(dlg).getByRole("button", { name: "Send reset link" }));
+  await settle();
+  assert.deepEqual(calls.at(-1), ["reset", 21, "link"]);
+
+  // delete opens the shared deletion dialog
+  fireEvent.click(screen.getByRole("button", { name: "Delete Globex Inc" }));
+  await settle();
+  assert.ok(screen.getByRole("dialog", { name: "Delete organization" }));
   cleanup();
 });

@@ -259,6 +259,34 @@ class UserCreateRequest(BaseModel):
     job_title:  Optional[str] = Field(None, max_length=150, example="Software Engineer")
     organization_id: Optional[int] = Field(None, description="Target organization (Super Admin only)")
     confirm_super_admin: bool = Field(False, description="Must be true to create a Super Admin")
+    # Everything the bulk import accepts, so adding one person captures the same information.
+    date_of_joining: Optional[date] = None
+    date_of_birth: Optional[date] = None
+    confirmation_date: Optional[date] = None
+    gender: Optional[Gender] = None
+    employment_type: Optional[EmploymentType] = None
+    status: Optional[Literal["active", "inactive", "pending"]] = None
+    department_name: Optional[str] = Field(None, max_length=150, description="Created if it does not exist yet")
+    designation_name: Optional[str] = Field(None, max_length=150, description="Created if it does not exist yet")
+    work_email: Optional[str] = Field(None, max_length=254)
+    personal_email: Optional[str] = Field(None, max_length=254)
+    company: Optional[str] = Field(None, max_length=150)
+    business_unit: Optional[str] = Field(None, max_length=150)
+    division: Optional[str] = Field(None, max_length=150)
+    team: Optional[str] = Field(None, max_length=150)
+    current_address: Optional[str] = Field(None, max_length=500)
+    permanent_address: Optional[str] = Field(None, max_length=500)
+    address: Optional[str] = Field(None, max_length=500)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    country: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, max_length=20)
+    basic_salary: Optional[Decimal] = Field(None, ge=0)
+    ctc: Optional[Decimal] = Field(None, ge=0)
+    pan_number: Optional[str] = Field(None, max_length=20)
+    uan_number: Optional[str] = Field(None, max_length=20)
+    bank_account: Optional[str] = Field(None, max_length=50)
+    bank_ifsc: Optional[str] = Field(None, max_length=20)
 
 
 class UserUpdateRequest(BaseModel):
