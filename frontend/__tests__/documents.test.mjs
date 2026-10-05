@@ -1,5 +1,5 @@
 /**
- * ZHR-27/28/29 frontend: Documents + Approvals pages use real API data, the
+ * ZHR-27/28/29 frontend: Documents page use real API data, the
  * download path works, and no source file uses `api` without importing it
  * (the "api is not defined" regression; the project has no ESLint setup).
  */
@@ -32,12 +32,11 @@ test("no source file calls api.* without importing or declaring api", () => {
   assert.deepEqual(offenders, []);
 });
 
-test("Documents and Approvals pages no longer reference undefined helpers or mock data", () => {
+test("Documents page no longer reference undefined helpers or mock data", () => {
   const page = fs.readFileSync("src/modules/shared-layers/DocumentsPage.jsx", "utf8");
   const svc = fs.readFileSync("src/service/documentsService.js", "utf8");
   assert.doesNotMatch(page, /fetchDocuments/);
   assert.doesNotMatch(svc, /mockDocuments|Employee Handbook 2026/);
-  assert.doesNotMatch(fs.readFileSync("src/modules/shared-layers/ApprovalsPage.jsx", "utf8"), /Evelyn Carter|Umbrella|Marcus Thorne/);
 });
 
 // ── service helpers ──────────────────────────────────────────────────────────
@@ -56,7 +55,6 @@ test("filenameFromDisposition handles RFC 5987, quoted and missing headers; vali
 
 // ── page behaviour with mocked services ──────────────────────────────────────
 const docsSvc = {};
-const apprSvc = {};
 const auth = { user: { role: "super_admin" } };
 const mocked = new WeakSet();
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 450)); });
@@ -67,7 +65,7 @@ const DOC = {
 };
 
 function setup(t) {
-  for (const o of [docsSvc, apprSvc]) for (const k of Object.keys(o)) delete o[k];
+  for (const o of [docsSvc]) for (const k of Object.keys(o)) delete o[k];
   Object.assign(docsSvc, {
     ALLOWED_EXTENSIONS: ["pdf"],
     MAX_FILE_SIZE_MB: 10,
@@ -77,12 +75,6 @@ function setup(t) {
     deleteDocument: async () => ({ message: "Employee Handbook was deleted.", already_deleted: false }),
     downloadDocument: async () => "handbook.pdf",
     uploadDocument: async () => ({ title: "New", organization_name: "Acme Ltd" }),
-  });
-  Object.assign(apprSvc, {
-    list: async () => ({ approvals: [], total: 0 }),
-    summary: async () => ({ pending: 0, approved_this_month: 0, rejected_this_month: 0 }),
-    approveLeave: async (id) => ({ id }),
-    rejectLeave: async (id) => ({ id }),
   });
   if (mocked.has(t)) return;
   mocked.add(t);
@@ -98,16 +90,6 @@ function setup(t) {
       deleteDocument: wrap("deleteDocument"),
       downloadDocument: wrap("downloadDocument"),
       uploadDocument: wrap("uploadDocument"),
-    },
-  });
-  t.mock.module("../src/service/approvalsService.js", {
-    exports: {
-      approvalsService: {
-        list: (...a) => apprSvc.list(...a),
-        summary: (...a) => apprSvc.summary(...a),
-        approveLeave: (...a) => apprSvc.approveLeave(...a),
-        rejectLeave: (...a) => apprSvc.rejectLeave(...a),
-      },
     },
   });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
@@ -308,49 +290,5 @@ test("a failed organization list is reported in the dialog and Retry refetches i
   const dialog = screen.getByRole("dialog");
   assert.equal(within(dialog).getByLabelText(/^Organization/).disabled, false);
   assert.equal(within(dialog).queryByText("Failed to load organizations."), null);
-  cleanup();
-});
-
-test("Approvals shows real pending items and the approve/reject flows", async (t) => {
-  setup(t);
-  const item = {
-    id: 7, request_type: "leave", status: "pending", employee_name: "Bob Brown", employee_email: "b@x.test",
-    organization_name: "Globex Inc", leave_type: "annual", start_date: "2026-07-01", end_date: "2026-07-02", days: 2,
-    reason: "Trip", submitted_at: "2026-09-29T08:00:00Z", current_approver: "Organization admin / HR",
-  };
-  let approved;
-  let rejected;
-  apprSvc.list = async (p) => (p.status === "pending" ? { approvals: [item], total: 1 } : { approvals: [], total: 0 });
-  apprSvc.summary = async () => ({ pending: 1, approved_this_month: 3, rejected_this_month: 2 });
-  apprSvc.approveLeave = async (id, c) => { approved = [id, c]; return { id }; };
-  apprSvc.rejectLeave = async (id, c) => { rejected = [id, c]; return { id }; };
-  const { default: Page } = await import("../src/modules/shared-layers/ApprovalsPage.jsx");
-  render(React.createElement(Page));
-  await settle();
-  assert.ok(screen.getByText(/Annual leave · 2026-07-01 → 2026-07-02 · 2 days/));
-  assert.ok(screen.getAllByText("Globex Inc").length >= 1);
-  assert.equal(screen.queryByText("Evelyn Carter"), null);
-
-  fireEvent.click(screen.getByLabelText("Reject leave request 7"));
-  assert.equal(screen.getByRole("button", { name: "Reject" }).disabled, true); // comment required
-  fireEvent.change(within(screen.getByRole("dialog")).getByRole("textbox"), { target: { value: "Peak season" } });
-  fireEvent.click(screen.getByRole("button", { name: "Reject" }));
-  await settle();
-  assert.deepEqual(rejected, [7, "Peak season"]);
-
-  fireEvent.click(screen.getByLabelText("Approve leave request 7"));
-  fireEvent.click(screen.getByRole("button", { name: "Approve" }));
-  await settle();
-  assert.deepEqual(approved, [7, ""]);
-  cleanup();
-});
-
-test("Approvals empty state", async (t) => {
-  setup(t);
-  const { default: Page } = await import("../src/modules/shared-layers/ApprovalsPage.jsx");
-  render(React.createElement(Page));
-  await settle();
-  assert.ok(screen.getByText("No pending approvals."));
-  assert.ok(screen.getByText("No decisions yet."));
   cleanup();
 });

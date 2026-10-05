@@ -397,7 +397,6 @@ const sharedLayersSection = {
         { label: "Zoiko Hub", href: "/shared/hub", icon: Layers },
         { label: "Zoiko Connect", href: "/shared/connect", icon: Globe },
         { label: "Documents", href: "/shared/documents", icon: FileText },
-        { label: "Approvals", href: "/shared/approvals", icon: FileCheck2 },
         { label: "Expenses", href: "/shared/expenses", icon: WalletCards },
       ],
     },
