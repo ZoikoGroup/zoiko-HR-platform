@@ -35,9 +35,11 @@ const EXT_KIND = {
 
 export function fileExtension(filename = "") {
   const name = String(filename);
-  const base = name.split(/[\\/]/).pop() || "";
+  // Stored paths and URLs can carry query/hash noise ("abc.PDF?v=2"); dotfiles
+  // such as ".gitignore" have their name after the dot as the extension.
+  const base = (name.split(/[?#]/)[0].split(/[\\/]/).pop() || "").trim();
   const dot = base.lastIndexOf(".");
-  return dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
+  return dot >= 0 && dot < base.length - 1 ? base.slice(dot + 1).toLowerCase() : "";
 }
 
 /**
@@ -138,7 +140,18 @@ export async function renderWord(blob, filename = "") {
   }
 
   const mammoth = await import("mammoth");
-  const result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+  let result;
+  try {
+    // Browser build of mammoth reads an ArrayBuffer...
+    result = await mammoth.convertToHtml({ arrayBuffer: buffer });
+  } catch (err) {
+    // ...the Node build (used by server-side tests) wants a Buffer instead.
+    if (typeof Buffer !== "undefined" && /Could not find file in options/i.test(String(err?.message))) {
+      result = await mammoth.convertToHtml({ buffer: Buffer.from(buffer) });
+    } else {
+      return { legacy: true, message: "This document could not be read. It may be corrupted or protected; download it below to open it." };
+    }
+  }
   return {
     html: result.value || "<p>(no readable text)</p>",
     viaMammoth: true,
@@ -175,7 +188,12 @@ export async function renderSlides(blob, filename = "") {
   }
 
   const JSZip = (await import("jszip")).default;
-  const zip = await JSZip.loadAsync(await blobToBuffer(blob));
+  let zip;
+  try {
+    zip = await JSZip.loadAsync(await blobToBuffer(blob));
+  } catch {
+    return { legacy: true, message: "This presentation could not be read. It may be corrupted or not a .pptx file; download it below to open it." };
+  }
 
   const collect = async (names) => {
     const files = names
