@@ -9,7 +9,13 @@ const SECTION_EXCLUSIONS = {
   // platform-wide super admin. Hidden here only for super_admin — the
   // Administration section still shows for admin/hr_admin roles.
   super_admin: ["HR ADMIN", "ORGANIZATION ADMIN", "PRODUCTS", "MY WORKSPACE", "ADMINISTRATION", "PLATFORM", "NOTIFICATIONS"],
+  // Shared Layers are Super Admin-only. Every org-facing role loses the
+  // sidebar section here; ROLE_ALLOWED_PREFIXES (roles.js) additionally denies
+  // the /shared/* routes themselves, so direct URL entry bounces too. The
+  // NOTIFICATIONS section is separate and stays.
+  admin: ["SHARED LAYERS"],
   hr_admin: ["SHARED LAYERS"],
+  manager: ["SHARED LAYERS"],
   employee: ["SHARED LAYERS"],
 };
 

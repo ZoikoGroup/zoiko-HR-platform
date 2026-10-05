@@ -240,6 +240,73 @@ def _org_ids_by_plan(db: Session, plan: str):
     }
 
 
+class OrganizationCreate(BaseModel):
+    organization: str = Field(..., min_length=1, max_length=200)
+    admin_name: str = Field(..., min_length=1, max_length=200)
+    admin_email: str = Field(..., min_length=3, max_length=254)
+    plan_code: str = Field("core", pattern="^(core|advanced)$")
+    billing_cycle: str = Field("monthly", pattern="^(monthly|annual)$")
+    industry: Optional[str] = Field(None, max_length=100)
+    country: Optional[str] = Field(None, max_length=100)
+    timezone: Optional[str] = Field(None, max_length=64)
+    phone: Optional[str] = Field(None, max_length=50)
+
+
+@router.post("/organizations", status_code=201, summary="Create an organization with its first admin")
+def create_organization(
+    body: OrganizationCreate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_super_admin),
+):
+    """Same creation path as self-registration (organization, Management department,
+    first Org Admin, evaluation, quotation e-mail) but started by a Super Admin.
+    The admin gets a one-time temporary password they must change at first sign-in;
+    it is returned here once and never stored in clear."""
+    from pydantic import TypeAdapter, EmailStr, ValidationError
+    from app.modules.employee import service as employee_service
+    from app.modules.employee.models import Employee
+    from app.modules.employee.schema import RegisterRequest
+
+    try:
+        email = str(TypeAdapter(EmailStr).validate_python(body.admin_email.strip()))
+    except ValidationError:
+        raise BadRequestException("Enter a valid email address for the organization admin.")
+    name = body.organization.strip()
+    if not name:
+        raise BadRequestException("Organization name is required.")
+    from app.modules.hr.models import Organization
+    if db.query(Organization).filter(func.lower(Organization.organization_name) == name.lower()).first():
+        raise BadRequestException(f"An organization named '{name}' already exists.")
+    if db.query(Employee).filter(func.lower(Employee.email) == email.lower()).first():
+        raise BadRequestException("That email address is already used by another user.")
+
+    temp_password = employee_service._generate_temp_password()
+    result = employee_service.register_enterprise(db, RegisterRequest(
+        name=body.admin_name.strip(), email=email, password=temp_password, organization=name,
+        plan_code=body.plan_code, billing_cycle=body.billing_cycle, industry=body.industry,
+        country=body.country, timezone=body.timezone, phone=body.phone,
+    ))
+    admin = db.query(Employee).filter(Employee.email == email).first()
+    if admin is not None:
+        admin.must_change_password = True
+    db.add(AuditLog(
+        action=AuditAction.CREATE, entity_type="Organization", entity_id=result["organization_id"],
+        performed_by=current_user.id, performed_by_email=current_user.email,
+        details={"event": "organization.created_by_super_admin", "organization": name, "admin_email": email,
+                 "plan_code": body.plan_code},
+    ))
+    db.commit()
+    return {
+        "message": f"Organization '{name}' was created. Share the temporary password with {email} securely; "
+                   "they must change it at first sign-in.",
+        "organization_id": result["organization_id"],
+        "organization_name": result["organization_name"],
+        "admin_email": email,
+        "temporary_password": temp_password,
+        "evaluation_ends_at": result["evaluation_ends_at"],
+    }
+
+
 @router.get("/organizations", summary="List all organizations")
 def list_organizations(
     status: Optional[str] = None,

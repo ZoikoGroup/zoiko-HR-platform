@@ -369,3 +369,44 @@ class TestMigration:
                 mod.downgrade()
                 cols = {c["name"] for c in sa.inspect(conn).get_columns("super_admin_audit_logs")}
                 assert not ({n for n, _ in mod._COLUMNS} & cols)
+
+
+# ── Add User captures everything the import does ─────────────────────────────
+
+def test_add_user_takes_all_import_fields(client, world):
+    from app.modules.hr.models import Department, Designation, EmployeeProfile
+
+    _as(client, world["priya"])
+    with patch("app.modules.employee.service._generate_employee_id", lambda db, organization_id=None: "ID-0001"):
+        r = client.post("/hr/admin/users", json={
+            "first_name": "Rahul", "last_name": "Mehta", "email": "rahul.full@example.com", "role": "employee",
+            "job_title": "Engineer", "phone": "+91 99999 00000", "date_of_joining": "2026-09-01",
+            "date_of_birth": "1995-06-15", "gender": "male", "employment_type": "contract",
+            "department_name": "Platform", "designation_name": "Senior Engineer",
+            "work_email": "rahul@acme.example.com", "personal_email": "rahul@home.example.com",
+            "company": "Acme", "business_unit": "Cloud", "division": "R&D", "team": "Core",
+            "current_address": "1 Main St", "city": "Pune", "state": "MH", "country": "India", "pincode": "411001",
+            "basic_salary": "50000", "ctc": "900000",
+            "pan_number": "ABCDE1234F", "uan_number": "100200300400", "bank_account": "123456789012", "bank_ifsc": "HDFC0001234",
+        })
+    assert r.status_code == 201, r.text
+    emp = client.db.query(Employee).filter(Employee.email == "rahul.full@example.com").one()
+    assert emp.organization_id == world["acme"].id
+    assert (emp.city, emp.company, emp.team, emp.work_email) == ("Pune", "Acme", "Core", "rahul@acme.example.com")
+    assert str(emp.date_of_joining) == "2026-09-01" and str(emp.date_of_birth) == "1995-06-15"
+    assert emp.employment_type.value == "contract" and emp.gender.value == "male"
+    assert float(emp.basic_salary) == 50000 and float(emp.ctc) == 900000
+    dept = client.db.query(Department).filter(Department.id == emp.department_id).one()
+    assert dept.name == "Platform" and dept.organization_id == world["acme"].id
+    assert client.db.query(Designation).filter(Designation.id == emp.designation_id).one().title == "Senior Engineer"
+    prof = client.db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == emp.id).one()
+    assert (prof.pan_number, prof.bank_ifsc) == ("ABCDE1234F", "HDFC0001234")
+    # the same department is reused, not duplicated, for the next person
+    with patch("app.modules.employee.service._generate_employee_id", lambda db, organization_id=None: "ID-0002"):
+        client.post("/hr/admin/users", json={"first_name": "A", "last_name": "B", "email": "ab@example.com", "role": "employee",
+                                             "department_name": "platform"})
+    assert client.db.query(Department).filter(Department.organization_id == world["acme"].id).count() == 1
+    _as(client, world["root"])
+    ev = _feed(client, action_type="employee.invited")["events"][0]
+    dump = str(ev["changes"]) + str(ev["details"])
+    assert "123456789012" not in dump and "ABCDE1234F" not in dump  # bank / PAN never reach the feed

@@ -181,12 +181,17 @@ test("User Management: Delete organization opens the same dialog and the list re
   const deleted = [];
   sa.getUsers = async (p) => { userCalls.push(p); return { users: userCalls.length > 1 ? [] : [{ id: 7, first_name: "Olivia", last_name: "Owner", email: "olivia@example.com", role: "admin", is_active: true, status: "active", organization_id: 4, organization_name: "Acme Ltd" }], total: 1 }; };
   sa.deleteOrganization = async (id, body) => { deleted.push([id, body.confirm_name]); return { message: "Organization 'Acme Ltd' was deleted." }; };
+  sa.getOrganizations = async () => ({ organizations: deleted.length ? [] : [ORG], total: deleted.length ? 0 : 1 });
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
   render(React.createElement(Page));
   await settle();
+  assert.equal(screen.queryByText("Olivia Owner"), null); // users appear only after an organization is opened
+  fireEvent.click(screen.getByRole("button", { name: "Open Acme Ltd" }));
+  await settle();
   await settle();
   assert.ok(screen.getByText("Olivia Owner"));
-  fireEvent.click(screen.getAllByTitle("Delete organization")[0]);
+  fireEvent.click(screen.getAllByRole("button", { name: /^More actions for/ })[0]);
+  fireEvent.click(screen.getAllByRole("menuitem", { name: /Delete organization/ })[0]);
   await settle();
   assert.ok(screen.getByText("Delete Acme Ltd?"));
   const dlg = screen.getByRole("dialog", { name: "Delete organization" });
@@ -195,8 +200,8 @@ test("User Management: Delete organization opens the same dialog and the list re
   await settle();
   await settle();
   assert.deepEqual(deleted, [[4, "Acme Ltd"]]);
-  assert.ok(userCalls.length >= 2, "user list re-fetched after the organization delete");
   assert.equal(screen.queryByText("Olivia Owner"), null);
+  assert.ok(screen.getByText("No organizations yet")); // back on the organization list, the deleted one is gone
   cleanup();
 });
 

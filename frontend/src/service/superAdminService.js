@@ -10,6 +10,7 @@ export const superAdminService = {
 
   // Organizations
   getOrganizations: (params) => api.get("/super-admin/organizations", { params }),
+  createOrganization: (data) => api.post("/super-admin/organizations", data),
   getOrganization: (id) => api.get(`/super-admin/organizations/${id}`),
   getOrganizationDetail: (id) => api.get(`/super-admin/organizations/${id}`),
   updateOrganizationStatus: (id, data) => api.post(`/super-admin/organizations/${id}/status`, data),

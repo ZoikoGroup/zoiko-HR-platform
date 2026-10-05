@@ -24,6 +24,11 @@ export const ROLE_DEFAULT_REDIRECT = {
 
 // Which roles a user may create/assign comes from the server (GET /hr/admin/roles).
 
+// Shared Layers (Zoiko ID, Workflow, Hub, Connect, Documents, Expenses) are
+// Super Admin tools. Every other role keeps only the notifications inbox, which
+// lives under /shared/ but is an org-user surface, not a shared layer.
+const ORG_USER_SHARED_PREFIX = "/shared/notifications";
+
 // Route-prefix access matrix (authoritative for both guards and sidebar filtering)
 // Every product's primary path MUST appear in every role that should see it.
 // Product paths: hr=/zoiko-hr, time=/zoikotime, payroll=/payroll, billing=/billing,
@@ -95,7 +100,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 
   // HR Admin – Zoiko HR product + dedicated /hr-admin routes + shared product access
@@ -130,7 +135,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 
   // Manager – HR + employee self-service + all product paths
@@ -151,7 +156,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 
   // Employee – self-service modules only + settings/shared
@@ -192,7 +197,7 @@ export const ROLE_ALLOWED_PREFIXES = {
 
     // ── Shared & settings ──
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 };
 

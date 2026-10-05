@@ -77,6 +77,9 @@ class Settings(BaseSettings):
 
     # ── Frontend base URL (used only to build links embedded in emails) ────
     FRONTEND_URL: str = "http://localhost:5173"
+    # Public URL of THIS API. Emailed invite/reset links point at it (/auth/reset-password,
+    # /auth/accept-invite), so it must be reachable by users, not just localhost.
+    API_BASE_URL: str = "http://localhost:8000"
 
     # ── Super Admin bootstrap ─────────────────────────────────────────────
     # Secret key that unlocks the POST /super-admin/bootstrap endpoint and the

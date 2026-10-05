@@ -357,7 +357,9 @@ def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tu
 
 
 def _action_link(purpose, raw_token: str) -> str:
-    base = os.environ.get("API_BASE_URL", "http://localhost:8000")
+    from app.config import settings
+
+    base = (settings.API_BASE_URL or "http://localhost:8000").rstrip("/")
     path = "accept-invite" if purpose == SecurityActionPurpose.INVITE else "reset-password"
     return f"{base}/auth/{path}?token={raw_token}"
 
@@ -796,6 +798,58 @@ def role_str(role) -> str:
     return getattr(role, "value", str(role))
 
 
+_IMPORT_PLAIN_FIELDS = (
+    "date_of_birth", "confirmation_date", "gender", "work_email", "personal_email", "company", "business_unit",
+    "division", "team", "current_address", "permanent_address", "address", "city", "state", "country", "pincode",
+    "basic_salary", "ctc",
+)
+
+
+def _clean(value):
+    value = value.strip() if isinstance(value, str) else value
+    return value if value not in ("", None) else None
+
+
+def _import_style_fields(db: Session, data, organization_id) -> dict:
+    """Employee columns for the extra fields a bulk import also accepts. Department and
+    designation are matched by name (case-insensitive) within the organization and
+    created when missing, exactly as the import does."""
+    out = {}
+    for name in _IMPORT_PLAIN_FIELDS:
+        value = _clean(getattr(data, name, None))
+        if value is not None:
+            out[name] = value
+    if data.confirmation_date is None:
+        out.pop("confirmation_date", None)
+
+    dept_name = _clean(data.department_name)
+    if dept_name and organization_id:
+        dept = db.query(Department).filter(Department.name.ilike(dept_name),
+                                           Department.organization_id == organization_id).first()
+        if dept is None:
+            dept = Department(
+                name=dept_name,
+                code="DEPT" + hashlib.md5(f"{dept_name}_{organization_id}".encode()).hexdigest()[:6].upper(),
+                description="Created when adding a user", organization_id=organization_id,
+            )
+            db.add(dept)
+            db.flush()
+        out["department_id"] = dept.id
+    desig_name = _clean(data.designation_name)
+    if desig_name and organization_id:
+        desig = db.query(Designation).filter(Designation.title.ilike(desig_name),
+                                             Designation.organization_id == organization_id).first()
+        if desig is None:
+            desig = Designation(title=desig_name, department_name=dept_name, organization_id=organization_id)
+            db.add(desig)
+            db.flush()
+        out["designation_id"] = desig.id
+
+    profile = {k: _clean(getattr(data, k, None)) for k in ("pan_number", "uan_number", "bank_account", "bank_ifsc")}
+    out["_profile"] = {k: v for k, v in profile.items() if v}
+    return out
+
+
 def create_organization_user(
     db: Session,
     data: "UserCreateRequest",
@@ -815,6 +869,9 @@ def create_organization_user(
         from app.core.code_generation import generate_employee_code
         new_employee_code = generate_employee_code(db, organization_id=organization_id)
 
+        extra = _import_style_fields(db, data, organization_id)
+        profile_fields = extra.pop("_profile", {})
+        status = EmployeeStatus(data.status) if data.status else EmployeeStatus.ACTIVE
         employee = Employee(
             email=data.email,
             hashed_password=hash_password(temp_password),
@@ -822,18 +879,22 @@ def create_organization_user(
             # Platform-level users (Super Admin) have no organization, so no org-scoped employee ID.
             employee_id=_generate_employee_id(db, organization_id=organization_id) if organization_id else None,
             role=role,
-            is_active=True,
+            is_active=status != EmployeeStatus.INACTIVE,
             first_name=data.first_name,
             last_name=data.last_name,
             phone=data.phone or "",
             job_title=data.job_title or _role_to_default_title(role),
-            employment_type=EmploymentType.FULL_TIME,
-            status=EmployeeStatus.ACTIVE,
-            date_of_joining=date.today(),
+            employment_type=data.employment_type or EmploymentType.FULL_TIME,
+            status=status,
+            date_of_joining=data.date_of_joining or date.today(),
             organization_id=organization_id,
             created_by=created_by_id,
+            **extra,
         )
         db.add(employee)
+        db.flush()
+        if profile_fields and organization_id:
+            db.add(EmployeeProfile(employee_id=employee.id, organization_id=organization_id, **profile_fields))
         db.commit()
         db.refresh(employee)
         emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(role)}, organization_id)
@@ -1417,6 +1478,23 @@ def _parse_decimal(val, row_num: int, field: str, errors: list):
     return None
 
 
+def _friendly_db_error(exc: Exception) -> str:
+    """One readable line for a failed row: no SQL, no driver names."""
+    text = str(exc)
+    low = text.lower()
+    if "employees_employee_code_key" in low:
+        return "The generated employee code was already taken. Please import again."
+    if "employees_email" in low or ("unique" in low and "email" in low):
+        return "An employee with this email already exists."
+    if "unique" in low or "duplicate key" in low:
+        return "This row duplicates an existing record."
+    text = text.split("[SQL")[0]
+    text = re.sub(r"\(psycopg2[^)]*\)\s*", "", text)
+    text = re.sub(r"\(sqlite3[^)]*\)\s*", "", text)
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "Unexpected error")
+    return first[:160]
+
+
 def _parse_enum(val, field: str):
     if not val or str(val).strip() == "":
         return None
@@ -1559,6 +1637,13 @@ def import_employees_from_file(
 
         # Enum fields
         row_invalid = False
+        # "Probation" is how sheets describe a new joiner's stage. It is not an account
+        # status: they are active, on probation (and keep an explicit employment type).
+        raw_status = str(row_data.get("status") or "").strip().lower().replace(" ", "_").replace("-", "_")
+        if raw_status in ("probation", "on_probation"):
+            row_data["status"] = "active"
+            if not str(row_data.get("employment_type") or "").strip():
+                row_data["employment_type"] = "probation"
         for f in ("employment_type", "status", "gender"):
             raw = row_data.get(f)
             parsed = _parse_enum(raw, f)
@@ -1566,7 +1651,7 @@ def import_employees_from_file(
                 payload[f] = parsed
             elif raw and str(raw).strip():
                 result["skipped"] += 1
-                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": f, "error": f"Invalid {f}: {raw}. Allowed: {', '.join(_ENUM_FIELDS.get(f, []))}"})
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": f, "error": f"Invalid {f}: {raw}. Allowed: {', '.join(sorted(_ENUM_FIELDS.get(f, [])) + (['probation'] if f == 'status' else []))}"})
                 row_invalid = True
                 break
         if row_invalid:
@@ -1626,6 +1711,9 @@ def import_employees_from_file(
                     for field, value in payload.items():
                         if value is not None:
                             setattr(existing, field, value)
+                    if payload.get("status"):
+                        # The status shown in User Management and the ability to sign in move together.
+                        existing.is_active = payload["status"] in ("active", "pending", "on_leave", "password_reset_required")
                     existing.updated_by = current_user_id
                     employee = existing
                     result["updated"] += 1
@@ -1638,7 +1726,7 @@ def import_employees_from_file(
                         employee_code=generate_employee_code(db, organization_id=organization_id),
                         organization_id=organization_id,
                         role=UserRole.EMPLOYEE,
-                        is_active=True,
+                        is_active=emp_data.get("status", "active") in ("active", "pending", "on_leave", "password_reset_required"),
                         created_by=current_user_id,
                     )
                     db.add(employee)
@@ -1667,7 +1755,7 @@ def import_employees_from_file(
                 })
         except Exception as e:
             result["failed"] += 1
-            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "general", "error": f"{'Update' if existing else 'Create'} failed: {str(e)[:200]}"})
+            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "general", "error": f"{'Update' if existing else 'Create'} failed: {_friendly_db_error(e)}"})
 
         result["total_rows"] = row_num - 1
 

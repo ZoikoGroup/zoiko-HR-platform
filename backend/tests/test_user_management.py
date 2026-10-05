@@ -367,3 +367,12 @@ def test_password_policy_helper():
         with pytest.raises(Exception):
             emp_service.validate_password_policy(bad)
     emp_service.validate_password_policy("GoodPass1")
+
+
+def test_reset_link_points_at_the_configured_public_api_url(monkeypatch):
+    from app.config import settings
+    from app.modules.employee import service
+
+    monkeypatch.setattr(settings, "API_BASE_URL", "https://api.example.com/")
+    url = service._action_link(service.SecurityActionPurpose.RESET, "tok123")
+    assert url == "https://api.example.com/auth/reset-password?token=tok123"
