@@ -25,6 +25,7 @@ export default function ApplyLeaveForm() {
     "Maternity Leave",
     "Paternity Leave",
     "Bereavement Leave",
+    "Work From Home",
   ];
 
   const [formData, setFormData] = useState({

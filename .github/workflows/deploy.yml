@@ -7,16 +7,85 @@ on:
     types: [completed]
 
 jobs:
-  deploy:
+  # Optional: build the frontend on a CI runner instead of on the VM (faster, and a failed build can never leave
+  # the site half-updated). Only used when the repository secret VITE_API_BASE_URL (the production API URL) is
+  # set; without it this job is skipped and the VM builds the frontend exactly as before.
+  prepare:
     runs-on: ubuntu-latest
     if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    outputs:
+      ci_build: ${{ steps.check.outputs.ci_build }}
     steps:
-      - name: SSH and deploy backend + frontend
-        uses: appleboy/ssh-action@v1.0.3
+      - id: check
+        env:
+          API_URL: ${{ secrets.VITE_API_BASE_URL }}
+        run: |
+          if [ -n "$API_URL" ]; then echo "ci_build=true" >> "$GITHUB_OUTPUT"; else echo "ci_build=false" >> "$GITHUB_OUTPUT"; fi
+
+  build-frontend:
+    runs-on: ubuntu-latest
+    needs: prepare
+    if: ${{ needs.prepare.outputs.ci_build == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install and build
+        working-directory: frontend
+        env:
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
+          PUPPETEER_SKIP_DOWNLOAD: "true"
+        run: |
+          npm ci
+          npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+          retention-days: 7
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [prepare, build-frontend]
+    # run even when build-frontend was skipped (no secret), but not when the CI build itself failed
+    if: ${{ always() && needs.prepare.result == 'success' && (needs.build-frontend.result == 'success' || needs.build-frontend.result == 'skipped') }}
+    steps:
+      - name: Download the CI-built frontend
+        if: ${{ needs.prepare.outputs.ci_build == 'true' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist
+
+      - name: Upload the CI-built frontend
+        if: ${{ needs.prepare.outputs.ci_build == 'true' }}
+        uses: appleboy/scp-action@v0.1.7
         with:
           host: ${{ secrets.GCP_SSH_HOST }}
           username: ${{ secrets.GCP_SSH_USER }}
           key: ${{ secrets.GCP_SSH_KEY }}
+          source: "dist/*"
+          target: "/tmp/zoiko-frontend-release"
+          strip_components: 1
+          overwrite: true
+
+      - name: SSH and deploy backend + frontend
+        uses: appleboy/ssh-action@v1.0.3
+        env:
+          CI_BUILD: ${{ needs.prepare.outputs.ci_build }}
+        with:
+          host: ${{ secrets.GCP_SSH_HOST }}
+          username: ${{ secrets.GCP_SSH_USER }}
+          key: ${{ secrets.GCP_SSH_KEY }}
+          envs: CI_BUILD
           script: |
             set -e
 
@@ -29,11 +98,19 @@ jobs:
             deactivate
             sudo systemctl restart zoiko-hr-backend
 
-            cd /var/www/zoiko-hr-platform/app
-            git pull origin main
-            cd frontend
-            npm install
-            npm run build
-            sudo rm -rf /var/www/zoiko-hr-platform/html/*
-            sudo cp -r dist/* /var/www/zoiko-hr-platform/html/
+            if [ "$CI_BUILD" = "true" ] && [ -f /tmp/zoiko-frontend-release/index.html ]; then
+              # prebuilt by CI: swap the files in
+              sudo rm -rf /var/www/zoiko-hr-platform/html/*
+              sudo cp -r /tmp/zoiko-frontend-release/* /var/www/zoiko-hr-platform/html/
+              rm -rf /tmp/zoiko-frontend-release
+            else
+              # no CI build available: build on the VM, as before
+              cd /var/www/zoiko-hr-platform/app
+              git pull origin main
+              cd frontend
+              npm install
+              npm run build
+              sudo rm -rf /var/www/zoiko-hr-platform/html/*
+              sudo cp -r dist/* /var/www/zoiko-hr-platform/html/
+            fi
             sudo chown -R www-data:www-data /var/www/zoiko-hr-platform/html

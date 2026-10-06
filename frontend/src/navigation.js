@@ -337,7 +337,6 @@ const employeeWorkspace = {
         { label: "Payslips",          href: "/employee/documents/payslips",        icon: Receipt },
         { label: "Offer & Contracts", href: "/employee/documents/contracts",       icon: FileSignature },
         { label: "Tax & Compliance",  href: "/employee/documents/tax",             icon: ShieldCheck },
-        { label: "Upload Request",    href: "/employee/documents/upload-request",  icon: UploadCloud },
       ],
     },
 

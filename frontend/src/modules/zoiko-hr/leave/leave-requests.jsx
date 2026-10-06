@@ -21,7 +21,7 @@ const STATUS_COLORS = {
 
 const TYPE_COLORS = {
   annual: "bg-blue-500", sick: "bg-pink-500", casual: "bg-orange-500", earned: "bg-teal-500",
-  maternity: "bg-blue-500", paternity: "bg-blue-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500",
+  maternity: "bg-blue-500", paternity: "bg-blue-500", unpaid: "bg-gray-500", study: "bg-cyan-500", emergency: "bg-red-500", work_from_home: "bg-emerald-500",
 };
 
 const ITEMS_PER_PAGE = 8;
@@ -299,7 +299,7 @@ export default function LeaveRequests() {
                       </td>
                       <td className="px-4 py-3">
                         <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-xs font-semibold capitalize text-white ${TYPE_COLORS[row.leave_type || row.type] || "bg-gray-400"}`}>
-                          {row.leave_type || row.type}
+                          {String(row.leave_type || row.type || "").replace(/_/g, " ")}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-xs text-gray-600">

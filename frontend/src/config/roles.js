@@ -186,7 +186,6 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/documents/payslips",
     "/employee/documents/contracts",
     "/employee/documents/tax",
-    "/employee/documents/upload-request",
 
     // ── Travel ───────────────────────────────────────────────
     "/employee/travel",

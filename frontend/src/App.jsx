@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, lazy, Suspense } from "react";
-import SuperAdminShell from "./components/SuperAdminShell";
+const SuperAdminShell = lazy(() => import("./components/SuperAdminShell"));
 import { flatRoutes } from "./navigation";
 import { AlertTriangle } from "lucide-react";
 import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES } from "./config/roles";
@@ -12,45 +12,46 @@ function ModuleSpinner() {
     </div>
   );
 }
-import HomePage from "./pages/public/HomePage";
+const HomePage = lazy(() => import("./pages/public/HomePage"));
 import LoginPage from "./pages/auth/LoginPage";
-import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
-import ChangePasswordPage from "./pages/auth/ChangePasswordPage";
-import RegisterPage from "./pages/auth/RegisterPage";
-import RegistrationSuccessPage from "./pages/auth/RegistrationSuccessPage";
-import ZoikoProductsPage from "./pages/public/ZoikoProductsPage";
-import PlatformPage from "./pages/public/PlatformPage";
-import SolutionsPage from "./pages/public/SolutionsPage";
-import PricingPage from "./pages/public/PricingPage";
-import ContactPage from "./pages/public/ContactPage";
-import ResourcesPage from "./pages/public/ResourcesPage";
-import AboutPage from "./pages/public/AboutPage";
-import ZoikoLeadershipPage from "./pages/public/ZoikoLeadershipPage";
-import ZoikoCareersPage from "./pages/public/ZoikoCareersPage";
-import ZoikoDemoPage from "./pages/public/ZoikoDemoPage";
-import ZoikoHRPage from "./pages/products/ZoikoHRPage";
-import ZoikoPeoplePage from "./pages/public/five-pillars/ZoikoPeoplePage";
-import ZoikoMoneyPage from "./pages/public/five-pillars/ZoikoMoneyPage";
-import ZoikoWorkPage from "./pages/public/five-pillars/ZoikoWorkPage";
-import ZoikoSupplyPage from "./pages/public/five-pillars/ZoikoSupplyPage";
-import ZoikoControlPage from "./pages/public/five-pillars/ZoikoControlPage";
-import ZoikoHowItWorksPage from "./pages/platform/ZoikoHowItWorksPage";
-import ZoikoSecurityPage from "./pages/platform/ZoikoSecurityPage";
-import ZoikoTrustCenterPage from "./pages/platform/ZoikoTrustCenterPage";
-import ZoikoConnectPage from "./pages/platform/ZoikoConnectPage";
-import ZoikoApiDocsPage from "./pages/platform/ZoikoApiDocsPage";
-import ZoikoSystemStatusPage from "./pages/platform/ZoikoSystemStatusPage";
-import ZoikoEcosystemPage from "./pages/public/eco-system/ZoikoEcosystemPage";
-import ZoikoVertexPage from "./pages/public/eco-system/ZoikoVertexPage";
-import ZoikoSuitePage from "./pages/public/eco-system/ZoikoSuitePage";
-import ZoikoSemaPage from "./pages/public/eco-system/ZoikoSemaPage";
-import ZoikoLocalPage from "./pages/public/eco-system/ZoikoLocalPage";
-import ZoikoDigitalPage from "./pages/public/eco-system/ZoikoDigitalPage";
+const ForgotPasswordPage = lazy(() => import("./pages/auth/ForgotPasswordPage"));
+const QuotationDecisionPage = lazy(() => import("./pages/auth/QuotationDecisionPage"));
+const ChangePasswordPage = lazy(() => import("./pages/auth/ChangePasswordPage"));
+const RegisterPage = lazy(() => import("./pages/auth/RegisterPage"));
+const RegistrationSuccessPage = lazy(() => import("./pages/auth/RegistrationSuccessPage"));
+const ZoikoProductsPage = lazy(() => import("./pages/public/ZoikoProductsPage"));
+const PlatformPage = lazy(() => import("./pages/public/PlatformPage"));
+const SolutionsPage = lazy(() => import("./pages/public/SolutionsPage"));
+const PricingPage = lazy(() => import("./pages/public/PricingPage"));
+const ContactPage = lazy(() => import("./pages/public/ContactPage"));
+const ResourcesPage = lazy(() => import("./pages/public/ResourcesPage"));
+const AboutPage = lazy(() => import("./pages/public/AboutPage"));
+const ZoikoLeadershipPage = lazy(() => import("./pages/public/ZoikoLeadershipPage"));
+const ZoikoCareersPage = lazy(() => import("./pages/public/ZoikoCareersPage"));
+const ZoikoDemoPage = lazy(() => import("./pages/public/ZoikoDemoPage"));
+const ZoikoHRPage = lazy(() => import("./pages/products/ZoikoHRPage"));
+const ZoikoPeoplePage = lazy(() => import("./pages/public/five-pillars/ZoikoPeoplePage"));
+const ZoikoMoneyPage = lazy(() => import("./pages/public/five-pillars/ZoikoMoneyPage"));
+const ZoikoWorkPage = lazy(() => import("./pages/public/five-pillars/ZoikoWorkPage"));
+const ZoikoSupplyPage = lazy(() => import("./pages/public/five-pillars/ZoikoSupplyPage"));
+const ZoikoControlPage = lazy(() => import("./pages/public/five-pillars/ZoikoControlPage"));
+const ZoikoHowItWorksPage = lazy(() => import("./pages/platform/ZoikoHowItWorksPage"));
+const ZoikoSecurityPage = lazy(() => import("./pages/platform/ZoikoSecurityPage"));
+const ZoikoTrustCenterPage = lazy(() => import("./pages/platform/ZoikoTrustCenterPage"));
+const ZoikoConnectPage = lazy(() => import("./pages/platform/ZoikoConnectPage"));
+const ZoikoApiDocsPage = lazy(() => import("./pages/platform/ZoikoApiDocsPage"));
+const ZoikoSystemStatusPage = lazy(() => import("./pages/platform/ZoikoSystemStatusPage"));
+const ZoikoEcosystemPage = lazy(() => import("./pages/public/eco-system/ZoikoEcosystemPage"));
+const ZoikoVertexPage = lazy(() => import("./pages/public/eco-system/ZoikoVertexPage"));
+const ZoikoSuitePage = lazy(() => import("./pages/public/eco-system/ZoikoSuitePage"));
+const ZoikoSemaPage = lazy(() => import("./pages/public/eco-system/ZoikoSemaPage"));
+const ZoikoLocalPage = lazy(() => import("./pages/public/eco-system/ZoikoLocalPage"));
+const ZoikoDigitalPage = lazy(() => import("./pages/public/eco-system/ZoikoDigitalPage"));
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 
 // Target 'HrDashBoard.jsx' directly
-import ZoikoHRModule from "./modules/zoiko-hr/HrDashBoard.jsx";
+const ZoikoHRModule = lazy(() => import("./modules/zoiko-hr/HrDashBoard.jsx"));
 
 // Sub-module imports — lazy-loaded for code splitting
 const ZoikoHRLeaveDashboard = lazy(() => import("./modules/zoiko-hr/leave/dashboard.jsx"));
@@ -225,7 +226,6 @@ const EmployeeMyFiles = lazy(() => import("./pages/Peoples/Employees/Documents/E
 const EmployeePayslips = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_Payslips.jsx"));
 const EmployeeOfferContracts = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_OfferContracts.jsx"));
 const EmployeeTaxCompliance = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_TaxCompliance.jsx"));
-const EmployeeUploadRequest = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_UploadRequest.jsx"));
 const EmployeeCompanyDocuments = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_CompanyDocuments.jsx"));
 
 // Travel folder
@@ -432,7 +432,6 @@ const routeOverrides = {
   "/employee/documents/payslips":       <EmployeePayslips />,
   "/employee/documents/contracts":      <EmployeeOfferContracts />,
   "/employee/documents/tax":            <EmployeeTaxCompliance />,
-  "/employee/documents/upload-request": <EmployeeUploadRequest />,
 
   // Travel
   "/employee/travel":           <EmployeeTravelDashboard />,
@@ -481,6 +480,7 @@ export default function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/quotation/decide" element={<QuotationDecisionPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/register/success" element={<RegistrationSuccessPage />} />

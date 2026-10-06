@@ -1,7 +1,7 @@
 
 import { humanizeValidationError } from "../utils/validationMessage";
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "zoiko_access_token";
 const REFRESH_KEY = "zoiko_refresh_token";
 const USER_KEY = "zoiko_user";
@@ -26,6 +26,7 @@ export function getStoredUser() {
 }
 
 export function setSession({ accessToken, refreshToken, user } = {}) {
+  sharedGets.clear();
   if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken);
   if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -33,6 +34,7 @@ export function setSession({ accessToken, refreshToken, user } = {}) {
 }
 
 export function clearSession() {
+  sharedGets.clear();
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
@@ -196,12 +198,48 @@ async function refreshAccessToken() {
   }
 }
 
+// Reference lists that many pages load at once (every performance/assets/recruitment page asks for the same
+// 200 employees). Identical GETs in flight share one request, and the answer is reused for a few seconds.
+// Any write, login or logout clears it, so a page never shows data older than the user's own last change.
+const SHARED_GET = /^\/hr\/(employees|departments|designations|attendance\/shifts)(\?|$)/;
+const SHARED_GET_TTL_MS = 10000;
+const sharedGets = new Map(); // key -> { promise, expires }
+
+export function clearApiCache() {
+  sharedGets.clear();
+}
+
+function sharedKey(path, opts) {
+  const query = opts?.params
+    ? Object.entries(opts.params).filter(([, v]) => v !== undefined && v !== null && v !== "").sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join("&")
+    : "";
+  return `${getAccessToken() || ""}|${path}?${query}`;
+}
+
+function cachedGet(path, opts) {
+  const request = () => apiRequest(path, { ...opts, method: "GET" });
+  // a caller-supplied abort signal means "this answer may be thrown away": never share those
+  if (opts?.signal || !SHARED_GET.test(path)) return request();
+  const key = sharedKey(path, opts);
+  const hit = sharedGets.get(key);
+  if (hit && hit.expires > Date.now()) return hit.promise.then((data) => (data && typeof data === "object" ? structuredClone(data) : data));
+  const promise = request();
+  sharedGets.set(key, { promise, expires: Date.now() + SHARED_GET_TTL_MS });
+  promise.catch(() => sharedGets.delete(key));
+  return promise.then((data) => (data && typeof data === "object" ? structuredClone(data) : data));
+}
+
+const writing = (fn) => (...args) => {
+  clearApiCache();
+  return fn(...args).finally(clearApiCache);
+};
+
 export const api = {
-  get: (path, opts) => apiRequest(path, { ...opts, method: "GET" }),
-  post: (path, body, opts) => apiRequest(path, { ...opts, method: "POST", body }),
-  put: (path, body, opts) => apiRequest(path, { ...opts, method: "PUT", body }),
-  patch: (path, body, opts) => apiRequest(path, { ...opts, method: "PATCH", body }),
-  delete: (path, opts) => apiRequest(path, { ...opts, method: "DELETE" }),
+  get: cachedGet,
+  post: writing((path, body, opts) => apiRequest(path, { ...opts, method: "POST", body })),
+  put: writing((path, body, opts) => apiRequest(path, { ...opts, method: "PUT", body })),
+  patch: writing((path, body, opts) => apiRequest(path, { ...opts, method: "PATCH", body })),
+  delete: writing((path, opts) => apiRequest(path, { ...opts, method: "DELETE" })),
 };
 
 export { API_BASE_URL, AUTH_INVALID_EVENT };

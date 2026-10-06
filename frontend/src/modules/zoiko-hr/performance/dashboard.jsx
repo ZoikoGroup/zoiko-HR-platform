@@ -153,6 +153,7 @@ export default function PerformanceDashboard() {
             ) : (
               <div className="space-y-4">
                 <ProgressBlock label="Completed" value={d.completed_reviews ?? 0} total={d.total_reviews || 1} color="bg-green-500" />
+                <ProgressBlock label="In Progress" value={d.in_progress_reviews ?? 0} total={d.total_reviews || 1} color="bg-blue-500" />
                 <ProgressBlock label="Pending" value={d.pending_reviews ?? 0} total={d.total_reviews || 1} color="bg-yellow-500" />
                 <div className="mt-2 pt-3 border-t border-gray-100 flex justify-between text-sm">
                   <span className="text-gray-500">Overall Completion</span>

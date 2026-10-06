@@ -125,7 +125,6 @@ export default function Payslips() {
                   key={p.id || p.month}
                   icon={Receipt}
                   title={p.month}
-                  status={p.status}
                   meta={`Gross ${p.gross} · Deductions ${p.deductions} · Net ${p.net}`}
                   onView={() => view(p.id)}
                   onDownload={() => download(p.id)}

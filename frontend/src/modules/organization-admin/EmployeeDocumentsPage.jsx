@@ -437,7 +437,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
                     <div>
                       <Upload className="w-8 h-8 text-doc-border mx-auto mb-2" />
                       <p className="text-sm text-doc-ink-soft">Click to select file</p>
-                      <p className="text-xs text-doc-ink-soft mt-1">PDF, DOC, XLS, images accepted</p>
+                      <p className="text-xs text-doc-ink-soft mt-1">PDF, Word, Excel, PowerPoint, CSV, text, images accepted</p>
                     </div>
                   )}
                 </div>

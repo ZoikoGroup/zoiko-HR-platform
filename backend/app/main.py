@@ -78,19 +78,29 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.warning("[startup] Platform settings seed could not run: %s", e)
 
+    # Background jobs run in exactly one process, however many workers/containers are serving requests.
+    from app.core.leader import acquire_background_leadership
+    from app.database import engine as _engine
+
+    _leader = acquire_background_leadership(_engine)
+    if not _leader:
+        logger.info("[startup] Another process runs the background jobs; this one only serves requests.")
+
     # Background scheduler: plan-change execution (02:00) + delinquency walk (02:05).
     try:
-        from app.modules.billing.scheduler import start_scheduler
+        if _leader:
+            from app.modules.billing.scheduler import start_scheduler
 
-        start_scheduler()
+            start_scheduler()
     except Exception as e:
         logger.warning("[startup] Scheduler could not be started: %s", e)
 
     # Webhook delivery + workflow execution worker (ZHR-24/25).
     try:
-        from app.modules.integrations.worker import start_worker
+        if _leader:
+            from app.modules.integrations.worker import start_worker
 
-        start_worker()
+            start_worker()
     except Exception as e:
         logger.warning("[startup] Integrations worker could not be started: %s", e)
 
@@ -246,6 +256,13 @@ async def normalize_utc_datetimes_middleware(request: Request, call_next):
         media_type=response.media_type,
         content=normalized,
     )
+
+
+# Compress larger responses (lists, dashboards, exports). Added after the UTC normalizer above so the
+# normalizer still sees plain JSON; small bodies are left alone, and already-encoded ones are skipped.
+from app.core.compression import SelectiveGZipMiddleware
+
+app.add_middleware(SelectiveGZipMiddleware, minimum_size=1000)
 
 
 # ── Route-level entitlement enforcement (Prompt 6) ─────────────────────────

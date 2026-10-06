@@ -41,6 +41,7 @@ import re
 import time
 from typing import Optional
 
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response, JSONResponse
@@ -91,6 +92,11 @@ _PATH_TTL = [
     (r"/admin/users", 45),
     (r"/employee-management/employees", 45),
 
+    # Billing — plan/subscription reads are cheap but go stale the moment a
+    # checkout or webhook lands, so keep the window short and let the write
+    # invalidation below drop them immediately.
+    (r"/billing", 15),
+
     # Reference data — changes rarely, cache longer
     (r"/hr/holidays", 120),
     (r"/hr/attendance/shifts", 120),
@@ -125,6 +131,12 @@ _WRITE_INVALIDATION = [
     (r"/hr/employees", "/hr/employees"),
     (r"/hr/employee-management", "/hr/employee"),
     (r"/hr/departments", "/hr/departments"),
+    # /hr/designations is cached for 2 minutes; without this entry a create / edit / delete (or an
+    # employee import that creates designations and changes their headcounts) left the list stale,
+    # so the Refresh button kept returning the old rows (ZHR-53).
+    (r"/hr/designations", "/hr/designations"),
+    (r"/hr/employees", "/hr/designations"),
+    (r"/hr/employee-management", "/hr/designations"),
     (r"/hr/leaves", "/hr/leaves"),
     (r"/hr/attendance", "/hr/attendance"),
     (r"/hr/assets", "/hr/assets"),
@@ -143,6 +155,9 @@ _WRITE_INVALIDATION = [
     (r"/hr/attendance/shifts", "/hr/attendance"),
     (r"/admin/users", "/hr/admin/users"),
     (r"/hr/admin/users", "/hr/admin/users"),
+    # Any billing write (checkout confirm, plan change, payment) must drop the
+    # cached billing/overview and subscription reads for the org immediately.
+    (r"/billing", "/billing"),
 ]
 
 
@@ -249,7 +264,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
             cache_key = _build_key(org_id, user_key, method, path, query)
 
             try:
-                raw = redis_client.get(cache_key)
+                raw = await run_in_threadpool(redis_client.get, cache_key)  # a network call: keep it off the event loop
                 if raw is not None:
                     return JSONResponse(
                         content=json.loads(raw),
@@ -273,7 +288,7 @@ class CacheMiddleware(BaseHTTPMiddleware):
                     ttl = _get_ttl(path) or 30
                     # Store in Redis (fire and forget)
                     try:
-                        redis_client.set(cache_key, body.decode(), ex=ttl)
+                        await run_in_threadpool(redis_client.set, cache_key, body.decode(), ex=ttl)
                     except Exception:
                         pass
                     # Rebuild response (we consumed the iterator)

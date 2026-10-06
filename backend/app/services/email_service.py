@@ -41,7 +41,8 @@ PRODUCTION_APP_URL = "https://app.zoikohr.com"
 # the source SVG is 5241.58:895.85 -> 180x31 display size (360px @2x file).
 LOGO_FILE = "zoikohr-logo-email@2x.png"
 LOGO_DARK_FILE = "zoikohr-logo-email-white@2x.png"
-_LOGO_CIDS = {LOGO_FILE: "zoikohr-logo", LOGO_DARK_FILE: "zoikohr-logo-white"}
+FAVICON_FILE = "zoikohr-favicon@2x.png"  # the Zoiko HR app icon (frontend/public/favicon.svg), 64px for a 32px display
+_LOGO_CIDS = {LOGO_FILE: "zoikohr-logo", LOGO_DARK_FILE: "zoikohr-logo-white", FAVICON_FILE: "zoikohr-favicon"}
 
 # Zoiko HR brand palette (from the logo). White text on primary is 8.3:1 and
 # primary on white is 8.3:1 — both clear WCAG 2.2 AA for text (4.5:1) and
@@ -135,6 +136,21 @@ def _safe_https_url(url) -> str:
     return url
 
 
+def _is_public_host(url: str) -> bool:
+    """False for localhost, private/loopback IPs and bare intranet names, which a recipient's mail client
+    could never load a logo from."""
+    import ipaddress
+
+    host = (urlparse(url).hostname or "").lower()
+    if not host or host == "localhost" or host.endswith((".local", ".internal", ".localhost")):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "." in host  # a normal DNS name
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
+
+
 def email_asset_base() -> str:
     """Absolute public HTTPS base URL for email image assets. SVG, data: URIs
     and relative paths are never used (Gmail strips data URIs; clients don't
@@ -145,7 +161,7 @@ def email_asset_base() -> str:
             logger.warning("[email] HR_EMAIL_ASSET_BASE_URL is not an absolute https URL: %s", configured)
         return configured
     frontend = _frontend_url()
-    if _safe_https_url(frontend):
+    if _safe_https_url(frontend) and _is_public_host(frontend):
         return f"{frontend}/email"
     return f"{PRODUCTION_APP_URL}/email"
 
@@ -165,6 +181,7 @@ def _layout_context(branding: dict, context: dict) -> dict:
         "asset_base": base,
         "logo_src": _logo(LOGO_FILE),
         "logo_dark_src": _logo(LOGO_DARK_FILE),
+        "favicon_src": _logo(FAVICON_FILE),
         "cobrand_logo_url": _safe_https_url(branding.get("logo_url")),
         "tenant_name": branding.get("tenant_name", ""),
         "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://zoikohr.com/contact",
@@ -244,15 +261,16 @@ def render_email(
 
 
 def _get_smtp_settings(db=None) -> dict:
-    """Read SMTP settings from PlatformSetting table. Returns dict with keys:
-    host, port, username, password, from_email, use_tls.
-    Falls back to app.config.settings (environment-configured) if the DB is
-    unavailable or the platform_settings rows aren't populated.
-    The SMTP password is NEVER read from the DB — it comes exclusively from
-    app.config.settings (i.e. the .env file / environment).
+    """SMTP connection settings: host, port, username, password, from_email, use_tls.
+
+    The environment (.env / deployment config) is authoritative. The password only ever comes from there, and
+    a login only works together with its own username and sender address, so letting an older
+    `super_admin_platform_settings` row override the others sent mail from a stale address (registration
+    emails arrived from another product mailbox that row had been seeded with). A platform setting is used only
+    for a value the environment leaves empty.
     """
     from app.config import settings as _settings
-    defaults = {
+    env = {
         "host": _settings.SMTP_HOST,
         "port": _settings.SMTP_PORT,
         "username": _settings.SMTP_USERNAME,
@@ -269,24 +287,26 @@ def _get_smtp_settings(db=None) -> dict:
             db = SessionLocal()
             own_session = True
         try:
-            settings = db.query(PlatformSetting).filter(
-                PlatformSetting.category == "email"
-            ).all()
-            mapping = {s.key: s.value for s in settings if s.value}
-            return {
-                "host": mapping.get("smtp_host", defaults["host"]),
-                "port": mapping.get("smtp_port", defaults["port"]),
-                "username": mapping.get("smtp_username", defaults["username"]),
-                "password": defaults["password"],
-                "from_email": mapping.get("smtp_from_email", defaults["from_email"]),
-                "use_tls": mapping.get("smtp_use_tls", defaults["use_tls"]),
+            rows = db.query(PlatformSetting).filter(PlatformSetting.category == "email").all()
+            mapping = {r.key: r.value for r in rows if r.value}
+            fallback = {
+                "host": mapping.get("smtp_host"),
+                "port": mapping.get("smtp_port"),
+                "username": mapping.get("smtp_username"),
+                "from_email": mapping.get("smtp_from_email"),
+                "use_tls": mapping.get("smtp_use_tls"),
             }
+            merged = dict(env)
+            for key, db_value in fallback.items():
+                if env[key] in (None, "") and db_value not in (None, ""):
+                    merged[key] = db_value
+            return merged
         finally:
             if own_session:
                 db.close()
     except Exception as e:
         logger.warning(f"[email] Could not load SMTP settings from DB, using defaults: {e}")
-        return defaults
+        return env
 
 
 _BRANDING_DEFAULTS = {
@@ -543,8 +563,10 @@ def send_approval_email(
     from_email_override=None,
     from_display_name_override=None,
     template_body: str = None,
+    error_out: list = None,
 ) -> bool:
-    """Send an email via SMTP with delivery audit logging.
+    """Send an email via SMTP with delivery audit logging. On a delivery failure the reason is appended to
+    `error_out` when a list is passed.
 
     A missing template or an unrendered variable fails the send (logged and
     recorded as `failed`) — no fallback HTML is ever sent in its place.
@@ -585,6 +607,8 @@ def send_approval_email(
 
     error = _deliver_via_smtp(smtp, envelope_from, to_email, msg)
     if error:
+        if error_out is not None:
+            error_out.append(error)
         logger.error(f"[email] Failed to send to {to_email} | template={template_name} | error={error}")
         _log_email_delivery(
             email=to_email,
@@ -1005,6 +1029,40 @@ def send_payment_receipt_email(
         "first_name": customer_name,
         "invoice_number": payment_number,
         "payment_date_local": payment_date,
+        "action_url": _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_plan_upgraded_email(
+    email: str,
+    customer_name: str,
+    previous_plan_name: str,
+    new_plan_name: str,
+    billing_cycle: str = "",
+    effective_date: str = "",
+    amount: str = "",
+    currency: str = "USD",
+    organization_id=None,
+    db=None,
+) -> bool:
+    """Confirm to billing contacts that a plan change they paid for has been
+    applied. Sent once per completed Checkout Session / Stripe price change."""
+    amount_display = f"{currency} {amount}" if amount else ""
+    return send_approval_email(email, "plan_upgraded.html", {
+        "subject": f"Your Zoiko HR plan is now {new_plan_name}",
+        "login_url": _login_url(),
+        "customer_name": customer_name,
+        "previous_plan_name": previous_plan_name or "Your previous plan",
+        "new_plan_name": new_plan_name,
+        "billing_cycle": billing_cycle,
+        "amount": amount,
+        "currency": currency,
+        "amount_display": amount_display,
+        # plan_upgraded.html variables
+        "first_name": customer_name,
+        "organization_name": customer_name,
+        "plan_name": new_plan_name,
+        "effective_date_local": effective_date,
         "action_url": _login_url(),
     }, db=db, organization_id=organization_id)
 
@@ -1590,20 +1648,27 @@ def send_performance_review_submitted_email(
 
 
 def send_plain_email(to_email: str, subject: str, body: str, db=None, organization_id=None):
-    """Send a simple text email (used by Zoiko Workflow steps). Returns
-    (ok, error_message) and records an EmailDeliveryLog row either way."""
+    """Send a workflow-step message (written as plain text by the workflow author). It goes out in the shared
+    Zoiko HR layout, so it carries the logo and footer like every other email; the text part stays plain.
+    Returns (ok, error_message); an EmailDeliveryLog row is recorded either way."""
     smtp = _get_smtp_settings(db=db)
     if not (smtp.get("host") and smtp.get("from_email")):
         err = "SMTP is not configured."
-        _log_email_delivery(to_email, "workflow_plain", subject, "failed", err, organization_id, db=db)
+        _log_email_delivery(to_email, "workflow_message.html", subject, "failed", err, organization_id, db=db)
         return False, err
-    msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = subject
-    msg["From"] = smtp["from_email"]
-    msg["To"] = to_email
-    error = _deliver_via_smtp(smtp, smtp["from_email"], to_email, msg)
-    if error:
-        _log_email_delivery(to_email, "workflow_plain", subject, "failed", error, organization_id, db=db)
-        return False, error[:300]
-    _log_email_delivery(to_email, "workflow_plain", subject, "sent", None, organization_id, db=db)
-    return True, None
+    lines = [ln.strip() for ln in str(body or "").replace("\r\n", "\n").split("\n")]
+    paragraphs = [ln for ln in lines if ln] or [""]
+    errors: list = []
+    ok = send_approval_email(
+        to_email, "workflow_message.html",
+        {"subject": subject, "preheader_text": paragraphs[0][:120], "paragraphs": paragraphs},
+        db=db, organization_id=organization_id, error_out=errors,
+    )
+    if ok:
+        return True, None
+    return False, (errors[0] if errors else "Email could not be rendered or sent.")[:300]
+
+
+def send_workflow_message(email: str, subject: str, body: str, db=None, organization_id=None):
+    """Branded send used by workflow steps (see send_plain_email, which returns the error text)."""
+    return send_plain_email(email, subject, body, db=db, organization_id=organization_id)[0]

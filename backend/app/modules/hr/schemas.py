@@ -669,8 +669,8 @@ class AttendanceDashboardResponse(BaseModel):
     on_leave_count: int = 0
     remote: int = 0
     remote_count: int = 0
-    overtime: int = 0
-    overtime_count: int = 0
+    overtime: float = 0.0
+    overtime_count: float = 0.0
     attendance_percentage: float = 0.0
     attendance_rate: float = 0.0
     avg_working_hours: float = 0.0
@@ -680,6 +680,9 @@ class AttendanceDashboardResponse(BaseModel):
     shift_distribution: list[dict] = []
     shift_utilization: list[dict] = []
     attendance_trend: list[dict] = []
+    changes: dict = {}
+    departments: list[str] = []
+    as_of: Optional[str] = None
 
 
 class AttendanceReportResponse(BaseModel):
@@ -906,6 +909,7 @@ class LeaveDashboardStats(BaseModel):
     approved_days_taken: int = 0
     employee_count: int = 0
     on_leave_today: int = 0
+    wfh: int = 0  # employees working from home today (approved Work From Home requests)
 
 
 class LeaveCalendarEvent(BaseModel):
@@ -2146,9 +2150,17 @@ class PerformanceReviewCreate(BaseModel):
     reviewer_id: Optional[int] = None
     hr_reviewer_id: Optional[int] = None
     admin_reviewer_id: Optional[int] = None
-    cycle: str
+    cycle: str = Field(..., min_length=1, max_length=50)
     rating: int = Field(..., ge=1, le=5)
-    comments: Optional[str] = None
+    comments: Optional[str] = Field(None, max_length=5000)
+
+    @field_validator("cycle")
+    @classmethod
+    def _cycle_not_blank(cls, v):
+        v = v.strip()
+        if not v:
+            raise ValueError("Cycle is required, for example 'Q1 2026'.")
+        return v
 
 
 class PerformanceReviewUpdate(BaseModel):
@@ -2156,10 +2168,20 @@ class PerformanceReviewUpdate(BaseModel):
     reviewer_id: Optional[int] = None
     hr_reviewer_id: Optional[int] = None
     admin_reviewer_id: Optional[int] = None
-    cycle: Optional[str] = None
+    cycle: Optional[str] = Field(None, max_length=50)
     rating: Optional[int] = Field(None, ge=1, le=5)
-    comments: Optional[str] = None
-    status: Optional[str] = None
+    comments: Optional[str] = Field(None, max_length=5000)
+    status: Optional[RequestStatus] = None
+
+    @field_validator("cycle")
+    @classmethod
+    def _cycle_not_blank(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not v:
+            raise ValueError("Cycle cannot be blank.")
+        return v
 
 
 class PerformanceReviewResponse(BaseModel):
@@ -3027,6 +3049,9 @@ class DesignationResponse(BaseModel):
     min_salary:      Optional[float]
     max_salary:      Optional[float]
     employees_count: int = 0
+    source:          Optional[str] = None
+    created_by:      Optional[int] = None
+    created_by_name: Optional[str] = None
     created_at:      Optional[datetime]
     updated_at:      Optional[datetime]
 

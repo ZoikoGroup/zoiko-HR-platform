@@ -419,10 +419,31 @@ class CheckoutSessionRequest(BaseModel):
 
 
 class CheckoutSessionResponse(BaseModel):
-    checkout_session_id: str
-    checkout_url: str
+    checkout_session_id: Optional[str] = None
+    checkout_url: Optional[str] = None
     organization_id: int
     plan_id: int
+    # An org that already subscribes gets its existing Stripe subscription
+    # repriced in place instead of a second subscription — no Checkout
+    # redirect is involved, so both session fields are null on that path.
+    updated: bool = False
+    unchanged: bool = False
+    status: Optional[str] = None
+    message: Optional[str] = None
+
+
+class CheckoutConfirmRequest(BaseModel):
+    organization_id: int
+    checkout_session_id: str
+
+
+class CheckoutConfirmResponse(BaseModel):
+    status: str                       # confirmed | pending | failed
+    organization_id: int
+    plan_id: Optional[int] = None
+    plan_code: Optional[str] = None
+    subscription_status: Optional[str] = None
+    message: str
 
 
 # ── Provider ref schemas ────────────────────────────────────────────────────

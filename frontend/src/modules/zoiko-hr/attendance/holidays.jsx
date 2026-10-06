@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
 import { NavLink } from "react-router-dom";
-import { Plus, Upload, Trash2, CalendarDays, List, ChevronLeft, ChevronRight, X, Calendar as CalendarIcon, Loader2 } from "lucide-react";
+import { Plus, Upload, Download, Trash2, CalendarDays, List, ChevronLeft, ChevronRight, X, Calendar as CalendarIcon, Loader2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getHolidays, createHoliday, updateHoliday, deleteHoliday, importHolidays } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import { parseHolidayFile, parseHolidayText, validateRows, TEMPLATE_CSV, MAX_ROWS } from "../../../utils/holidayImport";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
@@ -61,6 +62,11 @@ export default function Holidays() {
   const [submitting, setSubmitting] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importData, setImportData] = useState("");
+  const [importFileName, setImportFileName] = useState("");
+  const [importPreview, setImportPreview] = useState(null); // { valid, problems }
+  const [importError, setImportError] = useState("");
+  const [importResult, setImportResult] = useState(null);
+  const [importing, setImporting] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -140,17 +146,64 @@ export default function Holidays() {
     }
   };
 
+  const resetImport = () => {
+    setImportData(""); setImportFileName(""); setImportPreview(null); setImportError(""); setImportResult(null);
+  };
+  const closeImport = () => { setShowImport(false); resetImport(); };
+
+  const previewRows = (rawRows) => {
+    if (rawRows.length > MAX_ROWS) throw new Error(`Import at most ${MAX_ROWS} holidays at a time (this has ${rawRows.length}).`);
+    const checked = validateRows(rawRows);
+    if (!checked.valid.length && !checked.problems.length) throw new Error("No holidays were found.");
+    setImportPreview(checked);
+  };
+
+  const handleImportFile = async (e) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    setImportError(""); setImportResult(null); setImportPreview(null); setImportData("");
+    setImportFileName(file.name);
+    try { previewRows(await parseHolidayFile(file)); }
+    catch (err) { setImportError(err.message || "Could not read that file."); }
+  };
+
+  // Run Import with nothing chosen / typed says so inside the dialog instead of throwing a JSON error
+  const handleReview = async () => {
+    setImportError(""); setImportResult(null); setImportPreview(null);
+    try { previewRows(await parseHolidayText(importData)); }
+    catch (err) { setImportError(err.message || "Could not read that data."); }
+  };
+
   const handleImport = async () => {
+    if (!importPreview?.valid.length) {
+      setImportError("There are no valid holidays to import. Fix the problems listed, or choose another file.");
+      return;
+    }
+    setImporting(true);
+    setImportError("");
     try {
-      const parsed = JSON.parse(importData);
-      await importHolidays(Array.isArray(parsed) ? { holidays: parsed } : parsed);
-      setShowImport(false);
-      setImportData("");
+      const rows = importPreview.valid.map(({ _row, ...row }) => row);
+      const result = await importHolidays({ holidays: rows });
+      // the server numbers rows within what we sent; show them against the user's own file lines
+      const errors = (result?.errors || []).map((er) => ({ ...er, row: importPreview.valid[er.row - 1]?._row ?? er.row }));
+      setImportResult({ ...result, errors: [...importPreview.problems, ...errors] });
+      setImportPreview(null);
       const data = await getHolidays();
       setHolidays(Array.isArray(data) ? data : data?.items || []);
     } catch (err) {
-      setError(err.message || "Failed to import holidays");
+      setImportError(err?.message || "Failed to import holidays");
+    } finally {
+      setImporting(false);
     }
+  };
+
+  const downloadTemplate = () => {
+    const url = URL.createObjectURL(new Blob([TEMPLATE_CSV], { type: "text/csv" }));
+    const a = document.createElement("a");
+    a.href = url; a.download = "holiday_import_template.csv";
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
   };
 
   const calendarData = useMemo(() => {
@@ -159,9 +212,8 @@ export default function Holidays() {
     const holidayMap = {};
     holidays.forEach((h) => {
       if (h.date) {
-        const d = new Date(h.date);
-        if (d.getMonth() === currentMonth && d.getFullYear() === currentYear) {
-          const day = d.getDate();
+        const [y, m, day] = String(h.date).substring(0, 10).split("-").map(Number);
+        if (m - 1 === currentMonth && y === currentYear) {
           if (!holidayMap[day]) holidayMap[day] = [];
           holidayMap[day].push(h);
         }
@@ -410,28 +462,93 @@ export default function Holidays() {
 
         {showImport && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
+            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-2xl overflow-hidden flex flex-col max-h-[90vh]">
               <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] px-6 py-5 flex justify-between items-center">
                 <h2 className="text-lg font-bold text-white">Import Holidays</h2>
-                <button onClick={() => setShowImport(false)} className="text-gray-400 hover:text-white transition-colors">
+                <button onClick={closeImport} aria-label="Close" className="text-gray-400 hover:text-white transition-colors">
                   <X className="w-5 h-5" />
                 </button>
               </div>
-              <div className="p-6">
-                <p className="text-sm text-gray-600 font-medium mb-3">Paste a JSON array of holidays to bulk import.</p>
-                <textarea rows={8} value={importData} onChange={(e) => setImportData(e.target.value)}
-                  className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                  placeholder='[&#10;  {"name":"New Year","date":"2026-01-01","type":"Public"}&#10;]' />
+              <div className="p-6 overflow-y-auto space-y-4">
+                {importError && (
+                  <div role="alert" className="text-red-700 text-sm font-semibold bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{importError}</div>
+                )}
+
+                {importResult ? (
+                  <div className="space-y-3">
+                    <div className="bg-green-50 border border-green-200 text-green-800 rounded-xl px-4 py-3 text-sm font-bold">
+                      {importResult.imported} holiday{importResult.imported === 1 ? "" : "s"} imported
+                      {importResult.duplicates ? `, ${importResult.duplicates} skipped as already existing` : ""}
+                      {importResult.errors.length ? `, ${importResult.errors.length} not imported` : ""}.
+                    </div>
+                    {importResult.errors.length > 0 && (
+                      <ul className="text-sm border border-gray-200 rounded-xl divide-y divide-gray-100 max-h-48 overflow-y-auto">
+                        {importResult.errors.map((er, i) => (
+                          <li key={i} className="px-4 py-2"><span className="font-bold">Row {er.row}{er.name ? ` · ${er.name}` : ""}:</span> {er.error}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex flex-wrap items-center gap-3">
+                      <label className="inline-flex items-center gap-2 px-4 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold cursor-pointer shadow-sm">
+                        <Upload className="w-4 h-4" /> Choose file
+                        <input type="file" accept=".csv,.xlsx,.xls" onChange={handleImportFile} className="hidden" data-testid="holiday-file" />
+                      </label>
+                      <button type="button" onClick={downloadTemplate}
+                        className="inline-flex items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 bg-white rounded-xl hover:bg-gray-50 text-sm font-bold">
+                        <Download className="w-4 h-4" /> Download template
+                      </button>
+                      {importFileName && <span className="text-sm font-semibold text-gray-600 truncate">{importFileName}</span>}
+                    </div>
+                    <p className="text-xs text-gray-500 font-medium">Upload a .csv or Excel file with columns Name, Date, Type (Public, Company or Optional), Description and Recurring. Or paste CSV / JSON below.</p>
+                    <textarea rows={5} value={importData} onChange={(e) => { setImportData(e.target.value); setImportError(""); setImportPreview(null); }}
+                      aria-label="Paste holidays"
+                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
+                      placeholder={"Name,Date,Type\nNew Year,2027-01-01,Public"} />
+
+                    {importPreview && (
+                      <div className="space-y-2">
+                        <p className="text-sm font-bold text-gray-800">
+                          {importPreview.valid.length} ready to import{importPreview.problems.length ? `, ${importPreview.problems.length} with problems (will be skipped)` : ""}
+                        </p>
+                        {importPreview.valid.length > 0 && (
+                          <div className="border border-gray-200 rounded-xl max-h-52 overflow-auto">
+                            <table className="min-w-full text-sm">
+                              <thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Type</th><th className="px-3 py-2 text-left">Recurring</th></tr></thead>
+                              <tbody className="divide-y divide-gray-100">
+                                {importPreview.valid.map((r) => (
+                                  <tr key={r._row}><td className="px-3 py-1.5 font-semibold">{r.name}</td><td className="px-3 py-1.5">{r.date}</td><td className="px-3 py-1.5">{r.type}</td><td className="px-3 py-1.5">{r.is_recurring ? "Yes" : "No"}</td></tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        )}
+                        {importPreview.problems.length > 0 && (
+                          <ul className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-xl divide-y divide-red-100 max-h-36 overflow-y-auto">
+                            {importPreview.problems.map((p, i) => (
+                              <li key={i} className="px-4 py-2"><span className="font-bold">Row {p.row}{p.name ? ` · ${p.name}` : ""}:</span> {p.error}</li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    )}
+                  </>
+                )}
               </div>
               <div className="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 mt-auto">
-                <button onClick={() => setShowImport(false)} 
+                <button onClick={closeImport}
                   className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors shadow-sm">
-                  Cancel
+                  {importResult ? "Close" : "Cancel"}
                 </button>
-                <button onClick={handleImport}
-                  className="px-5 py-2.5 text-sm font-bold bg-gray-900 hover:bg-black text-white rounded-xl transition-colors shadow-sm">
-                  Run Import
-                </button>
+                {!importResult && (
+                  <button onClick={importPreview ? handleImport : handleReview} disabled={importing}
+                    className="flex items-center gap-2 px-5 py-2.5 text-sm font-bold bg-gray-900 hover:bg-black disabled:bg-gray-500 text-white rounded-xl transition-colors shadow-sm">
+                    {importing && <Loader2 className="w-4 h-4 animate-spin" />}
+                    {importing ? "Importing..." : importPreview ? `Import ${importPreview.valid.length} holiday${importPreview.valid.length === 1 ? "" : "s"}` : "Run Import"}
+                  </button>
+                )}
               </div>
             </div>
           </div>

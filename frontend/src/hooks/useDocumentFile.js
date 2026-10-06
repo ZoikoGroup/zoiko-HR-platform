@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { getDocumentFile } from "../service/hrService";
 import { saveBlobAs } from "../utils/documents";
+import { normalizePreviewBlob } from "../utils/documentPreview";
 
 /**
  * Standardizes fetching a document's file for View (in-page preview) and
@@ -27,7 +28,9 @@ export function useDocumentFile() {
     setBusyId(key);
     setBusyAction("view");
     try {
-      const { blob, filename } = await fetcher();
+      const { blob: fetched, filename } = await fetcher();
+      // A generic stored content type must not decide how the file is displayed.
+      const blob = normalizePreviewBlob(fetched, filename);
       const url = URL.createObjectURL(blob);
       setPreview({ url, filename, mimeType: blob.type, blob });
     } catch (e) {

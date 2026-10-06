@@ -12,6 +12,17 @@ required variable refuses startup on purpose.
 from pydantic import Field, field_validator, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# pydantic only fills the Settings fields below from .env. A few modules read os.environ directly
+# (ENVIRONMENT, UPLOAD_BASE_DIR, HR_DB_POOL_SIZE, HR_BACKGROUND_JOBS, ...), which silently ignored those
+# lines when they were set in .env. Publishing .env into the process environment makes one file work for both;
+# real environment variables (systemd, Docker, Cloud Run) still take precedence.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(".env", override=False)
+except ImportError:  # python-dotenv ships with pydantic-settings; never block startup over it
+    pass
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(

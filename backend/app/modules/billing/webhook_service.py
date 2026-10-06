@@ -114,51 +114,81 @@ def process_webhook_event(db: Session, event: dict) -> dict:
 
 def _handle_checkout_completed(db, event_id, data, full_event):
     """checkout.session.completed — mark org as active after successful checkout.
-    This is the evaluation→commercial conversion via self-serve Stripe Checkout."""
-    org_id = int(data.get("metadata", {}).get("organization_id", 0))
-    subscription_id = data.get("subscription")
-    customer_id = data.get("customer")
+
+    This closes the evaluation→paid loop for self-serve Stripe Checkout and is
+    also the completion step for a plan upgrade started from
+    /organization-admin/billing-and-plan.
+
+    Every read is defensive. The Checkout Session is the fallback for whatever
+    the subscription read could not return: a single unhandled field used to
+    raise AttributeError out of this handler after the customer had already
+    paid, aborting the handler so the org kept its old plan, no email went out,
+    and the audit trail only showed an event that changed nothing.
+    """
+    metadata = data.get("metadata") or {}
+    org_id = int(metadata.get("organization_id") or 0)
+    subscription_id = data.get("subscription") or metadata.get("subscription_id")
+    customer_id = data.get("customer") or metadata.get("customer_id")
 
     if not org_id:
         logger.warning("[webhook] checkout.session.completed missing org_id metadata")
         return {"status": "error", "message": "missing org_id in metadata"}
 
     subscription = billing_service.get_or_create_subscription(db, org_id)
+    previous_plan = _plan_label(db, subscription.plan_id, subscription.plan_code)
 
-    # Update provider refs
+    # Provider refs first — invoice.paid may already be waiting on them.
     _upsert_provider_ref(db, org_id, stripe_customer_id=customer_id, stripe_subscription_id=subscription_id)
 
-    # Fetch subscription details from Stripe
     stripe_sub = None
     if subscription_id:
         try:
             stripe_sub = retrieve_subscription(subscription_id)
         except Exception as e:
-            logger.warning("[webhook] Could not retrieve Stripe subscription %s: %s", subscription_id, e)
+            logger.warning(
+                "[webhook] Could not retrieve Stripe subscription %s: %s — "
+                "falling back to Checkout Session fields",
+                subscription_id, e,
+            )
 
+    items = (stripe_sub or {}).get("items") or []
+    price_id = items[0].get("price_id") if items else None
+    quantity = items[0].get("quantity") if items else None
+
+    # Status: live Stripe status first; otherwise the Session outcome, which
+    # still proves the customer paid even when the subscription read failed.
     if stripe_sub:
         mapped_status = _STRIPE_STATUS_MAP.get(stripe_sub["status"], SubscriptionStatus.ACTIVE)
+    elif data.get("payment_status") == "paid" or data.get("status") == "complete":
+        mapped_status = SubscriptionStatus.ACTIVE
+    else:
+        mapped_status = None
+    if mapped_status:
         _transition_subscription(db, subscription, mapped_status, event_id, "checkout.session.completed")
 
-        # Update subscription billing details from Stripe items
-        items = stripe_sub.get("items", [])
-        if items:
-            price_id = items[0].get("price_id")
-            quantity = items[0].get("quantity")
-            plan = _find_plan_by_stripe_price(db, price_id)
-            if plan:
-                subscription.plan_id = plan.id
-                subscription.plan_code = plan.code
-                subscription.billing_metric = plan.billing_metric
-            if quantity is not None:
-                subscription.quantity = quantity
+    # Plan: the Stripe price is authoritative; session metadata is the
+    # fallback that stops an upgrade from silently doing nothing when the
+    # price could not be read back.
+    plan = _find_plan_by_stripe_price(db, price_id)
+    if plan is None:
+        plan = _find_plan_by_id(db, metadata.get("plan_id"))
+    if plan is not None:
+        subscription.plan_id = plan.id
+        subscription.plan_code = plan.code
+        if subscription.billing_metric is None:
+            subscription.billing_metric = plan.billing_metric
 
-        # Set billing_channel to WEB_STRIPE
-        from app.modules.billing.models import BillingChannel
-        subscription.billing_channel = BillingChannel.WEB_STRIPE
+    if quantity is not None:
+        subscription.quantity = quantity
 
-        subscription.service_start_at = datetime.utcnow()
-        db.commit()
+    cycle = _billing_cycle(metadata.get("billing_cycle"))
+    if cycle is not None:
+        subscription.billing_cycle = cycle
+
+    from app.modules.billing.models import BillingChannel
+    subscription.billing_channel = BillingChannel.WEB_STRIPE
+    subscription.service_start_at = subscription.service_start_at or datetime.utcnow()
+    db.commit()
 
     _log_audit(
         db,
@@ -179,7 +209,6 @@ def _handle_checkout_completed(db, event_id, data, full_event):
     # returns None on any replay of this same (or a later) checkout event.
     evaluation = billing_service.get_active_evaluation(db, org_id)
     if evaluation:
-        metadata = data.get("metadata", {})
         plan_id_str = metadata.get("plan_id")
         billing_cycle_str = metadata.get("billing_cycle")
         if plan_id_str and billing_cycle_str:
@@ -216,6 +245,25 @@ def _handle_checkout_completed(db, event_id, data, full_event):
                 org_id, evaluation.id,
             )
 
+    # Entitlements are computed from plan + status + quantity, so any of these
+    # changing must drop the cached decisions before the next request reads them.
+    _invalidate_entitlements(org_id)
+
+    new_plan = _plan_label(db, subscription.plan_id, subscription.plan_code)
+    if new_plan and new_plan != previous_plan:
+        send_plan_upgrade_emails(
+            db,
+            org_id,
+            previous_plan=previous_plan or "Evaluation",
+            new_plan=new_plan,
+            billing_cycle=subscription.billing_cycle,
+            plan=plan,
+            # One confirmation per Checkout Session: the browser redirect and
+            # the webhook both land here, and both must not mail twice.
+            dedupe_key=f"checkout-completed:{data.get('id') or event_id}",
+            source="checkout_session_completed",
+        )
+
     return {"status": "ok", "message": "checkout completed"}
 
 
@@ -239,17 +287,39 @@ def _handle_subscription_updated(db, event_id, data, full_event):
         return {"status": "ok", "message": "no matching subscription"}
 
     old_status = subscription.status.value if subscription.status else None
+    previous_plan = _plan_label(db, subscription.plan_id, subscription.plan_code)
     stripe_status = data.get("status", "")
     mapped_status = _STRIPE_STATUS_MAP.get(stripe_status)
     if mapped_status:
         _transition_subscription(db, subscription, mapped_status, event_id, "customer.subscription.updated")
 
-    # Sync quantity from Stripe
+    plan_changed = False
+
+    # Sync quantity + plan from Stripe. Plan used to be ignored here, so an
+    # in-place price change (the path taken when an org upgrades while already
+    # subscribed) updated status and left plan_id pointing at the old tier.
     items = data.get("items", {}).get("data", [])
     if items:
-        quantity = items[0].get("quantity")
+        item = items[0]
+        quantity = item.get("quantity")
         if quantity is not None:
             subscription.quantity = quantity
+
+        price_id = _price_id(item.get("price"))
+        plan = _find_plan_by_stripe_price(db, price_id)
+        if plan is not None and plan.id != subscription.plan_id:
+            subscription.plan_id = plan.id
+            subscription.plan_code = plan.code
+            if subscription.billing_metric is None:
+                subscription.billing_metric = plan.billing_metric
+            cycle = _billing_cycle(_recurring_interval(item.get("price")))
+            if cycle is not None:
+                subscription.billing_cycle = cycle
+            plan_changed = True
+            logger.info(
+                "[webhook] Subscription %d plan synced from Stripe price %s → %s",
+                subscription.id, price_id, plan.code,
+            )
 
     # Sync cancel_at_period_end
     cancel_at_period_end = data.get("cancel_at_period_end", False)
@@ -273,6 +343,20 @@ def _handle_subscription_updated(db, event_id, data, full_event):
         source="stripe_webhook",
         stripe_event_id=event_id,
     )
+
+    _invalidate_entitlements(provider_ref.organization_id)
+
+    if plan_changed:
+        send_plan_upgrade_emails(
+            db,
+            provider_ref.organization_id,
+            previous_plan=previous_plan or "Previous plan",
+            new_plan=_plan_label(db, subscription.plan_id, subscription.plan_code),
+            billing_cycle=subscription.billing_cycle,
+            plan=None,
+            dedupe_key=f"subscription-updated:{data.get('id') or stripe_sub_id}:{subscription.plan_code}",
+            source="customer_subscription_updated",
+        )
 
     return {"status": "ok", "message": "subscription updated"}
 
@@ -309,6 +393,8 @@ def _handle_subscription_deleted(db, event_id, data, full_event):
         stripe_event_id=event_id,
     )
 
+    _invalidate_entitlements(provider_ref.organization_id)
+
     return {"status": "ok", "message": "subscription deleted"}
 
 
@@ -318,10 +404,17 @@ def _handle_invoice_paid(db, event_id, data, full_event):
     customer_id = data.get("customer")
     subscription_id = data.get("subscription")
 
-    # Find org by customer or subscription
-    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id)
+    # Find org by metadata on the invoice/subscription first, then by the
+    # stored customer/subscription ids. Stripe does not order its events, so
+    # invoice.paid can beat checkout.session.completed — without the metadata
+    # fallback that early invoice (and its receipt email) was dropped.
+    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id, data=data)
     if not org_id:
-        logger.warning("[webhook] invoice.paid for unknown customer/subscription")
+        logger.warning(
+            "[webhook] invoice.paid for unknown customer/subscription "
+            "(customer=%s subscription=%s) — no receipt sent",
+            customer_id, subscription_id,
+        )
         return {"status": "ok", "message": "no matching org"}
 
     _upsert_invoice(db, org_id, data)
@@ -335,6 +428,7 @@ def _handle_invoice_paid(db, event_id, data, full_event):
         _transition_subscription(
             db, subscription, SubscriptionStatus.ACTIVE, event_id, "invoice.paid"
         )
+        _invalidate_entitlements(org_id)
 
     # Payment recovered → close any open delinquency case and restore
     # entitlements automatically if no other restriction reason exists.
@@ -372,9 +466,13 @@ def _handle_invoice_created(db, event_id, data, full_event):
     customer_id = data.get("customer")
     subscription_id = data.get("subscription")
 
-    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id)
+    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id, data=data)
     if not org_id:
-        logger.warning("[webhook] invoice.created for unknown customer/subscription")
+        logger.warning(
+            "[webhook] invoice.created for unknown customer/subscription "
+            "(customer=%s subscription=%s)",
+            customer_id, subscription_id,
+        )
         return {"status": "ok", "message": "no matching org"}
 
     _upsert_invoice(db, org_id, data)
@@ -406,8 +504,13 @@ def _handle_invoice_payment_failed(db, event_id, data, full_event):
     customer_id = data.get("customer")
     subscription_id = data.get("subscription")
 
-    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id)
+    org_id = _find_org_by_stripe_ids(db, customer_id=customer_id, subscription_id=subscription_id, data=data)
     if not org_id:
+        logger.warning(
+            "[webhook] invoice.payment_failed for unknown customer/subscription "
+            "(customer=%s subscription=%s)",
+            customer_id, subscription_id,
+        )
         return {"status": "ok", "message": "no matching org"}
 
     subscription = db.query(BillingSubscription).filter(
@@ -417,6 +520,7 @@ def _handle_invoice_payment_failed(db, event_id, data, full_event):
         _transition_subscription(
             db, subscription, SubscriptionStatus.PAST_DUE, event_id, "invoice.payment_failed"
         )
+        _invalidate_entitlements(org_id)
 
     # Payment failed → open (or reopen) the delinquency case for the graduated
     # day-10/14/20/45 recovery timeline (Section 10 G1).
@@ -465,6 +569,69 @@ def _send_to_billing_recipients(db, org_id, send_fn):
             send_fn(email, org)
         except Exception as e:
             logger.error("[webhook] Email to %s failed for org %d: %s", email, org_id, e)
+
+
+def send_plan_upgrade_emails(
+    db,
+    org_id: int,
+    *,
+    previous_plan: str,
+    new_plan: str,
+    billing_cycle=None,
+    plan=None,
+    dedupe_key: str,
+    source: str,
+):
+    """Send the plan-change confirmation once per `dedupe_key`.
+
+    Two independent paths can reach the same completed upgrade — Stripe's
+    webhook and the browser returning from Checkout — so the confirmation is
+    gated on billing_idempotency_keys (unique per key/org/endpoint). Never
+    raises: an unsendable confirmation must not fail the state transition that
+    already happened.
+    """
+    from app.modules.billing.idempotency import execute_idempotent
+    from app.services.email_service import send_plan_upgraded_email
+
+    cycle_label = ""
+    if billing_cycle is not None:
+        cycle_label = str(billing_cycle.value if hasattr(billing_cycle, "value") else billing_cycle)
+        cycle_label = cycle_label.replace("_", " ").title()
+
+    amount = ""
+    currency = "USD"
+    if plan is not None:
+        price = plan.annual_price if cycle_label == "Annual" else plan.monthly_price
+        if price is not None:
+            amount = f"{float(price):.2f}"
+        if getattr(plan, "currency", None):
+            currency = plan.currency
+
+    def _send():
+        def _one(email, org):
+            send_plan_upgraded_email(
+                email=email,
+                customer_name=org.name,
+                previous_plan_name=previous_plan,
+                new_plan_name=new_plan,
+                billing_cycle=cycle_label,
+                effective_date=datetime.utcnow().strftime("%Y-%m-%d"),
+                amount=amount,
+                currency=currency,
+                organization_id=org_id,
+                db=db,
+            )
+
+        _send_to_billing_recipients(db, org_id, _one)
+        return {"sent": True, "source": source}, 200
+
+    try:
+        execute_idempotent(db, dedupe_key, org_id, "plan-upgrade-email", {"source": source}, _send)
+    except Exception as e:
+        logger.error(
+            "[webhook] Plan-upgrade confirmation failed for org %d (source=%s): %s",
+            org_id, source, e,
+        )
 
 
 def _send_invoice_created_emails(db, org_id, data):
@@ -667,10 +834,116 @@ def _find_plan_by_stripe_price(db: Session, price_id: str) -> BillingPlan | None
     ).first()
 
 
+def _find_plan_by_id(db: Session, raw_plan_id) -> BillingPlan | None:
+    """Find a BillingPlan by primary key, tolerating a missing/invalid value."""
+    try:
+        plan_pk = int(raw_plan_id)
+    except (TypeError, ValueError):
+        return None
+    return db.query(BillingPlan).filter(BillingPlan.id == plan_pk).first()
+
+
+def _price_id(price) -> str | None:
+    """Price id from a Stripe price that may be expanded (object) or bare (str)."""
+    if isinstance(price, str):
+        return price
+    if isinstance(price, dict):
+        return price.get("id")
+    return getattr(price, "id", None)
+
+
+def _recurring_interval(price) -> str | None:
+    """'monthly' | 'annual' derived from a Stripe price's recurring interval."""
+    recurring = None
+    if isinstance(price, dict):
+        recurring = price.get("recurring")
+    else:
+        recurring = getattr(price, "recurring", None)
+    interval = recurring.get("interval") if isinstance(recurring, dict) else getattr(recurring, "interval", None)
+    if interval == "month":
+        return "monthly"
+    if interval == "year":
+        return "annual"
+    return None
+
+
+def _billing_cycle(raw):
+    """BillingCycle from a raw metadata/interval value, or None if unusable."""
+    if not raw:
+        return None
+    try:
+        return BillingCycle(str(raw).lower())
+    except (TypeError, ValueError):
+        return None
+
+
+def _plan_label(db: Session, plan_id, plan_code) -> str:
+    """Human-readable plan name for display/email, '' when unknown."""
+    if plan_id:
+        plan = db.query(BillingPlan).filter(BillingPlan.id == plan_id).first()
+        if plan is not None:
+            return plan.name or str(plan.code.value if hasattr(plan.code, "value") else plan.code)
+    if plan_code is not None:
+        return str(plan_code.value if hasattr(plan_code, "value") else plan_code)
+    return ""
+
+
+def _invalidate_entitlements(organization_id: int) -> None:
+    """Drop cached entitlement decisions for an org after plan/status/quantity
+    changed. Failures are logged only — a cache miss must never fail a webhook."""
+    try:
+        billing_service._invalidate_entitlement_cache(organization_id)
+    except Exception as e:
+        logger.error("[webhook] Entitlement cache invalidation failed for org %d: %s", organization_id, e)
+
+
+def _metadata_org_id(data: dict | None) -> int | None:
+    """organization_id from any metadata block Stripe attaches to this object.
+
+    Covers the Checkout Session, the Checkout Session's `subscription_details`
+    view, the invoice's `subscription_details` (and the newer
+    `parent.subscription_details` nesting), and the invoice's own metadata —
+    because invoice.paid frequently arrives before checkout.session.completed
+    and no ProviderRef exists yet to look the org up by.
+    """
+    if not isinstance(data, dict):
+        return None
+
+    parent = data.get("parent") if isinstance(data.get("parent"), dict) else {}
+    sub_details = data.get("subscription_details") if isinstance(data.get("subscription_details"), dict) else {}
+    parent_sub_details = parent.get("subscription_details") if isinstance(parent.get("subscription_details"), dict) else {}
+
+    blocks = [
+        data.get("metadata"),
+        sub_details.get("metadata"),
+        parent_sub_details.get("metadata"),
+        data.get("subscription_data"),
+    ]
+    for block in blocks:
+        if isinstance(block, dict) and block.get("organization_id"):
+            try:
+                return int(block["organization_id"])
+            except (TypeError, ValueError):
+                continue
+    return None
+
+
 def _find_org_by_stripe_ids(
-    db: Session, customer_id: str | None = None, subscription_id: str | None = None
+    db: Session,
+    customer_id: str | None = None,
+    subscription_id: str | None = None,
+    data: dict | None = None,
 ) -> int | None:
-    """Find organization_id from Stripe customer or subscription ID."""
+    """Find organization_id for a Stripe event.
+
+    Resolution order: embedded metadata → stored subscription ref → stored
+    customer ref. Metadata first because the stored refs only exist once
+    checkout.session.completed has been processed, and Stripe does not
+    guarantee that event lands before the invoice events it causes.
+    """
+    org_id = _metadata_org_id(data)
+    if org_id:
+        return org_id
     if subscription_id:
         ref = db.query(ProviderRef).filter(ProviderRef.stripe_subscription_id == subscription_id).first()
         if ref:

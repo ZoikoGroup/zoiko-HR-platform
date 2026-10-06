@@ -33,6 +33,27 @@ const EXT_KIND = {
   ppt: SLIDES, pptx: SLIDES, odp: SLIDES,
 };
 
+const BLOB_TYPE_BY_EXT = {
+  pdf: "application/pdf", png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif",
+  webp: "image/webp", bmp: "image/bmp", txt: "text/plain", csv: "text/csv",
+};
+
+/**
+ * The browser decides how to show a blob from its type. A PDF stored as
+ * application/octet-stream renders as a blank frame, so when the stored type is
+ * missing or generic the file extension supplies the right one (ZHR-47).
+ */
+export function normalizePreviewBlob(blob, filename = "") {
+  if (!blob || typeof Blob === "undefined") return blob;
+  const wanted = BLOB_TYPE_BY_EXT[fileExtension(filename)];
+  const current = String(blob.type || "").split(";")[0].trim().toLowerCase();
+  if (!wanted || current === wanted) return blob;
+  const generic = !current || current === "application/octet-stream" || current === "binary/octet-stream" || current === "application/x-download";
+  // Only override a generic or clearly wrong type for the formats the browser renders itself.
+  if (!generic && !(wanted === "application/pdf" && current !== "application/pdf")) return blob;
+  return new Blob([blob], { type: wanted });
+}
+
 export function fileExtension(filename = "") {
   const name = String(filename);
   // Stored paths and URLs can carry query/hash noise ("abc.PDF?v=2"); dotfiles
@@ -139,18 +160,24 @@ export async function renderWord(blob, filename = "") {
     };
   }
 
-  const mammoth = await import("mammoth");
+  // The prebuilt browser bundle: it works in the browser (Vite's dev server fails with
+  // "require is not defined" on the package's Node entry) and in Node, where it exposes
+  // the same convertToHtml({ arrayBuffer }) API.
   let result;
   try {
-    // Browser build of mammoth reads an ArrayBuffer...
+    const mod = await import("mammoth/mammoth.browser.js");
+    // CommonJS interop differs between Node, Vite dev and the production build; the UMD
+    // bundle may also only register itself as a global when loaded as a plain script.
+    const mammoth = [mod?.default, mod, typeof globalThis !== "undefined" ? globalThis.mammoth : undefined]
+      .find((candidate) => candidate && typeof candidate.convertToHtml === "function");
+    if (!mammoth) throw new Error("mammoth did not load");
     result = await mammoth.convertToHtml({ arrayBuffer: buffer });
   } catch (err) {
-    // ...the Node build (used by server-side tests) wants a Buffer instead.
-    if (typeof Buffer !== "undefined" && /Could not find file in options/i.test(String(err?.message))) {
-      result = await mammoth.convertToHtml({ buffer: Buffer.from(buffer) });
-    } else {
-      return { legacy: true, message: "This document could not be read. It may be corrupted or protected; download it below to open it." };
-    }
+    console.error("[documentPreview] Word conversion failed:", err);
+    return {
+      legacy: true,
+      message: "This document could not be read. It may be corrupted or password protected; download it below to open it.",
+    };
   }
   return {
     html: result.value || "<p>(no readable text)</p>",
@@ -187,11 +214,14 @@ export async function renderSlides(blob, filename = "") {
     };
   }
 
-  const JSZip = (await import("jszip")).default;
+  const zipModule = await import("jszip");
+  const JSZip = [zipModule?.default, zipModule?.JSZip, zipModule, globalThis.JSZip].find((c) => c && typeof c.loadAsync === "function");
   let zip;
   try {
+    if (!JSZip) throw new Error(`jszip did not load (module keys: ${Object.keys(zipModule || {}).join(",") || "none"})`);
     zip = await JSZip.loadAsync(await blobToBuffer(blob));
-  } catch {
+  } catch (err) {
+    console.error("[documentPreview] Presentation read failed:", err);
     return { legacy: true, message: "This presentation could not be read. It may be corrupted or not a .pptx file; download it below to open it." };
   }
 

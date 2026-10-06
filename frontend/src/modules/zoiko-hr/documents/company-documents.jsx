@@ -16,22 +16,18 @@ import {
   deleteDocumentFolder, assignFolderToEmployees
 } from "../../../service/hrService";
 
-const STATUS_META = {
-  pending:  { label: "Pending",  bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-500"  },
-  approved: { label: "Approved", bg: "bg-emerald-50",  text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
-  rejected: { label: "Rejected", bg: "bg-rose-50",    text: "text-rose-700",   border: "border-rose-200",   dot: "bg-rose-500"   },
-  expired:  { label: "Expired",  bg: "bg-slate-100",  text: "text-slate-500",  border: "border-slate-200",  dot: "bg-slate-400"  },
-};
+// Only organization admins upload company documents, so there is nothing to approve or
+// reject: a document is simply available, or past its expiry date.
 const StatusBadge = ({ status }) => {
-  const m = STATUS_META[status] || STATUS_META.pending;
+  if (status !== "expired") return null;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${m.bg} ${m.text} ${m.border}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
-      {m.label}
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border bg-slate-100 text-slate-500 border-slate-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+      Expired
     </span>
   );
 };
-const STATUS_FILTERS = ["all", "pending", "approved", "rejected", "expired"];
+const STATUS_FILTERS = ["all", "expired"];
 
 const ACCESS_ROLE_LABELS = {
   all: "All Employees", employee: "All Employees", manager: "Managers+",
@@ -407,6 +403,11 @@ export default function CompanyDocuments() {
                     <p className="font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:text-blue-700 transition-colors">{d.title}</p>
                   </div>
                   {d.description && <p className="text-xs text-slate-400 line-clamp-2">{d.description}</p>}
+                  {d.file_missing && (
+                    <p role="alert" className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-2.5 py-1.5">
+                      The file is missing on the server{isAdmin ? ". Upload it again to restore the preview." : "."}
+                    </p>
+                  )}
                   <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-100">
                     <StatusBadge status={d.status} />
                     <span className="text-xs text-slate-400">{fmtDate(d.created_at)}</span>
@@ -421,11 +422,12 @@ export default function CompanyDocuments() {
                   </div>
                   {/* Action row */}
                   <div className="flex items-center gap-2 pt-1">
-                    <button onClick={() => view(d.id)} disabled={busyId === d.id}
+                    <button onClick={() => view(d.id)} disabled={busyId === d.id || d.file_missing}
+                      title={d.file_missing ? "The file is not on the server. Upload it again." : undefined}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                       {busyId === d.id && busyAction === "view" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />} Preview
                     </button>
-                    <button onClick={() => download(d.id)} disabled={busyId === d.id}
+                    <button onClick={() => download(d.id)} disabled={busyId === d.id || d.file_missing}
                       aria-label={`Download ${d.title}`}
                       className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                       {busyId === d.id && busyAction === "download" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}

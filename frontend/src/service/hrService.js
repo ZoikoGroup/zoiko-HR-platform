@@ -400,7 +400,7 @@ export const getHrDashboardStats = () => api.get("/hr/dashboard/stats");
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-export const getAttendanceDashboard = () => api.get("/hr/attendance/dashboard");
+export const getAttendanceDashboard = (params = {}) => api.get("/hr/attendance/dashboard", { params });
 
 // ── Attendance Records ────────────────────────────────────────────────────
 export const getAttendanceRecords = (params = {}) => api.get("/hr/attendance/records", { params });
@@ -430,46 +430,44 @@ export const deleteHoliday = (id) => api.delete(`/hr/attendance/holidays/${id}`)
 export const importHolidays = (payload) => api.post("/hr/attendance/holidays/import", payload);
 
 // ── Exports ────────────────────────────────────────────────────────────────
-export async function exportAttendanceCsv(params = {}) {
+// Attendance exports. The CSV and the Excel file come from different endpoints and are different
+// formats; the file name is taken from the server's Content-Disposition so the extension always
+// matches what was actually downloaded (ZHR-56).
+async function downloadAttendanceExport(kind, params = {}) {
   const token = getAccessToken();
   const queryString = Object.entries(params)
     .filter(([_, v]) => v !== undefined && v !== null && v !== "")
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join("&");
-  const response = await fetch(`${API_BASE_URL}/hr/attendance/export/csv${queryString ? `?${queryString}` : ""}`, {
+  const response = await fetch(`${API_BASE_URL}/hr/attendance/export/${kind}${queryString ? `?${queryString}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!response.ok) throw new Error("Failed to export attendance CSV");
+  if (!response.ok) {
+    let detail = "";
+    try { const body = await response.json(); detail = body?.message || body?.detail || ""; } catch { /* not JSON */ }
+    throw new Error(detail || `Failed to export attendance ${kind === "csv" ? "CSV" : "Excel"} (${response.status})`);
+  }
   const blob = await response.blob();
+  const header = response.headers.get("Content-Disposition") || "";
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  const filename = match ? decodeURIComponent(match[1]) : `attendance_export.${kind === "csv" ? "csv" : "xlsx"}`;
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "attendance_export.csv";
+  a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   window.URL.revokeObjectURL(url);
+  return filename;
 }
 
-export async function exportAttendanceExcel(params = {}) {
-  const token = getAccessToken();
-  const queryString = Object.entries(params)
-    .filter(([_, v]) => v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&");
-  const response = await fetch(`${API_BASE_URL}/hr/attendance/export/excel${queryString ? `?${queryString}` : ""}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) throw new Error("Failed to export attendance Excel");
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "attendance_export.xlsx";
-  a.click();
-  window.URL.revokeObjectURL(url);
-}
+export const exportAttendanceCsv = (params = {}) => downloadAttendanceExport("csv", params);
+export const exportAttendanceExcel = (params = {}) => downloadAttendanceExport("excel", params);
 
 // ── Analytics ─────────────────────────────────────────────────────────────
 export const getAttendanceAnalytics = (params = {}) => api.get("/hr/attendance/analytics", { params });
+export const getAttendanceKpis = (params = {}) => api.get("/hr/attendance/analytics/summary", { params });
 export const getAttendanceTrends = (params = {}) => api.get("/hr/attendance/analytics/trends", { params });
 export const getDepartmentAnalysis = (params = {}) => api.get("/hr/attendance/analytics/department", { params });
 export const getOvertimeAnalytics = (params = {}) => api.get("/hr/attendance/analytics/overtime", { params });
@@ -777,7 +775,9 @@ export const deleteDepartment = (deptId) =>
 
 
 export const getDepartments = (params = {}) => api.get("/hr/departments", { params }).then(data => ({ data }));
-export const getDesignations = () => api.get("/hr/designations");
+export const getDesignations = (params) => api.get("/hr/designations", { params });
+// Server-computed report for the Designation Reports page (totals, per-department table, trends).
+export const getDesignationReport = (params) => api.get("/hr/designations/report", { params });
 
 // ── DESIGNATIONS CRUD SPECIFIC ──────────────────────────────────────────────
 export const getDesignationById = (id) =>

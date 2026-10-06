@@ -264,6 +264,34 @@ class TestQuotationEndpoints:
         assert body["decision"] == "accept"
         assert body["quote_number"] == quotation.quote_number
 
+    def test_email_link_points_at_the_web_app_not_localhost_api(self, db, sent_emails, monkeypatch):
+        from app.config import settings
+
+        monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.example.com/")
+        monkeypatch.delenv("API_BASE_URL", raising=False)
+        link = quotation_service._decision_link("tok-123_abc")
+        assert link == "https://app.example.com/quotation/decide?token=tok-123_abc"
+        assert "localhost" not in link
+
+    def test_by_token_returns_the_quote_details_for_the_decision_page(self, db, client, sent_emails):
+        quotation, raw_token = self._issue(db)
+        r = client.get(f"/billing/quotations/by-token?token={raw_token}")
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["quote_number"] == quotation.quote_number
+        assert body["plan"] == "Advanced" and body["billing_cycle"] == "monthly"
+        assert body["amount_display"].startswith(quotation.currency)
+        assert body["organization_name"]
+
+    def test_by_token_gives_one_answer_for_every_invalid_state(self, db, client, sent_emails):
+        quotation, raw_token = self._issue(db)
+        unknown = client.get("/billing/quotations/by-token?token=" + "x" * 40)
+        assert unknown.status_code == 404
+        _make_super_admin(db)
+        assert client.post("/billing/quotations/decide", json={"token": raw_token, "decision": "accept"}).status_code == 200
+        decided = client.get(f"/billing/quotations/by-token?token={raw_token}")
+        assert decided.status_code == 404 and decided.json()["detail"] == unknown.json()["detail"]
+
     def test_post_decide_bad_token_returns_400(self, db, client, sent_emails):
         _make_org_and_plan(db)
         r = client.post("/billing/quotations/decide", json={"token": "garbage", "decision": "accept"})

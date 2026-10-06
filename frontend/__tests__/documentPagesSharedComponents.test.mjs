@@ -136,16 +136,6 @@ const PAGES = [
     dataModule: "../src/service/employee.js",
     exportsFor: (docs) => ({ getDocuments: async () => ({ data: docs }) }),
   },
-  {
-    name: "Employee_UploadRequest",
-    path: "../src/pages/Peoples/Employees/Documents/Employee_UploadRequest.jsx",
-    dataModule: "../src/service/employee.js",
-    needsAuthMock: true,
-    exportsFor: (docs) => ({
-      getDocuments: async () => ({ data: docs }),
-      uploadDocument: async () => ({}),
-    }),
-  },
 ];
 
 for (const page of PAGES) {

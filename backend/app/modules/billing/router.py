@@ -40,7 +40,7 @@ from app.modules.billing import refund_service
 from app.modules.billing import exception_service
 from app.modules.billing import quotation_service
 from app.modules.billing.models import (
-    BillingAuditAction, BillingAuditLog, BillingInvoice, BillingPlan, BillingWebhookEvent,
+    BillingAuditAction, BillingAuditLog, BillingChannel, BillingInvoice, BillingPlan, BillingWebhookEvent,
     BillingPlanChange, BillingRefundRequest, DelinquencyCase,
     ProviderRef, RefundRequestStatus, RefundRequestType, SubscriptionStatus,
     CommercialExceptionStatus, EntitlementMode,
@@ -49,10 +49,17 @@ from app.modules.billing.entitlement_service import compute_entitlement_snapshot
 from app.modules.billing.idempotency import execute_idempotent, require_idempotency_key
 from app.modules.billing.stripe_client import (
     create_checkout_session,
+    ensure_customer,
+    modify_subscription_price,
+    retrieve_checkout_session,
     stripe_enabled,
     verify_webhook_signature,
 )
-from app.modules.billing.webhook_service import process_webhook_event, replay_webhook_event
+from app.modules.billing.webhook_service import (
+    process_webhook_event,
+    replay_webhook_event,
+    send_plan_upgrade_emails,
+)
 from app.modules.billing.reconciliation_service import (
     reconcile_org,
     list_reconciliation_cases,
@@ -70,6 +77,8 @@ from app.modules.billing.schemas import (
     CatalogResponse,
     CheckoutSessionRequest,
     CheckoutSessionResponse,
+    CheckoutConfirmRequest,
+    CheckoutConfirmResponse,
     PlanRepriceRequest,
     ClassificationUpdateRequest,
     ConversionListResponse,
@@ -1062,10 +1071,118 @@ def get_entitlement_snapshot(
 
 # ── Stripe Checkout (Prompt 3) ─────────────────────────────────────────────
 
+# States that still own a LIVE Stripe subscription. Opening a fresh Checkout
+# Session for any of these creates a second subscription and double-bills the
+# customer — an org that is already subscribed must be repriced in place.
+_LIVE_STRIPE_STATUSES = {
+    SubscriptionStatus.ACTIVE,
+    SubscriptionStatus.CANCEL_AT_PERIOD_END,
+    SubscriptionStatus.PAST_DUE,
+    SubscriptionStatus.SUSPENDED,
+    SubscriptionStatus.RESTRICTED,
+}
+
+# Live, but not safely changeable in place: an unpaid period has to clear
+# before a prorated charge can be layered on top of it.
+_BLOCKED_STRIPE_STATUSES = {
+    SubscriptionStatus.PAST_DUE,
+    SubscriptionStatus.SUSPENDED,
+    SubscriptionStatus.RESTRICTED,
+}
+
+
+def _with_session_id(success_url: str) -> str:
+    """Append Stripe's {CHECKOUT_SESSION_ID} placeholder so the browser can
+    hand the session id back to /billing/checkout-session/confirm on return.
+
+    The redirect is the ONLY channel that is guaranteed to reach us — Stripe's
+    webhooks cannot be delivered to localhost or to a host with no ingress —
+    so the session id must travel with the redirect rather than rely on the
+    webhook arriving first."""
+    if "{CHECKOUT_SESSION_ID}" in success_url:
+        return success_url
+    separator = "&" if "?" in success_url else "?"
+    return f"{success_url}{separator}session_id={{CHECKOUT_SESSION_ID}}"
+
+
+def _apply_local_plan_change(
+    db: Session,
+    subscription,
+    plan,
+    billing_cycle,
+    stripe_sub: dict,
+    *,
+    actor,
+    organization_id: int,
+    stripe_event_id: str,
+    source: str = "stripe_checkout",
+) -> str:
+    """Record a confirmed Stripe plan change locally.
+
+    Returns the previous plan label so the caller can send the confirmation."""
+    from app.modules.billing import service as billing_service
+
+    previous_plan = ""
+    if subscription.plan_id:
+        previous = db.query(BillingPlan).filter(BillingPlan.id == subscription.plan_id).first()
+        if previous is not None:
+            previous_plan = previous.name or str(
+                previous.code.value if hasattr(previous.code, "value") else previous.code
+            )
+    elif subscription.plan_code is not None:
+        previous_plan = str(
+            subscription.plan_code.value
+            if hasattr(subscription.plan_code, "value")
+            else subscription.plan_code
+        )
+
+    subscription.plan_id = plan.id
+    subscription.plan_code = plan.code
+    if subscription.billing_metric is None:
+        subscription.billing_metric = plan.billing_metric
+    if billing_cycle is not None:
+        subscription.billing_cycle = billing_cycle
+
+    items = (stripe_sub or {}).get("items") or []
+    if items and items[0].get("quantity") is not None:
+        subscription.quantity = items[0]["quantity"]
+
+    status = (stripe_sub or {}).get("status")
+    if status in ("active", "trialing"):
+        subscription.status = SubscriptionStatus.ACTIVE
+    elif status in _STRIPE_STATUS_TO_LOCAL:
+        subscription.status = _STRIPE_STATUS_TO_LOCAL[status]
+
+    subscription.billing_channel = BillingChannel.WEB_STRIPE
+    subscription.updated_at = datetime.utcnow()
+
+    billing_service._invalidate_entitlement_cache(organization_id)
+
+    return previous_plan
+
+
+# Local mirror of the Stripe status map used when a direct price change
+# returns the subscription rather than going through a webhook.
+_STRIPE_STATUS_TO_LOCAL = {
+    "active": SubscriptionStatus.ACTIVE,
+    "trialing": SubscriptionStatus.ACTIVE,
+    "past_due": SubscriptionStatus.PAST_DUE,
+    "canceled": SubscriptionStatus.CANCELED,
+    "unpaid": SubscriptionStatus.RESTRICTED,
+    "paused": SubscriptionStatus.SUSPENDED,
+}
+
+
 @billing_router.post(
     "/checkout-session",
     response_model=CheckoutSessionResponse,
-    summary="Create a Stripe Checkout Session (evaluation→paid or plan change)",
+    summary="Start a Stripe plan purchase or upgrade",
+    description=(
+        "Opens Stripe Checkout for an org that is not yet subscribed. An org "
+        "that already has a live Stripe subscription is REPRICED IN PLACE "
+        "instead (no redirect, `updated: true`), so a plan upgrade never "
+        "creates a second subscription or double-bills the customer."
+    ),
 )
 def create_checkout(
     data: CheckoutSessionRequest,
@@ -1112,24 +1229,155 @@ def create_checkout(
             f"(plan {plan.name or plan.code} is not self-serve priced)."
         )
 
+    plan_code = plan.code.value if hasattr(plan.code, "value") else str(plan.code)
+
     def _do_checkout():
-        from app.modules.billing.models import ProviderRef
+        from app.modules.hr.models import Organization
+        from app.modules.billing.webhook_service import _upsert_provider_ref
+
+        subscription = service.get_or_create_subscription(db, data.organization_id)
         provider_ref = db.query(ProviderRef).filter(
             ProviderRef.organization_id == data.organization_id
         ).first()
+        stripe_subscription_id = provider_ref.stripe_subscription_id if provider_ref else None
+
+        # ── Already subscribed → reprice the existing subscription in place ──
+        if stripe_subscription_id and subscription.status in _LIVE_STRIPE_STATUSES:
+            if subscription.status in _BLOCKED_STRIPE_STATUSES:
+                raise BadRequestException(
+                    f"Your subscription is "
+                    f"{subscription.status.value.replace('_', ' ')}. Settle the "
+                    "outstanding invoice before changing plans."
+                )
+
+            # A lower tier is a downgrade: it takes effect at renewal, after the blocker
+            # check (SSO, integrations, retention...), never as an immediate repricing.
+            if subscription.plan_code is not None and plan_change_service._is_downgrade(
+                service.role_value(subscription.plan_code), plan_code
+            ):
+                raise BadRequestException(
+                    "This plan is a lower tier than your current one. Use \"Check downgrade impact\" to "
+                    "review what would change and schedule the downgrade for your next renewal."
+                )
+
+            try:
+                changed = modify_subscription_price(
+                    subscription_id=stripe_subscription_id,
+                    new_price_id=price_id,
+                    quantity=subscription.quantity or 1,
+                    idempotency_key=f"plan-change:{idempotency_key}",
+                )
+            except RuntimeError as e:
+                raise BadRequestException(str(e))
+
+            if changed.get("unchanged"):
+                return {
+                    "checkout_session_id": None,
+                    "checkout_url": None,
+                    "organization_id": data.organization_id,
+                    "plan_id": data.plan_id,
+                    "updated": False,
+                    "unchanged": True,
+                    "status": (changed.get("status") or "active"),
+                    "message": "You are already on this plan — it renews automatically.",
+                }, 200
+
+            if changed.get("status") not in ("active", "trialing"):
+                raise BadRequestException(
+                    "Stripe accepted the plan change but the payment did not "
+                    f"complete (status: {changed.get('status')}). Nothing was changed."
+                )
+
+            previous_plan = _apply_local_plan_change(
+                db,
+                subscription,
+                plan,
+                data.billing_cycle,
+                changed,
+                actor=current_user,
+                organization_id=data.organization_id,
+                stripe_event_id=f"plan_change:{idempotency_key}",
+                source="stripe_price_change",
+            )
+            service.log_billing_audit(
+                db,
+                actor=current_user,
+                organization_id=data.organization_id,
+                action=BillingAuditAction.CHECKOUT_SESSION_CREATED,
+                entity_type="BillingSubscription",
+                entity_id=subscription.id,
+                before={"plan_id": None, "stripe_subscription_id": stripe_subscription_id},
+                after={
+                    "plan_id": data.plan_id,
+                    "billing_cycle": data.billing_cycle.value,
+                    "stripe_subscription_id": stripe_subscription_id,
+                    "flow": "in_place_price_change",
+                },
+            )
+            db.commit()
+
+            send_plan_upgrade_emails(
+                db,
+                data.organization_id,
+                previous_plan=previous_plan or "Previous plan",
+                new_plan=plan.name or plan_code,
+                billing_cycle=data.billing_cycle,
+                plan=plan,
+                dedupe_key=f"price-change:{stripe_subscription_id}:{plan_code}",
+                source="in_place_price_change",
+            )
+            db.commit()
+
+            return {
+                "checkout_session_id": None,
+                "checkout_url": None,
+                "organization_id": data.organization_id,
+                "plan_id": data.plan_id,
+                "updated": True,
+                "unchanged": False,
+                "status": (changed.get("status") or "active"),
+                "message": "Plan updated. A confirmation email is on its way.",
+            }, 200
+
+        # ── Not subscribed yet → open Stripe Checkout for a NEW subscription ──
+        org = db.query(Organization).filter(Organization.id == data.organization_id).first()
         customer_id = provider_ref.stripe_customer_id if provider_ref else None
+        if not customer_id:
+            # Create the customer BEFORE Checkout so the ProviderRef exists when
+            # invoice.created/invoice.paid land. Stripe does not order its
+            # events, and without the ref those early invoices were dropped as
+            # "no matching org" — silently losing the receipt email.
+            try:
+                customer_id = ensure_customer(
+                    org_id=data.organization_id,
+                    email=getattr(org, "registered_email", None),
+                    name=getattr(org, "name", None),
+                    metadata={"plan_code": plan_code, "billing_cycle": data.billing_cycle.value},
+                )
+            except RuntimeError as e:
+                raise BadRequestException(str(e))
+            _upsert_provider_ref(db, data.organization_id, stripe_customer_id=customer_id)
+            db.commit()
 
         result = create_checkout_session(
             price_id=price_id,
             org_id=data.organization_id,
             customer_id=customer_id,
-            success_url=data.success_url,
+            success_url=_with_session_id(data.success_url),
             cancel_url=data.cancel_url,
             metadata={
-                "plan_code": plan.code.value if hasattr(plan.code, "value") else str(plan.code),
+                "plan_code": plan_code,
                 "plan_id": str(data.plan_id),
                 "billing_cycle": data.billing_cycle.value,
             },
+            # Mirrored onto the subscription AND its invoices, which is what
+            # lets an invoice event resolve its org with no ProviderRef yet.
+            subscription_metadata={
+                "plan_code": plan_code,
+                "plan_id": str(data.plan_id),
+                "billing_cycle": data.billing_cycle.value,
+            },
+            client_reference_id=str(data.organization_id),
             idempotency_key=idempotency_key,
         )
 
@@ -1141,22 +1389,128 @@ def create_checkout(
             entity_type="BillingSubscription",
             entity_id=None,
             before=None,
-            after={"checkout_session_id": result["checkout_session_id"], "plan_id": data.plan_id},
+            after={
+                "checkout_session_id": result["checkout_session_id"],
+                "plan_id": data.plan_id,
+                "flow": "stripe_checkout_session",
+            },
         )
-        # Augment result with required fields for response model
-        response_payload = {
+
+        return {
             "checkout_session_id": result["checkout_session_id"],
             "checkout_url": result["checkout_url"],
             "organization_id": data.organization_id,
             "plan_id": data.plan_id,
-        }
-        return response_payload, 200
+            "updated": False,
+            "unchanged": False,
+            "status": result.get("status"),
+            "message": None,
+        }, 200
 
     result, status_code, _ = execute_idempotent(
         db, idempotency_key, data.organization_id, "checkout-session",
         data.model_dump(), _do_checkout,
     )
     return result
+
+
+# ── Checkout confirmation (browser return path) ─────────────────────────────
+
+@billing_router.post(
+    "/checkout-session/confirm",
+    response_model=CheckoutConfirmResponse,
+    summary="Confirm a completed Stripe Checkout Session after the browser returns",
+    description=(
+        "Reads the session straight from Stripe and applies the completion "
+        "logic (plan, status, ProviderRef, confirmation email) if the payment "
+        "settled. Stripe cannot deliver webhooks to localhost, so this is the "
+        "channel that guarantees the app reflects a payment that actually "
+        "happened. Idempotent: a replayed session is a no-op."
+    ),
+)
+def confirm_checkout(
+    data: CheckoutConfirmRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_billing_actor),
+):
+    if not stripe_enabled():
+        raise BadRequestException(
+            "Stripe is not configured. Set HR_STRIPE_SECRET_KEY to confirm payments."
+        )
+    _check_org_scope(current_user, data.organization_id)
+
+    try:
+        session = retrieve_checkout_session(data.checkout_session_id)
+    except RuntimeError as e:
+        raise BadRequestException(str(e))
+
+    session_org = int((session.get("metadata") or {}).get("organization_id") or 0)
+    if session_org and session_org != data.organization_id:
+        raise ForbiddenException(
+            "This checkout session belongs to a different organization."
+        )
+
+    payment_status = session.get("payment_status")
+    session_status = session.get("status")
+    if session_status != "complete" or payment_status not in ("paid", "no_payment_required"):
+        pending = session_status == "open"
+        return CheckoutConfirmResponse(
+            status="pending" if pending else "failed",
+            organization_id=data.organization_id,
+            message=(
+                "Payment is still being processed. We'll keep checking."
+                if pending
+                else "This checkout session has not been paid."
+            ),
+        )
+
+    # Run the same completion logic the webhook would run. The synthetic event
+    # id is per-session, so browser return and webhook both execute but the
+    # state transition and the confirmation email stay single-shot.
+    session_id = session.get("id") or data.checkout_session_id
+    result = process_webhook_event(db, {
+        "id": f"checkout_session_confirmed:{session_id}",
+        "type": "checkout.session.completed",
+        "data": {
+            "object": {
+                "id": session_id,
+                "status": session_status,
+                "payment_status": payment_status,
+                "subscription": session.get("subscription_id"),
+                "customer": session.get("customer_id"),
+                "customer_email": session.get("customer_email"),
+                "amount_total": session.get("amount_total"),
+                "currency": session.get("currency"),
+                "metadata": session.get("metadata") or {},
+            }
+        },
+    })
+    if isinstance(result, dict) and result.get("status") == "error":
+        raise BadRequestException(
+            "The payment settled but the plan update could not be applied: "
+            f"{result.get('message', 'unknown error')}"
+        )
+
+    subscription = service.get_or_create_subscription(db, data.organization_id)
+    db.refresh(subscription)
+    plan_code = None
+    if subscription.plan_code is not None:
+        plan_code = str(
+            subscription.plan_code.value
+            if hasattr(subscription.plan_code, "value")
+            else subscription.plan_code
+        )
+
+    return CheckoutConfirmResponse(
+        status="confirmed",
+        organization_id=data.organization_id,
+        plan_id=subscription.plan_id,
+        plan_code=plan_code,
+        subscription_status=(
+            subscription.status.value if subscription.status is not None else None
+        ),
+        message="Payment confirmed. Your plan has been updated.",
+    )
 
 
 # ── Provider Refs ───────────────────────────────────────────────────────────
@@ -1410,6 +1764,40 @@ def quotation_decision_form(token: str = Query(...), db: Session = Depends(get_d
     if quotation is None:
         return _invalid_quotation_page()
     return _quotation_decision_page(quotation, token)
+
+
+@quotation_router.get(
+    "/by-token",
+    summary="Quotation details for the emailed decision link (public, token is the credential)",
+)
+@limiter.limit("30/minute")
+def quotation_details_by_token(request: Request, token: str = Query(..., min_length=10, max_length=200),
+                               db: Session = Depends(get_db)):
+    from fastapi import HTTPException
+
+    from app.modules.hr.models import Organization
+
+    quotation = quotation_service.get_quotation_by_token(db, token)
+    if quotation is None:
+        # One answer for unknown / expired / already decided, so the endpoint cannot be used to probe tokens.
+        raise HTTPException(
+            status_code=404,
+            detail="This quotation link is no longer valid. It may have expired or already been decided.",
+        )
+    organization = db.query(Organization).filter(Organization.id == quotation.organization_id).first()
+    cycle = quotation.billing_cycle.value if hasattr(quotation.billing_cycle, "value") else str(quotation.billing_cycle)
+    plan = quotation.plan_code.value if hasattr(quotation.plan_code, "value") else str(quotation.plan_code)
+    return {
+        "quote_number": quotation.quote_number,
+        "organization_name": (organization.organization_name or organization.name) if organization else None,
+        "plan": plan.title(),
+        "billing_cycle": cycle,
+        "currency": quotation.currency,
+        "amount": f"{quotation.amount_cents / 100:.2f}",
+        "amount_display": f"{quotation.currency} {quotation.amount_cents / 100:,.2f}",
+        "valid_until": quotation.valid_until.isoformat() + "Z" if quotation.valid_until else None,
+        "recipient_name": quotation.recipient_name,
+    }
 
 
 @quotation_router.post(

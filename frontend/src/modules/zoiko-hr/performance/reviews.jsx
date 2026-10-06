@@ -57,6 +57,9 @@ export default function PerformanceReviews() {
   const [feedback, setFeedback] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [pageError, setPageError] = useState("");
+  const [formError, setFormError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editReview, setEditReview] = useState(null);
   const [reviewForm, setReviewForm] = useState({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "" });
@@ -75,86 +78,134 @@ export default function PerformanceReviews() {
 
   const loadAll = useCallback(() => {
     setLoading(true);
-    Promise.all([
-      getPerformanceReviews().then((r) => { setReviews(Array.isArray(r) ? r : r?.items || r?.data || []); }).catch(() => {}),
-      getPeerFeedback().then((f) => { setFeedback(Array.isArray(f) ? f : f?.items || f?.data || []); }).catch(() => {}),
-      getHrEmployees({ per_page: 200, include_all_roles: true }).then((e) => { setEmployees(Array.isArray(e) ? e : e?.items || e?.data || []); }).catch(() => {}),
-    ]).finally(() => setLoading(false));
+    setPageError("");
+    const list = (r) => (Array.isArray(r) ? r : r?.items || r?.data || []);
+    return Promise.all([
+      getPerformanceReviews().then((r) => setReviews(list(r))),
+      getPeerFeedback().then((f) => setFeedback(list(f))),
+      getHrEmployees({ per_page: 200, include_all_roles: true }).then((e) => setEmployees(list(e))),
+    ])
+      .catch((err) => setPageError(err?.message || "Could not load performance reviews."))
+      .finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { loadAll(); }, [loadAll]);
 
   const filteredReviews = reviews.filter((r) => {
-    if (reviewFilter === "self") return currentUserId && (r.employee_id === currentUserId || r.reviewer_id === currentUserId);
-    if (reviewFilter === "manager") return true;
+    if (reviewFilter === "self") {
+      return currentUserId && [r.employee_id, r.reviewer_id, r.hr_reviewer_id, r.admin_reviewer_id].includes(currentUserId);
+    }
     return true;
   });
 
   const openCreate = () => {
     setEditReview(null);
-    setReviewForm({ employee_id: currentUserId || "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "" });
+    setReviewForm({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "" });
+    setFormError("");
     setShowModal(true);
   };
 
   const openEdit = (r) => {
     setEditReview(r);
-    setReviewForm({ employee_id: r.employee_id, reviewer_id: r.reviewer_id || "", hr_reviewer_id: r.hr_reviewer_id || "", admin_reviewer_id: r.admin_reviewer_id || "", cycle: r.cycle, rating: r.rating || 3, comments: r.comments || "" });
+    setReviewForm({ employee_id: r.employee_id, reviewer_id: r.reviewer_id || "", hr_reviewer_id: r.hr_reviewer_id || "", admin_reviewer_id: r.admin_reviewer_id || "", cycle: r.cycle || "", rating: r.rating || 3, comments: r.comments || "" });
+    setFormError("");
     setShowModal(true);
   };
 
+  const validateReview = (f) => {
+    if (!f.employee_id) return "Choose the employee being reviewed.";
+    if (!String(f.cycle).trim()) return "Enter the review cycle, for example Q1 2026.";
+    if (String(f.cycle).trim().length > 50) return "The cycle name can be at most 50 characters.";
+    const rating = Number(f.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) return "Rating must be a whole number from 1 to 5.";
+    if (f.reviewer_id && String(f.reviewer_id) === String(f.employee_id)) return "An employee cannot be their own manager reviewer.";
+    return "";
+  };
+
   const handleReviewSave = async () => {
-    const payload = { ...reviewForm, employee_id: Number(reviewForm.employee_id), reviewer_id: reviewForm.reviewer_id ? Number(reviewForm.reviewer_id) : null, hr_reviewer_id: reviewForm.hr_reviewer_id ? Number(reviewForm.hr_reviewer_id) : null, admin_reviewer_id: reviewForm.admin_reviewer_id ? Number(reviewForm.admin_reviewer_id) : null, rating: Number(reviewForm.rating) };
-    if (editReview) {
-      await updatePerformanceReview(editReview.id, payload);
-    } else {
-      await createPerformanceReview(payload);
+    const problem = validateReview(reviewForm);
+    if (problem) { setFormError(problem); return; }
+    const id = (v) => (v ? Number(v) : null);
+    const payload = {
+      employee_id: Number(reviewForm.employee_id),
+      reviewer_id: id(reviewForm.reviewer_id),
+      hr_reviewer_id: id(reviewForm.hr_reviewer_id),
+      admin_reviewer_id: id(reviewForm.admin_reviewer_id),
+      cycle: String(reviewForm.cycle).trim(),
+      rating: Number(reviewForm.rating),
+      comments: reviewForm.comments?.trim() || null,
+    };
+    setSaving(true);
+    setFormError("");
+    try {
+      if (editReview) await updatePerformanceReview(editReview.id, payload);
+      else await createPerformanceReview(payload);
+      setShowModal(false);
+      await loadAll();
+    } catch (err) {
+      setFormError(err?.message || "Could not save the review.");
+    } finally {
+      setSaving(false);
     }
-    setShowModal(false);
-    loadAll();
   };
 
   const handleEmployeeChangeForReview = async (employeeId) => {
-    setReviewForm((prev) => ({ ...prev, employee_id: employeeId, reviewer_id: prev.reviewer_id || "", hr_reviewer_id: prev.hr_reviewer_id || "", admin_reviewer_id: prev.admin_reviewer_id || "" }));
-    if (!employeeId) return;
+    setFormError("");
+    setReviewForm((prev) => ({ ...prev, employee_id: employeeId }));
+    if (!employeeId || editReview) return;
     try {
       const res = await getDefaultReviewers(employeeId);
       const data = res?.data || res;
-      setReviewForm((prev) => ({
+      setReviewForm((prev) => (String(prev.employee_id) !== String(employeeId) ? prev : {
         ...prev,
-        employee_id: employeeId,
         reviewer_id: prev.reviewer_id || data.manager_id || "",
         hr_reviewer_id: prev.hr_reviewer_id || data.hr_reviewer_id || "",
         admin_reviewer_id: prev.admin_reviewer_id || data.admin_reviewer_id || "",
       }));
     } catch {
-      // leave defaults unchanged
+      // the suggestions are optional; the form still works without them
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this review?")) return;
-    await deletePerformanceReview(id);
-    loadAll();
+  const runAction = async (action) => {
+    setPageError("");
+    try {
+      await action();
+      await loadAll();
+    } catch (err) {
+      setPageError(err?.message || "That did not work. Please try again.");
+    }
   };
 
-  const handleStatusChange = async (id, status) => {
-    const review = reviews.find((r) => r.id === id);
-    if (!review) return;
-    await updatePerformanceReview(id, { ...review, status });
-    loadAll();
+  const handleDelete = (id) => {
+    if (!window.confirm("Delete this review?")) return;
+    return runAction(() => deletePerformanceReview(id));
   };
+
+  // only the status is sent, so a click on Start / Complete / Approve cannot overwrite anything else
+  const handleStatusChange = (id, status) => runAction(() => updatePerformanceReview(id, { status }));
 
   const handleFeedbackCreate = async () => {
-    await createPeerFeedback({ ...feedbackForm, employee_id: Number(feedbackForm.employee_id), reviewer_id: feedbackForm.reviewer_id ? Number(feedbackForm.reviewer_id) : null, rating: Number(feedbackForm.rating) });
-    setShowFeedbackModal(false);
-    setFeedbackForm({ employee_id: "", reviewer_id: "", feedback_type: "peer", rating: 5, comments: "", strengths: "", improvements: "" });
-    loadAll();
+    if (!feedbackForm.employee_id) { setFormError("Choose the employee the feedback is for."); return; }
+    const rating = Number(feedbackForm.rating);
+    if (!Number.isInteger(rating) || rating < 1 || rating > 5) { setFormError("Rating must be a whole number from 1 to 5."); return; }
+    setSaving(true);
+    setFormError("");
+    try {
+      await createPeerFeedback({ ...feedbackForm, employee_id: Number(feedbackForm.employee_id), reviewer_id: feedbackForm.reviewer_id ? Number(feedbackForm.reviewer_id) : null, rating });
+      setShowFeedbackModal(false);
+      setFeedbackForm({ employee_id: "", reviewer_id: "", feedback_type: "peer", rating: 5, comments: "", strengths: "", improvements: "" });
+      await loadAll();
+    } catch (err) {
+      setFormError(err?.message || "Could not save the feedback.");
+    } finally {
+      setSaving(false);
+    }
   };
 
-  const handleFeedbackDelete = async (id) => {
+  const handleFeedbackDelete = (id) => {
     if (!window.confirm("Delete this feedback?")) return;
-    await deletePeerFeedback(id);
-    loadAll();
+    return runAction(() => deletePeerFeedback(id));
   };
 
   if (loading) return <HRPage title="Performance Reviews" subtitle="Review cycles, feedback, and 360 reviews"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
@@ -163,12 +214,18 @@ export default function PerformanceReviews() {
     <HRPage title="Performance Reviews" subtitle="Review cycles, feedback, and 360 reviews">
       <SubNav />
       <div className="space-y-6">
+        {pageError && (
+          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between">
+            <span>{pageError}</span>
+            <button onClick={() => setPageError("")} aria-label="Dismiss" className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          </div>
+        )}
         <div className="flex items-center justify-between">
           <div className="flex gap-4">
             <button onClick={() => setTab("reviews")} className={`text-sm font-medium pb-2 border-b-2 transition-colors ${tab === "reviews" ? "text-blue-600 border-blue-600" : "text-gray-400 border-transparent hover:text-gray-600"}`}>Reviews</button>
             <button onClick={() => setTab("feedback")} className={`text-sm font-medium pb-2 border-b-2 transition-colors ${tab === "feedback" ? "text-blue-600 border-blue-600" : "text-gray-400 border-transparent hover:text-gray-600"}`}>Feedback & 360</button>
           </div>
-          <button onClick={() => tab === "reviews" ? openCreate() : setShowFeedbackModal(true)} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
+          <button onClick={() => { if (tab === "reviews") openCreate(); else { setFormError(""); setShowFeedbackModal(true); } }} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
             <Plus className="w-4 h-4" /> {tab === "reviews" ? "New Review" : "Give Feedback"}
           </button>
         </div>
@@ -179,7 +236,6 @@ export default function PerformanceReviews() {
               {[
                 { key: "all", label: "All Reviews" },
                 { key: "self", label: "My Reviews" },
-                { key: "manager", label: "All" },
               ].map((f) => (
                 <button key={f.key} onClick={() => setReviewFilter(f.key)}
                   className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${reviewFilter === f.key ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
@@ -314,11 +370,12 @@ export default function PerformanceReviews() {
           <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">{editReview ? "Edit Review" : "New Review"}</h2>
-              <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+              <button onClick={() => setShowModal(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="space-y-3">
+              {formError && <div role="alert" className="text-red-700 text-sm font-semibold bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{formError}</div>}
               <div>
-                <label className="text-xs text-gray-500 font-medium">Employee</label>
+                <label className="text-xs text-gray-500 font-medium">Employee <span className="text-red-500">*</span></label>
                 <select value={reviewForm.employee_id} onChange={(e) => handleEmployeeChangeForReview(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                   <option value="">Select employee</option>
                   {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
@@ -348,12 +405,14 @@ export default function PerformanceReviews() {
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Cycle</label>
-                <input value={reviewForm.cycle} onChange={(e) => setReviewForm({ ...reviewForm, cycle: e.target.value })} placeholder="Q1 2025" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                <label className="text-xs text-gray-500 font-medium">Cycle <span className="text-red-500">*</span></label>
+                <input value={reviewForm.cycle} maxLength={50} onChange={(e) => setReviewForm({ ...reviewForm, cycle: e.target.value })} placeholder="Q1 2026" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Rating (1-5)</label>
-                <input type="number" min={1} max={5} value={reviewForm.rating} onChange={(e) => setReviewForm({ ...reviewForm, rating: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                <select value={reviewForm.rating} onChange={(e) => setReviewForm({ ...reviewForm, rating: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+                </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Comments</label>
@@ -362,7 +421,7 @@ export default function PerformanceReviews() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleReviewSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editReview ? "Update" : "Create"}</button>
+              <button onClick={handleReviewSave} disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-400">{saving ? "Saving..." : editReview ? "Update" : "Create"}</button>
             </div>
           </div>
         </div>
@@ -376,6 +435,7 @@ export default function PerformanceReviews() {
               <button onClick={() => setShowFeedbackModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <div className="space-y-3">
+              {formError && <div role="alert" className="text-red-700 text-sm font-semibold bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{formError}</div>}
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Employee</label>
@@ -420,7 +480,7 @@ export default function PerformanceReviews() {
             </div>
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowFeedbackModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleFeedbackCreate} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">Submit</button>
+              <button onClick={handleFeedbackCreate} disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:bg-blue-400">{saving ? "Saving..." : "Submit"}</button>
             </div>
           </div>
         </div>

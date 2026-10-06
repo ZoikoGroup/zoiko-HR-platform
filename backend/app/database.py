@@ -73,8 +73,11 @@ else:
     engine_kwargs["connect_args"]["connect_timeout"] = int(os.getenv("HR_DB_CONNECT_TIMEOUT", "30"))
     engine_kwargs.update({
         "pool_pre_ping": True,
-        "pool_size": 5,
-        "max_overflow": 10,
+        # Per worker process: total connections = workers x (pool_size + max_overflow). Keep that under the
+        # database's connection limit (Neon: use the pooled "-pooler" host for larger values).
+        "pool_size": int(os.getenv("HR_DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("HR_DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": int(os.getenv("HR_DB_POOL_TIMEOUT", "30")),
         "pool_recycle": 1800,
     })
 
@@ -194,6 +197,8 @@ def initialize_database() -> None:
         "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20)",
         "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS changes JSON",
         "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS error_message VARCHAR(500)",
+        "ALTER TABLE designations ADD COLUMN IF NOT EXISTS source VARCHAR(20)",
+        "ALTER TABLE designations ADD COLUMN IF NOT EXISTS created_by INTEGER",
         "ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id)",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'normal'",
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS assigned_to INTEGER REFERENCES employees(id)",

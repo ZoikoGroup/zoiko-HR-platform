@@ -34,10 +34,13 @@ test("navigation.js still defines the working /employee/documents/* section (the
     "/employee/documents/payslips",
     "/employee/documents/contracts",
     "/employee/documents/tax",
-    "/employee/documents/upload-request",
   ]) {
     assert.match(navSource, new RegExp(route.replace(/\//g, "\\/")));
   }
+});
+
+test("employees have no upload entry: the Upload Request page is gone (ZHR-46, admins upload, employees view)", () => {
+  assert.doesNotMatch(navSource, /upload-request/);
 });
 
 test("navigation.js no longer links /zoiko-hr/ess/my-documents from the sidebar (retired, not silently duplicated)", () => {
