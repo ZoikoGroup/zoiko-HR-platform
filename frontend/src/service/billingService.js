@@ -36,6 +36,12 @@ export const billingService = {
     });
   },
 
+  // Confirm a session the browser was handed back on the Stripe redirect.
+  // Stripe cannot deliver webhooks to localhost, so this is the path that
+  // guarantees a completed payment is reflected in the app. Idempotent.
+  confirmCheckoutSession: (data) =>
+    api.post("/billing/checkout-session/confirm", data),
+
   // ── Invoices ─────────────────────────────────────────────────────────────
   getInvoices: (orgId) => api.get(`/billing/invoices/${orgId}`),
   getPlatformInvoices: (params) => api.get("/billing/invoices", { params }),

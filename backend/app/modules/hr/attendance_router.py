@@ -1,10 +1,11 @@
 from datetime import date
-from typing import Optional
+from typing import Optional, Union
 
 from fastapi import APIRouter, Depends, Query, Body, status
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.core.exceptions import BadRequestException
 from app.core.dependencies import get_current_user, get_current_admin
 
 from app.modules.hr import attendance_service
@@ -30,10 +31,11 @@ attendance_router = APIRouter(prefix="/hr/attendance", tags=["Attendance"])
     summary="Attendance dashboard statistics",
 )
 def attendance_dashboard(
+    department: Optional[str] = Query(None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return attendance_service.get_attendance_dashboard(db, current_user.organization_id)
+    return attendance_service.get_attendance_dashboard(db, current_user.organization_id, department=department)
 
 
 @attendance_router.get("", summary="List all attendance records (unpaginated)")
@@ -210,11 +212,16 @@ def delete_holiday(holiday_id: int, db: Session = Depends(get_db), current_user=
 
 @attendance_router.post("/holidays/import", status_code=status.HTTP_201_CREATED, dependencies=[Depends(get_current_admin)])
 def import_holidays(
-    holidays: list[dict] = Body(...),
+    payload: Union[list[dict], dict] = Body(...),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return attendance_service.import_holidays(db, holidays, created_by=current_user.id, organization_id=current_user.organization_id)
+    """Bulk-add holidays. The body may be the array itself or {"holidays": [...]}; the page used to
+    send the wrapped form to an endpoint that only accepted the bare array, so every import failed."""
+    rows = payload.get("holidays") if isinstance(payload, dict) else payload
+    if not isinstance(rows, list):
+        raise BadRequestException('Send a list of holidays, or an object like {"holidays": [...]}.')
+    return attendance_service.import_holidays(db, rows, created_by=current_user.id, organization_id=current_user.organization_id)
 
 
 # ── ANALYTICS ────────────────────────────────────────────────────────────────
@@ -247,6 +254,16 @@ def overtime_analytics(
     current_user=Depends(get_current_user),
 ):
     return attendance_service.get_overtime_analytics(db, date_from, date_to, organization_id=current_user.organization_id)
+
+
+@attendance_router.get("/analytics/summary", summary="Attendance analytics headline figures")
+def attendance_kpis(
+    date_from: Optional[date] = Query(None),
+    date_to:   Optional[date] = Query(None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return attendance_service.get_attendance_kpis(db, date_from, date_to, organization_id=current_user.organization_id)
 
 
 @attendance_router.get("/analytics/shift-efficiency", summary="Shift efficiency analytics")
@@ -363,20 +380,20 @@ def review_leave_request(
 @attendance_router.get("/export/csv", summary="Export attendance as CSV")
 def export_attendance_csv(
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     employee_id: Optional[int] = Query(None),
 ):
-    return attendance_service.export_attendance_csv(db, date_from, date_to, employee_id)
+    return attendance_service.export_attendance_csv(db, date_from, date_to, employee_id, organization_id=current_user.organization_id)
 
 
 @attendance_router.get("/export/excel", summary="Export attendance as Excel")
 def export_attendance_excel(
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     date_from: Optional[date] = Query(None),
     date_to: Optional[date] = Query(None),
     employee_id: Optional[int] = Query(None),
 ):
-    return attendance_service.export_attendance_excel(db, date_from, date_to, employee_id)
+    return attendance_service.export_attendance_excel(db, date_from, date_to, employee_id, organization_id=current_user.organization_id)

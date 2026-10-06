@@ -42,8 +42,19 @@ def _token_hash(raw_token: str) -> str:
 
 
 def _decision_link(raw_token: str) -> str:
-    base = os.environ.get("API_BASE_URL", "http://localhost:8000")
-    return f"{base}/billing/quotations/decide?token={raw_token}"
+    """Where the "Review proposal" button in the quotation email goes.
+
+    It points at the web app (FRONTEND_URL, already configured for every other
+    emailed link), not at the API: the link used API_BASE_URL, which defaults to
+    http://localhost:8000, so on a deployment without it the button opened
+    localhost and appeared dead (ZHR-45). The page calls the public token API.
+    """
+    from urllib.parse import quote
+
+    from app.config import settings
+
+    base = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    return f"{base}/quotation/decide?token={quote(raw_token, safe='')}"
 
 
 def _generate_quote_number(db: Session) -> str:

@@ -11,7 +11,7 @@ from typing import Optional
 
 from sqlalchemy import (
     Column, Integer, String, Numeric, Boolean, Date, DateTime,
-    Text, Enum, ForeignKey, Float, JSON, Time, UniqueConstraint,
+    Text, Enum, ForeignKey, Float, JSON, Time, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import Session, relationship
 from sqlalchemy.sql import func
@@ -245,6 +245,11 @@ class AttendanceRecord(Base):
 
     employee    = relationship("Employee", back_populates="attendance_records")
     organization = relationship("Organization")
+
+    __table_args__ = (
+        Index("ix_attendance_org_date", "organization_id", "date"),
+        Index("ix_attendance_employee_date", "employee_id", "date"),
+    )
 
 
 class Shift(Base):
@@ -951,6 +956,8 @@ class PerformanceReview(Base):
     status         = Column(Enum(RequestStatus), default=RequestStatus.PENDING, nullable=False)
     created_at     = Column(DateTime, server_default=func.now())
     reviewed_at    = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_perf_reviews_org_employee", "organization_id", "employee_id"),)
 
 
 class GoalStatus(str, enum.Enum):
@@ -1787,6 +1794,12 @@ class Designation(Base):
     max_salary      = Column(Float, nullable=True)
     employees_count = Column(Integer, nullable=False, default=0)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    # Provenance: "manual" (Add Designation), "import" (created from an employee Excel/CSV upload),
+    # "user_form" (typed into the Add User form). NULL = created before this was tracked.
+    source          = Column(String(20), nullable=True)
+    # Plain integer, no FK: employees already point at designations, and a second foreign key between
+    # the two tables makes Employee.designation ambiguous for SQLAlchemy.
+    created_by      = Column(Integer, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 

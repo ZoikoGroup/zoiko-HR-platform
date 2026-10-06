@@ -107,7 +107,6 @@ export default function TaxCompliance() {
                   icon={FileText}
                   iconTone={{ bg: d.meta.bg, color: d.meta.color }}
                   title={d.name}
-                  status={d.status}
                   categoryBadge={{ label: d.meta.label, color: d.meta.color, bg: d.meta.bg }}
                   meta={d.year ? `FY ${d.year}` : ""}
                   onView={() => view(d.id)}

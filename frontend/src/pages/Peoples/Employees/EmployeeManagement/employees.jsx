@@ -151,7 +151,7 @@ export default function Employees() {
     const [depts, desigs, managers] = await Promise.allSettled([
       getDepartments(),
       getDesignations(),
-      getEmployees({ per_page: 1000 }),
+      getEmployees({ per_page: 200 }),
     ]);
     if (depts.status === "fulfilled") setDeptList(Array.isArray(depts.value) ? depts.value : depts.value?.items || depts.value?.data || []);
     if (desigs.status === "fulfilled") setDesigList(Array.isArray(desigs.value) ? desigs.value : desigs.value?.items || desigs.value?.data || []);

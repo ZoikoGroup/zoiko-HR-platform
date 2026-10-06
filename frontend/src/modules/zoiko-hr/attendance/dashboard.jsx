@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { NavLink } from "react-router-dom";
-import { Users, UserCheck, UserX, AlertTriangle, Luggage, Home, Clock, TrendingUp, TrendingDown, Minus, Download, Calendar, Filter, Loader2, BarChart3, Building2 } from "lucide-react";
+import { Users, UserCheck, UserX, AlertTriangle, Luggage, Home, Clock, TrendingUp, TrendingDown, Minus, Download, Filter, Loader2, BarChart3, Building2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getAttendanceDashboard, exportAttendanceCsv, exportAttendanceExcel } from "../../../service/hrService";
 
@@ -48,7 +48,7 @@ function StatCard({ title, value, icon: Icon, change, trend }) {
             <TrendIcon className={`w-3.5 h-3.5 ${trendColor}`} />
             <span className={`text-xs font-bold ${trendColor}`}>{change > 0 ? "+" : ""}{change}%</span>
           </div>
-          <span className="text-xs font-medium text-gray-400">vs last month</span>
+          <span className="text-xs font-medium text-gray-400">vs yesterday</span>
         </div>
       )}
     </div>
@@ -77,18 +77,16 @@ export default function AttendanceDashboard() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [dateRange, setDateRange] = useState("today");
   const [departmentFilter, setDepartmentFilter] = useState("");
-  const [locationFilter, setLocationFilter] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    getAttendanceDashboard({ date_range: dateRange, department: departmentFilter, location: locationFilter })
+    getAttendanceDashboard(departmentFilter ? { department: departmentFilter } : {})
       .then((d) => setDashboard(d))
       .catch((err) => setError(err?.message || "Failed to load dashboard"))
       .finally(() => setLoading(false));
-  }, [dateRange, departmentFilter, locationFilter]);
+  }, [departmentFilter]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -96,24 +94,30 @@ export default function AttendanceDashboard() {
     present_today = 0, absent_today = 0, late_arrivals = 0, early_departures = 0,
     on_leave = 0, remote = 0, overtime = 0, attendance_percentage = 0, avg_working_hours = 0,
     total_employees = 0, attendance_trend = [], department_attendance = [], shift_distribution = [],
+    changes = {}, departments = [],
   } = dashboard || {};
 
+  // movement against yesterday comes from the server; with nothing to compare, no badge is shown
+  const move = (key) => {
+    const v = changes[key];
+    return v == null ? { change: null, trend: null } : { change: v, trend: v > 0 ? "up" : v < 0 ? "down" : "flat" };
+  };
+
   const statCards = [
-    { title: "Present Today", value: present_today, icon: UserCheck, change: 5, trend: "up" },
-    { title: "Absent Today", value: absent_today, icon: UserX, change: -2, trend: "down" },
-    { title: "Late Arrivals", value: late_arrivals, icon: AlertTriangle, change: 1, trend: "down" },
-    { title: "Early Departures", value: early_departures, icon: Clock, change: 0, trend: "flat" },
-    { title: "On Leave", value: on_leave, icon: Luggage, change: 3, trend: "up" },
-    { title: "Remote Work", value: remote, icon: Home, change: 2, trend: "up" },
-    { title: "Overtime (hrs)", value: overtime, icon: TrendingUp, change: 4, trend: "up" },
+    { title: "Present Today", value: present_today, icon: UserCheck, ...move("present_today") },
+    { title: "Absent Today", value: absent_today, icon: UserX, ...move("absent_today") },
+    { title: "Late Arrivals", value: late_arrivals, icon: AlertTriangle, ...move("late_arrivals") },
+    { title: "Early Departures", value: early_departures, icon: Clock, change: null, trend: null },
+    { title: "On Leave", value: on_leave, icon: Luggage, ...move("on_leave") },
+    { title: "Remote Work", value: remote, icon: Home, ...move("remote") },
+    { title: "Overtime (hrs)", value: overtime, icon: TrendingUp, change: null, trend: null },
     { title: "Attendance %", value: `${attendance_percentage}%`, icon: Users, change: null, trend: null },
-    { title: "Avg Hours", value: avg_working_hours, icon: Clock, change: null, trend: null },
   ];
 
   const maxTrendValue = Math.max(...attendance_trend.map((t) => t.present + t.absent), 1);
-  const maxDeptAttendance = Math.max(...department_attendance.map((d) => d.count), 1);
+  
   const maxShiftValue = Math.max(...shift_distribution.map((s) => s.count), 1);
-  const deptOptions = [...new Set(department_attendance.map((d) => d.department || d.name).filter(Boolean))];
+  const deptOptions = departments;
 
   return (
     <HRPage title="Attendance Overview" subtitle="Live attendance metrics, workforce distribution, and statistics">
@@ -134,7 +138,7 @@ export default function AttendanceDashboard() {
           </div>
           <div className="relative z-10 flex gap-4 md:gap-8 flex-wrap shrink-0">
             <div>
-              <p className="text-blue-200 text-xs font-bold uppercase tracking-wide mb-1">Active Now</p>
+              <p className="text-blue-200 text-xs font-bold uppercase tracking-wide mb-1">Present Today</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-black">{loading ? "-" : present_today}</span>
                 <span className="text-blue-200 font-medium">/ {loading ? "-" : total_employees}</span>
@@ -145,6 +149,13 @@ export default function AttendanceDashboard() {
               <p className="text-blue-200 text-xs font-bold uppercase tracking-wide mb-1">Working Remote</p>
               <div className="flex items-baseline gap-2">
                 <span className="text-4xl font-black">{loading ? "-" : remote}</span>
+              </div>
+            </div>
+            <div className="h-12 w-px bg-white/20 hidden md:block"></div>
+            <div>
+              <p className="text-blue-200 text-xs font-bold uppercase tracking-wide mb-1">Avg Hours</p>
+              <div className="flex items-baseline gap-2">
+                <span className="text-4xl font-black">{loading ? "-" : avg_working_hours}</span>
               </div>
             </div>
           </div>
@@ -161,31 +172,11 @@ export default function AttendanceDashboard() {
         <div className="bg-white rounded-2xl border border-gray-100 p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 shadow-sm">
           <div className="flex flex-col sm:flex-row items-center gap-3 w-full lg:w-auto">
             <div className="relative w-full sm:w-auto">
-              <Calendar className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <select value={dateRange} onChange={(e) => setDateRange(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
-                <option value="today">Today</option>
-                <option value="this_week">This Week</option>
-                <option value="this_month">This Month</option>
-                <option value="last_month">Last Month</option>
-                <option value="custom">Custom Range</option>
-              </select>
-            </div>
-            <div className="relative w-full sm:w-auto">
               <Filter className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
               <select value={departmentFilter} onChange={(e) => setDepartmentFilter(e.target.value)}
                 className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
                 <option value="">All Departments</option>
                 {deptOptions.map((d) => (<option key={d} value={d}>{d}</option>))}
-              </select>
-            </div>
-            <div className="relative w-full sm:w-auto">
-              <Building2 className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
-              <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}
-                className="w-full pl-9 pr-8 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors cursor-pointer appearance-none">
-                <option value="">All Locations</option>
-                <option value="office">Office</option>
-                <option value="remote">Remote</option>
               </select>
             </div>
           </div>
@@ -212,7 +203,7 @@ export default function AttendanceDashboard() {
           {/* Attendance Trend */}
           <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm flex flex-col">
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-lg font-bold text-gray-900">Attendance Trend</h2>
+              <h2 className="text-lg font-bold text-gray-900">Attendance Trend (7 days)</h2>
               <BarChart3 className="w-5 h-5 text-gray-400" />
             </div>
             {loading ? (
@@ -229,7 +220,7 @@ export default function AttendanceDashboard() {
                 <div className="flex items-end gap-3 h-48 mt-auto">
                   {attendance_trend.map((d, i) => {
                     const total = d.present + d.absent;
-                    const pct = maxTrendValue > 0 ? (total / maxTrendValue) * 100 : 0;
+                    const pct = (total / maxTrendValue) * 100;
                     return (
                       <div key={d.label || i} className="flex-1 flex flex-col items-center gap-2 group">
                         <div className="flex gap-0.5 w-full h-full items-end relative">
@@ -237,8 +228,8 @@ export default function AttendanceDashboard() {
                           <div className="absolute -top-10 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-xs font-bold px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-10 whitespace-nowrap shadow-lg">
                             P: {d.present} | A: {d.absent}
                           </div>
-                          <div className="flex-1 bg-emerald-400 hover:bg-emerald-500 rounded-t-sm transition-all duration-300" style={{ height: `${(d.present / total) * Math.max(pct, 4)}%` }} />
-                          <div className="flex-1 bg-red-400 hover:bg-red-500 rounded-t-sm transition-all duration-300" style={{ height: `${(d.absent / total) * Math.max(pct, 4)}%` }} />
+                          <div className="flex-1 bg-emerald-400 hover:bg-emerald-500 rounded-t-sm transition-all duration-300" style={{ height: `${total ? (d.present / total) * Math.max(pct, 4) : 0}%` }} />
+                          <div className="flex-1 bg-red-400 hover:bg-red-500 rounded-t-sm transition-all duration-300" style={{ height: `${total ? (d.absent / total) * Math.max(pct, 4) : 0}%` }} />
                         </div>
                         <span className="text-[10px] font-bold text-gray-500 uppercase tracking-wider">{d.label}</span>
                       </div>
@@ -272,10 +263,10 @@ export default function AttendanceDashboard() {
                   <div key={d.department || d.name} className="group">
                     <div className="flex justify-between items-center mb-1.5">
                       <span className="text-sm font-bold text-gray-700 truncate">{d.department || d.name}</span>
-                      <span className="text-xs font-bold text-gray-500">{d.count} employees</span>
+                      <span className="text-xs font-bold text-gray-500">{d.present}/{d.total} present</span>
                     </div>
                     <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
-                      <div className="bg-gradient-to-r from-orange-400 to-orange-500 h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${(d.count / maxDeptAttendance) * 100}%` }} />
+                      <div className="bg-gradient-to-r from-orange-400 to-orange-500 h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${d.total ? Math.min((d.present / d.total) * 100, 100) : 0}%` }} />
                     </div>
                   </div>
                 ))}
@@ -302,7 +293,7 @@ export default function AttendanceDashboard() {
                   <div key={s.shift || s.name} className="group">
                     <div className="flex justify-between items-center mb-1.5">
                       <span className="text-sm font-bold text-gray-700 truncate capitalize">{s.shift || s.name}</span>
-                      <span className="text-xs font-bold text-gray-500">{s.count} active</span>
+                      <span className="text-xs font-bold text-gray-500">{s.count} rostered today</span>
                     </div>
                     <div className="h-2.5 bg-gray-100 rounded-full overflow-hidden">
                       <div className="bg-gradient-to-r from-indigo-400 to-indigo-500 h-full rounded-full transition-all duration-700 ease-out" style={{ width: `${(s.count / maxShiftValue) * 100}%` }} />

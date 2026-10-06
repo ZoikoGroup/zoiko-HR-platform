@@ -91,6 +91,8 @@ export default function OrgAdminBillingPlanPage() {
   const [busy, setBusy] = useState(null);
   const [impact, setImpact] = useState(null);
   const [toast, setToast] = useState(null);
+  const [confirming, setConfirming] = useState(false);
+  const confirmingRef = React.useRef(null);
 
   const role = user?.role;
   const isOwner = OWNER_ROLES.includes(role);
@@ -122,19 +124,94 @@ export default function OrgAdminBillingPlanPage() {
     load();
   }, [load]);
 
+  // Confirm a Stripe Checkout Session handed back on the redirect.
+  //
+  // Stripe cannot deliver webhooks to a localhost dev server (or to any host
+  // without an ingress), so the redirect is the only channel guaranteed to
+  // reach us. The endpoint is idempotent, so a webhook that also arrives is a
+  // no-op — this just makes the UI correct even when the webhook never does.
+  const confirmSession = useCallback(
+    (sessionId, attempt) => {
+      const targetOrgId = sub?.organization_id || user?.organization_id;
+      if (!targetOrgId) {
+        // Subscription/identity still loading. Leave the ref unset so this
+        // effect runs again once they arrive — dropping it here would abandon
+        // a payment the customer already made.
+        confirmingRef.current = null;
+        setConfirming(false);
+        return;
+      }
+      billingService
+        .confirmCheckoutSession({
+          organization_id: targetOrgId,
+          checkout_session_id: sessionId,
+        })
+        .then((res) => {
+          if (res?.status === "confirmed") {
+            setConfirming(false);
+            notify(res?.message || "Payment confirmed. Your plan has been updated.", "success");
+            load();
+          } else if (res?.status === "pending" && attempt < 8) {
+            // Session is complete on Stripe but the state transition has not
+            // landed yet — retry a few times before giving up.
+            setTimeout(() => confirmSession(sessionId, attempt + 1), 1500);
+          } else if (res?.status === "pending") {
+            setConfirming(false);
+            notify(res?.message || "Payment is still being processed. Refresh shortly to see your updated plan.", "info");
+            load();
+          } else {
+            setConfirming(false);
+            notify(res?.message || "Payment could not be confirmed.", "error");
+            load();
+          }
+        })
+        .catch((err) => {
+          setConfirming(false);
+          notify(err?.message || "Payment confirmation failed.", "error");
+        });
+    },
+    [sub, user, load]
+  );
+
   // Handle URL payment status query params (e.g. ?payment=success)
+  const paymentShownRef = React.useRef(false);
+  const searchKey = searchParams.toString();
   useEffect(() => {
     const paymentStatus = searchParams.get("payment");
-    if (paymentStatus === "success") {
-      notify("Stripe payment completed successfully! Your plan is updated.", "success");
+    const sessionId = searchParams.get("session_id");
+    let changed = false;
+
+    if (paymentStatus && !paymentShownRef.current) {
+      paymentShownRef.current = true;
+      notify(
+        paymentStatus === "success"
+          ? "Stripe payment completed successfully!"
+          : "Stripe payment checkout was cancelled.",
+        paymentStatus === "success" ? "success" : "error"
+      );
       searchParams.delete("payment");
-      setSearchParams(searchParams, { replace: true });
-    } else if (paymentStatus === "cancelled") {
-      notify("Stripe payment checkout was cancelled.", "error");
-      searchParams.delete("payment");
-      setSearchParams(searchParams, { replace: true });
+      changed = true;
     }
-  }, [searchParams, setSearchParams]);
+
+    if (sessionId && confirmingRef.current !== sessionId) {
+      const targetOrgId = sub?.organization_id || user?.organization_id;
+      if (targetOrgId) {
+        // Only consume the session id once it can actually be confirmed.
+        // Stripping it while the subscription is still loading would abandon
+        // a payment the customer has already made.
+        confirmingRef.current = sessionId;
+        searchParams.delete("session_id");
+        setConfirming(true);
+        confirmSession(sessionId, 0);
+        changed = true;
+      }
+    }
+
+    if (changed) setSearchParams(searchParams, { replace: true });
+    // searchKey (not the object) — react-router hands back a fresh object on
+    // every render, which would otherwise re-run this effect per render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchKey, confirmSession, sub, user]);
 
   const runAction = (key, fn, successMsg) => {
     setBusy(key);
@@ -190,6 +267,12 @@ export default function OrgAdminBillingPlanPage() {
         if (res?.checkout_url) {
           notify("Redirecting to Stripe secure checkout...", "success");
           window.location.href = res.checkout_url;
+        } else if (res?.unchanged) {
+          notify(res?.message || "You are already on this plan.", "info");
+          load();
+        } else if (res?.updated) {
+          notify(res?.message || "Plan updated. A confirmation email is on its way.", "success");
+          load();
         } else {
           notify("Checkout session created successfully.", "success");
           load();
@@ -232,8 +315,15 @@ export default function OrgAdminBillingPlanPage() {
     <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
       {toast ? (
         <div className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg transition-all"
-          style={{ background: toast.type === "error" ? RED : EMERALD, color: "#fff" }}>
+          style={{ background: toast.type === "error" ? RED : toast.type === "info" ? BLUE : EMERALD, color: "#fff" }}>
           {toast.message}
+        </div>
+      ) : null}
+
+      {confirming ? (
+        <div className="fixed top-4 left-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg flex items-center gap-2"
+          style={{ background: BLUE, color: "#fff" }}>
+          <Loader2 className="w-4 h-4 animate-spin" /> Confirming payment with Stripe...
         </div>
       ) : null}
 
@@ -302,6 +392,13 @@ export default function OrgAdminBillingPlanPage() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {plans.map((p) => {
             const isCurrent = String(p.code).toLowerCase() === String(planCode).toLowerCase();
+            // A live subscription already owns this plan: the backend will
+            // refuse to re-charge it, so don't offer a pay button at all.
+            const currentIsLive =
+              isCurrent &&
+              ["active", "past_due", "cancel_at_period_end", "suspended", "restricted"].includes(
+                String(status || "").toLowerCase()
+              );
             const price = billingCycle === "annual" ? p.annual_price : p.monthly_price;
             const priceLabel = p.is_contract_priced
               ? "Custom Pricing"
@@ -341,21 +438,28 @@ export default function OrgAdminBillingPlanPage() {
                   {!p.is_contract_priced ? (
                     <button
                       onClick={() => handleStripeCheckout(p)}
-                      disabled={!canAct || busy === `checkout-${p.id}`}
-                      className={`w-full py-2.5 px-4 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-2 cursor-pointer transition-all ${
-                        !canAct
+                      disabled={!canAct || currentIsLive || confirming || busy === `checkout-${p.id}`}
+                      title={currentIsLive ? "Your subscription already includes this plan." : undefined}
+                      className={`w-full py-2.5 px-4 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-2 transition-all ${
+                        !canAct || currentIsLive
                           ? "bg-slate-100 text-slate-400 cursor-not-allowed border border-slate-200"
                           : isCurrent
-                          ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow"
-                          : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow"
+                          ? "bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm hover:shadow cursor-pointer"
+                          : "bg-blue-600 hover:bg-blue-700 text-white shadow-sm hover:shadow cursor-pointer"
                       }`}
                     >
                       {busy === `checkout-${p.id}` ? (
                         <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : currentIsLive ? (
+                        <Check className="w-4 h-4" />
                       ) : (
                         <CreditCard className="w-4 h-4" />
                       )}
-                      {isCurrent ? "Pay & Renew Active Plan" : "Pay & Upgrade via Stripe"}
+                      {currentIsLive
+                        ? "Currently Subscribed"
+                        : isCurrent
+                        ? "Pay & Renew Active Plan"
+                        : "Pay & Upgrade via Stripe"}
                     </button>
                   ) : (
                     <button

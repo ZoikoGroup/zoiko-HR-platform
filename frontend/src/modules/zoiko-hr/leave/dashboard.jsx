@@ -380,7 +380,7 @@ export default function LeaveDashboard() {
               {[
                 { label: "Working", value: teamOverview.working, color: "bg-emerald-500", textColor: "text-emerald-600" },
                 { label: "On Leave",        value: teamOverview.onLeave,  color: "bg-blue-500",   textColor: "text-blue-600"   },
-                { label: "WFH",             value: teamOverview.wfh,      color: "bg-blue-500", textColor: "text-blue-600" },
+                { label: "WFH",             value: teamOverview.wfh,      color: "bg-emerald-400", textColor: "text-emerald-600" },
                 { label: "Pending Requests",value: teamOverview.pending,  color: "bg-amber-500",  textColor: "text-amber-600"  },
               ].map(({ label, value, color, textColor }) => {
                 const pct = teamOverview.total > 0 ? (value / teamOverview.total) * 100 : 0;

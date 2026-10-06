@@ -116,7 +116,6 @@ export default function OfferContracts() {
                   icon={FileSignature}
                   iconTone={{ bg: colors.bg, color: colors.color }}
                   title={d.name}
-                  status={raw.status}
                   categoryBadge={{ label: d.type, color: colors.color, bg: colors.bg }}
                   meta={[d.date ? String(d.date).slice(0, 10) : null, d.size].filter(Boolean).join(" · ")}
                   onView={() => view(d.id)}

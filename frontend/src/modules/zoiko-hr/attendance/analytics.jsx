@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { NavLink } from "react-router-dom";
 import { TrendingUp, TrendingDown, Minus, BarChart3, Users, Clock, Sun, Download, Calendar, Loader2, Percent, Building2, Zap, LayoutDashboard } from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getAttendance, getAttendanceTrends, getDepartmentAnalysis, getOvertimeAnalytics, getShiftEfficiency } from "../../../service/hrService";
+import { getAttendanceKpis, getAttendanceTrends, getDepartmentAnalysis, getOvertimeAnalytics, getShiftEfficiency } from "../../../service/hrService";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
@@ -51,7 +51,7 @@ function KpiCard({ title, value, icon: Icon, change, trend, suffix }) {
             <TrendIcon className={`w-3.5 h-3.5 ${trendColor}`} />
             <span className={`text-xs font-bold ${trendColor}`}>{change > 0 ? "+" : ""}{change}%</span>
           </div>
-          <span className="text-xs font-medium text-gray-400">vs last month</span>
+          <span className="text-xs font-medium text-gray-400">vs previous period</span>
         </div>
       )}
     </div>
@@ -77,30 +77,37 @@ function SkeletonKpi() {
 }
 
 export default function AttendanceAnalytics() {
-  const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [dateRange, setDateRange] = useState("");
 
+  const [kpis, setKpis] = useState(null);
   const [trends, setTrends] = useState(null);
   const [deptAnalysis, setDeptAnalysis] = useState(null);
   const [overtimeData, setOvertimeData] = useState(null);
   const [shiftEff, setShiftEff] = useState(null);
-  const [analyticsLoading, setAnalyticsLoading] = useState(false);
-  const [analyticsError, setAnalyticsError] = useState(null);
+
+  // The month picker gives "YYYY-MM"; every analytics endpoint takes a date range. Empty = the server's default window.
+  const rangeParams = useCallback(() => {
+    if (!/^\d{4}-\d{2}$/.test(dateRange || "")) return {};
+    const [y, m] = dateRange.split("-").map(Number);
+    const last = new Date(y, m, 0).getDate();
+    return { date_from: `${dateRange}-01`, date_to: `${dateRange}-${String(last).padStart(2, "0")}` };
+  }, [dateRange]);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
+    const params = rangeParams();
     Promise.all([
-      getAttendance(),
-      getAttendanceTrends({ date: dateRange || undefined }),
-      getDepartmentAnalysis({ date: dateRange || undefined }),
-      getOvertimeAnalytics({ date: dateRange || undefined }),
-      getShiftEfficiency({ date: dateRange || undefined }),
+      getAttendanceKpis(params),
+      getAttendanceTrends(params),
+      getDepartmentAnalysis(params),
+      getOvertimeAnalytics(params),
+      getShiftEfficiency(params),
     ])
-      .then(([attData, trendsData, deptData, otData, shiftData]) => {
-        setRecords(Array.isArray(attData) ? attData : []);
+      .then(([kpiData, trendsData, deptData, otData, shiftData]) => {
+        setKpis(kpiData);
         setTrends(trendsData);
         setDeptAnalysis(deptData);
         setOvertimeData(otData);
@@ -108,133 +115,60 @@ export default function AttendanceAnalytics() {
       })
       .catch((err) => setError(err?.message || "Failed to load analytics"))
       .finally(() => setLoading(false));
-  }, [dateRange]);
+  }, [rangeParams]);
 
   useEffect(() => { load(); }, [load]);
 
-  const refreshAnalytics = useCallback(async () => {
-    setAnalyticsLoading(true);
-    setAnalyticsError(null);
-    try {
-      const [trendsData, deptData, otData, shiftData] = await Promise.all([
-        getAttendanceTrends({ date: dateRange || undefined }),
-        getDepartmentAnalysis({ date: dateRange || undefined }),
-        getOvertimeAnalytics({ date: dateRange || undefined }),
-        getShiftEfficiency({ date: dateRange || undefined }),
-      ]);
-      setTrends(trendsData);
-      setDeptAnalysis(deptData);
-      setOvertimeData(otData);
-      setShiftEff(shiftData);
-    } catch (err) {
-      setAnalyticsError(err.message || "Failed to refresh analytics");
-    } finally {
-      setAnalyticsLoading(false);
-    }
-  }, [dateRange]);
-
+  // Everything below comes straight from the server. A figure with nothing behind it shows a dash or an empty
+  // state; nothing is estimated or invented in the browser.
   const kpiCards = useMemo(() => {
-    const total = records.length;
-    const present = records.filter((r) => r.status === "present").length;
-    const absent = records.filter((r) => r.status === "absent").length;
-    const late = records.filter((r) => r.status === "late").length;
-    const attendancePct = total > 0 ? Math.round((present / total) * 100) : 0;
-
+    const k = kpis || {};
+    const ch = k.changes || {};
+    const move = (key) => (ch[key] == null ? { change: null, trend: null } : { change: ch[key], trend: ch[key] > 0 ? "up" : ch[key] < 0 ? "down" : "flat" });
+    const show = (v) => (v == null ? "—" : v);
     return [
-      { title: "Attendance Rate", value: attendancePct, icon: Percent, change: 2, trend: "up", suffix: "%" },
-      { title: "Avg Work Hours", value: "7.8", icon: Clock, change: 0.5, trend: "up", suffix: " h" },
-      { title: "Total Overtime", value: late > 0 ? late * 2 : 0, icon: Sun, change: 8, trend: "up", suffix: " h" },
-      { title: "Shift Efficiency", value: total > 0 ? Math.round(((present) / Math.max(total - absent, 1)) * 100) : 0, icon: Zap, change: -1, trend: "down", suffix: "%" },
+      { title: "Attendance Rate", value: show(k.attendance_rate), icon: Percent, suffix: k.attendance_rate == null ? "" : "%", ...move("attendance_rate") },
+      { title: "Avg Work Hours", value: show(k.avg_work_hours), icon: Clock, suffix: k.avg_work_hours == null ? "" : " h", ...move("avg_work_hours") },
+      { title: "Total Overtime", value: show(k.total_overtime), icon: Sun, suffix: " h", ...move("total_overtime") },
+      { title: "Shift Efficiency", value: show(k.shift_efficiency), icon: Zap, suffix: k.shift_efficiency == null ? "" : "%", ...move("shift_efficiency") },
     ];
-  }, [records]);
+  }, [kpis]);
 
-  const trendChart = useMemo(() => {
-    if (trends && Array.isArray(trends)) return trends;
-    if (records.length === 0) {
-      return [
-        { label: "Mon", present: 0, absent: 0 },
-        { label: "Tue", present: 0, absent: 0 },
-        { label: "Wed", present: 0, absent: 0 },
-        { label: "Thu", present: 0, absent: 0 },
-        { label: "Fri", present: 0, absent: 0 },
-      ];
-    }
-    const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-    return days.map((day) => {
-      const dayRecords = records.filter((r) => {
-        if (!r.work_date && !r.date) return false;
-        const d = new Date(r.work_date || r.date);
-        return d.toLocaleString("en-US", { weekday: "short" }) === day;
-      });
-      return {
-        label: day,
-        present: dayRecords.filter((r) => r.status === "present").length,
-        absent: dayRecords.filter((r) => r.status === "absent").length,
-      };
-    }).filter((d) => d.present > 0 || d.absent > 0);
-  }, [trends, records]);
+  const trendChart = useMemo(() => (Array.isArray(trends?.trends) ? trends.trends : []), [trends]);
 
-  const departmentStats = useMemo(() => {
-    if (deptAnalysis && Array.isArray(deptAnalysis)) return deptAnalysis;
-    const depts = {};
-    records.forEach((r) => {
-      const dept = r.department || "Unknown";
-      if (!depts[dept]) depts[dept] = { present: 0, absent: 0, late: 0, total: 0 };
-      depts[dept].total++;
-      if (r.status === "present") depts[dept].present++;
-      else if (r.status === "absent") depts[dept].absent++;
-      else if (r.status === "late") depts[dept].late++;
-    });
-    return Object.entries(depts).map(([dept, data]) => ({
-      department: dept,
-      ...data,
-      attendanceRate: data.total > 0 ? Math.round((data.present / data.total) * 100) : 0,
-    }));
-  }, [deptAnalysis, records]);
+  const departmentStats = useMemo(
+    () => (deptAnalysis?.department_breakdown || []).map((d) => ({
+      department: d.department, present: d.present, absent: d.absent, late: d.late || 0, total: d.total_records, attendanceRate: d.attendance_rate,
+    })),
+    [deptAnalysis],
+  );
 
-  const overtimeAnalytics = useMemo(() => {
-    if (overtimeData && Array.isArray(overtimeData)) return overtimeData;
-    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-    return months.map((month) => ({
-      month,
-      hours: Math.floor(Math.random() * 80) + 20,
-      employees: Math.floor(Math.random() * 10) + 3,
-    }));
-  }, [overtimeData]);
+  const overtimeAnalytics = useMemo(
+    () => (overtimeData?.monthly_breakdown || []).map((d) => ({ month: d.label || d.month, hours: d.hours, employees: d.employees })),
+    [overtimeData],
+  );
 
-  const shiftEfficiency = useMemo(() => {
-    if (shiftEff && Array.isArray(shiftEff)) return shiftEff;
-    const shiftNames = ["Morning", "Afternoon", "Night", "General"];
-    return shiftNames.map((shift) => {
-      const total = records.length;
-      const present = records.filter((r) => r.status === "present").length;
-      return {
-        shift,
-        totalEmployees: Math.floor(total / shiftNames.length) + Math.floor(Math.random() * 5),
-        present: Math.floor(present / shiftNames.length) + Math.floor(Math.random() * 3),
-        efficiency: total > 0 ? Math.round((present / total) * 100) : 0,
-      };
-    });
-  }, [shiftEff, records]);
+  const shiftEfficiency = useMemo(
+    () => (shiftEff?.shift_efficiency || []).map((s) => ({ shift: s.shift, totalEmployees: s.total_assigned, present: s.total_present, efficiency: s.efficiency })),
+    [shiftEff],
+  );
 
-  const maxTrend = useMemo(() => {
-    if (!trendChart || trendChart.length === 0) return 0;
-    return Math.max(...trendChart.map((d) => d.present + d.absent));
-  }, [trendChart]);
+  const maxTrend = useMemo(() => (trendChart.length ? Math.max(...trendChart.map((d) => d.present + d.absent)) : 0), [trendChart]);
 
-  const handleExport = useCallback(async () => {
-    const { exportAttendanceCsv } = await import("../../../service/hrService");
+  // exports take the same range
+  const exportRange = rangeParams;
+
+  const handleExport = useCallback(async (kind) => {
+    const { exportAttendanceCsv, exportAttendanceExcel } = await import("../../../service/hrService");
     try {
-      await exportAttendanceCsv({ analytics: true, date: dateRange || undefined });
+      await (kind === "excel" ? exportAttendanceExcel : exportAttendanceCsv)(exportRange());
     } catch (err) {
       setError(err.message || "Export failed");
     }
-  }, [dateRange]);
+  }, [exportRange]);
 
-  const maxOvertime = useMemo(() => {
-    if (!overtimeAnalytics || overtimeAnalytics.length === 0) return 0;
-    return Math.max(...overtimeAnalytics.map((d) => d.hours));
-  }, [overtimeAnalytics]);
+  const maxOvertime = useMemo(() => (overtimeAnalytics.length ? Math.max(...overtimeAnalytics.map((d) => d.hours)) : 0), [overtimeAnalytics]);
+  const noOvertime = overtimeAnalytics.length === 0 || maxOvertime === 0;
 
   return (
     <HRPage title="Attendance Analytics" subtitle="Data-driven insights, efficiency metrics, and comprehensive attendance reporting">
@@ -257,9 +191,13 @@ export default function AttendanceAnalytics() {
               <input type="month" value={dateRange} onChange={(e) => setDateRange(e.target.value)}
                 className="pl-9 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors cursor-pointer" />
             </div>
-            <button onClick={handleExport}
-              className="flex justify-center items-center gap-2 px-5 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-sm font-bold shadow-sm transition-colors">
-              <Download className="w-4 h-4" /> Export Report
+            <button type="button" onClick={() => handleExport("csv")}
+              className="flex justify-center items-center gap-2 px-4 py-2.5 bg-white border border-gray-200 hover:bg-gray-50 text-gray-800 rounded-xl text-sm font-bold shadow-sm transition-colors">
+              <Download className="w-4 h-4" /> Export CSV
+            </button>
+            <button type="button" onClick={() => handleExport("excel")}
+              className="flex justify-center items-center gap-2 px-4 py-2.5 bg-gray-900 hover:bg-black text-white rounded-xl text-sm font-bold shadow-sm transition-colors">
+              <Download className="w-4 h-4" /> Export Excel
             </button>
           </div>
         </div>
@@ -268,20 +206,6 @@ export default function AttendanceAnalytics() {
           <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 font-medium rounded-xl flex items-center justify-between shadow-sm">
             <span>{error}</span>
             <button onClick={() => setError(null)} className="text-red-500 hover:text-red-800 text-lg">&times;</button>
-          </div>
-        )}
-
-        {analyticsError && (
-          <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 font-medium rounded-xl flex items-center justify-between shadow-sm">
-            <span>Error refreshing analytics: {analyticsError}</span>
-            <button onClick={refreshAnalytics} className="text-red-700 hover:text-red-900 font-bold text-sm">Retry</button>
-          </div>
-        )}
-
-        {analyticsLoading && (
-          <div className="flex justify-center items-center py-2 bg-blue-50/50 rounded-xl border border-blue-100">
-            <Loader2 className="w-5 h-5 animate-spin text-blue-500" />
-            <span className="ml-2 text-sm font-bold text-blue-700">Syncing latest data...</span>
           </div>
         )}
 
@@ -414,10 +338,10 @@ export default function AttendanceAnalytics() {
             </div>
             {loading ? (
               <div className="flex-1 flex justify-center items-center min-h-[220px]"><Loader2 className="w-8 h-8 animate-spin text-blue-400" /></div>
-            ) : overtimeAnalytics.length === 0 ? (
+            ) : noOvertime ? (
               <div className="flex-1 flex flex-col items-center justify-center min-h-[220px] text-gray-400">
                 <Sun className="w-10 h-10 mb-2 opacity-50" />
-                <span className="text-sm font-bold">No overtime data</span>
+                <span className="text-sm font-bold">No overtime recorded in this period</span>
               </div>
             ) : (
               <div className="flex items-end gap-2 h-56 mt-auto">

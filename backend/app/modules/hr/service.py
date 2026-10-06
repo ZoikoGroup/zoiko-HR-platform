@@ -636,12 +636,50 @@ def update_department(db: Session, dept_id: int, data: DepartmentUpdate, organiz
         if existing:
             raise AlreadyExistsException("Department", "name")
 
+    if "is_active" in update_data and update_data["is_active"] is None:
+        update_data.pop("is_active")  # null means "leave as is", never a third state
+    if "is_active" in update_data and update_data["is_active"] != bool(dept.is_active):
+        _check_department_status_change(db, dept, update_data["is_active"], organization_id)
+
     for field, value in update_data.items():
         setattr(dept, field, value)
 
     db.commit()
     db.refresh(dept)
     return dept
+
+
+def _check_department_status_change(db: Session, dept: Department, make_active: bool, organization_id: int) -> None:
+    """Switching a department off or on must not leave the org chart inconsistent."""
+    if make_active:
+        parent = dept.parent_id and db.query(Department).filter(
+            Department.id == dept.parent_id, Department.organization_id == organization_id
+        ).first()
+        if parent is not None and not parent.is_active:
+            raise BadRequestException(
+                f"Cannot activate '{dept.name}' while its parent department '{parent.name}' is inactive. Activate the parent first."
+            )
+        return
+
+    active_employees = db.query(Employee).filter(
+        Employee.department_id == dept.id,
+        Employee.organization_id == organization_id,
+        Employee.status == EmployeeStatus.ACTIVE,
+    ).count()
+    if active_employees:
+        raise BadRequestException(
+            f"Cannot deactivate '{dept.name}'. It still has {active_employees} active employee(s); "
+            "move them to another department first."
+        )
+    active_children = db.query(Department).filter(
+        Department.parent_id == dept.id,
+        Department.organization_id == organization_id,
+        Department.is_active == True,  # noqa: E712
+    ).count()
+    if active_children:
+        raise BadRequestException(
+            f"Cannot deactivate '{dept.name}'. It has {active_children} active sub-department(s); deactivate or move them first."
+        )
 
 
 def delete_department(db: Session, dept_id: int, organization_id: int) -> None:
@@ -1605,6 +1643,7 @@ def get_leave_requests(
 
     results = query.order_by(LeaveRequest.created_at.desc()).all()
 
+    reviewers = _rows_by_id(db, Employee, [row[0].reviewed_by for row in results])
     leave_requests = []
     for row in results:
         lr = row[0]
@@ -1615,7 +1654,7 @@ def get_leave_requests(
 
         reviewer_name = None
         if lr.reviewed_by:
-            reviewer = db.query(Employee).filter(Employee.id == lr.reviewed_by).first()
+            reviewer = reviewers.get(lr.reviewed_by)
             if reviewer:
                 reviewer_name = reviewer.full_name
 
@@ -1935,25 +1974,34 @@ def get_leave_dashboard(db: Session, org_id: int, visible_roles: Optional[list] 
     pending = base.filter(LeaveRequest.status == RequestStatus.PENDING).count()
     approved = base.filter(LeaveRequest.status == RequestStatus.APPROVED).count()
     rejected = base.filter(LeaveRequest.status == RequestStatus.REJECTED).count()
+    # Work From Home is a working arrangement, not time off: it is counted on its own and never
+    # in the leave-days totals or in "on leave today".
+    not_wfh = LeaveRequest.leave_type != LeaveType.WORK_FROM_HOME
     days_approved = db.query(func.coalesce(func.sum(LeaveRequest.days), 0)).filter(
         LeaveRequest.organization_id == org_id,
         LeaveRequest.status == RequestStatus.APPROVED,
+        not_wfh,
     ).scalar()
     days_pending = db.query(func.coalesce(func.sum(LeaveRequest.days), 0)).filter(
         LeaveRequest.organization_id == org_id,
         LeaveRequest.status == RequestStatus.PENDING,
+        not_wfh,
     ).scalar()
     emp_filters = [Employee.organization_id == org_id, Employee.status == EmployeeStatus.ACTIVE]
     if visible_roles:
         emp_filters.append(Employee.role.in_(visible_roles))
     employee_count = db.query(func.count(Employee.id)).filter(*emp_filters).scalar()
     today = date.today()
-    on_leave_today = db.query(func.count(LeaveRequest.id)).filter(
+    covering_today = [
         LeaveRequest.organization_id == org_id,
         LeaveRequest.status == RequestStatus.APPROVED,
         LeaveRequest.start_date <= today,
         LeaveRequest.end_date >= today,
-    ).scalar()
+    ]
+    # People, not requests: someone with two overlapping approvals is still one person.
+    on_leave_today = db.query(func.count(func.distinct(LeaveRequest.employee_id))).filter(*covering_today, not_wfh).scalar()
+    wfh_today = db.query(func.count(func.distinct(LeaveRequest.employee_id))).filter(
+        *covering_today, LeaveRequest.leave_type == LeaveType.WORK_FROM_HOME).scalar()
 
     return LeaveDashboardStats(
         total_requests=total,
@@ -1965,6 +2013,7 @@ def get_leave_dashboard(db: Session, org_id: int, visible_roles: Optional[list] 
         approved_days_taken=days_approved,
         employee_count=employee_count,
         on_leave_today=on_leave_today,
+        wfh=wfh_today,
     )
 
 
@@ -1983,9 +2032,10 @@ def get_leave_calendar(db: Session, org_id: int, year: Optional[int] = None, mon
         )
     records = query.order_by(LeaveRequest.start_date).all()
 
+    people = _rows_by_id(db, Employee, [r.employee_id for r in records], Employee.organization_id == org_id)
     events = []
     for r in records:
-        emp = db.query(Employee).filter(Employee.id == r.employee_id, Employee.organization_id == org_id).first()
+        emp = people.get(r.employee_id)
         events.append(LeaveCalendarEvent(
             id=r.id,
             employee_id=r.employee_id,
@@ -3374,162 +3424,7 @@ def get_onboarding_document_by_id(db: Session, document_id: int, organization_id
 # PERFORMANCE REVIEW SERVICE
 # ════════════════════════════════════════════════════════════════════════════
 
-def check_and_seed_performance(db: Session):
-    try:
-        from app.modules.hr.models import (
-            PerformanceGoal, PerformanceKpi, PerformanceReview, Appraisal,
-            GoalStatus, RequestStatus, AppraisalStatus, Employee
-        )
-        from datetime import date
-        
-        goal_count = db.query(PerformanceGoal).count()
-        review_count = db.query(PerformanceReview).count()
-        appraisal_count = db.query(Appraisal).count()
-        
-        if goal_count > 0 or review_count > 0 or appraisal_count > 0:
-            return
-            
-        employees = db.query(Employee).filter(Employee.organization_id.isnot(None)).all()
-        emp_ids = [e.id for e in employees] if employees else []
-        if not emp_ids:
-            from app.modules.hr.models import Organization
-            fallback_org = db.query(Organization).first()
-            fallback_org_id = fallback_org.id if fallback_org else 1
-            fallback = Employee(
-                email="demo.employee@zoiko.com",
-                hashed_password="hashed_password",
-                employee_code=generate_employee_code(db, organization_id=fallback_org_id),
-                first_name="Demo",
-                last_name="Employee",
-                job_title="Software Engineer",
-                date_of_joining=date(2026, 1, 1),
-                is_active=True,
-                organization_id=fallback_org_id,
-            )
-            db.add(fallback)
-            db.commit()
-            db.refresh(fallback)
-            emp_ids = [fallback.id]
-            
-        num_emps = len(emp_ids)
-        emp_orgs = {e.id: e.organization_id for e in employees}
-        def get_emp_id(idx):
-            return emp_ids[idx % num_emps]
-        def get_org_id(emp_id):
-            return emp_orgs.get(emp_id)
-
-        # Seed 10 Goals
-        goals_data = [
-            {"title": "Redesign corporate website for mobile first", "description": "Ensure responsive design and sub-second load times.", "goal_type": "okr", "quarter": "Q1 2026", "year": 2026, "progress": 85, "status": GoalStatus.ON_TRACK, "due_date": date(2026, 3, 31)},
-            {"title": "Decrease API response latency by 30%", "description": "Optimize SQL queries and implement redis caching.", "goal_type": "kpi", "quarter": "Q1 2026", "year": 2026, "progress": 50, "status": GoalStatus.ON_TRACK, "due_date": date(2026, 3, 31)},
-            {"title": "Obtain ISO 27001 Security Certification", "description": "Document all standard operating procedures and train employees.", "goal_type": "individual", "quarter": "Q2 2026", "year": 2026, "progress": 15, "status": GoalStatus.AT_RISK, "due_date": date(2026, 6, 30)},
-            {"title": "Hire and onboard 5 senior engineers", "description": "Scale up engineering team for new features backlog.", "goal_type": "okr", "quarter": "Q1 2026", "year": 2026, "progress": 100, "status": GoalStatus.COMPLETED, "due_date": date(2026, 3, 15)},
-            {"title": "Improve Customer Support CSAT to 95%", "description": "Decrease ticket response time and provide advanced training.", "goal_type": "kpi", "quarter": "Q1 2026", "year": 2026, "progress": 90, "status": GoalStatus.ON_TRACK, "due_date": date(2026, 3, 31)},
-            {"title": "Reduce cloud infrastructure costs by 15%", "description": "Clean up unused resources and right-size ec2 instances.", "goal_type": "okr", "quarter": "Q1 2026", "year": 2026, "progress": 10, "status": GoalStatus.NOT_STARTED, "due_date": date(2026, 3, 31)},
-            {"title": "Publish 4 tech blog posts", "description": "Enhance technical brand and share solutions with community.", "goal_type": "individual", "quarter": "Q2 2026", "year": 2026, "progress": 25, "status": GoalStatus.ON_TRACK, "due_date": date(2026, 6, 30)},
-            {"title": "Migrate core microservices to Kubernetes", "description": "Achieve zero-downtime rolling updates and better resource use.", "goal_type": "okr", "quarter": "Q2 2026", "year": 2026, "progress": 65, "status": GoalStatus.ON_TRACK, "due_date": date(2026, 6, 30)},
-            {"title": "Achieve 99.99% uptime for payment gateway", "description": "Setup multi-region replication and circuit breakers.", "goal_type": "kpi", "quarter": "Q1 2026", "year": 2026, "progress": 95, "status": GoalStatus.ON_TRACK, "due_date": date(2026, 3, 31)},
-            {"title": "Conduct security audit on internal systems", "description": "Identify vulnerability vectors and patch outdated dependencies.", "goal_type": "individual", "quarter": "Q1 2026", "year": 2026, "progress": 100, "status": GoalStatus.COMPLETED, "due_date": date(2026, 2, 28)},
-        ]
-        
-        seeded_goals = []
-        for idx, gd in enumerate(goals_data):
-            emp_id = get_emp_id(idx)
-            goal = PerformanceGoal(
-                employee_id=emp_id,
-                organization_id=get_org_id(emp_id),
-                **gd
-            )
-            db.add(goal)
-            db.flush()
-            seeded_goals.append(goal)
-            
-        for g in seeded_goals:
-            kpi1 = PerformanceKpi(
-                employee_id=g.employee_id,
-                goal_id=g.id,
-                organization_id=g.organization_id,
-                name=f"Key Result 1 for {g.title[:20]}...",
-                target_value=100.0,
-                actual_value=float(g.progress),
-                unit="%",
-                weight=0.5,
-                period=g.quarter
-            )
-            kpi2 = PerformanceKpi(
-                employee_id=g.employee_id,
-                goal_id=g.id,
-                organization_id=g.organization_id,
-                name=f"Milestone Check for {g.title[:20]}...",
-                target_value=5.0,
-                actual_value=round(g.progress / 20.0, 1),
-                unit="milestones",
-                weight=0.5,
-                period=g.quarter
-            )
-            db.add(kpi1)
-            db.add(kpi2)
-
-        reviews_data = [
-            {"cycle": "FY 2025 Annual", "rating": 5, "comments": "Outstanding performance this year, went above and beyond.", "status": RequestStatus.APPROVED},
-            {"cycle": "FY 2025 Annual", "rating": 4, "comments": "Strong analytical skills, very dependable teammate.", "status": RequestStatus.APPROVED},
-            {"cycle": "FY 2025 Annual", "rating": 3, "comments": "Meets expectations. Solid execution of core duties.", "status": RequestStatus.COMPLETED},
-            {"cycle": "Q1 2026 Quarterly", "rating": 4, "comments": "Excellent start to the year. Exceeded Q1 delivery milestones.", "status": RequestStatus.PENDING},
-            {"cycle": "Q1 2026 Quarterly", "rating": 3, "comments": "Good progress on objectives, needs to focus on communication.", "status": RequestStatus.PENDING},
-            {"cycle": "FY 2025 Annual", "rating": 2, "comments": "Needs improvement in timeliness of delivery and technical depth.", "status": RequestStatus.COMPLETED},
-            {"cycle": "FY 2025 Annual", "rating": 5, "comments": "Consistently demonstrates high technical leadership and mentors juniors.", "status": RequestStatus.APPROVED},
-            {"cycle": "Q1 2026 Quarterly", "rating": 3, "comments": "On track. Needs to maintain momentum on goals.", "status": RequestStatus.PENDING},
-            {"cycle": "FY 2025 Annual", "rating": 4, "comments": "Great contribution to the design system project.", "status": RequestStatus.APPROVED},
-            {"cycle": "FY 2025 Annual", "rating": 1, "comments": "Significantly missed performance targets. Performance Improvement Plan initiated.", "status": RequestStatus.COMPLETED},
-        ]
-        
-        for idx, rd in enumerate(reviews_data):
-            emp_id = get_emp_id(idx)
-            rev_id = get_emp_id(idx + 1)
-            if emp_id == rev_id and num_emps > 1:
-                rev_id = get_emp_id(idx + 2)
-            review = PerformanceReview(
-                employee_id=emp_id,
-                reviewer_id=rev_id,
-                organization_id=get_org_id(emp_id),
-                **rd
-            )
-            db.add(review)
-
-        appraisals_data = [
-            {"cycle": "FY 2025 Cycle", "self_score": 4.5, "manager_score": 4.8, "final_score": 4.7, "recommendation": "promotion_bonus", "salary_hike": 15.0, "comments": "Excellent execution of roadmap projects, highly recommended for promotion.", "status": AppraisalStatus.APPROVED},
-            {"cycle": "FY 2025 Cycle", "self_score": 4.0, "manager_score": 4.2, "final_score": 4.1, "recommendation": "bonus", "salary_hike": 10.0, "comments": "Consistently delivered robust solutions and showed great teamwork.", "status": AppraisalStatus.APPROVED},
-            {"cycle": "FY 2025 Cycle", "self_score": 3.5, "manager_score": 3.5, "final_score": 3.5, "recommendation": "bonus", "salary_hike": 5.0, "comments": "Solid year of contributions. Keep up the steady work.", "status": AppraisalStatus.APPROVED},
-            {"cycle": "FY 2025 Cycle", "self_score": 4.2, "manager_score": 4.5, "final_score": 4.4, "recommendation": "promotion", "salary_hike": 12.0, "comments": "Demonstrated strong leadership qualities, ready for the next level.", "status": AppraisalStatus.SUBMITTED},
-            {"cycle": "FY 2025 Cycle", "self_score": 3.0, "manager_score": 3.0, "final_score": 3.0, "recommendation": None, "salary_hike": 3.0, "comments": "Meets expectations in all categories.", "status": AppraisalStatus.DRAFT},
-            {"cycle": "FY 2025 Cycle", "self_score": 2.5, "manager_score": 2.8, "final_score": 2.7, "recommendation": "improvement_plan", "salary_hike": 0.0, "comments": "Performance fell short in multiple quarters. Focus on skill development.", "status": AppraisalStatus.APPROVED},
-            {"cycle": "FY 2025 Cycle", "self_score": 4.8, "manager_score": 4.9, "final_score": 4.9, "recommendation": "promotion_bonus", "salary_hike": 18.0, "comments": "Exceptional year. Truly outstanding contributor and mentor.", "status": AppraisalStatus.APPROVED},
-            {"cycle": "FY 2025 Cycle", "self_score": 3.8, "manager_score": 3.9, "final_score": 3.9, "recommendation": "bonus", "salary_hike": 8.0, "comments": "Great work on expanding domain expertise and delivering key tasks.", "status": AppraisalStatus.SUBMITTED},
-            {"cycle": "FY 2025 Cycle", "self_score": 4.0, "manager_score": 4.0, "final_score": 4.0, "recommendation": "bonus", "salary_hike": 7.5, "comments": "Dependable developer who consistently meets targets.", "status": AppraisalStatus.APPROVED},
-            {"cycle": "FY 2025 Cycle", "self_score": 2.0, "manager_score": 2.0, "final_score": 2.0, "recommendation": "improvement_plan", "salary_hike": 0.0, "comments": "Significant performance gaps identified. Performance Improvement Plan ongoing.", "status": AppraisalStatus.REJECTED},
-        ]
-        
-        for idx, ad in enumerate(appraisals_data):
-            emp_id = get_emp_id(idx)
-            rev_id = get_emp_id(idx + 1)
-            if emp_id == rev_id and num_emps > 1:
-                rev_id = get_emp_id(idx + 2)
-            appraisal = Appraisal(
-                employee_id=emp_id,
-                reviewer_id=rev_id,
-                organization_id=get_org_id(emp_id),
-                **ad
-            )
-            db.add(appraisal)
-
-        db.commit()
-    except Exception as e:
-        print(f"Error during performance seeding: {e}")
-        db.rollback()
-
-
 def get_performance_dashboard(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> dict:
-    check_and_seed_performance(db)
     from app.modules.hr.models import (
         PerformanceReview, PerformanceGoal, PerformanceFeedback,
         Appraisal, RequestStatus, GoalStatus
@@ -3553,6 +3448,7 @@ def get_performance_dashboard(db: Session, organization_id: Optional[int] = None
 
     total_reviews = query_review.count()
     pending_reviews = query_review.filter(PerformanceReview.status == RequestStatus.PENDING).count()
+    in_progress_reviews = query_review.filter(PerformanceReview.status == RequestStatus.IN_PROGRESS).count()
     completed_reviews = query_review.filter(PerformanceReview.status.in_([RequestStatus.APPROVED, RequestStatus.COMPLETED])).count()
     total_goals = query_goal.count()
     completed_goals = query_goal.filter(PerformanceGoal.status == GoalStatus.COMPLETED).count()
@@ -3562,6 +3458,7 @@ def get_performance_dashboard(db: Session, organization_id: Optional[int] = None
     return {
         "total_reviews": total_reviews,
         "pending_reviews": pending_reviews,
+        "in_progress_reviews": in_progress_reviews,
         "completed_reviews": completed_reviews,
         "total_goals": total_goals,
         "completed_goals": completed_goals,
@@ -3738,7 +3635,6 @@ def delete_appraisal(db: Session, appraisal_id: int, organization_id: Optional[i
 
 
 def get_performance_analytics(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> dict:
-    check_and_seed_performance(db)
     from app.modules.hr.models import (
         PerformanceReview, PerformanceGoal, PerformanceFeedback,
         Appraisal, RequestStatus, GoalStatus
@@ -3758,7 +3654,7 @@ def get_performance_analytics(db: Session, organization_id: Optional[int] = None
         base_feedback = base_feedback.filter(PerformanceFeedback.employee_id == employee_id)
         base_appraisals = base_appraisals.filter(Appraisal.employee_id == employee_id)
     total_reviews = base_reviews.count()
-    completed_reviews = base_reviews.filter(PerformanceReview.status == RequestStatus.COMPLETED).count()
+    completed_reviews = base_reviews.filter(PerformanceReview.status.in_([RequestStatus.COMPLETED, RequestStatus.APPROVED])).count()
     avg_rating = base_reviews.with_entities(func.avg(PerformanceReview.rating)).scalar() or 0
     total_goals = base_goals.count()
     completed_goals = base_goals.filter(PerformanceGoal.status == GoalStatus.COMPLETED).count()
@@ -3781,38 +3677,73 @@ def get_performance_analytics(db: Session, organization_id: Optional[int] = None
     }
 
 
+def _check_review_people(db: Session, organization_id: Optional[int], **people) -> None:
+    """Everyone named on a review must be an employee of this organization."""
+    for label, emp_id in people.items():
+        if emp_id is None:
+            continue
+        q = db.query(Employee.id).filter(Employee.id == emp_id)
+        if organization_id:
+            q = q.filter(Employee.organization_id == organization_id)
+        if not q.first():
+            raise BadRequestException(f"The selected {label.replace('_', ' ')} is not an employee of this organization.")
+
+
+def _check_review_fields(db: Session, organization_id: Optional[int], employee_id, reviewer_id, hr_reviewer_id, admin_reviewer_id, cycle, exclude_id=None) -> None:
+    _check_review_people(db, organization_id, employee=employee_id, reviewer=reviewer_id, hr_reviewer=hr_reviewer_id, admin_reviewer=admin_reviewer_id)
+    if reviewer_id is not None and reviewer_id == employee_id:
+        raise BadRequestException("An employee cannot be their own manager reviewer. Pick a different reviewer.")
+    dup = db.query(PerformanceReview.id).filter(
+        PerformanceReview.employee_id == employee_id, func.lower(PerformanceReview.cycle) == cycle.lower(),
+    )
+    if organization_id:
+        dup = dup.filter(PerformanceReview.organization_id == organization_id)
+    if exclude_id:
+        dup = dup.filter(PerformanceReview.id != exclude_id)
+    if dup.first():
+        raise BadRequestException(f"This employee already has a review for '{cycle}'.")
+
+
 def create_performance_review(db: Session, data: PerformanceReviewCreate, organization_id: Optional[int] = None) -> PerformanceReview:
+    _check_review_fields(db, organization_id, data.employee_id, data.reviewer_id, data.hr_reviewer_id, data.admin_reviewer_id, data.cycle)
     review = PerformanceReview(**data.model_dump(), organization_id=organization_id)
     db.add(review)
     db.commit()
     db.refresh(review)
 
-    if review.employee_id:
-        try:
-            from app.services.email_service import send_performance_review_assigned_email
-            emp = db.query(Employee).filter(Employee.id == review.employee_id).first()
-            if emp and emp.email:
-                send_performance_review_assigned_email(
-                    email=emp.email,
-                    first_name=emp.first_name or "Employee",
-                    cycle_name=getattr(review, "review_cycle", None) or getattr(review, "title", None) or "Performance Review",
-                    due_at_local=str(review.due_date) if hasattr(review, "due_date") and review.due_date else "As scheduled",
-                    db=db,
-                    organization_id=organization_id,
-                )
-        except Exception as e:
-            logger.warning(f"[email] Failed to send performance review assigned email: {e}")
+    try:
+        from app.services.email_service import send_performance_review_assigned_email
+        emp = db.query(Employee).filter(Employee.id == review.employee_id).first()
+        if emp and emp.email:
+            send_performance_review_assigned_email(
+                email=emp.email,
+                first_name=emp.first_name or "Employee",
+                cycle_name=review.cycle,
+                due_at_local="As scheduled",
+                db=db,
+                organization_id=organization_id,
+            )
+    except Exception as e:
+        logger.warning(f"[email] Failed to send performance review assigned email: {e}")
 
     return review
 
 
-def get_performance_reviews(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[PerformanceReview]:
+def get_performance_reviews(
+    db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, involved_id: Optional[int] = None,
+) -> list[PerformanceReview]:
+    """involved_id limits the list to reviews where that person is the employee or one of the reviewers."""
     query = db.query(PerformanceReview)
     if organization_id:
         query = query.filter(PerformanceReview.organization_id == organization_id)
     if employee_id:
         query = query.filter(PerformanceReview.employee_id == employee_id)
-    return query.order_by(PerformanceReview.created_at.desc()).all()
+    if involved_id:
+        query = query.filter(or_(
+            PerformanceReview.employee_id == involved_id, PerformanceReview.reviewer_id == involved_id,
+            PerformanceReview.hr_reviewer_id == involved_id, PerformanceReview.admin_reviewer_id == involved_id,
+        ))
+    return query.order_by(PerformanceReview.created_at.desc(), PerformanceReview.id.desc()).all()
 
 
 def get_performance_review(db: Session, review_id: int, organization_id: Optional[int] = None) -> PerformanceReview:
@@ -3827,12 +3758,25 @@ def get_performance_review(db: Session, review_id: int, organization_id: Optiona
 
 def update_performance_review(db: Session, review_id: int, data: PerformanceReviewUpdate, organization_id: Optional[int] = None) -> PerformanceReview:
     review = get_performance_review(db, review_id, organization_id)
-    for key, val in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    for required in ("employee_id", "cycle", "rating"):
+        if required in changes and changes[required] is None:
+            raise BadRequestException(f"{required.replace('_', ' ').capitalize()} cannot be empty.")
+    merged = {k: changes.get(k, getattr(review, k)) for k in ("employee_id", "reviewer_id", "hr_reviewer_id", "admin_reviewer_id", "cycle")}
+    _check_review_fields(db, organization_id, merged["employee_id"], merged["reviewer_id"], merged["hr_reviewer_id"], merged["admin_reviewer_id"], merged["cycle"], exclude_id=review.id)
+
+    was_status = review.status
+    for key, val in changes.items():
         setattr(review, key, val)
+    if review.status in (RequestStatus.COMPLETED, RequestStatus.APPROVED):
+        review.reviewed_at = review.reviewed_at or datetime.utcnow()
+    else:
+        review.reviewed_at = None
     db.commit()
     db.refresh(review)
 
-    if review.employee_id:
+    # tell the employee once, when their review is completed (not on every edit or status click)
+    if review.status == RequestStatus.COMPLETED and was_status != RequestStatus.COMPLETED:
         try:
             from app.services.email_service import send_performance_review_submitted_email
             emp = db.query(Employee).filter(Employee.id == review.employee_id).first()
@@ -3840,7 +3784,7 @@ def update_performance_review(db: Session, review_id: int, data: PerformanceRevi
                 send_performance_review_submitted_email(
                     email=emp.email,
                     first_name=emp.first_name or "Employee",
-                    cycle_name=getattr(review, "review_cycle", None) or getattr(review, "title", None) or "Performance Review",
+                    cycle_name=review.cycle,
                     db=db,
                     organization_id=organization_id,
                 )
@@ -4878,11 +4822,165 @@ def export_employee_reports(db: Session, data: EmployeeExportRequest, organizati
 # ════════════════════════════════════════════════════════════════════════════════
 
 def get_designations(db: Session, organization_id: int = None) -> list:
+    """Designations with a LIVE employee count.
+
+    `designations.employees_count` is a stored column nothing ever updated, so every
+    dashboard built on it showed 0. The real number is the active employees whose
+    designation_id points at the row.
+    """
+    from sqlalchemy import func
+
     from app.modules.hr.models import Designation
     query = db.query(Designation)
     if organization_id is not None:
         query = query.filter(Designation.organization_id == organization_id)
-    return query.order_by(Designation.created_at.desc()).all()
+    rows = query.order_by(Designation.created_at.desc()).all()
+    if not rows:
+        return []
+
+    counts = dict(
+        db.query(Employee.designation_id, func.count(Employee.id))
+        .filter(
+            Employee.designation_id.in_([d.id for d in rows]),
+            Employee.status == EmployeeStatus.ACTIVE,
+        )
+        .group_by(Employee.designation_id)
+        .all()
+    )
+    creator_ids = {d.created_by for d in rows if getattr(d, "created_by", None)}
+    creators = {}
+    if creator_ids:
+        creators = {
+            e.id: f"{e.first_name} {e.last_name}".strip()
+            for e in db.query(Employee).filter(Employee.id.in_(creator_ids)).all()
+        }
+    out = []
+    for d in rows:
+        item = {c.name: getattr(d, c.name) for c in Designation.__table__.columns}
+        item["employees_count"] = int(counts.get(d.id, 0))
+        item["created_by_name"] = creators.get(d.created_by)
+        out.append(item)
+    return out
+
+
+def _month_floor(d: date) -> date:
+    return d.replace(day=1)
+
+
+def _add_months(d: date, n: int) -> date:
+    y, m = divmod(d.year * 12 + (d.month - 1) + n, 12)
+    return date(y, m + 1, 1)
+
+
+def get_designation_report(db: Session, organization_id: int, months: int = 12) -> dict:
+    """Everything the Designation Reports page shows, computed from the organization's own data.
+
+    Nothing here is a placeholder: counts come from designations and from the ACTIVE employees
+    holding them; the two trends come from `designations.created_at` and `employees.date_of_joining`.
+    """
+    from sqlalchemy import func
+
+    from app.modules.hr.models import Designation
+
+    months = max(1, min(int(months or 12), 36))
+    designations = db.query(Designation).filter(Designation.organization_id == organization_id).all()
+    ids = [d.id for d in designations]
+
+    holders = {}
+    if ids:
+        holders = dict(
+            db.query(Employee.designation_id, func.count(Employee.id))
+            .filter(Employee.designation_id.in_(ids), Employee.status == EmployeeStatus.ACTIVE)
+            .group_by(Employee.designation_id).all()
+        )
+
+    rows = []
+    for d in designations:
+        n = int(holders.get(d.id, 0))
+        rows.append({
+            "id": d.id, "title": d.title, "designation_code": d.designation_code,
+            "department": (d.department_name or "").strip() or "No department",
+            "level": d.level, "status": d.status, "employees": n,
+            "min_salary": d.min_salary, "max_salary": d.max_salary,
+            "salary_min_total": (d.min_salary or 0) * n, "salary_max_total": (d.max_salary or 0) * n,
+            "created_at": d.created_at.isoformat() if d.created_at else None,
+        })
+    rows.sort(key=lambda r: (r["department"].lower(), r["title"].lower()))
+
+    by_dept = {}
+    for r in rows:
+        row = by_dept.setdefault(r["department"], {
+            "department": r["department"], "designations": 0, "active_designations": 0, "employees": 0,
+            "salary_min_total": 0.0, "salary_max_total": 0.0,
+        })
+        row["designations"] += 1
+        row["active_designations"] += 1 if str(r["status"]).lower() == "active" else 0
+        row["employees"] += r["employees"]
+        row["salary_min_total"] += r["salary_min_total"]
+        row["salary_max_total"] += r["salary_max_total"]
+    by_department = sorted(by_dept.values(), key=lambda r: (-r["designations"], r["department"].lower()))
+
+    by_level = {}
+    for r in rows:
+        key = r["level"] or "No level"
+        row = by_level.setdefault(key, {"level": key, "designations": 0, "employees": 0})
+        row["designations"] += 1
+        row["employees"] += r["employees"]
+
+    today = datetime.utcnow().date()
+    first = _add_months(_month_floor(today), -(months - 1))
+
+    # Headcount build-up: active employees who hold a designation, by joining month (cumulative).
+    joined = []
+    if ids:
+        joined = [
+            d for (d,) in db.query(Employee.date_of_joining).filter(
+                Employee.designation_id.in_(ids), Employee.status == EmployeeStatus.ACTIVE,
+                Employee.date_of_joining.isnot(None),
+            ).all()
+        ]
+    headcount = []
+    for i in range(months):
+        start = _add_months(first, i)
+        end = _add_months(start, 1)  # exclusive
+        headcount.append({
+            "month": start.strftime("%Y-%m"), "label": start.strftime("%b %Y"),
+            "count": sum(1 for d in joined if d < end),
+            "joined": sum(1 for d in joined if start <= d < end),
+        })
+
+    # Designation growth by quarter, from when each designation was created.
+    created = sorted(d.created_at.date() for d in designations if d.created_at)
+    growth = []
+    if created:
+        def quarter(d):
+            return (d.year, (d.month - 1) // 3 + 1)
+
+        q, last = quarter(created[0]), quarter(today)
+        while q <= last:
+            new = sum(1 for d in created if quarter(d) == q)
+            total = sum(1 for d in created if quarter(d) <= q)
+            growth.append({"quarter": f"Q{q[1]} {q[0]}", "new": new, "total": total})
+            q = (q[0], q[1] + 1) if q[1] < 4 else (q[0] + 1, 1)
+        growth = growth[-8:]
+
+    active = sum(1 for r in rows if str(r["status"]).lower() == "active")
+    return {
+        "totals": {
+            "designations": len(rows), "active": active, "inactive": len(rows) - active,
+            "employees": sum(r["employees"] for r in rows),
+            "unfilled": sum(1 for r in rows if r["employees"] == 0),
+            "without_salary_range": sum(1 for r in rows if not r["max_salary"] and not r["min_salary"]),
+            "departments": len(by_department),
+            "salary_min_total": sum(r["salary_min_total"] for r in rows),
+            "salary_max_total": sum(r["salary_max_total"] for r in rows),
+        },
+        "by_department": by_department,
+        "by_level": sorted(by_level.values(), key=lambda r: (len(r["level"]), r["level"])),
+        "headcount_trend": headcount,
+        "designation_growth": growth,
+        "designations": rows,
+    }
 
 
 def get_designation_by_id(db: Session, designation_id: int, organization_id: Optional[int] = None):
@@ -4897,8 +4995,19 @@ def get_designation_by_id(db: Session, designation_id: int, organization_id: Opt
     return obj
 
 
-def create_designation(db: Session, data: DesignationCreate, organization_id: Optional[int] = None) -> object:
+def create_designation(db: Session, data: DesignationCreate, organization_id: Optional[int] = None,
+                       created_by: Optional[int] = None, source: str = "manual") -> object:
     from app.modules.hr.models import Designation
+
+    title = (data.title or "").strip()
+    if not title:
+        raise BadRequestException("A designation title is required.")
+    if organization_id is not None:
+        clash = db.query(Designation).filter(
+            Designation.organization_id == organization_id, func.lower(Designation.title) == title.lower()
+        ).first()
+        if clash is not None:
+            raise AlreadyExistsException("Designation", "title")
     
     # Extract the schema payload into a dictionary
     payload = data.model_dump()
@@ -4912,7 +5021,10 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
         des_code = generate_business_code(db, organization_id, "DES", Designation, "designation_code")
         payload["designation_code"] = des_code
 
+    payload["title"] = title
     obj = Designation(**payload)
+    obj.source = source
+    obj.created_by = created_by
     if organization_id is not None:
         obj.organization_id = organization_id
     db.add(obj)
@@ -4932,6 +5044,12 @@ def update_designation(db: Session, designation_id: int, data: DesignationUpdate
 
 def delete_designation(db: Session, designation_id: int, organization_id: int) -> None:
     obj = get_designation_by_id(db, designation_id, organization_id)
+    holders = db.query(Employee).filter(Employee.designation_id == obj.id).count()
+    if holders:
+        raise BadRequestException(
+            f"Cannot delete '{obj.title}'. {holders} employee(s) hold this designation; "
+            "reassign them to another designation first, or mark it inactive instead."
+        )
     db.delete(obj)
     db.commit()
 
@@ -5340,13 +5458,14 @@ def get_document_dashboard_stats(db: Session, organization_id: int) -> dict:
     today = date.today()
     alert_window = today + timedelta(days=30)
     expiring = []
+    owners = _rows_by_id(db, Employee, [d.employee_id for d in docs])
     for d in docs:
         if d.expiry_date and d.status != HrDocumentStatus.EXPIRED:
             remaining = (d.expiry_date - today).days
             if 0 <= remaining <= 30:
                 emp_name = None
                 if d.employee_id:
-                    emp = db.query(Employee).filter(Employee.id == d.employee_id).first()
+                    emp = owners.get(d.employee_id)
                     emp_name = f"{emp.first_name} {emp.last_name}" if emp else None
                 expiring.append({
                     "id": d.id,
@@ -5388,6 +5507,7 @@ def get_document_versions(db: Session, document_id: int, organization_id: int) -
         HrDocumentVersion.document_id == document_id
     ).order_by(HrDocumentVersion.version.desc()).all()
 
+    uploaders = _rows_by_id(db, Employee, [v.uploaded_by for v in versions])
     result = []
     for v in versions:
         entry = v.__dict__.copy()
@@ -5395,7 +5515,7 @@ def get_document_versions(db: Session, document_id: int, organization_id: int) -
         entry["file_url"] = _hr_doc_version_file_url(v.document_id, v.id, v.file_path)
         entry["file_missing"] = file_storage.file_missing(v.file_path)
         if v.uploaded_by:
-            uploader = db.query(Employee).filter(Employee.id == v.uploaded_by).first()
+            uploader = uploaders.get(v.uploaded_by)
             entry["uploader_name"] = f"{uploader.first_name} {uploader.last_name}" if uploader else None
         else:
             entry["uploader_name"] = None
@@ -5478,7 +5598,14 @@ def create_document_version(
 # APPROVAL WORKFLOW
 # ════════════════════════════════════════════════════════════════════════════════
 
-_DEFAULT_APPROVAL_CHAIN = ["manager", "hr_admin", "admin"]
+# No Manager stage: only an HR Admin or the Organization Admin approves a document (ZHR-49).
+_DEFAULT_APPROVAL_CHAIN = ["hr_admin", "admin"]
+# Steps created before this change may still say "manager"; that stage is now the HR Admin one.
+_MIN_APPROVER_POWER = 2  # hr_admin
+
+
+def _effective_step_role(required_role: str) -> str:
+    return "hr_admin" if required_role == "manager" else required_role
 
 _ROLE_POWER = {
     "employee": 0,
@@ -5497,7 +5624,7 @@ def create_default_approval_steps(db: Session, document_id: int, uploaded_by_rol
     """
     Create default approval steps for a newly uploaded document.
     If uploader is admin/hr_admin, document is auto-approved (no steps needed).
-    Otherwise create steps: manager -> hr_admin -> admin,
+    Otherwise create steps: hr_admin -> admin,
     skipping steps matching uploader's own role.
     """
     from app.modules.hr.models import DocumentApprovalStep, ApprovalStepStatus, HrDocument, HrDocumentStatus
@@ -5533,6 +5660,8 @@ def get_pending_approvals(db: Session, current_user) -> list:
 
     role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
     power = _get_role_power(role_val)
+    if power < _MIN_APPROVER_POWER:
+        return []
 
     steps = db.query(DocumentApprovalStep).join(HrDocument).filter(
         DocumentApprovalStep.status == ApprovalStepStatus.PENDING,
@@ -5542,21 +5671,23 @@ def get_pending_approvals(db: Session, current_user) -> list:
         HrDocument.status != HrDocumentStatus.REJECTED,
     ).order_by(DocumentApprovalStep.created_at.desc()).all()
 
+    docs_by_id = _rows_by_id(db, HrDocument, [st.document_id for st in steps])
+    people = _rows_by_id(db, Employee, [d.employee_id for d in docs_by_id.values()] + [d.uploaded_by for d in docs_by_id.values()])
     result = []
     for step in steps:
-        doc = db.query(HrDocument).filter(HrDocument.id == step.document_id).first()
+        doc = docs_by_id.get(step.document_id)
         if not doc:
             continue
-        step_power = _get_role_power(step.required_role)
+        step_power = _get_role_power(_effective_step_role(step.required_role))
         if power < step_power:
             continue
         emp_name = None
         if doc.employee_id:
-            emp = db.query(Employee).filter(Employee.id == doc.employee_id).first()
+            emp = people.get(doc.employee_id)
             emp_name = f"{emp.first_name} {emp.last_name}" if emp else None
         uploader_name = None
         if doc.uploaded_by:
-            uploader = db.query(Employee).filter(Employee.id == doc.uploaded_by).first()
+            uploader = people.get(doc.uploaded_by)
             uploader_name = f"{uploader.first_name} {uploader.last_name}" if uploader else None
         result.append({
             "id": step.id,
@@ -5566,7 +5697,7 @@ def get_pending_approvals(db: Session, current_user) -> list:
             "employee_name": emp_name,
             "uploader_name": uploader_name,
             "step_order": step.step_order,
-            "required_role": step.required_role,
+            "required_role": _effective_step_role(step.required_role),
             "created_at": step.created_at.isoformat() if step.created_at else None,
         })
     return result
@@ -5611,9 +5742,9 @@ def approve_document(db: Session, document_id: int, current_user, comment: Optio
     role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
     power = _get_role_power(role_val)
 
-    if power < _get_role_power("manager"):
+    if power < _MIN_APPROVER_POWER:
         from app.core.exceptions import ForbiddenException
-        raise ForbiddenException("You do not have permission to approve documents")
+        raise ForbiddenException("Only an HR Admin or the Organization Admin can approve documents")
 
     if doc.status == HrDocumentStatus.APPROVED:
         from app.core.exceptions import BadRequestException
@@ -5635,30 +5766,21 @@ def approve_document(db: Session, document_id: int, current_user, comment: Optio
 
     is_high_power = power >= _get_role_power("hr_admin")
 
+    # An HR Admin or the Organization Admin completes the document: the steps they
+    # hold are approved, any higher one is skipped (it no longer has anyone left to wait for).
     for step in steps:
-        step_power = _get_role_power(step.required_role)
-        if power < step_power:
-            from app.core.exceptions import ForbiddenException
-            raise ForbiddenException(f"Step requires {step.required_role} role, you have {role_val}")
-
-        step.status = ApprovalStepStatus.APPROVED
-        step.approved_by = current_user.id
-        step.approved_at = datetime.utcnow()
-        step.comment = comment
-
-        _log_approval_action(db, document_id, "approved", step_id=step.id,
-                             performed_by=current_user.id, role_at_time=role_val, comment=comment)
-
-    if is_high_power:
-        remaining = db.query(DocumentApprovalStep).filter(
-            DocumentApprovalStep.document_id == document_id,
-            DocumentApprovalStep.status == ApprovalStepStatus.PENDING,
-        ).all()
-        for rs in remaining:
-            rs.status = ApprovalStepStatus.SKIPPED
-            _log_approval_action(db, document_id, "skipped", step_id=rs.id,
+        if power >= _get_role_power(_effective_step_role(step.required_role)):
+            step.status = ApprovalStepStatus.APPROVED
+            step.approved_by = current_user.id
+            step.approved_at = datetime.utcnow()
+            step.comment = comment
+            _log_approval_action(db, document_id, "approved", step_id=step.id,
+                                 performed_by=current_user.id, role_at_time=role_val, comment=comment)
+        else:
+            step.status = ApprovalStepStatus.SKIPPED
+            _log_approval_action(db, document_id, "skipped", step_id=step.id,
                                  performed_by=current_user.id, role_at_time=role_val,
-                                 comment=f"Auto-skipped — {role_val} approved higher level")
+                                 comment=f"Auto-skipped - {role_val} approved the document")
 
     doc.status = HrDocumentStatus.APPROVED
     doc.approved_by = current_user.id
@@ -5683,9 +5805,9 @@ def reject_document(db: Session, document_id: int, current_user, comment: Option
     role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
     power = _get_role_power(role_val)
 
-    if power < _get_role_power("manager"):
+    if power < _MIN_APPROVER_POWER:
         from app.core.exceptions import ForbiddenException
-        raise ForbiddenException("You do not have permission to reject documents")
+        raise ForbiddenException("Only an HR Admin or the Organization Admin can reject documents")
 
     if doc.status == HrDocumentStatus.APPROVED:
         from app.core.exceptions import BadRequestException
@@ -5698,10 +5820,10 @@ def reject_document(db: Session, document_id: int, current_user, comment: Option
 
     if steps:
         current_step = steps[0]
-        step_power = _get_role_power(current_step.required_role)
+        step_power = _get_role_power(_effective_step_role(current_step.required_role))
         if power < step_power:
             from app.core.exceptions import ForbiddenException
-            raise ForbiddenException(f"Step requires {current_step.required_role} role, you have {role_val}")
+            raise ForbiddenException(f"Step requires {_effective_step_role(current_step.required_role)} role, you have {role_val}")
 
         current_step.status = ApprovalStepStatus.REJECTED
         current_step.approved_by = current_user.id
@@ -5735,21 +5857,24 @@ def get_approval_audit_log(db: Session, organization_id: int, document_id: Optio
 
     logs = query.order_by(DocumentApprovalLog.created_at.desc()).all()
 
+    log_docs = _rows_by_id(db, HrDocument, [lg.document_id for lg in logs])
+    performers = _rows_by_id(db, Employee, [lg.performed_by for lg in logs])
+    log_steps = _rows_by_id(db, DocumentApprovalStep, [lg.step_id for lg in logs])
     result = []
     for log in logs:
         entry = log.__dict__.copy()
         entry.pop("_sa_instance_state", None)
         entry["document_title"] = None
-        doc = db.query(HrDocument).filter(HrDocument.id == log.document_id).first()
+        doc = log_docs.get(log.document_id)
         if doc:
             entry["document_title"] = doc.title
         if log.performed_by:
-            performer = db.query(Employee).filter(Employee.id == log.performed_by).first()
+            performer = performers.get(log.performed_by)
             entry["performer_name"] = f"{performer.first_name} {performer.last_name}" if performer else None
         else:
             entry["performer_name"] = None
         if log.step_id:
-            step = db.query(DocumentApprovalStep).filter(DocumentApprovalStep.id == log.step_id).first()
+            step = log_steps.get(log.step_id)
             entry["step_role"] = step.required_role if step else None
         else:
             entry["step_role"] = None
@@ -6122,3 +6247,11 @@ def delete_document_folder(db: Session, folder_id: int, organization_id: int) ->
     db.delete(folder)
     db.commit()
     return True
+
+
+def _rows_by_id(db: Session, model, ids, *extra_filters) -> dict:
+    """Load many rows of one table with a single query, as {id: row}. Replaces a query per row in list loops."""
+    wanted = {i for i in ids if i is not None}
+    if not wanted:
+        return {}
+    return {row.id: row for row in db.query(model).filter(model.id.in_(wanted), *extra_filters).all()}

@@ -810,7 +810,7 @@ def _clean(value):
     return value if value not in ("", None) else None
 
 
-def _import_style_fields(db: Session, data, organization_id) -> dict:
+def _import_style_fields(db: Session, data, organization_id, created_by=None) -> dict:
     """Employee columns for the extra fields a bulk import also accepts. Department and
     designation are matched by name (case-insensitive) within the organization and
     created when missing, exactly as the import does."""
@@ -840,7 +840,8 @@ def _import_style_fields(db: Session, data, organization_id) -> dict:
         desig = db.query(Designation).filter(Designation.title.ilike(desig_name),
                                              Designation.organization_id == organization_id).first()
         if desig is None:
-            desig = Designation(title=desig_name, department_name=dept_name, organization_id=organization_id)
+            desig = Designation(title=desig_name, department_name=dept_name, organization_id=organization_id,
+                                source="user_form", created_by=created_by)
             db.add(desig)
             db.flush()
         out["designation_id"] = desig.id
@@ -869,7 +870,7 @@ def create_organization_user(
         from app.core.code_generation import generate_employee_code
         new_employee_code = generate_employee_code(db, organization_id=organization_id)
 
-        extra = _import_style_fields(db, data, organization_id)
+        extra = _import_style_fields(db, data, organization_id, created_by=created_by_id)
         profile_fields = extra.pop("_profile", {})
         status = EmployeeStatus(data.status) if data.status else EmployeeStatus.ACTIVE
         employee = Employee(
@@ -1693,6 +1694,8 @@ def import_employees_from_file(
                     title=designation_name,
                     department_name=dept_name or None,
                     organization_id=organization_id,
+                    source="import",
+                    created_by=current_user_id,
                 )
                 db.add(desig)
                 db.flush()

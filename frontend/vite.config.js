@@ -38,12 +38,14 @@ export default defineConfig({
       output: {
         manualChunks(id) {
           if (id.includes('node_modules')) {
-            if (id.includes('xlsx')) return 'vendor-xlsx';
-            if (id.includes('recharts')) return 'vendor-recharts';
-            if (id.includes('react-router-dom')) return 'vendor-router';
-            if (id.includes('react-dom')) return 'vendor-react-dom';
-            if (id.includes('react')) return 'vendor-react';
-            if (id.includes('lucide-react')) return 'vendor-icons';
+            if (id.includes('/xlsx/')) return 'vendor-xlsx';
+            if (id.includes('/recharts/') || id.includes('/d3-')) return 'vendor-recharts';
+            // only loaded when a document is previewed, so keep them out of the chunk every page preloads
+            if (/\/node_modules\/(mammoth|jszip|pdfmake|pako|bluebird|underscore|xmlbuilder|dingbat-to-unicode|lop|path-is-absolute|base64-js|argparse|option|readable-stream|lie|immediate|setimmediate)\//.test(id)) return 'vendor-docs';
+            if (id.includes('/lucide-react/')) return 'vendor-icons';
+            if (id.includes('/react-router')) return 'vendor-router';
+            if (id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react-dom';
+            if (/\/node_modules\/react\//.test(id)) return 'vendor-react';
             return 'vendor';
           }
         },

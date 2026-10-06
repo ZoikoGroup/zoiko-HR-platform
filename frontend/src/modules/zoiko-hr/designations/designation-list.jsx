@@ -1,6 +1,6 @@
-import { useState, useMemo, useEffect } from "react";
+import { useState, useMemo, useEffect, useCallback } from "react";
 import { NavLink } from "react-router-dom";
-import { Plus, Download, RefreshCw, Users } from "lucide-react";
+import { Plus, RefreshCw, X } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { 
   getDesignations, 
@@ -11,6 +11,15 @@ import {
   getHrEmployees
 } from "../../../service/hrService";
 import { updateEmployee } from "../../../service/employee";
+import { formatDate } from "../../../utils/dateTime";
+
+// Where a designation came from. Rows created before this was tracked have no source.
+const SOURCE_LABELS = {
+  manual: "Added manually",
+  import: "Employee import",
+  user_form: "Add User form",
+};
+const sourceLabel = (s) => SOURCE_LABELS[s] || "Before tracking";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/designations" },
@@ -47,6 +56,20 @@ export default function DesignationList() {
   const [detailItem, setDetailItem] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [selectedEmployeeId, setSelectedEmployeeId] = useState("");
+  const [refreshing, setRefreshing] = useState(false);
+  const [notice, setNotice] = useState(null); // { type: "success" | "error", text }
+  const [modalError, setModalError] = useState("");
+  const [sourceFilter, setSourceFilter] = useState("all");
+  const [search, setSearch] = useState("");
+
+  const visible = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return records.filter((r) => {
+      if (sourceFilter === "none" ? r.source : sourceFilter !== "all" && r.source !== sourceFilter) return false;
+      if (!q) return true;
+      return [r.title, r.department_name, r.designation_code].some((v) => String(v || "").toLowerCase().includes(q));
+    });
+  }, [records, search, sourceFilter]);
 
   const getEmpName = (emp) => {
     if (!emp) return "";
@@ -105,12 +128,15 @@ export default function DesignationList() {
     return `${emps.length} employees`;
   };
 
-  const fetchRecords = () => {
+  const fetchRecords = useCallback((opts = {}) => {
     setLoading(true);
-    Promise.all([
-      getDesignations(),
-      getDepartments(),
-      getHrEmployees()
+    // A manual refresh must show the database, not a copy the server cached for up to two minutes:
+    // the unique query value gives that request its own cache key.
+    const fresh = opts.fresh ? { _: Date.now() } : undefined;
+    return Promise.all([
+      getDesignations(fresh),
+      getDepartments(fresh),
+      getHrEmployees(fresh)
     ])
       .then(([desigRes, deptRes, empRes]) => {
         const desigItems = desigRes?.items || desigRes?.data || (Array.isArray(desigRes) ? desigRes : []);
@@ -120,19 +146,34 @@ export default function DesignationList() {
         const empItems = empRes?.data || empRes?.items || (Array.isArray(empRes) ? empRes : []);
         const emps = Array.isArray(empItems) ? empItems : [];
         setEmployees(emps);
+        return true;
       })
-      .catch((err) => console.error(err))
+      .catch((err) => {
+        console.error(err);
+        setNotice({ type: "error", text: err?.message || "Could not load designations." });
+        return false;
+      })
       .finally(() => setLoading(false));
-  };
+  }, []);
 
   useEffect(() => {
     fetchRecords();
-  }, []);
+  }, [fetchRecords]);
+
+  const handleRefresh = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setNotice(null);
+    const ok = await fetchRecords({ fresh: true });
+    if (ok) setNotice({ type: "success", text: "Designation list refreshed." });
+    setRefreshing(false);
+  };
 
   const handleOpenCreate = () => {
     setEditingId(null);
     setFormData(initialForm);
     setSelectedEmployeeId("");
+    setModalError("");
     setShowModal(true);
   };
 
@@ -149,6 +190,7 @@ export default function DesignationList() {
     const currentEmps = getEmployeesForDesignation(item.id);
     const currentEmpId = currentEmps[0] ? (currentEmps[0].id || currentEmps[0].employee_id || currentEmps[0].user_id) : null;
     setSelectedEmployeeId(currentEmpId ? String(currentEmpId) : "");
+    setModalError("");
     setShowModal(true);
   };
 
@@ -173,17 +215,27 @@ export default function DesignationList() {
       })
       .then(() => {
         setShowModal(false);
-        fetchRecords();
+        setNotice({ type: "success", text: editingId ? "Designation updated." : "Designation created." });
+        return fetchRecords({ fresh: true });
       })
-      .catch((err) => console.error("Error saving record:", err));
+      .catch((err) => {
+        console.error("Error saving record:", err);
+        setModalError(err?.message || "Could not save the designation.");
+      });
   };
 
   const handleDelete = (id, e) => {
     e.stopPropagation();
     if (window.confirm("Are you sure you want to delete this designation?")) {
       deleteDesignation(id)
-        .then(() => fetchRecords())
-        .catch((err) => console.error(err));
+        .then(() => {
+          setNotice({ type: "success", text: "Designation deleted." });
+          return fetchRecords({ fresh: true });
+        })
+        .catch((err) => {
+          // e.g. "N employee(s) hold this designation" - say why instead of failing silently.
+          setNotice({ type: "error", text: err?.message || "Could not delete the designation." });
+        });
     }
   };
 
@@ -198,9 +250,34 @@ export default function DesignationList() {
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
         <div className="flex items-center gap-2">
           <button onClick={handleOpenCreate} className="inline-flex items-center gap-2 bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium transition-colors shadow-sm"><Plus className="w-4 h-4" /> Add Designation</button>
-          <button onClick={fetchRecords} className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors"><RefreshCw className="w-4 h-4" /></button>
+          <button type="button" onClick={handleRefresh} disabled={refreshing} aria-label="Refresh designations" title="Refresh from the server"
+            className="p-2 border border-gray-200 rounded-lg hover:bg-gray-50 text-gray-500 transition-colors disabled:opacity-60">
+            <RefreshCw className={`w-4 h-4 ${refreshing ? "animate-spin" : ""}`} aria-hidden="true" />
+          </button>
+        </div>
+        <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+          <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search title or department..." aria-label="Search designations"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" />
+          <select value={sourceFilter} onChange={(e) => setSourceFilter(e.target.value)} aria-label="Filter by source"
+            className="px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:outline-none">
+            <option value="all">All sources</option>
+            <option value="manual">Added manually</option>
+            <option value="import">Employee import</option>
+            <option value="user_form">Add User form</option>
+            <option value="none">Before tracking</option>
+          </select>
         </div>
       </div>
+
+      {notice && (
+        <div role={notice.type === "error" ? "alert" : "status"}
+          className={`mb-4 flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${
+            notice.type === "error" ? "bg-red-50 border-red-200 text-red-700" : "bg-green-50 border-green-200 text-green-700"
+          }`}>
+          <span>{notice.text}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100"><X size={16} /></button>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
         <div className="overflow-x-auto">
@@ -212,18 +289,34 @@ export default function DesignationList() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Department</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
+                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
-              {records.map((item) => (
+              {loading && records.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400" role="status">Loading designations...</td></tr>
+              ) : visible.length === 0 ? (
+                <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-500">
+                  {records.length === 0
+                    ? "No designations yet. Click \"Add Designation\" or upload employees with a Designation column."
+                    : "No designations match your search or filter."}
+                </td></tr>
+              ) : null}
+              {visible.map((item) => (
                   <tr key={item.id} onClick={() => { setDetailItem(item); setShowDetail(true); }} className="hover:bg-gray-50/80 cursor-pointer transition-colors">
                   <td className="px-4 py-3 text-sm font-mono font-bold text-[#3B82F6]">{item.designation_code || "—"}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.title}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{item.department_name}</td>
                   <td className="px-4 py-3 text-sm text-gray-600">{item.level}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{getAssignedEmployeeDisplay(item.id) || "-"}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600">
+                    {getAssignedEmployeeDisplay(item.id) || (item.employees_count ? `${item.employees_count} employee${item.employees_count === 1 ? "" : "s"}` : "-")}
+                  </td>
+                  <td className="px-4 py-3 text-xs text-gray-500" title={item.created_by_name ? `Created by ${item.created_by_name}` : undefined}>
+                    <span className="block text-gray-700">{sourceLabel(item.source)}</span>
+                    {item.created_at ? <span>{formatDate(item.created_at)}{item.created_by_name ? ` · ${item.created_by_name}` : ""}</span> : null}
+                  </td>
                   <td className="px-4 py-3 text-sm">
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${item.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
                       {item.status}
@@ -231,7 +324,9 @@ export default function DesignationList() {
                   </td>
                   <td className="px-4 py-3 text-sm flex gap-2">
                     <button onClick={(e) => handleOpenEdit(item, e)} className="text-blue-600 hover:underline">Edit</button>
-                    <button onClick={(e) => handleDelete(item.id, e)} className="text-red-600 hover:underline">Delete</button>
+                    <button onClick={(e) => handleDelete(item.id, e)} disabled={item.employees_count > 0}
+                      title={item.employees_count > 0 ? `${item.employees_count} employee(s) hold this designation; reassign them first` : "Delete designation"}
+                      className="text-red-600 hover:underline disabled:text-gray-300 disabled:no-underline disabled:cursor-not-allowed">Delete</button>
                   </td>
                 </tr>
               ))}
@@ -276,6 +371,7 @@ export default function DesignationList() {
           <form onSubmit={handleSubmit} className="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in-95 duration-150">
             <div className="px-6 py-4 border-b border-gray-100 bg-gray-50"><h3 className="text-base font-semibold text-gray-900">{editingId ? "Edit Designation" : "Add New Designation"}</h3></div>
             <div className="p-6 space-y-4">
+              {modalError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{modalError}</div>}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Designation Title</label>
                 <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="e.g. Senior Software Engineer" />

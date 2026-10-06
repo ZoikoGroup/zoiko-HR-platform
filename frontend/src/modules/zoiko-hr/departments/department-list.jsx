@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from "react";
 import { NavLink } from "react-router-dom";
-import { Plus, X, Building2, Search, AlertCircle, Pencil, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
+import { Plus, X, Building2, Search, AlertCircle, Pencil, ArrowUpDown, ArrowUp, ArrowDown, Power, Loader2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getDepartments, createDepartment, updateDepartment } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
@@ -61,8 +61,12 @@ export default function DepartmentList() {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [editingDept, setEditingDept] = useState(null);
+  const [confirmStatus, setConfirmStatus] = useState(null); // { dept, next }
+  const [statusBusyId, setStatusBusyId] = useState(null);
+  const [statusMessage, setStatusMessage] = useState(null); // { type, text }
 
   const [formData, setFormData] = useState({
+    is_active: true,
     name: "",
     code: "",
     head: "",
@@ -75,8 +79,9 @@ export default function DepartmentList() {
 
   const fetchRecords = () => {
     setIsLoading(true);
-    const params = statusFilter === "all" ? { include_inactive: true } : {};
-    getDepartments(params)
+    // Always ask for inactive departments as well: the Active / Inactive filter works on this list
+    // in the browser, so an "Inactive" filter over a list that never contained them showed nothing.
+    getDepartments({ include_inactive: true })
       .then((res) => {
         const data = res?.data?.data || res?.data || res || [];
         setRecords(Array.isArray(data) ? data : []);
@@ -88,9 +93,10 @@ export default function DepartmentList() {
   useEffect(() => {
     fetchRecords();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [statusFilter]);
+  }, []);
 
   const emptyForm = {
+    is_active: true,
     name: "",
     code: "",
     head: "",
@@ -110,6 +116,7 @@ export default function DepartmentList() {
       establishment_year: formData.establishment_year === "" ? null : Number(formData.establishment_year),
       budget: formData.budget === "" ? 0 : Number(formData.budget),
       spent_budget: formData.spent_budget === "" ? 0 : Number(formData.spent_budget),
+      is_active: formData.is_active !== false,
     };
 
     const action = editingDept
@@ -125,7 +132,7 @@ export default function DepartmentList() {
       })
       .catch((err) => {
         const fallbackMsg = "Department with this name or code already exists.";
-        const apiError = err?.response?.data?.message || err?.response?.data?.error || err?.message || fallbackMsg;
+        const apiError = err?.message || err?.response?.data?.message || err?.response?.data?.error || fallbackMsg;
         setErrorMessage(apiError);
         console.error(err);
       });
@@ -141,9 +148,30 @@ export default function DepartmentList() {
       budget: dept.budget || "",
       spent_budget: dept.spent_budget || "",
       description: dept.description || "",
-      parent_id: dept.parent_id || ""
+      parent_id: dept.parent_id || "",
+      is_active: dept.is_active !== false,
     });
+    setErrorMessage("");
     setIsModalOpen(true);
+  };
+
+  const applyStatusChange = () => {
+    if (!confirmStatus) return;
+    const { dept, next } = confirmStatus;
+    setStatusBusyId(dept.id);
+    setStatusMessage(null);
+    updateDepartment(dept.id, { is_active: next })
+      .then(() => {
+        setConfirmStatus(null);
+        setStatusMessage({ type: "success", text: `${dept.name} is now ${next ? "active" : "inactive"}.` });
+        fetchRecords();
+      })
+      .catch((err) => {
+        // Keep the dialog's reason on screen: e.g. the department still has active employees.
+        setConfirmStatus(null);
+        setStatusMessage({ type: "error", text: err?.message || "Could not change the department status." });
+      })
+      .finally(() => setStatusBusyId(null));
   };
 
   const handleOpenCreateModal = () => {
@@ -218,6 +246,16 @@ export default function DepartmentList() {
   return (
     <HRPage title="Departments" subtitle="Manage organizational entities">
       <SubNav />
+
+      {statusMessage && (
+        <div role={statusMessage.type === "error" ? "alert" : "status"}
+          className={`mb-4 flex items-start justify-between gap-3 rounded-lg border px-4 py-3 text-sm ${
+            statusMessage.type === "error" ? "bg-red-50 border-red-200 text-red-700" : "bg-green-50 border-green-200 text-green-700"
+          }`}>
+          <span>{statusMessage.text}</span>
+          <button type="button" onClick={() => setStatusMessage(null)} aria-label="Dismiss" className="shrink-0 opacity-70 hover:opacity-100"><X size={16} /></button>
+        </div>
+      )}
 
       <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
         <div className="p-4 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -299,9 +337,20 @@ export default function DepartmentList() {
                     <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(r.created_at)}</td>
                     <td className="px-4 py-3 text-right text-sm">${(Number(r.budget) || 0).toLocaleString()}</td>
                     <td className="px-4 py-3 text-right">
-                      <button onClick={() => handleEditClick(r)} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors">
-                        <Pencil size={13} /> Edit
-                      </button>
+                      <div className="inline-flex items-center gap-1">
+                        <button onClick={() => handleEditClick(r)} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors">
+                          <Pencil size={13} /> Edit
+                        </button>
+                        <button type="button" disabled={statusBusyId === r.id}
+                          onClick={() => setConfirmStatus({ dept: r, next: !r.is_active })}
+                          aria-label={`${r.is_active ? "Deactivate" : "Activate"} ${r.name}`}
+                          className={`inline-flex items-center gap-1 text-xs font-semibold px-2 py-1 rounded-lg transition-colors disabled:opacity-50 ${
+                            r.is_active ? "text-gray-500 hover:text-amber-700 hover:bg-amber-50" : "text-green-700 hover:bg-green-50"
+                          }`}>
+                          {statusBusyId === r.id ? <Loader2 size={13} className="animate-spin" /> : <Power size={13} />}
+                          {r.is_active ? "Deactivate" : "Activate"}
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -411,6 +460,18 @@ export default function DepartmentList() {
                 </select>
               </div>
 
+              {editingDept && (
+                <div>
+                  <label htmlFor="dept-status" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Status</label>
+                  <select id="dept-status" value={formData.is_active === false ? "inactive" : "active"}
+                    onChange={(e) => setFormData({ ...formData, is_active: e.target.value === "active" })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-rose-500">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </div>
+              )}
+
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Description</label>
                 <textarea rows="2" placeholder="Optional structural details..." value={formData.description} onChange={(e) => setFormData({...formData, description: e.target.value})}
@@ -422,6 +483,28 @@ export default function DepartmentList() {
                 <button type="submit" className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-semibold shadow-sm transition-colors">{editingDept ? "Save Changes" : "Create"}</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {confirmStatus && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" role="dialog" aria-modal="true"
+          aria-label={confirmStatus.next ? "Activate department" : "Deactivate department"}>
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-sm p-6">
+            <h3 className="font-bold text-gray-900">{confirmStatus.next ? "Activate" : "Deactivate"} {confirmStatus.dept.name}?</h3>
+            <p className="text-sm text-gray-600 mt-2">
+              {confirmStatus.next
+                ? "It will appear again in pickers and reports as an active department."
+                : "It will be hidden from department pickers and marked inactive. Employees and history are kept. A department with active employees or active sub-departments cannot be deactivated."}
+            </p>
+            <div className="mt-5 flex justify-end gap-3">
+              <button type="button" onClick={() => setConfirmStatus(null)} disabled={statusBusyId === confirmStatus.dept.id}
+                className="px-4 py-2 border border-gray-200 rounded-lg text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+              <button type="button" onClick={applyStatusChange} disabled={statusBusyId === confirmStatus.dept.id}
+                className={`px-4 py-2 rounded-lg text-sm font-semibold text-white disabled:opacity-50 ${confirmStatus.next ? "bg-green-600 hover:bg-green-700" : "bg-amber-600 hover:bg-amber-700"}`}>
+                {statusBusyId === confirmStatus.dept.id ? "Saving…" : confirmStatus.next ? "Activate" : "Deactivate"}
+              </button>
+            </div>
           </div>
         </div>
       )}

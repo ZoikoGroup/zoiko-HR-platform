@@ -14,6 +14,7 @@ Outputs (written to both locations):
   zoikohr-logo-email@2x.png        360px wide, full colour, for light backgrounds
   zoikohr-logo-email-white@2x.png  360px wide, reversed for dark headers /
                                    dark mode (see VARIANTS)
+  zoikohr-favicon@2x.png           64x64 Zoiko HR app icon (the favicon), shown small in the footer
 
 Requires the dev-only `resvg-py` and `pillow` packages
 (see scripts/requirements-email-tools.txt).
@@ -34,6 +35,9 @@ OUTPUT_DIRS = [
     os.path.join(ROOT, "backend", "app", "email_templates", "assets"),
 ]
 
+FAVICON_SVG = os.path.join(ROOT, "frontend", "public", "favicon.svg")
+FAVICON_FILE = "zoikohr-favicon@2x.png"
+FAVICON_PX = 64  # displayed at 32px
 WIDTH_PX = 360  # displayed at 180px -> 2x for high-DPI screens
 MAX_BYTES = 15 * 1024
 
@@ -84,6 +88,18 @@ def main() -> int:
                 f.write(data)
         w, h = Image.open(io.BytesIO(data)).size
         print(f"{name}: {w}x{h}, {len(data)} bytes")
+
+    with open(FAVICON_SVG, "r", encoding="utf-8") as f:
+        icon = bytes(resvg_py.svg_to_bytes(svg_string=f.read(), width=FAVICON_PX, height=FAVICON_PX))
+    icon_img = Image.open(io.BytesIO(icon)).convert("RGBA").quantize(colors=64, method=Image.Quantize.FASTOCTREE)
+    buf = io.BytesIO()
+    icon_img.save(buf, format="PNG", optimize=True)
+    data = buf.getvalue()
+    for out_dir in OUTPUT_DIRS:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, FAVICON_FILE), "wb") as f:
+            f.write(data)
+    print(f"{FAVICON_FILE}: {FAVICON_PX}x{FAVICON_PX}, {len(data)} bytes")
     return 0
 
 

@@ -1,0 +1,11 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = subject %}
+{% set preheader = preheader_text %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">{{ subject }}</h1>
+{% for line in paragraphs %}
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ line }}</p>
+{% endfor %}
+{{ ui.signoff() }}
+{% endblock %}

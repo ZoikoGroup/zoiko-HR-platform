@@ -377,7 +377,8 @@ def test_cid_inline_logo_mode(monkeypatch):
     assert related.get_content_type() == "multipart/related"
     html_part, *images = related.get_payload()
     assert 'src="cid:zoikohr-logo"' in html_part.get_payload(decode=True).decode()
-    assert {img["Content-ID"] for img in images} == {"<zoikohr-logo>", "<zoikohr-logo-white>"}
+    assert {img["Content-ID"] for img in images} == {"<zoikohr-logo>", "<zoikohr-logo-white>", "<zoikohr-favicon>"}
+    assert 'src="cid:zoikohr-favicon"' in html_part.get_payload(decode=True).decode()
 
 
 def test_pdf_attachment_uses_multipart_mixed(monkeypatch):
@@ -392,3 +393,59 @@ def test_pdf_attachment_uses_multipart_mixed(monkeypatch):
     assert [p.get_content_type() for p in alternative.get_payload()] == ["text/plain", "text/html"]
     assert pdf.get_filename() == "inv.pdf"
     assert msg["From"] == "Zoiko HR <notifications@zoikohr.test>"
+
+
+# ── Logo URL is always loadable once deployed (ZHR-2) ─────────────────────
+
+
+@pytest.mark.parametrize("frontend, expected", [
+    ("http://localhost:5173", "https://app.zoikohr.com/email"),
+    ("https://localhost", "https://app.zoikohr.com/email"),
+    ("https://10.0.0.5", "https://app.zoikohr.com/email"),
+    ("https://intranet", "https://app.zoikohr.com/email"),
+    ("http://hr.example.com", "https://app.zoikohr.com/email"),
+    ("", "https://app.zoikohr.com/email"),
+    ("https://hr.example.com/", "https://hr.example.com/email"),
+])
+def test_logo_host_is_always_a_public_https_host(monkeypatch, frontend, expected):
+    monkeypatch.setattr(settings, "HR_EMAIL_ASSET_BASE_URL", "")
+    monkeypatch.setattr(settings, "FRONTEND_URL", frontend)
+    assert email_service.email_asset_base() == expected
+
+
+def test_every_email_carries_the_logo_with_a_real_https_link_by_default(monkeypatch):
+    monkeypatch.setattr(settings, "HR_EMAIL_ASSET_BASE_URL", "")
+    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    for label, template, context, org_id in collect_sample_calls():
+        html = email_service.render_email(template, context, organization_id=org_id).html
+        assert 'src="https://app.zoikohr.com/email/zoikohr-logo-email@2x.png"' in html, label
+
+
+def test_the_logo_files_ship_with_both_the_frontend_and_the_backend_and_match():
+    backend = os.path.join(TEMPLATE_DIR, "assets")
+    frontend = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "email")
+    for name in (email_service.LOGO_FILE, email_service.LOGO_DARK_FILE):
+        with open(os.path.join(backend, name), "rb") as a, open(os.path.join(frontend, name), "rb") as b:
+            assert a.read() == b.read(), f"{name} differs between backend assets and frontend/public/email"
+
+
+# ── Zoiko HR favicon (ZHR-2) ──────────────────────────────────────────────
+
+
+def test_every_email_shows_the_zoiko_hr_favicon_in_the_footer_and_head(rendered):
+    for label, _template, _ctx, _org in [(r[0], r[1], r[2], r[3]) for r in rendered]:
+        html = next(r[3] for r in rendered if r[0] == label).html
+        assert html.count('class="zhr-favicon"') == 1, label
+        assert f'src="{ASSET_BASE}/zoikohr-favicon@2x.png"' in html, label
+        assert f'<link rel="icon" type="image/png" href="{ASSET_BASE}/zoikohr-favicon@2x.png">' in html, label
+
+
+def test_favicon_asset_is_small_square_and_identical_in_backend_and_frontend():
+    from PIL import Image
+
+    backend = os.path.join(TEMPLATE_DIR, "assets", email_service.FAVICON_FILE)
+    frontend = os.path.join(os.path.dirname(__file__), "..", "..", "frontend", "public", "email", email_service.FAVICON_FILE)
+    assert os.path.getsize(backend) < 4096
+    assert Image.open(backend).size == (64, 64)
+    with open(backend, "rb") as a, open(frontend, "rb") as b:
+        assert a.read() == b.read()

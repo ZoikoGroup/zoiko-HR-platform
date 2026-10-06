@@ -20,6 +20,7 @@ path outside the configured upload roots unless the row already pointed there
 (so historical rows keep working).
 """
 
+import mimetypes
 import os
 from pathlib import Path
 
@@ -121,3 +122,32 @@ def ensure_upload_dir(directory: str) -> str:
     """Create (if needed) and return an upload directory."""
     Path(directory).mkdir(parents=True, exist_ok=True)
     return directory
+
+# Content types a client may send for "I don't know what this is". Serving a PDF as one of
+# these makes the browser's PDF viewer refuse to render it (a blank preview, ZHR-47).
+_GENERIC_TYPES = {"", "application/octet-stream", "binary/octet-stream", "application/x-download", "application/download",
+                  "application/force-download", "application/unknown"}
+
+_EXTRA_TYPES = {
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    ".pptx": "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    ".doc": "application/msword", ".xls": "application/vnd.ms-excel", ".ppt": "application/vnd.ms-powerpoint",
+    ".odt": "application/vnd.oasis.opendocument.text", ".ods": "application/vnd.oasis.opendocument.spreadsheet",
+    ".odp": "application/vnd.oasis.opendocument.presentation", ".csv": "text/csv", ".tsv": "text/tab-separated-values",
+    ".rtf": "application/rtf", ".webp": "image/webp", ".bmp": "image/bmp", ".pdf": "application/pdf",
+}
+
+
+def effective_media_type(file_name, stored_mime=None) -> str:
+    """The content type to serve a document with.
+
+    The stored type is trusted unless it is missing or generic; then the file extension
+    decides, so a PDF uploaded as application/octet-stream is still served (and
+    previewed) as application/pdf.
+    """
+    stored = str(stored_mime or "").split(";")[0].strip().lower()
+    if stored not in _GENERIC_TYPES:
+        return stored
+    ext = os.path.splitext(str(file_name or ""))[1].lower()
+    return _EXTRA_TYPES.get(ext) or mimetypes.guess_type(f"x{ext}")[0] or "application/octet-stream"

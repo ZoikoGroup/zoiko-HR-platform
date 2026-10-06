@@ -38,6 +38,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.entitlements import require_entitlement
+from app.core.exceptions import NotFoundException
 from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASHBOARD
 
 # Assuming these are imported from your config or database modules
@@ -115,14 +116,33 @@ hr_router   = APIRouter(prefix="/hr",   tags=["👥 HR Module"])
 # ── File upload validation constants ────────────────────────────────────────
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".rtf", ".odt"}
+ALLOWED_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".pdf",
+    ".doc", ".docx", ".xls", ".xlsx", ".csv", ".tsv", ".txt", ".rtf",
+    ".odt", ".ods", ".odp", ".ppt", ".pptx",
+}
 ALLOWED_MIME_TYPES = {
     "image/jpeg", "image/png", "image/gif",
     "application/pdf",
     "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "text/csv", "text/plain", "application/rtf", "application/vnd.oasis.opendocument.text",
+    "image/webp", "image/bmp", "text/tab-separated-values",
+    "application/vnd.oasis.opendocument.spreadsheet", "application/vnd.oasis.opendocument.presentation",
+    "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    # Browsers/OSes routinely label Office files generically; the extension check above is the gate.
+    "application/octet-stream", "application/x-pdf", "text/rtf", "application/zip",
 }
+
+
+def _require_document_uploader(current_user) -> None:
+    """Only the organization's admins add documents. Employees (and managers) have
+    read-only access to what is shared with them (ZHR-46)."""
+    from app.core.exceptions import ForbiddenException
+
+    role = getattr(current_user.role, "value", current_user.role)
+    if str(role) not in ("admin", "hr_admin", "super_admin"):
+        raise ForbiddenException("Only an organization admin can upload documents. You can view and download the documents shared with you.")
 
 
 def _validate_upload_file(file: UploadFile):
@@ -1757,7 +1777,9 @@ def list_performance_reviews(
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_performance_reviews(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    # an ordinary employee sees only reviews they are part of; admins see the whole organization
+    involved = current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    return service.get_performance_reviews(db, organization_id=current_user.organization_id, employee_id=employee_id, involved_id=involved)
 
 
 # ── Performance Default Reviewers ────────────────────────────────
@@ -1783,7 +1805,7 @@ def get_default_reviewers(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    employee = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == current_user.organization_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -2138,7 +2160,12 @@ def get_performance_review(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_performance_review(db, review_id, organization_id=current_user.organization_id)
+    review = service.get_performance_review(db, review_id, organization_id=current_user.organization_id)
+    if current_user.role == UserRole.EMPLOYEE and current_user.id not in (
+        review.employee_id, review.reviewer_id, review.hr_reviewer_id, review.admin_reviewer_id,
+    ):
+        raise NotFoundException("PerformanceReview", review_id)
+    return review
 
 
 @hr_router.put(
@@ -2150,7 +2177,7 @@ def update_performance_review(
     review_id: int,
     data: PerformanceReviewUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.update_performance_review(db, review_id, data, organization_id=current_user.organization_id)
 
@@ -2163,7 +2190,7 @@ def update_performance_review(
 def delete_performance_review(
     review_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     service.delete_performance_review(db, review_id, organization_id=current_user.organization_id)
     return {"message": f"Performance review {review_id} deleted successfully."}
@@ -2337,6 +2364,19 @@ def list_designations(
     return service.get_designations(db, organization_id=current_user.organization_id)
 
 
+@hr_router.get(
+    "/designations/report",
+    summary="Designation report: totals, per-department table, headcount and growth trends",
+    tags=["📋 Designations"],
+)
+def designation_report(
+    months: int = Query(12, ge=1, le=36),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return service.get_designation_report(db, organization_id=current_user.organization_id, months=months)
+
+
 @hr_router.post(
     "/designations",
     response_model=DesignationResponse,
@@ -2346,7 +2386,7 @@ def list_designations(
     dependencies=[Depends(get_current_admin)],
 )
 def create_designation_endpoint(data: DesignationCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_designation(db, data, organization_id=current_user.organization_id)
+    return service.create_designation(db, data, organization_id=current_user.organization_id, created_by=current_user.id, source="manual")
 
 
 @hr_router.get(
@@ -2471,6 +2511,7 @@ async def upload_hr_document_route(
     expiry_date: Optional[date] = Form(None),
     folder_id: Optional[int] = Form(None),
 ):
+    _require_document_uploader(current_user)
     _validate_upload_file(file)
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE_BYTES:
@@ -2494,7 +2535,7 @@ async def upload_hr_document_route(
         file_path=file_path,
         file_name=file.filename,
         file_size=len(contents),
-        mime_type=file.content_type,
+        mime_type=file_storage.effective_media_type(file.filename, file.content_type),
         organization_id=current_user.organization_id,
         description=description or note,
         document_type=document_type,
@@ -2563,7 +2604,7 @@ def get_hr_document_file(
             ),
         )
     file_name = doc_data.get("file_name") or _os.path.basename(file_path)
-    media_type = doc_data.get("mime_type")
+    media_type = file_storage.effective_media_type(file_name, doc_data.get("mime_type"))
     return FileResponse(
         path=resolved,
         media_type=media_type,
@@ -2666,6 +2707,7 @@ async def upload_document_version(
     file: UploadFile = File(..., description="The updated document file"),
     change_notes: Optional[str] = Form(None),
 ):
+    _require_document_uploader(current_user)
     _validate_upload_file(file)
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE_BYTES:
@@ -2674,7 +2716,7 @@ async def upload_document_version(
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
     file_path = os.path.join(_DOCUMENT_UPLOAD_DIR, unique_name)
-    contents = await file.read()
+    # (the upload was already read above; reading it again returned empty bytes and saved empty files)
     with open(file_path, "wb") as fh:
         fh.write(contents)
 
@@ -2684,7 +2726,7 @@ async def upload_document_version(
         file_path=file_path,
         file_name=file.filename,
         file_size=len(contents),
-        mime_type=file.content_type,
+        mime_type=file_storage.effective_media_type(file.filename, file.content_type),
         uploaded_by=current_user.id,
         organization_id=current_user.organization_id,
         change_notes=change_notes,
@@ -2717,7 +2759,7 @@ def get_document_version_file(
             ),
         )
     file_name = version_data.get("file_name") or _os.path.basename(file_path)
-    media_type = version_data.get("mime_type")
+    media_type = file_storage.effective_media_type(file_name, version_data.get("mime_type"))
     return FileResponse(
         path=resolved,
         media_type=media_type,
@@ -2748,7 +2790,7 @@ def get_pending_approvals(
     description=(
         "If the current user is org admin (admin) or HR admin (hr_admin), "
         "all pending steps are approved and skipped — document is approved immediately. "
-        "Regular managers approve only their step in the chain."
+        "Only an HR Admin or the Organization Admin can approve."
     ),
     tags=["📄 HR Documents"],
 )
@@ -2884,6 +2926,7 @@ def create_folder(
     name: str = Form(...),
     parent_id: Optional[int] = Form(None),
 ):
+    _require_document_uploader(current_user)
     return service.create_document_folder(
         db,
         name=name,

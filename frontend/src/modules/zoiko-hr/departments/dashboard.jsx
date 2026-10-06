@@ -48,18 +48,29 @@ function SubNav() {
   );
 }
 
+// The icon tile uses a light tint, so the icon needs the matching dark shade. It used to be
+// forced to white, which made it invisible on these pale backgrounds (ZHR-50).
+const ICON_TONES = {
+  "bg-rose-50": "bg-rose-50 text-rose-600",
+  "bg-green-50": "bg-green-50 text-green-600",
+  "bg-gray-100": "bg-gray-100 text-gray-600",
+  "bg-blue-50": "bg-blue-50 text-blue-600",
+  "bg-amber-50": "bg-amber-50 text-amber-600",
+};
+
 function StatCard({ title, value, icon: Icon, color, subtitle }) {
+  const tone = ICON_TONES[color] || "bg-rose-50 text-rose-600";
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm hover:shadow-md transition-shadow">
-      <div className="flex items-start justify-between">
-        <div>
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
           <p className="text-sm text-gray-500 font-medium">{title}</p>
           <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
           {subtitle && <p className="text-xs text-gray-400 mt-0.5">{subtitle}</p>}
         </div>
         {Icon && (
-          <div className={`p-2 rounded-lg ${color || "bg-rose-50"}`}>
-            <Icon className={`w-5 h-5 ${color ? "text-white" : "text-rose-600"}`} />
+          <div data-testid="stat-icon" className={`h-10 w-10 shrink-0 rounded-lg flex items-center justify-center ${tone}`}>
+            <Icon className="w-5 h-5" aria-hidden="true" strokeWidth={2.25} />
           </div>
         )}
       </div>
@@ -182,7 +193,7 @@ export default function DepartmentDashboard() {
         </div>
 
         {/* ── Summary cards ── */}
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6 gap-4">
           {statCards.map((s) => (
             <StatCard key={s.title} {...s} />
           ))}

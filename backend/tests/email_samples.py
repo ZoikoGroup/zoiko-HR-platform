@@ -9,6 +9,7 @@ from the database.
 APP = "https://app.zoikohr.com"
 
 SENDER_SAMPLES = [
+    ("send_workflow_message", dict(email="sam@acme.test", subject="Welcome aboard", body="Hi Sam,\nYour laptop is ready.")),
     ("send_registration_received", dict(email="owner@acme.test", org_name="Acme Corp")),
     ("send_new_organization_created", dict(
         email="ops@zoikohr.test", recipient_first_name="Priya", organization_name="Acme Corp",
@@ -60,6 +61,10 @@ SENDER_SAMPLES = [
     ("send_payment_receipt_email", dict(
         email="billing@acme.test", customer_name="Acme Corp", payment_number="INV-2026-0102",
         payment_date="2026-09-25", amount="400.00", payment_method="card", organization_id=42)),
+    ("send_plan_upgraded_email", dict(
+        email="billing@acme.test", customer_name="Acme Corp", previous_plan_name="Core",
+        new_plan_name="Advanced", billing_cycle="Annual", effective_date="2026-09-25",
+        amount="4800.00", organization_id=42)),
     ("send_refund_email", dict(
         email="billing@acme.test", customer_name="Acme Corp", refund_number="RF-0009",
         refund_date="2026-09-25", amount="120.00", organization_id=42)),
