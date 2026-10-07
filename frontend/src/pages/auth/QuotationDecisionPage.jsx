@@ -1,3 +1,4 @@
+import { planHighlights } from "../../config/planMatrix";
 import { useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Loader2, AlertCircle, CheckCircle2, FileText } from "lucide-react";
@@ -96,6 +97,21 @@ export default function QuotationDecisionPage() {
                 <dt style={{ color: "#6B7280" }}>Amount</dt><dd style={{ margin: 0, textAlign: "right", fontWeight: 800, fontSize: 18 }}>{quote.amount_display}</dd>
                 {fmtDate(quote.valid_until) ? (<><dt style={{ color: "#6B7280" }}>Valid until</dt><dd style={{ margin: 0, textAlign: "right", fontWeight: 600 }}>{fmtDate(quote.valid_until)}</dd></>) : null}
               </dl>
+              {(() => {
+                const h = planHighlights(String(quote.plan || "").toLowerCase());
+                return (
+                  <div data-testid="quote-plan-scope" style={{ margin: "0 0 20px", padding: "12px 14px", background: "#F8FAFC", borderRadius: 10, fontSize: 13, lineHeight: 1.6 }}>
+                    <div style={{ fontWeight: 700, color: "#0F172A", marginBottom: 4 }}>What the {quote.plan} plan includes</div>
+                    <ul style={{ margin: 0, padding: 0, listStyle: "none", color: "#065F46" }}>{h.includes.map((f) => <li key={f}>&#10003; {f}</li>)}</ul>
+                    {h.excludes.length > 0 ? (
+                      <>
+                        <div style={{ fontWeight: 600, color: "#6B7280", margin: "8px 0 2px" }}>Not included (available in Advanced)</div>
+                        <ul style={{ margin: 0, padding: 0, listStyle: "none", color: "#9CA3AF" }}>{h.excludes.map((f) => <li key={f}>&#10005; {f}</li>)}</ul>
+                      </>
+                    ) : null}
+                  </div>
+                );
+              })()}
               {error ? (
                 <div role="alert" style={{ background: "#FEF2F2", border: "1px solid #FECACA", color: "#DC2626", borderRadius: 8, padding: "10px 12px", fontSize: 13, marginBottom: 14 }}>
                   {error}

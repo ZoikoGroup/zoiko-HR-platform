@@ -28,7 +28,18 @@ from sqlalchemy.exc import SQLAlchemyError
 from app.core.exceptions import NotFoundException, BadRequestException
 
 
+def _check_course_name(db: Session, organization_id, name: str, exclude_id=None) -> None:
+    q = db.query(LearningCourse.id).filter(func.lower(LearningCourse.course_name) == name.lower())
+    if organization_id is not None:
+        q = q.filter(LearningCourse.organization_id == organization_id)
+    if exclude_id:
+        q = q.filter(LearningCourse.id != exclude_id)
+    if q.first():
+        raise BadRequestException(f"A course named '{name}' already exists. Use a different name or edit that course.")
+
+
 def create_course(db: Session, data: CourseCreate, created_by: int = None, organization_id: Optional[int] = None) -> LearningCourse:
+    _check_course_name(db, organization_id, data.course_name)
     course = LearningCourse(**data.model_dump(), created_by=created_by)
     if organization_id is not None:
         course.organization_id = organization_id
@@ -79,7 +90,10 @@ def get_courses(
 
 
 def get_course_by_id(db: Session, course_id: int, organization_id: Optional[int] = None) -> LearningCourse:
-    course = db.query(LearningCourse).filter(LearningCourse.id == course_id).first()
+    query = db.query(LearningCourse).filter(LearningCourse.id == course_id)
+    if organization_id is not None:
+        query = query.filter(LearningCourse.organization_id == organization_id)   # another organization's course does not exist here
+    course = query.first()
     if not course:
         raise NotFoundException("LearningCourse", course_id)
     return course
@@ -88,6 +102,8 @@ def get_course_by_id(db: Session, course_id: int, organization_id: Optional[int]
 def update_course(db: Session, course_id: int, data: CourseUpdate, organization_id: Optional[int] = None) -> LearningCourse:
     course = get_course_by_id(db, course_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("course_name") and update_data["course_name"].lower() != (course.course_name or "").lower():
+        _check_course_name(db, organization_id, update_data["course_name"], exclude_id=course.id)
     for field, value in update_data.items():
         setattr(course, field, value)
     db.commit()
@@ -97,6 +113,11 @@ def update_course(db: Session, course_id: int, data: CourseUpdate, organization_
 
 def delete_course(db: Session, course_id: int, organization_id: Optional[int] = None) -> None:
     course = get_course_by_id(db, course_id, organization_id)
+    enrolled = db.query(LearningEnrollment.id).filter(LearningEnrollment.course_id == course.id).count()
+    if enrolled:
+        raise BadRequestException(
+            f"This course has {enrolled} enrollment{'s' if enrolled != 1 else ''} and cannot be deleted. Set it to Inactive instead to hide it from learners."
+        )
     db.delete(course)
     db.commit()
 
@@ -369,82 +390,167 @@ def delete_skill(db: Session, skill_id: int) -> None:
 
 
 
-def create_assessment(db: Session, data: AssessmentCreate, created_by: int) -> LearningAssessment:
-    get_course_by_id(db, data.course_id)
-    assessment = LearningAssessment(**data.model_dump(), created_by=created_by)
-    db.add(assessment)
-    db.commit()
-    db.refresh(assessment)
-    return assessment
-
-
-def get_assessments(db: Session, course_id: Optional[int] = None) -> list[LearningAssessment]:
-    query = db.query(LearningAssessment)
-    if course_id:
-        query = query.filter(LearningAssessment.course_id == course_id)
-    return query.order_by(LearningAssessment.created_at.desc()).all()
-
-
-def get_assessment_by_id(db: Session, assessment_id: int) -> LearningAssessment:
-    assessment = db.query(LearningAssessment).filter(LearningAssessment.id == assessment_id).first()
+def _assessment_row(db: Session, assessment_id: int, organization_id: Optional[int] = None) -> LearningAssessment:
+    """An assessment belongs to a course, and the course belongs to an organization: another organization's assessment
+    does not exist here."""
+    query = db.query(LearningAssessment).filter(LearningAssessment.id == assessment_id)
+    if organization_id is not None:
+        query = query.join(LearningCourse, LearningCourse.id == LearningAssessment.course_id).filter(LearningCourse.organization_id == organization_id)
+    assessment = query.first()
     if not assessment:
         raise NotFoundException("LearningAssessment", assessment_id)
     return assessment
 
 
-def update_assessment(db: Session, assessment_id: int, data: AssessmentUpdate) -> LearningAssessment:
-    assessment = get_assessment_by_id(db, assessment_id)
+def get_assessment_by_id(db: Session, assessment_id: int, organization_id: Optional[int] = None) -> LearningAssessment:
+    return _assessment_row(db, assessment_id, organization_id)
+
+
+def _assessment_dict(db: Session, a: LearningAssessment) -> dict:
+    course = db.query(LearningCourse.course_name).filter(LearningCourse.id == a.course_id).first()
+    return {
+        "id": a.id,
+        "course_id": a.course_id,
+        "course_name": course[0] if course else None,
+        "title": a.title,
+        "description": a.description,
+        "passing_score": a.passing_score,
+        "max_attempts": a.max_attempts,
+        "duration_minutes": a.duration_minutes,
+        "resource_link": a.resource_link,
+        "is_active": bool(a.is_active),
+        "questions_count": db.query(LearningAssessmentQuestion).filter(LearningAssessmentQuestion.assessment_id == a.id).count(),
+        "attempts_count": db.query(LearningQuizAttempt).filter(LearningQuizAttempt.assessment_id == a.id).count(),
+        "created_by": a.created_by,
+        "created_at": a.created_at,
+        "updated_at": a.updated_at,
+    }
+
+
+def _check_assessment_title(db: Session, course_id: int, title: str, exclude_id=None) -> None:
+    q = db.query(LearningAssessment.id).filter(LearningAssessment.course_id == course_id, func.lower(LearningAssessment.title) == title.lower())
+    if exclude_id:
+        q = q.filter(LearningAssessment.id != exclude_id)
+    if q.first():
+        raise BadRequestException(f"This course already has an assessment titled '{title}'. Use a different title or edit that assessment.")
+
+
+def create_assessment(db: Session, data: AssessmentCreate, created_by: int, organization_id: Optional[int] = None) -> dict:
+    get_course_by_id(db, data.course_id, organization_id)
+    _check_assessment_title(db, data.course_id, data.title)
+    assessment = LearningAssessment(**data.model_dump(), created_by=created_by)
+    db.add(assessment)
+    db.commit()
+    db.refresh(assessment)
+    return _assessment_dict(db, assessment)
+
+
+def get_assessments(db: Session, course_id: Optional[int] = None, organization_id: Optional[int] = None, active_only: bool = False) -> list[dict]:
+    query = db.query(LearningAssessment)
+    if organization_id is not None:
+        query = query.join(LearningCourse, LearningCourse.id == LearningAssessment.course_id).filter(LearningCourse.organization_id == organization_id)
+    if course_id:
+        query = query.filter(LearningAssessment.course_id == course_id)
+    if active_only:
+        query = query.filter(LearningAssessment.is_active == True)  # noqa: E712
+    return [_assessment_dict(db, a) for a in query.order_by(LearningAssessment.created_at.desc()).all()]
+
+
+def get_assessment_detail(db: Session, assessment_id: int, organization_id: Optional[int] = None) -> dict:
+    return _assessment_dict(db, _assessment_row(db, assessment_id, organization_id))
+
+
+def update_assessment(db: Session, assessment_id: int, data: AssessmentUpdate, organization_id: Optional[int] = None) -> dict:
+    assessment = _assessment_row(db, assessment_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
+    for required in ("course_id", "title", "description", "passing_score", "is_active"):
+        if required in update_data and update_data[required] is None:
+            update_data.pop(required)
+    if "course_id" in update_data:
+        get_course_by_id(db, update_data["course_id"], organization_id)
+    course_id = update_data.get("course_id", assessment.course_id)
+    if "title" in update_data or "course_id" in update_data:
+        _check_assessment_title(db, course_id, update_data.get("title", assessment.title), exclude_id=assessment.id)
     for field, value in update_data.items():
         setattr(assessment, field, value)
     db.commit()
     db.refresh(assessment)
-    return assessment
+    return _assessment_dict(db, assessment)
 
 
-def delete_assessment(db: Session, assessment_id: int) -> None:
-    assessment = get_assessment_by_id(db, assessment_id)
+def delete_assessment(db: Session, assessment_id: int, organization_id: Optional[int] = None) -> None:
+    assessment = _assessment_row(db, assessment_id, organization_id)
+    attempts = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.assessment_id == assessment.id).count()
+    if attempts:
+        raise BadRequestException(
+            f"This assessment has {attempts} recorded attempt{'s' if attempts != 1 else ''} and cannot be deleted. Set it to Inactive instead."
+        )
+    db.query(LearningAssessmentQuestion).filter(LearningAssessmentQuestion.assessment_id == assessment.id).delete(synchronize_session=False)
     db.delete(assessment)
     db.commit()
 
 
-def add_question(db: Session, assessment_id: int, data: QuestionCreate) -> LearningAssessmentQuestion:
-    get_assessment_by_id(db, assessment_id)
-    question = LearningAssessmentQuestion(**data.model_dump(), assessment_id=assessment_id)
+def add_question(db: Session, assessment_id: int, data: QuestionCreate, organization_id: Optional[int] = None) -> LearningAssessmentQuestion:
+    _assessment_row(db, assessment_id, organization_id)
+    values = data.model_dump()
+    if values.get("sort_order") is None:
+        last = db.query(func.max(LearningAssessmentQuestion.sort_order)).filter(LearningAssessmentQuestion.assessment_id == assessment_id).scalar()
+        values["sort_order"] = (last or 0) + 1
+    question = LearningAssessmentQuestion(**values, assessment_id=assessment_id)
     db.add(question)
     db.commit()
     db.refresh(question)
     return question
 
 
-def get_questions(db: Session, assessment_id: int) -> list[LearningAssessmentQuestion]:
+def get_questions(db: Session, assessment_id: int, organization_id: Optional[int] = None) -> list[LearningAssessmentQuestion]:
+    if organization_id is not None:
+        _assessment_row(db, assessment_id, organization_id)
     return db.query(LearningAssessmentQuestion).filter(
         LearningAssessmentQuestion.assessment_id == assessment_id
-    ).order_by(LearningAssessmentQuestion.sort_order).all()
+    ).order_by(LearningAssessmentQuestion.sort_order, LearningAssessmentQuestion.id).all()
 
 
-def update_question(db: Session, question_id: int, data: QuestionUpdate) -> LearningAssessmentQuestion:
-    question = db.query(LearningAssessmentQuestion).filter(LearningAssessmentQuestion.id == question_id).first()
+def _question_row(db: Session, assessment_id: int, question_id: int, organization_id: Optional[int]) -> LearningAssessmentQuestion:
+    _assessment_row(db, assessment_id, organization_id)
+    question = db.query(LearningAssessmentQuestion).filter(
+        LearningAssessmentQuestion.id == question_id, LearningAssessmentQuestion.assessment_id == assessment_id
+    ).first()
     if not question:
         raise NotFoundException("LearningAssessmentQuestion", question_id)
-    update_data = data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
+    return question
+
+
+def update_question(db: Session, assessment_id: int, question_id: int, data: QuestionUpdate, organization_id: Optional[int] = None) -> LearningAssessmentQuestion:
+    from app.modules.hr.schemas import normalize_question
+    question = _question_row(db, assessment_id, question_id, organization_id)
+    changes = data.model_dump(exclude_unset=True)
+    for required in ("question_text", "question_type", "points"):
+        if required in changes and changes[required] is None:
+            changes.pop(required)
+    merged_type = changes.get("question_type", question.question_type)
+    raw_options = changes["options"] if "options" in changes else question.options
+    raw_answer = changes["correct_answer"] if "correct_answer" in changes else question.correct_answer
+    try:
+        options, answer = normalize_question(merged_type, raw_options, raw_answer)
+    except ValueError as exc:
+        raise BadRequestException(str(exc))
+    changes.update({"question_type": str(merged_type).strip().lower(), "options": options, "correct_answer": answer})
+    for field, value in changes.items():
         setattr(question, field, value)
     db.commit()
     db.refresh(question)
     return question
 
 
-def delete_question(db: Session, question_id: int) -> None:
-    question = db.query(LearningAssessmentQuestion).filter(LearningAssessmentQuestion.id == question_id).first()
-    if not question:
-        raise NotFoundException("LearningAssessmentQuestion", question_id)
+def delete_question(db: Session, assessment_id: int, question_id: int, organization_id: Optional[int] = None) -> None:
+    question = _question_row(db, assessment_id, question_id, organization_id)
     db.delete(question)
     db.commit()
 
 
-def start_quiz(db: Session, data: QuizAttemptStart) -> LearningQuizAttempt:
-    assessment = get_assessment_by_id(db, data.assessment_id)
+def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[int] = None) -> LearningQuizAttempt:
+    assessment = _assessment_row(db, data.assessment_id, organization_id)
 
     if not assessment.is_active:
         raise BadRequestException("Assessment is not active.")
@@ -469,6 +575,7 @@ def start_quiz(db: Session, data: QuizAttemptStart) -> LearningQuizAttempt:
         assessment_id=data.assessment_id,
         employee_id=data.employee_id,
         enrollment_id=data.enrollment_id,
+        organization_id=organization_id,
         started_at=datetime.utcnow(),
         attempt_number=attempt_number,
         status="in_progress",
@@ -479,7 +586,7 @@ def start_quiz(db: Session, data: QuizAttemptStart) -> LearningQuizAttempt:
     return attempt
 
 
-def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit) -> LearningQuizAttempt:
+def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit, organization_id: Optional[int] = None) -> LearningQuizAttempt:
     attempt = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.id == attempt_id).first()
     if not attempt:
         raise NotFoundException("LearningQuizAttempt", attempt_id)
@@ -487,7 +594,7 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit) -> Learni
     if attempt.status == "completed":
         raise BadRequestException("Quiz attempt has already been submitted.")
 
-    assessment = get_assessment_by_id(db, attempt.assessment_id)
+    assessment = _assessment_row(db, attempt.assessment_id, organization_id)
     questions = get_questions(db, attempt.assessment_id)
 
     try:
@@ -500,6 +607,8 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit) -> Learni
 
     answer_map = {}
     for entry in user_answers:
+        if not isinstance(entry, dict):
+            continue
         qid = entry.get("question_id")
         ans = entry.get("answer")
         if qid is not None:
@@ -509,17 +618,17 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit) -> Learni
     earned_points = 0
 
     for question in questions:
-        total_points += question.points
+        total_points += question.points or 0
         user_answer = answer_map.get(question.id, "")
         if user_answer is not None and question.correct_answer is not None:
             if str(user_answer).strip().lower() == str(question.correct_answer).strip().lower():
-                earned_points += question.points
+                earned_points += question.points or 0
 
     score = 0
     if total_points > 0:
         score = round((earned_points / total_points) * 100)
 
-    passed = score >= assessment.passing_score
+    passed = assessment.passing_score is not None and score >= assessment.passing_score
 
     attempt.answers = data.answers
     attempt.score = score
@@ -532,92 +641,91 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit) -> Learni
     return attempt
 
 
+def _attempt_dict(a: LearningQuizAttempt, names: dict) -> dict:
+    return {
+        "id": a.id, "assessment_id": a.assessment_id, "employee_id": a.employee_id, "employee_name": names.get(a.employee_id),
+        "enrollment_id": a.enrollment_id, "started_at": a.started_at, "completed_at": a.completed_at, "score": a.score,
+        "passed": a.passed, "answers": a.answers if isinstance(a.answers, str) or a.answers is None else json.dumps(a.answers),
+        "attempt_number": a.attempt_number, "status": a.status, "created_at": a.created_at,
+    }
+
+
 def get_quiz_attempts(
     db: Session,
     assessment_id: Optional[int] = None,
     employee_id: Optional[int] = None,
-) -> list[LearningQuizAttempt]:
+    organization_id: Optional[int] = None,
+) -> list[dict]:
+    from app.modules.employee.models import Employee
+    if assessment_id and organization_id is not None:
+        _assessment_row(db, assessment_id, organization_id)
     query = db.query(LearningQuizAttempt)
     if assessment_id:
         query = query.filter(LearningQuizAttempt.assessment_id == assessment_id)
     if employee_id:
         query = query.filter(LearningQuizAttempt.employee_id == employee_id)
-    return query.order_by(LearningQuizAttempt.started_at.desc()).all()
+    attempts = query.order_by(LearningQuizAttempt.started_at.desc()).all()
+    ids = {a.employee_id for a in attempts}
+    names = {}
+    if ids:
+        for e in db.query(Employee).filter(Employee.id.in_(ids)).all():
+            names[e.id] = (f"{e.first_name or ''} {e.last_name or ''}".strip()) or e.email
+    return [_attempt_dict(a, names) for a in attempts]
 
 
-def get_quiz_attempt_by_id(db: Session, attempt_id: int) -> LearningQuizAttempt:
+def get_quiz_attempt_by_id(db: Session, attempt_id: int, organization_id: Optional[int] = None) -> LearningQuizAttempt:
     attempt = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.id == attempt_id).first()
     if not attempt:
         raise NotFoundException("LearningQuizAttempt", attempt_id)
+    if organization_id is not None:
+        _assessment_row(db, attempt.assessment_id, organization_id)
     return attempt
 
 
-def create_training_program(db: Session, data: TrainingProgramCreate, created_by: int, organization_id: Optional[int] = None) -> LearningTrainingProgram:
-    program = LearningTrainingProgram(**data.model_dump(), created_by=created_by)
+# Where a program can go from each status. A finished program stays finished and a cancelled one can only be
+# planned again, so it can never flip between completed and cancelled.
+PROGRAM_TRANSITIONS = {
+    "planned": {"active", "completed", "cancelled"},
+    "active": {"completed", "cancelled"},
+    "completed": set(),
+    "cancelled": {"planned"},
+}
+
+
+def check_program_transition(current: str, new: Optional[str]) -> None:
+    if new is None or new == current:
+        return
+    if new not in PROGRAM_TRANSITIONS.get(current, set()):
+        if current == "completed":
+            raise BadRequestException("This program is already completed, so its status can no longer be changed.")
+        if current == "cancelled":
+            raise BadRequestException(f"A cancelled program cannot be marked {new}. Plan it again first.")
+        raise BadRequestException(f"A program that is {current} cannot be changed to {new}.")
+
+
+def _program_row(db: Session, program_id: int, organization_id: Optional[int] = None) -> LearningTrainingProgram:
+    query = db.query(LearningTrainingProgram).filter(LearningTrainingProgram.id == program_id)
     if organization_id is not None:
-        program.organization_id = organization_id
-    db.add(program)
-    db.commit()
-    db.refresh(program)
+        query = query.filter(LearningTrainingProgram.organization_id == organization_id)   # another organization's program does not exist here
+    program = query.first()
+    if not program:
+        raise NotFoundException("LearningTrainingProgram", program_id)
     return program
 
 
-def get_training_programs(
-    db: Session,
-    page: int = 1,
-    per_page: int = 20,
-    status: Optional[str] = None,
-    organization_id: Optional[int] = None,
-) -> dict:
-    per_page = min(per_page, 100)
-    try:
-        query = db.query(LearningTrainingProgram)
-
-        if status:
-            query = query.filter(LearningTrainingProgram.status == status)
-
-        if organization_id is not None:
-            query = query.filter(LearningTrainingProgram.organization_id == organization_id)
-
-        total = query.count()
-        programs = query.order_by(LearningTrainingProgram.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
-
-        items = []
-        for p in programs:
-            items.append({
-                "id": p.id,
-                "name": p.name,
-                "description": p.description,
-                "instructor_id": p.instructor_id,
-                "start_date": p.start_date,
-                "end_date": p.end_date,
-                "status": p.status,
-                "max_participants": p.max_participants,
-                "participants_count": len(p.assignments) if p.assignments else 0,
-                "created_by": p.created_by,
-                "created_at": p.created_at,
-                "updated_at": p.updated_at,
-            })
-
-        return {
-            "total": total,
-            "page": page,
-            "per_page": per_page,
-            "items": items,
-        }
-    except SQLAlchemyError:
-        return {"total": 0, "page": page, "per_page": per_page, "items": []}
-
-
-def get_training_program_by_id(db: Session, program_id: int, organization_id: Optional[int] = None) -> dict:
-    program = db.query(LearningTrainingProgram).filter(LearningTrainingProgram.id == program_id).first()
-    if not program:
-        raise NotFoundException("LearningTrainingProgram", program_id)
+def _program_dict(program: LearningTrainingProgram) -> dict:
+    instructor = program.instructor
+    name = None
+    if instructor is not None:
+        name = (f"{instructor.first_name or ''} {instructor.last_name or ''}".strip()) or instructor.email
     return {
         "id": program.id,
         "name": program.name,
         "description": program.description,
         "instructor_id": program.instructor_id,
+        "instructor_name": name,
+        "department": program.department,
+        "resource_link": program.resource_link,
         "start_date": program.start_date,
         "end_date": program.end_date,
         "status": program.status,
@@ -629,18 +737,95 @@ def get_training_program_by_id(db: Session, program_id: int, organization_id: Op
     }
 
 
-def update_training_program(db: Session, program_id: int, data: TrainingProgramUpdate, organization_id: Optional[int] = None) -> LearningTrainingProgram:
-    program = get_training_program_by_id(db, program_id, organization_id)
+def _check_program(db: Session, organization_id, name=None, instructor_id=None, start_date=None, end_date=None, exclude_id=None, check_name=True) -> None:
+    if check_name and name:
+        q = db.query(LearningTrainingProgram.id).filter(func.lower(LearningTrainingProgram.name) == name.lower())
+        if organization_id is not None:
+            q = q.filter(LearningTrainingProgram.organization_id == organization_id)
+        if exclude_id:
+            q = q.filter(LearningTrainingProgram.id != exclude_id)
+        if q.first():
+            raise BadRequestException(f"A program named '{name}' already exists. Use a different name or edit that program.")
+    if instructor_id is not None:
+        from app.modules.employee.models import Employee
+        q = db.query(Employee.id).filter(Employee.id == instructor_id)
+        if organization_id is not None:
+            q = q.filter(Employee.organization_id == organization_id)
+        if not q.first():
+            raise BadRequestException("The selected instructor is not an employee of this organization.")
+    if start_date and end_date and end_date < start_date:
+        raise BadRequestException("The end date cannot be before the start date.")
+
+
+def create_training_program(db: Session, data: TrainingProgramCreate, created_by: int, organization_id: Optional[int] = None) -> dict:
+    _check_program(db, organization_id, data.name, data.instructor_id, data.start_date, data.end_date)
+    program = LearningTrainingProgram(**data.model_dump(), created_by=created_by)
+    if organization_id is not None:
+        program.organization_id = organization_id
+    db.add(program)
+    db.commit()
+    db.refresh(program)
+    return _program_dict(program)
+
+
+def get_training_programs(
+    db: Session,
+    page: int = 1,
+    per_page: int = 20,
+    status: Optional[str] = None,
+    organization_id: Optional[int] = None,
+    hide_cancelled: bool = False,
+) -> dict:
+    per_page = min(per_page, 100)
+    query = db.query(LearningTrainingProgram)
+
+    if status:
+        query = query.filter(LearningTrainingProgram.status == status)
+    if hide_cancelled:
+        query = query.filter(LearningTrainingProgram.status != "cancelled")
+    if organization_id is not None:
+        query = query.filter(LearningTrainingProgram.organization_id == organization_id)
+
+    total = query.count()
+    programs = query.order_by(LearningTrainingProgram.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    return {"total": total, "page": page, "per_page": per_page, "items": [_program_dict(p) for p in programs]}
+
+
+def get_training_program_by_id(db: Session, program_id: int, organization_id: Optional[int] = None) -> dict:
+    return _program_dict(_program_row(db, program_id, organization_id))
+
+
+def update_training_program(db: Session, program_id: int, data: TrainingProgramUpdate, organization_id: Optional[int] = None) -> dict:
+    program = _program_row(db, program_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
+    check_program_transition(program.status, update_data.get("status"))
+    new_name = update_data.get("name")
+    _check_program(
+        db, organization_id,
+        name=new_name,
+        instructor_id=update_data.get("instructor_id") if update_data.get("instructor_id") != program.instructor_id else None,
+        start_date=update_data.get("start_date", program.start_date),
+        end_date=update_data.get("end_date", program.end_date),
+        exclude_id=program.id,
+        check_name=bool(new_name) and new_name.lower() != (program.name or "").lower(),
+    )
+    capacity = update_data.get("max_participants")
+    if capacity is not None and capacity < (len(program.assignments) if program.assignments else 0):
+        raise BadRequestException(f"This program already has {len(program.assignments)} participants, so the maximum cannot be lower than that.")
     for field, value in update_data.items():
         setattr(program, field, value)
     db.commit()
     db.refresh(program)
-    return program
+    return _program_dict(program)
 
 
 def delete_training_program(db: Session, program_id: int, organization_id: Optional[int] = None) -> None:
-    program = get_training_program_by_id(db, program_id, organization_id)
+    program = _program_row(db, program_id, organization_id)
+    if program.assignments:
+        n = len(program.assignments)
+        raise BadRequestException(
+            f"This program has {n} participant{'s' if n != 1 else ''} and cannot be deleted. Set it to Cancelled instead."
+        )
     db.delete(program)
     db.commit()
 

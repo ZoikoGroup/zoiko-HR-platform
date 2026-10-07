@@ -32,13 +32,13 @@ from app.modules.billing.feature_keys import FEATURE_KEY_REGISTRY_VERSION
 from app.modules.billing import service
 from app.modules.billing.entitlement_service import (
     ENTITLED_AVAILABLE,
-    ENTITLED_NOT_CONFIGURED,
+    ENTITLED_NOT_CONFIGURED, NOT_ENTITLED,
     check_entitlement,
     invalidate_entitlement_cache,
 )
 from tests.fixtures import tenants
 
-_GRANT_KEY = "hr.recruitment.core"
+_GRANT_KEY = "hr.performance.cycles"  # Advanced-only in the plan baseline
 _ALWAYS_KEY = "hr.attendance.core"
 
 
@@ -84,7 +84,7 @@ def test_upgrade_invalidates_stale_decision_cache(db):
     fx.sub.plan_id = core_plan.id
     db.commit()
 
-    # ENTERPRISE grants the key; CORE does not (no row → ENTITLED_NOT_CONFIGURED).
+    # ENTERPRISE grants the key; CORE does not (baseline: Advanced-only → NOT_ENTITLED).
     tenants.seed_entitlement_mappings(
         db,
         plan_codes=[PlanCode.ENTERPRISE],
@@ -98,7 +98,7 @@ def test_upgrade_invalidates_stale_decision_cache(db):
 
     # Prime the cache under CORE: not configured for the grant key.
     before = check_entitlement(db, org_id, _GRANT_KEY)
-    assert before["state"] == ENTITLED_NOT_CONFIGURED
+    assert before["state"] == NOT_ENTITLED
 
     # Immediate upgrade — must drop the cached decision.
     service.upgrade_subscription(

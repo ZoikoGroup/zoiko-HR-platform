@@ -95,6 +95,25 @@ def _check_feature_blocks_downgrade(
     if target_mapping is not None and target_mapping.state == ENTITLED_AVAILABLE:
         return []
 
+    if target_mapping is None:
+        # No operator-approved row: the plan baseline decides. A feature the target plan includes is no problem. One
+        # it leaves out is something to tell the customer about (they keep their data), not a reason to refuse a
+        # downgrade: nothing records per-organization use of SSO or the API, so "in use" cannot be proven.
+        from app.modules.billing.plan_baseline import baseline_included, feature_label
+
+        included = baseline_included(target_pc, feature_key)
+        if included:
+            return []
+        if included is False:
+            return [Blocker(
+                category=category,
+                feature_key=feature_key,
+                message=f"{feature_label(feature_key)} is not included in the {target_plan_code.title()} plan. "
+                        "You will lose access to it when the downgrade takes effect; your data is kept.",
+                severity="warning",
+                details={"current_state": current["state"], "target_plan": target_plan_code},
+            )]
+
     return [Blocker(
         category=category,
         feature_key=feature_key,

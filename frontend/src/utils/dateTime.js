@@ -35,10 +35,22 @@ export function formatDateTimeWithZone(value) {
   const datePart = d
     .toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
     .replace("Sept", "Sep");
-  const timePart = new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false, timeZoneName: "short",
-  }).format(d);
-  return `${datePart}, ${timePart}`;
+  const clock = new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false }).format(d);
+  return `${datePart}, ${clock} ${timeZoneLabel(d)}`;
+}
+
+/**
+ * The viewer's timezone as a short name people recognise. Intl spells India "GMT+5:30" in en-GB/en-US, so
+ * India is named IST (the en-IN locale knows it); other zones use Intl's own short name.
+ */
+export function timeZoneLabel(date = new Date()) {
+  const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+  const name = (locale) => {
+    const part = new Intl.DateTimeFormat(locale, { timeZoneName: "short" }).formatToParts(date).find((p) => p.type === "timeZoneName");
+    return part ? part.value : "";
+  };
+  if (/^Asia\/(Kolkata|Calcutta)$/.test(zone)) return "IST";
+  return name("en-GB");
 }
 
 /** "2026-09-30 09:21:52 UTC" — the stored instant, for hover text and detail views. */

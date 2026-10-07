@@ -119,6 +119,13 @@ async def lifespan(application: FastAPI):
         logger.warning("[startup] Entitlement map sweep could not run: %s", e)
 
     yield
+    # let emails that are still queued go out before the process exits
+    try:
+        from app.services.email_service import flush_email_queue
+
+        flush_email_queue(timeout=25)
+    except Exception:
+        pass
     try:
         from app.modules.integrations.worker import stop_worker
 
@@ -285,6 +292,7 @@ if settings.ENFORCE_ENTITLEMENTS:
         db_session_factory=SessionLocal,
         enforce_keys=_enforce_keys,
         allow_read_in_read_only=settings.ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY,
+        routes_provider=lambda: app.routes,
     )
     logger.info(
         "[startup] Entitlement enforcement ENABLED (HR_ENFORCE_ENTITLEMENTS=true)."

@@ -1,3 +1,4 @@
+import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -35,6 +36,8 @@ const STATUS_STYLES = {
   locked: { class: "bg-orange-50 text-orange-700 ring-orange-200", icon: LockIcon },
   archived: { class: "bg-slate-100 text-slate-600 ring-slate-200", icon: Archive },
   deactivated: { class: "bg-red-50 text-red-700 ring-red-200", icon: X },
+  on_leave: { class: "bg-blue-50 text-blue-700 ring-blue-200", icon: Clock },
+  password_reset_required: { class: "bg-yellow-50 text-yellow-700 ring-yellow-200", icon: Clock },
 };
 function LockIcon() { return <Ban className="w-3 h-3" />; }
 
@@ -925,7 +928,7 @@ export default function UserManagementPage() {
                         <td className="px-3 py-2">
                           <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full ring-1 ring-inset ${st.class}`}>
                             <StatusIcon className="w-3 h-3" />
-                            {statusKey.charAt(0).toUpperCase() + statusKey.slice(1)}
+                            {(() => { const label = resolveEmployeeDisplayStatus({ ...u, status: u.status || (u.is_active ? "active" : "inactive") }).label; return label === "Working" ? "Active" : label; })()}
                           </span>
                         </td>
                         <td className="px-3 py-2">

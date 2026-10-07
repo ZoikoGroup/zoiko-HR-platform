@@ -104,7 +104,20 @@ test("Edit opens with the review's values, keeps its reviewers, and updates only
   choose(selects()[4], 2);
   fireEvent.click(screen.getByRole("button", { name: "Update" }));
   await settle();
-  assert.deepEqual(calls.update, [[9, { employee_id: 1, reviewer_id: 2, hr_reviewer_id: 3, admin_reviewer_id: null, cycle: "Q1 2026", rating: 2, comments: "Good" }]]);
+  assert.deepEqual(calls.update, [[9, { employee_id: 1, reviewer_id: 2, hr_reviewer_id: 3, admin_reviewer_id: null, cycle: "Q1 2026", rating: 2, comments: "Good", status: "pending" }]]);
+});
+
+test("Edit lets a pending review be moved on, and a person missing from the list stays selectable", async (t) => {
+  const calls = await load(t);
+  const row = screen.getByText("Ann Lee").closest("tr");
+  fireEvent.click(within(row).getAllByRole("button").at(-2));
+  await settle();
+  const status = selects().find((s) => [...s.options].some((o) => o.value === "in_progress"));
+  assert.equal(status.value, "pending");
+  choose(status, "in_progress");
+  fireEvent.click(screen.getByRole("button", { name: "Update" }));
+  await settle();
+  assert.equal(calls.update[0][1].status, "in_progress");
 });
 
 test("a failed Edit shows the reason and the status buttons send only the status", async (t) => {

@@ -101,30 +101,59 @@ def _collect_routes(app, seen: set | None = None) -> list:
     return []
 
 
+def _flatten_routes(routes, depth: int = 0) -> list:
+    """Every concrete route, looking inside routers FastAPI includes lazily (`_IncludedRouter`), which expose
+    no `path` of their own. Include-time prefixes are empty in this app; a prefixed include is skipped rather
+    than guessed at."""
+    flat = []
+    for route in routes or []:
+        inner = getattr(route, "original_router", None)
+        if inner is not None and depth < 8:
+            ctx = getattr(route, "include_context", None)
+            if getattr(ctx, "prefix", "") in ("", None):
+                flat.extend(_flatten_routes(getattr(inner, "routes", []), depth + 1))
+            continue
+        flat.append(route)
+    return flat
+
+
 class EntitlementMiddleware:
     """ASGI middleware enforcing route_entitlement_map for authenticated calls."""
 
     def __init__(self, app: ASGIApp, db_session_factory, *,
-                 enforce_keys=frozenset(), allow_read_in_read_only: bool = True):
-        from app.modules.billing.route_entitlement_map import ROUTE_ENTITLEMENT_MAP
-
+                 enforce_keys=frozenset(), allow_read_in_read_only: bool = True, routes_provider=None):
         self.app = app
         self.session_factory = db_session_factory
         self.enforce_keys = frozenset(enforce_keys or ())
         self.allow_read_in_read_only = allow_read_in_read_only
-        # resolve the route table: FastAPI hands us an ExceptionMiddleware
-        # wrapping the router, whose routes live one level deeper.
-        routes = _collect_routes(app)
-        # snapshot guarded routes -> feature key
-        self.guards = []
-        for route in routes:
-            for method in getattr(route, "methods", []) or []:
-                if method in ("HEAD", "OPTIONS"):
-                    continue
-                key = ROUTE_ENTITLEMENT_MAP.get((method.upper(), getattr(route, "path", "")))
-                if key is not None:
-                    self.guards.append((method.upper(), route, key))
-        logger.info("[entitlement] enforcing %d guarded routes.", len(self.guards))
+        # `routes_provider` hands over the application's own route table. Walking the wrapped ASGI app to find it
+        # (the old way) came back empty on current Starlette, so no route was ever enforced even with enforcement on.
+        self._routes_provider = routes_provider
+        self._guards = None
+
+    @property
+    def guards(self):
+        """(method, route, feature key) for every guarded route, built once on first use so that every router
+        mounted at startup is included."""
+        if self._guards is None:
+            from app.modules.billing.route_entitlement_map import ROUTE_ENTITLEMENT_MAP
+
+            routes = _flatten_routes(self._routes_provider() if self._routes_provider else _collect_routes(self.app))
+            built = []
+            for route in routes:
+                for method in getattr(route, "methods", []) or []:
+                    if method in ("HEAD", "OPTIONS"):
+                        continue
+                    key = ROUTE_ENTITLEMENT_MAP.get((method.upper(), getattr(route, "path", "")))
+                    if key is not None:
+                        built.append((method.upper(), route, key))
+            self._guards = built
+            logger.info("[entitlement] enforcing %d guarded routes.", len(built))
+        return self._guards
+
+    @guards.setter
+    def guards(self, value):
+        self._guards = value
 
     def _is_enforced(self, key: str) -> bool:
         """Staged rollout: empty enforce_keys means enforce everything;
@@ -139,7 +168,13 @@ class EntitlementMiddleware:
         the one deliberately uncached read in the request path, so an ops
         edit via the platform-settings endpoint takes effect on the very next
         request, not after a cache TTL or restart."""
+        from app.modules.billing.models import BillingSubscription
         from app.modules.super_admin.models import PlatformSetting
+
+        # An organization with no billing subscription at all predates billing or was created outside the
+        # self-serve flow. It has no plan to measure against, so it is left alone instead of being locked out.
+        if db.query(BillingSubscription.id).filter(BillingSubscription.organization_id == org_id).first() is None:
+            return False
 
         row = (
             db.query(PlatformSetting)
@@ -189,9 +224,13 @@ class EntitlementMiddleware:
             await self.app(scope, receive, send)
             return
 
+        from app.modules.billing.plan_baseline import UPGRADE_URL, not_entitled_message
+
         body = json.dumps({
-            "detail": f"Feature not entitled for your organization: {matched_key}",
+            "detail": not_entitled_message(matched_key, state, result.get("required_plan")),
             "feature_key": matched_key,
+            "required_plan": result.get("required_plan"),
+            "upgrade_url": UPGRADE_URL,
             "state": state,
             "mode": result.get("mode"),
             "reason_code": result.get("reason_code"),

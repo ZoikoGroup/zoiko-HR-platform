@@ -4,8 +4,10 @@ modules/hr/schemas.py
 Pydantic schemas = data validation for API requests and responses.
 """
 
+import re
 from datetime import date, datetime
-from typing import Optional, List
+from datetime import date as _date_type   # a field called `date` hides the `date` type inside its own class
+from typing import Optional, List, Literal
 from decimal import Decimal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
@@ -634,7 +636,7 @@ class HolidayCreate(BaseModel):
 
 class HolidayUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=150)
-    date: Optional[date] = None
+    date: Optional[_date_type] = None
     type: Optional[str] = None
     is_recurring: Optional[bool] = None
     description: Optional[str] = None
@@ -1178,15 +1180,61 @@ class CompensationBandResponse(CompensationBandCreate):
     model_config = {"from_attributes": True}
 
 
-class SalaryComponentCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=100)
-    component_type: str = Field(..., pattern="^(earning|deduction)$")
+class _SalaryComponentChecks(BaseModel):
+    """A component's default amount is what every salary structure starts from, so it must be entered, never left blank."""
+    @field_validator("name", mode="before", check_fields=False)
+    @classmethod
+    def _v_name(cls, v):
+        return _course_text("Component name", 100)(v)
+
+    @field_validator("component_type", mode="before", check_fields=False)
+    @classmethod
+    def _v_type(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if text not in ("earning", "deduction"):
+            raise ValueError("Type must be Earning or Deduction.")
+        return text
+
+    @field_validator("default_amount", mode="before", check_fields=False)
+    @classmethod
+    def _v_amount(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Default amount is required.")
+        try:
+            n = Decimal(str(v).strip())
+        except Exception:
+            raise ValueError("Default amount must be a number.")
+        if not n.is_finite():
+            raise ValueError("Default amount must be a number.")
+        if n <= 0:
+            raise ValueError("Default amount must be greater than 0.")
+        if n > Decimal("99999999.99"):
+            raise ValueError("Default amount is too large (the most is 99,999,999.99).")
+        if n != n.quantize(Decimal("0.01")):
+            raise ValueError("Default amount can have at most 2 decimal places.")
+        return n
+
+    @field_validator("description", mode="before", check_fields=False)
+    @classmethod
+    def _v_description(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 2000:
+            raise ValueError("Description can be at most 2000 characters.")
+        return text
+
+
+class SalaryComponentCreate(_SalaryComponentChecks):
+    name: str
+    component_type: str
     is_taxable: bool = True
-    default_amount: Optional[Decimal] = None
+    default_amount: Decimal
     description: Optional[str] = None
 
 
-class SalaryComponentUpdate(BaseModel):
+class SalaryComponentUpdate(_SalaryComponentChecks):
+    """Fields left out stay as they are; a field that is sent must still be filled in."""
     name: Optional[str] = None
     component_type: Optional[str] = None
     is_taxable: Optional[bool] = None
@@ -1194,8 +1242,14 @@ class SalaryComponentUpdate(BaseModel):
     description: Optional[str] = None
 
 
-class SalaryComponentResponse(SalaryComponentCreate):
+class SalaryComponentResponse(BaseModel):
+    # reading never re-checks: a component saved before these rules (with no amount) must still be listed
     id: int
+    name: str
+    component_type: str
+    is_taxable: bool = True
+    default_amount: Optional[Decimal] = None
+    description: Optional[str] = None
     created_at: datetime
     updated_at: Optional[datetime]
     model_config = {"from_attributes": True}
@@ -1254,22 +1308,87 @@ class SalaryRevisionResponse(SalaryRevisionCreate):
     updated_at: Optional[datetime]
     model_config = {"from_attributes": True}
 
-class AllowanceCreate(BaseModel):
+class _AllowanceChecks(BaseModel):
+    """The employee must be chosen (the service then confirms they belong to this organization); the rest is checked here."""
+    @field_validator("employee_id", mode="before", check_fields=False)
+    @classmethod
+    def _v_employee(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Choose the employee this allowance is for.")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("Choose the employee this allowance is for.")
+        if n < 1:
+            raise ValueError("Choose the employee this allowance is for.")
+        return n
+
+    @field_validator("allowance_type", mode="before", check_fields=False)
+    @classmethod
+    def _v_type(cls, v):
+        return _course_text("Allowance type", 100)(v)
+
+    @field_validator("amount", mode="before", check_fields=False)
+    @classmethod
+    def _v_amount(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Amount is required.")
+        try:
+            n = Decimal(str(v).strip())
+        except Exception:
+            raise ValueError("Amount must be a number.")
+        if not n.is_finite():
+            raise ValueError("Amount must be a number.")
+        if n <= 0:
+            raise ValueError("Amount must be greater than 0.")
+        if n > Decimal("99999999.99"):
+            raise ValueError("Amount is too large (the most is 99,999,999.99).")
+        if n != n.quantize(Decimal("0.01")):
+            raise ValueError("Amount can have at most 2 decimal places.")
+        return n
+
+    @field_validator("effective_date", mode="before", check_fields=False)
+    @classmethod
+    def _v_date_required(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Effective date is required.")
+        return v
+
+    @field_validator("effective_date", check_fields=False)
+    @classmethod
+    def _v_date_range(cls, v):
+        if v is not None and not (2000 <= v.year <= 2100):
+            raise ValueError("Enter a date between the years 2000 and 2100.")
+        return v
+
+
+class AllowanceCreate(_AllowanceChecks):
     employee_id: int
     allowance_type: str
     amount: Decimal
-    effective_date: date
+    effective_date: _date_type
 
-class AllowanceUpdate(BaseModel):
+
+class AllowanceUpdate(_AllowanceChecks):
+    """Fields left out stay as they are; a field that is sent must still be filled in."""
+    employee_id: Optional[int] = None
     allowance_type: Optional[str] = None
     amount: Optional[Decimal] = None
-    effective_date: Optional[date] = None
+    effective_date: Optional[_date_type] = None
 
-class AllowanceResponse(AllowanceCreate):
+
+class AllowanceResponse(BaseModel):
+    # reading never re-checks, so a record saved before these rules is still listed
     id: int
+    employee_id: int
+    employee_name: Optional[str] = None
+    allowance_type: str
+    amount: Decimal
+    effective_date: date
     created_at: datetime
     updated_at: Optional[datetime]
     model_config = {"from_attributes": True}
+
 
 class BenefitCreate(BaseModel):
     name: str
@@ -1352,24 +1471,128 @@ class EssRequestResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class CourseCreate(BaseModel):
-    course_name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
-    course_type: Optional[str] = Field(None, max_length=50)
-    category: Optional[str] = Field(None, max_length=100)
-    provider: Optional[str] = Field(None, max_length=150)
-    duration_hours: Optional[int] = Field(None, ge=0)
+COURSE_TYPES = ("online", "in_person", "hybrid", "self_paced")
+COURSE_STATUSES = ("active", "inactive")
+
+
+def _course_text(label, max_len):
+    def check(v):
+        text = " ".join(str(v).split()) if v is not None else ""
+        if not text:
+            raise ValueError(f"{label} is required.")
+        if len(text) > max_len:
+            raise ValueError(f"{label} can be at most {max_len} characters.")
+        return text
+    return check
+
+
+class _CourseChecks(BaseModel):
+    """What a learner needs to see before choosing a course is required, in the same words for adding and editing."""
+    @field_validator("course_name", mode="before", check_fields=False)
+    @classmethod
+    def _v_name(cls, v):
+        return _course_text("Course name", 200)(v)
+
+    @field_validator("description", mode="before", check_fields=False)
+    @classmethod
+    def _v_description(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            raise ValueError("Description is required, so learners know what the course covers.")
+        if len(text) > 5000:
+            raise ValueError("Description can be at most 5000 characters.")
+        return text
+
+    @field_validator("category", mode="before", check_fields=False)
+    @classmethod
+    def _v_category(cls, v):
+        return _course_text("Category", 100)(v)
+
+    @field_validator("provider", mode="before", check_fields=False)
+    @classmethod
+    def _v_provider(cls, v):
+        return _course_text("Provider", 150)(v)
+
+    @field_validator("course_type", mode="before", check_fields=False)
+    @classmethod
+    def _v_type(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if not text:
+            raise ValueError("Course type is required.")
+        if text not in COURSE_TYPES:
+            raise ValueError("Course type must be online, in person, hybrid or self paced.")
+        return text
+
+    @field_validator("duration_hours", mode="before", check_fields=False)
+    @classmethod
+    def _v_duration(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Duration is required.")
+        try:
+            n = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("Duration must be a whole number of hours.")
+        if n != int(n):
+            raise ValueError("Duration must be a whole number of hours.")
+        if not 1 <= int(n) <= 1000:
+            raise ValueError("Duration must be between 1 and 1000 hours.")
+        return int(n)
+
+    @field_validator("department", mode="before", check_fields=False)
+    @classmethod
+    def _v_department(cls, v):
+        text = " ".join(str(v).split()) if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 100:
+            raise ValueError("Department can be at most 100 characters.")
+        return text
+
+    @field_validator("resource_link", mode="before", check_fields=False)
+    @classmethod
+    def _v_link(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 500:
+            raise ValueError("The resource link can be at most 500 characters.")
+        if not re.match(r"^https?://[^\s/]+\.[^\s/]+\S*$", text, re.IGNORECASE):
+            raise ValueError("Enter a valid link starting with http:// or https://.")
+        return text
+
+    @field_validator("status", mode="before", check_fields=False)
+    @classmethod
+    def _v_status(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if text not in COURSE_STATUSES:
+            raise ValueError("Status must be active or inactive.")
+        return text
+
+
+class CourseCreate(_CourseChecks):
+    course_name: str
+    description: str
+    course_type: str
+    category: str
+    provider: str
+    duration_hours: int
+    department: Optional[str] = None
+    resource_link: Optional[str] = None
     cost: Optional[Decimal] = Field(None, ge=0)
     status: str = "active"
 
 
-class CourseUpdate(BaseModel):
-    course_name: Optional[str] = Field(None, min_length=1, max_length=200)
+class CourseUpdate(_CourseChecks):
+    """Fields left out stay as they are; a field that is sent must still be filled in, so an edit can never blank a
+    detail that learners rely on."""
+    course_name: Optional[str] = None
     description: Optional[str] = None
-    course_type: Optional[str] = Field(None, max_length=50)
-    category: Optional[str] = Field(None, max_length=100)
-    provider: Optional[str] = Field(None, max_length=150)
-    duration_hours: Optional[int] = Field(None, ge=0)
+    course_type: Optional[str] = None
+    category: Optional[str] = None
+    provider: Optional[str] = None
+    duration_hours: Optional[int] = None
+    department: Optional[str] = None
+    resource_link: Optional[str] = None
     cost: Optional[Decimal] = Field(None, ge=0)
     status: Optional[str] = None
 
@@ -1381,6 +1604,8 @@ class CourseResponse(BaseModel):
     course_type: Optional[str]
     category: Optional[str]
     provider: Optional[str]
+    department: Optional[str] = None
+    resource_link: Optional[str] = None
     duration_hours: Optional[int]
     cost: Optional[Decimal]
     status: str
@@ -1532,33 +1757,105 @@ class SkillResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class AssessmentCreate(BaseModel):
+QUESTION_TYPES = ("multiple_choice", "true_false", "short_answer", "essay")
+
+
+def _whole(label, v, low, high, required=True, what=None):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        if required:
+            raise ValueError(f"{label} is required.")
+        return None
+    try:
+        n = float(v)
+    except (TypeError, ValueError):
+        raise ValueError(f"{label} must be a whole number.")
+    if n != int(n):
+        raise ValueError(f"{label} must be a whole number.")
+    if not low <= int(n) <= high:
+        raise ValueError(f"{label} must be between {low} and {high}{what or ''}.")
+    return int(n)
+
+
+class _AssessmentChecks(BaseModel):
+    """The passing score is never filled in for the person: it has to be entered, as a percentage from 1 to 100."""
+    @field_validator("title", mode="before", check_fields=False)
+    @classmethod
+    def _v_title(cls, v):
+        return _course_text("Title", 200)(v)
+
+    @field_validator("description", mode="before", check_fields=False)
+    @classmethod
+    def _v_description(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            raise ValueError("Description is required, so learners know what the assessment covers.")
+        if len(text) > 5000:
+            raise ValueError("Description can be at most 5000 characters.")
+        return text
+
+    @field_validator("passing_score", mode="before", check_fields=False)
+    @classmethod
+    def _v_passing(cls, v):
+        return _whole("Passing score", v, 1, 100, what=" percent")
+
+    @field_validator("max_attempts", mode="before", check_fields=False)
+    @classmethod
+    def _v_attempts(cls, v):
+        return _whole("Maximum attempts", v, 1, 100, required=False)
+
+    @field_validator("duration_minutes", mode="before", check_fields=False)
+    @classmethod
+    def _v_duration(cls, v):
+        return _whole("Duration", v, 1, 600, required=False, what=" minutes")
+
+    @field_validator("resource_link", mode="before", check_fields=False)
+    @classmethod
+    def _v_link(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 500:
+            raise ValueError("The resource link can be at most 500 characters.")
+        if not re.match(r"^https?://[^\s/]+\.[^\s/]+\S*$", text, re.IGNORECASE):
+            raise ValueError("Enter a valid link starting with http:// or https://.")
+        return text
+
+
+class AssessmentCreate(_AssessmentChecks):
     course_id: int
-    title: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
-    passing_score: int = 70
+    title: str
+    description: str
+    passing_score: int
     max_attempts: Optional[int] = None
     duration_minutes: Optional[int] = None
+    resource_link: Optional[str] = None
 
 
-class AssessmentUpdate(BaseModel):
-    title: Optional[str] = Field(None, min_length=1, max_length=200)
+class AssessmentUpdate(_AssessmentChecks):
+    """Fields left out stay as they are; a field that is sent must still be filled in."""
+    course_id: Optional[int] = None
+    title: Optional[str] = None
     description: Optional[str] = None
     passing_score: Optional[int] = None
     max_attempts: Optional[int] = None
     duration_minutes: Optional[int] = None
+    resource_link: Optional[str] = None
     is_active: Optional[bool] = None
 
 
 class AssessmentResponse(BaseModel):
     id: int
     course_id: int
+    course_name: Optional[str] = None
     title: str
     description: Optional[str]
-    passing_score: int
+    passing_score: Optional[int]
     max_attempts: Optional[int]
     duration_minutes: Optional[int]
+    resource_link: Optional[str] = None
     is_active: bool
+    questions_count: int = 0
+    attempts_count: int = 0
     created_by: Optional[int]
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
@@ -1566,22 +1863,96 @@ class AssessmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+def normalize_question(question_type, options, correct_answer):
+    """Checks a question hangs together and returns (options, correct_answer) in their stored form."""
+    qtype = str(question_type or "").strip().lower()
+    if qtype not in QUESTION_TYPES:
+        raise ValueError("Question type must be multiple choice, true/false, short answer or essay.")
+    if isinstance(options, str):
+        options = options.split(",")
+    opts = []
+    for o in options or []:
+        t = " ".join(str(o).split())
+        if t and t.lower() not in [x.lower() for x in opts]:
+            opts.append(t)
+    answer = " ".join(str(correct_answer).split()) if correct_answer is not None else ""
+    if qtype == "multiple_choice":
+        if len(opts) < 2:
+            raise ValueError("A multiple choice question needs at least two different options.")
+        if not answer:
+            raise ValueError("Choose the correct answer.")
+        match = next((o for o in opts if o.lower() == answer.lower()), None)
+        if match is None:
+            raise ValueError("The correct answer must be one of the options.")
+        return opts, match
+    if qtype == "true_false":
+        if answer.lower() not in ("true", "false"):
+            raise ValueError("The correct answer must be True or False.")
+        return None, answer.capitalize()
+    if qtype == "short_answer":
+        if not answer:
+            raise ValueError("Enter the correct answer, so the quiz can be marked.")
+        return None, answer
+    return None, None    # essay: marked by a person
+
+
 class QuestionCreate(BaseModel):
     question_text: str
     question_type: str = "multiple_choice"
-    options: Optional[str] = None
+    options: Optional[list[str]] = None
     correct_answer: Optional[str] = None
-    points: int = 1
-    sort_order: int = 0
+    points: int
+    sort_order: Optional[int] = None
+
+    @field_validator("question_text", mode="before")
+    @classmethod
+    def _v_text(cls, v):
+        return _course_text("Question text", 2000)(v)
+
+    @field_validator("points", mode="before")
+    @classmethod
+    def _v_points(cls, v):
+        return _whole("Points", v, 1, 100)
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _v_options_in(cls, v):
+        if isinstance(v, str):
+            return [o for o in v.split(",")]
+        return v
+
+    @model_validator(mode="after")
+    def _v_consistent(self):
+        self.options, self.correct_answer = normalize_question(self.question_type, self.options, self.correct_answer)
+        self.question_type = str(self.question_type).strip().lower()
+        return self
 
 
 class QuestionUpdate(BaseModel):
+    """Whatever is sent is merged with the saved question and the whole question is checked again by the service."""
     question_text: Optional[str] = None
     question_type: Optional[str] = None
-    options: Optional[str] = None
+    options: Optional[list[str]] = None
     correct_answer: Optional[str] = None
     points: Optional[int] = None
     sort_order: Optional[int] = None
+
+    @field_validator("question_text", mode="before")
+    @classmethod
+    def _v_text(cls, v):
+        return _course_text("Question text", 2000)(v)
+
+    @field_validator("points", mode="before")
+    @classmethod
+    def _v_points(cls, v):
+        return _whole("Points", v, 1, 100)
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _v_options_in(cls, v):
+        if isinstance(v, str):
+            return [o for o in v.split(",")]
+        return v
 
 
 class QuestionResponse(BaseModel):
@@ -1589,11 +1960,27 @@ class QuestionResponse(BaseModel):
     assessment_id: int
     question_text: str
     question_type: str
-    options: Optional[str]
-    correct_answer: Optional[str]
+    options: Optional[list[str]] = None
+    correct_answer: Optional[str] = None
     points: int
     sort_order: int
     created_at: Optional[datetime]
+
+    @field_validator("options", mode="before")
+    @classmethod
+    def _v_options_out(cls, v):
+        if v is None or isinstance(v, list):
+            return v
+        if isinstance(v, str):
+            try:
+                import json as _json
+                parsed = _json.loads(v)
+                if isinstance(parsed, list):
+                    return [str(x) for x in parsed]
+            except ValueError:
+                pass
+            return [o.strip() for o in v.split(",") if o.strip()]
+        return None
 
     model_config = {"from_attributes": True}
 
@@ -1612,6 +1999,7 @@ class QuizAttemptResponse(BaseModel):
     id: int
     assessment_id: int
     employee_id: int
+    employee_name: Optional[str] = None
     enrollment_id: Optional[int]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]
@@ -1625,24 +2013,136 @@ class QuizAttemptResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class TrainingProgramCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
-    instructor_id: Optional[int] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+PROGRAM_STATUSES = ("planned", "active", "completed", "cancelled")
+
+
+class _ProgramChecks(BaseModel):
+    """What a learner needs to see before joining a program is required, in the same words for adding and editing."""
+    @field_validator("name", mode="before", check_fields=False)
+    @classmethod
+    def _v_name(cls, v):
+        return _course_text("Program name", 200)(v)
+
+    @field_validator("description", mode="before", check_fields=False)
+    @classmethod
+    def _v_description(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            raise ValueError("Description is required, so learners know what the program covers.")
+        if len(text) > 5000:
+            raise ValueError("Description can be at most 5000 characters.")
+        return text
+
+    @field_validator("instructor_id", mode="before", check_fields=False)
+    @classmethod
+    def _v_instructor(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Choose the instructor who will run the program.")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("Choose the instructor who will run the program.")
+        if n < 1:
+            raise ValueError("Choose the instructor who will run the program.")
+        return n
+
+    @field_validator("start_date", mode="before", check_fields=False)
+    @classmethod
+    def _v_start(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Start date is required.")
+        return v
+
+    @field_validator("end_date", mode="before", check_fields=False)
+    @classmethod
+    def _v_end(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("End date is required.")
+        return v
+
+    @field_validator("start_date", "end_date", check_fields=False)
+    @classmethod
+    def _v_year(cls, v):
+        if v is not None and not (2000 <= v.year <= 2100):
+            raise ValueError("Enter a date between the years 2000 and 2100.")
+        return v
+
+    @field_validator("max_participants", mode="before", check_fields=False)
+    @classmethod
+    def _v_capacity(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Maximum participants is required.")
+        try:
+            n = float(v)
+        except (TypeError, ValueError):
+            raise ValueError("Maximum participants must be a whole number.")
+        if n != int(n):
+            raise ValueError("Maximum participants must be a whole number.")
+        if not 1 <= int(n) <= 10000:
+            raise ValueError("Maximum participants must be between 1 and 10000.")
+        return int(n)
+
+    @field_validator("department", mode="before", check_fields=False)
+    @classmethod
+    def _v_department(cls, v):
+        text = " ".join(str(v).split()) if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 100:
+            raise ValueError("Department can be at most 100 characters.")
+        return text
+
+    @field_validator("resource_link", mode="before", check_fields=False)
+    @classmethod
+    def _v_link(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 500:
+            raise ValueError("The resource link can be at most 500 characters.")
+        if not re.match(r"^https?://[^\s/]+\.[^\s/]+\S*$", text, re.IGNORECASE):
+            raise ValueError("Enter a valid link starting with http:// or https://.")
+        return text
+
+    @field_validator("status", mode="before", check_fields=False)
+    @classmethod
+    def _v_status(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if text not in PROGRAM_STATUSES:
+            raise ValueError("Status must be planned, active, completed or cancelled.")
+        return text
+
+    @model_validator(mode="after")
+    def _v_order(self):
+        start, end = getattr(self, "start_date", None), getattr(self, "end_date", None)
+        if start and end and end < start:
+            raise ValueError("The end date cannot be before the start date.")
+        return self
+
+
+class TrainingProgramCreate(_ProgramChecks):
+    name: str
+    description: str
+    instructor_id: int
+    start_date: _date_type
+    end_date: _date_type
+    max_participants: int
+    department: Optional[str] = None
+    resource_link: Optional[str] = None
     status: str = "planned"
-    max_participants: Optional[int] = Field(None, ge=1)
 
 
-class TrainingProgramUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=200)
+class TrainingProgramUpdate(_ProgramChecks):
+    """Fields left out stay as they are; a field that is sent must still be filled in."""
+    name: Optional[str] = None
     description: Optional[str] = None
     instructor_id: Optional[int] = None
-    start_date: Optional[date] = None
-    end_date: Optional[date] = None
+    start_date: Optional[_date_type] = None
+    end_date: Optional[_date_type] = None
+    max_participants: Optional[int] = None
+    department: Optional[str] = None
+    resource_link: Optional[str] = None
     status: Optional[str] = None
-    max_participants: Optional[int] = Field(None, ge=1)
 
 
 class TrainingProgramResponse(BaseModel):
@@ -1650,6 +2150,9 @@ class TrainingProgramResponse(BaseModel):
     name: str
     description: Optional[str]
     instructor_id: Optional[int]
+    instructor_name: Optional[str] = None
+    department: Optional[str] = None
+    resource_link: Optional[str] = None
     start_date: Optional[date]
     end_date: Optional[date]
     status: str
@@ -1830,10 +2333,35 @@ class OnboardingDocumentCreate(BaseModel):
 
 class OnboardingDocumentUpdate(BaseModel):
     status: Optional[str] = None
-    rejection_reason: Optional[str] = None
-    title: Optional[str] = None
-    category: Optional[str] = None
+    rejection_reason: Optional[str] = Field(None, max_length=1000)
+    title: Optional[str] = Field(None, max_length=200)
+    category: Optional[str] = Field(None, max_length=100)
     tenant_id: Optional[str] = None
+
+    @field_validator("status")
+    @classmethod
+    def _v_status(cls, v):
+        if v is None:
+            return v
+        v = str(v).strip().lower()
+        if v not in ("pending", "approved", "rejected"):
+            raise ValueError("Status must be pending, approved or rejected.")
+        return v
+
+    @field_validator("title")
+    @classmethod
+    def _v_title(cls, v):
+        if v is None:
+            return v
+        v = " ".join(v.split())
+        if not v:
+            raise ValueError("Title is required.")
+        return v
+
+    @field_validator("rejection_reason")
+    @classmethod
+    def _v_reason(cls, v):
+        return (v or "").strip() or None
 
 class OnboardingDocumentResponse(BaseModel):
     id: int
@@ -1907,9 +2435,100 @@ class OnboardingChecklistAssignmentCreate(BaseModel):
     onboarding_record_id: int
     template_id: int
 
-class OnboardingOrientationCreate(BaseModel):
-    title: str = Field(..., min_length=1, max_length=200)
-    date: date
+_ORIENTATION_STATUSES = ("scheduled", "completed", "cancelled")
+
+
+def _orientation_text(label, required, max_len):
+    def check(v):
+        text = " ".join(str(v).split()) if v is not None else ""
+        if not text:
+            if required:
+                raise ValueError(f"{label} is required.")
+            return None
+        if len(text) > max_len:
+            raise ValueError(f"{label} can be at most {max_len} characters.")
+        return text
+    return check
+
+
+def _orientation_date(v):
+    if v is None:
+        return v
+    if not (2000 <= v.year <= 2100):
+        raise ValueError("Enter a date between the years 2000 and 2100.")
+    return v
+
+
+def _orientation_time(v):
+    text = "" if v is None else str(v).strip()
+    if not text:
+        return None
+    if not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", text):
+        raise ValueError("Enter the time as HH:MM, for example 10:30.")
+    return text
+
+
+def _orientation_link(v):
+    text = "" if v is None else str(v).strip()
+    if not text:
+        return None
+    if len(text) > 500:
+        raise ValueError("The meeting link can be at most 500 characters.")
+    if not re.match(r"^https?://[^\s/]+\.[^\s/]+\S*$", text, re.IGNORECASE):
+        raise ValueError("Enter a valid link starting with http:// or https://.")
+    return text
+
+
+def _orientation_status(v):
+    if v is None:
+        return v
+    v = str(v).strip().lower()
+    if v not in _ORIENTATION_STATUSES:
+        raise ValueError("Status must be scheduled, completed or cancelled.")
+    return v
+
+
+class _OrientationChecks(BaseModel):
+    """Checks shared by creating and editing a session; each message is written for the person filling the form."""
+    @field_validator("title", mode="before", check_fields=False)
+    @classmethod
+    def _v_title(cls, v):
+        return _orientation_text("Title", True, 200)(v)
+
+    @field_validator("date", check_fields=False)
+    @classmethod
+    def _v_date(cls, v):
+        return _orientation_date(v)
+
+    @field_validator("time", mode="before", check_fields=False)
+    @classmethod
+    def _v_time(cls, v):
+        return _orientation_time(v)
+
+    @field_validator("location", mode="before", check_fields=False)
+    @classmethod
+    def _v_location(cls, v):
+        return _orientation_text("Location", False, 200)(v)
+
+    @field_validator("presenter", mode="before", check_fields=False)
+    @classmethod
+    def _v_presenter(cls, v):
+        return _orientation_text("Presenter", False, 200)(v)
+
+    @field_validator("meeting_link", mode="before", check_fields=False)
+    @classmethod
+    def _v_link(cls, v):
+        return _orientation_link(v)
+
+    @field_validator("status", mode="before", check_fields=False)
+    @classmethod
+    def _v_status(cls, v):
+        return _orientation_status(v)
+
+
+class OnboardingOrientationCreate(_OrientationChecks):
+    title: str
+    date: _date_type
     time: Optional[str] = None
     location: Optional[str] = None
     meeting_link: Optional[str] = None
@@ -1917,9 +2536,10 @@ class OnboardingOrientationCreate(BaseModel):
     status: Optional[str] = "scheduled"
     tenant_id: Optional[str] = None
 
-class OnboardingOrientationUpdate(BaseModel):
+
+class OnboardingOrientationUpdate(_OrientationChecks):
     title: Optional[str] = None
-    date: Optional[date] = None
+    date: Optional[_date_type] = None
     time: Optional[str] = None
     location: Optional[str] = None
     meeting_link: Optional[str] = None
@@ -1975,9 +2595,10 @@ class OnboardingDashboardResponse(BaseModel):
     pendingOnboarding: int
     completedOnboarding: int
     documentsPending: int
-    assetsPending: int
+    checklistsPending: int = 0
+    assetsPending: Optional[int] = None
     orientationPending: int
-    trainingPending: int
+    trainingPending: Optional[int] = None
     monthlyJoiningTrend: list[dict]
     departmentWise: list[dict]
     completionStatus: dict
@@ -2095,19 +2716,50 @@ class PerformanceFeedbackResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+_APPRAISAL_STATUSES = ("draft", "submitted", "approved", "rejected")
+_APPRAISAL_RECOMMENDATIONS = ("promotion", "bonus", "promotion_bonus", "improvement_plan")
+
+
+def _appraisal_cycle(v):
+    from app.core.appraisal_period import normalize_appraisal_period
+    return normalize_appraisal_period(v)
+
+
+def _appraisal_status(v):
+    if v is None:
+        return v
+    v = str(v).strip().lower()
+    if v not in _APPRAISAL_STATUSES:
+        raise ValueError("Status must be draft, submitted, approved or rejected.")
+    return v
+
+
+def _appraisal_recommendation(v):
+    if v is None or str(v).strip() == "":
+        return None
+    v = str(v).strip().lower()
+    if v not in _APPRAISAL_RECOMMENDATIONS:
+        raise ValueError("Recommendation must be promotion, bonus, promotion_bonus or improvement_plan.")
+    return v
+
+
 class AppraisalCreate(BaseModel):
     employee_id: int
     reviewer_id: Optional[int] = None
     hr_reviewer_id: Optional[int] = None
     admin_reviewer_id: Optional[int] = None
-    cycle: str = Field(..., min_length=1, max_length=50)
-    self_score: Optional[float] = None
-    manager_score: Optional[float] = None
-    final_score: Optional[float] = None
+    cycle: str = Field(..., max_length=50)
+    self_score: Optional[float] = Field(None, ge=0, le=5)
+    manager_score: Optional[float] = Field(None, ge=0, le=5)
+    final_score: Optional[float] = Field(None, ge=0, le=5)
     recommendation: Optional[str] = None
-    salary_hike: Optional[float] = None
-    comments: Optional[str] = None
+    salary_hike: Optional[float] = Field(None, ge=0, le=100)
+    comments: Optional[str] = Field(None, max_length=5000)
     status: Optional[str] = "draft"
+
+    _v_cycle = field_validator("cycle", mode="before")(lambda cls, v: _appraisal_cycle(v))
+    _v_status = field_validator("status")(lambda cls, v: _appraisal_status(v) or "draft")
+    _v_rec = field_validator("recommendation", mode="before")(lambda cls, v: _appraisal_recommendation(v))
 
 
 class AppraisalUpdate(BaseModel):
@@ -2115,14 +2767,18 @@ class AppraisalUpdate(BaseModel):
     reviewer_id: Optional[int] = None
     hr_reviewer_id: Optional[int] = None
     admin_reviewer_id: Optional[int] = None
-    cycle: Optional[str] = None
-    self_score: Optional[float] = None
-    manager_score: Optional[float] = None
-    final_score: Optional[float] = None
+    cycle: Optional[str] = Field(None, max_length=50)
+    self_score: Optional[float] = Field(None, ge=0, le=5)
+    manager_score: Optional[float] = Field(None, ge=0, le=5)
+    final_score: Optional[float] = Field(None, ge=0, le=5)
     recommendation: Optional[str] = None
-    salary_hike: Optional[float] = None
-    comments: Optional[str] = None
+    salary_hike: Optional[float] = Field(None, ge=0, le=100)
+    comments: Optional[str] = Field(None, max_length=5000)
     status: Optional[str] = None
+
+    _v_cycle = field_validator("cycle", mode="before")(lambda cls, v: None if v is None else _appraisal_cycle(v))
+    _v_status = field_validator("status")(lambda cls, v: _appraisal_status(v))
+    _v_rec = field_validator("recommendation", mode="before")(lambda cls, v: _appraisal_recommendation(v))
 
 
 class AppraisalResponse(BaseModel):
@@ -2392,13 +3048,63 @@ class TravelPolicyResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+TRAVEL_WORKFLOWS = ("manager", "manager+director", "manager+director+finance")
+
+
+def _bounded(label, v, low, high, whole=True, unit=""):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        raise ValueError(f"{label} is required.")
+    try:
+        n = Decimal(str(v).strip())
+    except Exception:
+        raise ValueError(f"{label} must be a number.")
+    if not n.is_finite():
+        raise ValueError(f"{label} must be a number.")
+    if whole and n != n.to_integral_value():
+        raise ValueError(f"{label} must be a whole number.")
+    if not (Decimal(low) <= n <= Decimal(high)):
+        raise ValueError(f"{label} must be between {low} and {high}{unit}.")
+    if not whole and n != n.quantize(Decimal("0.01")):
+        raise ValueError(f"{label} can have at most 2 decimal places.")
+    return int(n) if whole else n
+
+
 class TravelSettingUpdate(BaseModel):
+    """What is sent is checked; what is left out stays as it is."""
     approval_workflow: Optional[str] = None
-    expense_limit_per_day: Optional[Decimal] = Field(None, ge=0)
-    max_trip_duration: Optional[int] = Field(None, ge=1)
-    auto_approve_threshold: Optional[int] = Field(None, ge=0)
-    reimbursement_deadline: Optional[int] = Field(None, ge=1)
+    expense_limit_per_day: Optional[Decimal] = None
+    max_trip_duration: Optional[int] = None
+    auto_approve_threshold: Optional[int] = None
+    reimbursement_deadline: Optional[int] = None
     notification_enabled: Optional[bool] = None
+
+    @field_validator("approval_workflow", mode="before")
+    @classmethod
+    def _v_workflow(cls, v):
+        text = str(v).strip().lower().replace(" ", "") if v is not None else ""
+        if text not in TRAVEL_WORKFLOWS:
+            raise ValueError("Choose Manager Only, Manager + Director, or Manager + Director + Finance.")
+        return text
+
+    @field_validator("expense_limit_per_day", mode="before")
+    @classmethod
+    def _v_limit(cls, v):
+        return _bounded("Daily expense limit", v, 0, 1000000, whole=False)
+
+    @field_validator("max_trip_duration", mode="before")
+    @classmethod
+    def _v_duration(cls, v):
+        return _bounded("Maximum trip duration", v, 1, 365, unit=" days")
+
+    @field_validator("auto_approve_threshold", mode="before")
+    @classmethod
+    def _v_threshold(cls, v):
+        return _bounded("Auto-approve threshold", v, 0, 10000000)
+
+    @field_validator("reimbursement_deadline", mode="before")
+    @classmethod
+    def _v_deadline(cls, v):
+        return _bounded("Reimbursement deadline", v, 1, 365, unit=" days")
 
 
 class TravelSettingResponse(BaseModel):
@@ -2694,31 +3400,113 @@ class RequisitionListResponse(BaseModel):
     items: list[RequisitionResponse]
 
 
-class CandidateCreate(BaseModel):
-    name: str = Field(..., min_length=1, max_length=150)
-    email: EmailStr
-    phone: Optional[str] = Field(None, max_length=50)
-    position: str = Field(..., min_length=1, max_length=150)
-    source: Optional[str] = Field(None, max_length=100)
+def _candidate_text(label, required, max_len):
+    def check(v):
+        if v is None:
+            if required:
+                raise ValueError(f"{label} is required.")
+            return v
+        text = " ".join(str(v).split())
+        if not text:
+            if required:
+                raise ValueError(f"{label} is required.")
+            return None
+        if len(text) > max_len:
+            raise ValueError(f"{label} can be at most {max_len} characters.")
+        return text
+    return check
+
+
+def _candidate_email(v):
+    text = "" if v is None else str(v).strip()
+    if not text:
+        raise ValueError("Email is required.")
+    if len(text) > 255:
+        raise ValueError("Email can be at most 255 characters.")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$", text):
+        raise ValueError("Enter a valid email address, for example name@company.com.")
+    return text.lower()
+
+
+def _candidate_phone(v):
+    from app.core.phone import normalize_phone
+    return normalize_phone(v)
+
+
+def _candidate_link(v):
+    text = "" if v is None else str(v).strip()
+    if not text:
+        return None
+    if not re.match(r"^https?://[^\s/]+\.[^\s/]+\S*$", text, re.IGNORECASE):
+        raise ValueError("Enter a valid link starting with http:// or https://.")
+    if len(text) > 500:
+        raise ValueError("The resume link can be at most 500 characters.")
+    return text
+
+
+class _CandidateFields(BaseModel):
+    """Checks shared by adding and editing a candidate; every message is written for the person filling the form."""
+    @field_validator("name", mode="before", check_fields=False)
+    @classmethod
+    def _v_name(cls, v):
+        return None if v is None and cls is CandidateUpdate else _candidate_text("Name", True, 150)(v)
+
+    @field_validator("position", mode="before", check_fields=False)
+    @classmethod
+    def _v_position(cls, v):
+        return None if v is None and cls is CandidateUpdate else _candidate_text("Position", True, 150)(v)
+
+    @field_validator("email", mode="before", check_fields=False)
+    @classmethod
+    def _v_email(cls, v):
+        return None if v is None and cls is CandidateUpdate else _candidate_email(v)
+
+    @field_validator("phone", mode="before", check_fields=False)
+    @classmethod
+    def _v_phone(cls, v):
+        return _candidate_phone(v)
+
+    @field_validator("location", mode="before", check_fields=False)
+    @classmethod
+    def _v_location(cls, v):
+        return _candidate_text("Location", False, 150)(v)
+
+    @field_validator("source", mode="before", check_fields=False)
+    @classmethod
+    def _v_source(cls, v):
+        return _candidate_text("Source", False, 100)(v)
+
+    @field_validator("resume_link", mode="before", check_fields=False)
+    @classmethod
+    def _v_link(cls, v):
+        return _candidate_link(v)
+
+
+class CandidateCreate(_CandidateFields):
+    name: str
+    email: str
+    phone: Optional[str] = None
+    position: str
+    source: Optional[str] = None
     status: Optional[RecruitmentCandidateStatus] = None
-    location: Optional[str] = Field(None, max_length=150)
-    experience: Optional[int] = Field(None, ge=0)
-    resume_link: Optional[str] = Field(None, max_length=500)
-    notes: Optional[str] = None
+    location: Optional[str] = None
+    experience: Optional[int] = Field(None, ge=0, le=60)
+    resume_link: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=5000)
     requisition_id: Optional[int] = None
 
 
-class CandidateUpdate(BaseModel):
-    name: Optional[str] = Field(None, min_length=1, max_length=150)
-    email: Optional[EmailStr] = None
-    phone: Optional[str] = Field(None, max_length=50)
-    position: Optional[str] = Field(None, min_length=1, max_length=150)
-    source: Optional[str] = Field(None, max_length=100)
+class CandidateUpdate(_CandidateFields):
+    name: Optional[str] = None
+    email: Optional[str] = None
+    phone: Optional[str] = None
+    position: Optional[str] = None
+    source: Optional[str] = None
     status: Optional[RecruitmentCandidateStatus] = None
-    location: Optional[str] = Field(None, max_length=150)
-    experience: Optional[int] = Field(None, ge=0)
-    resume_link: Optional[str] = Field(None, max_length=500)
-    notes: Optional[str] = None
+    location: Optional[str] = None
+    experience: Optional[int] = Field(None, ge=0, le=60)
+    resume_link: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=5000)
     requisition_id: Optional[int] = None
 
 
@@ -3025,9 +3813,58 @@ class DesignationCreate(BaseModel):
     department_name: Optional[str] = None
     level:           Optional[str] = None
     description:     Optional[str] = None
-    status:          Optional[str] = "active"
+    # None = use the organization's "default status for new designations" setting
+    status:          Optional[str] = None
     min_salary:      Optional[float] = None
     max_salary:      Optional[float] = None
+    # Only honoured when the organization turned "auto-generate codes" off
+    designation_code: Optional[str] = Field(None, max_length=20)
+
+
+class DesignationNotificationPrefs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    created: bool = True
+    updated: bool = True
+    head_changed: bool = True
+    budget_updated: bool = True
+    status_changed: bool = True
+    added_under_hierarchy: bool = True
+    deletion_requested: bool = True
+
+
+class DesignationSettingsData(BaseModel):
+    """Everything on the Designation Settings page. Unknown keys are rejected so a typo can never be saved
+    silently; every field has a default, so an organization that never saved settings gets these."""
+    model_config = ConfigDict(extra="forbid")
+
+    # General
+    code_prefix: str = "DES"
+    default_status: Literal["active", "inactive"] = "active"
+    auto_generate_codes: bool = True
+    enforce_unique_codes: bool = True
+    # Hierarchy
+    max_hierarchy_depth: int = Field(10, ge=1, le=10)
+    allow_cross_heads: bool = True
+    require_parent: bool = False
+    enforce_single_parent: bool = True
+    # Notifications
+    notifications: DesignationNotificationPrefs = Field(default_factory=DesignationNotificationPrefs)
+    # Display
+    show_salary_range: bool = True
+    show_employee_count: bool = True
+    default_sort_field: Literal["title", "department", "level", "salary", "created_at"] = "title"
+    default_sort_direction: Literal["asc", "desc"] = "asc"
+    items_per_page: Literal[5, 10, 15, 25, 50] = 10
+    compact_mode: bool = False
+
+    @field_validator("code_prefix", mode="before")
+    @classmethod
+    def _clean_prefix(cls, v):
+        v = str(v or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,6}", v):
+            raise ValueError("The code prefix must be 2 to 6 letters or digits (for example DES).")
+        return v
 
 class DesignationUpdate(BaseModel):
     title:           Optional[str] = None
@@ -3348,7 +4185,7 @@ class ViolationCreate(BaseModel):
     reported_by: Optional[str] = None
     severity: Optional[str] = None
     status: Optional[str] = "investigating"
-    date: Optional[date] = None
+    date: Optional[_date_type] = None
 
 class ViolationResponse(BaseModel):
     id: int
@@ -3359,7 +4196,7 @@ class ViolationResponse(BaseModel):
     reported_by: Optional[str]           # frontend reads v.reportedBy (fixed in service)
     severity: Optional[str]
     status: str
-    date: Optional[date]                 # frontend reads v.date
+    date: Optional[_date_type]                 # frontend reads v.date
     created_at: Optional[datetime] = None
     model_config = ConfigDict(from_attributes=True)
 

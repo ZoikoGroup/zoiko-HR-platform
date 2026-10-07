@@ -20,6 +20,7 @@ const EMPLOYMENT_LABELS = {
   suspended: "Suspended",
   locked: "Locked",
   archived: "Archived",
+  password_reset_required: "Password reset required",
 };
 
 // Employment states that mean the employee is not currently working.

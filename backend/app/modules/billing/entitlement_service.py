@@ -60,6 +60,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.core.cache import get_cached, set_cached, invalidate_cache
+from app.modules.billing.plan_baseline import baseline_included, baseline_required_plan
 from app.modules.billing.feature_keys import (
     FEATURE_KEYS,
     FEATURE_KEY_CANONICAL,
@@ -182,7 +183,7 @@ def _required_plan(db: Session, feature_key: str) -> str | None:
         .all()
     )
     if not rows:
-        return None
+        return baseline_required_plan(feature_key)
     codes = {getattr(r.plan_code, "value", r.plan_code) for r in rows}
     return min(codes) if codes else None
 
@@ -333,7 +334,11 @@ def compute_entitlement_snapshot(
             elif fk in contract_overrides:
                 feature_states[fk] = contract_overrides[fk]
             else:
-                feature_states[fk] = ENTITLED_NOT_CONFIGURED
+                included = baseline_included(plan_code, fk)
+                if included is None:
+                    feature_states[fk] = ENTITLED_NOT_CONFIGURED
+                else:
+                    feature_states[fk] = ENTITLED_AVAILABLE if included else NOT_ENTITLED
     else:
         # No plan assigned → every feature is NOT_CONFIGURED
         for fk in FEATURE_KEYS:
@@ -612,14 +617,21 @@ def check_entitlement(
     )
 
     if mapping is None:
-        # No mapping row → ENTITLED_NOT_CONFIGURED (C5: distinct from NOT_ENTITLED)
-        result = _decorate(
-            feature_key,
-            ENTITLED_NOT_CONFIGURED,
-            required_plan=_required_plan(db, feature_key),
-        )
-        set_cached(cache_key, result)
-        return result
+        # No operator-approved row: use the plan baseline (ZHR-COM-ENT-001 section 5). Only a feature the
+        # baseline knows nothing about stays ENTITLED_NOT_CONFIGURED (C5: distinct from NOT_ENTITLED).
+        included = baseline_included(plan_code, feature_key)
+        if included is None:
+            result = _decorate(
+                feature_key,
+                ENTITLED_NOT_CONFIGURED,
+                required_plan=_required_plan(db, feature_key),
+            )
+            set_cached(cache_key, result)
+            return result
+        mapping = PlanEntitlementMapping(
+            plan_code=plan_code, feature_key=feature_key, catalog_version=FEATURE_KEY_REGISTRY_VERSION,
+            state=ENTITLED_AVAILABLE if included else NOT_ENTITLED, mode=None, limit_ref=None, approved_by="plan_baseline",
+        )  # transient: never added to the session
 
     # ── Mapping exists — check state ────────────────────────────────────
     state = mapping.state

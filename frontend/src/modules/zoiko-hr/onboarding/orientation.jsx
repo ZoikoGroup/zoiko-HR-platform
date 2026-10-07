@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { getOnboardingOrientationSessions, createOnboardingOrientationSession, updateOnboardingOrientationSession, deleteOnboardingOrientationSession, getOnboardingOrientationAttendees, createOnboardingOrientationAttendee, updateOnboardingOrientationAttendee, deleteOnboardingOrientationAttendee, getOnboardingRecords } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
+import { SESSION_STATUSES, validateSessionForm, sessionPayload, serverSessionErrors } from "../../../utils/orientationForm";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -68,6 +69,8 @@ export default function Orientation() {
   const [formLocation, setFormLocation] = useState("");
   const [formMeetingLink, setFormMeetingLink] = useState("");
   const [formPresenter, setFormPresenter] = useState("");
+  const [formStatus, setFormStatus] = useState("scheduled");
+  const [formErrors, setFormErrors] = useState({});
   const [saving, setSaving] = useState(false);
 
   const [expandedSession, setExpandedSession] = useState(null);
@@ -100,10 +103,21 @@ export default function Orientation() {
     }
   };
 
+  const fetchAllAttendees = async () => {
+    try {
+      const data = await getOnboardingOrientationAttendees();
+      const grouped = {};
+      (Array.isArray(data) ? data : []).forEach((a) => { (grouped[a.session_id] = grouped[a.session_id] || []).push(a); });
+      setAttendees(grouped);
+    } catch {
+      // the tiles simply stay at what is loaded
+    }
+  };
+
   const fetchAll = async () => {
     setLoading(true);
     setError(null);
-    await Promise.all([fetchSessions(), fetchRecords()]);
+    await Promise.all([fetchSessions(), fetchRecords(), fetchAllAttendees()]);
     setLoading(false);
   };
 
@@ -141,6 +155,8 @@ export default function Orientation() {
     setFormLocation("");
     setFormMeetingLink("");
     setFormPresenter("");
+    setFormStatus("scheduled");
+    setFormErrors({});
   };
 
   const handleEdit = (session) => {
@@ -151,28 +167,27 @@ export default function Orientation() {
     setFormLocation(session.location || "");
     setFormMeetingLink(session.meeting_link || session.meetingLink || "");
     setFormPresenter(session.presenter || "");
+    setFormStatus(session.status || "scheduled");
+    setFormErrors({});
     setShowForm(true);
   };
 
+  // typing in a field clears that field's message
+  const edit = (setter, key) => (e) => {
+    setter(e.target.value);
+    setFormErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
+  };
+  const fieldError = (name) => (formErrors[name] ? <p role="alert" className="text-xs text-red-600 mt-1">{formErrors[name]}</p> : null);
+  const boxClass = (name) => `w-full border ${formErrors[name] ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`;
+
   const handleSave = async () => {
-    if (!formTitle.trim()) {
-      showAction("error", "Session title is required");
-      return;
-    }
-    if (!formDate) {
-      showAction("error", "Session date is required");
-      return;
-    }
+    const values = { title: formTitle, date: formDate, time: formTime, location: formLocation, meeting_link: formMeetingLink, presenter: formPresenter, status: formStatus };
+    const found = validateSessionForm(values, { originalDate: editingSession?.date ? String(editingSession.date).slice(0, 10) : null });
+    setFormErrors(found);
+    if (Object.keys(found).length) return;
     setSaving(true);
     try {
-      const payload = {
-        title: formTitle.trim(),
-        date: formDate,
-        time: formTime,
-        location: formLocation.trim(),
-        meeting_link: formMeetingLink.trim(),
-        presenter: formPresenter.trim(),
-      };
+      const payload = sessionPayload(values, !!editingSession);
       if (editingSession) {
         await updateOnboardingOrientationSession(editingSession.id, payload);
         showAction("success", "Session updated successfully");
@@ -183,7 +198,9 @@ export default function Orientation() {
       resetForm();
       await fetchSessions();
     } catch (err) {
-      showAction("error", err.message || "Failed to save session");
+      // the server's refusal appears under its own field; the dialog stays open so nothing typed is lost
+      const fields = serverSessionErrors(err?.validation);
+      setFormErrors(Object.keys(fields).length ? fields : { submit: err.message || "The session could not be saved. Please try again." });
     } finally {
       setSaving(false);
     }
@@ -340,66 +357,54 @@ export default function Orientation() {
                 </h3>
                 <button onClick={resetForm} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
               </div>
-              <div className="px-6 py-4 space-y-4">
+              <div className="px-6 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+                {formErrors.submit && <div role="alert" className="text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{formErrors.submit}</div>}
                 <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">Title</label>
-                  <input
-                    type="text"
-                    value={formTitle}
-                    onChange={(e) => setFormTitle(e.target.value)}
-                    placeholder="e.g. New Hire Orientation - June 2026"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <label htmlFor="os-title" className="block text-sm font-medium text-gray-600 mb-1">Title <span className="text-red-500">*</span></label>
+                  <input id="os-title" type="text" value={formTitle} maxLength={200} aria-invalid={!!formErrors.title}
+                    onChange={edit(setFormTitle, "title")} placeholder="e.g. New Hire Orientation - June 2026" className={boxClass("title")} />
+                  {fieldError("title")}
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">Date</label>
-                    <input
-                      type="date"
-                      value={formDate}
-                      onChange={(e) => setFormDate(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <label htmlFor="os-date" className="block text-sm font-medium text-gray-600 mb-1">Date <span className="text-red-500">*</span></label>
+                    <input id="os-date" type="date" value={formDate} min="2000-01-01" max="2100-12-31" aria-invalid={!!formErrors.date}
+                      onChange={edit(setFormDate, "date")} className={boxClass("date")} />
+                    {fieldError("date")}
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-600 mb-1">Time</label>
-                    <input
-                      type="time"
-                      value={formTime}
-                      onChange={(e) => setFormTime(e.target.value)}
-                      className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
+                    <label htmlFor="os-time" className="block text-sm font-medium text-gray-600 mb-1">Time</label>
+                    <input id="os-time" type="time" value={formTime} aria-invalid={!!formErrors.time}
+                      onChange={edit(setFormTime, "time")} className={boxClass("time")} />
+                    {fieldError("time")}
                   </div>
                 </div>
+                {editingSession && (
+                  <div>
+                    <label htmlFor="os-status" className="block text-sm font-medium text-gray-600 mb-1">Status</label>
+                    <select id="os-status" value={formStatus} onChange={edit(setFormStatus, "status")} className={boxClass("status")}>
+                      {SESSION_STATUSES.map((st) => <option key={st.value} value={st.value}>{st.label}</option>)}
+                    </select>
+                    {fieldError("status")}
+                  </div>
+                )}
                 <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">Location</label>
-                  <input
-                    type="text"
-                    value={formLocation}
-                    onChange={(e) => setFormLocation(e.target.value)}
-                    placeholder="e.g. Conference Room A"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <label htmlFor="os-location" className="block text-sm font-medium text-gray-600 mb-1">Location</label>
+                  <input id="os-location" type="text" value={formLocation} maxLength={200} aria-invalid={!!formErrors.location}
+                    onChange={edit(setFormLocation, "location")} placeholder="e.g. Conference Room A" className={boxClass("location")} />
+                  {fieldError("location")}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">Meeting Link</label>
-                  <input
-                    type="url"
-                    value={formMeetingLink}
-                    onChange={(e) => setFormMeetingLink(e.target.value)}
-                    placeholder="https://meet.google.com/..."
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <label htmlFor="os-link" className="block text-sm font-medium text-gray-600 mb-1">Meeting Link</label>
+                  <input id="os-link" type="text" value={formMeetingLink} maxLength={500} aria-invalid={!!formErrors.meeting_link}
+                    onChange={edit(setFormMeetingLink, "meeting_link")} placeholder="https://meet.google.com/..." className={boxClass("meeting_link")} />
+                  {fieldError("meeting_link")}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-600 mb-1">Presenter</label>
-                  <input
-                    type="text"
-                    value={formPresenter}
-                    onChange={(e) => setFormPresenter(e.target.value)}
-                    placeholder="e.g. Sarah Johnson"
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
+                  <label htmlFor="os-presenter" className="block text-sm font-medium text-gray-600 mb-1">Presenter</label>
+                  <input id="os-presenter" type="text" value={formPresenter} maxLength={200} aria-invalid={!!formErrors.presenter}
+                    onChange={edit(setFormPresenter, "presenter")} placeholder="e.g. Sarah Johnson" className={boxClass("presenter")} />
+                  {fieldError("presenter")}
                 </div>
               </div>
               <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
@@ -439,7 +444,14 @@ export default function Orientation() {
                 <div key={sessionId} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
                   <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex-1 min-w-0">
-                      <h3 className="text-base font-bold text-gray-800 truncate">{session.title}</h3>
+                      <h3 className="text-base font-bold text-gray-800 truncate">
+                        {session.title}
+                        {session.status && session.status !== "scheduled" ? (
+                          <span className={`ml-2 align-middle text-xs font-medium px-2 py-0.5 rounded-full ${session.status === "completed" ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"}`}>
+                            {session.status === "completed" ? "Completed" : "Cancelled"}
+                          </span>
+                        ) : null}
+                      </h3>
                       <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1">
                         <span className="text-sm text-gray-500">
                           {session.date ? formatDate(session.date) : "TBD"}

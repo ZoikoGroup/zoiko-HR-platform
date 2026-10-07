@@ -3,6 +3,8 @@ import { NavLink } from "react-router-dom";
 import { Plus, X, Edit2, Trash2, CheckCircle, XCircle, Send, DollarSign, TrendingUp } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getHrEmployees } from "../../../service/hrService";
+import { formatScore } from "../../../utils/performanceScores";
+import { validateAppraisalForm, parseAppraisalPeriod, PERIOD_HELP } from "../../../utils/appraisalPeriod";
 import {
   getPerformanceAppraisals, createPerformanceAppraisal, updatePerformanceAppraisal, deletePerformanceAppraisal,
   getDefaultReviewers,
@@ -31,6 +33,13 @@ function SubNav() {
   );
 }
 
+// a score outside 0-5 (saved before the form checked it) is shown as wrong, not as a valid "10/5"
+function ScoreCell({ value }) {
+  if (value == null) return "-";
+  const shown = formatScore(value);
+  return shown === "-" ? <span className="text-red-600 font-medium" title="This score is outside the 0-5 scale. Edit the appraisal to correct it.">{value} (invalid)</span> : shown;
+}
+
 function StatusBadge({ status }) {
   const m = { draft: "bg-gray-100 text-gray-800", submitted: "bg-blue-100 text-blue-800", approved: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800" };
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[status] || "bg-gray-100 text-gray-800"}`}>{status?.replace(/_/g, " ")}</span>;
@@ -43,6 +52,9 @@ export default function Appraisals() {
   const [filter, setFilter] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", self_score: "", manager_score: "", final_score: "",
     recommendation: "", salary_hike: "", comments: "", status: "draft",
@@ -68,6 +80,8 @@ export default function Appraisals() {
   const openCreate = () => {
     setEditItem(null);
     setForm({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", self_score: "", manager_score: "", final_score: "", recommendation: "", salary_hike: "", comments: "", status: "draft" });
+    setErrors({});
+    setSaveError("");
     setShowModal(true);
   };
 
@@ -87,12 +101,19 @@ export default function Appraisals() {
       comments: a.comments || "",
       status: a.status,
     });
+    setErrors({});
+    setSaveError("");
     setShowModal(true);
   };
 
   const handleSave = async () => {
+    const { errors: found, cycle } = validateAppraisalForm(form);
+    setErrors(found);
+    setSaveError("");
+    if (Object.keys(found).length) return;
     const payload = {
       ...form,
+      cycle,
       employee_id: Number(form.employee_id),
       reviewer_id: form.reviewer_id ? Number(form.reviewer_id) : null,
       hr_reviewer_id: form.hr_reviewer_id ? Number(form.hr_reviewer_id) : null,
@@ -102,14 +123,24 @@ export default function Appraisals() {
       final_score: form.final_score !== "" ? Number(form.final_score) : null,
       salary_hike: form.salary_hike !== "" ? Number(form.salary_hike) : null,
     };
-    if (editItem) {
-      await updatePerformanceAppraisal(editItem.id, payload);
-    } else {
-      await createPerformanceAppraisal(payload);
+    setSaving(true);
+    try {
+      if (editItem) await updatePerformanceAppraisal(editItem.id, payload);
+      else await createPerformanceAppraisal(payload);
+      setShowModal(false);
+      load();
+    } catch (err) {
+      setSaveError(err?.message || "Could not save the appraisal.");
+    } finally {
+      setSaving(false);
     }
-    setShowModal(false);
-    load();
   };
+
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+  const fieldError = (name) => (errors[name] ? <p role="alert" className="text-xs text-red-600 mt-1">{errors[name]}</p> : null);
 
   const handleEmployeeChangeForAppraisal = async (employeeId) => {
     setForm((prev) => ({ ...prev, employee_id: employeeId }));
@@ -138,7 +169,11 @@ export default function Appraisals() {
   const handleStatusChange = async (id, newStatus) => {
     const item = items.find((a) => a.id === id);
     if (!item) return;
-    await updatePerformanceAppraisal(id, { status: newStatus });
+    try {
+      await updatePerformanceAppraisal(id, { status: newStatus });
+    } catch (err) {
+      window.alert(err?.message || "Could not update the appraisal.");
+    }
     load();
   };
 
@@ -202,9 +237,9 @@ export default function Appraisals() {
                   <td className="px-3 py-3 text-gray-500">{empMap[a.hr_reviewer_id] || (a.hr_reviewer_id ? `#${a.hr_reviewer_id}` : "-")}</td>
                   <td className="px-3 py-3 text-gray-500">{empMap[a.admin_reviewer_id] || (a.admin_reviewer_id ? `#${a.admin_reviewer_id}` : "-")}</td>
                   <td className="px-3 py-3 text-gray-500">{a.cycle}</td>
-                  <td className="px-3 py-3">{a.self_score != null ? `${a.self_score}/5` : "-"}</td>
-                  <td className="px-3 py-3">{a.manager_score != null ? `${a.manager_score}/5` : "-"}</td>
-                  <td className="px-3 py-3 font-bold text-gray-900">{a.final_score != null ? `${a.final_score}/5` : "-"}</td>
+                  <td className="px-3 py-3"><ScoreCell value={a.self_score} /></td>
+                  <td className="px-3 py-3"><ScoreCell value={a.manager_score} /></td>
+                  <td className="px-3 py-3 font-bold text-gray-900"><ScoreCell value={a.final_score} /></td>
                   <td className="px-3 py-3">
                     {a.recommendation ? (
                       <span className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-medium ${
@@ -252,7 +287,7 @@ export default function Appraisals() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
+          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">{editItem ? "Edit Appraisal" : "New Appraisal"}</h2>
               <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
@@ -261,17 +296,19 @@ export default function Appraisals() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Employee</label>
-                  <select value={form.employee_id} onChange={(e) => handleEmployeeChangeForAppraisal(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <select value={form.employee_id} onChange={(e) => { setErrors((p) => ({ ...p, employee_id: undefined })); handleEmployeeChangeForAppraisal(e.target.value); }} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <option value="">Select employee</option>
                     {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
                   </select>
+                  {fieldError("employee_id")}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Reviewer (Manager)</label>
-                  <select value={form.reviewer_id} onChange={(e) => setForm({ ...form, reviewer_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <select value={form.reviewer_id} onChange={(e) => setField("reviewer_id", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <option value="">Select reviewer</option>
                     {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
                   </select>
+                  {fieldError("reviewer_id")}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -292,20 +329,28 @@ export default function Appraisals() {
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Cycle / Period</label>
-                <input value={form.cycle} onChange={(e) => setForm({ ...form, cycle: e.target.value })} placeholder="2024-2025" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                <input value={form.cycle} maxLength={20} aria-invalid={!!errors.cycle}
+                  onChange={(e) => setField("cycle", e.target.value)}
+                  onBlur={() => { if (!form.cycle.trim()) return; const r = parseAppraisalPeriod(form.cycle); if (r.error) setErrors((p) => ({ ...p, cycle: r.error })); else setForm((p) => ({ ...p, cycle: r.value })); }}
+                  placeholder="2024-2025" className={`w-full border rounded-lg px-3 py-2 text-sm ${errors.cycle ? "border-red-400" : "border-gray-200"}`} />
+                <p className="text-[11px] text-gray-400 mt-1">{PERIOD_HELP}</p>
+                {fieldError("cycle")}
               </div>
               <div className="grid grid-cols-3 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Self Score</label>
-                  <input type="number" step="0.1" min={0} max={5} value={form.self_score} onChange={(e) => setForm({ ...form, self_score: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <input type="number" step="0.1" min={0} max={5} value={form.self_score} onChange={(e) => setField("self_score", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  {fieldError("self_score")}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Manager Score</label>
-                  <input type="number" step="0.1" min={0} max={5} value={form.manager_score} onChange={(e) => setForm({ ...form, manager_score: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <input type="number" step="0.1" min={0} max={5} value={form.manager_score} onChange={(e) => setField("manager_score", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  {fieldError("manager_score")}
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Final Score</label>
-                  <input type="number" step="0.1" min={0} max={5} value={form.final_score} onChange={(e) => setForm({ ...form, final_score: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <input type="number" step="0.1" min={0} max={5} value={form.final_score} onChange={(e) => setField("final_score", e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  {fieldError("final_score")}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -321,7 +366,8 @@ export default function Appraisals() {
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Salary Hike (%)</label>
-                  <input type="number" step="0.5" min={0} value={form.salary_hike} onChange={(e) => setForm({ ...form, salary_hike: e.target.value })} placeholder="e.g. 10" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <input type="number" step="0.5" min={0} max={100} value={form.salary_hike} onChange={(e) => setField("salary_hike", e.target.value)} placeholder="e.g. 10" className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  {fieldError("salary_hike")}
                 </div>
               </div>
               <div>
@@ -338,9 +384,10 @@ export default function Appraisals() {
                 <textarea value={form.comments} onChange={(e) => setForm({ ...form, comments: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" rows={2} />
               </div>
             </div>
+            {saveError ? <p role="alert" className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p> : null}
             <div className="flex justify-end gap-2 mt-6">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Create"}</button>
+              <button onClick={handleSave} disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60">{saving ? "Saving..." : editItem ? "Update" : "Create"}</button>
             </div>
           </div>
         </div>

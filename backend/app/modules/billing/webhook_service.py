@@ -36,7 +36,7 @@ from app.modules.billing.models import (
     BillingPlan,
 )
 from app.modules.billing import service as billing_service
-from app.modules.billing.stripe_client import retrieve_subscription, retrieve_invoice
+from app.modules.billing.stripe_client import retrieve_subscription, retrieve_invoice, cancel_and_refund_duplicate_subscription
 
 logger = logging.getLogger("zoiko.billing.stripe")
 
@@ -69,18 +69,24 @@ def process_webhook_event(db: Session, event: dict) -> dict:
     existing = db.query(BillingWebhookEvent).filter(
         BillingWebhookEvent.stripe_event_id == event_id
     ).first()
-    if existing:
+    if existing and existing.processed:
         logger.info("[webhook] Duplicate event %s (type=%s) — skipping", event_id, event_type)
         return {"status": "skipped", "message": "duplicate event"}
 
     # ── Record event in inbox ─────────────────────────────────────────────
-    webhook_event = BillingWebhookEvent(
-        stripe_event_id=event_id,
-        event_type=event_type,
-        processed=False,
-        payload=event,
-    )
-    db.add(webhook_event)
+    if existing:
+        # An earlier attempt failed (the row says why). Stripe is retrying it: process it again.
+        logger.info("[webhook] Retrying previously failed event %s (type=%s)", event_id, event_type)
+        webhook_event = existing
+        webhook_event.error_message = None
+    else:
+        webhook_event = BillingWebhookEvent(
+            stripe_event_id=event_id,
+            event_type=event_type,
+            processed=False,
+            payload=event,
+        )
+        db.add(webhook_event)
     db.flush()
 
     # ── Route to handler ──────────────────────────────────────────────────
@@ -104,13 +110,74 @@ def process_webhook_event(db: Session, event: dict) -> dict:
         return result
 
     except Exception as e:
-        webhook_event.error_message = str(e)[:500]
-        db.commit()
         logger.error("[webhook] Error processing event %s: %s", event_id, e, exc_info=True)
+        # Whatever the handler half-did is undone, then the failure is recorded on its own so it is not lost.
+        db.rollback()
+        failed = db.query(BillingWebhookEvent).filter(BillingWebhookEvent.stripe_event_id == event_id).first()
+        if failed is None:
+            failed = BillingWebhookEvent(stripe_event_id=event_id, event_type=event_type, processed=False, payload=event)
+            db.add(failed)
+        failed.processed = False
+        failed.error_message = str(e)[:500]
+        db.commit()
         return {"status": "error", "message": str(e)}
 
 
 # ── Event Handlers ─────────────────────────────────────────────────────────
+
+def _epoch_to_datetime(value):
+    """Stripe period timestamps are Unix seconds; returns a naive UTC datetime, or None when unusable."""
+    try:
+        return datetime.utcfromtimestamp(int(value)) if value else None
+    except (TypeError, ValueError, OverflowError, OSError):
+        return None
+
+
+def _stripe_period_end(stripe_sub: dict | None):
+    """End of the current billing period from a subscription payload (top level or on its first item)."""
+    if not stripe_sub:
+        return None
+    end = stripe_sub.get("current_period_end")
+    if end is None:
+        items = stripe_sub.get("items") or []
+        if isinstance(items, dict):
+            items = items.get("data") or []
+        end = (items[0] or {}).get("current_period_end") if items else None
+    return _epoch_to_datetime(end)
+
+
+def _handle_duplicate_checkout(db, org_id, new_subscription_id):
+    """A second Checkout that completes while the organization already pays through another Stripe subscription
+    (two tabs, a double click on Pay) would bill the customer twice every cycle. Cancel the newcomer and refund
+    its payment; the organization keeps the subscription it already has. Returns a result dict when it handled
+    one, else None."""
+    if not new_subscription_id:
+        return None
+    ref = db.query(ProviderRef).filter(ProviderRef.organization_id == org_id).first()
+    kept = ref.stripe_subscription_id if ref else None
+    if not kept or kept == new_subscription_id:
+        return None
+    try:
+        existing = retrieve_subscription(kept)
+    except Exception as e:
+        logger.warning("[webhook] could not check existing subscription %s for duplicate guard: %s", kept, e)
+        return None
+    if existing.get("status") not in ("active", "trialing", "past_due"):
+        return None  # the old one is gone, the new one legitimately replaces it
+    try:
+        outcome = cancel_and_refund_duplicate_subscription(new_subscription_id)
+    except Exception:
+        logger.exception("[webhook] DUPLICATE SUBSCRIPTION %s for org %s needs manual cancel + refund (kept %s)", new_subscription_id, org_id, kept)
+        return {"status": "error", "message": "duplicate subscription could not be cancelled automatically"}
+    logger.error("[webhook] Duplicate checkout for org %s: cancelled %s and refunded it (kept %s)", org_id, new_subscription_id, kept)
+    _log_audit(
+        db, organization_id=org_id, action=BillingAuditAction.SUBSCRIPTION_ACTIVATED, entity_type="BillingSubscription",
+        entity_id=None, before={"stripe_subscription_id": kept},
+        after={"duplicate_cancelled": new_subscription_id, "refund_id": outcome.get("refund_id")},
+        source="duplicate_checkout_guard", stripe_event_id=None,
+    )
+    return {"status": "duplicate_cancelled", **outcome}
+
 
 def _handle_checkout_completed(db, event_id, data, full_event):
     """checkout.session.completed — mark org as active after successful checkout.
@@ -133,6 +200,10 @@ def _handle_checkout_completed(db, event_id, data, full_event):
     if not org_id:
         logger.warning("[webhook] checkout.session.completed missing org_id metadata")
         return {"status": "error", "message": "missing org_id in metadata"}
+
+    duplicate = _handle_duplicate_checkout(db, org_id, subscription_id)
+    if duplicate is not None:
+        return duplicate
 
     subscription = billing_service.get_or_create_subscription(db, org_id)
     previous_plan = _plan_label(db, subscription.plan_id, subscription.plan_code)
@@ -184,6 +255,10 @@ def _handle_checkout_completed(db, event_id, data, full_event):
     cycle = _billing_cycle(metadata.get("billing_cycle"))
     if cycle is not None:
         subscription.billing_cycle = cycle
+
+    renews = _stripe_period_end(stripe_sub)
+    if renews is not None:
+        subscription.renewal_anchor_date = renews   # the Billing & Plan page shows this as the renewal date
 
     from app.modules.billing.models import BillingChannel
     subscription.billing_channel = BillingChannel.WEB_STRIPE
@@ -264,6 +339,12 @@ def _handle_checkout_completed(db, event_id, data, full_event):
             source="checkout_session_completed",
         )
 
+    # Converting the evaluation (above) stamps the anchor with "now"; the date customers care about, and the one
+    # a downgrade takes effect on, is when the paid period they just bought ends.
+    if renews is not None:
+        subscription.renewal_anchor_date = renews
+        db.commit()
+
     return {"status": "ok", "message": "checkout completed"}
 
 
@@ -294,6 +375,10 @@ def _handle_subscription_updated(db, event_id, data, full_event):
         _transition_subscription(db, subscription, mapped_status, event_id, "customer.subscription.updated")
 
     plan_changed = False
+
+    renews = _stripe_period_end(data)
+    if renews is not None:
+        subscription.renewal_anchor_date = renews
 
     # Sync quantity + plan from Stripe. Plan used to be ignored here, so an
     # in-place price change (the path taken when an org upgrades while already
@@ -686,11 +771,35 @@ def _send_payment_receipt_emails(db, org_id, data):
     _send_to_billing_recipients(db, org_id, _send)
 
 
+def _email_plan_label(db, org_id, subscription=None) -> str:
+    """Readable plan name for an email ("Zoiko HR Core"), never a bare enum or a placeholder word. Stripe can
+    deliver invoice.paid before checkout.session.completed, when the subscription row has no plan yet, so fall
+    back to the organization's subscription row, then to a neutral name."""
+    try:
+        sub = subscription or db.query(BillingSubscription).filter(BillingSubscription.organization_id == org_id).first()
+        plan = db.query(BillingPlan).filter(BillingPlan.id == sub.plan_id).first() if sub and sub.plan_id else None
+        if plan is not None and plan.name:
+            return plan.name
+        code = getattr(getattr(sub, "plan_code", None), "value", getattr(sub, "plan_code", None))
+        if code:
+            return f"Zoiko HR {str(code).title()}"
+    except Exception:
+        pass
+    return "Zoiko HR"
+
+
 def _send_subscription_renewed_emails(db, org_id, data, subscription):
     from app.services.email_service import send_subscription_renewed_email
 
+    # "Renewed" is only true for a later billing cycle. The first invoice of a new subscription is already
+    # covered by the payment receipt and plan emails, and calling it a renewal confused customers.
+    if data.get("billing_reason") not in (None, "subscription_cycle"):
+        return
+
+    plan_name_fallback = _email_plan_label(db, org_id, subscription)
+
     def _send(email, org):
-        plan_name = subscription.plan_code if subscription and subscription.plan_code else plan_name_fallback
+        plan_name = plan_name_fallback
         term_start = ""
         term_end = ""
         period = data.get("period_start") or data.get("created")
@@ -704,7 +813,7 @@ def _send_subscription_renewed_emails(db, org_id, data, subscription):
             email=email,
             customer_name=org.name,
             subscription_number=data.get("number") or data.get("id", ""),
-            plan_name=plan_name_fallback,
+            plan_name=plan_name,
             term_start=term_start,
             term_end=term_end,
             amount=f"{amount:.2f}",
@@ -713,9 +822,6 @@ def _send_subscription_renewed_emails(db, org_id, data, subscription):
             db=db,
         )
 
-    plan_name_fallback = (
-        subscription.plan_code if subscription and subscription.plan_code else "Your"
-    )
     _send_to_billing_recipients(db, org_id, _send)
 
 
@@ -727,7 +833,7 @@ def _send_past_due_emails(db, org_id, data):
         subscription = db.query(BillingSubscription).filter(
             BillingSubscription.organization_id == org_id
         ).first()
-        plan_name = subscription.plan_code if subscription and subscription.plan_code else "Your"
+        plan_name = _email_plan_label(db, org_id, subscription)
         send_past_due_notice_email(
             email=email,
             customer_name=org.name,

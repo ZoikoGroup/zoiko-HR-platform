@@ -70,11 +70,16 @@ def require_entitlement(feature_key: str):
         if state == READ_ONLY and request.method.upper() in _READ_METHODS:
             return current_user
 
+        from app.modules.billing.plan_baseline import UPGRADE_URL, not_entitled_message
+
         raise HTTPException(
             status_code=403,
             detail={
                 "entitlement_state": state,
                 "feature_key": feature_key,
+                "required_plan": result.get("required_plan"),
+                "upgrade_url": UPGRADE_URL,
+                "message": not_entitled_message(feature_key, state, result.get("required_plan")),
             },
         )
 

@@ -249,15 +249,18 @@ class TestCheckEntitlement:
         invalidate_entitlement_cache(org_id)
         return check_entitlement(db, org_id, feature_key)
 
-    def test_empty_mapping_table_returns_not_configured(self):
-        """FIRST TEST: plan_entitlement_mappings completely empty →
-        every check_entitlement call returns ENTITLED_NOT_CONFIGURED,
-        never ENTITLED_AVAILABLE."""
+    def test_empty_mapping_table_uses_the_plan_baseline(self):
+        """plan_entitlement_mappings empty → the ZHR-COM-ENT-001 baseline decides: Core includes core HR and
+        does not include Advanced-only features. (It used to be 'not configured' for everything, which gated
+        nothing by plan.)"""
         sub = _make_subscription(plan_code=PlanCode.CORE)
         db = _build_mock_db(subscription=sub, mappings=[])
 
-        result = self._call(db, org_id=1, feature_key="hr.core.employees")
-        assert result["state"] == ENTITLED_NOT_CONFIGURED
+        assert self._call(db, org_id=1, feature_key="hr.core.employees")["state"] == ENTITLED_AVAILABLE
+        blocked = self._call(db, org_id=1, feature_key="hr.performance.core")
+        assert blocked["state"] == NOT_ENTITLED and blocked["required_plan"] == "advanced"
+        adv = _build_mock_db(subscription=_make_subscription(plan_code=PlanCode.ADVANCED), mappings=[])
+        assert self._call(adv, org_id=1, feature_key="hr.performance.core")["state"] == ENTITLED_AVAILABLE
 
     def test_no_subscription_returns_not_configured(self):
         """Org with no BillingSubscription row (fresh registration)
@@ -294,13 +297,13 @@ class TestCheckEntitlement:
         result = self._call(db, org_id=1, feature_key="hr.travel.core")
         assert result["state"] == NOT_ENTITLED
 
-    def test_no_mapping_row_returns_not_configured(self):
-        """No mapping row for (plan, feature, catalog_version) → ENTITLED_NOT_CONFIGURED."""
-        sub = _make_subscription(plan_code=PlanCode.ADVANCED)
-        db = _build_mock_db(subscription=sub, mappings=[])
-
-        result = self._call(db, org_id=1, feature_key="hr.recruitment.core")
-        assert result["state"] == ENTITLED_NOT_CONFIGURED
+    def test_no_mapping_row_falls_back_to_the_baseline_and_unpriced_modules_are_included(self):
+        """No mapping row → the baseline. A product module the spec does not price is included in every
+        self-serve plan; a plan the baseline does not cover (Enterprise) stays 'not configured'."""
+        db = _build_mock_db(subscription=_make_subscription(plan_code=PlanCode.ADVANCED), mappings=[])
+        assert self._call(db, org_id=1, feature_key="hr.recruitment.core")["state"] == ENTITLED_AVAILABLE
+        ent = _build_mock_db(subscription=_make_subscription(plan_code=PlanCode.ENTERPRISE), mappings=[])
+        assert self._call(ent, org_id=1, feature_key="hr.recruitment.core")["state"] == ENTITLED_NOT_CONFIGURED
 
     def test_unknown_feature_key_raises_in_dev(self):
         """Unknown feature_key → ValueError in non-production."""
@@ -563,13 +566,14 @@ class TestDecisionContract:
 
     def test_missing_mapping_reports_upgrade_target(self):
         sub = _make_subscription(plan_code=PlanCode.CORE)
+        key = "hr.performance.cycles"
         db = _build_mock_db(
             subscription=sub,
             mapping_first=None,
-            mappings=[_make_mapping(self.KEY, ENTITLED_AVAILABLE, plan_code=PlanCode.ADVANCED)],
+            mappings=[_make_mapping(key, ENTITLED_AVAILABLE, plan_code=PlanCode.ADVANCED)],
         )
-        r = self._call(db)
-        assert r["state"] == ENTITLED_NOT_CONFIGURED
+        r = check_entitlement(db, 1, key)
+        assert r["state"] == NOT_ENTITLED
         assert r["required_plan"] == "advanced"
 
     def test_mapping_mode_and_limit_ref_surface(self):

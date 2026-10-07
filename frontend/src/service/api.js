@@ -70,7 +70,9 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     if (query) url += `${url.includes("?") ? "&" : "?"}${query}`;
   }
 
-  const finalHeaders = { ...headers };
+  // a header explicitly set to undefined / null means "do not send it": fetch would otherwise send the text "undefined"
+  // (that broke every multipart upload, which needs the browser to add its own Content-Type with the boundary)
+  const finalHeaders = Object.fromEntries(Object.entries(headers).filter(([, v]) => v !== undefined && v !== null));
   if (body !== undefined && !(body instanceof FormData)) {
     finalHeaders["Content-Type"] = "application/json";
   }
@@ -112,19 +114,27 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
 
   if (!res.ok) {
     let detail;
+    let extra = {};
     try {
       const data = await res.json();
       detail = data?.detail || data?.message || data?.error;
       if (Array.isArray(detail)) {
-        // Handle FastAPI 422 validation errors nicely
+        // Handle FastAPI 422 validation errors nicely; the raw list stays on the error so a form can show each one
+        // next to its own field.
+        extra = { validation: detail };
         detail = detail.map(humanizeValidationError).join(", ");
       } else if (typeof detail === "object" && detail !== null) {
-        detail = JSON.stringify(detail);
+        // A feature the plan does not include comes back as an object with a ready-to-show message.
+        if (detail.entitlement_state) extra = { entitlement: detail };
+        detail = detail.message || JSON.stringify(detail);
+      }
+      if (data?.feature_key && data?.upgrade_url) {
+        extra = { entitlement: { entitlement_state: data.state, feature_key: data.feature_key, required_plan: data.required_plan, upgrade_url: data.upgrade_url } };
       }
     } catch {
       detail = res.statusText;
     }
-    throw createApiError(detail, res.status);
+    throw createApiError(detail, res.status, extra);
   }
 
   if (res.status === 204) return null;

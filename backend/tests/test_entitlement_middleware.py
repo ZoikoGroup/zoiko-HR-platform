@@ -49,6 +49,9 @@ class _FakeSession:
         self._staged_org_ids = staged_org_ids
 
     def query(self, *a, **kw):
+        # the middleware first asks whether the organization has a billing subscription at all
+        if a and "BillingSubscription" in str(a[0]):
+            return _FakeQuery(object())
         row = _FakeSettingRow(self._staged_org_ids) if self._staged_org_ids is not None else None
         return _FakeQuery(row)
 
@@ -218,3 +221,49 @@ class TestAnonymous:
             monkeypatch,
         )
         assert client.get("/hr/attendance/records").status_code == 200
+
+class TestOrganizationsWithoutBilling:
+    def test_an_organization_with_no_subscription_is_not_locked_out(self, monkeypatch):
+        """Created outside the self-serve flow / before billing: no plan to measure against, so nothing is blocked."""
+        client = _build_test_client(
+            lambda key: {"state": NOT_ENTITLED, "mode": "disabled_plan", "reason_code": "PLAN_REQUIRED", "allowed": False},
+            monkeypatch,
+        )
+
+        class _NoSubscription(_FakeSession):
+            def query(self, *a, **kw):
+                if a and "BillingSubscription" in str(a[0]):
+                    return _FakeQuery(None)
+                return super().query(*a, **kw)
+
+        import app.modules.billing.entitlement_middleware as em
+
+        for layer in client.app.user_middleware:
+            if layer.cls is em.EntitlementMiddleware:
+                layer.kwargs["db_session_factory"] = lambda: _NoSubscription()
+        client.app.middleware_stack = None  # rebuild with the replaced factory
+        assert client.get("/hr/attendance/records", headers=_AUTH).status_code == 200
+
+
+class TestCustomerMessages:
+    def test_a_blocked_feature_explains_itself_and_points_at_the_upgrade(self, monkeypatch):
+        client = _build_test_client(
+            lambda key: {"state": NOT_ENTITLED, "mode": "disabled_plan", "reason_code": "PLAN_REQUIRED", "allowed": False, "required_plan": "advanced"},
+            monkeypatch,
+        )
+        body = client.get("/hr/attendance/records", headers=_AUTH).json()
+        assert "not included in your plan" in body["detail"] and "Advanced" in body["detail"]
+        assert body["required_plan"] == "advanced" and body["upgrade_url"] == "/organization-admin/billing-and-plan"
+
+
+class TestTheRealApplicationIsGuarded:
+    def test_the_route_table_of_the_real_app_is_found(self):
+        """With enforcement on, the log used to say 'enforcing 0 guarded routes': nothing was ever blocked."""
+        from app.main import app as real_app
+        import app.modules.billing.entitlement_middleware as em
+
+        mw = em.EntitlementMiddleware(real_app, db_session_factory=lambda: None, routes_provider=lambda: real_app.routes)
+        guarded = {(m, getattr(r, "path", "")) for m, r, _ in mw.guards}
+        assert len(guarded) >= 100
+        assert ("GET", "/hr/performance/dashboard") in guarded
+        assert ("POST", "/hr/documents/{document_id}/assign") in guarded

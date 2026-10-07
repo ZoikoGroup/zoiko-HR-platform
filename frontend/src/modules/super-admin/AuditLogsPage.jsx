@@ -5,7 +5,7 @@ import {
   AlertTriangle, FileText, ChevronLeft, ChevronRight, Clock, Activity, X, Copy, Check, Search,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
-import { formatDateTimeWithZone, formatUtc } from "../../utils/dateTime";
+import { formatDateTimeWithZone, timeZoneLabel } from "../../utils/dateTime";
 import {
   EMPTY_AUDIT_FILTERS, buildAuditParams, filtersFromSearchParams, filtersToSearchParams,
   hasActiveAuditFilters,
@@ -78,8 +78,7 @@ function LogDetailsDialog({ log, onClose }) {
           <DetailRow name="Action">{label(log.action)}</DetailRow>
           <DetailRow name="Entity">{log.entity_type}{log.entity_id ? ` #${log.entity_id}` : ""}</DetailRow>
           <DetailRow name="Performed by">{log.performed_by_email || "System"}</DetailRow>
-          <DetailRow name="Time (your timezone)">{log.created_at ? formatDateTimeWithZone(log.created_at) : "—"}</DetailRow>
-          <DetailRow name="Time (UTC)">{log.created_at ? formatUtc(log.created_at) : "—"}</DetailRow>
+          <DetailRow name={`Time (${timeZoneLabel(log.created_at ? new Date(log.created_at) : new Date())})`}>{log.created_at ? formatDateTimeWithZone(log.created_at) : "—"}</DetailRow>
           <DetailRow name="IP address">
             {log.ip_address ? (
               <span className="inline-flex items-center gap-1 font-mono">
@@ -267,7 +266,7 @@ export default function AuditLogsPage() {
                         ) : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="whitespace-nowrap px-4 py-4">
-                        <div className="flex items-center gap-1 text-xs text-slate-500" title={log.created_at ? formatUtc(log.created_at) : ""}>
+                        <div className="flex items-center gap-1 text-xs text-slate-500">
                           <Clock className="h-3 w-3" />
                           {log.created_at ? formatDateTimeWithZone(log.created_at) : "—"}
                         </div>

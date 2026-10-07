@@ -114,6 +114,8 @@ class Settings(BaseSettings):
     # Attach the logo as a CID inline part instead of a remote URL (for
     # image-blocking recipient environments). Off by default.
     HR_EMAIL_INLINE_LOGO: bool = False
+    # Queue emails and send them from a background thread so a request never waits on SMTP (set false to send inline).
+    EMAIL_SEND_ASYNC: bool = Field(default=True, validation_alias="HR_EMAIL_SEND_ASYNC")
     # Monitored support route linked from every email footer.
     HR_EMAIL_SUPPORT_URL: str = "https://zoikohr.com/contact"
 
@@ -144,7 +146,7 @@ class Settings(BaseSettings):
     # in dev/test. Flip on in an environment where the entitlement matrix is
     # approved and seeding guarantees mapping rows exist.
     ENFORCE_ENTITLEMENTS: bool = Field(
-        default=False, validation_alias="HR_ENFORCE_ENTITLEMENTS"
+        default=True, validation_alias="HR_ENFORCE_ENTITLEMENTS"
     )
 
     # Staged rollout governor (ZHR-COM-ENT-001 "safe enforcement"): a comma-

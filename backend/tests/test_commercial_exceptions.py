@@ -51,7 +51,7 @@ from fixtures import tenants
 from app.modules.billing.feature_keys import FEATURE_KEYS
 
 _DELINQUENCY_KEY = "hr.identity.sso"   # in _DAY_10_RESTRICTED_KEYS
-_GRANT_KEY = "hr.recruitment.core"     # registered FEATURE_KEYS key
+_GRANT_KEY = "hr.performance.cycles"  # Advanced-only in the plan baseline, so a Core org gets it only through an exception
 
 
 @pytest.fixture

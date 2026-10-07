@@ -1,9 +1,10 @@
 import { useState, useEffect, useCallback } from "react";
 import { NavLink } from "react-router-dom";
-import { Calendar, Search, ChevronLeft, ChevronRight, ChevronRight as ChevronRightIcon, User, Clock, AlertCircle, Plus, X, Edit2 } from "lucide-react";
+import { Calendar, Search, ChevronLeft, ChevronRight, User, Clock, AlertCircle, Plus, X, Edit2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getInterviews, createInterview, updateInterview, updateInterviewFeedback } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import { INTERVIEW_STATUSES, STATUS_LABELS, cardActions, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment" },
@@ -39,7 +40,7 @@ function TypeBadge({ type }) {
   return <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-medium ${m[type] || "bg-gray-100 text-gray-800"}`}>{type?.replace(/_/g, " ")}</span>;
 }
 
-const PIPELINE_STAGES = ["scheduled", "in_progress", "completed", "cancelled"];
+const PIPELINE_STAGES = INTERVIEW_STATUSES;
 
 const PAGE_SIZE = 8;
 
@@ -49,7 +50,11 @@ export default function Interviews() {
   const [tab, setTab] = useState("pipeline");
   const [interviews, setInterviews] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null);       // the page could not load
+  const [notice, setNotice] = useState("");        // an action failed: a banner, the page stays
+  const [errors, setErrors] = useState({});        // field messages in the dialog
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState("");
   const [page, setPage] = useState(1);
@@ -79,18 +84,15 @@ export default function Interviews() {
     pipeline[stage].push(item);
   });
 
-  const moveCandidate = async (interviewId, fromStage, direction) => {
-    const idx = PIPELINE_STAGES.indexOf(fromStage);
-    if (idx === -1) return;
-    const newIdx = idx + direction;
-    if (newIdx < 0 || newIdx >= PIPELINE_STAGES.length) return;
-    const newStage = PIPELINE_STAGES[newIdx];
+  const changeStatus = async (interview, action) => {
+    if (action.confirm && !window.confirm(action.confirm)) return;
+    setNotice("");
     try {
-      await updateInterview(interviewId, { status: newStage });
-      load();
+      await updateInterview(interview.id, { status: action.status });
     } catch (err) {
-      console.error("Move error:", err);
+      setNotice(err?.message || "The status could not be changed.");
     }
+    load();
   };
 
   const filteredSchedule = interviews.filter((e) => {
@@ -103,7 +105,13 @@ export default function Interviews() {
   const safePage = Math.min(page, totalPages);
   const paged = filteredSchedule.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const openCreate = () => { setEditItem(null); setForm({ ...initForm }); setShowModal(true); };
+  const openCreate = () => { setEditItem(null); setForm({ ...initForm }); setErrors({}); setSaveError(""); setShowModal(true); };
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+  const fieldError = (name) => (errors[name] ? <p role="alert" className="text-xs text-red-600 mt-1">{errors[name]}</p> : null);
+  const inputClass = (name) => `w-full border rounded-lg px-3 py-2 text-sm ${errors[name] ? "border-red-400" : "border-gray-200"}`;
   const openEdit = (e) => {
     setEditItem(e);
     setForm({
@@ -116,42 +124,40 @@ export default function Interviews() {
       status: e.status || "scheduled",
       feedback: e.feedback || "",
     });
+    setErrors({}); setSaveError("");
     setShowModal(true);
   };
 
   const handleSave = async () => {
+    const found = validateInterviewForm(form);
+    setErrors(found);
+    setSaveError("");
+    if (Object.keys(found).length) return;
+    setSaving(true);
     try {
       const payload = {
-        candidate_name: form.candidate_name,
-        position: form.position,
+        candidate_name: form.candidate_name.trim(),
+        position: form.position.trim(),
         interview_type: form.interview_type,
         interview_date: form.interview_date,
-        start_time: form.start_time,
-        interviewer: form.interviewer,
-        status: form.status,
-        feedback: form.feedback,
+        start_time: form.start_time || null,
+        interviewer: form.interviewer.trim() || null,
+        feedback: form.feedback.trim() || null,
       };
       if (editItem) {
+        // the status is sent only when it was changed, so saving details never touches it
+        if (form.status !== (editItem.status || "scheduled")) payload.status = form.status;
         await updateInterview(editItem.id, payload);
       } else {
         await createInterview(payload);
       }
       setShowModal(false);
+      setNotice("");
       load();
     } catch (err) {
-      console.error("Save interview error:", err);
-      setError(err.message || "Failed to save interview.");
-    }
-  };
-
-  const handleCancel = async (id) => {
-    if (!window.confirm("Cancel this interview?")) return;
-    try {
-      await updateInterview(id, { status: "cancelled" });
-      load();
-    } catch (err) {
-      console.error("Cancel interview error:", err);
-      setError(err.message || "Failed to cancel interview.");
+      setSaveError(err?.message || "The interview could not be saved. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -163,7 +169,7 @@ export default function Interviews() {
       load();
     } catch (err) {
       console.error("Feedback error:", err);
-      setError(err.message || "Failed to add feedback.");
+      setNotice(err.message || "Failed to add feedback.");
     }
   };
 
@@ -175,6 +181,12 @@ export default function Interviews() {
     <HRPage title="Interviews" subtitle="Pipeline and schedule management">
       <SubNav />
       <div className="space-y-6">
+        {notice ? (
+          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss" className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between">
           <div className="flex gap-1">
             <button onClick={() => { setTab("pipeline"); setPage(1); }} className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${tab === "pipeline" ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>Pipeline</button>
@@ -210,10 +222,14 @@ export default function Interviews() {
                             {c.interview_date && <span className="text-xs text-gray-400">{formatDate(c.interview_date)}</span>}
                           </div>
                           {c.feedback && <p className="text-xs text-gray-500 mt-1 italic truncate">"{c.feedback}"</p>}
-                          <div className="flex items-center justify-between mt-2 pt-2 border-t border-gray-50">
-                            <button onClick={() => moveCandidate(c.id, stage, -1)} disabled={PIPELINE_STAGES.indexOf(stage) === 0} className="text-xs text-gray-400 hover:text-blue-600 disabled:opacity-20 p-1"><ChevronLeft className="w-3.5 h-3.5" /></button>
-                            <span className="text-[10px] text-gray-300">move</span>
-                            <button onClick={() => moveCandidate(c.id, stage, 1)} disabled={PIPELINE_STAGES.indexOf(stage) === PIPELINE_STAGES.length - 1} className="text-xs text-gray-400 hover:text-blue-600 disabled:opacity-20 p-1"><ChevronRightIcon className="w-3.5 h-3.5" /></button>
+                          <div className="flex flex-wrap items-center gap-1.5 mt-2 pt-2 border-t border-gray-50">
+                            {cardActions(c.status || stage).map((act) => (
+                              <button key={act.status} onClick={() => changeStatus(c, act)}
+                                className={`text-xs px-2 py-1 rounded-md font-medium ${act.tone === "green" ? "bg-green-100 text-green-700 hover:bg-green-200" : act.tone === "red" ? "bg-red-50 text-red-600 hover:bg-red-100" : act.tone === "blue" ? "bg-blue-100 text-blue-700 hover:bg-blue-200" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                                {act.text}
+                              </button>
+                            ))}
+                            {cardActions(c.status || stage).length === 0 ? <span className="text-[11px] text-gray-400">Final</span> : null}
                           </div>
                         </div>
                       ))
@@ -265,17 +281,17 @@ export default function Interviews() {
                         </div>
                       </td>
                       <td className="px-3 py-3">
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${e.status === "completed" ? "bg-green-100 text-green-800" : e.status === "cancelled" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}>{e.status || "scheduled"}</span>
+                        <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium capitalize ${e.status === "completed" ? "bg-green-100 text-green-800" : e.status === "cancelled" ? "bg-red-100 text-red-800" : "bg-yellow-100 text-yellow-800"}`}>{STATUS_LABELS[e.status] || e.status || "Scheduled"}</span>
                       </td>
                       <td className="px-3 py-3">
                         <div className="flex gap-2 items-center">
                           <button onClick={() => openEdit(e)} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
-                          {e.status !== "cancelled" && e.status !== "completed" && (
-                            <>
-                              <button onClick={() => handleCancel(e.id)} className="text-gray-400 hover:text-red-600"><X className="w-4 h-4" /></button>
-                              <button onClick={() => handleAddFeedback(e.id)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Feedback</button>
-                            </>
+                          {e.status !== "cancelled" && (
+                            <button onClick={() => handleAddFeedback(e.id)} className="text-xs text-blue-600 hover:text-blue-800 font-medium">Feedback</button>
                           )}
+                          {cardActions(e.status || "scheduled").map((act) => (
+                            <button key={act.status} onClick={() => changeStatus(e, act)} className={`text-xs font-medium ${act.tone === "red" ? "text-red-600 hover:text-red-800" : act.tone === "green" ? "text-green-700 hover:text-green-900" : "text-gray-600 hover:text-gray-800"}`}>{act.text}</button>
+                          ))}
                         </div>
                       </td>
                     </tr>
@@ -301,65 +317,73 @@ export default function Interviews() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
+          <form noValidate onSubmit={(ev) => { ev.preventDefault(); handleSave(); }} className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">{editItem ? "Edit Interview" : "Schedule Interview"}</h2>
-              <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setShowModal(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
+            <p className="text-xs text-gray-400 mb-3">Fields marked <span className="text-red-500">*</span> are required.</p>
             <div className="space-y-3">
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Candidate Name</label>
-                  <input value={form.candidate_name} onChange={(e) => setForm({ ...form, candidate_name: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <label htmlFor="iv-name" className="text-xs text-gray-500 font-medium">Candidate Name <span className="text-red-500">*</span></label>
+                  <input id="iv-name" value={form.candidate_name} maxLength={150} aria-invalid={!!errors.candidate_name} onChange={(e) => setField("candidate_name", e.target.value)} className={inputClass("candidate_name")} />
+                  {fieldError("candidate_name")}
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Position</label>
-                  <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <label htmlFor="iv-position" className="text-xs text-gray-500 font-medium">Position <span className="text-red-500">*</span></label>
+                  <input id="iv-position" value={form.position} maxLength={150} aria-invalid={!!errors.position} onChange={(e) => setField("position", e.target.value)} className={inputClass("position")} />
+                  {fieldError("position")}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Type</label>
-                  <select value={form.interview_type} onChange={(e) => setForm({ ...form, interview_type: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <label htmlFor="iv-type" className="text-xs text-gray-500 font-medium">Type</label>
+                  <select id="iv-type" value={form.interview_type} onChange={(e) => setField("interview_type", e.target.value)} className={inputClass("interview_type")}>
                     <option value="phone">Phone Screen</option>
                     <option value="video">Video</option>
                     <option value="in_person">In-Person</option>
                   </select>
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Status</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="scheduled">Scheduled</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="completed">Completed</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
+                  <label htmlFor="iv-status" className="text-xs text-gray-500 font-medium">Status</label>
+                  {editItem ? (
+                    <select id="iv-status" value={form.status} disabled={statusOptions(editItem.status).length === 1} onChange={(e) => setField("status", e.target.value)} className={inputClass("status")}>
+                      {statusOptions(editItem.status).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                    </select>
+                  ) : (
+                    <p id="iv-status" className="px-3 py-2 text-sm text-gray-600 bg-gray-50 rounded-lg border border-gray-100">Scheduled</p>
+                  )}
+                  {editItem && statusOptions(editItem.status).length === 1 ? <p className="text-[11px] text-gray-400 mt-1">A completed interview is final.</p> : null}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Date</label>
-                  <input type="date" value={form.interview_date} onChange={(e) => setForm({ ...form, interview_date: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <label htmlFor="iv-date" className="text-xs text-gray-500 font-medium">Date <span className="text-red-500">*</span></label>
+                  <input id="iv-date" type="date" value={form.interview_date} aria-invalid={!!errors.interview_date} onChange={(e) => setField("interview_date", e.target.value)} className={inputClass("interview_date")} />
+                  {fieldError("interview_date")}
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Start Time</label>
-                  <input type="time" value={form.start_time} onChange={(e) => setForm({ ...form, start_time: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <label htmlFor="iv-time" className="text-xs text-gray-500 font-medium">Start Time</label>
+                  <input id="iv-time" type="time" value={form.start_time} onChange={(e) => setField("start_time", e.target.value)} className={inputClass("start_time")} />
                 </div>
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Interviewer</label>
-                <input value={form.interviewer} onChange={(e) => setForm({ ...form, interviewer: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                <label htmlFor="iv-interviewer" className="text-xs text-gray-500 font-medium">Interviewer</label>
+                <input id="iv-interviewer" value={form.interviewer} maxLength={150} onChange={(e) => setField("interviewer", e.target.value)} className={inputClass("interviewer")} />
+                {fieldError("interviewer")}
               </div>
               <div>
-                <label className="text-xs text-gray-500 font-medium">Feedback</label>
-                <textarea value={form.feedback} onChange={(e) => setForm({ ...form, feedback: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" rows={2} />
+                <label htmlFor="iv-feedback" className="text-xs text-gray-500 font-medium">Feedback</label>
+                <textarea id="iv-feedback" value={form.feedback} onChange={(e) => setField("feedback", e.target.value)} className={inputClass("feedback")} rows={2} />
               </div>
             </div>
+            {saveError ? <p role="alert" className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p> : null}
             <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Create"}</button>
+              <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+              <button type="submit" disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60">{saving ? "Saving..." : editItem ? "Update" : "Create"}</button>
             </div>
-          </div>
+          </form>
         </div>
       )}
     </HRPage>
