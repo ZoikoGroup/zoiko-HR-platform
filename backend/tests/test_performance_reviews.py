@@ -143,7 +143,7 @@ def test_the_dashboard_invents_nothing_when_the_organization_has_no_data(client)
     assert client.db.query(PerformanceGoal).count() == 0           # used to be seeded with ten fake goals
     assert client.db.query(Employee).filter(Employee.email == "demo.employee@zoiko.com").count() == 0
     a = client.get("/hr/performance/analytics").json()
-    assert (a["total_reviews"], a["avg_rating"]) == (0, 0)
+    assert (a["total_reviews"], a["avg_rating"], a["avg_appraisal_score"]) == (0, None, None)
 
 
 def test_dashboard_pending_in_progress_and_completed_add_up(client):
@@ -163,3 +163,53 @@ def test_emails_name_the_cycle_and_the_completion_mail_goes_out_once(client):
     client.put(f"/hr/performance/{rid}", json={"status": "completed"})
     client.put(f"/hr/performance/{rid}", json={"comments": "edited after completion"})
     assert client.sent == [("assigned", "Q1 2026"), ("submitted", "Q1 2026")]
+
+
+def test_a_pending_review_with_old_data_can_still_be_edited_and_moved_on(client):
+    """Data that predates the current rules (self as reviewer, a duplicate cycle) must not lock a review for good."""
+    ann, bob = client.people["ann"], client.people["bob"]
+    first = client.post("/hr/performance", json=body(client)).json()
+    second = client.post("/hr/performance", json=body(client, cycle="Q2 2026")).json()
+    from app.modules.hr.models import PerformanceReview
+    old = client.db.get(PerformanceReview, second["id"])
+    old.reviewer_id, old.cycle = ann.id, "Q1 2026"       # now both self-reviewed and a duplicate of the first
+    client.db.commit()
+
+    r = client.put(f"/hr/performance/{old.id}", json={"comments": "still editable", "rating": 2, "status": "in_progress"})
+    assert r.status_code == 200, r.text
+    assert (r.json()["comments"], r.json()["rating"], r.json()["status"]) == ("still editable", 2, "in_progress")
+
+    # but changing the people or the cycle to something wrong is still refused
+    assert client.put(f"/hr/performance/{first['id']}", json={"reviewer_id": ann.id}).status_code == 400
+    assert client.put(f"/hr/performance/{first['id']}", json={"cycle": "Q1 2026", "reviewer_id": bob.id}).status_code == 200
+    assert client.put(f"/hr/performance/{old.id}", json={"cycle": "Q1 2026", "employee_id": bob.id, "reviewer_id": bob.id}).status_code == 400
+
+
+def test_the_status_can_be_set_back_to_pending_from_the_edit_form(client):
+    rid = client.post("/hr/performance", json=body(client)).json()["id"]
+    assert client.put(f"/hr/performance/{rid}", json={"status": "completed"}).json()["reviewed_at"]
+    r = client.put(f"/hr/performance/{rid}", json={"status": "pending", "comments": "reopened"}).json()
+    assert r["status"] == "pending" and r["reviewed_at"] is None
+
+
+def test_analytics_never_report_a_score_beyond_the_scale(client):
+    """Appraisals saved before scores were checked can hold 10; they must not push the average past 5."""
+    from app.modules.hr.models import Appraisal
+    ann, bob = client.people["ann"], client.people["bob"]
+    for emp, cycle, score in ((ann, "2024-2025", 4.0), (bob, "2024-2025", 3.0), (ann, "2023-2024", 10.0), (bob, "2023-2024", None)):
+        client.db.add(Appraisal(employee_id=emp.id, organization_id=1, cycle=cycle, final_score=score))
+    client.db.commit()
+    a = client.get("/hr/performance/analytics").json()
+    assert a["avg_appraisal_score"] == 3.5
+    assert (a["total_appraisals"], a["appraisals_scored"], a["appraisals_out_of_range"]) == (4, 2, 1)
+    assert 0 <= a["avg_appraisal_score"] <= 5
+
+
+def test_review_ratings_outside_the_scale_are_left_out_of_the_average(client):
+    from app.modules.hr.models import PerformanceReview
+    ann, bob = client.people["ann"], client.people["bob"]
+    client.post("/hr/performance", json=body(client, rating=4))
+    client.db.add(PerformanceReview(employee_id=bob.id, organization_id=1, cycle="old", rating=10))
+    client.db.commit()
+    a = client.get("/hr/performance/analytics").json()
+    assert (a["avg_rating"], a["avg_performance_score"], a["rated_reviews"], a["total_reviews"]) == (4.0, 80.0, 1, 2)

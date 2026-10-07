@@ -4,6 +4,9 @@ import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefc
 import HRPage from "../../../components/HRPage";
 import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import { validateCandidateForm, serverFieldErrors, candidatePayload } from "../../../utils/candidateForm";
+import { PHONE_MAX_LENGTH } from "../../../utils/phone";
+import { experienceText, sourceLabel, shown, candidateCsv, candidateTimeline } from "../../../utils/candidateDisplay";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment" },
@@ -60,7 +63,11 @@ export default function Candidates() {
   const [candidate, setCandidate] = useState(null);
   const [requisitions, setRequisitions] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState(null);          // the page could not load: replaces the page
+  const [notice, setNotice] = useState("");           // an action failed (delete, status): a banner, the page stays
+  const [errors, setErrors] = useState({});           // field-level messages inside the Add / Edit dialog
+  const [saveError, setSaveError] = useState("");
+  const [saving, setSaving] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [sourceFilter, setSourceFilter] = useState("");
@@ -68,7 +75,7 @@ export default function Candidates() {
   const [page, setPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [form, setForm] = useState({ name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", notes: "", requisition_id: "" });
+  const [form, setForm] = useState({ name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", resume_link: "", notes: "", requisition_id: "" });
 
   const load = useCallback(() => {
     setLoading(true);
@@ -115,27 +122,54 @@ export default function Candidates() {
 
   const sources = [...new Set(candidates.map((c) => c.source).filter(Boolean))];
 
-  const openCreate = () => { setEditItem(null); setForm({ name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", notes: "", requisition_id: "" }); setShowModal(true); };
-  const openEdit = (c) => { setEditItem(c); setForm({ name: c.name, email: c.email || "", phone: c.phone || "", position: c.position || "", status: c.status || "applied", source: c.source || "referral", location: c.location || "", experience: c.experience || "", notes: c.notes || "", requisition_id: c.requisition_id ? String(c.requisition_id) : "" }); setShowModal(true); };
+  const openCreate = () => {
+    setEditItem(null);
+    setForm({ name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", resume_link: "", notes: "", requisition_id: "" });
+    setErrors({}); setSaveError(""); setShowModal(true);
+  };
+  const openEdit = (c) => {
+    setEditItem(c);
+    setForm({ name: c.name || "", email: c.email || "", phone: c.phone || "", position: c.position || "", status: c.status || "applied", source: c.source || "referral", location: c.location || "", experience: c.experience ?? "", resume_link: c.resume_link || "", notes: c.notes || "", requisition_id: c.requisition_id ? String(c.requisition_id) : "" });
+    setErrors({}); setSaveError(""); setShowModal(true);
+  };
+
+  // typing in a field clears that field's message
+  const setField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+  const fieldError = (name) => (errors[name] ? <p role="alert" className="text-xs text-red-600 mt-1">{errors[name]}</p> : null);
+  const inputClass = (name) => `w-full border rounded-lg px-3 py-2 text-sm ${errors[name] ? "border-red-400" : "border-gray-200"}`;
 
   const handleRequisitionSelect = (reqId) => {
     const req = requisitions.find((r) => String(r.id) === String(reqId));
     setForm((prev) => ({ ...prev, requisition_id: reqId, position: prev.position || req?.title || prev.position }));
+    setErrors((prev) => ({ ...prev, requisition_id: undefined, position: undefined }));
   };
 
   const handleSave = async () => {
+    const found = validateCandidateForm(form);
+    setErrors(found);
+    setSaveError("");
+    if (Object.keys(found).length) return;
+    setSaving(true);
     try {
-      const payload = { ...form, experience: Number(form.experience) || 0, requisition_id: form.requisition_id ? Number(form.requisition_id) : null };
+      const payload = candidatePayload(form);
       if (editItem) {
         await updateCandidate(editItem.id, payload);
       } else {
         await createCandidate(payload);
       }
       setShowModal(false);
+      setNotice("");
       load();
     } catch (err) {
-      console.error("Save candidate error:", err);
-      setError(err.message || "Failed to save candidate.");
+      // the server's refusal is shown next to the field it is about; anything else stays in the dialog
+      const fields = serverFieldErrors(err?.validation);
+      if (Object.keys(fields).length) setErrors(fields);
+      else setSaveError(err?.message || "The candidate could not be saved. Please try again.");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -147,7 +181,7 @@ export default function Candidates() {
       else load();
     } catch (err) {
       console.error("Delete candidate error:", err);
-      setError(err.message || "Failed to delete candidate.");
+      setNotice(err.message || "Failed to delete candidate.");
     }
   };
 
@@ -157,30 +191,133 @@ export default function Candidates() {
       load();
     } catch (err) {
       console.error("Status update error:", err);
-      setError(err.message || "Failed to update status.");
+      setNotice(err.message || "Failed to update status.");
     }
   };
 
   const exportCsv = () => {
     const headers = ["Name", "Email", "Phone", "Position", "Requisition", "Status", "Source", "Applied", "Location", "Experience"];
-    const rows = filtered.map((c) => [c.name, c.email, c.phone, c.position, c.requisition_title || "", c.status, c.source, formatDate(c.applied_at || c.created_at), c.location, c.experience]);
-    const csv = [headers.join(","), ...rows.map((row) => row.map((c) => `"${c || ""}"`).join(","))].join("\n");
+    const rows = filtered.map((c) => [c.name, c.email, c.phone, c.position, c.requisition_title || "", c.status, sourceLabel(c.source, ""), formatDate(c.applied_at || c.created_at), c.location, c.experience]);
+    const csv = candidateCsv(headers, rows);
     const blob = new Blob([csv], { type: "text/csv" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a"); a.href = url; a.download = "candidates.csv"; a.click();
     URL.revokeObjectURL(url);
   };
 
+  const modalJsx = showModal ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <form noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold">{editItem ? "Edit Candidate" : "Add Candidate"}</h2>
+              <button type="button" onClick={() => setShowModal(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+            </div>
+            <p className="text-xs text-gray-400 mb-3">Fields marked <span className="text-red-500">*</span> are required.</p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cand-name" className="text-xs text-gray-500 font-medium">Name <span className="text-red-500">*</span></label>
+                  <input id="cand-name" value={form.name} maxLength={150} aria-invalid={!!errors.name} onChange={(e) => setField("name", e.target.value)} className={inputClass("name")} />
+                  {fieldError("name")}
+                </div>
+                <div>
+                  <label htmlFor="cand-email" className="text-xs text-gray-500 font-medium">Email <span className="text-red-500">*</span></label>
+                  <input id="cand-email" type="email" value={form.email} maxLength={255} aria-invalid={!!errors.email} onChange={(e) => setField("email", e.target.value)} className={inputClass("email")} />
+                  {fieldError("email")}
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cand-phone" className="text-xs text-gray-500 font-medium">Phone</label>
+                  <input id="cand-phone" value={form.phone} maxLength={PHONE_MAX_LENGTH} placeholder="+91 9876543210" aria-invalid={!!errors.phone} onChange={(e) => setField("phone", e.target.value)} className={inputClass("phone")} />
+                  {fieldError("phone")}
+                </div>
+                <div>
+                  <label htmlFor="cand-position" className="text-xs text-gray-500 font-medium">Position <span className="text-red-500">*</span></label>
+                  <input id="cand-position" value={form.position} maxLength={150} aria-invalid={!!errors.position} onChange={(e) => setField("position", e.target.value)} className={inputClass("position")} />
+                  {fieldError("position")}
+                </div>
+              </div>
+              <div>
+                <label htmlFor="cand-req" className="text-xs text-gray-500 font-medium">Job Requisition</label>
+                <select id="cand-req" value={form.requisition_id} onChange={(e) => handleRequisitionSelect(e.target.value)} className={inputClass("requisition_id")}>
+                  <option value="">No requisition linked</option>
+                  {requisitions.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.department})</option>)}
+                </select>
+                {fieldError("requisition_id")}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cand-status" className="text-xs text-gray-500 font-medium">Status</label>
+                  <select id="cand-status" value={form.status} onChange={(e) => setField("status", e.target.value)} className={inputClass("status")}>
+                    <option value="applied">Applied</option>
+                    <option value="screening">Screening</option>
+                    <option value="interview">Interviewed</option>
+                    <option value="offer">Offered</option>
+                    <option value="hired">Hired</option>
+                    <option value="rejected">Rejected</option>
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="cand-source" className="text-xs text-gray-500 font-medium">Source</label>
+                  <select id="cand-source" value={form.source} onChange={(e) => setField("source", e.target.value)} className={inputClass("source")}>
+                    <option value="referral">Referral</option>
+                    <option value="linkedin">LinkedIn</option>
+                    <option value="indeed">Indeed</option>
+                    <option value="company_website">Company Website</option>
+                    <option value="recruiter">Recruiter</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="cand-location" className="text-xs text-gray-500 font-medium">Location</label>
+                  <input id="cand-location" value={form.location} maxLength={150} aria-invalid={!!errors.location} onChange={(e) => setField("location", e.target.value)} className={inputClass("location")} />
+                  {fieldError("location")}
+                </div>
+                <div>
+                  <label htmlFor="cand-exp" className="text-xs text-gray-500 font-medium">Experience (yrs)</label>
+                  <input id="cand-exp" type="number" min={0} max={60} step={1} value={form.experience} aria-invalid={!!errors.experience} onChange={(e) => setField("experience", e.target.value)} className={inputClass("experience")} />
+                  {fieldError("experience")}
+                </div>
+              </div>
+              <div>
+                <label htmlFor="cand-resume" className="text-xs text-gray-500 font-medium">Resume link</label>
+                <input id="cand-resume" value={form.resume_link} maxLength={500} placeholder="https://" aria-invalid={!!errors.resume_link} onChange={(e) => setField("resume_link", e.target.value)} className={inputClass("resume_link")} />
+                {fieldError("resume_link")}
+              </div>
+              <div>
+                <label htmlFor="cand-notes" className="text-xs text-gray-500 font-medium">Notes</label>
+                <textarea id="cand-notes" value={form.notes} maxLength={5000} onChange={(e) => setField("notes", e.target.value)} className={inputClass("notes")} rows={2} />
+                {fieldError("notes")}
+              </div>
+            </div>
+            {saveError ? <p role="alert" className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p> : null}
+            <div className="flex justify-end gap-2 mt-6">
+              <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+              <button type="submit" disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60">{saving ? "Saving..." : editItem ? "Update" : "Add"}</button>
+            </div>
+          </form>
+        </div>
+        ) : null;
+
   if (loading) return <HRPage title="Candidates" subtitle="Manage applicant pool"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
 
   if (error) return <HRPage title="Candidates" subtitle="Manage applicant pool"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div></div></HRPage>;
 
   if (id && candidate) {
-    const act = candidate.activity || [];
+    const act = candidateTimeline(candidate);
     return (
       <HRPage title="Candidate Profile" subtitle="Applicant details and activity">
         <SubNav />
         <div className="space-y-6">
+          {notice ? (
+          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss" className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          </div>
+        ) : null}
           <div className="flex items-center gap-3">
             <NavLink to="/zoiko-hr/recruitment/candidates" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"><ArrowLeft className="w-4 h-4" />Back to Candidates</NavLink>
           </div>
@@ -204,14 +341,25 @@ export default function Candidates() {
                 <NavLink to="/zoiko-hr/onboarding/new-hires" className="text-sm text-green-700 underline hover:text-green-900">View in Onboarding →</NavLink>
               </div>
             )}
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 text-sm">
-              <div className="flex items-center gap-2 text-gray-600"><Mail className="w-4 h-4 text-gray-400" />{candidate.email || "-"}</div>
-              <div className="flex items-center gap-2 text-gray-600"><Phone className="w-4 h-4 text-gray-400" />{candidate.phone || "-"}</div>
-              <div className="flex items-center gap-2 text-gray-600"><MapPin className="w-4 h-4 text-gray-400" />{candidate.location || "-"}</div>
-              <div className="flex items-center gap-2 text-gray-600"><Calendar className="w-4 h-4 text-gray-400" />Applied {formatDate(candidate.applied_at || candidate.created_at)}</div>
-              <div className="flex items-center gap-2 text-gray-600"><Briefcase className="w-4 h-4 text-gray-400" />{candidate.experience ? `${candidate.experience} yrs` : "-"} experience</div>
-              <div className="flex items-center gap-2 text-gray-600"><ExternalLink className="w-4 h-4 text-gray-400" />Source: {candidate.source || "-"}</div>
-            </div>
+            <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
+              {[
+                { icon: Mail, label: "Email", value: candidate.email ? <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline">{candidate.email}</a> : "Not provided" },
+                { icon: Phone, label: "Phone", value: shown(candidate.phone, "Not provided") },
+                { icon: MapPin, label: "Location", value: shown(candidate.location, "Not provided") },
+                { icon: Briefcase, label: "Experience", value: experienceText(candidate.experience, "Not provided") },
+                { icon: ExternalLink, label: "Source", value: sourceLabel(candidate.source, "Not provided") },
+                { icon: Calendar, label: "Applied", value: formatDate(candidate.applied_at || candidate.created_at) },
+                { icon: ExternalLink, label: "Resume", value: candidate.resume_link ? <a href={candidate.resume_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">View resume</a> : "Not provided" },
+              ].map(({ icon: Icon, label, value }) => (
+                <div key={label} className="flex items-start gap-2 text-gray-700">
+                  <Icon className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
+                  <div><dt className="text-xs text-gray-400">{label}</dt><dd className="font-medium">{value}</dd></div>
+                </div>
+              ))}
+            </dl>
+            {candidate.notes ? (
+              <div className="mt-4 text-sm"><p className="text-xs text-gray-400 mb-1">Notes</p><p className="text-gray-700 whitespace-pre-wrap">{candidate.notes}</p></div>
+            ) : null}
             <div className="mt-6">
               <h3 className="text-sm font-semibold text-gray-900 mb-3">Status Update</h3>
               <div className="flex flex-wrap gap-2">
@@ -247,6 +395,7 @@ export default function Candidates() {
             )}
           </div>
         </div>
+        {modalJsx}
       </HRPage>
     );
   }
@@ -255,6 +404,12 @@ export default function Candidates() {
     <HRPage title="Candidates" subtitle="Manage applicant pool">
       <SubNav />
       <div className="space-y-6">
+        {notice ? (
+          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss" className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          </div>
+        ) : null}
         <div className="flex items-center justify-between">
           <h1 className="text-2xl font-bold text-gray-900">Candidates</h1>
           <div className="flex items-center gap-2">
@@ -294,7 +449,7 @@ export default function Candidates() {
           <table className="w-full text-left">
             <thead className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
               <tr>
-                {["Name", "Email", "Position", "Requisition", "Status", "Applied", "Source", ""].map((h) => (
+                {["Name", "Email", "Phone", "Position", "Location", "Experience", "Requisition", "Status", "Applied", "Source", ""].map((h) => (
                   <th key={h} className="px-3 py-3 font-medium">{h}</th>
                 ))}
               </tr>
@@ -304,7 +459,10 @@ export default function Candidates() {
                 <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 text-sm cursor-pointer" onClick={() => window.location.href = `/zoiko-hr/recruitment/candidates/${c.id}`}>
                   <td className="px-3 py-3 font-medium text-gray-900">{c.name}</td>
                   <td className="px-3 py-3 text-gray-500">{c.email || "-"}</td>
+                  <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{shown(c.phone)}</td>
                   <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.position || "-"}</td>
+                  <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{shown(c.location)}</td>
+                  <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{experienceText(c.experience)}</td>
                   <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.requisition_title || "-"}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
@@ -315,7 +473,7 @@ export default function Candidates() {
                     </div>
                   </td>
                   <td className="px-3 py-3 text-xs text-gray-400">{daysAgo(c.applied_at || c.created_at)}</td>
-                  <td className="px-3 py-3 text-xs text-gray-400 capitalize">{c.source || "-"}</td>
+                  <td className="px-3 py-3 text-xs text-gray-400">{sourceLabel(c.source)}</td>
                   <td className="px-3 py-3">
                     <div className="flex gap-2">
                       <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
@@ -325,7 +483,7 @@ export default function Candidates() {
                 </tr>
               ))}
               {paged.length === 0 && (
-                <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400">No candidates found</td></tr>
+                <tr><td colSpan={11} className="px-3 py-8 text-center text-gray-400">No candidates found</td></tr>
               )}
             </tbody>
           </table>
@@ -341,87 +499,7 @@ export default function Candidates() {
         </div>
       </div>
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">{editItem ? "Edit Candidate" : "Add Candidate"}</h2>
-              <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
-            </div>
-            <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Name</label>
-                  <input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Email</label>
-                  <input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Phone</label>
-                  <input value={form.phone} onChange={(e) => setForm({ ...form, phone: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Position</label>
-                  <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Job Requisition</label>
-                <select value={form.requisition_id} onChange={(e) => handleRequisitionSelect(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                  <option value="">No requisition linked</option>
-                  {requisitions.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.department})</option>)}
-                </select>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Status</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="applied">Applied</option>
-                    <option value="screening">Screening</option>
-                    <option value="interview">Interviewed</option>
-                    <option value="offer">Offered</option>
-                    <option value="hired">Hired</option>
-                    <option value="rejected">Rejected</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Source</label>
-                  <select value={form.source} onChange={(e) => setForm({ ...form, source: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
-                    <option value="referral">Referral</option>
-                    <option value="linkedin">LinkedIn</option>
-                    <option value="indeed">Indeed</option>
-                    <option value="company_website">Company Website</option>
-                    <option value="recruiter">Recruiter</option>
-                    <option value="other">Other</option>
-                  </select>
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Location</label>
-                  <input value={form.location} onChange={(e) => setForm({ ...form, location: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Experience (yrs)</label>
-                  <input type="number" min={0} value={form.experience} onChange={(e) => setForm({ ...form, experience: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Notes</label>
-                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" rows={2} />
-              </div>
-            </div>
-            <div className="flex justify-end gap-2 mt-6">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Add"}</button>
-            </div>
-          </div>
-        </div>
-      )}
+      {modalJsx}
     </HRPage>
   );
 }

@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback } from "react";
 import { NavLink, useNavigate } from "react-router-dom";
 import { Trophy, Target, Star, MessageSquare, Award, RefreshCw, TrendingUp, Activity, CheckCircle, Clock, AlertCircle } from "lucide-react";
 import HRPage from "../../../components/HRPage";
+import { formatScore } from "../../../utils/performanceScores";
 import { getPerformanceDashboard, getPerformanceAnalytics, getHrEmployees } from "../../../service/hrService";
 
 const NAV_ITEMS = [
@@ -133,7 +134,7 @@ export default function PerformanceDashboard() {
           <StatsCard title="Avg Performance Score" value={`${a.avg_performance_score ?? 0}%`} icon={TrendingUp} subtitle="Across all reviews" color="bg-blue-500" />
           <StatsCard title="Goal Completion" value={`${a.goal_completion_rate ?? 0}%`} icon={Target} subtitle="Goals completed" color="bg-green-500" />
           <StatsCard title="Review Completion" value={`${a.review_completion_rate ?? 0}%`} icon={CheckCircle} subtitle="Reviews completed" color="bg-blue-500" />
-          <StatsCard title="Avg Rating" value={a.avg_rating ? `${a.avg_rating}/5` : "0/5"} icon={Star} subtitle="Across all reviews" color="bg-blue-500" />
+          <StatsCard title="Avg Rating" value={formatScore(a.avg_rating)} icon={Star} subtitle="Across all reviews" color="bg-blue-500" />
           <StatsCard title="Total Reviews" value={d.total_reviews ?? 0} icon={Activity} subtitle={`${d.completed_reviews ?? 0} completed`} color="bg-blue-500" />
           <StatsCard title="Total Goals" value={d.total_goals ?? 0} icon={Target} subtitle={`${d.completed_goals ?? 0} completed`} color="bg-teal-500" />
           <StatsCard title="Feedback Items" value={d.total_feedback ?? 0} icon={MessageSquare} color="bg-cyan-500" />

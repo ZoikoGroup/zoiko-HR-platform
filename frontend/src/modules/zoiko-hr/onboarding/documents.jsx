@@ -7,8 +7,10 @@ import {
   updateOnboardingDocument,
   deleteOnboardingDocument,
   getOnboardingRecords,
+  getOnboardingDocumentFile,
 } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
+import { CATEGORIES, ALLOWED_EXTENSIONS, MAX_FILE_MB, validateUploadForm, serverUploadErrors, fileSizeText } from "../../../utils/onboardingDocForm";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -19,16 +21,6 @@ const NAV_ITEMS = [
   { label: "Orientation", href: "/zoiko-hr/onboarding/orientation" },
   { label: "Reports", href: "/zoiko-hr/onboarding/reports" },
   { label: "Settings", href: "/zoiko-hr/onboarding/settings" },
-];
-
-const CATEGORIES = [
-  { value: "id_proof", label: "ID Proof" },
-  { value: "offer_letter", label: "Offer Letter" },
-  { value: "nda", label: "NDA" },
-  { value: "education_certificates", label: "Education Certificates" },
-  { value: "experience_letters", label: "Experience Letters" },
-  { value: "bank_details", label: "Bank Details" },
-  { value: "other", label: "Other" },
 ];
 
 const STATUS_COLORS = {
@@ -69,6 +61,9 @@ export default function OnboardingDocuments() {
   const [submitting, setSubmitting] = useState(false);
   const [uploadForm, setUploadForm] = useState({ ...INITIAL_UPLOAD_FORM });
   const [formErrors, setFormErrors] = useState({});
+  const [rejectError, setRejectError] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);   // changing it empties the file box
+  const [busyId, setBusyId] = useState(null);
 
   const fetchDocuments = async (recordId) => {
     setLoading(true);
@@ -108,15 +103,42 @@ export default function OnboardingDocuments() {
   const resetUploadForm = () => {
     setUploadForm({ ...INITIAL_UPLOAD_FORM });
     setFormErrors({});
+    setFileInputKey((k) => k + 1);
+  };
+
+  // typing or choosing in a field clears that field's message
+  const setUploadField = (key, value) => {
+    setUploadForm((prev) => ({ ...prev, [key]: value }));
+    setFormErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
   };
 
   const validateUpload = () => {
-    const errors = {};
-    if (!uploadForm.title.trim()) errors.title = "Title is required";
-    if (!uploadForm.category) errors.category = "Category is required";
-    if (!uploadForm.file) errors.file = "File is required";
+    const errors = validateUploadForm(uploadForm);
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
+  };
+
+  const recordName = (id) => {
+    if (!id) return "-";
+    const r = records.find((x) => x.id === id);
+    return r?.candidate_name || `Record #${id}`;
+  };
+
+  const handleDownload = async (doc) => {
+    setBusyId(doc.id);
+    try {
+      const { blob, filename } = await getOnboardingDocumentFile(doc.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename || doc.title;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err.message || "The file could not be downloaded.");
+    } finally {
+      setBusyId(null);
+    }
   };
 
   const handleUpload = async (e) => {
@@ -125,7 +147,7 @@ export default function OnboardingDocuments() {
     setSubmitting(true);
     try {
       const fd = new FormData();
-      fd.append("title", uploadForm.title.trim());
+      fd.append("title", uploadForm.title.trim().replace(/\s+/g, " "));
       fd.append("category", uploadForm.category);
       fd.append("file", uploadForm.file);
       if (uploadForm.onboarding_record_id) {
@@ -136,40 +158,46 @@ export default function OnboardingDocuments() {
       resetUploadForm();
       await fetchDocuments(recordFilter);
     } catch (err) {
-      setFormErrors({ submit: err.message || "Failed to upload document" });
+      const fields = serverUploadErrors(err?.validation ?? err?.detail);
+      setFormErrors(Object.keys(fields).length ? fields : { submit: err.message || "The document could not be uploaded. Please try again." });
     } finally {
       setSubmitting(false);
     }
   };
 
   const handleApprove = async (id) => {
+    setBusyId(id);
     try {
       await updateOnboardingDocument(id, { status: "approved" });
       await fetchDocuments(recordFilter);
     } catch (err) {
       setError(err.message || "Failed to approve document");
+    } finally {
+      setBusyId(null);
     }
   };
 
   const openRejectModal = (doc) => {
     setRejectTarget(doc);
     setRejectionReason("");
+    setRejectError("");
     setShowRejectModal(true);
   };
 
   const handleReject = async () => {
     if (!rejectTarget) return;
+    if (!rejectionReason.trim()) { setRejectError("Enter a reason, so the person knows what to fix."); return; }
     try {
       await updateOnboardingDocument(rejectTarget.id, {
         status: "rejected",
-        rejection_reason: rejectionReason.trim() || null,
+        rejection_reason: rejectionReason.trim(),
       });
       setShowRejectModal(false);
       setRejectTarget(null);
       setRejectionReason("");
       await fetchDocuments(recordFilter);
     } catch (err) {
-      setError(err.message || "Failed to reject document");
+      setRejectError(err.message || "Failed to reject document");
     }
   };
 
@@ -307,6 +335,7 @@ export default function OnboardingDocuments() {
                   <tr>
                     <th className="text-left px-4 py-3 font-semibold text-gray-600">Title</th>
                     <th className="text-left px-4 py-3 font-semibold text-gray-600">Category</th>
+                    <th className="text-left px-4 py-3 font-semibold text-gray-600">For</th>
                     <th className="text-left px-4 py-3 font-semibold text-gray-600">Status</th>
                     <th className="text-left px-4 py-3 font-semibold text-gray-600">Uploaded Date</th>
                     <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
@@ -323,10 +352,12 @@ export default function OnboardingDocuments() {
                             {catDef?.label || doc.category}
                           </span>
                         </td>
+                        <td className="px-4 py-3 text-gray-500">{recordName(doc.onboarding_new_hire_id)}</td>
                         <td className="px-4 py-3">
                           <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[doc.status] || "bg-gray-100 text-gray-600"}`}>
                             {doc.status ? doc.status.charAt(0).toUpperCase() + doc.status.slice(1) : "Pending"}
                           </span>
+                          {doc.status === "rejected" && doc.rejection_reason ? <p className="text-xs text-gray-400 mt-1 max-w-[220px]">{doc.rejection_reason}</p> : null}
                         </td>
                         <td className="px-4 py-3 text-gray-500 text-xs">
                           {doc.created_at ? formatDate(doc.created_at) : "-"}
@@ -334,18 +365,18 @@ export default function OnboardingDocuments() {
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1 flex-wrap">
                             {doc.file_url && (
-                              <a
-                                href={doc.file_url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1"
+                              <button
+                                onClick={() => handleDownload(doc)}
+                                disabled={busyId === doc.id}
+                                className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1 disabled:opacity-50"
                               >
                                 Download
-                              </a>
+                              </button>
                             )}
                             {doc.status !== "approved" && (
                               <button
                                 onClick={() => handleApprove(doc.id)}
+                                disabled={busyId === doc.id}
                                 className="text-green-600 hover:text-green-800 text-xs font-medium px-1"
                               >
                                 Approve
@@ -391,25 +422,30 @@ export default function OnboardingDocuments() {
               <h2 className="text-lg font-bold text-gray-800">Upload Document</h2>
               <button onClick={() => { setShowUploadModal(false); resetUploadForm(); }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
-            <form onSubmit={handleUpload} className="p-6 space-y-4">
+            <form noValidate onSubmit={handleUpload} className="p-6 space-y-4">
               {formErrors.submit && (
-                <div className="text-red-500 text-sm bg-red-50 p-2 rounded">{formErrors.submit}</div>
+                <div role="alert" className="text-red-600 text-sm bg-red-50 border border-red-200 p-2 rounded">{formErrors.submit}</div>
               )}
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Title *</label>
+                <label htmlFor="od-title" className="block text-sm font-medium text-gray-700 mb-1">Title <span className="text-red-500">*</span></label>
                 <input
+                  id="od-title"
                   type="text"
                   value={uploadForm.title}
-                  onChange={(e) => setUploadForm({ ...uploadForm, title: e.target.value })}
+                  maxLength={200}
+                  aria-invalid={!!formErrors.title}
+                  onChange={(e) => setUploadField("title", e.target.value)}
                   className={`w-full border ${formErrors.title ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
-                {formErrors.title && <p className="text-red-500 text-xs mt-1">{formErrors.title}</p>}
+                {formErrors.title && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.title}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Category *</label>
+                <label htmlFor="od-category" className="block text-sm font-medium text-gray-700 mb-1">Category <span className="text-red-500">*</span></label>
                 <select
+                  id="od-category"
                   value={uploadForm.category}
-                  onChange={(e) => setUploadForm({ ...uploadForm, category: e.target.value })}
+                  aria-invalid={!!formErrors.category}
+                  onChange={(e) => setUploadField("category", e.target.value)}
                   className={`w-full border ${formErrors.category ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 >
                   <option value="">Select category...</option>
@@ -417,13 +453,14 @@ export default function OnboardingDocuments() {
                     <option key={cat.value} value={cat.value}>{cat.label}</option>
                   ))}
                 </select>
-                {formErrors.category && <p className="text-red-500 text-xs mt-1">{formErrors.category}</p>}
+                {formErrors.category && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.category}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Onboarding Record</label>
+                <label htmlFor="od-record" className="block text-sm font-medium text-gray-700 mb-1">Onboarding Record</label>
                 <select
+                  id="od-record"
                   value={uploadForm.onboarding_record_id}
-                  onChange={(e) => setUploadForm({ ...uploadForm, onboarding_record_id: e.target.value })}
+                  onChange={(e) => setUploadField("onboarding_record_id", e.target.value)}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 >
                   <option value="">None</option>
@@ -433,15 +470,22 @@ export default function OnboardingDocuments() {
                     </option>
                   ))}
                 </select>
+                {formErrors.onboarding_record_id && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.onboarding_record_id}</p>}
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">File *</label>
+                <label htmlFor="od-file" className="block text-sm font-medium text-gray-700 mb-1">File <span className="text-red-500">*</span></label>
                 <input
+                  id="od-file"
+                  key={fileInputKey}
                   type="file"
-                  onChange={(e) => setUploadForm({ ...uploadForm, file: e.target.files[0] })}
+                  accept={ALLOWED_EXTENSIONS.join(",")}
+                  aria-invalid={!!formErrors.file}
+                  onChange={(e) => setUploadField("file", e.target.files?.[0] || null)}
                   className={`w-full border ${formErrors.file ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
-                {formErrors.file && <p className="text-red-500 text-xs mt-1">{formErrors.file}</p>}
+                {uploadForm.file && !formErrors.file ? <p className="text-xs text-gray-400 mt-1">{uploadForm.file.name} ({fileSizeText(uploadForm.file.size)})</p> : null}
+                {!uploadForm.file && !formErrors.file ? <p className="text-xs text-gray-400 mt-1">PDF, image, Word, Excel, PowerPoint or text. Up to {MAX_FILE_MB} MB.</p> : null}
+                {formErrors.file && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.file}</p>}
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowUploadModal(false); resetUploadForm(); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -467,14 +511,16 @@ export default function OnboardingDocuments() {
                 Rejecting: <span className="font-medium text-gray-800">{rejectTarget.title}</span>
               </p>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Rejection Reason <span className="text-red-500">*</span></label>
                 <textarea
                   rows={3}
                   value={rejectionReason}
-                  onChange={(e) => setRejectionReason(e.target.value)}
+                  maxLength={1000}
+                  onChange={(e) => { setRejectionReason(e.target.value); setRejectError(""); }}
                   placeholder="Provide a reason for rejection..."
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  className={`w-full border ${rejectError ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
+                {rejectError ? <p role="alert" className="text-red-500 text-xs mt-1">{rejectError}</p> : null}
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowRejectModal(false); setRejectTarget(null); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>

@@ -35,7 +35,7 @@ function SubNav() {
 }
 
 function StatusBadge({ status }) {
-  const m = { pending: "bg-yellow-100 text-yellow-800", in_progress: "bg-blue-100 text-blue-800", completed: "bg-green-100 text-green-800", approved: "bg-green-100 text-green-800" };
+  const m = { pending: "bg-yellow-100 text-yellow-800", in_progress: "bg-blue-100 text-blue-800", completed: "bg-green-100 text-green-800", approved: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800", cancelled: "bg-gray-100 text-gray-600" };
   return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[status] || "bg-gray-100 text-gray-800"}`}>{status?.replace(/_/g, " ")}</span>;
 }
 
@@ -62,7 +62,7 @@ export default function PerformanceReviews() {
   const [saving, setSaving] = useState(false);
   const [showModal, setShowModal] = useState(false);
   const [editReview, setEditReview] = useState(null);
-  const [reviewForm, setReviewForm] = useState({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "" });
+  const [reviewForm, setReviewForm] = useState({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "", status: "pending" });
   const [feedbackForm, setFeedbackForm] = useState({ employee_id: "", reviewer_id: "", feedback_type: "peer", rating: 5, comments: "", strengths: "", improvements: "" });
   const [showFeedbackModal, setShowFeedbackModal] = useState(false);
 
@@ -72,6 +72,13 @@ export default function PerformanceReviews() {
     const last = e.lastName || e.last_name;
     empMap[e.id] = e.fullName || e.full_name || (first && last ? `${first} ${last}` : null) || `#${e.id}`;
   });
+
+  // someone named on a review can be missing from the employee list (inactive, or beyond the first page); keep them selectable
+  const peopleOptions = (selectedId) => {
+    const list = employees.map((e) => ({ id: e.id, name: empMap[e.id] }));
+    if (selectedId && !employees.some((e) => String(e.id) === String(selectedId))) list.unshift({ id: selectedId, name: `Employee #${selectedId}` });
+    return list;
+  };
 
   const currentUser = getStoredUser();
   const currentUserId = currentUser?.id || null;
@@ -100,14 +107,14 @@ export default function PerformanceReviews() {
 
   const openCreate = () => {
     setEditReview(null);
-    setReviewForm({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "" });
+    setReviewForm({ employee_id: "", reviewer_id: "", hr_reviewer_id: "", admin_reviewer_id: "", cycle: "", rating: 3, comments: "", status: "pending" });
     setFormError("");
     setShowModal(true);
   };
 
   const openEdit = (r) => {
     setEditReview(r);
-    setReviewForm({ employee_id: r.employee_id, reviewer_id: r.reviewer_id || "", hr_reviewer_id: r.hr_reviewer_id || "", admin_reviewer_id: r.admin_reviewer_id || "", cycle: r.cycle || "", rating: r.rating || 3, comments: r.comments || "" });
+    setReviewForm({ employee_id: r.employee_id, reviewer_id: r.reviewer_id || "", hr_reviewer_id: r.hr_reviewer_id || "", admin_reviewer_id: r.admin_reviewer_id || "", cycle: r.cycle || "", rating: r.rating || 3, comments: r.comments || "", status: r.status || "pending" });
     setFormError("");
     setShowModal(true);
   };
@@ -135,6 +142,7 @@ export default function PerformanceReviews() {
       rating: Number(reviewForm.rating),
       comments: reviewForm.comments?.trim() || null,
     };
+    if (editReview && reviewForm.status) payload.status = reviewForm.status;
     setSaving(true);
     setFormError("");
     try {
@@ -367,7 +375,7 @@ export default function PerformanceReviews() {
 
       {showModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl">
+          <div className="bg-white rounded-xl p-6 w-full max-w-md shadow-xl max-h-[90vh] overflow-y-auto">
             <div className="flex justify-between items-center mb-4">
               <h2 className="text-lg font-semibold">{editReview ? "Edit Review" : "New Review"}</h2>
               <button onClick={() => setShowModal(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
@@ -378,14 +386,14 @@ export default function PerformanceReviews() {
                 <label className="text-xs text-gray-500 font-medium">Employee <span className="text-red-500">*</span></label>
                 <select value={reviewForm.employee_id} onChange={(e) => handleEmployeeChangeForReview(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                   <option value="">Select employee</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
+                  {peopleOptions(reviewForm.employee_id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs text-gray-500 font-medium">Reviewer (Manager)</label>
                 <select value={reviewForm.reviewer_id} onChange={(e) => setReviewForm({ ...reviewForm, reviewer_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                   <option value="">Select reviewer</option>
-                  {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
+                  {peopleOptions(reviewForm.reviewer_id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                 </select>
               </div>
               <div className="grid grid-cols-2 gap-3">
@@ -393,14 +401,14 @@ export default function PerformanceReviews() {
                   <label className="text-xs text-gray-500 font-medium">HR Reviewer</label>
                   <select value={reviewForm.hr_reviewer_id} onChange={(e) => setReviewForm({ ...reviewForm, hr_reviewer_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <option value="">Select HR reviewer</option>
-                    {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
+                    {peopleOptions(reviewForm.hr_reviewer_id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 font-medium">Admin Reviewer</label>
                   <select value={reviewForm.admin_reviewer_id} onChange={(e) => setReviewForm({ ...reviewForm, admin_reviewer_id: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
                     <option value="">Select admin reviewer</option>
-                    {employees.map((e) => <option key={e.id} value={e.id}>{empMap[e.id]}</option>)}
+                    {peopleOptions(reviewForm.admin_reviewer_id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
                 </div>
               </div>
@@ -414,6 +422,14 @@ export default function PerformanceReviews() {
                   {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
                 </select>
               </div>
+              {editReview ? (
+                <div>
+                  <label className="text-xs text-gray-500 font-medium">Status</label>
+                  <select value={reviewForm.status} onChange={(e) => setReviewForm({ ...reviewForm, status: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                    {["pending", "in_progress", "completed", "approved", "rejected", "cancelled"].map((st) => <option key={st} value={st}>{st.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase())}</option>)}
+                  </select>
+                </div>
+              ) : null}
               <div>
                 <label className="text-xs text-gray-500 font-medium">Comments</label>
                 <textarea value={reviewForm.comments} onChange={(e) => setReviewForm({ ...reviewForm, comments: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" rows={2} />

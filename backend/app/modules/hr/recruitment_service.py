@@ -244,7 +244,28 @@ def _attach_requisition_titles(db: Session, candidates: list) -> None:
             c.requisition_title = titles.get(c.requisition_id)
 
 
+def _check_candidate(db: Session, organization_id, email, position, requisition_id, exclude_id=None) -> None:
+    """A candidate applies once per position, and a linked requisition must belong to this organization."""
+    if requisition_id:
+        q = db.query(RecruitmentRequisition.id).filter(RecruitmentRequisition.id == requisition_id)
+        if organization_id:
+            q = q.filter(RecruitmentRequisition.organization_id == organization_id)
+        if not q.first():
+            raise BadRequestException("The selected job requisition was not found.")
+    if email and position:
+        dup = db.query(RecruitmentCandidate.id).filter(
+            func.lower(RecruitmentCandidate.email) == email.lower(), func.lower(RecruitmentCandidate.position) == position.lower(),
+        )
+        if organization_id:
+            dup = dup.filter(RecruitmentCandidate.organization_id == organization_id)
+        if exclude_id:
+            dup = dup.filter(RecruitmentCandidate.id != exclude_id)
+        if dup.first():
+            raise BadRequestException(f"A candidate with the email {email} has already applied for {position}.")
+
+
 def create_candidate(db: Session, data: CandidateCreate, organization_id: Optional[int] = None) -> RecruitmentCandidate:
+    _check_candidate(db, organization_id, data.email, data.position, data.requisition_id)
     safe = sanitize_dict(data.model_dump(exclude_unset=True))
     candidate = RecruitmentCandidate(**safe)
     if organization_id:
@@ -397,6 +418,14 @@ def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, orga
     candidate = get_candidate_by_id(db, candidate_id, organization_id)
     previous_status = candidate.status
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    for required in ("name", "email", "position", "status"):
+        if update_data.get(required) is None:
+            update_data.pop(required, None)
+    new_req = update_data.get("requisition_id")
+    if "requisition_id" in update_data and new_req == candidate.requisition_id:
+        new_req = None      # unchanged, nothing to verify
+    if {"email", "position"} & set(update_data) or new_req:
+        _check_candidate(db, organization_id, update_data.get("email", candidate.email), update_data.get("position", candidate.position), new_req, exclude_id=candidate.id)
     for field, value in update_data.items():
         setattr(candidate, field, value)
     db.commit()
@@ -478,9 +507,37 @@ def get_interview_by_id(db: Session, interview_id: int, organization_id: Optiona
     return interview
 
 
+# Where an interview can go from each status. A finished interview stays finished and a cancelled one can only be
+# put back on the calendar, so it can never flip between completed and cancelled.
+INTERVIEW_TRANSITIONS = {
+    InterviewStatus.SCHEDULED: {InterviewStatus.IN_PROGRESS, InterviewStatus.COMPLETED, InterviewStatus.CANCELLED},
+    InterviewStatus.IN_PROGRESS: {InterviewStatus.COMPLETED, InterviewStatus.CANCELLED},
+    InterviewStatus.COMPLETED: set(),
+    InterviewStatus.CANCELLED: {InterviewStatus.SCHEDULED},
+}
+
+
+def _label(status) -> str:
+    return str(getattr(status, "value", status)).replace("_", " ")
+
+
+def check_interview_transition(current, new) -> None:
+    if new is None or new == current:
+        return
+    if new not in INTERVIEW_TRANSITIONS.get(current, set()):
+        if current == InterviewStatus.COMPLETED:
+            raise BadRequestException("This interview is already completed, so its status can no longer be changed.")
+        if current == InterviewStatus.CANCELLED:
+            raise BadRequestException("A cancelled interview cannot be marked " + _label(new) + ". Reschedule it first.")
+        raise BadRequestException(f"An interview that is {_label(current)} cannot be changed to {_label(new)}.")
+
+
 def update_interview(db: Session, interview_id: int, data: InterviewUpdate, organization_id: Optional[int] = None) -> RecruitmentInterview:
     interview = get_interview_by_id(db, interview_id, organization_id)
+    check_interview_transition(interview.status, data.status)
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    if update_data.get("status") is None:
+        update_data.pop("status", None)
     for field, value in update_data.items():
         setattr(interview, field, value)
     db.commit()
@@ -496,7 +553,12 @@ def delete_interview(db: Session, interview_id: int, organization_id: Optional[i
 
 def update_interview_feedback(db: Session, interview_id: int, data: InterviewFeedback, organization_id: Optional[int] = None) -> RecruitmentInterview:
     interview = get_interview_by_id(db, interview_id, organization_id)
+    if interview.status == InterviewStatus.CANCELLED:
+        raise BadRequestException("Feedback cannot be added to a cancelled interview.")
+    check_interview_transition(interview.status, data.status)
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("status") is None:
+        update_data.pop("status", None)
     for field, value in update_data.items():
         setattr(interview, field, value)
     db.commit()

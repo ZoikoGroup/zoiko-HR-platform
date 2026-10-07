@@ -1329,7 +1329,7 @@ class TravelSetting(Base):
 
     id                      = Column(Integer, primary_key=True, index=True)
     organization_id         = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    approval_workflow       = Column(String(20), default="manager")
+    approval_workflow       = Column(String(50), default="manager")   # "manager+director+finance" is 24 characters
     expense_limit_per_day   = Column(Numeric(12, 2), default=500.00)
     max_trip_duration       = Column(Integer, default=30)
     auto_approve_threshold  = Column(Integer, default=1000)
@@ -1451,6 +1451,8 @@ class LearningCourse(Base):
     course_type    = Column(String(50), nullable=True)
     category       = Column(String(100), nullable=True)
     provider       = Column(String(150), nullable=True)
+    department     = Column(String(100), nullable=True)
+    resource_link  = Column(String(500), nullable=True)
     duration_hours = Column(Integer, nullable=True)
     cost           = Column(Numeric(10, 2), nullable=True)
     status         = Column(String(20), default="active")
@@ -1544,7 +1546,8 @@ class LearningAssessment(Base):
     course_id       = Column(Integer, ForeignKey("learning_courses.id"), nullable=False)
     title           = Column(String(200), nullable=False)
     description     = Column(Text, nullable=True)
-    passing_score   = Column(Integer, default=70)
+    passing_score   = Column(Integer, nullable=True)   # a percentage; always entered by the person creating the assessment
+    resource_link   = Column(String(500), nullable=True)
     max_attempts    = Column(Integer, nullable=True)
     duration_minutes= Column(Integer, nullable=True)
     is_active       = Column(Boolean, default=True)
@@ -1596,12 +1599,15 @@ class LearningTrainingProgram(Base):
     end_date         = Column(Date, nullable=True)
     status           = Column(String(20), default="planned")
     max_participants = Column(Integer, nullable=True)
+    department       = Column(String(100), nullable=True)
+    resource_link    = Column(String(500), nullable=True)
     created_by       = Column(Integer, ForeignKey("employees.id"), nullable=True)
     organization_id  = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at       = Column(DateTime, server_default=func.now())
     updated_at       = Column(DateTime, onupdate=func.now())
 
     assignments      = relationship("LearningTrainingProgramAssignment", back_populates="program")
+    instructor       = relationship("Employee", foreign_keys=[instructor_id])
 
 
 class LearningTrainingProgramAssignment(Base):

@@ -49,7 +49,7 @@ from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASH
 
 from app.modules.hr import service
 from app.modules.hr import file_storage
-from app.modules.hr.models import LeaveType, RequestStatus, HrDocument
+from app.modules.hr.models import LeaveType, RequestStatus, HrDocument, OnboardingNewHire
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.schemas import (
     DepartmentCreate, DepartmentUpdate, DepartmentResponse,
@@ -1613,6 +1613,14 @@ def list_onboarding_documents(
     return service.get_onboarding_documents(db, onboarding_record_id=onboarding_record_id, category=category, organization_id=current_user.organization_id)
 
 
+ONBOARDING_DOC_CATEGORIES = ("id_proof", "offer_letter", "nda", "education_certificates", "experience_letters", "bank_details", "other")
+
+
+def _field_problems(**problems: str) -> HTTPException:
+    """A 422 in the same shape as a validation error, so the page can show each message next to its own field."""
+    return HTTPException(status_code=422, detail=[{"loc": ["body", field], "msg": f"Value error, {msg}", "type": "value_error"} for field, msg in problems.items()])
+
+
 @hr_router.post(
     "/onboarding/documents",
     response_model=OnboardingDocumentResponse,
@@ -1623,15 +1631,50 @@ def list_onboarding_documents(
 async def upload_onboarding_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
-    file: UploadFile = File(..., description="The document file"),
-    title: str = Form(..., min_length=1, max_length=200),
-    category: str = Form(..., min_length=1, max_length=100),
-    onboarding_record_id: Optional[int] = Form(None),
+    file: Optional[UploadFile] = File(None, description="The document file"),
+    title: str = Form("", description="Document title"),
+    category: str = Form("", description="Document category"),
+    onboarding_record_id: Optional[str] = Form(None),
 ):
-    _validate_upload_file(file)
+    problems = {}
+    title = " ".join((title or "").split())
+    category = (category or "").strip()
+    if not title:
+        problems["title"] = "Title is required."
+    elif len(title) > 200:
+        problems["title"] = "Title can be at most 200 characters."
+    if not category:
+        problems["category"] = "Category is required."
+    elif category not in ONBOARDING_DOC_CATEGORIES:
+        problems["category"] = "Choose one of the listed categories."
+    if file is None or not (file.filename or "").strip():
+        problems["file"] = "Choose a file to upload."
+    record_id = None
+    if onboarding_record_id not in (None, ""):
+        try:
+            record_id = int(onboarding_record_id)
+        except ValueError:
+            problems["onboarding_record_id"] = "Choose a valid onboarding record."
+    if problems:
+        raise _field_problems(**problems)
+
+    if record_id is not None:
+        exists = db.query(OnboardingNewHire.id).filter(
+            OnboardingNewHire.id == record_id, OnboardingNewHire.is_deleted == False,
+            OnboardingNewHire.organization_id == current_user.organization_id,
+        ).first()
+        if not exists:
+            raise _field_problems(onboarding_record_id="The selected onboarding record was not found.")
+
+    try:
+        _validate_upload_file(file)
+    except HTTPException as exc:
+        raise _field_problems(file=str(exc.detail))
     contents = await file.read()
+    if not contents:
+        raise _field_problems(file="The selected file is empty.")
     if len(contents) > MAX_FILE_SIZE_BYTES:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
+        raise _field_problems(file=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
     os.makedirs(_ONBOARDING_DOC_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
@@ -1643,10 +1686,34 @@ async def upload_onboarding_document(
         title=title,
         category=category,
         file_path=file_path,
-        onboarding_new_hire_id=onboarding_record_id,
+        onboarding_new_hire_id=record_id,
         organization_id=current_user.organization_id,
     )
     return doc
+
+
+@hr_router.get(
+    "/onboarding/documents/{document_id}/file",
+    summary="Download an onboarding document's file",
+)
+def get_onboarding_document_file(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    doc = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
+    resolved = file_storage.resolve_stored_file(doc.get("file_path"))
+    if not resolved:
+        raise HTTPException(status_code=410, detail="The file for this document is not available on the server. Upload it again.")
+    name = _os.path.basename(resolved)
+    ext = _os.path.splitext(name)[1]
+    download_name = f"{doc.get('title') or 'document'}{ext}"
+    return FileResponse(
+        path=resolved,
+        media_type=file_storage.effective_media_type(download_name, None),
+        filename=download_name,
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
 
 
 @hr_router.get(
@@ -2251,7 +2318,7 @@ def get_travel_settings(
 def update_travel_settings(
     data: TravelSettingUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.update_travel_settings(db, organization_id=current_user.organization_id, data=data)
 

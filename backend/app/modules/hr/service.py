@@ -2159,7 +2159,16 @@ def delete_compensation_band(db: Session, band_id: int, org_id: int) -> None:
 
 # ── Salary Components ──────────────────────────────────────────────────────
 
+def _check_component_name(db: Session, org_id: int, name: str, exclude_id=None) -> None:
+    q = db.query(SalaryComponent.id).filter(SalaryComponent.organization_id == org_id, func.lower(SalaryComponent.name) == name.lower())
+    if exclude_id:
+        q = q.filter(SalaryComponent.id != exclude_id)
+    if q.first():
+        raise BadRequestException(f"A salary component named '{name}' already exists. Use a different name or edit that component.")
+
+
 def create_salary_component(db: Session, data: SalaryComponentCreate, org_id: int) -> SalaryComponent:
+    _check_component_name(db, org_id, data.name)
     comp = SalaryComponent(**data.model_dump(), organization_id=org_id)
     db.add(comp)
     db.commit()
@@ -2167,13 +2176,18 @@ def create_salary_component(db: Session, data: SalaryComponentCreate, org_id: in
     return comp
 
 def get_salary_components(db: Session, org_id: int) -> list[SalaryComponent]:
-    return db.query(SalaryComponent).filter(SalaryComponent.organization_id == org_id).all()
+    return db.query(SalaryComponent).filter(SalaryComponent.organization_id == org_id).order_by(SalaryComponent.name).all()
 
 def update_salary_component(db: Session, comp_id: int, data: SalaryComponentUpdate, org_id: int) -> SalaryComponent:
     comp = db.query(SalaryComponent).filter(SalaryComponent.id == comp_id, SalaryComponent.organization_id == org_id).first()
     if not comp:
         raise NotFoundException("SalaryComponent", comp_id)
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if changes.get("is_taxable") is None:
+        changes.pop("is_taxable", None)
+    if changes.get("name") and changes["name"].lower() != (comp.name or "").lower():
+        _check_component_name(db, org_id, changes["name"], exclude_id=comp.id)
+    for key, value in changes.items():
         setattr(comp, key, value)
     db.commit()
     db.refresh(comp)
@@ -2183,6 +2197,9 @@ def delete_salary_component(db: Session, comp_id: int, org_id: int) -> None:
     comp = db.query(SalaryComponent).filter(SalaryComponent.id == comp_id, SalaryComponent.organization_id == org_id).first()
     if not comp:
         raise NotFoundException("SalaryComponent", comp_id)
+    used = db.query(StructureComponent.id).filter(StructureComponent.component_id == comp.id).count()
+    if used:
+        raise BadRequestException(f"This component is used in {used} salary structure{'s' if used != 1 else ''}, so it cannot be deleted. Remove it from those structures first.")
     db.delete(comp)
     db.commit()
 
@@ -2326,25 +2343,74 @@ def delete_salary_revision(db: Session, revision_id: int, org_id: int) -> None:
 
 # ── Allowances ─────────────────────────────────────────────────────────────
 
-def create_allowance(db: Session, data: AllowanceCreate, org_id: int) -> Allowance:
+def _employee_names(db: Session, ids) -> dict:
+    ids = {i for i in ids if i}
+    if not ids:
+        return {}
+    out = {}
+    for e in db.query(Employee).filter(Employee.id.in_(ids)).all():
+        out[e.id] = (f"{e.first_name or ''} {e.last_name or ''}".strip()) or e.email
+    return out
+
+
+def _allowance_view(allowance: Allowance, names: dict) -> dict:
+    return {
+        "id": allowance.id, "employee_id": allowance.employee_id, "employee_name": names.get(allowance.employee_id),
+        "allowance_type": allowance.allowance_type, "amount": allowance.amount, "effective_date": allowance.effective_date,
+        "created_at": allowance.created_at, "updated_at": allowance.updated_at,
+    }
+
+
+def _require_employee(db: Session, employee_id: int, org_id: int) -> None:
+    """The employee has to exist in THIS organization: a typed-in number that matches nobody, or somebody else's
+    employee, is refused instead of creating an allowance for no one."""
+    found = db.query(Employee.id).filter(Employee.id == employee_id, Employee.organization_id == org_id).first()
+    if not found:
+        raise BadRequestException("The selected employee was not found in this organization. Choose an employee from the list.")
+
+
+def _check_allowance_duplicate(db: Session, org_id: int, employee_id: int, allowance_type: str, effective_date, exclude_id=None) -> None:
+    q = db.query(Allowance.id).filter(
+        Allowance.organization_id == org_id, Allowance.employee_id == employee_id,
+        func.lower(Allowance.allowance_type) == allowance_type.lower(), Allowance.effective_date == effective_date,
+    )
+    if exclude_id:
+        q = q.filter(Allowance.id != exclude_id)
+    if q.first():
+        raise BadRequestException(f"This employee already has a {allowance_type} allowance effective {effective_date}. Edit that one instead.")
+
+
+def create_allowance(db: Session, data: AllowanceCreate, org_id: int) -> dict:
+    _require_employee(db, data.employee_id, org_id)
+    _check_allowance_duplicate(db, org_id, data.employee_id, data.allowance_type, data.effective_date)
     allowance = Allowance(**data.model_dump(), organization_id=org_id)
     db.add(allowance)
     db.commit()
     db.refresh(allowance)
-    return allowance
+    return _allowance_view(allowance, _employee_names(db, [allowance.employee_id]))
 
-def get_allowances(db: Session, org_id: int) -> list[Allowance]:
-    return db.query(Allowance).filter(Allowance.organization_id == org_id).all()
+def get_allowances(db: Session, org_id: int) -> list[dict]:
+    rows = db.query(Allowance).filter(Allowance.organization_id == org_id).order_by(Allowance.effective_date.desc(), Allowance.id.desc()).all()
+    names = _employee_names(db, [r.employee_id for r in rows])
+    return [_allowance_view(r, names) for r in rows]
 
-def update_allowance(db: Session, allowance_id: int, data: AllowanceUpdate, org_id: int) -> Allowance:
+def update_allowance(db: Session, allowance_id: int, data: AllowanceUpdate, org_id: int) -> dict:
     allowance = db.query(Allowance).filter(Allowance.id == allowance_id, Allowance.organization_id == org_id).first()
     if not allowance:
         raise NotFoundException("Allowance", allowance_id)
-    for key, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if "employee_id" in changes and changes["employee_id"] != allowance.employee_id:
+        _require_employee(db, changes["employee_id"], org_id)
+    if {"employee_id", "allowance_type", "effective_date"} & set(changes):
+        _check_allowance_duplicate(
+            db, org_id, changes.get("employee_id", allowance.employee_id), changes.get("allowance_type", allowance.allowance_type),
+            changes.get("effective_date", allowance.effective_date), exclude_id=allowance.id,
+        )
+    for key, value in changes.items():
         setattr(allowance, key, value)
     db.commit()
     db.refresh(allowance)
-    return allowance
+    return _allowance_view(allowance, _employee_names(db, [allowance.employee_id]))
 
 def delete_allowance(db: Session, allowance_id: int, org_id: int) -> None:
     allowance = db.query(Allowance).filter(Allowance.id == allowance_id, Allowance.organization_id == org_id).first()
@@ -2818,60 +2884,93 @@ def log_onboarding_activity(db: Session, new_hire_id: Optional[int], action: str
     db.commit()
 
 # DASHBOARD & ANALYTICS
+_ONBOARDING_NOT_STARTED = ("offer_sent", "offer_accepted", "pre_joining")
+
+
+def _last_months(count: int = 12, today: Optional[date] = None) -> list[str]:
+    """The last `count` calendar months ending with the current one, as 'YYYY-MM', oldest first."""
+    today = today or date.today()
+    year, month = today.year, today.month
+    out = []
+    for _ in range(count):
+        out.append(f"{year:04d}-{month:02d}")
+        month -= 1
+        if month == 0:
+            year, month = year - 1, 12
+    return list(reversed(out))
+
+
 def get_onboarding_dashboard(db: Session, organization_id: Optional[int] = None) -> dict:
-    base_query = db.query(OnboardingNewHire).filter(OnboardingNewHire.is_deleted == False)
+    live = db.query(OnboardingNewHire).filter(OnboardingNewHire.is_deleted == False)
     if organization_id:
-        base_query = base_query.filter(OnboardingNewHire.organization_id == organization_id)
-        
-    total = base_query.count()
-    pending = base_query.filter(OnboardingNewHire.status.in_(["offer_sent", "offer_accepted", "pre_joining", "in_progress"])).count()
-    completed = base_query.filter(OnboardingNewHire.status == "completed").count()
-    
+        live = live.filter(OnboardingNewHire.organization_id == organization_id)
+
+    # every figure below counts the same people: the organization's new hires that have not been deleted
+    status_rows = live.with_entities(OnboardingNewHire.status, func.count(OnboardingNewHire.id)).group_by(OnboardingNewHire.status).all()
+    by_status = {(st or ""): n for st, n in status_rows}
+    total = sum(by_status.values())
+    completed = by_status.get("completed", 0)
+    cancelled = by_status.get("cancelled", 0)
+    in_progress = by_status.get("in_progress", 0)
+    not_started = sum(by_status.get(k, 0) for k in _ONBOARDING_NOT_STARTED)
+    pending = not_started + in_progress
+
     docs_q = db.query(OnboardingDocument).filter(OnboardingDocument.status == "pending", OnboardingDocument.is_deleted == False)
     checklists_q = db.query(OnboardingChecklistItem).filter(OnboardingChecklistItem.completed == False, OnboardingChecklistItem.is_deleted == False)
     orientations_q = db.query(OnboardingOrientation).filter(OnboardingOrientation.status == "scheduled", OnboardingOrientation.is_deleted == False)
-    upcoming_q = db.query(OnboardingNewHire).filter(OnboardingNewHire.joining_date >= func.current_date(), OnboardingNewHire.is_deleted == False)
     recent_q = db.query(OnboardingActivity)
-    monthly_q = db.query(func.to_char(OnboardingNewHire.created_at, "YYYY-MM").label("month"), func.count(OnboardingNewHire.id)).filter(OnboardingNewHire.is_deleted == False)
-    deptwise_q = db.query(Department.name, func.count(OnboardingNewHire.id)).join(OnboardingNewHire, OnboardingNewHire.department_id == Department.id, isouter=True).filter(OnboardingNewHire.is_deleted == False)
-
     if organization_id:
         docs_q = docs_q.filter(OnboardingDocument.organization_id == organization_id)
         checklists_q = checklists_q.join(OnboardingChecklist, OnboardingChecklistItem.checklist_id == OnboardingChecklist.id).filter(OnboardingChecklist.organization_id == organization_id)
         orientations_q = orientations_q.filter(OnboardingOrientation.organization_id == organization_id)
-        upcoming_q = upcoming_q.filter(OnboardingNewHire.organization_id == organization_id)
         recent_q = recent_q.filter(OnboardingActivity.organization_id == organization_id)
-        monthly_q = monthly_q.filter(OnboardingNewHire.organization_id == organization_id)
-        deptwise_q = deptwise_q.filter(OnboardingNewHire.organization_id == organization_id)
 
-    docs_pending = docs_q.count()
-    checklists_pending = checklists_q.count()
-    orientations_pending = orientations_q.count()
-    
-    monthly = monthly_q.group_by("month").order_by("month").all()
-    deptwise = deptwise_q.group_by(Department.name).all()
-    upcoming = upcoming_q.order_by(OnboardingNewHire.joining_date).limit(10).all()
+    # joining trend: hires by the month they join, for the last 12 months (months with nobody show 0)
+    months = _last_months(12)
+    first_day = date(int(months[0][:4]), int(months[0][5:]), 1)
+    counts = {m: 0 for m in months}
+    for (joining,) in live.filter(OnboardingNewHire.joining_date >= first_day, OnboardingNewHire.status != "cancelled").with_entities(OnboardingNewHire.joining_date).all():
+        key = f"{joining.year:04d}-{joining.month:02d}"
+        if key in counts:
+            counts[key] += 1
+
+    # department split: hires without a department are counted as Unassigned, so the bars add up to the total
+    dept_rows = (
+        live.outerjoin(Department, OnboardingNewHire.department_id == Department.id)
+        .with_entities(Department.name, func.count(OnboardingNewHire.id))
+        .group_by(Department.name).all()
+    )
+    deptwise = sorted(((name or "Unassigned", n) for name, n in dept_rows), key=lambda r: (-r[1], r[0]))
+
+    upcoming = (
+        live.filter(OnboardingNewHire.joining_date >= func.current_date(), OnboardingNewHire.status.notin_(["cancelled", "completed"]))
+        .order_by(OnboardingNewHire.joining_date).limit(10).all()
+    )
     recent = recent_q.order_by(OnboardingActivity.created_at.desc()).limit(10).all()
-    
+
     return {
         "totalNewHires": total,
         "pendingOnboarding": pending,
         "completedOnboarding": completed,
-        "documentsPending": docs_pending,
-        "assetsPending": 0, # integrated into checklists
-        "orientationPending": orientations_pending,
-        "trainingPending": 0, # removed
-        "monthlyJoiningTrend": [{"month": m, "count": c} for m, c in monthly],
-        "departmentWise": [{"department": d or "Unassigned", "count": c} for d, c in deptwise],
+        "documentsPending": docs_q.count(),
+        "checklistsPending": checklists_q.count(),
+        "assetsPending": None,
+        "orientationPending": orientations_q.count(),
+        "trainingPending": None,
+        "monthlyJoiningTrend": [{"month": m, "count": counts[m]} for m in months],
+        "departmentWise": [{"department": name, "count": n} for name, n in deptwise],
         "completionStatus": {
             "total": total,
             "completed": completed,
-            "in_progress": base_query.filter(OnboardingNewHire.status == "in_progress").count(),
-            "pending": pending
+            "in_progress": in_progress,
+            "not_started": not_started,
+            "cancelled": cancelled,
+            "pending": pending,
         },
         "upcomingJoiners": [{"id": r.id, "name": r.candidate_name, "position": r.position, "department": r.department.name if r.department else None, "joining_date": str(r.joining_date) if r.joining_date else None, "status": r.status} for r in upcoming],
         "recentActivities": [{"id": a.id, "action": a.action, "description": a.description, "timestamp": str(a.created_at) if a.created_at else None} for a in recent],
     }
+
 
 def get_onboarding_analytics(db: Session, organization_id: Optional[int] = None) -> dict:
     dashboard_data = get_onboarding_dashboard(db, organization_id)
@@ -3185,8 +3284,18 @@ def get_orientations(db: Session, organization_id: Optional[int] = None) -> list
         query = query.filter(OnboardingOrientation.organization_id == organization_id)
     return query.order_by(OnboardingOrientation.date.desc()).all()
 
+def _check_orientation_date(new_date) -> None:
+    """A session cannot be put on a day that has already passed (one day of grace covers time zones)."""
+    if new_date is not None and new_date < date.today() - timedelta(days=1):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=422, detail=[{"loc": ["body", "date"], "msg": "Value error, Choose today or a later date.", "type": "value_error"}])
+
+
 def create_orientation(db: Session, data: OnboardingOrientationCreate, organization_id: int) -> OnboardingOrientation:
+    _check_orientation_date(data.date)
     session = OnboardingOrientation(**data.model_dump(exclude={"tenant_id"}))
+    if not session.status:
+        session.status = "scheduled"
     session.organization_id = organization_id
     db.add(session)
     db.commit()
@@ -3198,6 +3307,12 @@ def update_orientation(db: Session, session_id: int, data: OnboardingOrientation
     if not session:
         raise NotFoundException("OnboardingOrientation", session_id)
     update_data = data.model_dump(exclude_unset=True)
+    update_data.pop("tenant_id", None)
+    for required in ("title", "date", "status"):
+        if update_data.get(required) is None:
+            update_data.pop(required, None)
+    if "date" in update_data and update_data["date"] != session.date:
+        _check_orientation_date(update_data["date"])      # only a changed date is checked: an old session stays editable
     for field, value in update_data.items():
         setattr(session, field, value)
     db.commit()
@@ -3314,11 +3429,8 @@ def get_onboarding_documents(
 
 
 def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
-    _base_url = os.environ.get("API_BASE_URL", "http://localhost:8000")
-    file_url = None
-    if doc.file_path:
-        rel_path = f"/{doc.file_path.replace(os.sep, '/')}"
-        file_url = f"{_base_url}{rel_path}"
+    # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
+    file_url = f"/hr/onboarding/documents/{doc.id}/file" if doc.file_path else None
     return {
         "id": doc.id,
         "onboarding_new_hire_id": doc.onboarding_new_hire_id,
@@ -3385,6 +3497,14 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
         from app.core.exceptions import NotFoundException
         raise NotFoundException("OnboardingDocument", document_id)
     update_data = data.model_dump(exclude_unset=True)
+    update_data.pop("tenant_id", None)
+    for required in ("title", "category", "status"):
+        if update_data.get(required) is None:
+            update_data.pop(required, None)
+    if update_data.get("status") == "rejected" and not (update_data.get("rejection_reason") or doc.rejection_reason):
+        raise BadRequestException("Enter a reason for rejecting this document.")
+    if update_data.get("status") in ("approved", "pending"):
+        update_data["rejection_reason"] = None          # a reason only belongs to a rejection
     for field, value in update_data.items():
         setattr(doc, field, value)
     db.commit()
@@ -3593,7 +3713,22 @@ def delete_performance_feedback(db: Session, fb_id: int, organization_id: Option
     db.commit()
 
 
+def _check_appraisal(db: Session, organization_id: Optional[int], employee_id, reviewer_id, hr_reviewer_id, admin_reviewer_id, cycle, exclude_id=None) -> None:
+    _check_review_people(db, organization_id, employee=employee_id, reviewer=reviewer_id, hr_reviewer=hr_reviewer_id, admin_reviewer=admin_reviewer_id)
+    if reviewer_id is not None and reviewer_id == employee_id:
+        raise BadRequestException("An employee cannot be their own manager reviewer. Pick a different reviewer.")
+    if cycle:
+        dup = db.query(Appraisal.id).filter(Appraisal.employee_id == employee_id, func.lower(Appraisal.cycle) == cycle.lower())
+        if organization_id:
+            dup = dup.filter(Appraisal.organization_id == organization_id)
+        if exclude_id:
+            dup = dup.filter(Appraisal.id != exclude_id)
+        if dup.first():
+            raise BadRequestException(f"This employee already has an appraisal for {cycle}.")
+
+
 def create_appraisal(db: Session, data: AppraisalCreate, organization_id: Optional[int] = None) -> Appraisal:
+    _check_appraisal(db, organization_id, data.employee_id, data.reviewer_id, data.hr_reviewer_id, data.admin_reviewer_id, data.cycle)
     appraisal = Appraisal(**data.model_dump(), organization_id=organization_id)
     db.add(appraisal)
     db.commit()
@@ -3622,7 +3757,23 @@ def get_appraisal(db: Session, appraisal_id: int, organization_id: Optional[int]
 
 def update_appraisal(db: Session, appraisal_id: int, data: AppraisalUpdate, organization_id: Optional[int] = None) -> Appraisal:
     a = get_appraisal(db, appraisal_id, organization_id)
-    for key, val in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if changes.get("cycle") is None:
+        changes.pop("cycle", None)
+    if changes.get("status") is None:
+        changes.pop("status", None)
+    if changes.get("employee_id") is None:
+        changes.pop("employee_id", None)
+    if {"employee_id", "reviewer_id", "hr_reviewer_id", "admin_reviewer_id", "cycle"} & set(changes):
+        _check_appraisal(
+            db, organization_id,
+            changes.get("employee_id", a.employee_id), changes.get("reviewer_id", a.reviewer_id),
+            changes.get("hr_reviewer_id", a.hr_reviewer_id), changes.get("admin_reviewer_id", a.admin_reviewer_id),
+            changes.get("cycle", a.cycle), exclude_id=a.id,
+        )
+    if changes.get("status") in ("approved", "rejected") and str(getattr(a.status, "value", a.status)) != changes["status"]:
+        changes["reviewed_at"] = datetime.utcnow()
+    for key, val in changes.items():
         setattr(a, key, val)
     db.commit()
     db.refresh(a)
@@ -3656,19 +3807,30 @@ def get_performance_analytics(db: Session, organization_id: Optional[int] = None
         base_appraisals = base_appraisals.filter(Appraisal.employee_id == employee_id)
     total_reviews = base_reviews.count()
     completed_reviews = base_reviews.filter(PerformanceReview.status.in_([RequestStatus.COMPLETED, RequestStatus.APPROVED])).count()
-    avg_rating = base_reviews.with_entities(func.avg(PerformanceReview.rating)).scalar() or 0
+    # Scores are out of 5. Anything outside 1-5 (entered before the form checked it) is left out of the averages
+    # rather than dragging them past the scale, and is counted so it can be pointed out and corrected.
+    valid_ratings = base_reviews.filter(PerformanceReview.rating >= 1, PerformanceReview.rating <= 5)
+    avg_rating = valid_ratings.with_entities(func.avg(PerformanceReview.rating)).scalar()
+    rated_reviews = valid_ratings.count()
     total_goals = base_goals.count()
     completed_goals = base_goals.filter(PerformanceGoal.status == GoalStatus.COMPLETED).count()
     total_feedback = base_feedback.count()
     total_appraisals = base_appraisals.count()
-    avg_final_score = base_appraisals.with_entities(func.avg(Appraisal.final_score)).scalar() or 0
+    scored = base_appraisals.filter(Appraisal.final_score.isnot(None))
+    valid_scores = scored.filter(Appraisal.final_score >= 0, Appraisal.final_score <= 5)
+    avg_final_score = valid_scores.with_entities(func.avg(Appraisal.final_score)).scalar()
+    appraisals_scored = valid_scores.count()
+    appraisals_out_of_range = scored.count() - appraisals_scored
     return {
-        "avg_performance_score": round(float(avg_rating) * 20, 1),
+        "avg_performance_score": round(float(avg_rating) * 20, 1) if avg_rating is not None else None,
         "goal_completion_rate": round((completed_goals / total_goals * 100) if total_goals else 0, 1),
         "review_completion_rate": round((completed_reviews / total_reviews * 100) if total_reviews else 0, 1),
-        "avg_rating": round(float(avg_rating), 2),
+        "avg_rating": round(float(avg_rating), 2) if avg_rating is not None else None,
+        "rated_reviews": rated_reviews,
         "feedback_count": total_feedback,
-        "avg_appraisal_score": round(float(avg_final_score), 2),
+        "avg_appraisal_score": round(float(avg_final_score), 2) if avg_final_score is not None else None,
+        "appraisals_scored": appraisals_scored,
+        "appraisals_out_of_range": appraisals_out_of_range,
         "total_reviews": total_reviews,
         "completed_reviews": completed_reviews,
         "pending_reviews": total_reviews - completed_reviews,
@@ -3764,7 +3926,22 @@ def update_performance_review(db: Session, review_id: int, data: PerformanceRevi
         if required in changes and changes[required] is None:
             raise BadRequestException(f"{required.replace('_', ' ').capitalize()} cannot be empty.")
     merged = {k: changes.get(k, getattr(review, k)) for k in ("employee_id", "reviewer_id", "hr_reviewer_id", "admin_reviewer_id", "cycle")}
-    _check_review_fields(db, organization_id, merged["employee_id"], merged["reviewer_id"], merged["hr_reviewer_id"], merged["admin_reviewer_id"], merged["cycle"], exclude_id=review.id)
+    # Only what the admin actually changed is checked. A review that already exists (an older one, or one made before
+    # these rules) must stay editable: saving a comment or a status never fails over data that was not touched.
+    moved = {k for k in merged if k in changes and changes[k] != getattr(review, k)}
+    people = {"employee": "employee_id", "reviewer": "reviewer_id", "hr_reviewer": "hr_reviewer_id", "admin_reviewer": "admin_reviewer_id"}
+    _check_review_people(db, organization_id, **{label: merged[col] for label, col in people.items() if col in moved})
+    if {"employee_id", "reviewer_id"} & moved and merged["reviewer_id"] is not None and merged["reviewer_id"] == merged["employee_id"]:
+        raise BadRequestException("An employee cannot be their own manager reviewer. Pick a different reviewer.")
+    if {"employee_id", "cycle"} & moved:
+        dup = db.query(PerformanceReview.id).filter(
+            PerformanceReview.employee_id == merged["employee_id"], func.lower(PerformanceReview.cycle) == merged["cycle"].lower(),
+            PerformanceReview.id != review.id,
+        )
+        if organization_id:
+            dup = dup.filter(PerformanceReview.organization_id == organization_id)
+        if dup.first():
+            raise BadRequestException(f"This employee already has a review for '{merged['cycle']}'.")
 
     was_status = review.status
     for key, val in changes.items():
@@ -4182,7 +4359,7 @@ def get_travel_settings(db: Session, organization_id: int) -> TravelSetting:
 
 def update_travel_settings(db: Session, organization_id: int, data: TravelSettingUpdate) -> TravelSetting:
     settings = get_travel_settings(db, organization_id)
-    update_data = data.model_dump(exclude_unset=True)
+    update_data = {k: v for k, v in data.model_dump(exclude_unset=True).items() if v is not None}
     for field, value in update_data.items():
         setattr(settings, field, value)
     db.commit()

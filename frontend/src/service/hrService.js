@@ -156,7 +156,9 @@ export const deleteOnboardingRecord = (id) => api.delete(`/hr/onboarding/records
 // ── ONBOARDING DOCUMENTS ──────────────────────────────────────────────────
 export const getOnboardingDocuments = (recordId) => api.get(`/hr/onboarding/documents${recordId ? `?onboarding_record_id=${recordId}` : ''}`);
 export const getOnboardingDocumentById = (id) => api.get(`/hr/onboarding/documents/${id}`);
-export const createOnboardingDocument = (formData) => api.post("/hr/onboarding/documents", formData, { headers: { "Content-Type": undefined }, auth: true });
+export const createOnboardingDocument = (formData) => api.post("/hr/onboarding/documents", formData);
+/** The file of an onboarding document as { blob, filename } (the route needs the login token, so a plain link cannot open it). */
+export const getOnboardingDocumentFile = (id) => fetchDocumentFile(`/hr/onboarding/documents/${id}/file`, `onboarding-document-${id}`);
 export const updateOnboardingDocument = (id, payload) => api.put(`/hr/onboarding/documents/${id}`, payload);
 export const deleteOnboardingDocument = (id) => api.delete(`/hr/onboarding/documents/${id}`);
 

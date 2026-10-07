@@ -6,16 +6,14 @@ import {
   updateSalaryComponent,
   deleteSalaryComponent,
 } from "../../../service/hrService";
+import { submitOnEnter, ENTER_HINT } from "../../../utils/submitOnEnter";
+import {
+  EMPTY_COMPONENT, componentToForm, validateComponentForm, componentPayload, amountText, serverComponentErrors,
+} from "../../../utils/salaryComponentForm";
 
 const ITEMS_PER_PAGE = 8;
 
-const initialForm = {
-  name: "",
-  component_type: "earning",
-  is_taxable: true,
-  default_amount: "",
-  description: "",
-};
+const initialForm = EMPTY_COMPONENT;
 
 export default function SalaryComponentsPage() {
   const [items, setItems] = useState([]);
@@ -75,34 +73,27 @@ export default function SalaryComponentsPage() {
     if (currentPage > totalPages) setCurrentPage(totalPages);
   }, [totalPages, currentPage]);
 
-  const resetForm = () => setFormData({ ...initialForm });
+  const resetForm = () => { setFormData({ ...initialForm }); setFormErrors({}); };
 
-  const validateForm = (data) => {
-    const errors = {};
-    if (!data.name?.trim()) errors.name = "Component name is required";
-    if (!data.component_type) errors.component_type = "Type is required";
-    return errors;
+  const showFailure = (err, fallback) => {
+    // the server's refusal appears under its own field; the dialog stays open so nothing typed is lost
+    const fields = serverComponentErrors(err?.validation);
+    setFormErrors(Object.keys(fields).length ? fields : { submit: err.message || fallback });
   };
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    const errors = validateForm(formData);
+    const errors = validateComponentForm(formData);
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      await createSalaryComponent({
-        name: formData.name.trim(),
-        component_type: formData.component_type,
-        is_taxable: formData.is_taxable,
-        default_amount: formData.default_amount ? parseFloat(formData.default_amount) : null,
-        description: formData.description.trim() || null,
-      });
+      await createSalaryComponent(componentPayload(formData));
       await fetchData();
       setShowCreateModal(false);
       resetForm();
     } catch (err) {
-      setFormErrors({ submit: err.message || "Failed to create component" });
+      showFailure(err, "The component could not be created.");
     } finally {
       setSubmitting(false);
     }
@@ -110,13 +101,7 @@ export default function SalaryComponentsPage() {
 
   const openEditModal = (item) => {
     setEditItem(item);
-    setEditForm({
-      name: item.name || "",
-      component_type: item.component_type || "earning",
-      is_taxable: item.is_taxable ?? true,
-      default_amount: item.default_amount ? String(Number(item.default_amount)) : "",
-      description: item.description || "",
-    });
+    setEditForm(componentToForm(item));
     setFormErrors({});
     setShowEditModal(true);
   };
@@ -124,23 +109,17 @@ export default function SalaryComponentsPage() {
   const handleUpdate = async (e) => {
     e.preventDefault();
     if (!editItem) return;
-    const errors = validateForm(editForm);
+    const errors = validateComponentForm(editForm);
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      await updateSalaryComponent(editItem.id, {
-        name: editForm.name.trim(),
-        component_type: editForm.component_type,
-        is_taxable: editForm.is_taxable,
-        default_amount: editForm.default_amount ? parseFloat(editForm.default_amount) : null,
-        description: editForm.description.trim() || null,
-      });
+      await updateSalaryComponent(editItem.id, componentPayload(editForm));
       await fetchData();
       setShowEditModal(false);
       setEditItem(null);
     } catch (err) {
-      setFormErrors({ submit: err.message || "Failed to update component" });
+      showFailure(err, "The component could not be updated.");
     } finally {
       setSubmitting(false);
     }
@@ -174,10 +153,6 @@ export default function SalaryComponentsPage() {
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
-      )}
-
-      {formErrors.submit && (
-        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">{formErrors.submit}</div>
       )}
 
       <div className="space-y-6">
@@ -257,7 +232,7 @@ export default function SalaryComponentsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-700">
-                          {i.default_amount ? `$${Number(i.default_amount).toLocaleString()}` : <span className="text-gray-300">-</span>}
+                          {amountText(i.default_amount) ?? <span title="Edit this component to enter its default amount" className="text-amber-700 text-xs font-medium">Not set</span>}
                         </td>
                         <td className="px-4 py-3 text-gray-700">{i.description || <span className="text-gray-300">-</span>}</td>
                         <td className="px-4 py-3 text-right">
@@ -330,16 +305,17 @@ export default function SalaryComponentsPage() {
               <h2 className="text-lg font-bold text-gray-800">Add Salary Component</h2>
               <button onClick={() => { setShowCreateModal(false); resetForm(); }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
-            <form onSubmit={handleCreate} className="p-6 space-y-4">
+            <form noValidate onSubmit={handleCreate} className="p-6 space-y-4">
+              {formErrors.submit && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{formErrors.submit}</div>}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Component Name *</label>
                 <input
                   type="text"
                   value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  onChange={(e) => { setFormData({ ...formData, name: e.target.value }); if (formErrors.name || formErrors.submit) setFormErrors((p) => ({ ...p, name: undefined, submit: undefined })); }}
                   className={`w-full border ${formErrors.name ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
-                {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
+                {formErrors.name && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
@@ -363,23 +339,29 @@ export default function SalaryComponentsPage() {
                 <label htmlFor="is_taxable" className="text-sm font-medium text-gray-700">Taxable</label>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Default Amount</label>
+                <label htmlFor="cmp-new-amount" className="block text-sm font-medium text-gray-700 mb-1">Default Amount <span className="text-red-500">*</span></label>
                 <input
+                  id="cmp-new-amount"
                   type="number"
+                  min="0.01"
                   step="0.01"
                   value={formData.default_amount}
-                  onChange={(e) => setFormData({ ...formData, default_amount: e.target.value })}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-invalid={!!formErrors.default_amount}
+                  placeholder="e.g. 5000"
+                  onChange={(e) => { setFormData({ ...formData, default_amount: e.target.value }); if (formErrors.default_amount || formErrors.submit) setFormErrors((p) => ({ ...p, default_amount: undefined, submit: undefined })); }}
+                  className={`w-full border ${formErrors.default_amount ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
+                {formErrors.default_amount && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.default_amount}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
+                <textarea onKeyDown={submitOnEnter}
                   rows={2}
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">{ENTER_HINT}</p>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowCreateModal(false); resetForm(); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -399,7 +381,8 @@ export default function SalaryComponentsPage() {
               <h2 className="text-lg font-bold text-gray-800">Update Salary Component</h2>
               <button onClick={() => { setShowEditModal(false); setEditItem(null); }} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
-            <form onSubmit={handleUpdate} className="p-6 space-y-4">
+            <form noValidate onSubmit={handleUpdate} className="p-6 space-y-4">
+              {formErrors.submit && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{formErrors.submit}</div>}
               <div className="text-sm text-gray-500 mb-1">
                 Editing: <span className="font-medium text-gray-800">{editItem.name}</span>
               </div>
@@ -408,10 +391,10 @@ export default function SalaryComponentsPage() {
                 <input
                   type="text"
                   value={editForm.name}
-                  onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+                  onChange={(e) => { setEditForm({ ...editForm, name: e.target.value }); if (formErrors.name || formErrors.submit) setFormErrors((p) => ({ ...p, name: undefined, submit: undefined })); }}
                   className={`w-full border ${formErrors.name ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
-                {formErrors.name && <p className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
+                {formErrors.name && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.name}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Type *</label>
@@ -435,23 +418,29 @@ export default function SalaryComponentsPage() {
                 <label htmlFor="edit_is_taxable" className="text-sm font-medium text-gray-700">Taxable</label>
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Default Amount</label>
+                <label htmlFor="cmp-edit-amount" className="block text-sm font-medium text-gray-700 mb-1">Default Amount <span className="text-red-500">*</span></label>
                 <input
+                  id="cmp-edit-amount"
                   type="number"
+                  min="0.01"
                   step="0.01"
                   value={editForm.default_amount}
-                  onChange={(e) => setEditForm({ ...editForm, default_amount: e.target.value })}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  aria-invalid={!!formErrors.default_amount}
+                  placeholder="e.g. 5000"
+                  onChange={(e) => { setEditForm({ ...editForm, default_amount: e.target.value }); if (formErrors.default_amount || formErrors.submit) setFormErrors((p) => ({ ...p, default_amount: undefined, submit: undefined })); }}
+                  className={`w-full border ${formErrors.default_amount ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
+                {formErrors.default_amount && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.default_amount}</p>}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
+                <textarea onKeyDown={submitOnEnter}
                   rows={2}
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">{ENTER_HINT}</p>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowEditModal(false); setEditItem(null); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
