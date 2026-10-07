@@ -100,6 +100,7 @@ from app.modules.hr.schemas import (
     WorkforcePlanCreate, WorkforcePlanResponse,
     WorkforceSummaryResponse,
     DesignationCreate,
+    DesignationSettingsData,
     DesignationUpdate,
     DesignationResponse,
     HrDocumentUpdate,
@@ -2375,6 +2376,28 @@ def designation_report(
     current_user=Depends(get_current_user),
 ):
     return service.get_designation_report(db, organization_id=current_user.organization_id, months=months)
+
+
+# These two routes must stay above /designations/{designation_id}, or "settings" would be read as an id.
+@hr_router.get(
+    "/designations/settings",
+    response_model=DesignationSettingsData,
+    summary="Designation module preferences of the caller's organization",
+    tags=["📋 Designations"],
+)
+def get_designation_settings_endpoint(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_designation_settings(db, current_user.organization_id)
+
+
+@hr_router.put(
+    "/designations/settings",
+    response_model=DesignationSettingsData,
+    summary="Save the designation module preferences (replaces the whole set)",
+    tags=["📋 Designations"],
+    dependencies=[Depends(get_current_admin)],
+)
+def save_designation_settings_endpoint(data: DesignationSettingsData, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return service.save_designation_settings(db, current_user.organization_id, data, updated_by=current_user.id)
 
 
 @hr_router.post(

@@ -8,10 +8,12 @@ import {
   createDesignation, 
   updateDesignation, 
   deleteDesignation,
-  getHrEmployees
+  getHrEmployees,
+  getDesignationSettings,
 } from "../../../service/hrService";
 import { updateEmployee } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
+import { DEFAULT_DESIGNATION_SETTINGS, normalizeDesignationSettings, sortDesignations } from "../../../utils/designationSettings";
 
 // Where a designation came from. Rows created before this was tracked have no source.
 const SOURCE_LABELS = {
@@ -61,15 +63,32 @@ export default function DesignationList() {
   const [modalError, setModalError] = useState("");
   const [sourceFilter, setSourceFilter] = useState("all");
   const [search, setSearch] = useState("");
+  // The organization's Designation Settings (sort, page size, columns, compact layout, level limit, codes).
+  const [settings, setSettings] = useState(DEFAULT_DESIGNATION_SETTINGS);
+  const [page, setPage] = useState(1);
 
-  const visible = useMemo(() => {
+  const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return records.filter((r) => {
+    const rows = records.filter((r) => {
       if (sourceFilter === "none" ? r.source : sourceFilter !== "all" && r.source !== sourceFilter) return false;
       if (!q) return true;
       return [r.title, r.department_name, r.designation_code].some((v) => String(v || "").toLowerCase().includes(q));
     });
-  }, [records, search, sourceFilter]);
+    return sortDesignations(rows, settings.default_sort_field, settings.default_sort_direction);
+  }, [records, search, sourceFilter, settings.default_sort_field, settings.default_sort_direction]);
+
+  const pageSize = settings.items_per_page;
+  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const visible = useMemo(() => filtered.slice((safePage - 1) * pageSize, safePage * pageSize), [filtered, safePage, pageSize]);
+  useEffect(() => { setPage(1); }, [search, sourceFilter, pageSize]);
+
+  const cell = settings.compact_mode ? "px-4 py-1.5" : "px-4 py-3";
+  const levelOptions = useMemo(() => {
+    const allowed = LEVEL_OPTIONS.filter((_, i) => i + 1 <= settings.max_hierarchy_depth);
+    // an existing designation keeps its current level selectable even if it is now beyond the limit
+    return allowed.some((o) => o.value === formData.level) || !formData.level ? allowed : [...allowed, { value: formData.level, label: `${formData.level} (above the limit)` }];
+  }, [settings.max_hierarchy_depth, formData.level]);
 
   const getEmpName = (emp) => {
     if (!emp) return "";
@@ -136,9 +155,12 @@ export default function DesignationList() {
     return Promise.all([
       getDesignations(fresh),
       getDepartments(fresh),
-      getHrEmployees(fresh)
+      getHrEmployees(fresh),
+      // the list still works with the defaults if the settings cannot be read
+      getDesignationSettings(fresh).then(normalizeDesignationSettings).catch(() => null),
     ])
-      .then(([desigRes, deptRes, empRes]) => {
+      .then(([desigRes, deptRes, empRes, settingsRes]) => {
+        if (settingsRes) setSettings(settingsRes);
         const desigItems = desigRes?.items || desigRes?.data || (Array.isArray(desigRes) ? desigRes : []);
         setRecords(Array.isArray(desigItems) ? desigItems : []);
         const deptItems = deptRes?.data || deptRes?.items || (Array.isArray(deptRes) ? deptRes : []);
@@ -171,7 +193,7 @@ export default function DesignationList() {
 
   const handleOpenCreate = () => {
     setEditingId(null);
-    setFormData(initialForm);
+    setFormData({ ...initialForm, status: settings.default_status, designation_code: "" });
     setSelectedEmployeeId("");
     setModalError("");
     setShowModal(true);
@@ -201,6 +223,7 @@ export default function DesignationList() {
     // never sent as part of this payload — it's persisted separately below
     // by updating the chosen employee's designation_id instead.
     const payload = { ...formData };
+    if (editingId || settings.auto_generate_codes || !payload.designation_code) delete payload.designation_code;
     const action = editingId
       ? updateDesignation(editingId, payload)
       : createDesignation(payload);
@@ -288,7 +311,8 @@ export default function DesignationList() {
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Designation Title</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Department</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Level</th>
-                <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>
+                {settings.show_salary_range && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Salary Range</th>}
+                {settings.show_employee_count && <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Employee</th>}
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Source</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Status</th>
                 <th className="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase tracking-wider">Actions</th>
@@ -296,9 +320,9 @@ export default function DesignationList() {
             </thead>
             <tbody className="bg-white divide-y divide-gray-100">
               {loading && records.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-400" role="status">Loading designations...</td></tr>
+                <tr><td colSpan={7 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-4 py-10 text-center text-sm text-gray-400" role="status">Loading designations...</td></tr>
               ) : visible.length === 0 ? (
-                <tr><td colSpan={8} className="px-4 py-10 text-center text-sm text-gray-500">
+                <tr><td colSpan={7 + (settings.show_salary_range ? 1 : 0) + (settings.show_employee_count ? 1 : 0)} className="px-4 py-10 text-center text-sm text-gray-500">
                   {records.length === 0
                     ? "No designations yet. Click \"Add Designation\" or upload employees with a Designation column."
                     : "No designations match your search or filter."}
@@ -306,23 +330,32 @@ export default function DesignationList() {
               ) : null}
               {visible.map((item) => (
                   <tr key={item.id} onClick={() => { setDetailItem(item); setShowDetail(true); }} className="hover:bg-gray-50/80 cursor-pointer transition-colors">
-                  <td className="px-4 py-3 text-sm font-mono font-bold text-[#3B82F6]">{item.designation_code || "—"}</td>
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{item.title}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{item.department_name}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">{item.level}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600">
-                    {getAssignedEmployeeDisplay(item.id) || (item.employees_count ? `${item.employees_count} employee${item.employees_count === 1 ? "" : "s"}` : "-")}
-                  </td>
-                  <td className="px-4 py-3 text-xs text-gray-500" title={item.created_by_name ? `Created by ${item.created_by_name}` : undefined}>
+                  <td className={`${cell} text-sm font-mono font-bold text-[#3B82F6]`}>{item.designation_code || "—"}</td>
+                  <td className={`${cell} text-sm font-medium text-gray-900`}>{item.title}</td>
+                  <td className={`${cell} text-sm text-gray-600`}>{item.department_name}</td>
+                  <td className={`${cell} text-sm text-gray-600`}>{item.level}</td>
+                  {settings.show_salary_range && (
+                    <td className={`${cell} text-sm text-gray-600`}>
+                      {item.min_salary != null || item.max_salary != null
+                        ? `${item.min_salary != null ? Number(item.min_salary).toLocaleString() : "?"} – ${item.max_salary != null ? Number(item.max_salary).toLocaleString() : "?"}`
+                        : "—"}
+                    </td>
+                  )}
+                  {settings.show_employee_count && (
+                    <td className={`${cell} text-sm text-gray-600`}>
+                      {getAssignedEmployeeDisplay(item.id) || (item.employees_count ? `${item.employees_count} employee${item.employees_count === 1 ? "" : "s"}` : "-")}
+                    </td>
+                  )}
+                  <td className={`${cell} text-xs text-gray-500`} title={item.created_by_name ? `Created by ${item.created_by_name}` : undefined}>
                     <span className="block text-gray-700">{sourceLabel(item.source)}</span>
                     {item.created_at ? <span>{formatDate(item.created_at)}{item.created_by_name ? ` · ${item.created_by_name}` : ""}</span> : null}
                   </td>
-                  <td className="px-4 py-3 text-sm">
+                  <td className={`${cell} text-sm`}>
                     <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${item.status === "active" ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-800"}`}>
                       {item.status}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm flex gap-2">
+                  <td className={`${cell} text-sm flex gap-2`}>
                     <button onClick={(e) => handleOpenEdit(item, e)} className="text-blue-600 hover:underline">Edit</button>
                     <button onClick={(e) => handleDelete(item.id, e)} disabled={item.employees_count > 0}
                       title={item.employees_count > 0 ? `${item.employees_count} employee(s) hold this designation; reassign them first` : "Delete designation"}
@@ -333,6 +366,16 @@ export default function DesignationList() {
             </tbody>
           </table>
         </div>
+        {filtered.length > pageSize && (
+          <div className="flex items-center justify-between border-t border-gray-100 px-4 py-3 text-sm text-gray-600">
+            <span>{(safePage - 1) * pageSize + 1}–{Math.min(safePage * pageSize, filtered.length)} of {filtered.length}</span>
+            <div className="flex items-center gap-2">
+              <button type="button" onClick={() => setPage(safePage - 1)} disabled={safePage <= 1} className="rounded-lg border border-gray-200 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-40">Previous</button>
+              <span>Page {safePage} of {totalPages}</span>
+              <button type="button" onClick={() => setPage(safePage + 1)} disabled={safePage >= totalPages} className="rounded-lg border border-gray-200 px-3 py-1.5 hover:bg-gray-50 disabled:opacity-40">Next</button>
+            </div>
+          </div>
+        )}
       </div>
 
       {showDetail && detailItem && (
@@ -376,6 +419,15 @@ export default function DesignationList() {
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Designation Title</label>
                 <input type="text" value={formData.title} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required placeholder="e.g. Senior Software Engineer" />
               </div>
+              {!editingId && !settings.auto_generate_codes && (
+                <div>
+                  <label htmlFor="designation-code" className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Designation Code</label>
+                  <input id="designation-code" type="text" value={formData.designation_code || ""} maxLength={20} required
+                    onChange={(e) => setFormData({ ...formData, designation_code: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" placeholder="e.g. ENG-01" />
+                  <p className="mt-1 text-xs text-gray-500">Automatic codes are turned off in Designation Settings.</p>
+                </div>
+              )}
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Department Name</label>
                 <select value={formData.department_name} onChange={(e) => setFormData({ ...formData, department_name: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20" required>
@@ -393,7 +445,7 @@ export default function DesignationList() {
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1.5">Hierarchy Level</label>
                   <select value={formData.level} onChange={(e) => setFormData({ ...formData, level: e.target.value })} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none" required>
-                    {LEVEL_OPTIONS.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
+                    {levelOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
                 </div>
                 <div>

@@ -112,6 +112,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
 
   if (!res.ok) {
     let detail;
+    let extra = {};
     try {
       const data = await res.json();
       detail = data?.detail || data?.message || data?.error;
@@ -119,12 +120,17 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
         // Handle FastAPI 422 validation errors nicely
         detail = detail.map(humanizeValidationError).join(", ");
       } else if (typeof detail === "object" && detail !== null) {
-        detail = JSON.stringify(detail);
+        // A feature the plan does not include comes back as an object with a ready-to-show message.
+        if (detail.entitlement_state) extra = { entitlement: detail };
+        detail = detail.message || JSON.stringify(detail);
+      }
+      if (data?.feature_key && data?.upgrade_url) {
+        extra = { entitlement: { entitlement_state: data.state, feature_key: data.feature_key, required_plan: data.required_plan, upgrade_url: data.upgrade_url } };
       }
     } catch {
       detail = res.statusText;
     }
-    throw createApiError(detail, res.status);
+    throw createApiError(detail, res.status, extra);
   }
 
   if (res.status === 204) return null;

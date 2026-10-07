@@ -129,6 +129,9 @@ export const billingService = {
   cancelMySubscription: (data) => api.post("/billing/me/cancel", data),
   reactivateMySubscription: (data) => api.post("/billing/me/reactivate", data),
   myDowngradeImpact: (data) => api.post("/billing/me/downgrade-impact", data),
+  scheduleMyDowngrade: (data) => api.post("/billing/me/downgrade", data),
+  getMyPendingPlanChange: () => api.get("/billing/me/pending-plan-change"),
+  cancelMyPendingPlanChange: () => api.post("/billing/me/pending-plan-change/cancel", {}),
 
   // ── Existing foundation endpoints ────────────────────────────────────────
   getOverview: (orgId) => api.get(`/billing/organizations/${orgId}/overview`),

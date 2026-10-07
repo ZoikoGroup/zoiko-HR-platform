@@ -6,6 +6,7 @@ Business logic layer. This is WHERE the actual work happens.
 
 import logging
 import os
+import re
 from datetime import date, datetime, timedelta
 from typing import List, Optional
 from sqlalchemy import func, or_, case, and_
@@ -4995,6 +4996,51 @@ def get_designation_by_id(db: Session, designation_id: int, organization_id: Opt
     return obj
 
 
+def get_designation_settings(db: Session, organization_id: int) -> "DesignationSettingsData":
+    """The organization's saved preferences, or the defaults when it never saved any. Keys that no longer exist
+    (a setting removed in a later release) are ignored instead of breaking the page."""
+    from app.modules.hr.models import DesignationSettings
+    from app.modules.hr.schemas import DesignationSettingsData
+
+    row = db.query(DesignationSettings).filter(DesignationSettings.organization_id == organization_id).first()
+    stored = dict(row.settings or {}) if row else {}
+    known = set(DesignationSettingsData.model_fields)
+    try:
+        return DesignationSettingsData(**{k: v for k, v in stored.items() if k in known})
+    except Exception:
+        return DesignationSettingsData()
+
+
+def save_designation_settings(db: Session, organization_id: int, data: "DesignationSettingsData", updated_by: Optional[int] = None) -> "DesignationSettingsData":
+    from app.modules.hr.models import DesignationSettings
+
+    row = db.query(DesignationSettings).filter(DesignationSettings.organization_id == organization_id).first()
+    payload = data.model_dump(mode="json")
+    if row is None:
+        row = DesignationSettings(organization_id=organization_id, settings=payload, updated_by=updated_by)
+        db.add(row)
+    else:
+        row.settings = payload
+        row.updated_by = updated_by
+        row.updated_at = datetime.utcnow()
+    db.commit()
+    return get_designation_settings(db, organization_id)
+
+
+def _level_number(level) -> Optional[int]:
+    m = re.fullmatch(r"[Ll](\d{1,2})", str(level or "").strip())
+    return int(m.group(1)) if m else None
+
+
+def _check_level_depth(level, settings) -> None:
+    n = _level_number(level)
+    if n is not None and n > settings.max_hierarchy_depth:
+        raise BadRequestException(
+            f"Level {str(level).upper()} is deeper than the maximum hierarchy depth of {settings.max_hierarchy_depth} "
+            "set in Designation Settings."
+        )
+
+
 def create_designation(db: Session, data: DesignationCreate, organization_id: Optional[int] = None,
                        created_by: Optional[int] = None, source: str = "manual") -> object:
     from app.modules.hr.models import Designation
@@ -5008,18 +5054,34 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
         ).first()
         if clash is not None:
             raise AlreadyExistsException("Designation", "title")
-    
+
+    settings = get_designation_settings(db, organization_id) if organization_id is not None else None
+
     # Extract the schema payload into a dictionary
     payload = data.model_dump()
-    
+    manual_code = (payload.pop("designation_code", None) or "").strip().upper()
+
     # Explicitly guarantee employees_count is set for the return validation instance
     if "employees_count" not in payload or payload["employees_count"] is None:
         payload["employees_count"] = 0
 
+    if settings is not None:
+        _check_level_depth(payload.get("level"), settings)
+        if not payload.get("status"):
+            payload["status"] = settings.default_status
+    elif not payload.get("status"):
+        payload["status"] = "active"
+
     if organization_id is not None:
-        from app.core.code_generation import generate_business_code
-        des_code = generate_business_code(db, organization_id, "DES", Designation, "designation_code")
-        payload["designation_code"] = des_code
+        if settings.auto_generate_codes:
+            from app.core.code_generation import generate_business_code
+            payload["designation_code"] = generate_business_code(db, organization_id, settings.code_prefix, Designation, "designation_code")
+        elif manual_code:
+            if db.query(Designation.id).filter(func.upper(Designation.designation_code) == manual_code).first():
+                raise AlreadyExistsException("Designation", "code")
+            payload["designation_code"] = manual_code
+        else:
+            raise BadRequestException("Automatic code generation is turned off in Designation Settings: enter a designation code.")
 
     payload["title"] = title
     obj = Designation(**payload)
@@ -5035,7 +5097,11 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
 
 def update_designation(db: Session, designation_id: int, data: DesignationUpdate, organization_id: int) -> object:
     obj = get_designation_by_id(db, designation_id, organization_id)
-    for field, value in data.model_dump(exclude_unset=True).items():
+    changes = data.model_dump(exclude_unset=True)
+    if "level" in changes and changes["level"] != obj.level:
+        # only a level that is being changed is checked, so older designations stay editable
+        _check_level_depth(changes["level"], get_designation_settings(db, organization_id))
+    for field, value in changes.items():
         setattr(obj, field, value)
     db.commit()
     db.refresh(obj)

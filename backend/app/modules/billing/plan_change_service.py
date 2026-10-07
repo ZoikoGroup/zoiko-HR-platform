@@ -141,8 +141,14 @@ def preview_plan_change(
         .all()
     )
     target_map_by_key = {m.feature_key: m.state for m in target_mappings}
+    from app.modules.billing.plan_baseline import baseline_included
+
     for fk in FEATURE_KEYS:
-        target_states[fk] = target_map_by_key.get(fk, "ENTITLED_NOT_CONFIGURED")
+        mapped = target_map_by_key.get(fk)
+        if mapped is None:
+            included = baseline_included(target_plan.code, fk)
+            mapped = "ENTITLED_NOT_CONFIGURED" if included is None else ("ENTITLED_AVAILABLE" if included else "NOT_ENTITLED")
+        target_states[fk] = mapped
 
     gained = [
         fk for fk in FEATURE_KEYS
@@ -227,8 +233,14 @@ def schedule_plan_change(
         .all()
     )
     target_map_by_key = {m.feature_key: m.state for m in target_mappings}
+    from app.modules.billing.plan_baseline import baseline_included
+
     for fk in FEATURE_KEYS:
-        target_states[fk] = target_map_by_key.get(fk, "ENTITLED_NOT_CONFIGURED")
+        mapped = target_map_by_key.get(fk)
+        if mapped is None:
+            included = baseline_included(target_plan.code, fk)
+            mapped = "ENTITLED_NOT_CONFIGURED" if included is None else ("ENTITLED_AVAILABLE" if included else "NOT_ENTITLED")
+        target_states[fk] = mapped
 
     gained = [
         fk for fk in FEATURE_KEYS
@@ -427,6 +439,9 @@ def execute_due_changes(db: Session) -> dict:
             db.commit()
 
             subscription = _get_subscription(db, change.organization_id)
+            # The customer is billed by Stripe, so the price there has to change too. If Stripe refuses, nothing
+            # changes locally and the change stays BLOCKED to be retried by the next run.
+            _reprice_in_stripe(db, change, subscription)
             subscription.plan_id = change.to_plan_id
             subscription.plan_code = change.to_plan.code
             subscription.billing_cycle = change.billing_cycle
@@ -475,6 +490,33 @@ def execute_due_changes(db: Session) -> dict:
         "failed": failed,
         "results": results,
     }
+
+
+def _reprice_in_stripe(db: Session, change: BillingPlanChange, subscription) -> None:
+    from app.modules.billing.models import ProviderRef
+    from app.modules.billing.stripe_client import modify_subscription_price, stripe_enabled
+
+    ref = db.query(ProviderRef).filter(ProviderRef.organization_id == change.organization_id).first()
+    stripe_subscription_id = ref.stripe_subscription_id if ref else None
+    if not stripe_subscription_id or not stripe_enabled():
+        return  # not billed through Stripe (manual/contract billing): the local change is the whole change
+    plan = change.to_plan
+    annual = (change.billing_cycle.value if hasattr(change.billing_cycle, "value") else str(change.billing_cycle)).lower() == "annual"
+    price_id = plan.stripe_annual_price_id if annual else plan.stripe_monthly_price_id
+    if not price_id:
+        from app.modules.billing.stripe_sync_service import sync_plan_to_stripe
+
+        sync_plan_to_stripe(db, plan)
+        db.refresh(plan)
+        price_id = plan.stripe_annual_price_id if annual else plan.stripe_monthly_price_id
+    if not price_id:
+        raise RuntimeError(f"No Stripe price for plan {plan.code} ({'annual' if annual else 'monthly'})")
+    modify_subscription_price(
+        subscription_id=stripe_subscription_id,
+        new_price_id=price_id,
+        quantity=subscription.quantity or 1,
+        idempotency_key=f"plan-change-exec:{change.id}",
+    )
 
 
 def _invalidate_entitlement_cache(organization_id: int):

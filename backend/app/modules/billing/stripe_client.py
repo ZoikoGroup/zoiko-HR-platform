@@ -506,6 +506,49 @@ def create_proration_preview(
 
 # ── Refund Creation (Section 12 I3) ───────────────────────────────────────
 
+def payment_intent_for_invoice(invoice_id: str) -> Optional[str]:
+    """The PaymentIntent that paid an invoice, or None if it was not paid by card (e.g. a zero-amount invoice).
+
+    Stripe API versions from 2025-03 removed `invoice.payment_intent` / `invoice.charge`; the payment now hangs
+    off `invoice.payments`. Older API versions are still read through the old attributes."""
+    stripe = get_stripe()
+    invoice = stripe.Invoice.retrieve(invoice_id, expand=["payments"])
+
+    def _get(obj, key):
+        try:
+            return obj[key]
+        except Exception:
+            return getattr(obj, key, None)
+
+    legacy = _get(invoice, "payment_intent")
+    if legacy:
+        return legacy if isinstance(legacy, str) else _get(legacy, "id")
+    payments = _get(invoice, "payments")
+    for item in (_get(payments, "data") or []) if payments else []:
+        payment = _get(item, "payment") or {}
+        if _get(payment, "type") == "payment_intent" and _get(payment, "payment_intent"):
+            pi = _get(payment, "payment_intent")
+            return pi if isinstance(pi, str) else _get(pi, "id")
+    return None
+
+
+def cancel_and_refund_duplicate_subscription(duplicate_subscription_id: str) -> dict:
+    """Undo an accidental second subscription: cancel it and refund what it charged. Used when a customer
+    completes two Checkout sessions (two tabs, a double click) and would otherwise be billed twice every month."""
+    stripe = get_stripe()
+    sub = stripe.Subscription.retrieve(duplicate_subscription_id)
+    latest = getattr(sub, "latest_invoice", None)
+    latest_id = latest if isinstance(latest, str) or latest is None else latest.id
+    payment_intent = payment_intent_for_invoice(latest_id) if latest_id else None
+    stripe.Subscription.cancel(duplicate_subscription_id)
+    refund_id = None
+    if payment_intent:
+        refund = stripe.Refund.create(payment_intent=payment_intent, reason="duplicate",
+                                      idempotency_key=f"duplicate_{duplicate_subscription_id}")
+        refund_id = refund.id
+    return {"cancelled": duplicate_subscription_id, "refund_id": refund_id}
+
+
 def create_refund(
     *,
     payment_intent_id: str,

@@ -49,7 +49,10 @@ function register(t) {
       confirmCheckoutSession: (...a) => svc.confirm(...a),
       cancelMySubscription: (...a) => svc.cancel(...a),
       reactivateMySubscription: (...a) => svc.cancel(...a),
-      myDowngradeImpact: (...a) => svc.cancel(...a),
+      myDowngradeImpact: (...a) => svc.impact(...a),
+      getMyPendingPlanChange: (...a) => svc.pending(...a),
+      scheduleMyDowngrade: (...a) => svc.schedule(...a),
+      cancelMyPendingPlanChange: (...a) => svc.keep(...a),
     } } });
   t.mock.module("react-router-dom", { exports: {
     useNavigate: () => (path) => { router.navigated = path; },
@@ -79,6 +82,10 @@ async function open(t, over = {}, search = "") {
     checkout: async () => ({ checkout_url: "https://checkout.stripe.com/c/pay/cs_1", checkout_session_id: "cs_1" }),
     confirm: async () => ({ status: "confirmed", message: "Payment confirmed. Your plan has been updated." }),
     cancel: async () => ({}),
+    impact: async () => ({ eligible: true, blockers: [{ category: "workflow", message: "Performance review cycles is not included in the Core plan.", severity: "warning" }] }),
+    pending: async () => ({ pending: null }),
+    schedule: async () => ({ effective_at: "2026-11-01T00:00:00Z", to_plan_code: "core" }),
+    keep: async () => ({ pending: null }),
   }, over);
   const { default: Page } = await import("../src/modules/organization-admin/BillingPlanPage.jsx");
   render(React.createElement(Page));
@@ -92,7 +99,7 @@ test("the plan the org already pays for offers no button that re-charges it", as
   assert.ok(disabled.length >= 1);
   assert.equal(disabled[0].disabled, true);
   // The other tier is still purchasable.
-  assert.equal(screen.getByRole("button", { name: /Pay & Upgrade via Stripe/ }).disabled, false);
+  assert.equal(screen.getByRole("button", { name: /Upgrade to Advanced via Stripe/ }).disabled, false);
 });
 
 test("an in-place price change (no Stripe redirect) says the plan changed", async (t) => {
@@ -103,7 +110,7 @@ test("an in-place price change (no Stripe redirect) says the plan changed", asyn
       return { checkout_url: null, updated: true, unchanged: false, message: "Plan updated. A confirmation email is on its way." };
     },
   });
-  fireEvent.click(screen.getByRole("button", { name: /Pay & Upgrade via Stripe/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Upgrade to Advanced via Stripe/ }));
   await settle();
   assert.equal(calls.length, 1);
   assert.equal(calls[0].organization_id, ORG_ID);
@@ -120,7 +127,7 @@ test("buying the plan you are already on explains itself instead of double-billi
       message: "You are already on this plan — it renews automatically.",
     }),
   });
-  fireEvent.click(screen.getByRole("button", { name: /Pay & Upgrade via Stripe/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Upgrade to Advanced via Stripe/ }));
   await settle();
   assert.ok(screen.getByText(/renews automatically/));
 });
@@ -142,7 +149,53 @@ test("a failed checkout shows the server message rather than a generic error", a
   await open(t, {
     checkout: async () => { throw new Error("Your subscription is past due. Settle the outstanding invoice before changing plans."); },
   });
-  fireEvent.click(screen.getByRole("button", { name: /Pay & Upgrade via Stripe/ }));
+  fireEvent.click(screen.getByRole("button", { name: /Upgrade to Advanced via Stripe/ }));
   await settle();
   assert.ok(screen.getAllByText(/past due/).length >= 1);
+});
+
+
+const ON_ADVANCED = { ...SUB, plan_code: "advanced", plan_name: "Advanced" };
+
+test("on Advanced, the Core card says Downgrade, not Pay & Upgrade, and nothing happens until confirmed", async (t) => {
+  const scheduled = [];
+  await open(t, { sub: async () => ON_ADVANCED, schedule: async (p) => { scheduled.push(p); return { effective_at: "2026-11-01T00:00:00Z" }; } });
+  assert.equal(screen.queryByRole("button", { name: /Pay & Upgrade/ }), null);
+  fireEvent.click(screen.getByRole("button", { name: "Downgrade to Core" }));
+  await settle();
+  const dialog = screen.getByRole("dialog", { name: "Confirm downgrade" });
+  assert.match(dialog.textContent, /Performance review cycles is not included/);
+  assert.match(dialog.textContent, /end of your current billing period/);
+  assert.equal(scheduled.length, 0, "choosing a lower plan only shows the impact");
+  fireEvent.click(screen.getByRole("button", { name: /Confirm downgrade to Core/ }));
+  await settle();
+  assert.deepEqual(scheduled, [{ target_plan_code: "core" }]);
+});
+
+test("a blocked downgrade explains why and cannot be confirmed", async (t) => {
+  await open(t, { sub: async () => ON_ADVANCED, impact: async () => ({ eligible: false, blockers: [{ message: "SSO is configured." , severity: "blocking" }] }) });
+  fireEvent.click(screen.getByRole("button", { name: "Downgrade to Core" }));
+  await settle();
+  assert.match(screen.getByRole("dialog", { name: "Confirm downgrade" }).textContent, /SSO is configured/);
+  assert.equal(screen.getByRole("button", { name: /Confirm downgrade to Core/ }).disabled, true);
+});
+
+test("a scheduled downgrade is shown with its date and can be cancelled", async (t) => {
+  const kept = [];
+  await open(t, {
+    sub: async () => ON_ADVANCED,
+    pending: async () => ({ pending: { from_plan_code: "advanced", to_plan_code: "core", effective_at: "2026-11-01T00:00:00Z" } }),
+    keep: async () => { kept.push(1); return { pending: null }; },
+  });
+  assert.match(document.body.textContent, /Downgrade scheduled\./);
+  assert.ok(screen.getByRole("button", { name: /Switching on/ }).disabled);
+  fireEvent.click(screen.getByRole("button", { name: /Keep my current plan/ }));
+  await settle();
+  assert.equal(kept.length, 1);
+});
+
+test("while still on the free evaluation the buttons say Subscribe", async (t) => {
+  await open(t, { sub: async () => ({ ...SUB, status: "evaluation", plan_code: null, plan_name: null }) });
+  assert.ok(screen.getByRole("button", { name: /Subscribe to Core via Stripe/ }));
+  assert.ok(screen.getByRole("button", { name: /Subscribe to Advanced via Stripe/ }));
 });

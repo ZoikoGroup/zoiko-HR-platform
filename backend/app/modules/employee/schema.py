@@ -254,7 +254,13 @@ class UserCreateRequest(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100, example="Jane")
     last_name:  str = Field(..., min_length=1, max_length=100, example="Smith")
     email:      EmailStr = Field(..., example="jane.smith@company.com")
-    phone:      Optional[str] = Field(None, example="+1-555-0100")
+    phone:      Optional[str] = Field(None, example="+91 9876543210")
+
+    @field_validator("phone")
+    @classmethod
+    def _valid_phone(cls, v):
+        from app.core.phone import normalize_phone
+        return normalize_phone(v)
     role:       UserRole = Field(..., example="hr_admin")
     job_title:  Optional[str] = Field(None, max_length=150, example="Software Engineer")
     organization_id: Optional[int] = Field(None, description="Target organization (Super Admin only)")

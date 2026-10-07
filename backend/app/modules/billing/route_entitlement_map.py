@@ -193,11 +193,14 @@ ROUTE_ENTITLEMENT_MAP: dict[tuple[str, str], str] = {
     **_r("POST", "/hr/document-folders", "hr.documents.core"),
     **_r("DELETE", "/hr/document-folders/{folder_id}", "hr.documents.core"),
 
-    # hr.documents.bulk_distribution
-    **_r("POST", "/hr/documents/upload", "hr.documents.bulk_distribution"),
-    **_r("POST", "/hr/documents/{document_id}/versions", "hr.documents.bulk_distribution"),
+    # Uploading, versioning and approving documents is core document handling, included in every plan.
+    **_r("POST", "/hr/documents/upload", "hr.documents.core"),
+    **_r("POST", "/hr/documents/{document_id}/versions", "hr.documents.core"),
+    **_r("POST", "/hr/documents/{document_id}/approve", "hr.documents.core"),
+
+    # hr.documents.bulk_distribution: pushing a document out to many employees is the Advanced feature.
     **_r("POST", "/hr/documents/{document_id}/assign", "hr.documents.bulk_distribution"),
-    **_r("POST", "/hr/documents/{document_id}/approve", "hr.documents.bulk_distribution"),
+    **_r("POST", "/hr/document-folders/{folder_id}/assign", "hr.documents.bulk_distribution"),
 
     # hr.workforce_planning.core
     **_r("GET", "/hr/workforce-planning", "hr.workforce_planning.core"),

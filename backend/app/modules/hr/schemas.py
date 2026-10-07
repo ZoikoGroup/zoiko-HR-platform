@@ -4,8 +4,9 @@ modules/hr/schemas.py
 Pydantic schemas = data validation for API requests and responses.
 """
 
+import re
 from datetime import date, datetime
-from typing import Optional, List
+from typing import Optional, List, Literal
 from decimal import Decimal
 
 from pydantic import BaseModel, EmailStr, Field, field_validator, model_validator, ConfigDict
@@ -3025,9 +3026,58 @@ class DesignationCreate(BaseModel):
     department_name: Optional[str] = None
     level:           Optional[str] = None
     description:     Optional[str] = None
-    status:          Optional[str] = "active"
+    # None = use the organization's "default status for new designations" setting
+    status:          Optional[str] = None
     min_salary:      Optional[float] = None
     max_salary:      Optional[float] = None
+    # Only honoured when the organization turned "auto-generate codes" off
+    designation_code: Optional[str] = Field(None, max_length=20)
+
+
+class DesignationNotificationPrefs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    created: bool = True
+    updated: bool = True
+    head_changed: bool = True
+    budget_updated: bool = True
+    status_changed: bool = True
+    added_under_hierarchy: bool = True
+    deletion_requested: bool = True
+
+
+class DesignationSettingsData(BaseModel):
+    """Everything on the Designation Settings page. Unknown keys are rejected so a typo can never be saved
+    silently; every field has a default, so an organization that never saved settings gets these."""
+    model_config = ConfigDict(extra="forbid")
+
+    # General
+    code_prefix: str = "DES"
+    default_status: Literal["active", "inactive"] = "active"
+    auto_generate_codes: bool = True
+    enforce_unique_codes: bool = True
+    # Hierarchy
+    max_hierarchy_depth: int = Field(10, ge=1, le=10)
+    allow_cross_heads: bool = True
+    require_parent: bool = False
+    enforce_single_parent: bool = True
+    # Notifications
+    notifications: DesignationNotificationPrefs = Field(default_factory=DesignationNotificationPrefs)
+    # Display
+    show_salary_range: bool = True
+    show_employee_count: bool = True
+    default_sort_field: Literal["title", "department", "level", "salary", "created_at"] = "title"
+    default_sort_direction: Literal["asc", "desc"] = "asc"
+    items_per_page: Literal[5, 10, 15, 25, 50] = 10
+    compact_mode: bool = False
+
+    @field_validator("code_prefix", mode="before")
+    @classmethod
+    def _clean_prefix(cls, v):
+        v = str(v or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,6}", v):
+            raise ValueError("The code prefix must be 2 to 6 letters or digits (for example DES).")
+        return v
 
 class DesignationUpdate(BaseModel):
     title:           Optional[str] = None

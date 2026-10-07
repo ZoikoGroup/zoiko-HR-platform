@@ -25,6 +25,7 @@ async function open(t, over = {}) {
     getDesignations: async (p) => { calls.desig.push(p); return { data: rows }; },
     getDepartments: async (p) => { calls.dept.push(p); return { data: [{ id: 1, name: "Eng" }] }; },
     getHrEmployees: async (p) => { calls.emp.push(p); return { data: [] }; },
+    getDesignationSettings: async () => ({}),
     createDesignation: async () => ({ data: { id: 9 } }),
     updateDesignation: async () => ({}),
     deleteDesignation: async (id) => { calls.deleted.push(id); rows = rows.filter((r) => r.id !== id); return {}; },
@@ -37,6 +38,7 @@ async function open(t, over = {}) {
     t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
     t.mock.module("../src/service/hrService.js", { exports: {
       getDesignations: (...a) => svc.getDesignations(...a), getDepartments: (...a) => svc.getDepartments(...a), getHrEmployees: (...a) => svc.getHrEmployees(...a),
+      getDesignationSettings: (...a) => svc.getDesignationSettings(...a),
       createDesignation: (...a) => svc.createDesignation(...a), updateDesignation: (...a) => svc.updateDesignation(...a), deleteDesignation: (...a) => svc.deleteDesignation(...a) } });
     t.mock.module("../src/service/employee.js", { exports: { updateEmployee: (...a) => svc.updateEmployee(...a) } });
   }

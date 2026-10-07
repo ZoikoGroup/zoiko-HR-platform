@@ -1805,6 +1805,20 @@ class Designation(Base):
 
     organization    = relationship("Organization")
 
+
+class DesignationSettings(Base):
+    """Per-organization preferences of the Designations module (one row per organization). The values live
+    in one JSON document validated by schemas.DesignationSettingsData, so adding a preference needs no migration."""
+    __tablename__ = "designation_settings"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, unique=True, index=True)
+    settings        = Column(JSON, nullable=False, default=dict)
+    updated_by      = Column(Integer, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ════════════════════════════════════════════════════════════════════════════════
 # HR DOCUMENTS  (company-wide + employee documents)
 # ════════════════════════════════════════════════════════════════════════════════

@@ -1,4 +1,6 @@
-﻿import { useState } from "react";
+﻿import PlanComparison from "../../components/PlanComparison";
+import { planHighlights } from "../../config/planMatrix";
+import { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { Loader2, Eye, EyeOff, AlertCircle, Check, Building2, Crown, Phone } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
@@ -275,6 +277,21 @@ export default function RegisterPage() {
                           <p style={{ margin: 0, fontSize: "12px", color: "#6B7280", lineHeight: "1.5" }}>
                             {plan.desc}
                           </p>
+                          {(() => {
+                            const h = planHighlights(plan.code);
+                            return (
+                              <div style={{ marginTop: "12px", fontSize: "12px", lineHeight: "1.5" }}>
+                                <ul style={{ margin: 0, padding: 0, listStyle: "none", color: "#065F46" }}>
+                                  {h.includes.map((f) => <li key={f}>&#10003; {f}</li>)}
+                                </ul>
+                                {h.excludes.length > 0 && (
+                                  <ul style={{ margin: "6px 0 0 0", padding: 0, listStyle: "none", color: "#9CA3AF" }}>
+                                    {h.excludes.map((f) => <li key={f}>&#10005; {f}</li>)}
+                                  </ul>
+                                )}
+                              </div>
+                            );
+                          })()}
                           <div style={{
                             marginTop: "12px", display: "inline-block",
                             padding: "3px 10px", borderRadius: "20px",
@@ -288,6 +305,11 @@ export default function RegisterPage() {
                       );
                     })}
                   </div>
+
+                  <details style={{ border: "1.5px solid #E5E7EB", borderRadius: "14px", padding: "12px 16px", background: "#fff" }}>
+                    <summary style={{ cursor: "pointer", fontSize: "14px", fontWeight: 700, color: "#1D4ED8" }}>Compare Core and Advanced side by side</summary>
+                    <div style={{ marginTop: "12px" }}><PlanComparison highlight={form.selectedPlan} compact /></div>
+                  </details>
 
                   <a
                     href="mailto:sales@zoikohr.com?subject=Enterprise%20Inquiry"

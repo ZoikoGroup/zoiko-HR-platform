@@ -876,6 +876,8 @@ def create_organization_user(
         employee = Employee(
             email=data.email,
             hashed_password=hash_password(temp_password),
+            # the password was generated and e-mailed in clear text: it must be replaced at first sign-in
+            must_change_password=True,
             employee_code=new_employee_code,
             # Platform-level users (Super Admin) have no organization, so no org-scoped employee ID.
             employee_id=_generate_employee_id(db, organization_id=organization_id) if organization_id else None,
@@ -1011,6 +1013,14 @@ def update_organization_user(
     user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     old_role = user.role
     update_data = data.model_dump(exclude_unset=True)
+    if "phone" in update_data and update_data["phone"] != user.phone:
+        # Only a number that is being changed is checked, so a user whose stored number predates this rule can
+        # still have their other details saved.
+        from app.core.phone import normalize_phone
+        try:
+            update_data["phone"] = normalize_phone(update_data["phone"])
+        except ValueError as exc:
+            raise BadRequestException(str(exc))
     for field, value in update_data.items():
         setattr(user, field, value)
     user.updated_by = updated_by_id
@@ -1590,12 +1600,20 @@ def import_employees_from_file(
         if employee_id_val:
             seen_import_ids.add(employee_id_val)
 
+        from app.core.phone import normalize_phone
+        try:
+            normalize_phone(row_data.get("phone"))
+        except ValueError as exc:
+            result["skipped"] += 1
+            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "phone", "error": f"Invalid phone: {str(row_data.get('phone')).strip()}. {exc}"})
+            continue
+
         # Parse fields
         payload = {
             "first_name": str(row_data.get("first_name", "")).strip(),
             "last_name": str(row_data.get("last_name", "")).strip(),
             "email": email_val,
-            "phone": str(row_data.get("phone", "")).strip() or None,
+            "phone": normalize_phone(row_data.get("phone")),
             "job_title": str(row_data.get("job_title", "")).strip(),
             "work_email": str(row_data.get("work_email", "")).strip() or None,
             "personal_email": str(row_data.get("personal_email", "")).strip() or None,
@@ -1704,6 +1722,7 @@ def import_employees_from_file(
 
         # Password
         password = str(row_data.get("password", "")).strip() if row_data.get("password") else None
+        password_generated = not password
         if not password:
             password = _generate_temp_password()
 
@@ -1726,6 +1745,7 @@ def import_employees_from_file(
                     employee = Employee(
                         **emp_data,
                         hashed_password=hash_password(password),
+                        must_change_password=password_generated,
                         employee_code=generate_employee_code(db, organization_id=organization_id),
                         organization_id=organization_id,
                         role=UserRole.EMPLOYEE,

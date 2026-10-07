@@ -302,6 +302,7 @@ def approve_refund(
             amount_cents=request.amount_cents,
             reason=request.reason,
             request_id=request.id,
+            stripe_invoice_id=request.stripe_invoice_id,
         )
         request.stripe_refund_id = stripe_refund.get("refund_id")
     else:
@@ -541,9 +542,13 @@ def _execute_stripe_refund(
     amount_cents: int,
     reason: str,
     request_id: int,
+    stripe_invoice_id: Optional[str] = None,
 ) -> dict:
-    """Execute refund via Stripe. Falls back gracefully if Stripe not configured."""
-    from app.modules.billing.stripe_client import stripe_enabled, create_refund
+    """Execute refund via Stripe. Falls back gracefully if Stripe not configured.
+
+    The refund goes against the invoice the request names; only when none was named is the subscription's latest
+    invoice used (which, after a plan change, may be a small proration and not the payment being refunded)."""
+    from app.modules.billing.stripe_client import stripe_enabled, create_refund, payment_intent_for_invoice
 
     if not stripe_enabled():
         logger.warning("[refund] Stripe not configured — recording refund without Stripe execution")
@@ -556,16 +561,19 @@ def _execute_stripe_refund(
     try:
         from app.modules.billing.stripe_client import get_stripe
         stripe = get_stripe()
-        sub = stripe.Subscription.retrieve(stripe_subscription_id)
-        if not sub.latest_invoice:
-            raise BadRequestException("No invoice found on subscription")
+        invoice_id = stripe_invoice_id
+        if not invoice_id:
+            sub = stripe.Subscription.retrieve(stripe_subscription_id)
+            if not sub.latest_invoice:
+                raise BadRequestException("No invoice found on subscription")
+            invoice_id = sub.latest_invoice if isinstance(sub.latest_invoice, str) else sub.latest_invoice.id
 
-        invoice = stripe.Invoice.retrieve(sub.latest_invoice)
-        if not invoice.charge:
-            raise BadRequestException("No charge found on invoice")
+        payment_intent = payment_intent_for_invoice(invoice_id)
+        if not payment_intent:
+            raise BadRequestException("No card payment was found on that invoice, so there is nothing to refund")
 
         return create_refund(
-            payment_intent_id=invoice.payment_intent,
+            payment_intent_id=payment_intent,
             amount_cents=amount_cents,
             reason="requested_by_customer",
             idempotency_key=f"refund_req_{request_id}",

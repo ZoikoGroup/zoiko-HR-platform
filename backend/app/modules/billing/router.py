@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Header, Query, Request
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -1350,7 +1350,8 @@ def create_checkout(
             try:
                 customer_id = ensure_customer(
                     org_id=data.organization_id,
-                    email=getattr(org, "registered_email", None),
+                    # the company email, else whoever is paying: Stripe asks for an email when the customer has none
+                    email=getattr(org, "registered_email", None) or getattr(current_user, "email", None),
                     name=getattr(org, "name", None),
                     metadata={"plan_code": plan_code, "billing_cycle": data.billing_cycle.value},
                 )
@@ -1666,17 +1667,20 @@ async def stripe_webhook(request: Request, db: Session = Depends(get_db)):
             "[webhook] Invalid signature from %s — rejecting",
             request.client.host if request.client else "unknown",
         )
-        return {"status": "error", "message": "invalid signature"}, 400
+        return JSONResponse(status_code=400, content={"status": "error", "message": "invalid signature"})
 
     try:
         event = json.loads(payload_body)
     except json.JSONDecodeError:
         logger.error("[webhook] Malformed JSON payload")
-        return {"status": "error", "message": "malformed JSON"}, 400
+        return JSONResponse(status_code=400, content={"status": "error", "message": "malformed JSON"})
 
     result = process_webhook_event(db, event)
+    # A real status code matters here: Stripe only retries an event when it gets a non-2xx answer. (This used to
+    # return a (body, code) tuple, which FastAPI serialises as a list with HTTP 200, so a handler that failed
+    # after the customer had paid was never retried.)
     status_code = 200 if result.get("status") != "error" else 500
-    return result, status_code
+    return JSONResponse(status_code=status_code, content=result)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -2599,6 +2603,75 @@ def reactivate_me_subscription(
         plan_code=service.role_value(subscription.plan_code) if subscription.plan_code else None,
         billing_empty_card=billing_empty_card,
     )
+
+
+def _change_payload(change) -> dict:
+    return {
+        "id": change.id,
+        "from_plan_code": service.role_value(change.from_plan.code) if getattr(change, "from_plan", None) else None,
+        "to_plan_code": service.role_value(change.to_plan.code) if getattr(change, "to_plan", None) else None,
+        "effective_at": change.effective_at.isoformat() if change.effective_at else None,
+        "status": service.role_value(change.status),
+        "blockers": change.blockers_snapshot or [],
+        "features_lost": (change.entitlement_delta or {}).get("lost", []),
+    }
+
+
+@billing_router.post(
+    "/me/downgrade",
+    summary="Schedule a downgrade to a lower plan for the end of the current billing period (self-serve)",
+)
+def me_schedule_downgrade(
+    data: MeDowngradeImpactRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    from app.modules.billing.downgrade_blockers import detect_all_blockers, blockers_to_dict, has_blocking_blockers
+
+    _me_billing_actor(current_user)
+    org_id = _me_org_id(current_user)
+    subscription = service.get_or_create_subscription(db, org_id)
+    if subscription.status not in _LIVE_STRIPE_STATUSES or subscription.plan_code is None:
+        raise BadRequestException("Only an active paid subscription can be downgraded.")
+    if not plan_change_service._is_downgrade(service.role_value(subscription.plan_code), data.target_plan_code):
+        raise BadRequestException("That plan is not a lower tier than your current plan.")
+    if subscription.renewal_anchor_date is None:
+        raise BadRequestException("Your renewal date is not available yet, so the downgrade cannot be scheduled. Please contact support.")
+    blockers = detect_all_blockers(db, org_id, data.target_plan_code)
+    if has_blocking_blockers(blockers):
+        reasons = "; ".join(b["message"] for b in blockers_to_dict(blockers) if b["severity"] == "blocking")
+        raise BadRequestException(f"This downgrade is blocked: {reasons}")
+    for old in plan_change_service.get_pending_changes(db, org_id):
+        plan_change_service.cancel_plan_change(db, old.id, cancel_reason="replaced by a new downgrade request", canceled_by=current_user.email)
+    target = plan_change_service._get_plan_by_code(db, data.target_plan_code)
+    change = plan_change_service.schedule_plan_change(
+        db,
+        organization_id=org_id,
+        plan_id=target.id,
+        billing_cycle=subscription.billing_cycle,
+        effective_at=subscription.renewal_anchor_date,
+        requested_by=current_user.email,
+    )
+    return _change_payload(change)
+
+
+@billing_router.get("/me/pending-plan-change", summary="The downgrade scheduled for the end of this period, if any")
+def me_pending_plan_change(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    org_id = _me_org_id(current_user)
+    pending = plan_change_service.get_pending_changes(db, org_id)
+    return {"pending": _change_payload(pending[0]) if pending else None}
+
+
+@billing_router.post("/me/pending-plan-change/cancel", summary="Cancel the scheduled downgrade and keep the current plan")
+def me_cancel_pending_plan_change(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    _me_billing_actor(current_user)
+    org_id = _me_org_id(current_user)
+    pending = plan_change_service.get_pending_changes(db, org_id)
+    if not pending:
+        raise BadRequestException("There is no scheduled plan change to cancel.")
+    for change in pending:
+        plan_change_service.cancel_plan_change(db, change.id, cancel_reason="canceled by the customer", canceled_by=current_user.email)
+    return {"pending": None}
 
 
 @billing_router.post(

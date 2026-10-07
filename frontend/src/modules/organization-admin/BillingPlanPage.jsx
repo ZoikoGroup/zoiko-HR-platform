@@ -9,6 +9,7 @@ import {
   BadgeCheck, Ban, Info, Zap, ExternalLink, Check,
 } from "lucide-react";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
+import PlanComparison from "../../components/PlanComparison";
 import { formatDate } from "../../utils/dateTime";
 
 const BLUE = "#3B82F6";
@@ -90,6 +91,8 @@ export default function OrgAdminBillingPlanPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
   const [impact, setImpact] = useState(null);
+  const [downgradeTarget, setDowngradeTarget] = useState(null); // the lower plan the customer is considering
+  const [pending, setPending] = useState(null); // a downgrade already scheduled for the end of the period
   const [toast, setToast] = useState(null);
   const [confirming, setConfirming] = useState(false);
   const confirmingRef = React.useRef(null);
@@ -213,6 +216,14 @@ export default function OrgAdminBillingPlanPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchKey, confirmSession, sub, user]);
 
+  const loadPending = useCallback(() => {
+    billingService.getMyPendingPlanChange()
+      .then((res) => setPending(res?.pending || null))
+      .catch(() => setPending(null));
+  }, []);
+
+  useEffect(() => { loadPending(); }, [loadPending]);
+
   const runAction = (key, fn, successMsg) => {
     setBusy(key);
     fn()
@@ -233,11 +244,36 @@ export default function OrgAdminBillingPlanPage() {
     runAction("reactivate", () => billingService.reactivateMySubscription({ reason: "reactivated-self-serve" }), "Subscription reactivated.");
   };
 
-  const handleDowngrade = () => {
+  // Picking a lower plan first shows exactly what changes; nothing happens until the customer confirms.
+  const openDowngrade = (plan) => {
+    setDowngradeTarget(plan);
+    setImpact(null);
     setBusy("impact");
-    billingService.myDowngradeImpact({ target_plan_code: "core" })
+    billingService.myDowngradeImpact({ target_plan_code: String(plan.code).toLowerCase() })
       .then((res) => setImpact(res))
-      .catch((err) => notify(err?.message || "Downgrade check failed.", "error"))
+      .catch((err) => { setDowngradeTarget(null); notify(err?.message || "Downgrade check failed.", "error"); })
+      .finally(() => setBusy(null));
+  };
+
+  const confirmDowngrade = () => {
+    if (!downgradeTarget) return;
+    setBusy("downgrade");
+    billingService.scheduleMyDowngrade({ target_plan_code: String(downgradeTarget.code).toLowerCase() })
+      .then((res) => {
+        notify(`Your plan will change to ${downgradeTarget.name} on ${fmtDate(res?.effective_at)}. Until then nothing changes.`, "success");
+        setDowngradeTarget(null);
+        setImpact(null);
+        loadPending();
+      })
+      .catch((err) => notify(err?.message || "The downgrade could not be scheduled.", "error"))
+      .finally(() => setBusy(null));
+  };
+
+  const keepCurrentPlan = () => {
+    setBusy("keep");
+    billingService.cancelMyPendingPlanChange()
+      .then(() => { notify("Your downgrade was cancelled. You stay on your current plan.", "success"); setPending(null); })
+      .catch((err) => notify(err?.message || "Could not cancel the downgrade.", "error"))
       .finally(() => setBusy(null));
   };
 
@@ -307,7 +343,8 @@ export default function OrgAdminBillingPlanPage() {
 
   const status = sub.status || "—";
   const planCode = sub.plan_code;
-  const planName = sub.plan_name || fmtPlanLabel(planCode);
+  const onEvaluation = String(sub.status || "").toLowerCase() === "evaluation";
+  const planName = sub.plan_name || (onEvaluation ? "Free evaluation" : fmtPlanLabel(planCode));
   const states = ent?.states || {};
   const stateList = Object.entries(states).sort(([a], [b]) => a.localeCompare(b));
 
@@ -351,7 +388,7 @@ export default function OrgAdminBillingPlanPage() {
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
         <StatTile icon={CreditCard} color={BLUE} bg={BLUE_100} label="Status" value={status.split("_").join(" ")} />
-        <StatTile icon={Package} color={EMERALD} bg={EMERALD_100} label="Current Plan" value={planName} sub={planCode ? `code: ${planCode}` : undefined} />
+        <StatTile icon={Package} color={EMERALD} bg={EMERALD_100} label="Current Plan" value={planName} sub={planCode ? `code: ${planCode}` : onEvaluation ? "14 days, no card needed. Pick a plan below to continue." : undefined} />
         <StatTile icon={Users} color={AMBER} bg={AMBER_100} label="Active Quantity" value={sub.quantity ?? "—"} sub="seats" />
         <StatTile icon={Clock} color={BLUE} bg={BLUE_100} label="Renewal Anchor" value={fmtDate(sub.renewal_anchor_date)} sub="renewal date" />
       </div>
@@ -399,6 +436,12 @@ export default function OrgAdminBillingPlanPage() {
               ["active", "past_due", "cancel_at_period_end", "suspended", "restricted"].includes(
                 String(status || "").toLowerCase()
               );
+            const RANK = { core: 1, advanced: 2, enterprise: 3 };
+            const hasLivePlan = ["active", "past_due", "cancel_at_period_end", "suspended", "restricted"].includes(String(status || "").toLowerCase()) && !!planCode;
+            const rel = !hasLivePlan ? "subscribe"
+              : isCurrent ? "current"
+              : (RANK[String(p.code).toLowerCase()] || 0) < (RANK[String(planCode).toLowerCase()] || 0) ? "downgrade" : "upgrade";
+            const scheduledHere = !!pending && String(pending.to_plan_code).toLowerCase() === String(p.code).toLowerCase();
             const price = billingCycle === "annual" ? p.annual_price : p.monthly_price;
             const priceLabel = p.is_contract_priced
               ? "Custom Pricing"
@@ -437,8 +480,8 @@ export default function OrgAdminBillingPlanPage() {
                 <div>
                   {!p.is_contract_priced ? (
                     <button
-                      onClick={() => handleStripeCheckout(p)}
-                      disabled={!canAct || currentIsLive || confirming || busy === `checkout-${p.id}`}
+                      onClick={() => (rel === "downgrade" ? openDowngrade(p) : handleStripeCheckout(p))}
+                      disabled={!canAct || currentIsLive || scheduledHere || confirming || busy === `checkout-${p.id}` || busy === "impact"}
                       title={currentIsLive ? "Your subscription already includes this plan." : undefined}
                       className={`w-full py-2.5 px-4 rounded-xl text-[12.5px] font-bold flex items-center justify-center gap-2 transition-all ${
                         !canAct || currentIsLive
@@ -457,9 +500,15 @@ export default function OrgAdminBillingPlanPage() {
                       )}
                       {currentIsLive
                         ? "Currently Subscribed"
+                        : scheduledHere
+                        ? `Switching on ${fmtDate(pending.effective_at)}`
+                        : rel === "downgrade"
+                        ? `Downgrade to ${p.name}`
+                        : rel === "upgrade"
+                        ? `Upgrade to ${p.name} via Stripe`
                         : isCurrent
                         ? "Pay & Renew Active Plan"
-                        : "Pay & Upgrade via Stripe"}
+                        : `Subscribe to ${p.name} via Stripe`}
                     </button>
                   ) : (
                     <button
@@ -485,40 +534,66 @@ export default function OrgAdminBillingPlanPage() {
           {canAct && status === "cancel_at_period_end" ? (
             <ActionButton Icon={RotateCcw} label="Reactivate" color={EMERALD} bg={EMERALD_100} onClick={handleReactivate} busy={busy === "reactivate"} disabled={busy} />
           ) : null}
-          {canAct ? (
-            <ActionButton Icon={AlertTriangle} label="Check downgrade impact" color={AMBER} bg={AMBER_100} onClick={handleDowngrade} busy={busy === "impact"} disabled={busy} />
-          ) : null}
           {!canAct ? (
             <span className="text-[12px] flex items-center gap-1.5" style={{ color: INK_SOFT }}>
               <ShieldCheck className="w-4 h-4" /> Changes require an organization billing authority.
             </span>
           ) : null}
         </div>
-        {impact ? (
-          <div className="mt-4 rounded-[12px] border p-4" style={{ borderColor: LINE, background: impact.eligible ? EMERALD_100 : RED_100 }}>
-            <p className="text-[13px] font-bold flex items-center gap-1.5" style={{ color: impact.eligible ? EMERALD : RED }}>
-              {impact.eligible ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-              {impact.eligible ? "Downgrade to Core is eligible" : "Downgrade to Core is not eligible"}
+        {pending ? (
+          <div className="mt-4 rounded-[12px] border p-4 flex flex-wrap items-center justify-between gap-3" style={{ borderColor: LINE, background: AMBER_100 }}>
+            <p className="text-[13px]" style={{ color: INK }}>
+              <b>Downgrade scheduled.</b> Your plan changes from {String(pending.from_plan_code || "").toUpperCase()} to {String(pending.to_plan_code || "").toUpperCase()} on <b>{fmtDate(pending.effective_at)}</b>. Until then everything stays as it is.
             </p>
-            <p className="text-[12px] mt-1" style={{ color: INK }}>
-              Current plan: <b>{String(impact.current_plan_code || "—").toUpperCase()}</b> → Target: <b>{String(impact.target_plan_code || "—").toUpperCase()}</b>
-            </p>
-            {(impact.blockers || []).length > 0 ? (
-              <ul className="mt-2 space-y-1">
-                {(impact.blockers || []).map((b, i) => (
-                  <li key={i} className="text-[12px] flex items-start gap-1.5" style={{ color: INK }}>
-                    <BadgeCheck className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
-                    <span className="capitalize">{b.category}: {b.reason || "feature would be lost"}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : null}
+            {canAct ? <ActionButton Icon={RotateCcw} label="Keep my current plan" color={EMERALD} bg={EMERALD_100} onClick={keepCurrentPlan} busy={busy === "keep"} disabled={busy} /> : null}
+          </div>
+        ) : null}
+        {downgradeTarget ? (
+          <div role="dialog" aria-label="Confirm downgrade" className="mt-4 rounded-[12px] border p-4" style={{ borderColor: LINE, background: impact && !impact.eligible ? RED_100 : "#F8FAFC" }}>
+            <p className="text-[13.5px] font-bold" style={{ color: INK }}>Downgrade to {downgradeTarget.name}</p>
+            {busy === "impact" || !impact ? (
+              <p className="text-[12px] mt-1" style={{ color: INK_SOFT }}>Checking what would change...</p>
+            ) : (
+              <>
+                <p className="text-[12px] mt-1" style={{ color: INK }}>
+                  {impact.eligible
+                    ? "It takes effect at the end of your current billing period. You keep everything you have until then, and your data is kept."
+                    : "This downgrade is blocked until the items below are resolved."}
+                </p>
+                {(impact.blockers || []).length > 0 ? (
+                  <ul className="mt-2 space-y-1">
+                    {(impact.blockers || []).map((b, i) => (
+                      <li key={i} className="text-[12px] flex items-start gap-1.5" style={{ color: INK }}>
+                        <BadgeCheck className="w-3.5 h-3.5 mt-0.5 flex-shrink-0" />
+                        <span>{b.message || b.reason || "A feature would be lost."}</span>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+                <div className="mt-3 flex gap-2">
+                  <ActionButton Icon={AlertTriangle} label={`Confirm downgrade to ${downgradeTarget.name}`} color={AMBER} bg={AMBER_100} onClick={confirmDowngrade} busy={busy === "downgrade"} disabled={busy || !impact.eligible} />
+                  <ActionButton Icon={XCircle} label="Cancel" color={INK_SOFT} bg="#F1F5F9" onClick={() => { setDowngradeTarget(null); setImpact(null); }} disabled={busy} />
+                </div>
+              </>
+            )}
           </div>
         ) : null}
       </div>
 
       <div className="mt-[18px] rounded-[16px] border bg-white p-5 shadow-[0_1px_2px_rgba(10,17,40,0.04)]" style={{ borderColor: LINE }}>
         <div className="flex items-center gap-2 mb-4">
+          <Package className="w-[18px] h-[18px]" strokeWidth={2.5} style={{ color: BLUE }} />
+          <div>
+            <h3 className="font-['Sora',system-ui,sans-serif] text-[14.5px] font-bold" style={{ color: INK }}>What each plan includes</h3>
+            <p className="text-[11.5px] mt-0.5" style={{ color: INK_SOFT }}>Your plan: {planName}. Features marked &ldquo;Not included&rdquo; need the Advanced plan.</p>
+          </div>
+        </div>
+        <PlanComparison highlight={planCode === "advanced" ? "advanced" : planCode === "core" ? "core" : null} />
+      </div>
+
+      <details className="mt-[18px] rounded-[16px] border bg-white p-5 shadow-[0_1px_2px_rgba(10,17,40,0.04)]" style={{ borderColor: LINE }}>
+        <summary className="cursor-pointer text-[12.5px] font-semibold" style={{ color: INK_SOFT }}>Technical entitlement status (for support)</summary>
+        <div className="flex items-center gap-2 mb-4 mt-4">
           <ShieldCheck className="w-[18px] h-[18px]" strokeWidth={2.5} style={{ color: BLUE }} />
           <div>
             <h3 className="font-['Sora',system-ui,sans-serif] text-[14.5px] font-bold" style={{ color: INK }}>Plan entitlements</h3>
@@ -544,7 +619,7 @@ export default function OrgAdminBillingPlanPage() {
             <p className="text-[13px]" style={{ color: INK_SOFT }}>No entitlement data returned.</p>
           )}
         </div>
-      </div>
+      </details>
     </div>
   );
 }

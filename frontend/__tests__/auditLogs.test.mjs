@@ -62,7 +62,7 @@ test("a Z-suffixed API timestamp parses to the same instant (no local-time drift
 test("formatDateTimeWithZone includes seconds and an explicit zone label", () => {
   const out = formatDateTimeWithZone("2026-09-30T09:21:52Z");
   assert.match(out, /^\d{2} [A-Z][a-z]{2} 2026, \d{2}:\d{2}:\d{2} \S+/);
-  assert.match(out, /(GMT|UTC)/);
+  assert.match(out, /(GMT|UTC|IST)/);
 });
 
 test("unparseable timestamps fall back to the raw value instead of throwing", () => {

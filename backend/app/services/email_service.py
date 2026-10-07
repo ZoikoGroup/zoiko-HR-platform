@@ -14,6 +14,7 @@ import html as _html
 import ssl
 import smtplib
 import logging
+import queue
 import threading
 import time
 from dataclasses import dataclass
@@ -553,7 +554,86 @@ def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
     return mixed
 
 
+# ═══════════════════════ Background sending ═══════════════════════
+#
+# One SMTP delivery takes several seconds (connect, TLS, login, send), and a request such as registration sends
+# five emails. Sent inside the request that took ~25 s, longer than the browser's 20 s timeout, so people were
+# told "the server took too long" for an account that had in fact been created. Request code now only queues the
+# message; a single worker thread sends them in order. Anything that needs the outcome (a workflow step passes
+# error_out, callers can pass wait=True) still sends immediately.
+
+_EMAIL_QUEUE: "queue.Queue" = queue.Queue()
+_email_worker = None
+_email_worker_lock = threading.Lock()
+
+
+def _async_enabled() -> bool:
+    import sys
+
+    if "pytest" in sys.modules:  # tests assert on the send itself
+        return False
+    return bool(getattr(_app_settings, "EMAIL_SEND_ASYNC", True))
+
+
+def _email_worker_loop() -> None:
+    while True:
+        job = _EMAIL_QUEUE.get()
+        try:
+            job()
+        except Exception:  # a bad message must never stop the worker
+            logger.exception("[email] background send failed")
+        finally:
+            _EMAIL_QUEUE.task_done()
+
+
+def _enqueue_email(job) -> None:
+    global _email_worker
+    with _email_worker_lock:
+        if _email_worker is None or not _email_worker.is_alive():
+            _email_worker = threading.Thread(target=_email_worker_loop, name="email-sender", daemon=True)
+            _email_worker.start()
+    _EMAIL_QUEUE.put(job)
+
+
+def flush_email_queue(timeout: float = 30.0) -> bool:
+    """Wait (up to timeout seconds) for queued emails to be sent, e.g. at shutdown. True when the queue drained."""
+    deadline = time.monotonic() + timeout
+    while _EMAIL_QUEUE.unfinished_tasks and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return not _EMAIL_QUEUE.unfinished_tasks
+
+
 def send_approval_email(
+    email: str,
+    template_name: str,
+    context: dict,
+    db=None,
+    organization_id=None,
+    attachments=None,
+    from_email_override=None,
+    from_display_name_override=None,
+    template_body: str = None,
+    error_out: list = None,
+    wait: bool = False,
+) -> bool:
+    """Queue (default) or immediately send an email. Returns True when it was queued or sent; the delivery result
+    is recorded in the email delivery log either way. wait=True, or passing error_out, sends before returning."""
+    if wait or error_out is not None or not _async_enabled():
+        return _send_approval_email_now(
+            email, template_name, context, db=db, organization_id=organization_id, attachments=attachments,
+            from_email_override=from_email_override, from_display_name_override=from_display_name_override,
+            template_body=template_body, error_out=error_out,
+        )
+    snapshot = dict(context)  # the caller's dict may change after we return
+    _enqueue_email(lambda: _send_approval_email_now(
+        email, template_name, snapshot, db=None, organization_id=organization_id, attachments=attachments,
+        from_email_override=from_email_override, from_display_name_override=from_display_name_override,
+        template_body=template_body, error_out=None,
+    ))
+    return True
+
+
+def _send_approval_email_now(
     email: str,
     template_name: str,
     context: dict,
@@ -595,7 +675,10 @@ def send_approval_email(
     envelope_from = smtp["from_email"]
     header_from = from_email_override or envelope_from
     to_email = email
-    sender_name = from_display_name_override or branding.get("company_name") or "Zoiko HR"
+    # The sender is always Zoiko HR (or the explicit override, e.g. "Zoiko HR Security"). It must not be the
+    # organization's own name: tenants choose that text, and a mailbox that shows "<their name>" as the sender of
+    # a platform email looks like impersonation.
+    sender_name = from_display_name_override or "Zoiko HR"
     reply_to = context.get("support_email") or branding.get("support_email")
 
     msg = _build_message(rendered, attachments)
@@ -886,7 +969,7 @@ def send_quotation_invoice_email(
     organization_id=None,
 ) -> bool:
     return send_approval_email(email, "invoice_sent.html", {
-        "subject": f"Invoice {invoice_number} from {{{{company_name}}}}",
+        "subject": f"Invoice {invoice_number} from Zoiko HR",
         "first_name": recipient_first_name,
         "organization_name": organization_name,
         "invoice_number": invoice_number,
@@ -922,7 +1005,7 @@ def send_invoice_email(
     attachments = [(pdf_filename or f"{invoice_number}.pdf", pdf_bytes)] if pdf_bytes else None
     balance_due = balance_due or total_amount
     return send_approval_email(email, "invoice_sent.html", {
-        "subject": f"Invoice {invoice_number} from {{{{company_name}}}} — {currency} {balance_due} due {due_date}",
+        "subject": f"Invoice {invoice_number} from Zoiko HR — {currency} {balance_due} due {due_date}",
         "login_url": _login_url(),
         "customer_name": customer_name,
         "recipient_first_name": recipient_first_name or customer_name,
@@ -1017,7 +1100,7 @@ def send_payment_receipt_email(
     db=None,
 ) -> bool:
     return send_approval_email(email, "payment_received.html", {
-        "subject": f"Payment received by {{{{company_name}}}}",
+        "subject": "We received your payment — thank you",
         "login_url": _login_url(),
         "customer_name": customer_name,
         "payment_number": payment_number,
@@ -1082,7 +1165,7 @@ def send_refund_email(
 ) -> bool:
     attachments = [(pdf_filename or f"{refund_number}.pdf", pdf_bytes)] if pdf_bytes else None
     return send_approval_email(email, "refund_processed.html", {
-        "subject": f"Your refund from {{{{company_name}}}} is complete",
+        "subject": f"Your refund from Zoiko HR is complete",
         "login_url": _login_url(),
         "customer_name": customer_name,
         "refund_number": refund_number,

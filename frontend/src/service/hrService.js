@@ -777,6 +777,8 @@ export const deleteDepartment = (deptId) =>
 export const getDepartments = (params = {}) => api.get("/hr/departments", { params }).then(data => ({ data }));
 export const getDesignations = (params) => api.get("/hr/designations", { params });
 // Server-computed report for the Designation Reports page (totals, per-department table, trends).
+export const getDesignationSettings = (params = {}) => api.get("/hr/designations/settings", { params });
+export const saveDesignationSettings = (payload) => api.put("/hr/designations/settings", payload);
 export const getDesignationReport = (params) => api.get("/hr/designations/report", { params });
 
 // ── DESIGNATIONS CRUD SPECIFIC ──────────────────────────────────────────────

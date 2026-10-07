@@ -47,6 +47,7 @@ const ZoikoSuitePage = lazy(() => import("./pages/public/eco-system/ZoikoSuitePa
 const ZoikoSemaPage = lazy(() => import("./pages/public/eco-system/ZoikoSemaPage"));
 const ZoikoLocalPage = lazy(() => import("./pages/public/eco-system/ZoikoLocalPage"));
 const ZoikoDigitalPage = lazy(() => import("./pages/public/eco-system/ZoikoDigitalPage"));
+import PlanGate from "./components/PlanGate";
 import ProtectedRoute from "./components/ProtectedRoute";
 import ErrorBoundary from "./components/ErrorBoundary";
 
@@ -270,7 +271,7 @@ const routeOverrides = {
   "/zoiko-hr/attendance/shifts": <ZoikoHRAttendanceShifts />,
   "/zoiko-hr/attendance/holidays": <ZoikoHRAttendanceHolidays />,
   "/zoiko-hr/attendance/analytics": <ZoikoHRAttendanceAnalytics />,
-  "/zoiko-hr/performance": <PerformanceDashboard />,
+  "/zoiko-hr/performance": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceDashboard /></PlanGate>,
   "/zoiko-hr/recruitment": <RecruitmentDashboard />,
   "/zoiko-hr/onboarding": <ZoikoHROnboardingDashboard />,
   "/zoiko-hr/onboarding/new-hires": <ZoikoHROnboardingNewHires />,
@@ -331,10 +332,10 @@ const routeOverrides = {
   "/zoiko-hr/recruitment/interviews": <Interviews />,
   "/zoiko-hr/recruitment/offers": <OfferManagement />,
   // Performance
-  "/zoiko-hr/performance/goals": <GoalsOKRs />,
-  "/zoiko-hr/performance/reviews": <PerformanceReviews />,
-  "/zoiko-hr/performance/appraisals": <Appraisals />,
-  "/zoiko-hr/performance/analytics": <PerformanceAnalytics />,
+  "/zoiko-hr/performance/goals": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><GoalsOKRs /></PlanGate>,
+  "/zoiko-hr/performance/reviews": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceReviews /></PlanGate>,
+  "/zoiko-hr/performance/appraisals": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><Appraisals /></PlanGate>,
+  "/zoiko-hr/performance/analytics": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceAnalytics /></PlanGate>,
   // Documents
   "/zoiko-hr/documents": <DocumentsDashboard />,
   "/zoiko-hr/documents/company-documents": <CompanyDocuments />,

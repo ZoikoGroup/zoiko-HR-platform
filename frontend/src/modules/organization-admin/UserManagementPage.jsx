@@ -1,6 +1,8 @@
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { importEmployees, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
+import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
+import { phoneError, PHONE_MAX_LENGTH } from "../../utils/phone";
 import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser, getAssignableRoles } from "../../service/userService";
 import {
   Users,
@@ -116,7 +118,7 @@ const ADD_USER_SECTIONS = [
     { name: "first_name", label: "First name", required: true, placeholder: "John" },
     { name: "last_name", label: "Last name", required: true, placeholder: "Doe" },
     { name: "email", label: "Email", required: true, type: "email", placeholder: "john.doe@company.com" },
-    { name: "phone", label: "Phone", placeholder: "+1-555-0100" },
+    { name: "phone", label: "Phone", type: "tel", placeholder: "+91 9876543210" },
     { name: "role", label: "Role", required: true },
     { name: "job_title", label: "Job title", required: true, placeholder: "Software Engineer" },
   ] },
@@ -220,9 +222,8 @@ export default function OrgAdminUserManagementPage() {
           : "Employee",
         roleValue: e.role || "employee",
         title: e.jobTitle || e.job_title || "",
-        status: e.status
-          ? e.status.charAt(0).toUpperCase() + e.status.slice(1).replace(/_/g, " ")
-          : "Active",
+        // the same resolver the ZoikoHR dashboard uses, so both screens always say the same thing
+        status: (() => { const label = resolveEmployeeDisplayStatus(e).label; return label === "Working" ? "Active" : label; })(),
       })));
       setLoadError(null);
     } catch (err) {
@@ -243,7 +244,9 @@ export default function OrgAdminUserManagementPage() {
   }, [notice]);
 
   const total = users.length;
-  const active = users.filter((u) => u.status === "Active").length;
+  // someone on leave still has a working account: only the other states are "not active"
+  const isLiveAccount = (u) => u.status === "Active" || u.status === "On Leave";
+  const active = users.filter(isLiveAccount).length;
   const inactive = total - active;
 
   const filtered = useMemo(() => {
@@ -254,7 +257,7 @@ export default function OrgAdminUserManagementPage() {
       const matchesRole = role === "All roles" || u.role === role;
       const matchesStatus =
         status === "All statuses" ||
-        (status === "Active" ? u.status === "Active" : u.status !== "Active");
+        (status === "Active" ? isLiveAccount(u) : !isLiveAccount(u));
       return matchesSearch && matchesRole && matchesStatus;
     });
   }, [users, search, role, status]);
@@ -400,6 +403,8 @@ export default function OrgAdminUserManagementPage() {
     if (!formData.role) errors.role = "Role is required";
     if (!formData.job_title.trim()) errors.job_title = "Job title is required";
     if (!formData.date_of_joining) errors.date_of_joining = "Date of joining is required";
+    const phoneProblem = phoneError(formData.phone);
+    if (phoneProblem) errors.phone = phoneProblem;
     ["work_email", "personal_email"].forEach((k) => {
       if (formData[k].trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData[k])) errors[k] = "Invalid email";
     });
@@ -464,6 +469,11 @@ export default function OrgAdminUserManagementPage() {
     e.preventDefault();
     if (!editForm.first_name.trim()) { setEditErrors({ first_name: "Required" }); return; }
     if (!editForm.last_name.trim()) { setEditErrors({ last_name: "Required" }); return; }
+    // only a number that was changed is checked, so details of someone with an older number can still be saved
+    if (editForm.phone.trim() !== (editModal.phone || "").trim()) {
+      const phoneProblem = phoneError(editForm.phone);
+      if (phoneProblem) { setEditErrors({ phone: phoneProblem }); return; }
+    }
     setSaving(true);
     try {
       await updateUser(editModal.id, {
@@ -806,8 +816,8 @@ export default function OrgAdminUserManagementPage() {
                     <span style={{
                       display:'inline-flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:100,
                       fontSize:11.5, fontWeight:700,
-                      background:u.status==='Active'?'#D1FAE5':'#FEE2E2',
-                      color:u.status==='Active'?'#10B981':'#EF4444'
+                      background:u.status==='Active'?'#D1FAE5':u.status==='On Leave'?'#DBEAFE':'#FEE2E2',
+                      color:u.status==='Active'?'#10B981':u.status==='On Leave'?'#3B82F6':'#EF4444'
                     }}>
                       <span style={{ width:6, height:6, borderRadius:'50%', background:'currentColor' }} />
                       {u.status}
@@ -817,7 +827,7 @@ export default function OrgAdminUserManagementPage() {
                     <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
                       {[
                         { icon:Pencil, label:'Edit', cls:'edit', onClick:() => openEdit(u) },
-                        u.status === 'Active'
+                        isLiveAccount(u)
                           ? { icon:Ban, label:'Deactivate', cls:'', onClick:() => handleDeactivate(u) }
                           : { icon:CircleCheck, label:'Activate', cls:'edit', onClick:() => handleActivate(u) },
                         { icon:Archive, label:'Archive', cls:'', onClick:() => handleArchive(u) },
@@ -1017,7 +1027,10 @@ export default function OrgAdminUserManagementPage() {
                         formErrors[f.name] ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
                       }`;
                       const value = formData[f.name] ?? "";
-                      const set = (e) => setFormData({ ...formData, [f.name]: e.target.value });
+                      const set = (e) => {
+                        setFormData({ ...formData, [f.name]: e.target.value });
+                        if (formErrors[f.name]) setFormErrors((prev) => ({ ...prev, [f.name]: undefined }));
+                      };
                       return (
                         <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
                           <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
@@ -1040,6 +1053,9 @@ export default function OrgAdminUserManagementPage() {
                             </div>
                           ) : (
                             <input id={id} type={f.type || "text"} value={value} onChange={set} className={cls}
+                              maxLength={f.name === "phone" ? PHONE_MAX_LENGTH : undefined} inputMode={f.name === "phone" ? "tel" : undefined}
+                              onBlur={f.name === "phone" ? () => setFormErrors((prev) => ({ ...prev, phone: phoneError(formData.phone) || undefined })) : undefined}
+                              aria-invalid={formErrors[f.name] ? "true" : undefined}
                               placeholder={f.placeholder} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
                           )}
                           {formErrors[f.name] && <p className="mt-1 text-xs text-red-500">{formErrors[f.name]}</p>}
@@ -1210,8 +1226,12 @@ export default function OrgAdminUserManagementPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input type="text" value={editForm.phone} onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
-                    className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]" placeholder="+1-555-0100" />
+                  <input type="tel" inputMode="tel" maxLength={PHONE_MAX_LENGTH} value={editForm.phone}
+                    onChange={(e) => { setEditForm({ ...editForm, phone: e.target.value }); if (editErrors.phone) setEditErrors({ ...editErrors, phone: undefined }); }}
+                    onBlur={() => { if (editForm.phone.trim() !== (editModal?.phone || "").trim()) setEditErrors((prev) => ({ ...prev, phone: phoneError(editForm.phone) || undefined })); }}
+                    aria-invalid={editErrors.phone ? "true" : undefined}
+                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${editErrors.phone ? "border-red-300" : "border-gray-200 focus:border-[#3B82F6]"}`} placeholder="+91 9876543210" />
+                  {editErrors.phone && <p className="mt-1 text-xs text-red-500">{editErrors.phone}</p>}
                 </div>
               </div>
               <div>

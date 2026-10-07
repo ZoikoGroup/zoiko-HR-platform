@@ -67,6 +67,7 @@ export default function Holidays() {
   const [importError, setImportError] = useState("");
   const [importResult, setImportResult] = useState(null);
   const [importing, setImporting] = useState(false);
+  const [notice, setNotice] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -128,11 +129,24 @@ export default function Holidays() {
       setShowModal(false);
       const data = await getHolidays();
       setHolidays(Array.isArray(data) ? data : data?.items || []);
+      const where = showMonthOf(payload.date);
+      setNotice(`${editHoliday ? "Holiday updated" : "Holiday added"}${where ? `. Showing ${where}.` : "."}`);
     } catch (err) {
       setFormErrors({ submit: err.message || "Failed to save holiday" });
     } finally {
       setSubmitting(false);
     }
+  };
+
+  // After a holiday is added the calendar jumps to its month, otherwise a holiday in another month or year
+  // (for example one for next January) looks like it was never saved.
+  const showMonthOf = (isoDate) => {
+    const [y, m] = String(isoDate || "").substring(0, 10).split("-").map(Number);
+    if (!y || !m) return "";
+    setCurrentYear(y);
+    setCurrentMonth(m - 1);
+    setView("calendar");
+    return `${MONTHS[m - 1]} ${y}`;
   };
 
   const handleDelete = async (id) => {
@@ -183,14 +197,19 @@ export default function Holidays() {
     setImporting(true);
     setImportError("");
     try {
-      const rows = importPreview.valid.map(({ _row, ...row }) => row);
+      const rows = importPreview.valid.map(({ _row, _assumed, ...row }) => row);
       const result = await importHolidays({ holidays: rows });
       // the server numbers rows within what we sent; show them against the user's own file lines
       const errors = (result?.errors || []).map((er) => ({ ...er, row: importPreview.valid[er.row - 1]?._row ?? er.row }));
       setImportResult({ ...result, errors: [...importPreview.problems, ...errors] });
+      const sentDates = importPreview.valid.map((r) => r.date).sort();
       setImportPreview(null);
       const data = await getHolidays();
       setHolidays(Array.isArray(data) ? data : data?.items || []);
+      if (result?.imported > 0 && sentDates.length) {
+        const where = showMonthOf(sentDates[0]);
+        setNotice(`${result.imported} holiday${result.imported === 1 ? "" : "s"} imported${where ? `. Showing ${where}.` : "."}`);
+      }
     } catch (err) {
       setImportError(err?.message || "Failed to import holidays");
     } finally {
@@ -241,6 +260,13 @@ export default function Holidays() {
           <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 font-medium rounded-xl flex items-center justify-between shadow-sm">
             <span>{error}</span>
             <button onClick={() => setError(null)} className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          </div>
+        )}
+
+        {notice && (
+          <div role="status" className="px-4 py-3 bg-green-50 border border-green-200 text-green-800 font-medium rounded-xl flex items-center justify-between shadow-sm">
+            <span>{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss" className="text-green-600 hover:text-green-900 text-lg">&times;</button>
           </div>
         )}
 
@@ -502,11 +528,11 @@ export default function Holidays() {
                       </button>
                       {importFileName && <span className="text-sm font-semibold text-gray-600 truncate">{importFileName}</span>}
                     </div>
-                    <p className="text-xs text-gray-500 font-medium">Upload a .csv or Excel file with columns Name, Date, Type (Public, Company or Optional), Description and Recurring. Or paste CSV / JSON below.</p>
+                    <p className="text-xs text-gray-500 font-medium">Upload a .csv or Excel file, or paste one holiday per line as Name, Date, Type (Public, Company or Optional). A header row is optional. Dates can be 2027-01-01, 01/01/2027 or 1 Jan 2027; for New Year, Christmas, Republic Day and other fixed-date holidays a year alone is enough.</p>
                     <textarea rows={5} value={importData} onChange={(e) => { setImportData(e.target.value); setImportError(""); setImportPreview(null); }}
                       aria-label="Paste holidays"
                       className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-3 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 transition-colors"
-                      placeholder={"Name,Date,Type\nNew Year,2027-01-01,Public"} />
+                      placeholder={"New Year, 2027-01-01, Public\nFounders Day, 10 Mar 2027, Company"} />
 
                     {importPreview && (
                       <div className="space-y-2">
@@ -519,7 +545,7 @@ export default function Holidays() {
                               <thead className="bg-gray-50 text-xs uppercase text-gray-500"><tr><th className="px-3 py-2 text-left">Name</th><th className="px-3 py-2 text-left">Date</th><th className="px-3 py-2 text-left">Type</th><th className="px-3 py-2 text-left">Recurring</th></tr></thead>
                               <tbody className="divide-y divide-gray-100">
                                 {importPreview.valid.map((r) => (
-                                  <tr key={r._row}><td className="px-3 py-1.5 font-semibold">{r.name}</td><td className="px-3 py-1.5">{r.date}</td><td className="px-3 py-1.5">{r.type}</td><td className="px-3 py-1.5">{r.is_recurring ? "Yes" : "No"}</td></tr>
+                                  <tr key={r._row}><td className="px-3 py-1.5 font-semibold">{r.name}</td><td className="px-3 py-1.5">{r.date}{r._assumed && <span className="ml-1 text-xs text-amber-600" title="Only the year was given, so the usual date for this holiday was used. Edit it later if yours differs.">(date filled in)</span>}</td><td className="px-3 py-1.5">{r.type}</td><td className="px-3 py-1.5">{r.is_recurring ? "Yes" : "No"}</td></tr>
                                 ))}
                               </tbody>
                             </table>
