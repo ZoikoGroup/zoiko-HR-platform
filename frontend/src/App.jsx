@@ -15,6 +15,8 @@ function ModuleSpinner() {
 const HomePage = lazy(() => import("./pages/public/HomePage"));
 import LoginPage from "./pages/auth/LoginPage";
 const ForgotPasswordPage = lazy(() => import("./pages/auth/ForgotPasswordPage"));
+const ResetPasswordPage = lazy(() => import("./pages/auth/ResetPasswordPage"));
+const TermsPage = lazy(() => import("./pages/legal/TermsPage"));
 const QuotationDecisionPage = lazy(() => import("./pages/auth/QuotationDecisionPage"));
 const ChangePasswordPage = lazy(() => import("./pages/auth/ChangePasswordPage"));
 const RegisterPage = lazy(() => import("./pages/auth/RegisterPage"));
@@ -481,6 +483,8 @@ export default function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/terms" element={<TermsPage />} />
         <Route path="/quotation/decide" element={<QuotationDecisionPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/register" element={<RegisterPage />} />

@@ -14,6 +14,7 @@ import { getHrDashboardStats, getHrEmployees, getDepartments, getAttendanceDashb
 import { getOrganizationDetails } from "../../service/orgAdminService";
 import { createEmployee, getDesignations } from "../../service/employee";
 import { pick, employeeName, employeeInitials } from "../../utils/fieldAccess";
+import { validateAddEmployee, addEmployeePayload, serverAddEmployeeErrors } from "../../utils/addEmployeeForm";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
@@ -84,14 +85,6 @@ const EMPLOYMENT_TYPES = [
   { value: "probation", label: "Probation" },
 ];
 
-const EMPLOYEE_STATUSES = [
-  { value: "active", label: "Active" },
-  { value: "on_leave", label: "On Leave" },
-  { value: "inactive", label: "Inactive" },
-  { value: "resigned", label: "Resigned" },
-  { value: "terminated", label: "Terminated" },
-];
-
 const EMPTY_EMPLOYEE_FORM = {
   first_name: "",
   last_name: "",
@@ -101,7 +94,6 @@ const EMPTY_EMPLOYEE_FORM = {
   department_id: "",
   designation_id: "",
   employment_type: "full_time",
-  status: "active",
   date_of_joining: "",
   basic_salary: "",
   ctc: "",
@@ -118,7 +110,6 @@ const REPORT_LINKS = [
   { icon: TrendingUp, title: "Onboarding Reports", description: "New hire joining and task completion", href: "/zoiko-hr/onboarding/reports" },
 ];
 
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const fieldClass = (invalid) =>
   `w-full bg-gray-50 border ${invalid ? "border-red-400" : "border-gray-200"} rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors`;
@@ -207,6 +198,7 @@ export default function HrDashBoard() {
   const [addOpen, setAddOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
   const [toast, setToast] = useState(null);
+  const [newLogin, setNewLogin] = useState(null);   // the one-time login of the person just added
   const [form, setForm] = useState(EMPTY_EMPLOYEE_FORM);
   const [formErrors, setFormErrors] = useState({});
   const [saving, setSaving] = useState(false);
@@ -308,42 +300,25 @@ export default function HrDashBoard() {
     setFormErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
   };
 
-  const validateEmployee = () => {
-    const errs = {};
-    if (!form.first_name.trim()) errs.first_name = "First name is required";
-    if (!form.last_name.trim()) errs.last_name = "Last name is required";
-    if (!form.email.trim()) errs.email = "Email is required";
-    else if (!EMAIL_RE.test(form.email.trim())) errs.email = "Enter a valid email address";
-    setFormErrors(errs);
-    return Object.keys(errs).length === 0;
-  };
-
   const handleAddSubmit = async (e) => {
     e.preventDefault();
-    if (!validateEmployee()) return;
+    if (saving) return;
+    const problems = validateAddEmployee(form);
+    setFormErrors(problems);
+    if (Object.keys(problems).length) return;
     setSaving(true);
     try {
-      await createEmployee({
-        first_name: form.first_name.trim(),
-        last_name: form.last_name.trim(),
-        email: form.email.trim(),
-        phone: form.phone.trim() || null,
-        job_title: form.job_title.trim(),
-        employment_type: form.employment_type,
-        status: form.status,
-        department_id: form.department_id ? Number(form.department_id) : null,
-        designation_id: form.designation_id ? Number(form.designation_id) : null,
-        date_of_joining: form.date_of_joining || null,
-        basic_salary: form.basic_salary ? Number(form.basic_salary) : null,
-        ctc: form.ctc ? Number(form.ctc) : null,
-      });
+      const created = await createEmployee(addEmployeePayload(form));
       const name = `${form.first_name.trim()} ${form.last_name.trim()}`;
       setAddOpen(false);
       setForm(EMPTY_EMPLOYEE_FORM);
       setToast({ text: `${name} added to the employee directory.` });
+      const temp = created?.temporaryPassword || created?.temporary_password;
+      if (temp) setNewLogin({ name, email: created?.email || form.email.trim(), password: temp });
       fetchData();
     } catch (err) {
-      setFormErrors({ submit: err.message || "Failed to add employee" });
+      const { fieldErrors, message } = serverAddEmployeeErrors(err);
+      setFormErrors({ ...fieldErrors, ...(message ? { submit: message } : {}) });
     } finally {
       setSaving(false);
     }
@@ -497,6 +472,19 @@ export default function HrDashBoard() {
       {error && (
         <div className="mb-4 rounded-[14px] border p-4 text-sm" style={{ background: RED_100, borderColor: RED, color: RED }}>
           {error}
+        </div>
+      )}
+
+      {newLogin && (
+        <div role="dialog" aria-modal="true" aria-label="Temporary login" className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-6">
+            <h3 className="text-base font-bold text-gray-900">{newLogin.name} can now sign in</h3>
+            <p className="text-sm text-gray-600 mt-2">A welcome e-mail with these details was sent to {newLogin.email}. This temporary password is shown only once; they must change it at first sign-in.</p>
+            <div className="mt-4 rounded-xl bg-gray-50 border border-gray-200 px-4 py-3 font-mono text-sm text-gray-900 select-all" data-testid="temp-password">{newLogin.password}</div>
+            <div className="mt-5 flex justify-end">
+              <button type="button" onClick={() => setNewLogin(null)} className="px-5 py-2.5 text-sm font-bold bg-blue-600 hover:bg-blue-700 text-white rounded-xl cursor-pointer">Done</button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -946,13 +934,13 @@ export default function HrDashBoard() {
             <div className="bg-gradient-to-r from-blue-600 to-blue-700 px-6 py-5 flex justify-between items-center">
               <div>
                 <h2 className="text-lg font-bold text-white">Add Employee</h2>
-                <p className="text-xs text-blue-100 mt-0.5">Creates a directory record and portal login.</p>
+                <p className="text-xs text-blue-100 mt-0.5">Creates a directory record and a portal login. A temporary password is generated and e-mailed; no password is needed here.</p>
               </div>
               <button onClick={() => setAddOpen(false)} className="text-blue-200 hover:text-white transition-colors cursor-pointer" aria-label="Close"><X className="w-5 h-5" /></button>
             </div>
 
             <div className="p-6 overflow-y-auto">
-              <form id="add-employee-form" onSubmit={handleAddSubmit} className="space-y-5">
+              <form id="add-employee-form" onSubmit={handleAddSubmit} noValidate className="space-y-5">
                 {formErrors.submit && (
                   <div className="text-red-700 text-sm font-semibold bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{formErrors.submit}</div>
                 )}
@@ -973,15 +961,15 @@ export default function HrDashBoard() {
                     <input type="email" value={form.email} onChange={updateForm("email")} placeholder="name@company.com"
                       className={fieldClass(!!formErrors.email)} />
                   </Field>
-                  <Field label="Phone">
-                    <input type="tel" value={form.phone} onChange={updateForm("phone")} placeholder="Optional"
-                      className={fieldClass(false)} />
+                  <Field label="Phone" error={formErrors.phone}>
+                    <input type="tel" value={form.phone} onChange={updateForm("phone")} placeholder="Optional, e.g. +91 9876543210"
+                      className={fieldClass(!!formErrors.phone)} />
                   </Field>
                 </div>
 
-                <Field label="Job Title">
+                <Field label="Job Title" required error={formErrors.job_title}>
                   <input type="text" value={form.job_title} onChange={updateForm("job_title")} placeholder="e.g. Software Engineer"
-                    className={fieldClass(false)} />
+                    className={fieldClass(!!formErrors.job_title)} />
                 </Field>
 
                 <div className="grid grid-cols-2 gap-4">
@@ -999,30 +987,23 @@ export default function HrDashBoard() {
                   </Field>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Employment Type">
-                    <select value={form.employment_type} onChange={updateForm("employment_type")} className={fieldClass(false)}>
-                      {EMPLOYMENT_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </Field>
-                  <Field label="Status">
-                    <select value={form.status} onChange={updateForm("status")} className={fieldClass(false)}>
-                      {EMPLOYEE_STATUSES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
-                    </select>
-                  </Field>
-                </div>
+                <Field label="Employment Type">
+                  <select value={form.employment_type} onChange={updateForm("employment_type")} className={fieldClass(false)}>
+                    {EMPLOYMENT_TYPES.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+                  </select>
+                </Field>
 
                 <div className="grid grid-cols-3 gap-4">
-                  <Field label="Date of Joining">
-                    <input type="date" value={form.date_of_joining} onChange={updateForm("date_of_joining")} className={fieldClass(false)} />
+                  <Field label="Date of Joining" required error={formErrors.date_of_joining}>
+                    <input type="date" value={form.date_of_joining} onChange={updateForm("date_of_joining")} className={fieldClass(!!formErrors.date_of_joining)} />
                   </Field>
-                  <Field label="Basic Salary">
+                  <Field label="Basic Salary" error={formErrors.basic_salary}>
                     <input type="number" min="0" step="0.01" value={form.basic_salary} onChange={updateForm("basic_salary")} placeholder="0.00"
-                      className={fieldClass(false)} />
+                      className={fieldClass(!!formErrors.basic_salary)} />
                   </Field>
-                  <Field label="CTC">
+                  <Field label="CTC" error={formErrors.ctc}>
                     <input type="number" min="0" step="0.01" value={form.ctc} onChange={updateForm("ctc")} placeholder="0.00"
-                      className={fieldClass(false)} />
+                      className={fieldClass(!!formErrors.ctc)} />
                   </Field>
                 </div>
               </form>

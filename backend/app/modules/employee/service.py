@@ -359,9 +359,14 @@ def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tu
 def _action_link(purpose, raw_token: str) -> str:
     from app.config import settings
 
+    if purpose != SecurityActionPurpose.INVITE:
+        # A reset link opens the app's own "Choose a new password" page, which reaches the API through the app's configured
+        # address. It no longer depends on API_BASE_URL (which defaults to localhost and made emailed links dead on a server
+        # where nobody had set it).
+        frontend = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+        return f"{frontend}/reset-password?token={raw_token}"
     base = (settings.API_BASE_URL or "http://localhost:8000").rstrip("/")
-    path = "accept-invite" if purpose == SecurityActionPurpose.INVITE else "reset-password"
-    return f"{base}/auth/{path}?token={raw_token}"
+    return f"{base}/auth/accept-invite?token={raw_token}"
 
 
 def _consume_action_token(db: Session, raw_token: str, purpose) -> Optional[dict]:
@@ -475,6 +480,12 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
 
+    return issue_login(db, employee)
+
+
+def issue_login(db: Session, employee: Employee) -> dict:
+    """Everything that must be true before someone may sign in (their organization, its evaluation, their account), then
+    the tokens. Shared by the password sign-in and Sign in with Google, so both obey the same rules."""
     # A deleted organization is invisible to normal queries, so check it explicitly
     # and tell the user why, instead of a generic "invalid credentials".
     from app.modules.super_admin import organization_service
@@ -1221,6 +1232,55 @@ def request_password_reset(db: Session, email: str) -> dict:
     return {"message": generic_message}
 
 
+def request_own_password_reset(db: Session, employee: Employee) -> dict:
+    """A signed-in user who does not remember their current password asks for a reset link. The link goes only to the
+    email address on their own account, so any role (including a plain employee) can use it."""
+    if not employee.is_active:
+        raise BadRequestException("This account is deactivated.")
+    raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.RESET)
+    db.commit()
+    _notify_email_async(
+        "send_org_admin_password_reset_email",
+        email=employee.email,
+        first_name=employee.first_name or _full_name(employee),
+        expires_at_local=_format_token_datetime(expires_at),
+        timezone=TOKEN_TIMEZONE,
+        action_url=_action_link(SecurityActionPurpose.RESET, raw_token),
+        organization_id=employee.organization_id,
+    )
+    return {"message": "A password reset link has been sent to the email address on your account.", "email": _mask_email(employee.email)}
+
+
+def _mask_email(email: str) -> str:
+    name, _, domain = (email or "").partition("@")
+    return f"{name[:2]}{'*' * max(len(name) - 2, 1)}@{domain}"
+
+
+def hr_recipients(db: Session, employee: Employee) -> list[Employee]:
+    """The active HR admins of the person's organization; if there are none, the organization admins."""
+    base = db.query(Employee).filter(Employee.organization_id == employee.organization_id, Employee.is_active == True, Employee.id != employee.id)  # noqa: E712
+    people = base.filter(Employee.role == UserRole.HR_ADMIN).all()
+    return people or base.filter(Employee.role == UserRole.ADMIN).all()
+
+
+def contact_hr(db: Session, employee: Employee, topic: str, message: str) -> dict:
+    """Email an employee's message to their HR team, with the sender's name and address so HR can answer them."""
+    recipients = hr_recipients(db, employee)
+    if not recipients:
+        raise BadRequestException("No HR contact is set up for your organization yet. Please speak to your manager.")
+    name = _full_name(employee)
+    subject = f"[Employee request] {topic} - {name}"
+    body = (
+        f"{name} ({employee.email}) sent a message to HR from the employee portal.\n"
+        f"Topic: {topic}\n"
+        f"Message:\n{message}\n"
+        f"Reply to {employee.email} to answer them."
+    )
+    for person in recipients:
+        _notify_email_async("send_plain_email", to_email=person.email, subject=subject, body=body, organization_id=employee.organization_id)
+    return {"message": "Your message has been sent to the HR team.", "sent_to": len(recipients)}
+
+
 def reset_user_password(
     db: Session,
     user_id: int,
@@ -1333,9 +1393,12 @@ def create_employee(
         employee_data.pop("organization_id", None)
         if not resolved_org_id:
             raise BadRequestException("organization_id is required to create an employee")
+        generated = not data.password
+        initial_password = data.password or _generate_temp_password()
         employee = Employee(
             **employee_data,
-            hashed_password=hash_password(data.password),
+            hashed_password=hash_password(initial_password),
+            must_change_password=True if generated else False,
             employee_code=generate_employee_code(db, organization_id=resolved_org_id),
             organization_id=resolved_org_id,
         )
@@ -1346,6 +1409,8 @@ def create_employee(
         emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
 
         _record_employee_added(db, actor, employee, resolved_org_id)
+        if generated:
+            employee.temporary_password = initial_password      # not stored: shown once in the reply to whoever added them
 
         _notify_email(
             "send_employee_welcome_email",
@@ -1353,7 +1418,7 @@ def create_employee(
             employee_name=_full_name(employee),
             first_name=employee.first_name or _full_name(employee),
             workspace_name=_org_workspace_name(db, resolved_org_id),
-            temporary_password=data.password,
+            temporary_password=initial_password,
             organization_id=resolved_org_id,
             db=db,
         )

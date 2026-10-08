@@ -2,7 +2,11 @@ import { useState, useEffect, useMemo, useCallback } from "react";
 import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { getWfSuccessions, createWfSuccession, updateWfSuccession, deleteWfSuccession, getHrEmployees } from "../../../service/hrService";
-import { Plus, Search, Edit3, Trash2, X, Users, AlertTriangle, CheckCircle, Clock } from "lucide-react";
+import { Plus, Search, Edit3, Trash2, X, Users, AlertTriangle, CheckCircle } from "lucide-react";
+import { employeeOptions } from "../../../utils/employeeOptions";
+import {
+  READINESS_LEVELS, RISK_LEVELS, EMPTY_SUCCESSION, successionToForm, validateSuccession, successionPayload, serverSuccessionErrors, refusalField,
+} from "../../../utils/successionForm";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/workforce-planning" },
@@ -45,14 +49,6 @@ const RISK_COLORS = {
   critical: "bg-red-100 text-red-700",
 };
 
-const READINESS_LEVELS = ["not_ready", "moderately_ready", "ready", "fully_ready"];
-const RISK_LEVELS = ["low", "medium", "high", "critical"];
-
-function validateForm(data) {
-  const errors = {};
-  if (!data.employee_id) errors.employee_id = "Employee is required";
-  return errors;
-}
 
 function StatCard({ title, value, icon: Icon, color }) {
   return (
@@ -81,9 +77,11 @@ export default function SuccessionPlanning() {
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({ employee_id: "", successor_employee_id: "", readiness_level: "not_ready", risk_level: "medium", target_position: "", review_date: "", notes: "" });
+  const [form, setForm] = useState({ ...EMPTY_SUCCESSION });
   const [formErrors, setFormErrors] = useState({});
   const [employees, setEmployees] = useState([]);
+  const [employeesReady, setEmployeesReady] = useState(false);
+  const [employeesFailed, setEmployeesFailed] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null);
@@ -96,7 +94,11 @@ export default function SuccessionPlanning() {
 
   useEffect(() => {
     fetchData();
-    getHrEmployees({ per_page: 100 }).then((res) => { if (res?.items) setEmployees(res.items); }).catch(() => {});
+    // the employees API answers with a plain list on some deployments and { items } on others: read both
+    getHrEmployees({ per_page: 200, include_all_roles: true })
+      .then((res) => setEmployees(employeeOptions(res)))
+      .catch(() => { setEmployees([]); setEmployeesFailed(true); })
+      .finally(() => setEmployeesReady(true));
   }, [fetchData]);
 
   const stats = useMemo(() => {
@@ -132,48 +134,41 @@ export default function SuccessionPlanning() {
 
   const openCreate = () => {
     setEditItem(null);
-    setForm({ employee_id: "", successor_employee_id: "", readiness_level: "not_ready", risk_level: "medium", target_position: "", review_date: "", notes: "" });
+    setForm({ ...EMPTY_SUCCESSION });
     setFormErrors({});
     setShowModal(true);
   };
 
   const openEdit = (item) => {
     setEditItem(item);
-    setForm({
-      employee_id: item.employee_id || "",
-      successor_employee_id: item.successor_employee_id || "",
-      readiness_level: item.readiness_level || "not_ready",
-      risk_level: item.risk_level || "medium",
-      target_position: item.target_position || "",
-      review_date: item.review_date || "",
-      notes: item.notes || "",
-    });
+    setForm(successionToForm(item));
     setFormErrors({});
     setShowModal(true);
   };
 
+  const noEmployees = employeesReady && employees.length === 0;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const errors = validateForm(form);
+    // people already on the record stay valid even when the list could not be loaded
+    const ids = employeesReady && employees.length ? employees.map((x) => x.id).concat(editItem ? [editItem.employee_id, editItem.successor_employee_id].filter(Boolean) : []) : null;
+    const errors = validateSuccession(form, ids);
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      const payload = {
-        employee_id: parseInt(form.employee_id),
-        successor_employee_id: form.successor_employee_id ? parseInt(form.successor_employee_id) : null,
-        readiness_level: form.readiness_level,
-        risk_level: form.risk_level,
-        target_position: form.target_position || null,
-        review_date: form.review_date || null,
-        notes: form.notes || null,
-      };
+      const payload = successionPayload(form);
       if (editItem) await updateWfSuccession(editItem.id, payload);
       else await createWfSuccession(payload);
       setShowModal(false);
       await fetchData();
-    } catch (err) { setFormErrors({ submit: err.message || "Failed to save" }); }
-    finally { setSubmitting(false); }
+    } catch (err) {
+      const fields = serverSuccessionErrors(err?.validation);
+      const target = refusalField(err?.message);
+      if (Object.keys(fields).length) setFormErrors(fields);
+      else if (target) setFormErrors({ [target]: err.message });
+      else setFormErrors({ submit: err.message || "The succession record could not be saved." });
+    } finally { setSubmitting(false); }
   };
 
   const handleDelete = async (id) => {
@@ -182,7 +177,15 @@ export default function SuccessionPlanning() {
     catch (err) { setError(err.message || "Failed to delete"); }
   };
 
-  const handleField = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  const handleField = (field) => (e) => {
+    const value = e.target.value;
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setFormErrors((prev) => (prev[field] || prev.submit ? { ...prev, [field]: undefined, submit: undefined } : prev));
+  };
+  const fieldError = (name) => (formErrors[name] ? <p role="alert" className="text-red-500 text-xs mt-1">{formErrors[name]}</p> : null);
+  const boxClass = (name) => `w-full border ${formErrors[name] ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500`;
+  // a person already on the record stays selectable even if the list did not include them
+  const withCurrent = (id) => (!id || employees.some((x) => String(x.id) === String(id)) ? employees : [{ id, name: `Employee #${id}` }, ...employees]);
 
   return (
     <HRPage title="Succession Planning" subtitle="Key position mapping and talent pipeline management">
@@ -299,31 +302,32 @@ export default function SuccessionPlanning() {
               <h2 className="text-lg font-bold text-gray-800">{editItem ? "Edit Succession" : "Add Succession Record"}</h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 p-1"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {formErrors.submit && <div className="text-red-500 text-sm bg-red-50 p-2 rounded">{formErrors.submit}</div>}
+            <form noValidate onSubmit={handleSubmit} className="p-6 space-y-4">
+              {formErrors.submit && <div role="alert" className="text-red-700 text-sm bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{formErrors.submit}</div>}
+              {noEmployees && <div role="alert" className="text-amber-800 text-sm bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">There are no employees in this organization yet. Add employees first, then you can plan their succession.</div>}
+              {employeesFailed && <div role="alert" className="text-amber-800 text-sm bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">The list of employees could not be loaded. Close this window and try again.</div>}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Employee *</label>
-                  <select value={form.employee_id} onChange={handleField("employee_id")}
-                    className={`w-full border ${formErrors.employee_id ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500`}>
-                    <option value="">Select Employee</option>
-                    {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name || `${e.first_name || ""} ${e.last_name || ""}`}</option>)}
+                  <label htmlFor="sc-employee" className="block text-sm font-medium text-gray-700 mb-1">Employee <span className="text-red-500">*</span></label>
+                  <select id="sc-employee" value={form.employee_id} onChange={handleField("employee_id")} disabled={noEmployees || employeesFailed} aria-invalid={!!formErrors.employee_id} className={boxClass("employee_id")}>
+                    <option value="">{noEmployees ? "No employees yet" : "Select Employee"}</option>
+                    {withCurrent(form.employee_id).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
-                  {formErrors.employee_id && <p className="text-red-500 text-xs mt-1">{formErrors.employee_id}</p>}
+                  {fieldError("employee_id")}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Successor</label>
-                  <select value={form.successor_employee_id} onChange={handleField("successor_employee_id")}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    <option value="">Select Successor</option>
-                    {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name || `${e.first_name || ""} ${e.last_name || ""}`}</option>)}
+                  <label htmlFor="sc-successor" className="block text-sm font-medium text-gray-700 mb-1">Successor</label>
+                  <select id="sc-successor" value={form.successor_employee_id} onChange={handleField("successor_employee_id")} disabled={noEmployees || employeesFailed} aria-invalid={!!formErrors.successor_employee_id} className={boxClass("successor_employee_id")}>
+                    <option value="">{noEmployees ? "No employees yet" : "No successor named yet"}</option>
+                    {withCurrent(form.successor_employee_id).filter((e) => String(e.id) !== String(form.employee_id)).map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
                   </select>
+                  {fieldError("successor_employee_id")}
                 </div>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Target Position</label>
-                <input type="text" value={form.target_position} onChange={handleField("target_position")}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <input type="text" value={form.target_position} maxLength={150} onChange={handleField("target_position")} className={boxClass("target_position")} />
+                {fieldError("target_position")}
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
@@ -343,8 +347,8 @@ export default function SuccessionPlanning() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Review Date</label>
-                <input type="date" value={form.review_date} onChange={handleField("review_date")}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <input type="date" min="2000-01-01" max="2100-12-31" value={form.review_date} onChange={handleField("review_date")} className={boxClass("review_date")} />
+                {fieldError("review_date")}
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
@@ -354,7 +358,7 @@ export default function SuccessionPlanning() {
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)}
                   className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={submitting}
+                <button type="submit" disabled={submitting || noEmployees || employeesFailed}
                   className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white rounded-lg font-medium transition-colors">
                   {submitting ? "Saving..." : editItem ? "Update" : "Create"}
                 </button>

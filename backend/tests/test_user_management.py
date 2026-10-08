@@ -369,10 +369,60 @@ def test_password_policy_helper():
     emp_service.validate_password_policy("GoodPass1")
 
 
-def test_reset_link_points_at_the_configured_public_api_url(monkeypatch):
+def test_reset_link_opens_the_apps_own_page_not_the_api_address(monkeypatch):
+    from app.config import settings
+    from app.modules.employee import service
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.example.com/")
+    monkeypatch.setattr(settings, "API_BASE_URL", "http://localhost:8000")          # the default nobody changed: the link must not use it
+    url = service._action_link(service.SecurityActionPurpose.RESET, "tok123")
+    assert url == "https://app.example.com/reset-password?token=tok123"
+
+
+def test_an_invitation_link_still_goes_through_the_api_address(monkeypatch):
     from app.config import settings
     from app.modules.employee import service
 
     monkeypatch.setattr(settings, "API_BASE_URL", "https://api.example.com/")
-    url = service._action_link(service.SecurityActionPurpose.RESET, "tok123")
-    assert url == "https://api.example.com/auth/reset-password?token=tok123"
+    assert service._action_link(service.SecurityActionPurpose.INVITE, "tok9") == "https://api.example.com/auth/accept-invite?token=tok9"
+
+
+def test_the_temporary_password_message_names_someone_with_no_name_by_email(world):
+    db, u = world["db"], world["u"]
+    u["emp1"].first_name, u["emp1"].last_name = "", ""
+    db.commit()
+    r = _reset(world, "sa", "emp1", "temporary")
+    assert r.status_code == 200, r.text
+    assert "emp1@example.com" in r.json()["message"] and "for ." not in r.json()["message"]
+
+# ── ZHR-3: the Sign in button in emails opens Zoiko HR
+def test_the_sign_in_link_in_the_registration_email_opens_the_hr_app(monkeypatch):
+    from app.config import settings
+    from app.services import email_service as es
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.zoikohr.com/")
+    assert es._login_url() == "https://app.zoikohr.com/login"
+    html = es.render_email("registration_received.html", {"subject": "Welcome", "organization_name": "Acme", "action_url": es._login_url()}).html
+    assert 'href="https://app.zoikohr.com/login"' in html and "Sign in to Zoiko HR" in html
+
+
+def test_a_frontend_url_that_points_at_zoikoone_is_not_used_for_the_sign_in_link(monkeypatch):
+    from app.config import settings
+    from app.services import email_service as es
+
+    for wrong in ("https://zoikoone.com", "https://app.zoikoone.com/", "https://www.zoikoone.com"):
+        monkeypatch.setattr(settings, "FRONTEND_URL", wrong)
+        assert es._login_url() == "https://app.zoikohr.com/login", wrong
+        assert any("ZoikoOne" in p for p in es.link_config_problems()), wrong
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://hr.client-company.com")
+    assert es._login_url() == "https://hr.client-company.com/login" and es.link_config_problems() == []
+
+
+def test_a_missing_or_local_frontend_url_is_reported(monkeypatch):
+    from app.config import settings
+    from app.services import email_service as es
+
+    monkeypatch.setattr(settings, "FRONTEND_URL", "")
+    assert es._login_url() == "https://app.zoikohr.com/login" and "not set" in es.link_config_problems()[0]
+    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:5173")
+    assert "server itself" in es.link_config_problems()[0]

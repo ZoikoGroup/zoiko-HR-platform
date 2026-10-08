@@ -163,6 +163,10 @@ class Employee(Base):
     country             = Column(String(100), nullable=True)
     pincode             = Column(String(20), nullable=True)
     emergency_contacts  = Column(JSON, default=list, nullable=True)
+    notification_preferences = Column(JSON, nullable=True)      # {email, sms, push}; None = never saved, defaults apply
+    language            = Column(String(30), nullable=True)
+    travel_preferences  = Column(JSON, nullable=True)           # {currency, per_diem, auto_notify}; None = never saved
+    timezone            = Column(String(50), nullable=True)
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, onupdate=func.now())
     created_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
@@ -186,4 +190,5 @@ class Employee(Base):
 
     @property
     def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}"
+        # a missing first or last name must not print as "None" or leave a stray space
+        return " ".join(part for part in (self.first_name, self.last_name) if part and str(part).strip()).strip()

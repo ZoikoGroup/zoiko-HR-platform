@@ -50,6 +50,7 @@ export const updateSalaryStructure = (id, payload) => api.put(`/hr/compensation/
 export const deleteSalaryStructure = (id) => api.delete(`/hr/compensation/salary-structures/${id}`);
 
 export const addStructureComponent = (id, payload) => api.post(`/hr/compensation/salary-structures/${id}/components`, payload);
+export const updateStructureComponent = (id, compId, payload) => api.put(`/hr/compensation/salary-structures/${id}/components/${compId}`, payload);
 export const deleteStructureComponent = (id, compId) => api.delete(`/hr/compensation/salary-structures/${id}/components/${compId}`);
 
 export const createEmployeeCompensation = (payload) => api.post("/hr/compensation/employee-compensation", payload);
@@ -125,7 +126,7 @@ export const getHrEmployees = async (params = {}) => {
     }
   }
 };
-export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);
@@ -298,6 +299,10 @@ export const getQuizAttempts = (assessmentId, employeeId) => {
   if (params.length) url += `?${params.join("&")}`;
   return api.get(url);
 };
+
+export const startQuiz = (assessmentId, employeeId) => api.post("/hr/learning/assessments/start", { assessment_id: assessmentId, employee_id: employeeId });
+export const submitQuiz = (assessmentId, attemptId, answers) =>
+  api.post(`/hr/learning/assessments/${assessmentId}/attempts/${attemptId}/submit`, { answers: JSON.stringify(answers) });
 
 // ── LEARNING REPORTS ───────────────────────────────────────────────────────
 export const getCourseCompletionReport = () => api.get("/hr/learning/reports/course-completion");

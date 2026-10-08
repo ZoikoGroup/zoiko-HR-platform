@@ -38,7 +38,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.entitlements import require_entitlement
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import BadRequestException, NotFoundException
 from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASHBOARD
 
 # Assuming these are imported from your config or database modules
@@ -640,7 +640,15 @@ def get_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.get_leave_request(db, leave_id, current_user.organization_id)
+    record = service.get_leave_request(db, leave_id, current_user.organization_id)
+    _own_leave_or_404(record, current_user, leave_id)
+    return record
+
+
+def _own_leave_or_404(record, user, leave_id):
+    """An employee can open or change only their own leave request; someone else's looks like it does not exist."""
+    if user.role == UserRole.EMPLOYEE and record.employee_id != user.id:
+        raise NotFoundException("LeaveRequest", leave_id)
 
 
 @hr_router.put(
@@ -654,6 +662,13 @@ def update_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        record = service.get_leave_request(db, leave_id, current_user.organization_id)
+        _own_leave_or_404(record, current_user, leave_id)
+        changes = data.model_dump(exclude_unset=True)
+        if set(changes) - {"status"} or changes.get("status") != RequestStatus.CANCELLED:
+            raise BadRequestException("You can only withdraw your own request. Changes and approvals are done by HR.")
+        return service.withdraw_leave_request(db, record, actor=current_user)
     return service.update_leave_request(db, leave_id, data, current_user.organization_id, actor=current_user)
 
 
@@ -667,6 +682,11 @@ def delete_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        record = service.get_leave_request(db, leave_id, current_user.organization_id)
+        _own_leave_or_404(record, current_user, leave_id)
+        if record.status not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
+            raise BadRequestException("Only a request nobody has decided yet can be removed.")
     service.delete_leave_request(db, leave_id, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave request deleted")
 
@@ -758,7 +778,7 @@ def delete_salary_structure(id: int, db: Session = Depends(get_db), current_user
 
 @hr_router.post("/compensation/salary-structures/{id}/components", response_model=StructureComponentResponse, summary="Add component to structure", dependencies=[Depends(get_current_admin)])
 def add_structure_component(id: int, data: StructureComponentCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_structure_component(db, data, current_user.organization_id)
+    return service.create_structure_component(db, data, current_user.organization_id, structure_id=id)
 
 @hr_router.get("/compensation/salary-structures/{id}/components", response_model=list[StructureComponentResponse], summary="Get structure components")
 def get_structure_components(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -766,8 +786,12 @@ def get_structure_components(id: int, db: Session = Depends(get_db), current_use
 
 @hr_router.delete("/compensation/salary-structures/{id}/components/{comp_id}", summary="Remove component from structure", dependencies=[Depends(get_current_admin)])
 def delete_structure_component(id: int, comp_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    service.delete_structure_component(db, comp_id, current_user.organization_id)
+    service.delete_structure_component(db, comp_id, current_user.organization_id, structure_id=id)
     return {"message": "Structure component removed successfully."}
+
+@hr_router.put("/compensation/salary-structures/{id}/components/{comp_id}", response_model=StructureComponentResponse, summary="Change a component's amount in a structure", dependencies=[Depends(get_current_admin)])
+def update_structure_component(id: int, comp_id: int, data: StructureComponentUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return service.update_structure_component(db, id, comp_id, data, current_user.organization_id)
 
 
 
@@ -2278,6 +2302,8 @@ def list_travel_requests(
     search: Optional[str] = Query(None),
     status: Optional[RequestStatus] = Query(None),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        employee_id = current_user.id                # a colleague's trips are not mine to see
     result = service.get_travel_requests(
         db, organization_id=current_user.organization_id,
         employee_id=employee_id, page=page, per_page=per_page,
@@ -2333,7 +2359,16 @@ def get_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+    request = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+    _own_travel_or_404(request, current_user, travel_id)
+    return request
+
+
+def _own_travel_or_404(request, user, travel_id):
+    """An employee can open or change only their own travel request; someone else's looks like it does not exist."""
+    if user.role == UserRole.EMPLOYEE and request.employee_id != user.id:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("TravelRequest", travel_id)
 
 
 @hr_router.put(
@@ -2347,6 +2382,16 @@ def update_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+        _own_travel_or_404(current, current_user, travel_id)
+        if current.status != RequestStatus.PENDING:
+            raise BadRequestException("Only a request that is still pending can be changed.")
+        changes = data.model_dump(exclude_unset=True)
+        if "status" in changes and changes["status"] not in (None, RequestStatus.PENDING, RequestStatus.CANCELLED):
+            raise BadRequestException("You cannot approve or reject a travel request.")
+        if "start_date" in changes or "end_date" in changes:
+            service.check_travel_dates(changes.get("start_date", current.start_date), changes.get("end_date", current.end_date), allow_past=False)
     return service.update_travel_request(db, travel_id, data, organization_id=current_user.organization_id)
 
 
@@ -2359,6 +2404,11 @@ def delete_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+        _own_travel_or_404(current, current_user, travel_id)
+        if current.status != RequestStatus.PENDING:
+            raise BadRequestException("Only a request that is still pending can be withdrawn.")
     service.delete_travel_request(db, travel_id, organization_id=current_user.organization_id)
     return {"message": "Travel request deleted successfully."}
 
@@ -2378,12 +2428,31 @@ def list_travel_expenses(
     per_page: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        employee_id = current_user.id                # a colleague's claims are not mine to see
     result = service.get_travel_expenses(
         db, organization_id=current_user.organization_id,
         request_id=request_id, employee_id=employee_id,
         status=status, page=page, per_page=per_page, search=search,
     )
     return result["items"]
+
+
+@hr_router.put(
+    "/travel-expenses/{expense_id}",
+    response_model=TravelExpenseResponse,
+    summary="Approve, reject or reimburse an expense claim",
+)
+def review_travel_expense(
+    expense_id: int,
+    data: TravelExpenseUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    changes = data.model_dump(exclude_unset=True)
+    if set(changes) != {"status"} or changes["status"] is None:
+        raise BadRequestException("Send the decision as a status: approved, rejected or completed.")
+    return service.review_travel_expense(db, expense_id, current_user.organization_id, changes["status"], current_user.id)
 
 
 @hr_router.post(

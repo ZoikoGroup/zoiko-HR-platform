@@ -1491,9 +1491,21 @@ def confirm_checkout(
             "The payment settled but the plan update could not be applied: "
             f"{result.get('message', 'unknown error')}"
         )
+    if isinstance(result, dict) and result.get("status") == "duplicate_cancelled":
+        # The organization already pays through another subscription: the extra one was cancelled and refunded, so
+        # saying "your plan has been updated" would be untrue.
+        return CheckoutConfirmResponse(
+            status="failed",
+            organization_id=data.organization_id,
+            message=(
+                "Your organization already has an active subscription, so this extra payment was cancelled and "
+                "refunded. To change plans, use the plan buttons on this page."
+            ),
+        )
 
     subscription = service.get_or_create_subscription(db, data.organization_id)
     db.refresh(subscription)
+
     plan_code = None
     if subscription.plan_code is not None:
         plan_code = str(

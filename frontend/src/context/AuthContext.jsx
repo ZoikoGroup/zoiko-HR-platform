@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import {
   login as loginRequest,
+  loginWithGoogleTicket as googleTicketRequest,
   register as registerRequest,
   logout as logoutRequest,
   fetchCurrentUser,
@@ -63,6 +64,21 @@ export function AuthProvider({ children }) {
       return loggedInUser;
     } catch (err) {
       setError(err.message || "Unable to sign in");
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loginWithGoogle = useCallback(async (ticket) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const loggedInUser = await googleTicketRequest(ticket);
+      setUser(loggedInUser);
+      return loggedInUser;
+    } catch (err) {
+      setError(err.message || "Unable to sign in with Google");
       throw err;
     } finally {
       setLoading(false);
@@ -181,6 +197,7 @@ export function AuthProvider({ children }) {
     loading,
     error,
     login,
+    loginWithGoogle,
     register,
     logout,
     hasRole,

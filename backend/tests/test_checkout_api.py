@@ -497,3 +497,48 @@ class TestSessionIdOnRedirect:
     def test_not_duplicated_when_already_present(self):
         url = "http://localhost/billing?session_id={CHECKOUT_SESSION_ID}"
         assert _with_session_id(url) == url
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ZHR-100: a settled payment is reflected in the current plan
+# ═══════════════════════════════════════════════════════════════════════════
+
+class TestPaymentShowsInCurrentPlan:
+    def _confirm(self, client, fx, plan, session_id="cs_done_1"):
+        with _STRIPE_ON, patch(
+            "app.modules.billing.router.retrieve_checkout_session",
+            return_value=_completed_session(fx.org.id, session_id=session_id, plan_id=plan.id),
+        ), patch("app.modules.billing.webhook_service.retrieve_subscription", return_value=_stripe_sub()), patch(
+            "app.services.email_service.send_plan_upgraded_email"
+        ):
+            return client.post("/billing/checkout-session/confirm", json={"organization_id": fx.org.id, "checkout_session_id": session_id})
+
+    def test_the_current_plan_endpoint_shows_the_new_plan_right_after_confirm(self, db, client):
+        fx = tenants.evaluation_tenant(db)
+        plan = _create_plan(db, code=PlanCode.ADVANCED, name="Advanced")
+        _as(client, "owner@z", fx.org.id, role="super_admin")
+        before = client.get("/billing/me/subscription").json()
+        assert before["status"] == "evaluation" and before["plan_name"] != "Advanced"
+        assert self._confirm(client, fx, plan).json()["status"] == "confirmed"
+        after = client.get("/billing/me/subscription").json()
+        assert (after["status"], after["plan_code"], after["plan_name"], after["plan_id"]) == ("active", "advanced", "Advanced", plan.id)
+
+    def test_an_extra_payment_that_was_refunded_is_not_reported_as_a_plan_update(self, db, client):
+        fx = tenants.evaluation_tenant(db)
+        plan = _create_plan(db, code=PlanCode.ADVANCED, name="Advanced")
+        _subscribe(db, fx, stripe_sub="sub_kept_1")
+        _as(client, "owner@z", fx.org.id, role="super_admin")
+        with _STRIPE_ON, patch(
+            "app.modules.billing.router.retrieve_checkout_session", return_value=_completed_session(fx.org.id, plan_id=plan.id),
+        ), patch("app.modules.billing.webhook_service.retrieve_subscription", return_value={"id": "sub_kept_1", "status": "active", "items": []}), patch(
+            "app.modules.billing.webhook_service.cancel_and_refund_duplicate_subscription", return_value={"refund_id": "re_1"},
+        ):
+            r = client.post("/billing/checkout-session/confirm", json={"organization_id": fx.org.id, "checkout_session_id": "cs_done_1"})
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "failed" and "refunded" in r.json()["message"]
+
+    def test_plan_state_is_never_served_from_the_response_cache(self):
+        from app.core.cache_middleware import _should_cache_path
+        for path in ("/billing/me/subscription", "/billing/me/entitlements", "/billing/organizations/3/overview", "/billing/subscriptions/3"):
+            assert _should_cache_path(path) is False, path
+        assert _should_cache_path("/hr/leaves") is True

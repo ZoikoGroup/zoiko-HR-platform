@@ -1183,7 +1183,7 @@ def compute_identity_providers(env: Optional[dict] = None, db=None, paths: Optio
 
     Whether a provider *can actually sign anyone in* is not a flag anyone
     maintains — it is read off the route table of the running app. The day a
-    Google/Microsoft callback route exists, the provider reports Active with no
+    Google callback route exists, the provider reports Active with no
     code change; until then it can only ever report "Configured, disabled".
 
     Active                    credentials present AND a login route is served
@@ -1197,10 +1197,16 @@ def compute_identity_providers(env: Optional[dict] = None, db=None, paths: Optio
         email_app, provider_login_flows, registered_auth_paths,
     )
 
-    env = os.environ if env is None else env
+    if env is None:
+        # credentials may live in the .env file (read by the settings) rather than in the process environment
+        from app.config import settings as _settings
+        env = {
+            **os.environ,
+            "GOOGLE_CLIENT_ID": os.environ.get("GOOGLE_CLIENT_ID") or _settings.GOOGLE_CLIENT_ID,
+            "GOOGLE_CLIENT_SECRET": os.environ.get("GOOGLE_CLIENT_SECRET") or _settings.GOOGLE_CLIENT_SECRET,
+        }
     specs = [
         ("google", "Google Workspace OIDC", "Single Sign-On", "GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"),
-        ("microsoft", "Microsoft Entra ID", "Single Sign-On", "MICROSOFT_CLIENT_ID", "MICROSOFT_CLIENT_SECRET"),
     ]
     paths = registered_auth_paths() if paths is None else paths
     providers = []

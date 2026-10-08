@@ -9,6 +9,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -43,6 +44,8 @@ from app.modules.employee.schema import (
     ImportResultResponse,
     BulkEmployeeDeleteRequest,
     BulkDeleteResultResponse,
+    EmployeeSelfUpdate,
+    ContactHRRequest,
 )
 from app.modules.hr.schemas import (
     LeaveRequestCreate, LeaveRequestResponse,
@@ -66,6 +69,13 @@ def _role_str(user) -> str:
     return user.role.value if hasattr(user.role, "value") else str(user.role)
 
 
+def _may_use_profile(current_user, employee_id: int) -> bool:
+    """Bank and identity details belong to their owner; admins/HR may open any profile in the organization."""
+    if current_user.id == employee_id:
+        return True
+    return _role_str(current_user) in ("admin", "hr_admin", "super_admin")
+
+
 def _audit_user_action(db, actor, action, target, details: dict) -> None:
     """Audit row for a sensitive user-management action. Never put passwords,
     hashes or tokens in `details`."""
@@ -79,14 +89,7 @@ def _audit_user_action(db, actor, action, target, details: dict) -> None:
 # AUTH ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@auth_router.post(
-    "/login",
-    response_model=TokenResponse,
-    summary="Login and get access token",
-)
-@limiter.limit("10/minute")
-def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
-    result = service.login_employee(db, data)
+def _record_sign_in(request: Request, db: Session, result: dict, method: str = "password") -> dict:
     employee = result.get("employee")
     if employee:
         ip = get_client_ip(request)
@@ -106,11 +109,89 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
             entity_id=employee.id,
             performed_by=employee.id,
             performed_by_email=employee.email,
-            details={"ip": ip, "user_agent": ua},
+            details={"ip": ip, "user_agent": ua, "method": method},
         )
         db.add(audit)
         db.commit()
     return result
+
+
+@auth_router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Login and get access token",
+)
+@limiter.limit("10/minute")
+def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
+    return _record_sign_in(request, db, service.login_employee(db, data))
+
+
+# ── Sign in with Google ───────────────────────────────────────────────────────
+
+class GoogleExchangeRequest(BaseModel):
+    ticket: str
+
+
+@auth_router.get("/google/status", response_model=dict, summary="Is Sign in with Google set up?")
+def google_status():
+    from app.modules.employee import google_auth
+    return {"enabled": google_auth.is_configured()}
+
+
+@auth_router.get("/google/login", summary="Start Sign in with Google", include_in_schema=True)
+@limiter.limit("20/minute")
+def google_login(request: Request):
+    from fastapi.responses import RedirectResponse
+    from app.modules.employee import google_auth
+
+    if not google_auth.is_configured():
+        return RedirectResponse(google_auth.frontend_login_url(google_error="not_configured"), status_code=302)
+    nonce = google_auth.new_nonce()
+    response = RedirectResponse(google_auth.authorize_url(nonce), status_code=302)
+    response.set_cookie(
+        google_auth.NONCE_COOKIE, nonce, max_age=google_auth.STATE_TTL_SECONDS, httponly=True,
+        secure=str(request.url.scheme) == "https", samesite="lax", path="/auth/google",
+    )
+    return response
+
+
+@auth_router.get("/google/callback", summary="Google sends the browser back here", include_in_schema=True)
+@limiter.limit("20/minute")
+def google_callback(request: Request, db: Session = Depends(get_db), code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    from fastapi.responses import RedirectResponse
+    from app.modules.employee import google_auth
+
+    def back(**params):
+        response = RedirectResponse(google_auth.frontend_login_url(**params), status_code=302)
+        response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
+        return response
+
+    if not google_auth.is_configured():
+        return back(google_error="not_configured")
+    if error:
+        return back(google_error="cancelled" if error == "access_denied" else "failed")
+    if not code or not google_auth.state_matches_browser(state or "", request.cookies.get(google_auth.NONCE_COOKIE)):
+        return back(google_error="expired")
+    email, problem = google_auth.verified_email_for_code(code)
+    if problem:
+        return back(google_error=problem)
+    employee = db.query(Employee).filter(func.lower(Employee.email) == email).first()
+    if not employee:
+        return back(google_error="no_account")
+    return back(google_ticket=google_auth.make_ticket(employee.id))
+
+
+@auth_router.post("/google/exchange", response_model=TokenResponse, summary="Trade the one-time Google ticket for tokens")
+@limiter.limit("20/minute")
+def google_exchange(request: Request, data: GoogleExchangeRequest, db: Session = Depends(get_db)):
+    from app.core.exceptions import UnauthorizedException
+    from app.modules.employee import google_auth
+
+    employee_id = google_auth.redeem_ticket(data.ticket)
+    employee = db.query(Employee).filter(Employee.id == employee_id).first() if employee_id else None
+    if not employee:
+        raise UnauthorizedException(google_auth.ERRORS["expired"])
+    return _record_sign_in(request, db, service.issue_login(db, employee), method="google")
 
 
 @auth_router.post(
@@ -248,6 +329,16 @@ def change_password(
     )
 
 
+@auth_router.post(
+    "/me/forgot-password",
+    response_model=dict,
+    summary="Email yourself a password reset link (signed-in user)",
+)
+@limiter.limit("3/minute")
+def forgot_my_password(request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.request_own_password_reset(db, current_user)
+
+
 # ── Single-Use Action Links (invite / reset) ─────────────────────────────────
 
 
@@ -302,7 +393,7 @@ def _action_form_page(title: str, token: str, action_path: str) -> HTMLResponse:
             "'<div style=\"max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;text-align:center;\">"
             "<h1 style=\"color:#059669;\">All set</h1><p style=\"color:#374151;\">Your password has been set. "
             "<a href=\"" + LOGIN_URL + "\">Sign in to Zoiko HR</a>.</p></div>';}"
-            "else{busy=false;document.querySelector('button').disabled=false;document.querySelector('button').textContent='Continue';e.textContent=res.json.detail||'Something went wrong.';e.style.display='block';}"
+            "else{busy=false;document.querySelector('button').disabled=false;document.querySelector('button').textContent='Continue';e.textContent=(typeof res.json.message==='string'&&res.json.message)||(typeof res.json.detail==='string'&&res.json.detail)||(Array.isArray(res.json.detail)&&res.json.detail[0]&&res.json.detail[0].msg)||'Something went wrong.';e.style.display='block';}"
             "})"
             ".catch(function(){busy=false;document.querySelector('button').disabled=false;document.querySelector('button').textContent='Continue';e.textContent='Network error. Please try again.';e.style.display='block';});}"
             "</script>"
@@ -755,7 +846,7 @@ def reset_user_password(
             temporary_password=None, method="link",
         )
     return PasswordResetResponse(
-        message=f"Temporary password set for {user.full_name}. They must change it at next login.",
+        message=f"Temporary password set for {user.full_name or user.email}. They must change it at next login.",
         temporary_password=temp_password, method="temporary",
     )
 
@@ -782,17 +873,35 @@ def get_my_profile(current_user=Depends(get_current_user)):
     return current_user
 
 
+@employee_router.post(
+    "/employees/me/contact-hr",
+    response_model=dict,
+    summary="Send a message to the HR team",
+)
+@limiter.limit("5/hour")
+def contact_hr(
+    request: Request,
+    data: ContactHRRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return service.contact_hr(db, current_user, data.topic, data.message)
+
+
 @employee_router.put(
     "/employees/me",
     response_model=EmployeeResponse,
     summary="Update my own profile",
 )
 def update_my_profile(
-    data: EmployeeUpdate,
+    data: EmployeeSelfUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.update_employee(db, current_user.id, data, current_user.organization_id, actor=current_user)
+    return service.update_employee(
+        db, current_user.id, EmployeeUpdate(**data.model_dump(exclude_unset=True)),
+        current_user.organization_id, actor=current_user,
+    )
 
 
 @employee_router.post(
@@ -803,7 +912,9 @@ def update_my_profile(
     dependencies=[Depends(get_current_admin)],
 )
 def create_employee(data: EmployeeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_employee(db, data, current_user.organization_id, actor=current_user)
+    # the same rule set as "add user" decides who may assign which role (an organization admin cannot create a Super Admin)
+    organization_id = roles_mod.resolve_target_organization(db, current_user, data.role, None, False)
+    return service.create_employee(db, data, organization_id or current_user.organization_id, actor=current_user)
 
 
 @employee_router.get(
@@ -885,8 +996,9 @@ def create_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None:
-        data.employee_id = current_user.id
+    if data.employee_id is None or current_user.role == UserRole.EMPLOYEE:
+        data.employee_id = current_user.id          # an employee can only apply for themselves
+    hr_service.check_leave_application(db, data, current_user.organization_id)      # dates, reason, clashes and balance
     return hr_service.create_leave_request(db, data, org_id=current_user.organization_id, actor=current_user)
 
 
@@ -904,8 +1016,10 @@ def create_travel(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None:
-        data.employee_id = current_user.id
+    is_employee = current_user.role == UserRole.EMPLOYEE
+    if data.employee_id is None or is_employee:
+        data.employee_id = current_user.id          # an employee raises requests for themselves only
+    hr_service.check_travel_dates(data.start_date, data.end_date, allow_past=not is_employee)
     return hr_service.create_travel_request(db, data, organization_id=current_user.organization_id)
 
 
@@ -920,8 +1034,9 @@ def create_travel_expense(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None:
-        data.employee_id = current_user.id
+    if data.employee_id is None or current_user.role == UserRole.EMPLOYEE:
+        data.employee_id = current_user.id          # a claim is always raised for yourself
+    hr_service.check_expense_trip(db, data, current_user.organization_id)
     return hr_service.create_travel_expense(db, data, organization_id=current_user.organization_id)
 
 
@@ -1002,7 +1117,9 @@ def get_employee_mgmt(
     dependencies=[Depends(get_current_admin)],
 )
 def create_employee_mgmt(data: EmployeeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_employee(db, data, current_user.organization_id, actor=current_user)
+    # the same rule set as "add user" decides who may assign which role (an organization admin cannot create a Super Admin)
+    organization_id = roles_mod.resolve_target_organization(db, current_user, data.role, None, False)
+    return service.create_employee(db, data, organization_id or current_user.organization_id, actor=current_user)
 
 
 @employee_router.post(
@@ -1169,6 +1286,8 @@ def get_employee_profile_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not _may_use_profile(current_user, employee_id):
+        raise HTTPException(status_code=403, detail="You can only open your own profile.")
     return service.get_employee_profile(db, employee_id, organization_id=current_user.organization_id)
 
 
@@ -1186,6 +1305,8 @@ def update_employee_profile_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not _may_use_profile(current_user, employee_id):
+        raise HTTPException(status_code=403, detail="You can only change your own profile.")
     return service.update_employee_profile(db, employee_id, data, organization_id=current_user.organization_id, actor=current_user)
 
 

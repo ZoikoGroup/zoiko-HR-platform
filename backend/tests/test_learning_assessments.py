@@ -197,3 +197,26 @@ def test_learners_see_only_active_assessments_never_the_answer_key_and_only_thei
     assert questions[0]["correct_answer"] is None and questions[0]["options"] == ["Red", "Blue", "Green"]
     env.box["user"] = env.admin
     assert env.get(f"{URL}/{live}/questions").json()[0]["correct_answer"] == "Red"
+
+
+# ── ZHR-88: a learner takes the quiz through the server, which marks it
+def test_a_learner_takes_a_quiz_for_themselves_and_the_server_marks_it(env):
+    from app.modules.employee.models import UserRole
+    aid = env.post(URL, json=good(env, passing_score=50)).json()["id"]
+    q1 = env.post(f"{URL}/{aid}/questions", json=_question()).json()
+    q2 = env.post(f"{URL}/{aid}/questions", json=_question(question_text="Is water ok on electrical fires?", question_type="true_false", options=["True", "False"], correct_answer="False")).json()
+    env.box["user"] = env.learner
+    shown = env.get(f"{URL}/{aid}/questions").json()
+    assert all(q["correct_answer"] is None for q in shown)
+    # the learner cannot start a quiz in someone else's name
+    att = env.post(f"{URL}/start", json={"assessment_id": aid, "employee_id": env.admin.id}).json()
+    assert att["employee_id"] == env.learner.id
+    answers = json.dumps([{"question_id": q1["id"], "answer": "Red"}, {"question_id": q2["id"], "answer": "True"}])
+    done = env.post(f"{URL}/{aid}/attempts/{att['id']}/submit", json={"answers": answers}).json()
+    assert (done["score"], done["passed"], done["status"]) == (50, True, "completed")      # one of two right, pass mark 50
+    # someone else's attempt is not theirs to open or submit
+    other = _person("l2@x.com", UserRole.EMPLOYEE, 1, 9)
+    env.db.add(other); env.db.commit()
+    env.box["user"] = other
+    assert env.get(f"{URL}/attempts/{att['id']}").status_code == 404
+    assert env.post(f"{URL}/{aid}/attempts/{att['id']}/submit", json={"answers": "[]"}).status_code == 404

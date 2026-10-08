@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
+import { employeeList, employeeLabel } from "../../../utils/employeeOptions";
 import { getWfPlans, createWfPlan, updateWfPlan, deleteWfPlan, getDepartments, getHrEmployees } from "../../../service/hrService";
 import { Plus, Search, Edit3, Trash2, X, Filter } from "lucide-react";
 
@@ -83,8 +84,8 @@ export default function WorkforcePlans() {
           getDepartments(),
           getHrEmployees({ per_page: 100 }),
         ]);
-        if (deptRes?.data) setDepartments(deptRes.data);
-        if (empRes?.items) setEmployees(empRes.items);
+        setDepartments(employeeList(deptRes?.data));
+        setEmployees(employeeList(empRes));
       } catch { /* silent */ }
     };
     loadLookups();
@@ -324,7 +325,7 @@ export default function WorkforcePlans() {
                   <select value={form.owner_id} onChange={handleField("owner_id")}
                     className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
                     <option value="">Select Owner</option>
-                    {employees.map((e) => <option key={e.id} value={e.id}>{e.full_name || e.first_name + " " + (e.last_name || "")}</option>)}
+                    {employees.map((e) => <option key={e.id} value={e.id}>{employeeLabel(e)}</option>)}
                   </select>
                 </div>
               </div>

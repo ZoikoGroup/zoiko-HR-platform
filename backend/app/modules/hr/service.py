@@ -1545,6 +1545,50 @@ def _leave_target(db: Session, record) -> dict:
 
 # ── Leave Requests ─────────────────────────────────────────────────────────
 
+_NO_BALANCE_TYPES = (LeaveType.UNPAID, LeaveType.WORK_FROM_HOME)
+
+
+def check_leave_application(db: Session, data: LeaveRequestCreate, org_id: int) -> int:
+    """Refuses an application that cannot be right (dates, reason, an employee outside the organization, clashes with
+    another request, more days than are left) with a message the person can act on; returns the number of days."""
+    if data.employee_id is None or not db.query(Employee.id).filter(Employee.id == data.employee_id, Employee.organization_id == org_id).first():
+        raise BadRequestException("The employee for this leave request was not found in this organization.")
+    if data.end_date < data.start_date:
+        raise BadRequestException("The end date cannot be before the start date.")
+    if data.start_date < date.today():
+        raise BadRequestException("Leave cannot start in the past. Choose today or a later date.")
+    if len((data.reason or "").strip()) < 10:
+        raise BadRequestException("Give a reason of at least 10 characters.")
+    days = _compute_leave_days(data.start_date, data.end_date)
+    if days > 365:
+        raise BadRequestException("A single leave request cannot be longer than a year.")
+
+    clash = db.query(LeaveRequest).filter(
+        LeaveRequest.employee_id == data.employee_id,
+        LeaveRequest.organization_id == org_id,
+        LeaveRequest.status.in_([RequestStatus.PENDING, RequestStatus.IN_PROGRESS, RequestStatus.APPROVED]),
+        LeaveRequest.start_date <= data.end_date,
+        LeaveRequest.end_date >= data.start_date,
+    ).first()
+    if clash:
+        raise BadRequestException(
+            f"You already have a {clash.status.value} {clash.leave_type.value.replace('_', ' ')} request from "
+            f"{clash.start_date.strftime('%d %b %Y')} to {clash.end_date.strftime('%d %b %Y')} that overlaps these dates."
+        )
+
+    if data.leave_type not in _NO_BALANCE_TYPES:
+        balance = db.query(LeaveBalance).filter(
+            LeaveBalance.employee_id == data.employee_id, LeaveBalance.organization_id == org_id,
+            LeaveBalance.leave_type == data.leave_type, LeaveBalance.year == data.start_date.year,
+        ).first()
+        if balance:
+            left = (balance.total_days or 0) - (balance.used_days or 0) - (balance.pending_days or 0)
+            if days > left:
+                label = data.leave_type.value.replace("_", " ")
+                raise BadRequestException(f"You asked for {days} day(s) of {label} leave but only {max(left, 0)} day(s) are left for {data.start_date.year}.")
+    return days
+
+
 def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, actor=None) -> LeaveRequest:
     days = _compute_leave_days(data.start_date, data.end_date)
     record = LeaveRequest(
@@ -1605,6 +1649,13 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
     return record
 
 
+def _reviewer_label(person) -> Optional[str]:
+    """The name to show for whoever decided a request: full name, else first name, else their email."""
+    if person is None:
+        return None
+    return person.full_name or (person.first_name or "").strip() or person.email or None
+
+
 def get_leave_requests(
     db: Session,
     org_id: int,
@@ -1642,7 +1693,9 @@ def get_leave_requests(
     if department_id:
         query = query.filter(Employee.department_id == department_id)
 
-    results = query.order_by(LeaveRequest.created_at.desc()).all()
+    # created_at has second precision, so two requests applied in the same second tie;
+    # the id tiebreak keeps the newest request first (ZHR-93).
+    results = query.order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc()).all()
 
     reviewers = _rows_by_id(db, Employee, [row[0].reviewed_by for row in results])
     leave_requests = []
@@ -1653,11 +1706,10 @@ def get_leave_requests(
         last_name = row[3]
         department_name = row[4]
 
-        reviewer_name = None
-        if lr.reviewed_by:
-            reviewer = reviewers.get(lr.reviewed_by)
-            if reviewer:
-                reviewer_name = reviewer.full_name
+        reviewer_name = _reviewer_label(reviewers.get(lr.reviewed_by)) if lr.reviewed_by else None
+        decided = lr.status in (RequestStatus.APPROVED, RequestStatus.REJECTED)
+        if decided and not reviewer_name:
+            reviewer_name = "HR team"      # decided, but the deciding account is gone or was never recorded
 
         leave_requests.append({
             "id": lr.id,
@@ -1675,6 +1727,7 @@ def get_leave_requests(
             "reviewed_by": lr.reviewed_by,
             "reviewed_at": lr.reviewed_at,
             "approved_by": reviewer_name or "-",
+            "reviewer_name": reviewer_name,
             "approval_date": lr.reviewed_at,
             "approval_comments": lr.reason if lr.status != RequestStatus.PENDING else "-",
             "created_at": lr.created_at,
@@ -1708,6 +1761,8 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
         setattr(record, key, value)
     if "status" in update_data:
         record.reviewed_at = datetime.utcnow()
+        if getattr(actor, "id", None) is not None and update_data["status"] in (RequestStatus.APPROVED, RequestStatus.REJECTED):
+            record.reviewed_by = actor.id
     db.commit()
     db.refresh(record)
     _activity_record(
@@ -1722,6 +1777,7 @@ def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) ->
     record = get_leave_request(db, leave_id, org_id)
     target = _leave_target(db, record)  # read before the row is gone
     record_id, record_org = record.id, record.organization_id
+    _release_pending_days(db, record)
     db.delete(record)
     db.commit()
     _activity_record(
@@ -1730,10 +1786,46 @@ def delete_leave_request(db: Session, leave_id: int, org_id: int, actor=None) ->
     )
 
 
+_OPEN_LEAVE = (RequestStatus.PENDING, RequestStatus.IN_PROGRESS)
+
+
+def _release_pending_days(db: Session, record: LeaveRequest) -> None:
+    """Gives back the days a still-open request was holding."""
+    if record.status not in _OPEN_LEAVE:
+        return
+    balance = db.query(LeaveBalance).filter(
+        LeaveBalance.employee_id == record.employee_id, LeaveBalance.organization_id == record.organization_id,
+        LeaveBalance.leave_type == record.leave_type, LeaveBalance.year == record.start_date.year,
+    ).first()
+    if balance:
+        balance.pending_days = max((balance.pending_days or 0) - (record.days or 0), 0)
+
+
+def withdraw_leave_request(db: Session, record: LeaveRequest, actor=None) -> LeaveRequest:
+    """The employee takes back a request that nobody has decided yet; its days go back to the balance."""
+    if record.status not in _OPEN_LEAVE:
+        raise BadRequestException(f"This request is already {getattr(record.status, 'value', record.status)} and can no longer be changed.")
+    _release_pending_days(db, record)
+    record.status = RequestStatus.CANCELLED
+    db.commit()
+    db.refresh(record)
+    _activity_record(
+        db, "leave.updated", _actor_of(db, actor), record.organization_id,
+        entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
+        changes=[{"field": "status", "label": "Status", "before": "pending", "after": "cancelled"}],
+    )
+    return record
+
+
 def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, org_id: int, reviewer_id: int) -> LeaveRequest:
     record = get_leave_request(db, leave_id, org_id)
     before_status = getattr(record.status, "value", record.status)
     update_data = data.model_dump(exclude_unset=True)
+    if "status" in update_data:
+        if update_data["status"] not in (RequestStatus.APPROVED, RequestStatus.REJECTED):
+            raise BadRequestException("A review can only approve or reject a request.")
+        if record.status not in _OPEN_LEAVE:
+            raise BadRequestException(f"This request is already {before_status}; it has been decided and cannot be decided again.")
     if "status" in update_data:
         record.status = update_data["status"]
         record.reviewed_by = reviewer_id
@@ -1751,10 +1843,10 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
             LeaveBalance.year == record.start_date.year,
         ).first()
         if balance and record.status == RequestStatus.APPROVED:
-            balance.pending_days -= record.days
+            balance.pending_days = max((balance.pending_days or 0) - record.days, 0)
             balance.used_days += record.days
         elif balance and record.status == RequestStatus.REJECTED:
-            balance.pending_days -= record.days
+            balance.pending_days = max((balance.pending_days or 0) - record.days, 0)
         db.commit()
         approved = record.status == RequestStatus.APPROVED
         _activity_record(
@@ -2234,29 +2326,59 @@ def delete_salary_structure(db: Session, struct_id: int, org_id: int) -> None:
 
 # ── Structure Components ───────────────────────────────────────────────────
 
-def create_structure_component(db: Session, data: StructureComponentCreate, org_id: int) -> StructureComponent:
-    struct = db.query(SalaryStructure).filter(SalaryStructure.id == data.structure_id, SalaryStructure.organization_id == org_id).first()
-    if not struct:
-        raise NotFoundException("SalaryStructure", data.structure_id)
-    struct_comp = StructureComponent(**data.model_dump())
-    db.add(struct_comp)
-    db.commit()
-    db.refresh(struct_comp)
-    return struct_comp
-
-def get_structure_components(db: Session, structure_id: int, org_id: int) -> list[StructureComponent]:
+def _own_structure(db: Session, structure_id: int, org_id: int) -> SalaryStructure:
     struct = db.query(SalaryStructure).filter(SalaryStructure.id == structure_id, SalaryStructure.organization_id == org_id).first()
     if not struct:
         raise NotFoundException("SalaryStructure", structure_id)
-    return db.query(StructureComponent).filter(StructureComponent.structure_id == structure_id).all()
+    return struct
 
-def delete_structure_component(db: Session, struct_comp_id: int, org_id: int) -> None:
-    struct_comp = db.query(StructureComponent).filter(StructureComponent.id == struct_comp_id).first()
-    if not struct_comp:
+
+def _structure_component_view(db: Session, rows) -> list:
+    """The rows with the component's name, type and default amount alongside (one query for the lot)."""
+    rows = list(rows)
+    comps = _rows_by_id(db, SalaryComponent, [r.component_id for r in rows])
+    for r in rows:
+        c = comps.get(r.component_id)
+        r.component_name = c.name if c else None
+        r.component_type = c.component_type if c else None
+        r.default_amount = c.default_amount if c else None
+    return rows
+
+
+def create_structure_component(db: Session, data: StructureComponentCreate, org_id: int, structure_id: Optional[int] = None) -> StructureComponent:
+    structure_id = structure_id or data.structure_id
+    _own_structure(db, structure_id, org_id)
+    comp = db.query(SalaryComponent).filter(SalaryComponent.id == data.component_id, SalaryComponent.organization_id == org_id).first()
+    if not comp:
+        raise BadRequestException("Choose a salary component from your organization's list.")
+    if db.query(StructureComponent.id).filter(StructureComponent.structure_id == structure_id, StructureComponent.component_id == comp.id).first():
+        raise BadRequestException(f"{comp.name} is already part of this salary structure. Change its amount instead of adding it again.")
+    struct_comp = StructureComponent(structure_id=structure_id, component_id=comp.id, amount_or_formula=data.amount_or_formula)
+    db.add(struct_comp)
+    db.commit()
+    db.refresh(struct_comp)
+    return _structure_component_view(db, [struct_comp])[0]
+
+def get_structure_components(db: Session, structure_id: int, org_id: int) -> list[StructureComponent]:
+    _own_structure(db, structure_id, org_id)
+    rows = db.query(StructureComponent).filter(StructureComponent.structure_id == structure_id).order_by(StructureComponent.id).all()
+    return _structure_component_view(db, rows)
+
+def update_structure_component(db: Session, structure_id: int, struct_comp_id: int, data: StructureComponentUpdate, org_id: int) -> StructureComponent:
+    _own_structure(db, structure_id, org_id)
+    row = db.query(StructureComponent).filter(StructureComponent.id == struct_comp_id, StructureComponent.structure_id == structure_id).first()
+    if not row:
         raise NotFoundException("StructureComponent", struct_comp_id)
-    struct = db.query(SalaryStructure).filter(SalaryStructure.id == struct_comp.structure_id, SalaryStructure.organization_id == org_id).first()
-    if not struct:
-        raise NotFoundException("SalaryStructure", struct_comp.structure_id)
+    row.amount_or_formula = data.amount_or_formula
+    db.commit()
+    db.refresh(row)
+    return _structure_component_view(db, [row])[0]
+
+def delete_structure_component(db: Session, struct_comp_id: int, org_id: int, structure_id: Optional[int] = None) -> None:
+    struct_comp = db.query(StructureComponent).filter(StructureComponent.id == struct_comp_id).first()
+    if not struct_comp or (structure_id is not None and struct_comp.structure_id != structure_id):
+        raise NotFoundException("StructureComponent", struct_comp_id)
+    _own_structure(db, struct_comp.structure_id, org_id)
     db.delete(struct_comp)
     db.commit()
 
@@ -3982,11 +4104,47 @@ def delete_performance_review(db: Session, review_id: int, organization_id: Opti
 # TRAVEL REQUEST SERVICE
 # ════════════════════════════════════════════════════════════════════════════
 
+def _name_travel_rows(db: Session, rows) -> list:
+    """Puts the staff member's name on each travel request / expense, so a page never has to show 'Unknown'.
+    The name is looked up from the employee the row points at (one query for the whole list)."""
+    rows = [r for r in rows if r is not None]
+    ids = {r.employee_id for r in rows if getattr(r, "employee_id", None)}
+    names = {}
+    if ids:
+        for e in db.query(Employee).filter(Employee.id.in_(ids)).all():
+            names[e.id] = (f"{e.first_name or ''} {e.last_name or ''}".strip()) or e.email
+    for r in rows:
+        r.employee_name = names.get(getattr(r, "employee_id", None))
+    return rows
+
+
+PAST_TRAVEL_MESSAGE = "Travel dates cannot be in the past. Choose today or a later date."
+
+
+def check_travel_dates(start: Optional[date], end: Optional[date], *, allow_past: bool) -> None:
+    """Dates of a travel request. Everyone: the trip cannot end before it starts. Employees raising their own request
+    (allow_past=False): it cannot start in the past either."""
+    if start and end and end < start:
+        raise BadRequestException("The end date cannot be before the start date.")
+    if not allow_past:
+        if start and start < date.today():
+            raise BadRequestException(PAST_TRAVEL_MESSAGE)
+        if end and end < date.today():
+            raise BadRequestException(PAST_TRAVEL_MESSAGE)
+
+
 def create_travel_request(db: Session, data: TravelRequestCreate, organization_id: int) -> TravelRequest:
+    if data.employee_id is not None:
+        found = db.query(Employee.id).filter(Employee.id == data.employee_id, Employee.organization_id == organization_id).first()
+        if not found:
+            raise BadRequestException("The selected staff member was not found in this organization. Choose someone from the list.")
+    if data.start_date and data.end_date and data.end_date < data.start_date:
+        raise BadRequestException("The end date cannot be before the start date.")
     request = TravelRequest(**data.model_dump(), organization_id=organization_id)
     db.add(request)
     db.commit()
     db.refresh(request)
+    _name_travel_rows(db, [request])
     return request
 
 
@@ -4019,8 +4177,9 @@ def get_travel_requests(
         )
     
     total = query.count()
-    requests = query.offset((page - 1) * per_page).limit(per_page).all()
-    
+    requests = query.order_by(TravelRequest.created_at.desc(), TravelRequest.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    _name_travel_rows(db, requests)
+
     return {
         "total": total,
         "page": page,
@@ -4036,6 +4195,7 @@ def get_travel_request(db: Session, request_id: int, organization_id: Optional[i
     request = query.first()
     if not request:
         raise NotFoundException("TravelRequest", request_id)
+    _name_travel_rows(db, [request])
     return request
 
 
@@ -4046,6 +4206,7 @@ def update_travel_request(db: Session, request_id: int, data: TravelRequestUpdat
         setattr(request, field, value)
     db.commit()
     db.refresh(request)
+    _name_travel_rows(db, [request])
     return request
 
 
@@ -4141,11 +4302,24 @@ def get_travel_approval_history(db: Session, request_id: int) -> list[TravelAppr
 # TRAVEL EXPENSE SERVICE
 # ════════════════════════════════════════════════════════════════════════════
 
+def check_expense_trip(db: Session, data, organization_id: int) -> None:
+    """A claim that names a trip must name one of that person's own trips in this organization."""
+    if getattr(data, "request_id", None) is None:
+        return
+    trip = db.query(TravelRequest).filter(TravelRequest.id == data.request_id, TravelRequest.organization_id == organization_id,
+                                          TravelRequest.employee_id == data.employee_id).first()
+    if not trip:
+        raise BadRequestException("Choose one of your own trips for this claim, or leave the trip empty.")
+    if trip.status in (RequestStatus.REJECTED, RequestStatus.CANCELLED):
+        raise BadRequestException("This trip was rejected or cancelled, so expenses cannot be claimed against it.")
+
+
 def create_travel_expense(db: Session, data: TravelExpenseCreate, organization_id: int) -> TravelExpense:
     expense = TravelExpense(**data.model_dump(), organization_id=organization_id)
     db.add(expense)
     db.commit()
     db.refresh(expense)
+    _name_travel_rows(db, [expense])
     return expense
 
 
@@ -4178,8 +4352,9 @@ def get_travel_expenses(
         )
     
     total = query.count()
-    expenses = query.offset((page - 1) * per_page).limit(per_page).all()
-    
+    expenses = query.order_by(TravelExpense.created_at.desc(), TravelExpense.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    _name_travel_rows(db, expenses)
+
     return {
         "total": total,
         "page": page,
@@ -4202,6 +4377,33 @@ def update_travel_expense(db: Session, expense_id: int, data: TravelExpenseUpdat
         setattr(expense, field, value)
     db.commit()
     db.refresh(expense)
+    _name_travel_rows(db, [expense])
+    return expense
+
+
+def review_travel_expense(db: Session, expense_id: int, organization_id: int, status: RequestStatus, reviewer_id: Optional[int] = None) -> TravelExpense:
+    """HR decides a claim: pending -> approved or rejected, and an approved claim can then be marked reimbursed (completed).
+    A decision is made once; the claim must belong to the caller's organization."""
+    expense = db.query(TravelExpense).filter(TravelExpense.id == expense_id, TravelExpense.organization_id == organization_id).first()
+    if not expense:
+        raise NotFoundException("TravelExpense", expense_id)
+    current = expense.status
+    if status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
+        if current not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
+            raise BadRequestException(f"This claim is already {getattr(current, 'value', current)}; it has been decided and cannot be decided again.")
+        expense.status = status
+        if status == RequestStatus.APPROVED:
+            expense.approved_at = datetime.utcnow()
+    elif status == RequestStatus.COMPLETED:
+        if current != RequestStatus.APPROVED:
+            raise BadRequestException("Only an approved claim can be marked as reimbursed.")
+        expense.status = status
+        expense.reimbursed_at = datetime.utcnow()
+    else:
+        raise BadRequestException("A claim can be approved, rejected, or marked as reimbursed.")
+    db.commit()
+    db.refresh(expense)
+    _name_travel_rows(db, [expense])
     return expense
 
 

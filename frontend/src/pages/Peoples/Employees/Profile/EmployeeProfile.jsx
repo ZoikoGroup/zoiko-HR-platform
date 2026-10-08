@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import { getMyProfile, getEmployeeProfile, updateMyProfile, updateEmployeeProfile } from "../../../../service/employee";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { validateProfile, changedFields, serverProfileErrors, FIELD_TAB, UPPERCASE_FIELDS } from "../../../../utils/profileForm";
 
 const TABS = ["Personal Details", "Work Details", "Banking & Documents"];
 
@@ -48,41 +49,53 @@ const InfoRow = ({ icon: Icon, label, value }) => (
   </div>
 );
 
-const InputRow = ({ icon: Icon, label, name, value, onChange, type = "text", placeholder = "N/A" }) => (
+const ROW_ERROR_CLASS = "border-red-400 focus:ring-red-200 focus:border-red-400";
+const ROW_OK_CLASS = "border-slate-200 dark:border-[#334155] focus:ring-blue-300 focus:border-blue-400";
+
+const InputRow = ({ icon: Icon, label, name, value, onChange, type = "text", placeholder = "N/A", error, maxLength, inputMode, autoCapitalize }) => (
   <div className="flex items-start gap-3 py-3 border-b border-slate-100 dark:border-[#334155] last:border-0">
     <div className="mt-0.5 p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/20">
       <Icon size={15} className="text-blue-500" />
     </div>
     <div className="flex-1">
-      <p className="text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide mb-1">{label}</p>
+      <label htmlFor={name ? `pf-${name}` : undefined} className="block text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide mb-1">{label}</label>
       <input
+        id={name ? `pf-${name}` : undefined}
         type={type}
         name={name}
         value={value ?? ""}
         onChange={onChange}
         placeholder={placeholder}
-        className="w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#334155] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+        maxLength={maxLength}
+        inputMode={inputMode}
+        autoCapitalize={autoCapitalize}
+        aria-invalid={!!error}
+        className={`w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${error ? ROW_ERROR_CLASS : ROW_OK_CLASS}`}
       />
+      {error ? <p role="alert" className="text-red-500 text-xs mt-1">{error}</p> : null}
     </div>
   </div>
 );
 
-const SelectRow = ({ icon: Icon, label, name, value, onChange, options }) => (
+const SelectRow = ({ icon: Icon, label, name, value, onChange, options, error }) => (
   <div className="flex items-start gap-3 py-3 border-b border-slate-100 dark:border-[#334155] last:border-0">
     <div className="mt-0.5 p-1.5 rounded-lg bg-blue-50 dark:bg-blue-500/20">
       <Icon size={15} className="text-blue-500" />
     </div>
     <div className="flex-1">
-      <p className="text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide mb-1">{label}</p>
+      <label htmlFor={`pf-${name}`} className="block text-xs text-slate-400 dark:text-[#94a3b8] font-medium uppercase tracking-wide mb-1">{label}</label>
       <select
+        id={`pf-${name}`}
         name={name}
         value={value ?? ""}
         onChange={onChange}
-        className="w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border border-slate-200 dark:border-[#334155] rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+        aria-invalid={!!error}
+        className={`w-full text-sm text-slate-800 dark:text-[#e2e8f0] font-medium bg-white dark:bg-[#0f172a] border rounded-lg px-3 py-2 focus:outline-none focus:ring-2 ${error ? ROW_ERROR_CLASS : ROW_OK_CLASS}`}
       >
         <option value="">N/A</option>
         {options.map((o) => <option key={o} value={o}>{o}</option>)}
       </select>
+      {error ? <p role="alert" className="text-red-500 text-xs mt-1">{error}</p> : null}
     </div>
   </div>
 );
@@ -104,6 +117,8 @@ export default function EmployeeProfile() {
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
   const [formData, setFormData] = useState({});
+  const [original, setOriginal] = useState({});
+  const [fieldErrors, setFieldErrors] = useState({});
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -138,7 +153,7 @@ export default function EmployeeProfile() {
   function startEdit() {
     const p = profile || {};
     const x = extended || {};
-    setFormData({
+    const snapshot = {
       first_name: v(p, "firstName", "first_name") || "",
       last_name: v(p, "lastName", "last_name") || "",
       phone: v(p, "phoneNumber", "phone") || "",
@@ -177,7 +192,10 @@ export default function EmployeeProfile() {
       certifications: v(x, "certifications") || "",
       projects: v(x, "projects") || "",
       achievements: v(x, "achievements") || "",
-    });
+    };
+    setFormData(snapshot);
+    setOriginal(snapshot);
+    setFieldErrors({});
     setEditing(true);
     setSaveMsg(null);
   }
@@ -185,73 +203,45 @@ export default function EmployeeProfile() {
   function cancelEdit() {
     setEditing(false);
     setFormData({});
+    setFieldErrors({});
     setSaveMsg(null);
   }
 
   function handleChange(e) {
-    const { name, value } = e.target;
+    const { name } = e.target;
+    const value = UPPERCASE_FIELDS.has(name) ? e.target.value.toUpperCase() : e.target.value;
     setFormData((prev) => ({ ...prev, [name]: value }));
+    setFieldErrors((prev) => (prev[name] ? { ...prev, [name]: undefined } : prev));
+  }
+
+  const BASIC_KEYS = ["first_name", "last_name", "phone", "personal_email", "date_of_birth", "gender", "current_address", "permanent_address", "city", "state", "country", "pincode", "company", "business_unit", "team"];
+  const PROFILE_KEYS = ["emergency_contact_name", "emergency_contact_phone", "emergency_contact_relation", "blood_group", "marital_status", "nationality", "pan_number", "aadhar_number", "bank_name", "bank_account", "bank_ifsc", "uan_number", "pf_number", "esic_number", "passport_number", "passport_expiry", "visa_number", "visa_expiry", "work_permit_expiry", "skills", "certifications", "projects", "achievements"];
+
+  function showProblems(errors) {
+    setFieldErrors(errors);
+    // take the person to the first tab (left to right) that has a mistake on it
+    const tabs = Object.keys(errors).filter((k) => errors[k] && FIELD_TAB[k] !== undefined).map((k) => FIELD_TAB[k]);
+    if (tabs.length) setActiveTab(Math.min(...tabs));
+    const count = Object.keys(errors).filter((k) => errors[k]).length;
+    setSaveMsg(`${count} field${count === 1 ? " needs" : "s need"} attention. Fix the highlighted ${count === 1 ? "field" : "fields"} and save again.`);
+    setTimeout(() => { const el = document.querySelector("[aria-invalid=true]"); if (el && el.scrollIntoView) el.scrollIntoView({ block: "center" }); }, 50);
   }
 
   async function handleSave() {
+    const problems = validateProfile(formData);
+    if (Object.keys(problems).length > 0) { showProblems(problems); return; }
+    setFieldErrors({});
     setSaving(true);
     setSaveMsg(null);
     const empId = v(profile, "id");
     try {
-      const basicFields = {
-        first_name: formData.first_name,
-        last_name: formData.last_name,
-        phone: formData.phone,
-        personal_email: formData.personal_email,
-        date_of_birth: formData.date_of_birth || null,
-        gender: formData.gender || null,
-        current_address: formData.current_address,
-        permanent_address: formData.permanent_address,
-        city: formData.city,
-        state: formData.state,
-        country: formData.country,
-        pincode: formData.pincode,
-        company: formData.company,
-        business_unit: formData.business_unit,
-        team: formData.team,
-      };
-      const cleanedBasic = Object.fromEntries(
-        Object.entries(basicFields).filter(([, v]) => v !== "")
-      );
-      await updateMyProfile(cleanedBasic);
+      const basic = changedFields(BASIC_KEYS, formData, original);
+      if (basic.gender === null) delete basic.gender;                       // the gender box cannot be emptied
+      if (Object.keys(basic).length > 0) await updateMyProfile(basic);
 
       if (empId) {
-        const profileFields = {
-          emergency_contact_name: formData.emergency_contact_name,
-          emergency_contact_phone: formData.emergency_contact_phone,
-          emergency_contact_relation: formData.emergency_contact_relation,
-          blood_group: formData.blood_group,
-          marital_status: formData.marital_status,
-          nationality: formData.nationality,
-          pan_number: formData.pan_number,
-          aadhar_number: formData.aadhar_number,
-          bank_name: formData.bank_name,
-          bank_account: formData.bank_account,
-          bank_ifsc: formData.bank_ifsc,
-          uan_number: formData.uan_number,
-          pf_number: formData.pf_number,
-          esic_number: formData.esic_number,
-          passport_number: formData.passport_number,
-          passport_expiry: formData.passport_expiry || null,
-          visa_number: formData.visa_number,
-          visa_expiry: formData.visa_expiry || null,
-          work_permit_expiry: formData.work_permit_expiry || null,
-          skills: formData.skills,
-          certifications: formData.certifications,
-          projects: formData.projects,
-          achievements: formData.achievements,
-        };
-        const cleanedProfile = Object.fromEntries(
-          Object.entries(profileFields).filter(([, v]) => v !== "")
-        );
-        if (Object.keys(cleanedProfile).length > 0) {
-          await updateEmployeeProfile(empId, cleanedProfile);
-        }
+        const details = changedFields(PROFILE_KEYS, formData, original);
+        if (Object.keys(details).length > 0) await updateEmployeeProfile(empId, details);
       }
 
       const fresh = await getMyProfile();
@@ -267,8 +257,12 @@ export default function EmployeeProfile() {
       setSaveMsg("Profile updated successfully");
       setTimeout(() => { if (mounted.current) setSaveMsg(null); }, 3000);
     } catch (err) {
-      setSaveMsg(err?.message || "Failed to save changes");
-      setTimeout(() => { if (mounted.current) setSaveMsg(null); }, 5000);
+      const fields = serverProfileErrors(err?.validation);
+      if (Object.keys(fields).length) { showProblems(fields); }
+      else {
+        setSaveMsg(err?.message || "Failed to save changes");
+        setTimeout(() => { if (mounted.current) setSaveMsg(null); }, 6000);
+      }
     } finally {
       if (mounted.current) setSaving(false);
     }
@@ -395,18 +389,18 @@ export default function EmployeeProfile() {
                   {editing ? (
                     <>
                       <div>
-                        <InputRow icon={User} label="First Name" name="first_name" value={formData.first_name} onChange={handleChange} />
-                        <InputRow icon={User} label="Last Name" name="last_name" value={formData.last_name} onChange={handleChange} />
+                        <InputRow icon={User} label="First Name" name="first_name" value={formData.first_name} onChange={handleChange} error={fieldErrors.first_name} maxLength={100} />
+                        <InputRow icon={User} label="Last Name" name="last_name" value={formData.last_name} onChange={handleChange} error={fieldErrors.last_name} maxLength={100} />
                         <InputRow icon={Mail} label="Email" name="email" value={v(p, "email")} onChange={() => {}} />
-                        <InputRow icon={Mail} label="Personal Email" name="personal_email" value={formData.personal_email} onChange={handleChange} />
-                        <InputRow icon={Phone} label="Phone" name="phone" value={formData.phone} onChange={handleChange} />
+                        <InputRow icon={Mail} label="Personal Email" name="personal_email" value={formData.personal_email} onChange={handleChange} error={fieldErrors.personal_email} maxLength={255} inputMode="email" />
+                        <InputRow icon={Phone} label="Phone" name="phone" value={formData.phone} onChange={handleChange} error={fieldErrors.phone} maxLength={20} inputMode="tel" placeholder="+91 9876543210" />
                       </div>
                       <div>
-                        <InputRow icon={Calendar} label="Date of Birth" name="date_of_birth" value={formData.date_of_birth} onChange={handleChange} type="date" />
-                        <SelectRow icon={User} label="Gender" name="gender" value={formData.gender} onChange={handleChange} options={["male", "female", "other"]} />
-                        <InputRow icon={Globe} label="Nationality" name="nationality" value={formData.nationality} onChange={handleChange} />
-                        <SelectRow icon={User} label="Blood Group" name="blood_group" value={formData.blood_group} onChange={handleChange} options={["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]} />
-                        <SelectRow icon={User} label="Marital Status" name="marital_status" value={formData.marital_status} onChange={handleChange} options={["single", "married", "divorced", "widowed"]} />
+                        <InputRow icon={Calendar} label="Date of Birth" name="date_of_birth" value={formData.date_of_birth} onChange={handleChange} error={fieldErrors.date_of_birth} type="date" />
+                        <SelectRow icon={User} label="Gender" name="gender" value={formData.gender} onChange={handleChange} error={fieldErrors.gender} options={["male", "female", "other"]} />
+                        <InputRow icon={Globe} label="Nationality" name="nationality" value={formData.nationality} onChange={handleChange} error={fieldErrors.nationality} maxLength={50} />
+                        <SelectRow icon={User} label="Blood Group" name="blood_group" value={formData.blood_group} onChange={handleChange} error={fieldErrors.blood_group} options={["A+", "A-", "B+", "B-", "AB+", "AB-", "O+", "O-"]} />
+                        <SelectRow icon={User} label="Marital Status" name="marital_status" value={formData.marital_status} onChange={handleChange} error={fieldErrors.marital_status} options={["single", "married", "divorced", "widowed"]} />
                       </div>
                     </>
                   ) : (
@@ -435,11 +429,11 @@ export default function EmployeeProfile() {
                     {editing ? (
                       <>
                         <div>
-                          <InputRow icon={User} label="Contact Name" name="emergency_contact_name" value={formData.emergency_contact_name} onChange={handleChange} />
-                          <InputRow icon={User} label="Relation" name="emergency_contact_relation" value={formData.emergency_contact_relation} onChange={handleChange} />
+                          <InputRow icon={User} label="Contact Name" name="emergency_contact_name" value={formData.emergency_contact_name} onChange={handleChange} error={fieldErrors.emergency_contact_name} maxLength={100} />
+                          <InputRow icon={User} label="Relation" name="emergency_contact_relation" value={formData.emergency_contact_relation} onChange={handleChange} error={fieldErrors.emergency_contact_relation} maxLength={50} />
                         </div>
                         <div>
-                          <InputRow icon={Phone} label="Phone" name="emergency_contact_phone" value={formData.emergency_contact_phone} onChange={handleChange} />
+                          <InputRow icon={Phone} label="Phone" name="emergency_contact_phone" value={formData.emergency_contact_phone} onChange={handleChange} error={fieldErrors.emergency_contact_phone} maxLength={20} inputMode="tel" placeholder="+91 9876543210" />
                         </div>
                       </>
                     ) : (
@@ -462,14 +456,14 @@ export default function EmployeeProfile() {
                     {editing ? (
                       <>
                         <div>
-                          <InputRow icon={MapPin} label="Current Address" name="current_address" value={formData.current_address} onChange={handleChange} />
-                          <InputRow icon={MapPin} label="Permanent Address" name="permanent_address" value={formData.permanent_address} onChange={handleChange} />
+                          <InputRow icon={MapPin} label="Current Address" name="current_address" value={formData.current_address} onChange={handleChange} error={fieldErrors.current_address} maxLength={500} />
+                          <InputRow icon={MapPin} label="Permanent Address" name="permanent_address" value={formData.permanent_address} onChange={handleChange} error={fieldErrors.permanent_address} maxLength={500} />
                         </div>
                         <div>
-                          <InputRow icon={MapPin} label="City" name="city" value={formData.city} onChange={handleChange} />
-                          <InputRow icon={MapPin} label="State" name="state" value={formData.state} onChange={handleChange} />
-                          <InputRow icon={MapPin} label="Country" name="country" value={formData.country} onChange={handleChange} />
-                          <InputRow icon={MapPin} label="Pincode" name="pincode" value={formData.pincode} onChange={handleChange} />
+                          <InputRow icon={MapPin} label="City" name="city" value={formData.city} onChange={handleChange} error={fieldErrors.city} maxLength={100} />
+                          <InputRow icon={MapPin} label="State" name="state" value={formData.state} onChange={handleChange} error={fieldErrors.state} maxLength={100} />
+                          <InputRow icon={MapPin} label="Country" name="country" value={formData.country} onChange={handleChange} error={fieldErrors.country} maxLength={100} />
+                          <InputRow icon={MapPin} label="Pincode" name="pincode" value={formData.pincode} onChange={handleChange} error={fieldErrors.pincode} maxLength={10} />
                         </div>
                       </>
                     ) : (
@@ -510,9 +504,9 @@ export default function EmployeeProfile() {
                         <InfoRow icon={Briefcase} label="Employment Type" value={fmtEmpType(v(p, "employmentType", "employment_type"))} />
                         <InfoRow icon={Calendar} label="Date of Joining" value={formatDate(v(p, "dateOfJoining", "date_of_joining"))} />
                         <InfoRow icon={Calendar} label="Confirmation Date" value={formatDate(v(p, "confirmationDate", "confirmation_date"))} />
-                        <InputRow icon={Building2} label="Company" name="company" value={formData.company} onChange={handleChange} />
-                        <InputRow icon={Building2} label="Business Unit" name="business_unit" value={formData.business_unit} onChange={handleChange} />
-                        <InputRow icon={Users} label="Team" name="team" value={formData.team} onChange={handleChange} />
+                        <InputRow icon={Building2} label="Company" name="company" value={formData.company} onChange={handleChange} error={fieldErrors.company} maxLength={100} />
+                        <InputRow icon={Building2} label="Business Unit" name="business_unit" value={formData.business_unit} onChange={handleChange} error={fieldErrors.business_unit} maxLength={100} />
+                        <InputRow icon={Users} label="Team" name="team" value={formData.team} onChange={handleChange} error={fieldErrors.team} maxLength={100} />
                       </div>
                     </>
                   ) : (
@@ -555,14 +549,14 @@ export default function EmployeeProfile() {
                   {editing ? (
                     <>
                       <div>
-                        <InputRow icon={CreditCard} label="Bank Name" name="bank_name" value={formData.bank_name} onChange={handleChange} />
-                        <InputRow icon={CreditCard} label="Account Number" name="bank_account" value={formData.bank_account} onChange={handleChange} />
-                        <InputRow icon={CreditCard} label="IFSC Code" name="bank_ifsc" value={formData.bank_ifsc} onChange={handleChange} />
+                        <InputRow icon={CreditCard} label="Bank Name" name="bank_name" value={formData.bank_name} onChange={handleChange} error={fieldErrors.bank_name} maxLength={100} placeholder="e.g. State Bank of India" />
+                        <InputRow icon={CreditCard} label="Account Number" name="bank_account" value={formData.bank_account} onChange={handleChange} error={fieldErrors.bank_account} maxLength={22} inputMode="numeric" placeholder="9 to 18 digits" />
+                        <InputRow icon={CreditCard} label="IFSC Code" name="bank_ifsc" value={formData.bank_ifsc} onChange={handleChange} error={fieldErrors.bank_ifsc} maxLength={11} autoCapitalize="characters" placeholder="e.g. HDFC0001234" />
                       </div>
                       <div>
-                        <InputRow icon={CreditCard} label="UAN Number" name="uan_number" value={formData.uan_number} onChange={handleChange} />
-                        <InputRow icon={CreditCard} label="PF Number" name="pf_number" value={formData.pf_number} onChange={handleChange} />
-                        <InputRow icon={CreditCard} label="ESIC Number" name="esic_number" value={formData.esic_number} onChange={handleChange} />
+                        <InputRow icon={CreditCard} label="UAN Number" name="uan_number" value={formData.uan_number} onChange={handleChange} error={fieldErrors.uan_number} maxLength={14} inputMode="numeric" placeholder="12 digits" />
+                        <InputRow icon={CreditCard} label="PF Number" name="pf_number" value={formData.pf_number} onChange={handleChange} error={fieldErrors.pf_number} maxLength={30} />
+                        <InputRow icon={CreditCard} label="ESIC Number" name="esic_number" value={formData.esic_number} onChange={handleChange} error={fieldErrors.esic_number} maxLength={19} inputMode="numeric" placeholder="10 or 17 digits" />
                       </div>
                     </>
                   ) : (
@@ -587,12 +581,12 @@ export default function EmployeeProfile() {
                     {editing ? (
                       <>
                         <div>
-                          <InputRow icon={FileText} label="PAN Number" name="pan_number" value={formData.pan_number} onChange={handleChange} />
-                          <InputRow icon={FileText} label="Aadhar Number" name="aadhar_number" value={formData.aadhar_number} onChange={handleChange} />
+                          <InputRow icon={FileText} label="PAN Number" name="pan_number" value={formData.pan_number} onChange={handleChange} error={fieldErrors.pan_number} maxLength={10} autoCapitalize="characters" placeholder="e.g. ABCDE1234F" />
+                          <InputRow icon={FileText} label="Aadhar Number" name="aadhar_number" value={formData.aadhar_number} onChange={handleChange} error={fieldErrors.aadhar_number} maxLength={14} inputMode="numeric" placeholder="12 digits" />
                         </div>
                         <div>
-                          <InputRow icon={FileText} label="Passport Number" name="passport_number" value={formData.passport_number} onChange={handleChange} />
-                          <InputRow icon={Calendar} label="Passport Expiry" name="passport_expiry" value={formData.passport_expiry} onChange={handleChange} type="date" />
+                          <InputRow icon={FileText} label="Passport Number" name="passport_number" value={formData.passport_number} onChange={handleChange} error={fieldErrors.passport_number} maxLength={9} autoCapitalize="characters" placeholder="e.g. K1234567" />
+                          <InputRow icon={Calendar} label="Passport Expiry" name="passport_expiry" value={formData.passport_expiry} onChange={handleChange} error={fieldErrors.passport_expiry} type="date" />
                         </div>
                       </>
                     ) : (
@@ -616,11 +610,11 @@ export default function EmployeeProfile() {
                     {editing ? (
                       <>
                         <div>
-                          <InputRow icon={Globe} label="Visa Number" name="visa_number" value={formData.visa_number} onChange={handleChange} />
-                          <InputRow icon={Calendar} label="Visa Expiry" name="visa_expiry" value={formData.visa_expiry} onChange={handleChange} type="date" />
+                          <InputRow icon={Globe} label="Visa Number" name="visa_number" value={formData.visa_number} onChange={handleChange} error={fieldErrors.visa_number} maxLength={20} autoCapitalize="characters" />
+                          <InputRow icon={Calendar} label="Visa Expiry" name="visa_expiry" value={formData.visa_expiry} onChange={handleChange} error={fieldErrors.visa_expiry} type="date" />
                         </div>
                         <div>
-                          <InputRow icon={Calendar} label="Work Permit Expiry" name="work_permit_expiry" value={formData.work_permit_expiry} onChange={handleChange} type="date" />
+                          <InputRow icon={Calendar} label="Work Permit Expiry" name="work_permit_expiry" value={formData.work_permit_expiry} onChange={handleChange} error={fieldErrors.work_permit_expiry} type="date" />
                         </div>
                       </>
                     ) : (

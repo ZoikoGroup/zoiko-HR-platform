@@ -20,6 +20,8 @@ import time
 from dataclasses import dataclass
 from urllib.parse import urlparse
 
+from app.services.link_settings import is_other_product_host, link_config_problems as _link_config_problems
+
 import certifi
 from email.mime.text import MIMEText
 from email.mime.image import MIMEImage
@@ -115,11 +117,19 @@ def _frontend_url() -> str:
     return (getattr(_app_settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
 
 
+def link_config_problems() -> list[str]:
+    """Plain-language problems with the settings that decide where links in emails go (empty when fine)."""
+    return _link_config_problems(_frontend_url(), PRODUCTION_APP_URL)
+
+
 def _login_url() -> str:
     """Login link for emails, derived from FRONTEND_URL (never a hardcoded
-    third-party host)."""
+    third-party host). A FRONTEND_URL that points at the umbrella platform instead of the Zoiko HR app (a mix-up in the
+    server settings) is ignored so the button still opens Zoiko HR."""
     base = _frontend_url()
-    return f"{base}/login" if base else f"{PRODUCTION_APP_URL}/login"
+    if not base or is_other_product_host(base):
+        return f"{PRODUCTION_APP_URL}/login"
+    return f"{base}/login"
 
 
 # Kept for importers (e.g. employee router); resolved from FRONTEND_URL.

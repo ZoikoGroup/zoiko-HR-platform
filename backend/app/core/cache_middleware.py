@@ -113,6 +113,13 @@ _NO_CACHE_PATHS = [
     r"/auth/forgot-password",
     r"/auth/reset-password",
     r"/auth/accept-invite",
+    r"/auth/google",
+    # What plan an organization is on must be exactly what the database says: a payment that has just settled would
+    # otherwise keep showing the old plan until the cached copy expired.
+    r"/billing/me",
+    r"/billing/organizations",
+    r"/billing/subscriptions",
+    r"/billing/entitlements",
     r"/super-admin/health",
     # Platform-admin data is sensitive, low-volume and permission-checked per
     # request: never cache it.

@@ -28,6 +28,24 @@ export async function login({ email, password }) {
   }
 }
 
+/** Is Sign in with Google set up on this server? (false when the server cannot be reached: the button then says so) */
+export async function googleSignInEnabled() {
+  try {
+    const data = await api.get("/auth/google/status", { auth: false });
+    return !!data?.enabled;
+  } catch {
+    return false;
+  }
+}
+
+/** Trades the one-time ticket the server handed back after Google for the same session a password sign-in gives. */
+export async function loginWithGoogleTicket(ticket) {
+  const data = await api.post("/auth/google/exchange", { ticket }, { auth: false });
+  const user = data.employee || data.user;
+  setSession({ accessToken: data.access_token, refreshToken: data.refresh_token, user });
+  return user;
+}
+
 export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail }) {
   try {
     const payload = { name, email, password, organization, plan_code: planCode };
@@ -111,6 +129,15 @@ export async function forgotPassword({ email }) {
     console.error("Forgot password request failed:", err);
     throw err;
   }
+}
+
+/** Sets a new password from the single-use token in an emailed reset link. */
+export async function resetPasswordWithToken({ token, password }) {
+  return await api.post("/auth/reset-password", { token, password }, { auth: false });
+}
+
+export async function forgotMyPassword() {
+  return await api.post("/auth/me/forgot-password", {});
 }
 
 export async function changePassword({ currentPassword, newPassword }) {

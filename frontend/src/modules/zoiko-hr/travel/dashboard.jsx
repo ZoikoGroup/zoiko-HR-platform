@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { Building2, FileText, CheckCircle, Clock, AlertTriangle, PieChart, Landmark } from "lucide-react";
 import TravelLayout from "./TravelLayout";
+import { staffName, indexById } from "../../../utils/travelDisplay";
 import {api} from "../../../service/api";
 
 const formatCurrency = (amount) => {
@@ -140,7 +141,7 @@ export default function TravelDashboard() {
                   <tbody className="divide-y divide-gray-100 font-medium">
                     {data.recentRequests.map((r, i) => (
                       <tr key={r.id || i} className="hover:bg-gray-50/50 transition-colors">
-                        <td className="py-3.5 px-4 text-gray-900">{getEmployeeDisplay(r.employee)}</td>
+                        <td className="py-3.5 px-4 text-gray-900">{staffName(r)}</td>
                         <td className="py-3.5 px-4 text-gray-600">{getDestinationDisplay(r.destination)}</td>
                         <td className="py-3.5 px-4 text-gray-900">{formatCurrency(r.amount)}</td>
                         <td className="py-3.5 px-4">
