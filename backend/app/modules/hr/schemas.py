@@ -780,6 +780,7 @@ class LeaveRequestResponse(BaseModel):
     reviewed_by: Optional[int]
     reviewed_at: Optional[datetime]
     approved_by: Optional[str] = None
+    reviewer_name: Optional[str] = None     # who decided it (None while nobody has)
     approval_date: Optional[datetime] = None
     approval_comments: Optional[str] = None
     created_at: Optional[datetime]
@@ -1181,7 +1182,8 @@ class CompensationBandResponse(CompensationBandCreate):
 
 
 class _SalaryComponentChecks(BaseModel):
-    """A component's default amount is what every salary structure starts from, so it must be entered, never left blank."""
+    """A component's default amount is optional: it is only a suggested starting value. The amount that counts is the one
+    set for the component inside each salary structure, and that one is required."""
     @field_validator("name", mode="before", check_fields=False)
     @classmethod
     def _v_name(cls, v):
@@ -1199,7 +1201,7 @@ class _SalaryComponentChecks(BaseModel):
     @classmethod
     def _v_amount(cls, v):
         if v is None or (isinstance(v, str) and not v.strip()):
-            raise ValueError("Default amount is required.")
+            return None
         try:
             n = Decimal(str(v).strip())
         except Exception:
@@ -1229,12 +1231,12 @@ class SalaryComponentCreate(_SalaryComponentChecks):
     name: str
     component_type: str
     is_taxable: bool = True
-    default_amount: Decimal
+    default_amount: Optional[Decimal] = None
     description: Optional[str] = None
 
 
 class SalaryComponentUpdate(_SalaryComponentChecks):
-    """Fields left out stay as they are; a field that is sent must still be filled in."""
+    """Fields left out stay as they are; a name that is sent must still be filled in. A blank default amount clears it."""
     name: Optional[str] = None
     component_type: Optional[str] = None
     is_taxable: Optional[bool] = None
@@ -1269,18 +1271,69 @@ class SalaryStructureResponse(SalaryStructureCreate):
     updated_at: Optional[datetime]
     model_config = {"from_attributes": True}
 
+_FORMULA_CHARS = re.compile(r"^[A-Za-z0-9_ .%+\-*/()]+$")
+
+
+def clean_structure_amount(v) -> str:
+    """What a component pays inside a salary structure: a fixed amount ("50000", "1250.50"), a percentage ("12%") or a short
+    formula ("40% of basic", "basic * 0.4"). It is required: a structure never holds a component without one."""
+    text = " ".join(str(v if v is not None else "").split())
+    if not text:
+        raise ValueError("Enter the amount or formula for this component in the structure.")
+    if len(text) > 255:
+        raise ValueError("The amount or formula can be at most 255 characters.")
+    plain = text.replace(",", "")
+    try:
+        number = Decimal(plain)
+    except Exception:
+        number = None
+    if number is not None:
+        if not number.is_finite():
+            raise ValueError("Enter the amount as a number.")
+        if number <= 0:
+            raise ValueError("The amount must be greater than 0.")
+        if number > Decimal("99999999.99"):
+            raise ValueError("The amount is too large (the most is 99,999,999.99).")
+        if number != number.quantize(Decimal("0.01")):
+            raise ValueError("The amount can have at most 2 decimal places.")
+        return format(number.normalize(), "f")
+    if text.endswith("%") and re.fullmatch(r"\d+(\.\d+)?%", text):
+        pct = Decimal(text[:-1])
+        if pct <= 0 or pct > 100:
+            raise ValueError("A percentage must be more than 0 and at most 100.")
+        return text
+    if not _FORMULA_CHARS.match(text) or not re.search(r"[A-Za-z0-9]", text):
+        raise ValueError("Use a number, a percentage such as 12%, or a formula such as 40% of basic.")
+    return text
+
+
 class StructureComponentCreate(BaseModel):
-    structure_id: int
+    structure_id: Optional[int] = None      # taken from the URL when it is left out
     component_id: int
     amount_or_formula: str
 
-class StructureComponentUpdate(BaseModel):
-    structure_id: Optional[int] = None
-    component_id: Optional[int] = None
-    amount_or_formula: Optional[str] = None
+    @field_validator("amount_or_formula", mode="before")
+    @classmethod
+    def _v_amount(cls, v):
+        return clean_structure_amount(v)
 
-class StructureComponentResponse(StructureComponentCreate):
+class StructureComponentUpdate(BaseModel):
+    amount_or_formula: str
+
+    @field_validator("amount_or_formula", mode="before")
+    @classmethod
+    def _v_amount(cls, v):
+        return clean_structure_amount(v)
+
+class StructureComponentResponse(BaseModel):
+    # reading never re-checks, so a row saved before these rules still lists
     id: int
+    structure_id: int
+    component_id: int
+    amount_or_formula: str
+    component_name: Optional[str] = None
+    component_type: Optional[str] = None
+    default_amount: Optional[Decimal] = None
     created_at: datetime
     updated_at: Optional[datetime]
     model_config = {"from_attributes": True}
@@ -2863,6 +2916,28 @@ class TravelRequestCreate(BaseModel):
     start_date: date
     end_date: date
 
+    @field_validator("destination", mode="before")
+    @classmethod
+    def _v_destination(cls, v):
+        text = " ".join(str(v or "").split())
+        if not text:
+            raise ValueError("Destination is required.")
+        if len(text) < 2 or len(text) > 200:
+            raise ValueError("Destination must be between 2 and 200 characters.")
+        if not any(ch.isalpha() for ch in text):
+            raise ValueError("Enter a real place name for the destination.")
+        return text
+
+    @field_validator("purpose", mode="before")
+    @classmethod
+    def _v_purpose(cls, v):
+        text = " ".join(str(v or "").split())
+        if not text:
+            return None
+        if len(text) > 500:
+            raise ValueError("Purpose can be at most 500 characters.")
+        return text
+
     @field_validator("start_date", "end_date", mode="before")
     @classmethod
     def alias_from_to(cls, v, info):
@@ -2885,6 +2960,7 @@ class TravelRequestResponse(BaseModel):
     id: int
     organization_id: int
     employee_id: int
+    employee_name: Optional[str] = None
     destination: str
     purpose: Optional[str]
     start_date: date
@@ -2941,12 +3017,62 @@ class TravelExpenseCreate(BaseModel):
     receipt_url: Optional[str] = None
 
 
+EXPENSE_TYPES = ("Hotel", "Flight", "Cab", "Meals", "Transport", "Other")
+MAX_EXPENSE_AMOUNT = Decimal("10000000")
+
+
 class TravelExpenseCreateSimple(BaseModel):
+    """An expense claim raised from the employee portal."""
     employee_id: Optional[int] = None
-    expense_type: str = Field("Other", min_length=1, max_length=100)
-    amount: Decimal = Field(..., ge=0)
+    request_id: Optional[int] = None          # the trip it belongs to (optional)
+    expense_type: str = "Other"
+    amount: Decimal
     description: Optional[str] = None
-    currency: str = "USD"
+    currency: str = "INR"
+
+    @field_validator("expense_type", mode="before")
+    @classmethod
+    def _v_type(cls, v):
+        text = str(v or "").strip()
+        match = next((t for t in EXPENSE_TYPES if t.lower() == text.lower()), None)
+        if not match:
+            raise ValueError("Choose a category from the list.")
+        return match
+
+    @field_validator("amount", mode="before")
+    @classmethod
+    def _v_amount(cls, v):
+        try:
+            value = Decimal(str(v).strip())
+        except Exception:
+            raise ValueError("Enter the amount as a number.")
+        if not value.is_finite():
+            raise ValueError("Enter the amount as a number.")
+        if value <= 0:
+            raise ValueError("The amount must be more than zero.")
+        if value > MAX_EXPENSE_AMOUNT:
+            raise ValueError("The amount is too large. Contact HR for claims above 1,00,00,000.")
+        if value != value.quantize(Decimal("0.01")):
+            raise ValueError("The amount can have at most 2 decimal places.")
+        return value
+
+    @field_validator("description", mode="before")
+    @classmethod
+    def _v_description(cls, v):
+        text = " ".join(str(v or "").split())
+        if len(text) < 3:
+            raise ValueError("Describe what the expense was for (at least 3 characters).")
+        if len(text) > 500:
+            raise ValueError("The description can be at most 500 characters.")
+        return text
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _v_currency(cls, v):
+        text = str(v or "INR").strip().upper()
+        if len(text) != 3 or not text.isalpha():
+            raise ValueError("Currency must be a 3-letter code such as INR.")
+        return text
 
 
 class TravelExpenseUpdate(BaseModel):
@@ -2963,8 +3089,9 @@ class TravelExpenseUpdate(BaseModel):
 class TravelExpenseResponse(BaseModel):
     id: int
     organization_id: int
-    request_id: int
+    request_id: Optional[int] = None
     employee_id: int
+    employee_name: Optional[str] = None
     expense_type: str
     amount: Decimal
     currency: str
@@ -3202,19 +3329,120 @@ class WfPlanResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class WfHeadcountCreate(BaseModel):
-    department_id: Optional[int] = None
-    fiscal_year: int = Field(..., ge=2020, le=2100)
+def _count(label, v, high=100000, required=False):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        if required:
+            raise ValueError(f"{label} is required.")
+        return 0
+    try:
+        n = Decimal(str(v).strip())
+    except Exception:
+        raise ValueError(f"{label} must be a whole number.")
+    if not n.is_finite() or n != n.to_integral_value():
+        raise ValueError(f"{label} must be a whole number.")
+    if not 0 <= n <= high:
+        raise ValueError(f"{label} must be between 0 and {high}.")
+    return int(n)
+
+
+class _HeadcountChecks(BaseModel):
+    """A headcount row is one department's position numbers for one fiscal year; the numbers have to add up."""
+    @field_validator("department_id", mode="before", check_fields=False)
+    @classmethod
+    def _v_department(cls, v):
+        if v is None or (isinstance(v, str) and not str(v).strip()):
+            raise ValueError("Choose the department this headcount is for.")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("Choose the department this headcount is for.")
+        if n < 1:
+            raise ValueError("Choose the department this headcount is for.")
+        return n
+
+    @field_validator("fiscal_year", mode="before", check_fields=False)
+    @classmethod
+    def _v_year(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            raise ValueError("Fiscal year is required.")
+        try:
+            n = int(str(v).strip())
+        except ValueError:
+            raise ValueError("Fiscal year must be a four-digit year.")
+        if not 2020 <= n <= 2100:
+            raise ValueError("Fiscal year must be between 2020 and 2100.")
+        return n
+
+    @field_validator("approved_positions", mode="before", check_fields=False)
+    @classmethod
+    def _v_approved(cls, v):
+        return _count("Approved positions", v)
+
+    @field_validator("filled_positions", mode="before", check_fields=False)
+    @classmethod
+    def _v_filled(cls, v):
+        return _count("Filled positions", v)
+
+    @field_validator("vacant_positions", mode="before", check_fields=False)
+    @classmethod
+    def _v_vacant(cls, v):
+        return _count("Vacant positions", v)
+
+    @field_validator("planned_hires", mode="before", check_fields=False)
+    @classmethod
+    def _v_hires(cls, v):
+        return _count("Planned hires", v)
+
+    @field_validator("projected_cost", mode="before", check_fields=False)
+    @classmethod
+    def _v_cost(cls, v):
+        if v is None or (isinstance(v, str) and not v.strip()):
+            return 0
+        try:
+            n = Decimal(str(v).strip())
+        except Exception:
+            raise ValueError("Projected cost must be a number.")
+        if not n.is_finite() or n < 0:
+            raise ValueError("Projected cost cannot be negative.")
+        if n > Decimal("999999999999.99"):
+            raise ValueError("Projected cost is too large.")
+        if n != n.quantize(Decimal("0.01")):
+            raise ValueError("Projected cost can have at most 2 decimal places.")
+        return float(n)
+
+
+def positions_problem(approved, filled, vacant):
+    """The one message about the three position counts (None when they are consistent)."""
+    if filled > approved:
+        return "Filled positions cannot be more than approved positions."
+    if vacant > approved:
+        return "Vacant positions cannot be more than approved positions."
+    if filled + vacant > approved:
+        return "Filled plus vacant positions cannot be more than approved positions."
+    return None
+
+
+class WfHeadcountCreate(_HeadcountChecks):
+    department_id: int
+    fiscal_year: int
     approved_positions: Optional[int] = 0
     filled_positions: Optional[int] = 0
     vacant_positions: Optional[int] = 0
     planned_hires: Optional[int] = 0
     projected_cost: Optional[float] = 0
 
+    @model_validator(mode="after")
+    def _v_totals(self):
+        problem = positions_problem(self.approved_positions or 0, self.filled_positions or 0, self.vacant_positions or 0)
+        if problem:
+            raise ValueError(problem)
+        return self
 
-class WfHeadcountUpdate(BaseModel):
+
+class WfHeadcountUpdate(_HeadcountChecks):
+    """Fields left out stay as they are; the totals are checked again by the service with the saved values."""
     department_id: Optional[int] = None
-    fiscal_year: Optional[int] = Field(None, ge=2020, le=2100)
+    fiscal_year: Optional[int] = None
     approved_positions: Optional[int] = None
     filled_positions: Optional[int] = None
     vacant_positions: Optional[int] = None
@@ -3226,6 +3454,7 @@ class WfHeadcountResponse(BaseModel):
     id: int
     organization_id: int
     department_id: Optional[int]
+    department_name: Optional[str] = None
     fiscal_year: int
     approved_positions: Optional[int]
     filled_positions: Optional[int]
@@ -3238,22 +3467,100 @@ class WfHeadcountResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
-class WfSuccessionCreate(BaseModel):
+SUCCESSION_READINESS = ("not_ready", "moderately_ready", "ready", "fully_ready")
+SUCCESSION_RISK = ("low", "medium", "high", "critical")
+
+
+class _SuccessionChecks(BaseModel):
+    """The people are checked against the organization by the service; the values themselves are checked here."""
+    @field_validator("employee_id", mode="before", check_fields=False)
+    @classmethod
+    def _v_employee(cls, v):
+        if v is None or (isinstance(v, str) and not str(v).strip()):
+            raise ValueError("Choose the employee this succession plan is for.")
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("Choose the employee this succession plan is for.")
+        if n < 1:
+            raise ValueError("Choose the employee this succession plan is for.")
+        return n
+
+    @field_validator("successor_employee_id", mode="before", check_fields=False)
+    @classmethod
+    def _v_successor(cls, v):
+        if v is None or (isinstance(v, str) and not str(v).strip()):
+            return None                      # a successor may not be named yet
+        try:
+            n = int(v)
+        except (TypeError, ValueError):
+            raise ValueError("Choose a successor from the list.")
+        if n < 1:
+            raise ValueError("Choose a successor from the list.")
+        return n
+
+    @field_validator("readiness_level", mode="before", check_fields=False)
+    @classmethod
+    def _v_readiness(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if text not in SUCCESSION_READINESS:
+            raise ValueError("Readiness must be not ready, moderately ready, ready or fully ready.")
+        return text
+
+    @field_validator("risk_level", mode="before", check_fields=False)
+    @classmethod
+    def _v_risk(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if text not in SUCCESSION_RISK:
+            raise ValueError("Risk must be low, medium, high or critical.")
+        return text
+
+    @field_validator("target_position", mode="before", check_fields=False)
+    @classmethod
+    def _v_position(cls, v):
+        text = " ".join(str(v).split()) if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 150:
+            raise ValueError("Target position can be at most 150 characters.")
+        return text
+
+    @field_validator("review_date", check_fields=False)
+    @classmethod
+    def _v_review(cls, v):
+        if v is not None and not (2000 <= v.year <= 2100):
+            raise ValueError("Enter a date between the years 2000 and 2100.")
+        return v
+
+    @field_validator("notes", mode="before", check_fields=False)
+    @classmethod
+    def _v_notes(cls, v):
+        text = str(v).strip() if v is not None else ""
+        if not text:
+            return None
+        if len(text) > 5000:
+            raise ValueError("Notes can be at most 5000 characters.")
+        return text
+
+
+class WfSuccessionCreate(_SuccessionChecks):
     employee_id: int
     successor_employee_id: Optional[int] = None
     readiness_level: Optional[str] = "not_ready"
     risk_level: Optional[str] = "medium"
     target_position: Optional[str] = None
-    review_date: Optional[date] = None
+    review_date: Optional[_date_type] = None
     notes: Optional[str] = None
 
 
-class WfSuccessionUpdate(BaseModel):
+class WfSuccessionUpdate(_SuccessionChecks):
+    """Fields left out stay as they are; employee, readiness and risk cannot be blanked."""
+    employee_id: Optional[int] = None
     successor_employee_id: Optional[int] = None
     readiness_level: Optional[str] = None
     risk_level: Optional[str] = None
     target_position: Optional[str] = None
-    review_date: Optional[date] = None
+    review_date: Optional[_date_type] = None
     notes: Optional[str] = None
 
 
@@ -3276,8 +3583,21 @@ class WfSuccessionResponse(BaseModel):
 
 
 class WfReportCreate(BaseModel):
-    report_name: str = Field(..., min_length=1, max_length=200)
-    report_type: str = Field(..., min_length=1, max_length=50)
+    report_name: str = Field(..., max_length=200)
+    report_type: str = Field(..., max_length=50)
+
+    @field_validator("report_name", mode="before")
+    @classmethod
+    def _v_name(cls, v):
+        return _course_text("Report name", 200)(v)
+
+    @field_validator("report_type", mode="before")
+    @classmethod
+    def _v_type(cls, v):
+        text = str(v).strip().lower() if v is not None else ""
+        if text not in ("workforce_summary", "headcount_summary", "succession_pipeline"):
+            raise ValueError("Report type must be Workforce Summary, Headcount Summary or Succession Pipeline.")
+        return text
 
 
 class WfReportResponse(BaseModel):

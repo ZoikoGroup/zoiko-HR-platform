@@ -60,6 +60,14 @@ def _is_learner(user) -> bool:
     return str(role) not in ("admin", "hr_admin", "super_admin")
 
 
+def _own_attempt_or_404(attempt, user, attempt_id):
+    """A learner can open and submit only their own quiz attempts; anyone else's looks like it does not exist."""
+    owner = attempt["employee_id"] if isinstance(attempt, dict) else attempt.employee_id
+    if _is_learner(user) and owner != user.id:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("LearningQuizAttempt", attempt_id)
+
+
 @learning_router.get(
     "/courses",
     summary="List courses (paginated)",
@@ -506,6 +514,8 @@ def start_quiz(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if _is_learner(current_user):
+        data = data.model_copy(update={"employee_id": current_user.id})     # a learner can only start a quiz for themselves
     return learning_service.start_quiz(db, data, organization_id=current_user.organization_id)
 
 
@@ -519,7 +529,9 @@ def get_quiz_attempt(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id)
+    attempt = learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id)
+    _own_attempt_or_404(attempt, current_user, attempt_id)
+    return attempt
 
 
 @learning_router.get(
@@ -678,6 +690,7 @@ def submit_quiz(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _own_attempt_or_404(learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id), current_user, attempt_id)
     return learning_service.submit_quiz(db, attempt_id, data, organization_id=current_user.organization_id)
 
 

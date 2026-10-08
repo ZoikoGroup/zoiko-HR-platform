@@ -31,6 +31,9 @@ export {
   getTrainingPrograms,
   getAssessments,
   getQuizAttempts,
+  getQuestions,
+  startQuiz,
+  submitQuiz,
 } from "./hrService";
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -122,12 +125,13 @@ export const getDesignations = () => api.get("/hr/designations");
 // EMPLOYEE SELF-SERVICE — TRAVEL
 // ════════════════════════════════════════════════════════════════════════════
 
-export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);
 export const deleteTravel = (id) => api.delete(`/hr/travel/${id}`);
 
+export const getTravelExpenses = (employeeId) => api.get(`/hr/travel-expenses?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
 export const createTravelExpense = (payload) => api.post("/hr/travel/expenses", payload);
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -151,6 +155,12 @@ export const updateMyProfile = (payload) => api.put("/hr/employees/me", payload)
 export const getMyAssets = (employeeId) => api.get(`/hr/assets${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const createAssetRequest = (payload) => api.post("/hr/assets/requests", payload);
 export const getAssetRequests = (params = {}) => api.get("/hr/assets/requests", { params });
+
+// ════════════════════════════════════════════════════════════════════════════
+// EMPLOYEE SELF-SERVICE — CONTACT HR
+// ════════════════════════════════════════════════════════════════════════════
+
+export const contactHR = (topic, message) => api.post("/hr/employees/me/contact-hr", { topic, message });
 
 // ════════════════════════════════════════════════════════════════════════════
 // HR EMPLOYEES LIST (for manager/employee lookups)

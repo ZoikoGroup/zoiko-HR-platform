@@ -1,5 +1,6 @@
 // Add / Edit Salary Component: the same rules as the server (backend/app/modules/hr/schemas.py).
-// The default amount is required: every salary structure starts from it, so it can never be left blank.
+// The default amount is optional: it is only a suggested starting value. The amount that counts is the one set for the
+// component inside each salary structure, and that one is required (see structureComponentForm.js).
 export const EMPTY_COMPONENT = { name: "", component_type: "earning", is_taxable: true, default_amount: "", description: "" };
 
 export const COMPONENT_LABELS = { name: "Component name", component_type: "Type", default_amount: "Default amount", description: "Description" };
@@ -24,7 +25,7 @@ export function validateComponentForm(f) {
   if (!["earning", "deduction"].includes(f.component_type)) errors.component_type = "Type must be Earning or Deduction.";
 
   const raw = String(f.default_amount ?? "").trim();
-  if (!raw) errors.default_amount = "Default amount is required.";
+  if (!raw) { /* optional: left blank, the amount is set in each salary structure */ }
   else if (!/^\d+(\.\d+)?$/.test(raw)) errors.default_amount = "Default amount must be a positive number.";
   else if (Number(raw) <= 0) errors.default_amount = "Default amount must be greater than 0.";
   else if (Number(raw) > 99999999.99) errors.default_amount = "Default amount is too large (the most is 99,999,999.99).";
@@ -40,12 +41,12 @@ export function componentPayload(f) {
     name: String(f.name).trim().replace(/\s+/g, " "),
     component_type: f.component_type,
     is_taxable: !!f.is_taxable,
-    default_amount: Number(String(f.default_amount).trim()),
+    default_amount: String(f.default_amount ?? "").trim() === "" ? null : Number(String(f.default_amount).trim()),
     description: description === "" ? null : description,
   };
 }
 
-/** The amount as shown in the list; an old component saved without one is flagged instead of shown as a dash. */
+/** The amount as shown in the list; null when the component has no default (its amount is set in each salary structure). */
 export function amountText(value) {
   if (value == null || value === "") return null;
   const n = Number(value);

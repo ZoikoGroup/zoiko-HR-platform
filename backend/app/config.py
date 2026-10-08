@@ -129,6 +129,13 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
+    # ── Sign in with Google (app/modules/employee/google_auth.py) ───────────────
+    # Blank = the "Continue with Google" button says it is not set up. Register {API_BASE_URL}/auth/google/callback as an
+    # authorized redirect URI in the Google Cloud console (or set GOOGLE_REDIRECT_URI to the exact address registered there).
+    GOOGLE_CLIENT_ID: str = Field(default="", validation_alias=AliasChoices("HR_GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"))
+    GOOGLE_CLIENT_SECRET: str = Field(default="", validation_alias=AliasChoices("HR_GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"))
+    GOOGLE_REDIRECT_URI: str = Field(default="", validation_alias=AliasChoices("HR_GOOGLE_REDIRECT_URI", "GOOGLE_REDIRECT_URI"))
+
     # ── Stripe (app/modules/billing/stripe_sync_service.py) ───────────────────
     # Optional, blank-default. Section 17/H2 approvals land before live billing;
     # until then these are TEST-MODE-ONLY keys. If HR_STRIPE_SECRET_KEY is empty,

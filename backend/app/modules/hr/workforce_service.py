@@ -240,6 +240,12 @@ def delete_plan(db: Session, org_id: int, plan_id: int) -> None:
 # HEADCOUNT CRUD
 # ════════════════════════════════════════════════════════════════════════════
 
+def _headcount_view(h: WfHeadcount) -> dict:
+    d = {c.name: getattr(h, c.name) for c in h.__table__.columns}
+    d["department_name"] = h.department.name if h.department else None
+    return d
+
+
 def list_headcounts(db: Session, org_id: int, page: int = 1, per_page: int = 20,
                     department_id: Optional[int] = None, fiscal_year: Optional[int] = None,
                     sort_by: str = "fiscal_year", sort_order: str = "desc") -> dict:
@@ -252,12 +258,7 @@ def list_headcounts(db: Session, org_id: int, page: int = 1, per_page: int = 20,
         query = query.filter(WfHeadcount.fiscal_year == fiscal_year)
 
     total, items = _apply_pagination(query, page, per_page, SORTABLE_HEADCOUNT, sort_by, sort_order)
-    result = []
-    for h in items:
-        d = {c.name: getattr(h, c.name) for c in h.__table__.columns}
-        d["department_name"] = h.department.name if h.department else None
-        result.append(d)
-    return {"total": total, "page": page, "per_page": per_page, "items": result}
+    return {"total": total, "page": page, "per_page": per_page, "items": [_headcount_view(h) for h in items]}
 
 
 def get_headcount(db: Session, org_id: int, hc_id: int) -> WfHeadcount:
@@ -270,7 +271,27 @@ def get_headcount(db: Session, org_id: int, hc_id: int) -> WfHeadcount:
     return hc
 
 
-def create_headcount(db: Session, org_id: int, data: WfHeadcountCreate, user_id: int) -> WfHeadcount:
+def _require_department(db: Session, org_id: int, department_id: int) -> None:
+    from app.modules.hr.models import Department
+    found = db.query(Department.id).filter(Department.id == department_id, Department.organization_id == org_id).first()
+    if not found:
+        raise BadRequestException("The selected department was not found in this organization. Choose a department from the list.")
+
+
+def _check_headcount_unique(db: Session, org_id: int, department_id: int, fiscal_year: int, exclude_id=None) -> None:
+    q = db.query(WfHeadcount.id).filter(
+        WfHeadcount.organization_id == org_id, WfHeadcount.deleted_at.is_(None),
+        WfHeadcount.department_id == department_id, WfHeadcount.fiscal_year == fiscal_year,
+    )
+    if exclude_id:
+        q = q.filter(WfHeadcount.id != exclude_id)
+    if q.first():
+        raise BadRequestException(f"This department already has a headcount record for {fiscal_year}. Edit that record instead.")
+
+
+def create_headcount(db: Session, org_id: int, data: WfHeadcountCreate, user_id: int) -> dict:
+    _require_department(db, org_id, data.department_id)
+    _check_headcount_unique(db, org_id, data.department_id, data.fiscal_year)
     hc = WfHeadcount(
         organization_id=org_id,
         department_id=data.department_id,
@@ -285,18 +306,37 @@ def create_headcount(db: Session, org_id: int, data: WfHeadcountCreate, user_id:
     db.add(hc)
     db.commit()
     db.refresh(hc)
-    return hc
+    return _headcount_view(hc)
 
 
-def update_headcount(db: Session, org_id: int, hc_id: int, data: WfHeadcountUpdate, user_id: int) -> WfHeadcount:
+def update_headcount(db: Session, org_id: int, hc_id: int, data: WfHeadcountUpdate, user_id: int) -> dict:
+    from app.modules.hr.schemas import positions_problem
     hc = get_headcount(db, org_id, hc_id)
     update_data = data.model_dump(exclude_unset=True)
+    for required in ("department_id", "fiscal_year"):
+        if required in update_data and update_data[required] is None:
+            update_data.pop(required)
+    for counted in ("approved_positions", "filled_positions", "vacant_positions", "planned_hires", "projected_cost"):
+        if counted in update_data and update_data[counted] is None:
+            update_data.pop(counted)
+    if "department_id" in update_data and update_data["department_id"] != hc.department_id:
+        _require_department(db, org_id, update_data["department_id"])
+    if {"department_id", "fiscal_year"} & set(update_data):
+        _check_headcount_unique(db, org_id, update_data.get("department_id", hc.department_id), update_data.get("fiscal_year", hc.fiscal_year), exclude_id=hc.id)
+    if {"approved_positions", "filled_positions", "vacant_positions"} & set(update_data):
+        problem = positions_problem(
+            update_data.get("approved_positions", hc.approved_positions) or 0,
+            update_data.get("filled_positions", hc.filled_positions) or 0,
+            update_data.get("vacant_positions", hc.vacant_positions) or 0,
+        )
+        if problem:
+            raise BadRequestException(problem)
     for field, value in update_data.items():
         setattr(hc, field, value)
     hc.updated_by = user_id
     db.commit()
     db.refresh(hc)
-    return hc
+    return _headcount_view(hc)
 
 
 def delete_headcount(db: Session, org_id: int, hc_id: int) -> None:
@@ -328,10 +368,7 @@ def list_successions(db: Session, org_id: int, page: int = 1, per_page: int = 20
     total, items = _apply_pagination(query, page, per_page, SORTABLE_SUCCESSION, sort_by, sort_order)
     result = []
     for s in items:
-        d = {c.name: getattr(s, c.name) for c in s.__table__.columns}
-        d["employee_name"] = s.employee.full_name if s.employee else None
-        d["successor_name"] = s.successor.full_name if s.successor else None
-        result.append(d)
+        result.append(_succession_view(s))
     return {"total": total, "page": page, "per_page": per_page, "items": result}
 
 
@@ -345,11 +382,35 @@ def get_succession(db: Session, org_id: int, succ_id: int) -> WfSuccession:
     return succ
 
 
+def _require_people(db: Session, org_id: int, employee_id, successor_id) -> None:
+    """Both people must be employees of THIS organization, and nobody is their own successor."""
+    from app.modules.employee.models import Employee
+    for label, emp_id in (("employee", employee_id), ("successor", successor_id)):
+        if emp_id is None:
+            continue
+        found = db.query(Employee.id).filter(Employee.id == emp_id, Employee.organization_id == org_id).first()
+        if not found:
+            raise BadRequestException(f"The selected {label} was not found in this organization. Choose someone from the list.")
+    if successor_id is not None and successor_id == employee_id:
+        raise BadRequestException("An employee cannot be their own successor. Choose a different successor.")
+
+
+def _check_succession_duplicate(db: Session, org_id: int, employee_id, successor_id, position, exclude_id=None) -> None:
+    q = db.query(WfSuccession.id).filter(
+        WfSuccession.organization_id == org_id, WfSuccession.deleted_at.is_(None),
+        WfSuccession.employee_id == employee_id,
+        WfSuccession.successor_employee_id.is_(None) if successor_id is None else WfSuccession.successor_employee_id == successor_id,
+        func.lower(func.coalesce(WfSuccession.target_position, "")) == (position or "").lower(),
+    )
+    if exclude_id:
+        q = q.filter(WfSuccession.id != exclude_id)
+    if q.first():
+        raise BadRequestException("This succession plan already exists for the same employee, successor and position.")
+
+
 def create_succession(db: Session, org_id: int, data: WfSuccessionCreate, user_id: int) -> WfSuccession:
-    if data.readiness_level and data.readiness_level not in ("not_ready", "moderately_ready", "ready", "fully_ready"):
-        raise BadRequestException(f"Invalid readiness level: {data.readiness_level}")
-    if data.risk_level and data.risk_level not in ("low", "medium", "high", "critical"):
-        raise BadRequestException(f"Invalid risk level: {data.risk_level}")
+    _require_people(db, org_id, data.employee_id, data.successor_employee_id)
+    _check_succession_duplicate(db, org_id, data.employee_id, data.successor_employee_id, data.target_position)
     succ = WfSuccession(
         organization_id=org_id,
         employee_id=data.employee_id,
@@ -364,18 +425,38 @@ def create_succession(db: Session, org_id: int, data: WfSuccessionCreate, user_i
     db.add(succ)
     db.commit()
     db.refresh(succ)
-    return succ
+    return _succession_view(succ)
 
 
-def update_succession(db: Session, org_id: int, succ_id: int, data: WfSuccessionUpdate, user_id: int) -> WfSuccession:
+def _succession_view(s: WfSuccession) -> dict:
+    d = {c.name: getattr(s, c.name) for c in s.__table__.columns}
+    d["employee_name"] = s.employee.full_name if s.employee else None
+    d["successor_name"] = s.successor.full_name if s.successor else None
+    return d
+
+
+def update_succession(db: Session, org_id: int, succ_id: int, data: WfSuccessionUpdate, user_id: int) -> dict:
     succ = get_succession(db, org_id, succ_id)
     update_data = data.model_dump(exclude_unset=True)
+    for required in ("employee_id", "readiness_level", "risk_level"):
+        if required in update_data and update_data[required] is None:
+            update_data.pop(required)
+    employee_id = update_data.get("employee_id", succ.employee_id)
+    successor_id = update_data["successor_employee_id"] if "successor_employee_id" in update_data else succ.successor_employee_id
+    if {"employee_id", "successor_employee_id"} & set(update_data):
+        # people are re-checked only when they are changed, so an old record stays editable
+        changed = {k: update_data[k] for k in ("employee_id", "successor_employee_id") if k in update_data and update_data[k] != getattr(succ, k)}
+        _require_people(db, org_id, changed.get("employee_id"), changed.get("successor_employee_id"))
+        if successor_id is not None and successor_id == employee_id:
+            raise BadRequestException("An employee cannot be their own successor. Choose a different successor.")
+    if {"employee_id", "successor_employee_id", "target_position"} & set(update_data):
+        _check_succession_duplicate(db, org_id, employee_id, successor_id, update_data.get("target_position", succ.target_position), exclude_id=succ.id)
     for field, value in update_data.items():
         setattr(succ, field, value)
     succ.updated_by = user_id
     db.commit()
     db.refresh(succ)
-    return succ
+    return _succession_view(succ)
 
 
 def delete_succession(db: Session, org_id: int, succ_id: int) -> None:
@@ -421,19 +502,47 @@ def create_report(db: Session, org_id: int, data: WfReportCreate, user_id: int) 
     return report
 
 
+# What each exported report contains, in order: (key, column heading). The exports show names a person can read
+# (a department's name, never its database number) and always carry their headings, even when there are no rows.
+REPORT_COLUMNS = {
+    "headcount_summary": [
+        ("department", "Department"), ("fiscal_year", "Fiscal Year"), ("approved_positions", "Approved Positions"),
+        ("filled_positions", "Filled Positions"), ("vacant_positions", "Vacant Positions"), ("planned_hires", "Planned Hires"),
+        ("projected_cost", "Projected Cost"),
+    ],
+    "succession_pipeline": [
+        ("employee_name", "Employee"), ("successor_name", "Successor"), ("target_position", "Target Position"),
+        ("readiness_level", "Readiness"), ("risk_level", "Risk"), ("review_date", "Review Date"),
+    ],
+    "workforce_summary": [
+        ("title", "Plan"), ("department", "Department"), ("plan_year", "Plan Year"), ("status", "Status"),
+        ("budget", "Budget"), ("target_headcount", "Target Headcount"), ("current_headcount", "Current Headcount"),
+    ],
+}
+
+
+def report_columns(report_type: str) -> list:
+    return REPORT_COLUMNS.get(report_type, REPORT_COLUMNS["workforce_summary"])
+
+
+def _words(value):
+    """not_ready -> Not ready: stored codes read as words in an export."""
+    return value.replace("_", " ").capitalize() if isinstance(value, str) and value else value
+
+
 def generate_report_data(db: Session, org_id: int, report_type: str) -> list[dict]:
     if report_type == "headcount_summary":
-        rows = db.query(WfHeadcount).filter(
+        rows = db.query(WfHeadcount).options(joinedload(WfHeadcount.department)).filter(
             WfHeadcount.organization_id == org_id, WfHeadcount.deleted_at.is_(None)
-        ).all()
+        ).order_by(WfHeadcount.fiscal_year.desc(), WfHeadcount.id).all()
         return [
             {
-                "department_id": r.department_id,
+                "department": r.department.name if r.department else ("Unassigned" if not r.department_id else f"Department #{r.department_id}"),
                 "fiscal_year": r.fiscal_year,
-                "approved_positions": r.approved_positions,
-                "filled_positions": r.filled_positions,
-                "vacant_positions": r.vacant_positions,
-                "planned_hires": r.planned_hires,
+                "approved_positions": r.approved_positions or 0,
+                "filled_positions": r.filled_positions or 0,
+                "vacant_positions": r.vacant_positions or 0,
+                "planned_hires": r.planned_hires or 0,
                 "projected_cost": float(r.projected_cost or 0),
             }
             for r in rows
@@ -443,29 +552,43 @@ def generate_report_data(db: Session, org_id: int, report_type: str) -> list[dic
             joinedload(WfSuccession.employee), joinedload(WfSuccession.successor)
         ).filter(
             WfSuccession.organization_id == org_id, WfSuccession.deleted_at.is_(None)
-        ).all()
+        ).order_by(WfSuccession.id).all()
         return [
             {
-                "employee_name": r.employee.full_name if r.employee else None,
-                "successor_name": r.successor.full_name if r.successor else None,
-                "readiness_level": r.readiness_level,
-                "risk_level": r.risk_level,
-                "target_position": r.target_position,
+                "employee_name": r.employee.full_name if r.employee else "",
+                "successor_name": r.successor.full_name if r.successor else "No successor named yet",
+                "target_position": r.target_position or "",
+                "readiness_level": _words(r.readiness_level),
+                "risk_level": _words(r.risk_level),
+                "review_date": r.review_date.isoformat() if r.review_date else "",
             }
             for r in rows
         ]
     else:
+        from app.modules.hr.models import Department
         rows = db.query(WfPlan).filter(
             WfPlan.organization_id == org_id, WfPlan.deleted_at.is_(None)
-        ).all()
+        ).order_by(WfPlan.plan_year.desc(), WfPlan.id).all()
+        dept_ids = {r.department_id for r in rows if r.department_id}
+        names = {d.id: d.name for d in db.query(Department).filter(Department.id.in_(dept_ids)).all()} if dept_ids else {}
         return [
             {
                 "title": r.title,
+                "department": names.get(r.department_id, "All departments" if not r.department_id else f"Department #{r.department_id}"),
                 "plan_year": r.plan_year,
-                "status": r.status,
+                "status": _words(r.status),
                 "budget": float(r.budget or 0),
-                "target_headcount": r.target_headcount,
-                "current_headcount": r.current_headcount,
+                "target_headcount": r.target_headcount or 0,
+                "current_headcount": r.current_headcount or 0,
             }
             for r in rows
         ]
+
+
+def report_table(db: Session, org_id: int, report_type: str) -> tuple[list, list]:
+    """(headings, rows) ready for CSV, Excel or PDF: the headings are always present, even with no rows."""
+    if report_type not in REPORT_COLUMNS:
+        raise BadRequestException("Unknown report type. Choose Workforce Summary, Headcount Summary or Succession Pipeline.")
+    columns = report_columns(report_type)
+    data = generate_report_data(db, org_id, report_type)
+    return [heading for _, heading in columns], [[row.get(key, "") for key, _ in columns] for row in data]

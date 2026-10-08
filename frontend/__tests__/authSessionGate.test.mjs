@@ -19,6 +19,7 @@ test("a cached user renders the app while /auth/me is still in flight", async (t
   t.mock.module("../src/service/authService.js", {
     exports: {
       login: async () => ({}),
+      loginWithGoogleTicket: async () => ({}),
       register: async () => ({}),
       logout: async () => ({}),
       isAuthenticated: () => Boolean(localStorage.getItem("zoiko_access_token")),
@@ -48,6 +49,7 @@ test("no cached user and no token shows no app shell", async (t) => {
   t.mock.module("../src/service/authService.js", {
     exports: {
       login: async () => ({}),
+      loginWithGoogleTicket: async () => ({}),
       register: async () => ({}),
       logout: async () => ({}),
       isAuthenticated: () => Boolean(localStorage.getItem("zoiko_access_token")),

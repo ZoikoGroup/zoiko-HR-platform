@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { Eye, EyeOff, Lock, ShieldCheck, Shield, CheckCircle, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { getMyProfile, updateMyProfile } from "../../../../service/employee";
-import { changePassword } from "../../../../service/authService";
+import { changePassword, forgotMyPassword } from "../../../../service/authService";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 
 const calcStrength = (pw) => {
@@ -87,6 +87,15 @@ export default function ChangePassword() {
     if (newPw !== confirm) e.confirm = "Passwords do not match";
     if (!confirm) e.confirm = "Confirm your password";
     return e;
+  };
+
+  const [reset, setReset] = useState({ busy: false, sent: false, email: "", error: "" });
+  const handleForgot = () => {
+    if (reset.busy) return;
+    setReset({ busy: true, sent: false, email: "", error: "" });
+    forgotMyPassword()
+      .then((res) => { if (mounted.current) setReset({ busy: false, sent: true, email: res?.email || "", error: "" }); })
+      .catch((err) => { if (mounted.current) setReset({ busy: false, sent: false, email: "", error: err?.message || "The reset link could not be sent. Try again in a minute." }); });
   };
 
   const handleSubmit = () => {
@@ -185,6 +194,20 @@ export default function ChangePassword() {
                 onToggle={() => toggle("current")}
               />
               {errors.current && <p className="text-xs text-red-500 mt-1">{errors.current}</p>}
+              <div className="mt-2 text-xs">
+                {reset.sent ? (
+                  <p role="status" className="text-emerald-600 dark:text-emerald-400 font-medium">
+                    A reset link has been sent to {reset.email || "your registered email"}. Open it to choose a new password; it works once and expires soon.
+                  </p>
+                ) : (
+                  <>
+                    <button type="button" onClick={handleForgot} disabled={reset.busy} className="text-blue-600 hover:text-blue-700 font-semibold underline disabled:opacity-60">
+                      {reset.busy ? "Sending..." : "Forgot your current password? Email me a reset link"}
+                    </button>
+                    {reset.error && <p role="alert" className="text-red-500 mt-1">{reset.error}</p>}
+                  </>
+                )}
+              </div>
             </div>
 
             <div>

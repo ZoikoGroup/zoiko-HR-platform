@@ -199,3 +199,39 @@ test("while still on the free evaluation the buttons say Subscribe", async (t) =
   assert.ok(screen.getByRole("button", { name: /Subscribe to Core via Stripe/ }));
   assert.ok(screen.getByRole("button", { name: /Subscribe to Advanced via Stripe/ }));
 });
+
+// ── ZHR-100: a settled payment is reflected in the current plan
+test("coming back from Stripe the plan is read AFTER the payment is confirmed, so the new plan shows", async (t) => {
+  const order = [];
+  let paid = false;
+  await open(t, {
+    sub: async () => { order.push(paid ? "read-new" : "read-old"); return paid ? { ...SUB, plan_code: "advanced", plan_name: "Advanced" } : { ...SUB, status: "evaluation", plan_code: null, plan_name: null }; },
+    confirm: async () => { order.push("confirm"); paid = true; return { status: "confirmed", message: "Payment confirmed. Your plan has been updated." }; },
+  }, "?payment=success&session_id=cs_done_1");
+  assert.deepEqual(order, ["confirm", "read-new"], "the pre-payment plan is never read first");
+  const tiles = document.body.textContent;
+  assert.match(tiles, /Advanced/);
+  assert.match(tiles, /active/i);
+});
+
+test("a payment that cannot be confirmed yet says so and can be checked again", async (t) => {
+  let attempts = 0;
+  await open(t, {
+    confirm: async () => {
+      attempts += 1;
+      if (attempts === 1) throw new Error("Stripe checkout session retrieval failed");
+      return { status: "confirmed", message: "Payment confirmed. Your plan has been updated." };
+    },
+  }, "?payment=success&session_id=cs_done_2");
+  assert.match(document.body.textContent, /went through at Stripe, but we have not been able to confirm it/);
+  fireEvent.click(screen.getByRole("button", { name: "Check payment again" }));
+  await settle();
+  assert.equal(attempts, 2);
+  assert.doesNotMatch(document.body.textContent, /have not been able to confirm it/);
+});
+
+test("an extra payment that was refunded is explained, with no retry offered", async (t) => {
+  await open(t, { confirm: async () => ({ status: "failed", message: "Your organization already has an active subscription, so this extra payment was cancelled and refunded." }) }, "?payment=success&session_id=cs_dup");
+  assert.match(document.body.textContent, /cancelled and refunded/);
+  assert.equal(screen.queryByRole("button", { name: "Check payment again" }), null);
+});

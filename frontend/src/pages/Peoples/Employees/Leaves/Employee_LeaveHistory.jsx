@@ -5,6 +5,18 @@ import EmployeeDataTable from "../../../../components/employee/EmployeeDataTable
 import { getLeaveRequests } from "../../../../service/employee";
 import { getStoredUser } from "../../../../service/api";
 import { formatDate } from "../../../../utils/dateTime";
+import { useAutoRefresh } from "../../../../utils/useAutoRefresh";
+import { formatLeaveType, leaveTypeColor } from "../../../../utils/leaveTypeUtils";
+
+/** Who decided the request: their name once decided, "Awaiting approval" while open, never a bare dash. */
+function approverLabel(row) {
+  const status = String(row.status || "").toLowerCase();
+  const name = row.reviewer_name || row.approver || (row.approved_by && row.approved_by !== "-" ? row.approved_by : "");
+  if (name) return name;
+  if (status === "approved" || status === "rejected") return "HR team";
+  if (status === "cancelled") return "Withdrawn";
+  return "Awaiting approval";
+}
 
 function formatLeaveDate(dateStr) {
   if (!dateStr) return "-";
@@ -17,11 +29,7 @@ export default function LeaveHistory() {
   const [error, setError] = useState(null);
   const mounted = useRef(true);
 
-  useEffect(() => {
-    mounted.current = true;
-    setLoading(true);
-    setError(null);
-
+  const load = async ({ silent = false } = {}) => {
     const employeeId = getStoredUser()?.id;
     if (!employeeId) {
       if (mounted.current) {
@@ -30,27 +38,37 @@ export default function LeaveHistory() {
       }
       return;
     }
-
-    getLeaveRequests(employeeId)
-      .then((data) => {
-        if (!mounted.current) return;
-        const list = Array.isArray(data) ? data : [];
-        list.sort((a, b) => {
-          const da = a.created_at || a.appliedOn || a.start_date;
-          const db = b.created_at || b.appliedOn || b.start_date;
-          return new Date(db || 0) - new Date(da || 0);
-        });
-        setRecords(list);
-      })
-      .catch((err) => {
-        if (mounted.current) setError(err.message || "Failed to load leave history");
-      })
-      .finally(() => {
-        if (mounted.current) setLoading(false);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+    }
+    try {
+      const data = await getLeaveRequests(employeeId);
+      if (!mounted.current) return;
+      const list = Array.isArray(data) ? [...data] : [];
+      list.sort((a, b) => {
+        const da = a.created_at || a.appliedOn || a.start_date;
+        const db = b.created_at || b.appliedOn || b.start_date;
+        const diff = new Date(db || 0) - new Date(da || 0);
+        return diff || (Number(b.id) || 0) - (Number(a.id) || 0);
       });
+      setRecords(list);
+      setError(null);
+    } catch (err) {
+      // a failed background refresh keeps what is on screen; only the first load shows the error
+      if (mounted.current && !silent) setError(err.message || "Failed to load leave history");
+    } finally {
+      if (mounted.current && !silent) setLoading(false);
+    }
+  };
 
+  useEffect(() => {
+    mounted.current = true;
+    load();
     return () => { mounted.current = false; };
   }, []);
+
+  useAutoRefresh(load);
 
   if (loading) {
     return (
@@ -89,13 +107,17 @@ export default function LeaveHistory() {
         renderCell={(row, col) => {
           if (col.key === "status") return <EmployeeStatusBadge status={row.status} />;
           if (col.key === "id") return <span className="text-xs font-semibold text-gray-400 dark:text-[#94a3b8]">{row.id || row.leaveId || "-"}</span>;
-          if (col.key === "type") return <span className="text-xs font-semibold text-gray-900 dark:text-[#f1f5f9]">{row.leave_type || row.type || "Leave"}</span>;
-if (col.key === "from") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.start_date)}</span>;
+          if (col.key === "type") return (
+            <span className="inline-flex items-center gap-2 text-xs font-semibold text-gray-900 dark:text-[#f1f5f9]">
+              <span className="h-2 w-2 rounded-full shrink-0" style={{ backgroundColor: leaveTypeColor(row.leave_type || row.type) }} />
+              {formatLeaveType(row.leave_type || row.type)}
+            </span>
+          );
+          if (col.key === "from") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.start_date)}</span>;
           if (col.key === "to") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.end_date)}</span>;
-          if (col.key === "status") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.status?.toUpperCase?.() || row.status}</span>;
-          if (col.key === "days") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.days}</span>;
+          if (col.key === "days") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.days || 1}</span>;
           if (col.key === "appliedOn") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{formatLeaveDate(row.created_at || row.appliedOn)}</span>;
-          if (col.key === "approver") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{row.approver || row.approved_by || "-"}</span>;
+          if (col.key === "approver") return <span className="text-xs text-gray-700 dark:text-[#cbd5e1]">{approverLabel(row)}</span>;
           return row[col.key];
         }}
         emptyMessage="No leave history found"

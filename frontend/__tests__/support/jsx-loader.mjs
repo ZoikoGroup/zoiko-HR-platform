@@ -40,7 +40,8 @@ export async function resolve(specifier, context, nextResolve) {
 export async function load(url, context, nextLoad) {
   const pathname = url.split("?")[0].split("#")[0];
   if (pathname.endsWith(".jsx")) {
-    const source = await readFile(fileURLToPath(url), "utf8");
+    // Vite provides import.meta.env; node does not. An empty object keeps pages that read a flag from it (DEV, VITE_*) loadable.
+    const source = (await readFile(fileURLToPath(url), "utf8")).replace(/import\.meta\.env/g, "({})");
     const { code } = esbuild.transformSync(source, {
       loader: "jsx",
       jsx: "automatic",

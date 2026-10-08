@@ -294,6 +294,12 @@ if settings.ENFORCE_ENTITLEMENTS:
         allow_read_in_read_only=settings.ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY,
         routes_provider=lambda: app.routes,
     )
+    try:
+        from app.services.email_service import link_config_problems
+        for problem in link_config_problems():
+            logger.warning("[startup] Email links: %s", problem)
+    except Exception:  # a settings check must never stop the app from starting
+        logger.debug("email link settings check failed", exc_info=True)
     logger.info(
         "[startup] Entitlement enforcement ENABLED (HR_ENFORCE_ENTITLEMENTS=true)."
         "%s",

@@ -232,7 +232,7 @@ export default function SalaryComponentsPage() {
                           </span>
                         </td>
                         <td className="px-4 py-3 text-gray-700">
-                          {amountText(i.default_amount) ?? <span title="Edit this component to enter its default amount" className="text-amber-700 text-xs font-medium">Not set</span>}
+                          {amountText(i.default_amount) ?? <span title="No default: the amount is entered for this component inside each salary structure" className="text-gray-400 text-xs">Set per structure</span>}
                         </td>
                         <td className="px-4 py-3 text-gray-700">{i.description || <span className="text-gray-300">-</span>}</td>
                         <td className="px-4 py-3 text-right">
@@ -339,7 +339,7 @@ export default function SalaryComponentsPage() {
                 <label htmlFor="is_taxable" className="text-sm font-medium text-gray-700">Taxable</label>
               </div>
               <div>
-                <label htmlFor="cmp-new-amount" className="block text-sm font-medium text-gray-700 mb-1">Default Amount <span className="text-red-500">*</span></label>
+                <label htmlFor="cmp-new-amount" className="block text-sm font-medium text-gray-700 mb-1">Default Amount <span className="text-gray-400 font-normal">(optional)</span></label>
                 <input
                   id="cmp-new-amount"
                   type="number"
@@ -352,6 +352,7 @@ export default function SalaryComponentsPage() {
                   className={`w-full border ${formErrors.default_amount ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
                 {formErrors.default_amount && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.default_amount}</p>}
+                <p className="text-gray-400 text-xs mt-1">A suggested starting value. The amount that counts is set for this component inside each salary structure.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
@@ -418,7 +419,7 @@ export default function SalaryComponentsPage() {
                 <label htmlFor="edit_is_taxable" className="text-sm font-medium text-gray-700">Taxable</label>
               </div>
               <div>
-                <label htmlFor="cmp-edit-amount" className="block text-sm font-medium text-gray-700 mb-1">Default Amount <span className="text-red-500">*</span></label>
+                <label htmlFor="cmp-edit-amount" className="block text-sm font-medium text-gray-700 mb-1">Default Amount <span className="text-gray-400 font-normal">(optional)</span></label>
                 <input
                   id="cmp-edit-amount"
                   type="number"
@@ -431,6 +432,7 @@ export default function SalaryComponentsPage() {
                   className={`w-full border ${formErrors.default_amount ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`}
                 />
                 {formErrors.default_amount && <p role="alert" className="text-red-500 text-xs mt-1">{formErrors.default_amount}</p>}
+                <p className="text-gray-400 text-xs mt-1">A suggested starting value. The amount that counts is set for this component inside each salary structure.</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>

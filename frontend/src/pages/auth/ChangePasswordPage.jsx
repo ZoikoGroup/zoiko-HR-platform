@@ -5,12 +5,9 @@ import { changePassword, fetchCurrentUser } from "../../service/authService";
 import { getAccessToken, getRefreshToken, setSession } from "../../service/api";
 import { ROLE_DEFAULT_REDIRECT } from "../../config/roles";
 
-export const PASSWORD_HINT = "At least 8 characters, with a letter and a number.";
+import { PASSWORD_HINT, passwordProblem } from "../../utils/passwordPolicy";
 
-export function passwordProblem(value) {
-  if (!value || value.length < 8 || !/[A-Za-z]/.test(value) || !/\d/.test(value)) return PASSWORD_HINT;
-  return null;
-}
+export { PASSWORD_HINT, passwordProblem };
 
 /**
  * Shown when an administrator set a temporary password (user.mustChangePassword).

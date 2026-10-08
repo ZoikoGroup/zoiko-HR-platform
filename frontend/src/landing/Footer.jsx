@@ -90,7 +90,7 @@ const ecosystemCards = [
 
 const legalLinks = [
   "Privacy Policy",
-  "Terms of Service",
+  { label: "Terms of Service", href: "/terms" },
   "Cookie Policy",
   "Accessibility Statement",
   "Acceptable Use",

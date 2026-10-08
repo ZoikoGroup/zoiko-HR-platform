@@ -121,7 +121,7 @@ def get_wf_headcount(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return workforce_service.get_headcount(db, current_user.organization_id, hc_id)
+    return workforce_service._headcount_view(workforce_service.get_headcount(db, current_user.organization_id, hc_id))
 
 
 @workforce_router.post("/headcount", response_model=WfHeadcountResponse, status_code=status.HTTP_201_CREATED)
@@ -181,7 +181,7 @@ def get_wf_succession(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return workforce_service.get_succession(db, current_user.organization_id, succ_id)
+    return workforce_service._succession_view(workforce_service.get_succession(db, current_user.organization_id, succ_id))
 
 
 @workforce_router.post("/succession", response_model=WfSuccessionResponse, status_code=status.HTTP_201_CREATED)
@@ -248,13 +248,12 @@ def export_wf_csv(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    rows = workforce_service.generate_report_data(db, current_user.organization_id, report_type)
+    headings, rows = workforce_service.report_table(db, current_user.organization_id, report_type)
     import csv, io
     output = io.StringIO()
-    if rows:
-        writer = csv.DictWriter(output, fieldnames=rows[0].keys())
-        writer.writeheader()
-        writer.writerows(rows)
+    writer = csv.writer(output)
+    writer.writerow(headings)
+    writer.writerows(rows)
     output.seek(0)
     return StreamingResponse(
         iter([output.getvalue()]),
@@ -269,19 +268,22 @@ def export_wf_excel(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    rows = workforce_service.generate_report_data(db, current_user.organization_id, report_type)
+    headings, rows = workforce_service.report_table(db, current_user.organization_id, report_type)
     import openpyxl
+    from openpyxl.styles import Font
     from openpyxl.utils import get_column_letter
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = report_type
-    if rows:
-        headers = list(rows[0].keys())
-        for col_idx, header in enumerate(headers, 1):
-            ws.cell(row=1, column=col_idx, value=header)
-        for row_idx, row in enumerate(rows, 2):
-            for col_idx, header in enumerate(headers, 1):
-                ws.cell(row=row_idx, column=col_idx, value=row[header])
+    ws.title = report_type[:31]
+    ws.append(headings)
+    for cell in ws[1]:
+        cell.font = Font(bold=True)
+    for row in rows:
+        ws.append(row)
+    for idx, heading in enumerate(headings, 1):
+        longest = max([len(str(heading))] + [len(str(r[idx - 1])) for r in rows])
+        ws.column_dimensions[get_column_letter(idx)].width = min(max(12, longest + 2), 45)
+    ws.freeze_panes = "A2"
     output = io.BytesIO()
     wb.save(output)
     output.seek(0)
@@ -298,7 +300,7 @@ def export_wf_pdf(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    rows = workforce_service.generate_report_data(db, current_user.organization_id, report_type)
+    headings, rows = workforce_service.report_table(db, current_user.organization_id, report_type)
     try:
         from reportlab.lib.pagesizes import letter
         from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -312,11 +314,10 @@ def export_wf_pdf(
     doc = SimpleDocTemplate(buf, pagesize=letter)
     styles = getSampleStyleSheet()
     elements = [Paragraph(f"Workforce Report: {report_type}", styles["Title"]), Spacer(1, 12)]
-    if rows:
-        headers = list(rows[0].keys())
-        table_data = [[Paragraph(h, styles["Normal"]) for h in headers]]
+    if True:
+        table_data = [[Paragraph(h, styles["Normal"]) for h in headings]]
         for row in rows:
-            table_data.append([Paragraph(str(row.get(h, "")), styles["Normal"]) for h in headers])
+            table_data.append([Paragraph(str(v), styles["Normal"]) for v in row])
         t = Table(table_data, repeatRows=1)
         t.setStyle(TableStyle([
             ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1e40af")),

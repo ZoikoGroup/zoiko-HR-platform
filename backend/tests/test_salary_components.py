@@ -1,4 +1,4 @@
-"""Salary components: the default amount is required (ZHR-75), and the rest of the form is checked."""
+"""Salary components: the default amount is optional (the amount that counts is set per salary structure), and the rest of the form is checked."""
 
 from datetime import date
 from decimal import Decimal
@@ -59,12 +59,12 @@ def _fields(r):
     return {e["loc"][-1]: e["msg"] for e in r.json()["detail"]}
 
 
-def test_a_component_cannot_be_created_without_a_default_amount(env):
-    f = _fields(env.post(URL, json={k: v for k, v in good().items() if k != "default_amount"}))
-    assert "required" in f["default_amount"].lower()
-    for blank in (None, "", "   "):
-        assert "Default amount is required" in _fields(env.post(URL, json=good(default_amount=blank)))["default_amount"], blank
-    assert env.get(URL).json() == [], "nothing was saved with a blank amount"
+def test_a_component_can_be_created_without_a_default_amount(env):
+    for n, blank in enumerate((None, "", "   ")):
+        r = env.post(URL, json=good(name=f"No default {n}", default_amount=blank))
+        assert r.status_code == 200 and r.json()["default_amount"] is None, blank
+    r = env.post(URL, json={k: v for k, v in good(name="Omitted").items() if k != "default_amount"})
+    assert r.status_code == 200 and r.json()["default_amount"] is None
 
 
 def test_the_amount_must_be_a_sensible_positive_number(env):
@@ -85,13 +85,15 @@ def test_other_details_are_checked_and_trimmed(env):
     assert env.post(URL, json=good(name="Housing Allowance")).status_code == 200            # another organization may reuse the name
 
 
-def test_editing_cannot_blank_the_amount_or_the_name(env):
+def test_editing_can_clear_the_default_amount_but_not_blank_the_name(env):
     cid = env.post(URL, json=good()).json()["id"]
-    for blank in ({"default_amount": None}, {"default_amount": ""}, {"default_amount": 0}, {"name": " "}):
+    for blank in ({"name": " "}, {"default_amount": 0}, {"default_amount": "abc"}):
         assert env.put(f"{URL}/{cid}", json=blank).status_code == 422, blank
     assert env.put(f"{URL}/{cid}", json={"description": "Monthly"}).json()["default_amount"] is not None     # an edit that omits it keeps it
     r = env.put(f"{URL}/{cid}", json={"default_amount": 7500})
     assert r.status_code == 200 and Decimal(str(r.json()["default_amount"])) == Decimal("7500")
+    cleared = env.put(f"{URL}/{cid}", json={"default_amount": ""})
+    assert cleared.status_code == 200 and cleared.json()["default_amount"] is None
 
 
 def test_an_old_component_with_no_amount_is_still_listed_and_can_be_completed(env):
@@ -119,3 +121,72 @@ def test_other_organizations_cannot_touch_it_and_a_used_component_cannot_be_dele
     assert r.status_code == 400 and "salary structure" in r.text
     free = env.post(URL, json=good(name="Unused")).json()["id"]
     assert env.delete(f"{URL}/{free}").status_code == 200
+
+
+# ── the amount that counts is set inside the salary structure, and it is required there
+SURL = "/hr/compensation/salary-structures"
+
+
+def _structure(env, name="Standard"):
+    r = env.post(SURL, json={"name": name})
+    assert r.status_code == 200, r.text
+    return r.json()["id"]
+
+
+def _add(env, sid, component_id, amount):
+    return env.post(f"{SURL}/{sid}/components", json={"component_id": component_id, "amount_or_formula": amount})
+
+
+def test_a_component_without_a_default_gets_its_amount_in_the_structure(env):
+    cid = env.post(URL, json=good(name="PF", default_amount=None)).json()["id"]
+    sid = _structure(env)
+    for blank in ("", "   ", None):
+        assert env.post(f"{SURL}/{sid}/components", json={"component_id": cid, "amount_or_formula": blank}).status_code == 422, blank
+    assert env.get(f"{SURL}/{sid}/components").json() == [], "nothing was attached without an amount"
+    ok = _add(env, sid, cid, "12%")
+    assert ok.status_code == 200, ok.text
+    row = ok.json()
+    assert (row["amount_or_formula"], row["component_name"], row["component_type"], row["default_amount"], row["structure_id"]) == ("12%", "PF", "earning", None, sid)
+
+
+def test_the_structure_amount_can_be_a_number_a_percentage_or_a_formula(env):
+    sid = _structure(env)
+    made = {}
+    for n, (amount, expected) in enumerate((("50,000", "50000"), ("1250.50", "1250.5"), ("40%", "40%"), ("40% of basic", "40% of basic"), ("basic * 0.4", "basic * 0.4"))):
+        cid = env.post(URL, json=good(name=f"C{n}", default_amount=None)).json()["id"]
+        r = _add(env, sid, cid, amount)
+        assert r.status_code == 200 and r.json()["amount_or_formula"] == expected, (amount, r.text)
+    cid = env.post(URL, json=good(name="Bad", default_amount=None)).json()["id"]
+    for bad, word in (("0", "greater than 0"), ("-5", "greater than 0"), ("12.345", "2 decimal"), ("150%", "at most 100"), ("0%", "more than 0"), ("<script>", "formula"), ("$$$", "formula"), ("1" * 300, "255")):
+        r = _add(env, sid, cid, bad)
+        assert r.status_code == 422 and word in r.text, (bad, r.text)
+
+
+def test_a_component_cannot_be_added_twice_or_from_another_organization(env):
+    cid = env.post(URL, json=good(name="HRA", default_amount=None)).json()["id"]
+    sid = _structure(env)
+    assert _add(env, sid, cid, "20%").status_code == 200
+    again = _add(env, sid, cid, "25%")
+    assert again.status_code == 400 and "already part of this salary structure" in again.text
+    env.box["user"] = env.other
+    foreign_component = env.post(URL, json=good(name="Theirs", default_amount=None)).json()["id"]
+    env.box["user"] = env.admin
+    assert _add(env, sid, foreign_component, "10%").status_code == 400
+    env.box["user"] = env.other
+    assert _add(env, sid, cid, "10%").status_code == 404                     # their organization cannot reach my structure
+    assert env.get(f"{SURL}/{sid}/components").status_code == 404
+
+
+def test_the_amount_in_a_structure_can_be_changed_but_not_blanked_and_components_can_be_removed(env):
+    cid = env.post(URL, json=good(name="Bonus", default_amount=None)).json()["id"]
+    sid = _structure(env)
+    row = _add(env, sid, cid, "5%").json()
+    path = f"{SURL}/{sid}/components/{row['id']}"
+    assert env.put(path, json={"amount_or_formula": " "}).status_code == 422
+    changed = env.put(path, json={"amount_or_formula": "7500"})
+    assert changed.status_code == 200 and changed.json()["amount_or_formula"] == "7500"
+    other = _structure(env, "Other")
+    assert env.put(f"{SURL}/{other}/components/{row['id']}", json={"amount_or_formula": "1"}).status_code == 404       # not that structure's row
+    assert env.delete(f"{SURL}/{other}/components/{row['id']}").status_code == 404
+    assert env.delete(path).status_code == 200
+    assert env.get(f"{SURL}/{sid}/components").json() == []

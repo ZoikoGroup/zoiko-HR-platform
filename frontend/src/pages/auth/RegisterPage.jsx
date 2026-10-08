@@ -467,7 +467,7 @@ export default function RegisterPage() {
                     />
                     <label htmlFor="termsAccepted" style={{ fontSize: "13px", color: "#374151", cursor: "pointer", lineHeight: "1.4" }}>
                       I accept the{" "}
-                      <Link to="/terms" style={{ color: "#3B82F6", fontWeight: "600", textDecoration: "none" }}>
+                      <Link to="/terms" target="_blank" rel="noopener noreferrer" style={{ color: "#3B82F6", fontWeight: "600", textDecoration: "none" }}>
                         Terms & Conditions
                       </Link>
                     </label>

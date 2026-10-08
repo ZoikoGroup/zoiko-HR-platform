@@ -39,11 +39,20 @@ export default function ApplyLeaveForm() {
   const [errors, setErrors] = useState({});
 
   const handleChange = (e) => {
-    setFormData({
-      ...formData,
-      [e.target.name]: e.target.value
+    const { name, value } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: value }));
+    // Drop the stale message for the field being edited (and any old API error),
+    // so a corrected value never sits under its own red error.
+    setErrors((prev) => {
+      if (!prev[name] && !prev._api) return prev;
+      const next = { ...prev };
+      delete next[name];
+      delete next._api;
+      return next;
     });
   };
+
+  const today = new Date().toISOString().slice(0, 10);
 
   const calculateDays = () => {
     if (!formData.start_date || !formData.end_date) return 0;
@@ -57,11 +66,12 @@ export default function ApplyLeaveForm() {
     const e = {};
     if (!formData.leave_type) e.leave_type = "Select a leave type";
     if (!formData.start_date) e.start_date = "Select start date";
+    else if (formData.start_date < today) e.start_date = "Leave cannot start in the past";
     if (!formData.end_date) e.end_date = "Select end date";
     if (formData.start_date && formData.end_date && new Date(formData.end_date) < new Date(formData.start_date)) {
       e.end_date = "End date must be after start date";
     }
-    if (!formData.reason.trim() || formData.reason.length < 10) e.reason = "Provide at least 10 characters";
+    if (formData.reason.trim().length < 10) e.reason = "Provide at least 10 characters";
     return e;
   };
 
@@ -113,8 +123,15 @@ export default function ApplyLeaveForm() {
 
         {/* SUCCESS / ERROR BANNERS */}
         {success && (
-          <div className="flex items-center gap-3 bg-green-950/40 border border-green-800 rounded-xl px-4 py-3 text-green-300 text-sm font-semibold">
-            <CheckCircle2 className="w-4 h-4 shrink-0" /> {success}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-green-950/40 border border-green-800 rounded-xl px-4 py-3 text-green-300 text-sm font-semibold">
+            <span className="flex items-center gap-3"><CheckCircle2 className="w-4 h-4 shrink-0" /> {success}</span>
+            <button
+              type="button"
+              onClick={() => navigate('/employee/leaves/history')}
+              className="self-start sm:self-auto text-green-200 hover:text-white underline underline-offset-2 font-semibold"
+            >
+              View Leave History
+            </button>
           </div>
         )}
 
@@ -169,6 +186,7 @@ export default function ApplyLeaveForm() {
                     type="date"
                     name="start_date"
                     value={formData.start_date}
+                    min={today}
                     onChange={handleChange}
                     className={`w-full bg-slate-950/80 border text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 transition-all [color-scheme:dark] ${errors.start_date ? 'border-red-600 focus:border-red-500 focus:ring-red-500' : 'border-slate-800 hover:border-slate-700 focus:border-orange-500 focus:ring-orange-500'}`}
                   />
@@ -185,6 +203,7 @@ export default function ApplyLeaveForm() {
                     type="date"
                     name="end_date"
                     value={formData.end_date}
+                    min={formData.start_date || today}
                     onChange={handleChange}
                     className={`w-full bg-slate-950/80 border text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 transition-all [color-scheme:dark] ${errors.end_date ? 'border-red-600 focus:border-red-500 focus:ring-red-500' : 'border-slate-800 hover:border-slate-700 focus:border-orange-500 focus:ring-orange-500'}`}
                   />

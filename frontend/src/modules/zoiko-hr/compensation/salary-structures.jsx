@@ -5,8 +5,181 @@ import {
   createSalaryStructure,
   updateSalaryStructure,
   deleteSalaryStructure,
+  getSalaryComponents,
+  getStructureComponents,
+  addStructureComponent,
+  updateStructureComponent,
+  deleteStructureComponent,
 } from "../../../service/hrService";
 import { formatDateTime } from "../../../utils/dateTime";
+import { validateStructureComponent, structureComponentPayload, structureAmountError, suggestedAmount, serverStructureErrors } from "../../../utils/structureComponentForm";
+
+const asList = (r) => (Array.isArray(r) ? r : r?.items || r?.data || []);
+
+/** What goes into a salary structure: each component with the amount that counts. The amount is required here, even for a
+ *  component that has no default amount of its own. */
+function StructureComponentsDialog({ structure, onClose }) {
+  const [rows, setRows] = useState(null);
+  const [catalog, setCatalog] = useState([]);
+  const [form, setForm] = useState({ componentId: "", amount: "" });
+  const [errors, setErrors] = useState({});
+  const [message, setMessage] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(null);       // { id, amount, error }
+
+  const load = async () => {
+    try {
+      const [inStructure, all] = await Promise.all([getStructureComponents(structure.id), getSalaryComponents()]);
+      setRows(asList(inStructure));
+      setCatalog(asList(all));
+    } catch (err) {
+      setRows([]);
+      setMessage(err?.message || "The components could not be loaded.");
+    }
+  };
+  useEffect(() => { load(); }, [structure.id]);
+
+  const usedIds = (rows || []).map((r) => r.component_id);
+  const available = catalog.filter((c) => !usedIds.includes(c.id));
+
+  const pick = (e) => {
+    const id = e.target.value;
+    const comp = catalog.find((c) => String(c.id) === id);
+    setForm({ componentId: id, amount: suggestedAmount(comp) });   // a default amount is only a suggestion
+    setErrors({});
+    setMessage(null);
+  };
+
+  const add = async (e) => {
+    e.preventDefault();
+    if (saving) return;
+    const problems = validateStructureComponent(form, usedIds);
+    setErrors(problems);
+    if (Object.keys(problems).length) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      await addStructureComponent(structure.id, structureComponentPayload(form));
+      setForm({ componentId: "", amount: "" });
+      await load();
+    } catch (err) {
+      const { fieldErrors, message: msg } = serverStructureErrors(err);
+      setErrors(fieldErrors);
+      setMessage(msg || null);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveEdit = async () => {
+    const problem = structureAmountError(editing.amount);
+    if (problem) { setEditing({ ...editing, error: problem }); return; }
+    try {
+      await updateStructureComponent(structure.id, editing.id, { amount_or_formula: editing.amount.trim() });
+      setEditing(null);
+      await load();
+    } catch (err) {
+      setEditing({ ...editing, error: serverStructureErrors(err).fieldErrors.amount || err?.message || "The amount could not be changed." });
+    }
+  };
+
+  const remove = async (row) => {
+    if (!window.confirm(`Remove ${row.component_name || "this component"} from ${structure.name}?`)) return;
+    try {
+      await deleteStructureComponent(structure.id, row.id);
+      await load();
+    } catch (err) {
+      setMessage(err?.message || "The component could not be removed.");
+    }
+  };
+
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`Components of ${structure.name}`} className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+      <div className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100">
+          <h2 className="text-lg font-bold text-gray-800">Components of {structure.name}</h2>
+          <button onClick={onClose} aria-label="Close" className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        </div>
+        <div className="p-6 space-y-5">
+          {message && <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{message}</div>}
+
+          {rows === null ? (
+            <p className="text-sm text-gray-500">Loading components...</p>
+          ) : rows.length === 0 ? (
+            <p className="text-sm text-gray-500">No components yet. Add the earnings and deductions this structure is made of.</p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-100">
+                <tr>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Component</th>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Type</th>
+                  <th className="text-left px-3 py-2 font-semibold text-gray-600">Amount / formula</th>
+                  <th className="text-right px-3 py-2 font-semibold text-gray-600">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-50">
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-3 py-2 font-medium text-gray-800">{r.component_name || `Component #${r.component_id}`}</td>
+                    <td className="px-3 py-2 capitalize text-gray-600">{r.component_type || "-"}</td>
+                    <td className="px-3 py-2 text-gray-700">
+                      {editing?.id === r.id ? (
+                        <div>
+                          <input aria-label="Amount or formula" value={editing.amount} onChange={(e) => setEditing({ ...editing, amount: e.target.value, error: "" })}
+                            className={`w-full border ${editing.error ? "border-red-300" : "border-gray-200"} rounded-lg px-2 py-1 text-sm`} />
+                          {editing.error && <p role="alert" className="text-red-500 text-xs mt-1">{editing.error}</p>}
+                        </div>
+                      ) : r.amount_or_formula}
+                    </td>
+                    <td className="px-3 py-2 text-right whitespace-nowrap">
+                      {editing?.id === r.id ? (
+                        <>
+                          <button onClick={saveEdit} className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1">Save</button>
+                          <button onClick={() => setEditing(null)} className="text-gray-500 hover:text-gray-700 text-xs font-medium px-1">Cancel</button>
+                        </>
+                      ) : (
+                        <>
+                          <button onClick={() => setEditing({ id: r.id, amount: r.amount_or_formula, error: "" })} className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1">Edit</button>
+                          <button onClick={() => remove(r)} className="text-red-500 hover:text-red-700 text-xs font-medium px-1">Remove</button>
+                        </>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+
+          <form onSubmit={add} noValidate className="border-t border-gray-100 pt-4 space-y-3">
+            <h3 className="text-sm font-bold text-gray-800">Add a component</h3>
+            <div>
+              <label htmlFor="sc-component" className="block text-sm font-medium text-gray-700 mb-1">Component <span className="text-red-500">*</span></label>
+              <select id="sc-component" value={form.componentId} onChange={pick} aria-invalid={!!errors.componentId}
+                className={`w-full border ${errors.componentId ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm`}>
+                <option value="">{available.length ? "Select a component" : "Every component is already in this structure"}</option>
+                {available.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.component_type})</option>)}
+              </select>
+              {errors.componentId && <p role="alert" className="text-red-500 text-xs mt-1">{errors.componentId}</p>}
+            </div>
+            <div>
+              <label htmlFor="sc-amount" className="block text-sm font-medium text-gray-700 mb-1">Amount or formula <span className="text-red-500">*</span></label>
+              <input id="sc-amount" type="text" value={form.amount} onChange={(e) => { setForm({ ...form, amount: e.target.value }); setErrors((p) => ({ ...p, amount: undefined })); }}
+                placeholder="e.g. 50000, 12% or 40% of basic" aria-invalid={!!errors.amount}
+                className={`w-full border ${errors.amount ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm`} />
+              {errors.amount && <p role="alert" className="text-red-500 text-xs mt-1">{errors.amount}</p>}
+              <p className="text-gray-400 text-xs mt-1">Required. A fixed amount, a percentage, or a formula. A component's default amount is only filled in as a suggestion.</p>
+            </div>
+            <div className="flex justify-end">
+              <button type="submit" disabled={saving || !available.length} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors">
+                {saving ? "Adding..." : "Add to structure"}
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 const ITEMS_PER_PAGE = 8;
 
@@ -28,6 +201,7 @@ export default function SalaryStructuresPage() {
   const [formData, setFormData] = useState({ ...initialForm });
   const [formErrors, setFormErrors] = useState({});
   const [editForm, setEditForm] = useState({ ...initialForm });
+  const [componentsFor, setComponentsFor] = useState(null);
 
   const fetchItems = async () => {
     setLoading(true);
@@ -233,6 +407,12 @@ export default function SalaryStructuresPage() {
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button
+                              onClick={() => setComponentsFor(s)}
+                              className="text-emerald-600 hover:text-emerald-800 text-xs font-medium px-1"
+                            >
+                              Components
+                            </button>
+                            <button
                               onClick={() => openEditModal(s)}
                               className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1"
                             >
@@ -292,6 +472,8 @@ export default function SalaryStructuresPage() {
           </>
         )}
       </div>
+
+      {componentsFor && <StructureComponentsDialog structure={componentsFor} onClose={() => setComponentsFor(null)} />}
 
       {showCreateModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">

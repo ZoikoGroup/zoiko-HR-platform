@@ -179,7 +179,6 @@ def stripe_app(db: Session) -> dict:
 
 _PROVIDER_TOKENS = {
     "google": ("google", "gmail"),
-    "microsoft": ("microsoft", "azure", "entra", "office365"),
 }
 _AUTH_SEGMENTS = ("login", "callback", "sso", "oauth", "auth", "signin", "sign-in", "start")
 

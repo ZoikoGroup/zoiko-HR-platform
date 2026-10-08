@@ -5,6 +5,7 @@ import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusB
 import { getLeaveBalances, getLeaveRequests } from "../../../../service/employee";
 import { getStoredUser } from "../../../../service/api";
 import { formatDate } from "../../../../utils/dateTime";
+import ContactHRDialog from "../../../../components/employee/ContactHRDialog";
 
 const colorToAccent = {
   "#3B82F6": "text-blue-600 dark:text-blue-400",
@@ -24,6 +25,7 @@ export default function MyLeave() {
   const [history, setHistory] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showContactHR, setShowContactHR] = useState(false);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -76,12 +78,12 @@ export default function MyLeave() {
           (b.leave_type || b.type || "").includes("Annual")
             ? "#3B82F6"
             : (b.leave_type || b.type || "").includes("Sick")
-              ? "#059669"
-              : (b.leave_type || b.type || "").includes("Casual")
-                ? "#0EA5E9"
-                : (b.leave_type || b.type || "").includes("Unpaid")
-                  ? "#DC2626"
-                  : "#6B7280",
+            ? "#059669"
+            : (b.leave_type || b.type || "").includes("Casual")
+            ? "#0EA5E9"
+            : (b.leave_type || b.type || "").includes("Unpaid")
+            ? "#DC2626"
+            : "#6B7280",
       })),
     [balances]
   );
@@ -106,50 +108,68 @@ export default function MyLeave() {
     );
   }
 
+  const hasBalances = leaveTypes.length > 0;
+  const defaultContactHRTopic = hasBalances ? "Leave request question" : "Leave balance not set up";
+
   return (
     <EmployeePageShell title="My Leave" subtitle="View your leave balances and request history.">
-      {leaveTypes.length === 0 ? (
+      {hasBalances ? (
+        <>
+          <div className="grid grid-cols-4 gap-4 mb-7">
+            {leaveTypes.map((l) => (
+              <StatCard
+                key={l.type}
+                label={l.type}
+                value={l.remaining}
+                sub={`of ${l.total} days remaining`}
+                accentColor={colorToAccent[l.color] || "text-gray-500 dark:text-gray-400"}
+              />
+            ))}
+          </div>
+
+          {history.length === 0 ? (
+            <div className="text-center py-16 text-gray-500 dark:text-[#94a3b8]">
+              <p className="text-lg font-medium dark:text-[#e2e8f0]">No leave history</p>
+            </div>
+          ) : (
+            <div className="p-6 rounded-xl bg-white dark:bg-[#1e293b] border border-gray-200 dark:border-[#334155]">
+              <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9] mb-4">Leave History</h3>
+                {history.map((h, i) => (
+                  <div key={h.id || i} className="flex justify-between items-center py-3 border-t border-gray-100 dark:border-[#334155]">
+                    <div>
+                      <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9]">
+                        {h.leave_type || h.type || "Leave"}
+                      </p>
+                      <p className="text-xs text-gray-500 dark:text-[#94a3b8]">
+                      {formatLeaveDate(h.start_date)} &rarr; {formatLeaveDate(h.end_date)} &middot;{" "}
+                      {h.days || 1} day(s)
+                    </p>
+                    </div>
+                    <EmployeeStatusBadge status={h.status} />
+                  </div>
+                ))}
+            </div>
+          )}
+        </>
+      ) : (
         <div className="text-center py-16 text-gray-500 dark:text-[#94a3b8]">
           <p className="text-lg font-medium dark:text-[#e2e8f0]">No leave balances found</p>
-          <p className="text-sm mt-1">Contact HR to initialize your leave balance.</p>
-        </div>
-      ) : (
-        <div className="grid grid-cols-4 gap-4 mb-7">
-          {leaveTypes.map((l) => (
-            <StatCard
-              key={l.type}
-              label={l.type}
-              value={l.remaining}
-              sub={`of ${l.total} days remaining`}
-              accentColor={colorToAccent[l.color] || "text-gray-500 dark:text-gray-400"}
-            />
-          ))}
+          <p className="text-sm mt-1">Your leave allocation has not been initialized yet.</p>
+          <button
+            onClick={() => setShowContactHR(true)}
+            className="mt-3 inline-flex items-center gap-1 text-sm font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-700 dark:hover:text-blue-300 transition-colors"
+          >
+            Contact HR Department
+          </button>
         </div>
       )}
 
-      {history.length === 0 ? (
-        <div className="text-center py-16 text-gray-500 dark:text-[#94a3b8]">
-          <p className="text-lg font-medium dark:text-[#e2e8f0]">No leave history</p>
-        </div>
-      ) : (
-        <div className="p-6 rounded-xl bg-white dark:bg-[#1e293b] border border-gray-200 dark:border-[#334155]">
-          <h3 className="text-base font-bold text-gray-900 dark:text-[#f1f5f9] mb-4">Leave History</h3>
-            {history.map((h, i) => (
-              <div key={h.id || i} className="flex justify-between items-center py-3 border-t border-gray-100 dark:border-[#334155]">
-                <div>
-                  <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9]">
-                    {h.leave_type || h.type || "Leave"}
-                  </p>
-                  <p className="text-xs text-gray-500 dark:text-[#94a3b8]">
-                  {formatLeaveDate(h.start_date)} &rarr; {formatLeaveDate(h.end_date)} &middot;{" "}
-                  {h.days || 1} day(s)
-                </p>
-              </div>
-              <EmployeeStatusBadge status={h.status} />
-            </div>
-          ))}
-        </div>
-      )}
+      <ContactHRDialog
+        isOpen={showContactHR}
+        onClose={() => setShowContactHR(false)}
+        defaultTopic={defaultContactHRTopic}
+        onSuccess={() => {}}
+      />
     </EmployeePageShell>
   );
 }

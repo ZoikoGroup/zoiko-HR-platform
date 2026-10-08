@@ -95,7 +95,13 @@ export default function OrgAdminBillingPlanPage() {
   const [pending, setPending] = useState(null); // a downgrade already scheduled for the end of the period
   const [toast, setToast] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [unconfirmed, setUnconfirmed] = useState(null); // a paid Stripe session we could not confirm yet: the id, so it can be retried
   const confirmingRef = React.useRef(null);
+  const loadSeq = React.useRef(0);        // only the newest load may write to the page
+  const hasPlan = React.useRef(false);
+  // Coming back from Stripe the page must settle the payment BEFORE it reads the plan; reading both at once let the
+  // older (pre-payment) answer arrive last and put the old plan back on screen.
+  const returningFromStripe = React.useRef(!!searchParams.get("session_id") && !!user?.organization_id);
 
   const role = user?.role;
   const isOwner = OWNER_ROLES.includes(role);
@@ -107,23 +113,27 @@ export default function OrgAdminBillingPlanPage() {
   };
 
   const load = useCallback(() => {
-    setLoading(true);
+    const seq = ++loadSeq.current;
+    if (!hasPlan.current) setLoading(true);      // the first read shows the spinner; later refreshes keep the page on screen
     setError(null);
-    Promise.all([
+    return Promise.all([
       billingService.getMySubscription(),
       billingService.getMyEntitlements(),
       billingService.getPlans().catch(() => ({ list: [] })),
     ])
       .then(([subRes, entRes, plansRes]) => {
+        if (seq !== loadSeq.current) return;
+        hasPlan.current = true;
         setSub(subRes);
         setEnt(entRes);
         setPlans(plansRes?.list || []);
       })
-      .catch((err) => setError(err?.message || "Failed to load billing details."))
-      .finally(() => setLoading(false));
+      .catch((err) => { if (seq === loadSeq.current) setError(err?.message || "Failed to load billing details."); })
+      .finally(() => { if (seq === loadSeq.current) setLoading(false); });
   }, []);
 
   useEffect(() => {
+    if (returningFromStripe.current) return;     // the confirmation below reads the plan once the payment is settled
     load();
   }, [load]);
 
@@ -152,6 +162,8 @@ export default function OrgAdminBillingPlanPage() {
         .then((res) => {
           if (res?.status === "confirmed") {
             setConfirming(false);
+            setUnconfirmed(null);
+            returningFromStripe.current = false;
             notify(res?.message || "Payment confirmed. Your plan has been updated.", "success");
             load();
           } else if (res?.status === "pending" && attempt < 8) {
@@ -160,17 +172,24 @@ export default function OrgAdminBillingPlanPage() {
             setTimeout(() => confirmSession(sessionId, attempt + 1), 1500);
           } else if (res?.status === "pending") {
             setConfirming(false);
-            notify(res?.message || "Payment is still being processed. Refresh shortly to see your updated plan.", "info");
+            setUnconfirmed(sessionId);
+            returningFromStripe.current = false;
+            notify(res?.message || "Payment is still being processed. Use \"Check payment again\" in a moment.", "info");
             load();
           } else {
             setConfirming(false);
+            setUnconfirmed(res?.status === "failed" && /refunded/i.test(res?.message || "") ? null : sessionId);
+            returningFromStripe.current = false;
             notify(res?.message || "Payment could not be confirmed.", "error");
             load();
           }
         })
         .catch((err) => {
           setConfirming(false);
+          setUnconfirmed(sessionId);
+          returningFromStripe.current = false;
           notify(err?.message || "Payment confirmation failed.", "error");
+          load();
         });
     },
     [sub, user, load]
@@ -354,6 +373,19 @@ export default function OrgAdminBillingPlanPage() {
         <div className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg transition-all"
           style={{ background: toast.type === "error" ? RED : toast.type === "info" ? BLUE : EMERALD, color: "#fff" }}>
           {toast.message}
+        </div>
+      ) : null}
+
+      {unconfirmed ? (
+        <div role="alert" className="mb-4 rounded-xl px-4 py-3 text-[12.5px] font-semibold flex flex-wrap items-center gap-3" style={{ background: AMBER_100, color: AMBER }}>
+          <span>Your payment went through at Stripe, but we have not been able to confirm it on your plan yet.</span>
+          <button
+            type="button"
+            onClick={() => { const id = unconfirmed; setUnconfirmed(null); setConfirming(true); confirmingRef.current = id; confirmSession(id, 0); }}
+            className="underline cursor-pointer"
+          >
+            Check payment again
+          </button>
         </div>
       ) : null}
 
