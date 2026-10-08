@@ -124,7 +124,7 @@ def link_config_problems() -> list[str]:
 
 def _login_url() -> str:
     """Login link for emails, derived from FRONTEND_URL (never a hardcoded
-    third-party host). A FRONTEND_URL that points at the ZoikoOne platform instead of the Zoiko HR app (a mix-up in the
+    third-party host). A FRONTEND_URL that points at the umbrella platform instead of the Zoiko HR app (a mix-up in the
     server settings) is ignored so the button still opens Zoiko HR."""
     base = _frontend_url()
     if not base or is_other_product_host(base):
