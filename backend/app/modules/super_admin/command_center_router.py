@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_super_admin
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.sql_helpers import latest_per_group
 from app.modules.super_admin import organization_service
 
 from app.modules.super_admin.command_center_models import (
@@ -69,7 +70,7 @@ def _compute_platform_totals(db: Session) -> dict:
     from app.modules.billing.models import BillingSubscription, BillingPlan, SubscriptionStatus, BillingCycle
     from app.modules.super_admin.models import LoginActivity
 
-    orgs = db.query(Organization).all()
+    orgs = db.query(Organization.id, Organization.status).all()     # columns only; soft-delete filter still applies
     total_organizations = len(orgs)
     active_organizations = sum(
         1 for o in orgs if o.status and o.status.value == OrganizationStatus.ACTIVE.value
@@ -147,7 +148,9 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
 
     items: list[AttentionItem] = []
     now = datetime.utcnow()
-    org_names = {o.id: o.name for o in db.query(Organization).all()}
+    # Names are filled in at the end for just the orgs that appear (organization_service.org_names_by_id), instead of
+    # loading every organization up front. Same soft-delete behaviour: a deleted org's name stays None.
+    org_names: dict = {}
 
     cutoff = now - timedelta(hours=2)
     failed_rows = (
@@ -286,16 +289,21 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{e.organization_id}" if e.organization_id else None,
         ))
 
-    for o in db.query(Organization).filter(Organization.status == OrganizationStatus.ON_HOLD).all():
+    for o in db.query(Organization.id, Organization.organization_name, Organization.display_name, Organization.on_hold_at
+                      ).filter(Organization.status == OrganizationStatus.ON_HOLD).all():
         items.append(AttentionItem(
             severity="medium",
             issue="Organization on hold",
             organization_id=o.id,
-            organization_name=o.name,
+            organization_name=o.organization_name or o.display_name or "",
             detected_at=o.on_hold_at,
             action_label="Review",
             action_href=f"/super-admin/organizations/{o.id}",
         ))
+
+    names = organization_service.org_names_by_id(db, {i.organization_id for i in items})
+    for i in items:
+        i.organization_name = names.get(i.organization_id) if i.organization_id else None
 
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     items.sort(key=lambda i: severity_order.get(i.severity, 4))
@@ -414,8 +422,8 @@ def customer_health(db: Session = Depends(get_db), _=Depends(get_current_super_a
     from app.modules.billing.models import BillingSubscription, OrganizationEvaluation, EvaluationStatus
     from app.modules.super_admin.models import SecurityEvent, SupportTicket
 
-    orgs = db.query(Organization).all()
-    subs = {s.organization_id: s for s in db.query(BillingSubscription).all()}
+    orgs = db.query(Organization.id, Organization.status, Organization.organization_name, Organization.display_name).all()
+    subs = {s.organization_id: s for s in db.query(BillingSubscription.organization_id, BillingSubscription.status).all()}
     evals = {
         e.organization_id: e for e in db.query(OrganizationEvaluation)
         .filter(OrganizationEvaluation.status == EvaluationStatus.ACTIVE).all()
@@ -473,7 +481,7 @@ def customer_health(db: Session = Depends(get_db), _=Depends(get_current_super_a
 
     top = sorted(results, key=lambda r: r[1], reverse=True)[:5]
     top_at_risk = [
-        AtRiskOrg(organization_id=o.id, organization_name=o.name, risk_score=s, reasons=reasons)
+        AtRiskOrg(organization_id=o.id, organization_name=o.organization_name or o.display_name or "", risk_score=s, reasons=reasons)
         for o, s, reasons in top if s > 0
     ]
 
@@ -517,9 +525,13 @@ def commercial_health(days: int = 30, db: Session = Depends(get_db), _=Depends(g
         if plan and plan.monthly_price:
             failed_cents += int(plan.monthly_price * 100 * (s.quantity or 1))
 
-    latest_workforce_by_org = {}
-    for snap in db.query(BillableWorkforceSnapshot).order_by(BillableWorkforceSnapshot.snapshot_at.desc()).all():
-        latest_workforce_by_org.setdefault(snap.organization_id, snap)
+    # Latest snapshot per org (DISTINCT ON on Postgres), instead of loading the full 12-month history.
+    latest_workforce_by_org = {
+        row.organization_id: row for row in latest_per_group(
+            db, BillableWorkforceSnapshot, BillableWorkforceSnapshot.organization_id, BillableWorkforceSnapshot.snapshot_at,
+            [BillableWorkforceSnapshot.organization_id, BillableWorkforceSnapshot.quantity],
+        )
+    }
 
     overage_cents = 0
     overage_orgs = 0
@@ -534,9 +546,12 @@ def commercial_health(days: int = 30, db: Session = Depends(get_db), _=Depends(g
             if plan and plan.monthly_price:
                 overage_cents += int(plan.monthly_price * 100 * overage)
 
-    latest_entitlement_by_org = {}
-    for ent in db.query(BillingEntitlementSnapshot).order_by(BillingEntitlementSnapshot.computed_at.desc()).all():
-        latest_entitlement_by_org.setdefault(ent.organization_id, ent)
+    latest_entitlement_by_org = {
+        row.organization_id: row for row in latest_per_group(
+            db, BillingEntitlementSnapshot, BillingEntitlementSnapshot.organization_id, BillingEntitlementSnapshot.computed_at,
+            [BillingEntitlementSnapshot.organization_id, BillingEntitlementSnapshot.package],
+        )
+    }
 
     mismatch_count = 0
     for org_id, ent in latest_entitlement_by_org.items():
@@ -567,7 +582,7 @@ def lifecycle(db: Session = Depends(get_db), _=Depends(get_current_super_admin))
     from app.modules.billing.models import BillingSubscription
     from app.modules.super_admin.models import LoginActivity
 
-    orgs = db.query(Organization).all()
+    orgs = db.query(Organization.id, Organization.status).all()     # columns only; soft-delete filter still applies
     created = len(orgs)
     provisioned = sum(1 for o in orgs if o.status and o.status.value != OrganizationStatus.PENDING.value)
 

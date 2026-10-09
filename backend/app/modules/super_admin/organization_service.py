@@ -37,6 +37,21 @@ _CANCELLABLE = ("active", "past_due")
 DELETED_ORG_MESSAGE = "This organization's account has been deactivated. Please contact support."
 
 
+def org_names_by_id(db: Session, ids, *, include_deleted: bool = False) -> dict:
+    """{organization id: display name} for just these ids (the orgs on the current page), selecting only the name columns.
+
+    The name is what `Organization.name` returns (organization_name, else display_name, else ""). By default the global
+    soft-delete filter applies, so a deleted org has no entry, exactly like the old `{o.id: o.name for o in
+    db.query(Organization).all()}` maps this replaces. include_deleted=True keeps deleted orgs' names (history views)."""
+    wanted = {i for i in ids if i is not None}
+    if not wanted:
+        return {}
+    q = db.query(Organization.id, Organization.organization_name, Organization.display_name).filter(Organization.id.in_(wanted))
+    if include_deleted:
+        q = q.execution_options(include_deleted=True)
+    return {oid: (oname or dname or "") for oid, oname, dname in q}
+
+
 def is_deleted(db: Session, org_id: Optional[int]) -> bool:
     """True when the organization exists but is soft-deleted (used by login,
     token refresh and every authenticated request)."""

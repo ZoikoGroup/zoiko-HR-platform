@@ -47,6 +47,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Body, status, Request
 from fastapi.responses import StreamingResponse, Response
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -360,16 +361,30 @@ def delete_asset_category(cat_id: int, db: Session = Depends(get_db), current_us
 # ASSET REPORTS
 # ════════════════════════════════════════════════════════════════════════════
 
+class AssetReportPage(BaseModel):
+    items: list[AssetReportResponse]
+    total: int
+    page: int
+    per_page: int
+
+
 @asset_router.get(
     "/reports",
-    response_model=list[AssetReportResponse],
+    response_model=list[AssetReportResponse] | AssetReportPage,
     summary="List asset reports",
 )
 def list_asset_reports(
+    page: Optional[int] = Query(None, ge=1),
+    per_page: Optional[int] = Query(None, ge=1, le=200),
     db: Session = Depends(get_db),
     _=Depends(get_current_user),
 ):
-    return asset_service.get_asset_reports(db)
+    """Without page/per_page: the plain list (newest first, at most 200) the Asset Reports page reads today.
+    With them: {items, total, page, per_page}."""
+    if page is None and per_page is None:
+        return asset_service.get_asset_reports(db)
+    rows, total = asset_service.get_asset_reports(db, page=page, per_page=per_page)
+    return AssetReportPage(items=rows, total=total, page=page or 1, per_page=min(per_page or 25, 200))
 
 
 @asset_router.post(

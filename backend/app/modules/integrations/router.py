@@ -195,8 +195,8 @@ def list_events(db: Session = Depends(get_db)):
     )
     stats = {r[0]: {"deliveries": r[1], "last_delivery_at": _iso(r[2])} for r in rows}
     subs = {k: 0 for k in EVENT_CATALOG}
-    for w in db.query(Webhook).all():
-        for ev in (w.events or []):
+    for (events,) in db.query(Webhook.events):          # only the events column is needed
+        for ev in (events or []):
             if ev in subs:
                 subs[ev] += 1
     return {
@@ -252,9 +252,29 @@ def list_applications(db: Session = Depends(get_db)):
     return {"applications": apps}
 
 
+WEBHOOKS_MAX = 200
+
+
 @hub_router.get("/webhooks")
-def list_webhooks(db: Session = Depends(get_db)):
-    return {"webhooks": [_webhook_view(w) for w in db.query(Webhook).order_by(Webhook.id.desc()).all()]}
+def list_webhooks(
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=WEBHOOKS_MAX),
+    db: Session = Depends(get_db),
+):
+    """{"webhooks": [...]} newest first. Without page/page_size it is the list the hub page reads today, capped at
+    WEBHOOKS_MAX; with them it is that page plus total/page/page_size (the super-admin convention)."""
+    q = db.query(Webhook).order_by(Webhook.id.desc())
+    if page is None and page_size is None:
+        rows = q.limit(WEBHOOKS_MAX + 1).all()
+        if len(rows) > WEBHOOKS_MAX:
+            import logging
+            logging.getLogger("zoiko").warning("[hub] GET /super-admin/hub/webhooks hit the %d-row cap; pass page/page_size.", WEBHOOKS_MAX)
+        return {"webhooks": [_webhook_view(w) for w in rows[:WEBHOOKS_MAX]]}
+    page = page or 1
+    page_size = page_size or 25
+    total = q.order_by(None).count()
+    rows = q.offset((page - 1) * page_size).limit(page_size).all()
+    return {"webhooks": [_webhook_view(w) for w in rows], "total": total, "page": page, "page_size": page_size}
 
 
 @hub_router.post("/webhooks", status_code=201)

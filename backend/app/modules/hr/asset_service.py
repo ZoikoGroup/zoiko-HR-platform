@@ -626,8 +626,23 @@ def create_asset_report(db: Session, data: AssetReportGenerate, generated_by: in
     return report
 
 
-def get_asset_reports(db: Session) -> list[AssetReport]:
-    return db.query(AssetReport).order_by(AssetReport.created_at.desc()).all()
+ASSET_REPORTS_MAX = 200
+
+
+def get_asset_reports(db: Session, page: int | None = None, per_page: int | None = None):
+    """Newest first. With page/per_page: (rows, total) for that page. Without: the plain list the page has always used,
+    capped at ASSET_REPORTS_MAX (a warning is logged when the cap cuts rows off)."""
+    q = db.query(AssetReport).order_by(AssetReport.created_at.desc(), AssetReport.id.desc())
+    if page is None and per_page is None:
+        rows = q.limit(ASSET_REPORTS_MAX + 1).all()
+        if len(rows) > ASSET_REPORTS_MAX:
+            import logging
+            logging.getLogger("zoiko").warning("[assets] GET /hr/assets/reports without paging hit the %d-row cap; "
+                                               "pass page/per_page to see the rest.", ASSET_REPORTS_MAX)
+        return rows[:ASSET_REPORTS_MAX]
+    page = max(page or 1, 1)
+    per_page = min(max(per_page or 25, 1), ASSET_REPORTS_MAX)
+    return q.offset((page - 1) * per_page).limit(per_page).all(), q.order_by(None).count()
 
 
 def get_asset_settings(db: Session) -> list[AssetSetting]:

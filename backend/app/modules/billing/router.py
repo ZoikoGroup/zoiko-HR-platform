@@ -2056,8 +2056,10 @@ def list_platform_plan_changes(
     
     from app.modules.hr.models import Organization
     from app.modules.billing.models import BillingPlan
-    org_map = {o.id: o.name for o in db.query(Organization).all()}  # .name is a property, not a column
-    plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
+    # Names for just the orgs in this result (soft-deleted orgs stay unnamed, as before), and plan codes by column.
+    from app.modules.super_admin.organization_service import org_names_by_id
+    org_map = org_names_by_id(db, {c.organization_id for c in changes})
+    plan_map = {pid: code.value if hasattr(code, "value") else str(code) for pid, code in db.query(BillingPlan.id, BillingPlan.code)}
     
     response_items = []
     for c in changes:
@@ -2087,8 +2089,10 @@ def list_plan_changes(
     
     from app.modules.hr.models import Organization
     from app.modules.billing.models import BillingPlan
-    org_map = {o.id: o.name for o in db.query(Organization).all()}  # .name is a property, not a column
-    plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
+    # Names for just the orgs in this result (soft-deleted orgs stay unnamed, as before), and plan codes by column.
+    from app.modules.super_admin.organization_service import org_names_by_id
+    org_map = org_names_by_id(db, {c.organization_id for c in changes})
+    plan_map = {pid: code.value if hasattr(code, "value") else str(code) for pid, code in db.query(BillingPlan.id, BillingPlan.code)}
     
     response_items = []
     for c in changes:

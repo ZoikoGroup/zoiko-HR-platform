@@ -489,7 +489,8 @@ def list_platform_evaluations(
 
     org_map = {}
     try:
-        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in db.query(Organization).all()}
+        from app.modules.super_admin.organization_service import org_names_by_id
+        org_map = org_names_by_id(db, {ev.organization_id for ev in evaluations})     # this page's orgs only
     except Exception:
         pass
 
@@ -1199,7 +1200,8 @@ def list_platform_invoices(
 
     org_map = {}
     try:
-        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in db.query(Organization).all()}
+        from app.modules.super_admin.organization_service import org_names_by_id
+        org_map = org_names_by_id(db, {inv.organization_id for inv in invoices})      # this page's orgs only
     except Exception:
         pass
 
