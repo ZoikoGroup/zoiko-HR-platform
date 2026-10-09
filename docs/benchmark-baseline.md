@@ -96,9 +96,18 @@ org/subscription/evaluation write. Sample guarded endpoint on the same box:
 /hr/departments  hot:  queries=6  db_ms≈1660  → includes get_current_user(1) + entitlement(0)
 ```
 
-## Part D/E
+## Part D — connection pool hardening
 
-Pendings (connection-pool hardening), then the final re-measure + report.
+Recycle now matches Neon's idle timeout (300s vs 1800s), psycopg2 TCP
+keepalives catch silent middlebox drops so `pool_pre_ping` sees them early,
+`HR_USE_NEON_POOLER=true` rewrites the DATABASE_URL host to Neon's
+PgBouncer-compatible `-pooler` endpoint, and a boot-time sizing guard warns when
+`workers x (pool_size + max_overflow)` is about to exceed the configured
+connection limit. Same query counts, no request-path change — resilience only.
+
+## Part E — final re-measure + report
+
+Pending (runs each endpoint once after a fresh boot for the report below).
 
 ## Observations driving parts B–D
 

@@ -216,6 +216,12 @@ class Settings(BaseSettings):
         default=1, validation_alias=AliasChoices("HR_WEB_CONCURRENCY", "WEB_CONCURRENCY")
     )
 
+    # Part D: route DB connections through Neon's PgBouncer-compatible pooled
+    # host ("-pooler") once workers × pool exceeds the direct-connection limit
+    # (HR_DB_CONNECTION_LIMIT). The pooler host is derived from HR_DATABASE_URL
+    # automatically at engine build time.
+    USE_NEON_POOLER: bool = Field(default=False, validation_alias="HR_USE_NEON_POOLER")
+
     # READ_ONLY (Section 14.1) is a read-compatible mode: reads (GET/HEAD) pass
     # and only mutations are blocked. Set False to treat READ_ONLY like a full
     # block (still safe, just less ergonomic during downgrade-pending windows).
