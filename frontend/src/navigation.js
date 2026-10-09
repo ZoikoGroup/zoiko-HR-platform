@@ -74,6 +74,7 @@ import {
   Scale,
   KeyRound,
   AlertTriangle,
+  Tag,
 } from "lucide-react";
 
 import { ROLES } from "./config/roles.js";
@@ -147,6 +148,8 @@ const superAdminPlatformAdministration = {
   title: "PLATFORM ADMINISTRATION",
   items: [
     { label: "Notifications", href: "/super-admin/notifications", icon: Bell },
+    { label: "Demo Requests", href: "/super-admin/demo-requests", icon: CalendarDays },
+    { label: "Pricing Requests", href: "/super-admin/pricing-requests", icon: Tag },
   ],
 };
 
@@ -310,8 +313,19 @@ const employeeWorkspace = {
       children: [
         { label: "Dashboard",   href: "/employee/ess",            icon: LayoutDashboard },
         { label: "Attendance",  href: "/employee/ess/attendance", icon: Clock },
-        { label: "Learning",    href: "/employee/ess/requests",   icon: BookOpen },
         { label: "Settings",    href: "/employee/ess/settings",   icon: SlidersHorizontal },
+      ],
+    },
+
+    // ── Learning ───────────────────────────────────────────────────────────
+    {
+      label: "Learning",
+      icon: BookOpen,
+      children: [
+        { label: "Dashboard",          href: "/employee/learning",                   icon: LayoutDashboard },
+        { label: "Courses",            href: "/employee/learning/courses",           icon: BookOpen },
+        { label: "Training Programs",  href: "/employee/learning/training-programs", icon: GraduationCap },
+        { label: "Assessments",        href: "/employee/learning/assessments",       icon: ClipboardCheck },
       ],
     },
 

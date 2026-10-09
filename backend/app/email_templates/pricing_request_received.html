@@ -1,0 +1,21 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "We received your pricing request" %}
+{% set preheader = "Thanks for your interest in Zoiko HR. Your reference is " ~ reference ~ ". We will be in touch within one business day." %}
+{% set badge = "Pricing request" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because this address was used to request pricing on the Zoiko HR website.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">We have your pricing request</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ first_name }}</strong>, thank you for your interest in Zoiko HR. A member of our team will reply with pricing that fits your organization, usually within one business day.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Reference", reference, first=True, mono=True) }}
+{{ ui.detail_row("Plan of interest", plan_label) }}
+{{ ui.detail_row("Products", products) }}
+{% endcall %}
+{{ ui.button(login_url, "Visit Zoiko HR") }}
+{% call ui.notice("Did not make this request?", "info") %}
+If you did not ask for pricing, you can ignore this email. Nobody will contact you unless you made the request.
+{% endcall %}
+{{ ui.signoff() }}
+{% endblock %}

@@ -124,6 +124,12 @@ class EmployeeCreate(BaseModel):
     country:             Optional[str]     = Field(None, example="India")
     pincode:             Optional[str]     = Field(None, example="400001")
 
+    @field_validator("email", "work_email", "personal_email", mode="after", check_fields=False)
+    @classmethod
+    def _v_real_email(cls, v, info):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v, label="Email")
+
 
 class EmployeeUpdate(BaseModel):
     first_name:           Optional[str]            = None
@@ -185,6 +191,12 @@ class EmployeeUpdate(BaseModel):
     def _v_emergency_contacts(cls, v):
         from app.core import identity_formats as f
         return f.emergency_contacts(v)
+
+    @field_validator("work_email", "personal_email", mode="after", check_fields=False)
+    @classmethod
+    def _v_real_email(cls, v, info):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v, label="Email")
 
 
 CONTACT_HR_TOPICS = ("Leave balance not set up", "Leave request question", "Payroll or payslip", "Profile or documents", "Other")
@@ -306,8 +318,9 @@ class EmployeeSelfUpdate(BaseModel):
         if not text:
             return None
         if len(text) > 255 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", text):
-            raise ValueError("Enter a valid email address, for example name@example.com.")
-        return text.lower()
+            raise ValueError("Enter a valid email address, for example name@yourcompany.com.")
+        from app.core.email_quality import check_real_email
+        return check_real_email(text, label="Personal email").lower()
 
     @field_validator("company", "business_unit", "team", mode="before")
     @classmethod
@@ -494,7 +507,15 @@ class RegisterRequest(BaseModel):
     timezone: Optional[str] = Field(None, example="UTC")
     industry: Optional[str] = Field(None, example="Technology")
     tax_number: Optional[str] = Field(None, example="12-3456789")
-    registered_email: Optional[str] = Field(None, example="company@example.com")
+    registered_email: Optional[str] = Field(None, example="company@yourcompany.com")
+    # Set when the person arrived through "Continue with Google": proof that Google already confirmed the admin address.
+    google_proof: Optional[str] = Field(None, max_length=2000)
+
+    @field_validator("email", "registered_email", mode="after", check_fields=False)
+    @classmethod
+    def _v_real_email(cls, v, info):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v, label="Email")
 
 
 class UserCreateRequest(BaseModel):
@@ -541,6 +562,12 @@ class UserCreateRequest(BaseModel):
     bank_account: Optional[str] = Field(None, max_length=50)
     bank_ifsc: Optional[str] = Field(None, max_length=20)
 
+    @field_validator("email", "work_email", "personal_email", mode="after", check_fields=False)
+    @classmethod
+    def _v_real_email(cls, v, info):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v, label="Email")
+
 
 class UserUpdateRequest(BaseModel):
     first_name: Optional[str] = Field(None, min_length=1, max_length=100)
@@ -550,6 +577,39 @@ class UserUpdateRequest(BaseModel):
     job_title:  Optional[str] = Field(None, max_length=150)
     is_active:  Optional[bool] = None
     confirm_super_admin: bool = False
+    # Same extra fields as UserCreateRequest so an existing user can be fully edited.
+    date_of_birth: Optional[date] = None
+    confirmation_date: Optional[date] = None
+    gender: Optional[Gender] = None
+    employment_type: Optional[EmploymentType] = None
+    status: Optional[Literal["active", "inactive", "pending"]] = None
+    department_name: Optional[str] = Field(None, max_length=150, description="Created if it does not exist yet")
+    designation_name: Optional[str] = Field(None, max_length=150, description="Created if it does not exist yet")
+    work_email: Optional[str] = Field(None, max_length=254)
+    personal_email: Optional[str] = Field(None, max_length=254)
+    company: Optional[str] = Field(None, max_length=150)
+    business_unit: Optional[str] = Field(None, max_length=150)
+    division: Optional[str] = Field(None, max_length=150)
+    team: Optional[str] = Field(None, max_length=150)
+    current_address: Optional[str] = Field(None, max_length=500)
+    permanent_address: Optional[str] = Field(None, max_length=500)
+    address: Optional[str] = Field(None, max_length=500)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    country: Optional[str] = Field(None, max_length=100)
+    pincode: Optional[str] = Field(None, max_length=20)
+    basic_salary: Optional[Decimal] = Field(None, ge=0)
+    ctc: Optional[Decimal] = Field(None, ge=0)
+    pan_number: Optional[str] = Field(None, max_length=20)
+    uan_number: Optional[str] = Field(None, max_length=20)
+    bank_account: Optional[str] = Field(None, max_length=50)
+    bank_ifsc: Optional[str] = Field(None, max_length=20)
+
+    @field_validator("work_email", "personal_email", mode="after", check_fields=False)
+    @classmethod
+    def _v_real_email(cls, v, info):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v, label="Email")
 
 
 class UserResponse(BaseModel):
@@ -570,8 +630,51 @@ class UserResponse(BaseModel):
     updated_at:    Optional[datetime]
     created_by:    Optional[int] = None
     updated_by:    Optional[int] = None
+    # Full employee + profile details so the edit/view forms can be prefilled.
+    date_of_birth:        Optional[date] = None
+    date_of_joining:      Optional[date] = None
+    confirmation_date:    Optional[date] = None
+    gender:               Optional[Gender] = None
+    employment_type:      Optional[EmploymentType] = None
+    department_id:        Optional[int] = None
+    designation_id:       Optional[int] = None
+    designation:          Optional[str] = None
+    work_email:           Optional[str] = None
+    personal_email:       Optional[str] = None
+    company:              Optional[str] = None
+    business_unit:        Optional[str] = None
+    division:             Optional[str] = None
+    team:                 Optional[str] = None
+    current_address:      Optional[str] = None
+    permanent_address:    Optional[str] = None
+    address:              Optional[str] = None
+    city:                 Optional[str] = None
+    state:                Optional[str] = None
+    country:              Optional[str] = None
+    pincode:              Optional[str] = None
+    basic_salary:         Optional[Decimal] = None
+    ctc:                  Optional[Decimal] = None
+    pan_number:           Optional[str] = None
+    uan_number:           Optional[str] = None
+    bank_account:         Optional[str] = None
+    bank_ifsc:            Optional[str] = None
 
     model_config = {"from_attributes": True}
+
+    @model_validator(mode="before")
+    @classmethod
+    def _populate_extra(cls, data):
+        if isinstance(data, dict):
+            return data
+        result = {f: getattr(data, f, None) for f in cls.model_fields}
+        desig = getattr(data, "designation", None)
+        if desig is not None:
+            result["designation"] = getattr(desig, "title", None) or getattr(desig, "name", None)
+        profile = getattr(data, "_profile", None)
+        if profile is not None:
+            for field in ("pan_number", "uan_number", "bank_account", "bank_ifsc"):
+                result[field] = getattr(profile, field, None)
+        return result
 
     @field_validator("department", mode="before")
     @classmethod

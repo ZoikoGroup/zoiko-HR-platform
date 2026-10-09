@@ -13,7 +13,7 @@ import OrgLifecycleFunnel from "./command-center/OrgLifecycleFunnel";
 import PlatformHealthCard from "./command-center/PlatformHealthCard";
 import SecurityAccessCard from "./command-center/SecurityAccessCard";
 import GovernanceAuditCard from "./command-center/GovernanceAuditCard";
-import { formatCurrencyFromCents, formatCompactNumber, INK, INK_SOFT, BLUE, EMERALD, RED } from "./command-center/format";
+import { formatCurrencyFromCents, formatCompactNumber, BLUE, EMERALD, RED } from "./command-center/format";
 
 const BANNER_META = {
   operational: { label: "Production operational", dot: "bg-emerald-500", bg: "bg-emerald-50", border: "border-emerald-200/60", text: "text-emerald-700" },
@@ -124,36 +124,38 @@ export default function SuperAdminDashboardPage() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight" style={{ color: INK }}>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0A192F] via-[#0F2942] to-[#1E3A8A] px-6 py-7 sm:px-8 text-white shadow-xl shadow-blue-900/10">
+         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               Platform Command Center
             </h1>
-            <p className="mt-1.5 text-sm font-medium" style={{ color: INK_SOFT }}>
+            <p className="mt-1.5 text-sm font-medium text-slate-300">
               Commercial, customer, service, security and governance health across ZoikoHR.
             </p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2.5">
+          <div className="flex flex-wrap items-center gap-2.5 lg:justify-end shrink-0">
             <LabeledSelect
               label="Period"
               value={`Last ${days} days`}
               options={["Last 7 days", "Last 30 days", "Last 90 days"]}
               onChange={(v) => setDays(parseInt(v.match(/\d+/)[0], 10))}
             />
-            <button onClick={loadAll} className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition" title="Refresh">
-              <RefreshCw className={`w-4 h-4 text-slate-600 ${loading ? "animate-spin" : ""}`} />
+            <button onClick={loadAll} aria-label="Refresh" className="h-10 w-10 flex items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition" title="Refresh">
+              <RefreshCw className={`w-4 h-4 text-white ${loading ? "animate-spin" : ""}`} />
             </button>
-            <button onClick={handleExport} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition text-sm font-semibold text-slate-700">
+            <button onClick={handleExport} className="h-10 flex items-center gap-1.5 px-3.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition text-sm font-semibold text-white">
               <Download className="w-4 h-4" /> Export
             </button>
             <button
               onClick={() => navigate("/super-admin/organizations")}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm hover:opacity-90 transition"
-              style={{ background: BLUE }}
+              className="h-10 flex items-center gap-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shadow-lg shadow-blue-600/30 transition"
             >
               <Plus className="w-4 h-4" /> Create Organization
             </button>
           </div>
+         </div>
+         <div className="absolute -right-10 -bottom-24 w-72 h-72 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
         </div>
 
         {error && (
@@ -191,7 +193,7 @@ export default function SuperAdminDashboardPage() {
         </div>
 
         {/* KPI tiles */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 [&>div]:min-w-0">
           <StatTile
             icon={Building2} iconGradient="from-blue-500 to-indigo-500" title="Active Organizations"
             valueDisplay={loading ? "—" : overview?.active_organizations?.value ?? 0}
@@ -237,20 +239,25 @@ export default function SuperAdminDashboardPage() {
         )}
 
         {/* Attention / Customer Health / Commercial Health */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr_1.3fr] gap-4 items-start">
-          <NeedsAttentionTable items={attention} loading={loading} />
-          <CustomerHealthCard data={customerHealth} loading={loading} />
-          <CommercialHealthCard data={commercialHealth} loading={loading} pricingConfigured={overview?.mrr_pricing_configured} />
+        {/* Row 1: what needs attention (wide) + customer health */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 [&>div]:min-w-0 [&>div>div]:h-full">
+          <div className="lg:col-span-2"><NeedsAttentionTable items={attention} loading={loading} /></div>
+          <div><CustomerHealthCard data={customerHealth} loading={loading} /></div>
         </div>
 
-        {/* Lifecycle / Platform Health / Security / Governance */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <OrgLifecycleFunnel data={lifecycle} loading={loading} />
+        {/* Row 2: revenue (wide) + organization lifecycle */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 [&>div]:min-w-0 [&>div>div]:h-full">
+          <div className="lg:col-span-2"><CommercialHealthCard data={commercialHealth} loading={loading} pricingConfigured={overview?.mrr_pricing_configured} /></div>
+          <div><OrgLifecycleFunnel data={lifecycle} loading={loading} /></div>
+        </div>
+
+        {/* Row 3: platform health, security, governance: three equal columns */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 [&>div]:min-w-0 [&>div>div]:h-full">
           <div ref={platformHealthRef}>
             <PlatformHealthCard data={platformHealth} loading={loading} onUpdateStatus={handleUpdateServiceStatus} />
           </div>
-          <SecurityAccessCard data={security} loading={loading} />
-          <GovernanceAuditCard auditEventsCount={auditEventsCount} recentActivity={recentAudit} loading={loading} />
+          <div><SecurityAccessCard data={security} loading={loading} /></div>
+          <div className="md:col-span-2 xl:col-span-1"><GovernanceAuditCard auditEventsCount={auditEventsCount} recentActivity={recentAudit} loading={loading} /></div>
         </div>
       </div>
     </div>
@@ -259,16 +266,16 @@ export default function SuperAdminDashboardPage() {
 
 function LabeledSelect({ label, value, options, onChange, disabled }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white">
-      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
+    <div className="h-10 flex items-center gap-2 px-3 rounded-xl border border-white/20 bg-white/10">
+      <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wide">{label}</span>
       <select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange?.(e.target.value)}
-        className={`text-sm font-semibold text-slate-700 bg-transparent outline-none ${disabled ? "cursor-default appearance-none pr-0" : "cursor-pointer"}`}
+        className={`text-sm font-semibold text-white bg-transparent outline-none ${disabled ? "cursor-default appearance-none pr-0" : "cursor-pointer"}`}
       >
         {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o} value={o} className="text-slate-800">{o}</option>
         ))}
       </select>
     </div>

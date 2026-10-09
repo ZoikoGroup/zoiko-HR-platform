@@ -1,9 +1,10 @@
+import { realEmailError } from "../../utils/realEmail";
 import { useState, useMemo, useRef, useEffect, useCallback } from "react";
 import { useAuth } from "../../context/AuthContext";
 import { importEmployees, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import { phoneError, PHONE_MAX_LENGTH } from "../../utils/phone";
-import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser, getAssignableRoles } from "../../service/userService";
+import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser, getAssignableRoles, getUser } from "../../service/userService";
 import {
   Users,
   UserCheck,
@@ -162,6 +163,58 @@ const emptyAddForm = () => ({
   date_of_joining: new Date().toISOString().slice(0, 10),
 });
 
+const EDIT_STATUSES = [["active", "Active"], ["pending", "Pending"], ["inactive", "Inactive"], ["on_leave", "On Leave"], ["suspended", "Suspended"], ["terminated", "Terminated"], ["resigned", "Resigned"], ["deactivated", "Deactivated"]];
+const EDIT_DISABLED_FIELDS = new Set(["email", "date_of_joining"]);
+
+// Same fields as Add User so an existing employee can be fully viewed and edited.
+const EDIT_SECTIONS = ADD_USER_SECTIONS.map((section) => ({
+  ...section,
+  fields: section.fields.map((f) => (f.name === "status" ? { ...f, options: EDIT_STATUSES } : f)),
+}));
+
+const emptyEditForm = () => ({
+  ...Object.fromEntries(ADD_USER_SECTIONS.flatMap((sec) => sec.fields.map((f) => [f.name, ""]))),
+  role: "employee",
+});
+
+function detailToEditForm(d) {
+  return {
+    ...emptyEditForm(),
+    first_name: d.first_name || "",
+    last_name: d.last_name || "",
+    email: d.email || "",
+    phone: d.phone || "",
+    role: (d.role || "employee").toLowerCase(),
+    job_title: d.job_title || "",
+    date_of_joining: d.date_of_joining || "",
+    employment_type: d.employment_type || "",
+    status: d.status || "",
+    confirmation_date: d.confirmation_date || "",
+    department_name: d.department || d.department_name || "",
+    designation_name: d.designation || d.designation_name || "",
+    company: d.company || "",
+    business_unit: d.business_unit || "",
+    division: d.division || "",
+    team: d.team || "",
+    date_of_birth: d.date_of_birth || "",
+    gender: d.gender || "",
+    work_email: d.work_email || "",
+    personal_email: d.personal_email || "",
+    current_address: d.current_address || "",
+    permanent_address: d.permanent_address || "",
+    city: d.city || "",
+    state: d.state || "",
+    country: d.country || "",
+    pincode: d.pincode || "",
+    basic_salary: d.basic_salary ?? "",
+    ctc: d.ctc ?? "",
+    pan_number: d.pan_number || "",
+    uan_number: d.uan_number || "",
+    bank_account: d.bank_account || "",
+    bank_ifsc: d.bank_ifsc || "",
+  };
+}
+
 /** "3 created, 2 updated" - an update-only file must not read as "0 created". */
 function importSummary(result) {
   const parts = [];
@@ -202,9 +255,12 @@ export default function OrgAdminUserManagementPage() {
   const [acting, setActing] = useState(false);
 
   const [editModal, setEditModal] = useState(null);
-  const [editForm, setEditForm] = useState({ first_name: "", last_name: "", phone: "", role: "employee", job_title: "" });
+  const [editForm, setEditForm] = useState(emptyEditForm);
   const [editErrors, setEditErrors] = useState({});
+  const [editLoading, setEditLoading] = useState(false);
   const [saving, setSaving] = useState(false);
+
+  const [viewModal, setViewModal] = useState(null);
 
   const fetchUsers = useCallback(async () => {
     try {
@@ -400,6 +456,7 @@ export default function OrgAdminUserManagementPage() {
     if (!formData.last_name.trim()) errors.last_name = "Last name is required";
     if (!formData.email.trim()) errors.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
+    else if (realEmailError(formData.email)) errors.email = realEmailError(formData.email);
     if (!formData.role) errors.role = "Role is required";
     if (!formData.job_title.trim()) errors.job_title = "Job title is required";
     if (!formData.date_of_joining) errors.date_of_joining = "Date of joining is required";
@@ -407,6 +464,7 @@ export default function OrgAdminUserManagementPage() {
     if (phoneProblem) errors.phone = phoneProblem;
     ["work_email", "personal_email"].forEach((k) => {
       if (formData[k].trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData[k])) errors[k] = "Invalid email";
+      else if (formData[k].trim() && realEmailError(formData[k])) errors[k] = realEmailError(formData[k]);
     });
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -453,36 +511,62 @@ export default function OrgAdminUserManagementPage() {
     }
   };
 
-  const openEdit = (u) => {
-    setEditForm({
-      first_name: u.name.split(" ")[0] || "",
-      last_name: u.name.split(" ").slice(1).join(" ") || "",
-      phone: u.phone || "",
-      role: (u.roleValue || "employee").toLowerCase(),
-      job_title: u.title || "",
-    });
+  const openView = async (u) => {
+    setViewModal({ id: u.id, loading: true, record: null });
+    try {
+      const detail = await getUser(u.id);
+      setViewModal({ id: u.id, loading: false, record: detail });
+    } catch (err) {
+      setViewModal(null);
+      setNotice({ message: err.response?.data?.detail || err.message || "Failed to load user details.", type: "error" });
+    }
+  };
+
+  const openEdit = async (u) => {
+    // start from the list row so the name shows instantly, then fill in every detail
     setEditErrors({});
+    setEditLoading(true);
+    setEditForm({ ...emptyEditForm(), first_name: u.name.split(" ")[0] || "", last_name: u.name.split(" ").slice(1).join(" ") || "", phone: u.phone || "", role: (u.roleValue || "employee").toLowerCase(), job_title: u.title || "" });
     setEditModal(u);
+    try {
+      const detail = await getUser(u.id);
+      setEditForm(detailToEditForm(detail));
+      setEditModal({ ...u, phone: detail.phone || u.phone || "" });
+    } catch (err) {
+      setEditErrors({ submit: err.response?.data?.detail || err.message || "Failed to load user details." });
+    } finally {
+      setEditLoading(false);
+    }
   };
 
   const handleEdit = async (e) => {
     e.preventDefault();
-    if (!editForm.first_name.trim()) { setEditErrors({ first_name: "Required" }); return; }
-    if (!editForm.last_name.trim()) { setEditErrors({ last_name: "Required" }); return; }
+    const errors = {};
+    if (!editForm.first_name.trim()) errors.first_name = "Required";
+    if (!editForm.last_name.trim()) errors.last_name = "Required";
     // only a number that was changed is checked, so details of someone with an older number can still be saved
     if (editForm.phone.trim() !== (editModal.phone || "").trim()) {
       const phoneProblem = phoneError(editForm.phone);
-      if (phoneProblem) { setEditErrors({ phone: phoneProblem }); return; }
+      if (phoneProblem) errors.phone = phoneProblem;
     }
+    ["work_email", "personal_email"].forEach((k) => {
+      const v = editForm[k].trim();
+      if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) errors[k] = "Invalid email";
+      else if (v && realEmailError(v)) errors[k] = realEmailError(v);
+    });
+    if (Object.keys(errors).length) { setEditErrors(errors); return; }
+
     setSaving(true);
     try {
-      await updateUser(editModal.id, {
-        first_name: editForm.first_name.trim(),
-        last_name: editForm.last_name.trim(),
-        phone: editForm.phone.trim() || null,
-        role: editForm.role,
-        job_title: editForm.job_title.trim() || null,
+      // Send only what was filled in; blanks stay out of the request (so they are left unchanged).
+      const payload = { role: editForm.role };
+      Object.entries(editForm).forEach(([k, v]) => {
+        if (["email", "password", "date_of_joining"].includes(k)) return;
+        const value = typeof v === "string" ? v.trim() : v;
+        if (value !== "" && value != null) payload[k] = value;
       });
+      payload.phone = editForm.phone.trim() || null;
+      await updateUser(editModal.id, payload);
       setEditModal(null);
       setNotice({ message: "User updated successfully.", type: "success" });
       await fetchUsers();
@@ -826,6 +910,7 @@ export default function OrgAdminUserManagementPage() {
                   <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <div style={{ display:'flex', gap:6, justifyContent:'flex-end' }}>
                       {[
+                        { icon:Eye, label:'View', cls:'edit', onClick:() => openView(u) },
                         { icon:Pencil, label:'Edit', cls:'edit', onClick:() => openEdit(u) },
                         isLiveAccount(u)
                           ? { icon:Ban, label:'Deactivate', cls:'', onClick:() => handleDeactivate(u) }
@@ -1184,65 +1269,132 @@ export default function OrgAdminUserManagementPage() {
         </div>
       )}
 
+      {viewModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
+          <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
+              <h3 className="text-base font-semibold text-gray-900">
+                {viewModal.record ? (viewModal.record.full_name || `${viewModal.record.first_name || ""} ${viewModal.record.last_name || ""}`.trim()) : "User Details"}
+              </h3>
+              <button onClick={() => setViewModal(null)} className="text-gray-400 hover:text-gray-600">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="max-h-[78vh] overflow-y-auto px-5 py-5 space-y-6">
+              {viewModal.loading ? (
+                <div className="flex items-center justify-center gap-2 py-10 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading details…
+                </div>
+              ) : viewModal.record && (
+                EDIT_SECTIONS.map((section) => (
+                  <div key={section.title}>
+                    <div className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">{section.title}</div>
+                    <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
+                      {section.fields.map((f) => (
+                        <div key={f.name} className={`min-w-0 ${f.wide ? "sm:col-span-2" : ""}`}>
+                          <dt className="text-xs font-medium text-gray-500">{f.label}</dt>
+                          <dd className="text-sm text-gray-900 break-words">
+                            {(() => {
+                              const r = viewModal.record;
+                              let value;
+                              if (f.name === "role") value = ROLE_DISPLAY_LABELS[r.role] || r.role;
+                              else if (f.name === "department_name") value = r.department;
+                              else if (f.name === "designation_name") value = r.designation;
+                              else value = r[f.name];
+                              if (value === null || value === undefined || value === "") return <span className="text-gray-400">—</span>;
+                              return String(value).replace(/_/g, " ");
+                            })()}
+                          </dd>
+                        </div>
+                      ))}
+                    </dl>
+                  </div>
+                ))
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-gray-100 px-5 py-4">
+              <button onClick={() => setViewModal(null)}
+                className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Close</button>
+              {viewModal.record && (
+                <button type="button" onClick={() => { const rec = viewModal.record; setViewModal(null); openEdit({ id: rec.id, name: `${rec.first_name || ""} ${rec.last_name || ""}`.trim(), phone: rec.phone || "", roleValue: rec.role || "employee", title: rec.job_title || "" }); }}
+                  className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF]">Edit</button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {editModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-          <div className="w-full max-w-lg rounded-xl bg-white shadow-xl">
+          <div className="w-full max-w-3xl rounded-xl bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-5 py-4">
               <h3 className="text-base font-semibold text-gray-900">Edit User</h3>
               <button onClick={() => setEditModal(null)} className="text-gray-400 hover:text-gray-600">
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleEdit} className="px-5 py-5 space-y-4">
+            <form onSubmit={handleEdit} className="max-h-[78vh] overflow-y-auto px-5 pt-5 space-y-5">
               {editErrors.submit && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{editErrors.submit}</div>
               )}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">First Name <span className="text-red-500">*</span></label>
-                  <input type="text" value={editForm.first_name} onChange={(e) => setEditForm({ ...editForm, first_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${editErrors.first_name ? "border-red-300" : "border-gray-200 focus:border-[#3B82F6]"}`} />
-                  {editErrors.first_name && <p className="mt-1 text-xs text-red-500">{editErrors.first_name}</p>}
+              {editLoading && (
+                <div className="flex items-center gap-2 text-sm text-gray-500">
+                  <Loader2 className="h-4 w-4 animate-spin" /> Loading details…
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Last Name <span className="text-red-500">*</span></label>
-                  <input type="text" value={editForm.last_name} onChange={(e) => setEditForm({ ...editForm, last_name: e.target.value })}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${editErrors.last_name ? "border-red-300" : "border-gray-200 focus:border-[#3B82F6]"}`} />
-                  {editErrors.last_name && <p className="mt-1 text-xs text-red-500">{editErrors.last_name}</p>}
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Role</label>
-                  <div className="relative">
-                      <select value={editForm.role} onChange={(e) => setEditForm({ ...editForm, role: e.target.value })}
-                        className="w-full appearance-none rounded-lg border border-gray-200 px-3 py-2.5 pr-10 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]">
-                        <option value="employee">Employee</option>
-                        <option value="admin">Admin</option>
-                        <option value="hr_admin">HR Admin</option>
-                      </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+              )}
+              {EDIT_SECTIONS.map((section) => (
+                <fieldset key={section.title} disabled={saving}>
+                  <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">{section.title}</legend>
+                  <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                    {section.fields.map((f) => {
+                      const id = `edit-user-${f.name}`;
+                      const disabled = EDIT_DISABLED_FIELDS.has(f.name);
+                      const cls = `w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] disabled:bg-gray-50 disabled:text-gray-500 ${
+                        editErrors[f.name] ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
+                      }`;
+                      const value = editForm[f.name] ?? "";
+                      const set = (e) => {
+                        setEditForm({ ...editForm, [f.name]: e.target.value });
+                        if (editErrors[f.name]) setEditErrors((prev) => ({ ...prev, [f.name]: undefined }));
+                      };
+                      return (
+                        <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
+                          <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
+                            {f.label}{f.required && !disabled ? <span className="text-red-500"> *</span> : null}
+                          </label>
+                          {f.name === "role" ? (
+                            <div className="relative">
+                              <select id={id} value={value} onChange={set} disabled={disabled} className={`${cls} appearance-none pr-9`}>
+                                {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+                              </select>
+                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          ) : f.options ? (
+                            <div className="relative">
+                              <select id={id} value={value} onChange={set} disabled={disabled} className={`${cls} appearance-none pr-9`}>
+                                <option value="">{f.blank || "Select…"}</option>
+                                {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                              </select>
+                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                            </div>
+                          ) : (
+                            <input id={id} type={f.type || "text"} value={value} onChange={set} disabled={disabled} className={cls}
+                              maxLength={f.name === "phone" ? PHONE_MAX_LENGTH : undefined} inputMode={f.name === "phone" ? "tel" : undefined}
+                              onBlur={f.name === "phone" ? () => { if (editForm.phone.trim() !== (editModal?.phone || "").trim()) setEditErrors((prev) => ({ ...prev, phone: phoneError(editForm.phone) || undefined })); } : undefined}
+                              aria-invalid={editErrors[f.name] ? "true" : undefined}
+                              placeholder={f.placeholder} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
+                          )}
+                          {editErrors[f.name] && <p className="mt-1 text-xs text-red-500">{editErrors[f.name]}</p>}
+                        </div>
+                      );
+                    })}
                   </div>
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
-                  <input type="tel" inputMode="tel" maxLength={PHONE_MAX_LENGTH} value={editForm.phone}
-                    onChange={(e) => { setEditForm({ ...editForm, phone: e.target.value }); if (editErrors.phone) setEditErrors({ ...editErrors, phone: undefined }); }}
-                    onBlur={() => { if (editForm.phone.trim() !== (editModal?.phone || "").trim()) setEditErrors((prev) => ({ ...prev, phone: phoneError(editForm.phone) || undefined })); }}
-                    aria-invalid={editErrors.phone ? "true" : undefined}
-                    className={`w-full rounded-lg border px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${editErrors.phone ? "border-red-300" : "border-gray-200 focus:border-[#3B82F6]"}`} placeholder="+91 9876543210" />
-                  {editErrors.phone && <p className="mt-1 text-xs text-red-500">{editErrors.phone}</p>}
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Job Title</label>
-                <input type="text" value={editForm.job_title} onChange={(e) => setEditForm({ ...editForm, job_title: e.target.value })}
-                  className="w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]" placeholder="Software Engineer" />
-              </div>
-              <div className="flex justify-end gap-2 border-t border-gray-100 pt-4">
+                </fieldset>
+              ))}
+              <div className="sticky bottom-0 -mx-5 flex justify-end gap-2 border-t border-gray-100 bg-white px-5 py-3">
                 <button type="button" onClick={() => setEditModal(null)}
                   className="rounded-lg border border-gray-200 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={saving}
+                <button type="submit" disabled={saving || editLoading}
                   className="rounded-lg bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-[#1E40AF] disabled:cursor-not-allowed disabled:opacity-40">
                   {saving ? "Saving..." : "Save Changes"}
                 </button>

@@ -14,7 +14,7 @@ const authSvc = {};
 const expSvc = {};
 const navCalls = [];
 const orgSvc = {};
-const auth = { user: { id: 1, email: "root@example.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true };
+const auth = { user: { id: 1, email: "root@gmail.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true };
 const mocked = new WeakSet();
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 120)); });
 
@@ -26,7 +26,7 @@ const ROLES = [
   { value: "manager", label: "Manager", scope: "organization", description: "Leads a team." },
   { value: "employee", label: "Employee", scope: "organization", description: "Self-service access." },
 ];
-const USER = { id: 7, first_name: "Bob", last_name: "Brown", email: "bob@example.com", role: "employee", is_active: true, status: "active", organization_name: "Globex Inc", organization_id: 2 };
+const USER = { id: 7, first_name: "Bob", last_name: "Brown", email: "bob@gmail.com", role: "employee", is_active: true, status: "active", organization_name: "Globex Inc", organization_id: 2 };
 
 function reset(overrides = {}) {
   for (const o of [userSvc, saSvc, authSvc, expSvc, orgSvc]) for (const k of Object.keys(o)) delete o[k];
@@ -51,7 +51,7 @@ function reset(overrides = {}) {
     byOrganization: async () => ({ organizations: [] }),
     categories: async () => ({ categories: [] }), budgets: async () => ({ budgets: [] }), createBudget: async () => ({}), archiveBudget: async () => ({}),
   });
-  Object.assign(auth, { user: { id: 1, email: "root@example.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true });
+  Object.assign(auth, { user: { id: 1, email: "root@gmail.com", role: "super_admin" }, role: "super_admin", isAuthenticated: true });
   const targets = { userSvc, saSvc, authSvc, expSvc, orgSvc };
   for (const [name, o] of Object.entries(overrides)) Object.assign(targets[name], o);
 }
@@ -113,7 +113,7 @@ test("organization roles require an organization; Super Admin requires confirmat
     const [first, last] = dlg().querySelectorAll('input[type="text"]');
     fireEvent.change(first, { target: { value: "New" } });
     fireEvent.change(last, { target: { value: "Person" } });
-    fireEvent.change(dlg().querySelector('input[type="email"]'), { target: { value: "new@example.com" } });
+    fireEvent.change(dlg().querySelector('input[type="email"]'), { target: { value: "new@gmail.com" } });
   };
   fill();
   fireEvent.change(roleSelect(), { target: { value: "manager" } });
@@ -157,7 +157,7 @@ test("server validation errors are shown inside the Create User dialog", async (
   const [first, last] = form.querySelectorAll('input[type="text"]');
   fireEvent.change(first, { target: { value: "A" } });
   fireEvent.change(last, { target: { value: "B" } });
-  fireEvent.change(form.querySelector('input[type="email"]'), { target: { value: "a@example.com" } });
+  fireEvent.change(form.querySelector('input[type="email"]'), { target: { value: "a@gmail.com" } });
   fireEvent.change(within(form).getByText(/^Organization/, { selector: "label" }).parentElement.querySelector("select"), { target: { value: "2" } });
   fireEvent.click(within(form).getByRole("button", { name: "Create User" }));
   await waitFor(() => screen.getByText(/this role belongs to a specific organization/));
@@ -184,13 +184,13 @@ test("reset dialog shows the user, defaults to email link, and reports success",
   await openUsers(t, { userSvc: { resetPassword: async (id, m) => { calls.push([id, m]); return { message: "Reset link sent", temporary_password: null, method: "link" }; } } });
   fireEvent.click(screen.getByTitle("Reset password"));
   const dlg = screen.getByRole("dialog");
-  assert.ok(within(dlg).getByText(/Bob Brown/) && within(dlg).getByText("bob@example.com"));
+  assert.ok(within(dlg).getByText(/Bob Brown/) && within(dlg).getByText("bob@gmail.com"));
   assert.equal(within(dlg).getAllByRole("radio")[0].checked, true);
   fireEvent.click(within(dlg).getByRole("button", { name: "Send reset link" }));
   await settle();
   assert.deepEqual(calls, [[7, "link"]]);
   assert.equal(screen.queryByRole("dialog"), null);
-  assert.ok(screen.getByText("Reset link sent to bob@example.com."));
+  assert.ok(screen.getByText("Reset link sent to bob@gmail.com."));
   cleanup();
 });
 
@@ -233,7 +233,7 @@ test("temporary password is shown once with a copy button", async (t) => {
 test("you cannot reset your own password from the list", async (t) => {
   reset({ userSvc: { getUsers: async () => ({ items: [{ ...USER, id: 99 }], total: 1 }) } });
   register(t);
-  auth.user = { id: 99, email: "bob@example.com", role: "admin" };
+  auth.user = { id: 99, email: "bob@gmail.com", role: "admin" };
   auth.role = "admin";
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
   render(React.createElement(Page));
@@ -413,19 +413,19 @@ test("super admin can create an organization from User Management and gets the a
     getOrganizations: async () => { orgCalls += 1; return { organizations: [{ id: 2, name: "Globex Inc" }] }; },
     createOrganization: async (b) => {
       created.push(b);
-      return { message: "Organization 'Initech Corp' was created.", organization_id: 9, organization_name: "Initech Corp", admin_email: "olivia@example.com", temporary_password: "Org-Temp-77" };
+      return { message: "Organization 'Initech Corp' was created.", organization_id: 9, organization_name: "Initech Corp", admin_email: "olivia@gmail.com", temporary_password: "Org-Temp-77" };
     },
   } });
   fireEvent.click(screen.getByRole("button", { name: /Add Organization/ }));
   const dlg = screen.getByRole("dialog", { name: "Create organization" });
   fireEvent.change(within(dlg).getByLabelText(/Organization name/), { target: { value: "Initech Corp" } });
   fireEvent.change(within(dlg).getByLabelText(/Admin name/), { target: { value: "Olivia Owner" } });
-  fireEvent.change(within(dlg).getByLabelText(/Admin email/), { target: { value: "olivia@example.com" } });
+  fireEvent.change(within(dlg).getByLabelText(/Admin email/), { target: { value: "olivia@gmail.com" } });
   fireEvent.click(within(dlg).getByRole("button", { name: "Create organization" }));
   await settle();
   assert.equal(created.length, 1);
   assert.deepEqual([created[0].organization, created[0].admin_name, created[0].admin_email, created[0].plan_code],
-    ["Initech Corp", "Olivia Owner", "olivia@example.com", "core"]);
+    ["Initech Corp", "Olivia Owner", "olivia@gmail.com", "core"]);
   assert.equal(created[0].industry, undefined); // blank optional fields are not sent
   assert.ok(screen.getByText("Temporary Password")); // shown once
   assert.ok(orgCalls >= 2); // organization list refreshed
@@ -439,7 +439,7 @@ test("organization creation errors stay in the dialog; non-super-admins do not s
   const dlg = screen.getByRole("dialog", { name: "Create organization" });
   fireEvent.change(within(dlg).getByLabelText(/Organization name/), { target: { value: "Initech Corp" } });
   fireEvent.change(within(dlg).getByLabelText(/Admin name/), { target: { value: "O O" } });
-  fireEvent.change(within(dlg).getByLabelText(/Admin email/), { target: { value: "o@example.com" } });
+  fireEvent.change(within(dlg).getByLabelText(/Admin email/), { target: { value: "o@gmail.com" } });
   fireEvent.click(within(dlg).getByRole("button", { name: "Create organization" }));
   await settle();
   assert.ok(within(dlg).getByRole("alert").textContent.includes("already exists"));
@@ -448,7 +448,7 @@ test("organization creation errors stay in the dialog; non-super-admins do not s
 
   reset({ userSvc: { getUsers: async () => ({ items: [USER], total: 1 }) } });
   register(t);
-  auth.user = { id: 99, email: "a@example.com", role: "admin" };
+  auth.user = { id: 99, email: "a@gmail.com", role: "admin" };
   auth.role = "admin";
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
   render(React.createElement(Page));
@@ -461,7 +461,7 @@ test("super admin sees organizations first and a user list only after opening on
   const calls = [];
   reset({ saSvc: {
     getOrganizations: async () => ({ organizations: [
-      { id: 2, name: "Globex Inc", organization_code: "GLX001", status: "active", user_count: 5, active_employees: 4, admin_name: "Gina Lopez", admin_email: "gina@example.com" },
+      { id: 2, name: "Globex Inc", organization_code: "GLX001", status: "active", user_count: 5, active_employees: 4, admin_name: "Gina Lopez", admin_email: "gina@gmail.com" },
       { id: 3, name: "Initech", organization_code: "INI001", status: "active", user_count: 0, active_employees: 0 },
     ], total: 2 }),
     getUsers: async (p) => { calls.push(p); return { users: [USER], total: 1 }; },
@@ -527,7 +527,7 @@ test("organization cards: suspend, reactivate, reset the admin's password and de
       updateOrganizationStatus: async (id, b) => { calls.push(["status", id, b.status, b.confirmation_id, b.confirmation_token]); status = b.status; return {}; },
       reactivateOrganization: async (id) => { calls.push(["reactivate", id]); status = "active"; return {}; },
       getOrganizationDeletionImpact: async () => ({ organization_id: 2, name: "Globex Inc", users_total: 1, users_active: 1, restore_window_days: 90, subscription: null, effects: [] }),
-      getUsers: async (p) => { calls.push(["admins", p.organization_id, p.role]); return { users: [{ id: 21, first_name: "Gina", last_name: "Lopez", email: "gina@example.com", role: "admin", is_active: true, organization_id: 2 }], total: 1 }; },
+      getUsers: async (p) => { calls.push(["admins", p.organization_id, p.role]); return { users: [{ id: 21, first_name: "Gina", last_name: "Lopez", email: "gina@gmail.com", role: "admin", is_active: true, organization_id: 2 }], total: 1 }; },
     },
     userSvc: { resetPassword: async (id, m) => { calls.push(["reset", id, m]); return { message: "sent", temporary_password: null }; } },
   });
@@ -556,7 +556,7 @@ test("organization cards: suspend, reactivate, reset the admin's password and de
   await settle();
   assert.deepEqual(calls.at(-1), ["admins", 2, "admin"]);
   const dlg = screen.getByRole("dialog", { name: "Reset password" });
-  assert.ok(within(dlg).getByText(/gina@example.com/));
+  assert.ok(within(dlg).getByText(/gina@gmail.com/));
   fireEvent.click(within(dlg).getByRole("button", { name: "Send reset link" }));
   await settle();
   assert.deepEqual(calls.at(-1), ["reset", 21, "link"]);

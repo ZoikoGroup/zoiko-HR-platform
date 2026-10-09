@@ -2,6 +2,7 @@
 // whether the browser or the server catches the problem. No password is asked for: the server makes a one-time temporary
 // one, e-mails it, and shows it once to whoever added the person.
 import { phoneError } from "./phone";
+import { realEmailError } from "./realEmail";
 
 const clean = (v) => String(v ?? "").trim().replace(/\s+/g, " ");
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -19,6 +20,7 @@ export function validateAddEmployee(form) {
   const email = clean(form.email);
   if (!email) e.email = "Email is required";
   else if (!EMAIL.test(email)) e.email = "Enter a valid email address";
+  else if (realEmailError(email)) e.email = realEmailError(email);
 
   const phone = phoneError(form.phone);
   if (clean(form.phone) && phone) e.phone = phone;

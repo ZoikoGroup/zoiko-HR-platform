@@ -140,10 +140,11 @@ def verify_webhook_signature(payload_body: bytes, sig_header: str) -> bool:
         return False
 
     try:
-        elements = dict(item.split("=", 1) for item in sig_header.split(","))
-        timestamp = elements.get("t")
-        expected_sig = elements.get("v1")
-        if not timestamp or not expected_sig:
+        pairs = [item.strip().split("=", 1) for item in sig_header.split(",") if "=" in item]
+        timestamp = next((v for k, v in pairs if k == "t"), None)
+        # While a webhook secret is being rotated Stripe signs with both, sending several v1 values: any one may match
+        candidate_sigs = [v for k, v in pairs if k == "v1"]
+        if not timestamp or not candidate_sigs:
             return False
 
         # Reject payloads older than 5 minutes (replay protection)
@@ -157,7 +158,7 @@ def verify_webhook_signature(payload_body: bytes, sig_header: str) -> bool:
             signed_payload.encode("utf-8"),
             hashlib.sha256,
         ).hexdigest()
-        return hmac.compare_digest(computed, expected_sig)
+        return any(hmac.compare_digest(computed, sig) for sig in candidate_sigs)
     except Exception as e:
         logger.error("[stripe] Webhook signature verification error: %s", e)
         return False

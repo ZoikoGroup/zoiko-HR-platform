@@ -55,7 +55,7 @@ export default function ForgotPasswordPage() {
                 Forgot your password?
               </h1>
               <p style={{ fontSize: "14px", color: "#6B7280", lineHeight: "1.6", margin: "0 0 28px 0" }}>
-                Enter the email address for your organization admin account and we'll send you a secure link to reset your password.
+                Enter the email address registered to your account and we'll send you a secure link to reset your password.
               </p>
 
               {error && (
@@ -109,7 +109,7 @@ export default function ForgotPasswordPage() {
                 If an account exists for <strong>{email}</strong>, a password reset link has been sent.
               </p>
               <p style={{ fontSize: "13px", color: "#9CA3AF", margin: "0 0 24px 0" }}>
-                The link expires in 24 hours.
+                The link expires in 60 minutes.
               </p>
               <button type="button" onClick={() => { setSent(false); setEmail(""); }}
                 style={{

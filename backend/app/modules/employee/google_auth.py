@@ -60,6 +60,11 @@ def redirect_uri() -> str:
     return f"{(settings.API_BASE_URL or 'http://localhost:8000').rstrip('/')}/auth/google/callback"
 
 
+def frontend_register_url(**params) -> str:
+    base = f"{(settings.FRONTEND_URL or 'http://localhost:5173').rstrip('/')}/register"
+    return f"{base}?{urlencode(params)}" if params else base
+
+
 def frontend_login_url(**params) -> str:
     base = f"{(settings.FRONTEND_URL or 'http://localhost:5173').rstrip('/')}/login"
     return f"{base}?{urlencode(params)}" if params else base
@@ -124,8 +129,19 @@ def state_matches_browser(state: str, nonce_cookie: Optional[str]) -> bool:
     return hmac.compare_digest(payload.get("n", ""), hashlib.sha256(nonce_cookie.encode()).hexdigest())
 
 
+def verified_profile_for_code(code: str) -> dict:
+    """{"email", "name", "error"}: the verified e-mail (and display name) Google vouches for, or why there isn't one."""
+    email, problem, name = _profile_for_code(code)
+    return {"email": email, "name": name, "error": problem}
+
+
 def verified_email_for_code(code: str) -> tuple[Optional[str], Optional[str]]:
     """(email, error_key): the verified e-mail Google vouches for, or why there isn't one."""
+    email, problem, _ = _profile_for_code(code)
+    return email, problem
+
+
+def _profile_for_code(code: str) -> tuple[Optional[str], Optional[str], str]:
     try:
         with httpx.Client(timeout=10.0) as client:
             token = client.post(TOKEN_URL, data={
@@ -137,23 +153,38 @@ def verified_email_for_code(code: str) -> tuple[Optional[str], Optional[str]]:
             })
             if token.status_code != 200:
                 logger.warning("[google] token exchange refused: %s %s", token.status_code, token.text[:200])
-                return None, "failed"
+                return None, "failed", ""
             access = token.json().get("access_token")
             if not access:
-                return None, "failed"
+                return None, "failed", ""
             info = client.get(USERINFO_URL, headers={"Authorization": f"Bearer {access}"})
             if info.status_code != 200:
                 logger.warning("[google] userinfo refused: %s", info.status_code)
-                return None, "failed"
+                return None, "failed", ""
             profile = info.json()
     except Exception:
         logger.exception("[google] could not reach Google")
-        return None, "failed"
+        return None, "failed", ""
     email = (profile.get("email") or "").strip().lower()
     verified = profile.get("email_verified")
+    name = " ".join(str(profile.get("name") or "").split())[:200]
     if not email or verified not in (True, "true"):
-        return None, "unverified"
-    return email, None
+        return None, "unverified", ""
+    return email, None, name
+
+
+SIGNUP_PROOF_TTL_SECONDS = 30 * 60
+
+
+def make_signup_proof(email: str) -> str:
+    """Signed proof that Google confirmed this person controls `email`. It travels with them to the Register page, so the
+    organization they create there starts with its address already confirmed."""
+    return _sign("signup", {"email": (email or "").strip().lower(), "exp": time.time() + SIGNUP_PROOF_TTL_SECONDS})
+
+
+def signup_proof_matches(proof: Optional[str], email: str) -> bool:
+    payload = _open("signup", proof or "")
+    return bool(payload) and hmac.compare_digest(str(payload.get("email", "")), (email or "").strip().lower())
 
 
 def make_ticket(employee_id: int) -> str:

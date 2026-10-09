@@ -7,7 +7,7 @@ import { render, screen, cleanup, act, fireEvent } from "@testing-library/react"
 import { phoneError, PHONE_ERROR } from "../src/utils/phone.js";
 
 const userSvc = {};
-const auth = { user: { id: 1, role: "admin", email: "a@example.com" }, role: "admin", isAuthenticated: true };
+const auth = { user: { id: 1, role: "admin", email: "a@gmail.com" }, role: "admin", isAuthenticated: true };
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 120)); });
 const mocked = new WeakSet();
 
@@ -15,6 +15,7 @@ function register(t) {
   Object.assign(userSvc, {
     createUser: async () => ({ message: "ok", temporary_password: null }), resetPassword: async () => ({}),
     updateUser: async () => ({}), deactivateUser: async () => ({}), activateUser: async () => ({}), archiveUser: async () => ({}),
+    getUser: async () => ({}),
     getAssignableRoles: async () => ({ roles: [{ value: "employee", label: "Employee", description: "" }] }),
   });
   if (mocked.has(t)) return;
@@ -46,7 +47,7 @@ test("Add User refuses an 11-digit phone, shows why, and sends nothing; a valid 
   const sent = [];
   await openAddUser(t);
   userSvc.createUser = async (p) => { sent.push(p); return { message: "User created successfully.", temporary_password: null }; };
-  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@example.com"); type(/^Job title/, "Engineer");
+  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
   fireEvent.change(screen.getByLabelText(/^Date of joining/), { target: { value: "2026-10-01" } });
 
   type(/^Phone/, "98765432101");
@@ -70,7 +71,7 @@ test("a wrong phone is also caught when the form is submitted without leaving th
   const sent = [];
   await openAddUser(t);
   userSvc.createUser = async (p) => { sent.push(p); return { message: "ok" }; };
-  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@example.com"); type(/^Job title/, "Engineer");
+  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
   fireEvent.change(screen.getByLabelText(/^Date of joining/), { target: { value: "2026-10-01" } });
   type(/^Phone/, "123456789012");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));

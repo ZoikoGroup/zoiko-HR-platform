@@ -18,7 +18,7 @@ from app.modules.employee import service as emp_service
 from app.modules.employee.models import (
     Employee, EmployeeStatus, EmploymentType, SecurityActionPurpose, SecurityActionToken, UserRole,
 )
-from app.modules.hr.models import Organization, OrganizationStatus
+from app.modules.hr.models import Organization, OrganizationStatus, Department, Designation, EmployeeProfile
 from app.modules.super_admin.models import AuditAction, AuditLog, EmailDeliveryLog
 
 PW = "Passw0rd1"
@@ -426,3 +426,124 @@ def test_a_missing_or_local_frontend_url_is_reported(monkeypatch):
     assert es._login_url() == "https://app.zoikohr.com/login" and "not set" in es.link_config_problems()[0]
     monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:5173")
     assert "server itself" in es.link_config_problems()[0]
+
+
+# ═════════════════════════════ ZHR-7: public forgot-password (any active account) ═════════════════════════════
+
+GENERIC_FORGOT_MESSAGE = "If an account exists for that email, a password reset link has been sent."
+
+
+def _capture_forgot_emails(world, monkeypatch):
+    """Record the async email the forgot-password endpoint queues instead of sending it."""
+    calls = []
+    monkeypatch.setattr(emp_service, "_notify_email_async", lambda sender, **kw: calls.append((sender, kw)))
+    return calls
+
+
+def test_forgot_password_issues_a_link_for_an_ordinary_employee(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    r = world["c"].post("/auth/forgot-password", json={"email": world["u"]["emp1"].email})
+    assert r.status_code == 200 and r.json()["message"] == GENERIC_FORGOT_MESSAGE
+    assert len(calls) == 1, "an ordinary employee must get a reset link, not a silent no-op"
+    sender, kw = calls[0]
+    assert sender == "send_org_admin_password_reset_email" and kw["email"] == "emp1@example.com"
+    assert "reset-password?token=" in kw["action_url"]
+    rows = world["db"].query(SecurityActionToken).filter(
+        SecurityActionToken.email == "emp1@example.com",
+        SecurityActionToken.purpose == SecurityActionPurpose.RESET,
+        SecurityActionToken.used_at.is_(None),
+    ).all()
+    assert len(rows) == 1
+    assert rows[0].token_hash == emp_service._token_hash(kw["action_url"].split("token=")[1])
+    assert kw["action_url"].split("token=")[1] not in rows[0].token_hash
+
+
+def test_forgot_password_works_for_admin_class_accounts_too(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    for who in ("sa", "admin1", "hr1"):
+        r = world["c"].post("/auth/forgot-password", json={"email": world["u"][who].email})
+        assert r.status_code == 200 and r.json()["message"] == GENERIC_FORGOT_MESSAGE
+    assert [kw["email"] for _, kw in calls] == ["root@example.com", "admin1@example.com", "hr1@example.com"]
+
+
+def test_forgot_password_reveals_nothing_for_unknown_or_inactive_accounts(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    world["u"]["emp2"].is_active = False
+    world["db"].commit()
+    for email in ("nobody@example.com", "emp2@example.com"):
+        r = world["c"].post("/auth/forgot-password", json={"email": email})
+        assert r.status_code == 200 and r.json()["message"] == GENERIC_FORGOT_MESSAGE
+        assert world["db"].query(SecurityActionToken).filter(SecurityActionToken.email == email).count() == 0
+    assert calls == []
+
+
+def test_reset_link_from_public_forgot_password_ends_to_end(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    c, u = world["c"], world["u"]
+    r = c.post("/auth/forgot-password", json={"email": u["emp1"].email})
+    assert r.status_code == 200
+    raw = calls[0][1]["action_url"].split("token=")[1]
+    assert c.get("/auth/reset-password", params={"token": raw}).status_code == 200  # form renders
+    done = c.post("/auth/reset-password", json={"token": raw, "password": "BrandNew123"})
+    assert done.status_code == 200, done.text
+    assert c.post("/auth/login", json={"email": u["emp1"].email, "password": "BrandNew123"}).status_code == 200
+
+
+def test_a_reset_link_never_points_at_another_product_or_a_blank_address(monkeypatch):
+    from app.config import settings
+    from app.modules.employee import service
+
+    for wrong in ("https://zoikoone.com", "https://app.zoikoone.com/", ""):
+        monkeypatch.setattr(settings, "FRONTEND_URL", wrong)
+        assert service._action_link(service.SecurityActionPurpose.RESET, "tok1") == "https://app.zoikohr.com/reset-password?token=tok1", wrong
+    monkeypatch.setattr(settings, "FRONTEND_URL", "https://hr.client-company.com/")
+    assert service._action_link(service.SecurityActionPurpose.RESET, "tok1") == "https://hr.client-company.com/reset-password?token=tok1"
+
+
+def test_admin_can_edit_the_complete_employee_details(world):
+    """The org-admin Edit form captures everything Add User / the import captures."""
+    c, u, db = world["c"], world["u"], world["db"]
+    target = u["emp1"].id
+    payload = {
+        "first_name": "Emp", "last_name": "One", "job_title": "Staff Engineer",
+        "department_name": "Platform", "designation_name": "Senior Engineer",
+        "employment_type": "contract", "status": "active",
+        "work_email": "emp1.work@example.com", "personal_email": "emp1.personal@gmail.com",
+        "company": "ZoikoOne", "business_unit": "Enterprise", "division": "Engineering", "team": "Core",
+        "city": "Pune", "state": "MH", "country": "India", "pincode": "411001",
+        "current_address": "1 Main St", "permanent_address": "2 Oak Ave",
+        "basic_salary": "50000", "ctc": "1200000",
+        "pan_number": "ABCDE1234F", "uan_number": "123456789012",
+        "bank_account": "000111222", "bank_ifsc": "HDFC0001234",
+    }
+    r = c.put(f"/hr/admin/users/{target}", json=payload, headers=_token(u["admin1"]))
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["job_title"] == "Staff Engineer"
+    assert body["department"] == "Platform"
+    assert body["designation"] == "Senior Engineer"
+    assert body["employment_type"] == "contract"
+    assert body["status"] == "active"
+    assert body["pan_number"] == "ABCDE1234F"
+    assert body["bank_ifsc"] == "HDFC0001234"
+    assert body["city"] == "Pune"
+
+    # the detail endpoint returns the same complete record for the view/edit form
+    detail = c.get(f"/hr/admin/users/{target}", headers=_token(u["admin1"])).json()
+    assert detail["department"] == "Platform"
+    assert detail["designation"] == "Senior Engineer"
+    assert detail["work_email"] == "emp1.work@example.com"
+    assert detail["bank_account"] == "000111222"
+
+    db.expire_all()
+    emp = db.query(Employee).filter(Employee.id == target).first()
+    assert emp.job_title == "Staff Engineer"
+    assert emp.employment_type == EmploymentType.CONTRACT
+    assert emp.department is not None and emp.department.name == "Platform"
+    assert emp.designation is not None and emp.designation.title == "Senior Engineer"
+    profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == target).first()
+    assert profile is not None
+    assert profile.pan_number == "ABCDE1234F" and profile.bank_ifsc == "HDFC0001234"
+    # department/designation were created once, not duplicated per save
+    assert db.query(Department).filter(Department.name == "Platform").count() == 1
+    assert db.query(Designation).filter(Designation.title == "Senior Engineer").count() == 1

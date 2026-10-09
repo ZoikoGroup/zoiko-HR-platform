@@ -21,7 +21,7 @@ async function openPage(t) {
   t.mock.module("../src/service/employee.js", { exports: { importEmployees: async () => ({}), getEmployees: async () => ({ items: EMPLOYEES, total: 4 }), hardDeleteEmployee: async () => ({}), bulkHardDeleteEmployees: async () => ({}) } });
   t.mock.module("../src/service/userService.js", { exports: {
     createUser: async () => ({}), resetPassword: async () => ({}), updateUser: async () => ({}), deactivateUser: async () => ({}),
-    activateUser: async () => ({}), archiveUser: async () => ({}), getAssignableRoles: async () => ({ roles: [] }),
+    activateUser: async () => ({}), archiveUser: async () => ({}), getAssignableRoles: async () => ({ roles: [] }), getUser: async () => ({}),
   } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
   t.mock.module("react-router-dom", { exports: { useNavigate: () => () => {}, Link: ({ children }) => children } });

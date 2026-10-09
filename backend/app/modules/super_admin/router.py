@@ -271,6 +271,11 @@ def create_organization(
         email = str(TypeAdapter(EmailStr).validate_python(body.admin_email.strip()))
     except ValidationError:
         raise BadRequestException("Enter a valid email address for the organization admin.")
+    from app.core.email_quality import check_real_email
+    try:
+        email = check_real_email(email, label="Admin email") or email
+    except ValueError as exc:
+        raise BadRequestException(str(exc))
     name = body.organization.strip()
     if not name:
         raise BadRequestException("Organization name is required.")

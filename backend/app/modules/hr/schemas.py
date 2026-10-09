@@ -2301,6 +2301,13 @@ class LearningDashboardResponse(BaseModel):
 class OnboardingNewHireCreate(BaseModel):
     candidate_name: str = Field(..., min_length=1, max_length=150)
     email: EmailStr
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def _v_real_email(cls, v):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v)
+
     phone: Optional[str] = None
     position: str = Field(..., min_length=1, max_length=150)
     department_id: Optional[int] = None
@@ -2314,6 +2321,13 @@ class OnboardingNewHireCreate(BaseModel):
 class OnboardingNewHireUpdate(BaseModel):
     candidate_name: Optional[str] = Field(None, min_length=1, max_length=150)
     email: Optional[EmailStr] = None
+
+    @field_validator("email", mode="after")
+    @classmethod
+    def _v_real_email(cls, v):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v)
+
     phone: Optional[str] = None
     position: Optional[str] = Field(None, min_length=1, max_length=150)
     department_id: Optional[int] = None
@@ -3745,7 +3759,8 @@ def _candidate_email(v):
         raise ValueError("Email can be at most 255 characters.")
     if not re.match(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$", text):
         raise ValueError("Enter a valid email address, for example name@company.com.")
-    return text.lower()
+    from app.core.email_quality import check_real_email
+    return (check_real_email(text) or text).lower()
 
 
 def _candidate_phone(v):

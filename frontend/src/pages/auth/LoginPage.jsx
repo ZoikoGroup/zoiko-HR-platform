@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { googleSignInEnabled } from "../../service/authService";
+import { googleSignInEnabled, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
 import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
 import logo from "../../assets/zoikohr-logo-svg.svg";
@@ -27,6 +27,22 @@ export default function LoginPage() {
   const [googleReady, setGoogleReady] = useState(true);      // optimistic until the server answers
   const [googleBusy, setGoogleBusy] = useState(false);
   const googleHandled = useRef(false);
+  const [unconfirmed, setUnconfirmed] = useState(false);       // the password was right but the email address is not confirmed yet
+  const [resendNote, setResendNote] = useState("");
+  const [resending, setResending] = useState(false);
+
+  async function sendNewConfirmation() {
+    if (resending) return;
+    setResending(true);
+    try {
+      const res = await resendVerification(email.trim());
+      setResendNote(res?.message || "A new confirmation link has been sent.");
+    } catch (err) {
+      setResendNote(err?.message || "The link could not be sent. Please try again.");
+    } finally {
+      setResending(false);
+    }
+  }
 
   // Is Sign in with Google set up on this server?
   useEffect(() => {
@@ -61,11 +77,14 @@ export default function LoginPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setLocalError(null);
+    setUnconfirmed(false);
+    setResendNote("");
     setSubmitting(true);
     try {
       await login({ email, password });
       navigate(from, { replace: true });
     } catch (err) {
+      setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
       setLocalError(err.message || "Unable to sign in. Please check your credentials.");
     } finally {
       setSubmitting(false);
@@ -77,32 +96,20 @@ export default function LoginPage() {
   return (
     <div className="min-h-screen flex flex-col font-sans bg-white text-slate-800">
       {/* ---------------- TOP NAVBAR ---------------- */}
-      <header className="w-full flex items-center justify-between px-8 py-4 border-b border-slate-100 bg-white">
+      <header className="w-full flex items-center justify-between px-6 sm:px-8 lg:px-12 py-4 border-b border-slate-100 bg-white">
         <Link to="/" className="flex items-center cursor-pointer">
           <img src={logo} alt="Zoiko HR" className="h-9 w-auto object-contain" />
         </Link>
 
-        <nav className="hidden md:flex items-center space-x-6 text-sm font-medium text-slate-600">
-          <a href="#" className="hover:text-slate-900 transition-colors">Platform ▾</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">Solutions ▾</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">Integrations ▾</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">Resources ▾</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">Company ▾</a>
-          <a href="#" className="hover:text-slate-900 transition-colors">Pricing</a>
-        </nav>
-
-        <div className="flex items-center space-x-4">
-          <a href="#" className="text-sm font-semibold text-slate-700 hover:text-slate-900">Sign In</a>
-          <button className="bg-[#3B82F6] hover:bg-[#2563EB] text-white text-sm font-medium px-5 py-2.5 rounded-full shadow-sm transition-all">
-            Book a Demo
-          </button>
-        </div>
+        <Link to="/book-demo" className="bg-[#3B82F6] hover:bg-[#2563EB] text-white text-sm font-medium px-5 py-2.5 rounded-full shadow-sm transition-all">
+          Book a Demo
+        </Link>
       </header>
 
       {/* ---------------- MAIN CONTENT GRID ---------------- */}
-      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2">
+      <div className="flex-1 grid grid-cols-1 lg:grid-cols-2 min-h-[calc(100vh-73px)]">
         {/* LEFT COLUMN: LOGIN FORM */}
-        <div className="flex flex-col justify-center items-center px-6 py-12 lg:px-20 bg-white">
+        <div className="flex flex-col justify-center items-center px-6 py-12 lg:px-16 xl:px-24 bg-white">
           <div className="w-full max-w-md space-y-6">
             <div>
               <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight">
@@ -114,6 +121,18 @@ export default function LoginPage() {
               <div className="flex items-start space-x-2 bg-red-50 border border-red-200 rounded-lg px-4 py-3">
                 <span className="text-red-500 font-bold">●</span>
                 <span className="text-xs text-red-600">{errorMsg}</span>
+              </div>
+            )}
+
+            {unconfirmed && (
+              <div className="bg-amber-50 border border-amber-200 rounded-lg px-4 py-3 text-xs text-amber-800 space-y-2">
+                {resendNote ? (
+                  <p role="status">{resendNote}</p>
+                ) : (
+                  <button type="button" onClick={sendNewConfirmation} disabled={resending} className="font-semibold underline disabled:opacity-60">
+                    {resending ? "Sending..." : "Send me a new confirmation email"}
+                  </button>
+                )}
               </div>
             )}
 
@@ -215,8 +234,8 @@ export default function LoginPage() {
         </div>
 
         {/* RIGHT COLUMN: DARK NAVY FEATURE BANNER */}
-        <div className="hidden lg:flex flex-col justify-between p-16 bg-[#0A1128] text-white">
-          <div className="space-y-6 max-w-xl">
+        <div className="hidden lg:flex flex-col justify-center px-16 xl:px-24 py-16 bg-[#0A1128] text-white">
+          <div className="space-y-6 w-full max-w-md">
             <span className="text-xs font-bold tracking-widest text-[#3B82F6] uppercase">
               NEW TO ZOIKO HR?
             </span>
@@ -230,10 +249,10 @@ export default function LoginPage() {
               You don't need an account to explore. See how Zoiko HR connects people, payroll, attendance, leave, and compliance across your entire workforce.
             </p>
 
-            <button className="w-full bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2">
+            <Link to="/book-demo" className="w-full bg-[#3B82F6] hover:bg-[#2563EB] text-white font-bold py-4 rounded-xl shadow-lg transition-all flex items-center justify-center space-x-2">
               <span>Book a Demo</span>
               <span>→</span>
-            </button>
+            </Link>
 
             <div className="space-y-3 pt-2">
               <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4">
@@ -246,7 +265,7 @@ export default function LoginPage() {
                 </div>
               </div>
 
-              <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4">
+              <Link to="/request-pricing" className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4 no-underline">
                 <div className="p-2 bg-white/10 rounded-lg text-white">
                   🎯
                 </div>
@@ -254,9 +273,9 @@ export default function LoginPage() {
                   <h4 className="text-sm font-bold text-white">Request Pricing</h4>
                   <p className="text-xs text-slate-400">Find your pricing path</p>
                 </div>
-              </div>
+              </Link>
 
-              <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4">
+              <Link to="/hr-products" className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4 no-underline">
                 <div className="p-2 bg-white/10 rounded-lg text-white">
                   ❖
                 </div>
@@ -264,11 +283,11 @@ export default function LoginPage() {
                   <h4 className="text-sm font-bold text-white">Explore HR Products</h4>
                   <p className="text-xs text-slate-400">Core HR + Leave Management + Docs Pro</p>
                 </div>
-              </div>
+              </Link>
             </div>
           </div>
 
-          <div className="flex items-center space-x-4 text-xs text-slate-500 font-medium pt-8">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 font-medium pt-10 w-full max-w-md">
             <span>Global structure</span>
             <span>•</span>
             <span>Role-based access</span>

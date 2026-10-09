@@ -17,6 +17,11 @@ import LoginPage from "./pages/auth/LoginPage";
 const ForgotPasswordPage = lazy(() => import("./pages/auth/ForgotPasswordPage"));
 const ResetPasswordPage = lazy(() => import("./pages/auth/ResetPasswordPage"));
 const TermsPage = lazy(() => import("./pages/legal/TermsPage"));
+const HrProductsPage = lazy(() => import("./pages/public/HrProductsPage"));
+const RequestPricingPage = lazy(() => import("./pages/public/RequestPricingPage"));
+const BookDemoPage = lazy(() => import("./pages/public/BookDemoPage"));
+const SuperAdminSalesRequestsPage = lazy(() => import("./modules/super-admin/SalesRequestsPage"));
+const VerifyEmailPage = lazy(() => import("./pages/auth/VerifyEmailPage"));
 const QuotationDecisionPage = lazy(() => import("./pages/auth/QuotationDecisionPage"));
 const ChangePasswordPage = lazy(() => import("./pages/auth/ChangePasswordPage"));
 const RegisterPage = lazy(() => import("./pages/auth/RegisterPage"));
@@ -216,8 +221,10 @@ const EmployeeSecuritySettings = lazy(() => import("./pages/Peoples/Employees/Pr
 // ESS folder
 const EmployeeEssDashboard = lazy(() => import("./pages/Peoples/Employees/ESS/Employee_EssDashboard.jsx"));
 const EmployeeEssAttendance = lazy(() => import("./pages/Peoples/Employees/ESS/Employee_EssAttendance.jsx"));
-const EmployeeEssRequests = lazy(() => import("./pages/Peoples/Employees/ESS/EmployeeLearning.jsx"));
 const EmployeeEssSettings = lazy(() => import("./pages/Peoples/Employees/ESS/Employee_EssSettings.jsx"));
+
+// Learning folder
+const EmployeeLearningModule = lazy(() => import("./pages/Peoples/Employees/Learning/EmployeeLearningModule.jsx"));
 
 // Leaves folder
 const EmployeeMyLeave = lazy(() => import("./pages/Peoples/Employees/Leaves/Employee_MyLeaveDashboard.jsx"));
@@ -385,6 +392,8 @@ const routeOverrides = {
   "/super-admin/organizations/:orgId": <OrganizationDetailPage />,
   "/super-admin/access": <SuperAdminAccessPage />,
   "/super-admin/audit-logs": <SuperAdminAuditLogsPage />,
+  "/super-admin/demo-requests": <SuperAdminSalesRequestsPage />,
+  "/super-admin/pricing-requests": <SuperAdminSalesRequestsPage />,
   "/super-admin/notifications": <NotificationCenter />,
   "/shared/notifications": <NotificationsPage />,
 
@@ -420,9 +429,16 @@ const routeOverrides = {
 
   // ESS
   "/employee/ess":            <EmployeeEssDashboard />,
+  "/employee/ess-dashboard":  <Navigate to="/employee/ess" replace />,
   "/employee/ess/attendance": <EmployeeEssAttendance />,
-  "/employee/ess/requests":   <EmployeeEssRequests />,
+  "/employee/ess/requests":   <Navigate to="/employee/learning" replace />,
   "/employee/ess/settings":   <EmployeeEssSettings />,
+
+  // Learning
+  "/employee/learning":                   <EmployeeLearningModule />,
+  "/employee/learning/courses":           <EmployeeLearningModule />,
+  "/employee/learning/training-programs": <EmployeeLearningModule />,
+  "/employee/learning/assessments":       <EmployeeLearningModule />,
 
   // Leaves
   "/employee/leaves":          <EmployeeMyLeave />,
@@ -485,6 +501,11 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/terms" element={<TermsPage />} />
+        <Route path="/hr-products" element={<HrProductsPage />} />
+        <Route path="/request-pricing" element={<RequestPricingPage />} />
+        <Route path="/book-demo" element={<BookDemoPage />} />
+        <Route path="/get-demo" element={<Navigate to="/book-demo" replace />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
         <Route path="/quotation/decide" element={<QuotationDecisionPage />} />
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/register" element={<RegisterPage />} />

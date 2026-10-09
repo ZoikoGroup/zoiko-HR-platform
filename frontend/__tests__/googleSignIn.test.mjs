@@ -29,6 +29,7 @@ async function open(t, { url = "/login", enabled = true, exchange } = {}) {
   const calls = { exchange: [], assigned: [] };
   t.mock.module("../src/service/authService.js", { exports: {
     googleSignInEnabled: async () => enabled,
+    resendVerification: async () => ({}),
     login: async () => ({}), loginWithGoogleTicket: async () => ({}),
   } });
   t.mock.module("../src/service/api.js", { exports: { API_BASE_URL: "https://api.example.com" } });
@@ -82,4 +83,13 @@ test("Google is the only single sign-on option on the login page: no Microsoft a
   assert.equal(screen.queryByRole("button", { name: /Microsoft/i }), null);
   assert.equal(screen.queryByRole("button", { name: /SSO/i }), null);
   assert.doesNotMatch(document.body.textContent, /Microsoft|Continue with SSO/);
+});
+
+test("the login page's top bar is just the logo and Book a Demo: no menu links", async (t) => {
+  await open(t);
+  const header = document.querySelector("header");
+  assert.ok(header.querySelector("img[alt='Zoiko HR']"));
+  assert.equal(header.querySelector("nav"), null);
+  assert.doesNotMatch(header.textContent, /Platform|Solutions|Integrations|Resources|Company|Pricing/);
+  assert.match(header.textContent, /Book a Demo/);
 });

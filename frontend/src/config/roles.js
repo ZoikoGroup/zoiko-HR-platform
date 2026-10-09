@@ -55,6 +55,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/super-admin/support-tickets",
     "/super-admin/assistant-knowledge",
     "/super-admin/audit-logs",
+    "/super-admin/demo-requests",
+    "/super-admin/pricing-requests",
     "/super-admin/notifications",
     // ── Shared & platform ──
     "/dashboard",
@@ -143,6 +145,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/zoiko-hr",
     "/employee/profile",
     "/employee/ess",
+    "/employee/learning",
     "/employee/leaves",
     "/employee/documents",
     "/employee/travel",
@@ -173,6 +176,12 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/ess/attendance",
     "/employee/ess/requests",
     "/employee/ess/settings",
+
+    // ── Learning ─────────────────────────────────────────────
+    "/employee/learning",
+    "/employee/learning/courses",
+    "/employee/learning/training-programs",
+    "/employee/learning/assessments",
 
     // ── Leaves ───────────────────────────────────────────────
     "/employee/leaves",

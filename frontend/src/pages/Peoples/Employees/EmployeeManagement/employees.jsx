@@ -1,3 +1,4 @@
+import { realEmailError } from "../../../../utils/realEmail";
 import { useState, useEffect, useMemo } from "react";
 import { useNavigate, NavLink } from "react-router-dom";
 import HRPage from "../../../../components/HRPage";
@@ -114,6 +115,7 @@ export default function Employees() {
   const [desigList, setDesigList] = useState([]);
   const [managerList, setManagerList] = useState([]);
   const [resetPwdResult, setResetPwdResult] = useState(null);
+  const [newLogin, setNewLogin] = useState(null);      // the one-time login of the person just added
   const [showResetPwd, setShowResetPwd] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
@@ -244,9 +246,8 @@ export default function Employees() {
     if (!formData.last_name.trim()) errors.last_name = "Last name is required";
     if (!formData.email.trim()) errors.email = "Email is required";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
+    else if (realEmailError(formData.email)) errors.email = realEmailError(formData.email);
     if (!formData.job_title.trim()) errors.job_title = "Job title is required";
-    if (!formData.password && !editId) errors.password = "Password is required for new employees";
-    if (formData.password && formData.password.length < 8) errors.password = "Password must be at least 8 characters";
     if (!formData.date_of_joining && !editId) errors.date_of_joining = "Date of joining is required";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -261,7 +262,6 @@ export default function Employees() {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
         email: formData.email.trim(),
-        password: formData.password || undefined,
         phone: formData.phone.trim() || null,
         job_title: formData.job_title.trim(),
         employment_type: formData.employment_type,
@@ -290,7 +290,9 @@ export default function Employees() {
       if (editId) {
         await updateEmployee(editId, payload);
       } else {
-        await createEmployee(payload);
+        const created = await createEmployee(payload);
+        const temp = created?.temporaryPassword || created?.temporary_password;
+        if (temp) setNewLogin({ name: `${payload.first_name} ${payload.last_name}`.trim(), email: created?.email || payload.email, password: temp });
       }
       setShowModal(false);
       resetForm();
@@ -810,11 +812,9 @@ export default function Employees() {
               </div>
 
               {!editId && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-                  <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className={`w-full border ${formErrors.password ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
-                  {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
-                </div>
+                <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                  No password is needed. A temporary one is generated and e-mailed, and shown to you once after you save. The employee must also confirm their email address, then choose their own password at first sign-in.
+                </p>
               )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowModal(false); resetForm(); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -823,6 +823,21 @@ export default function Employees() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {newLogin && (
+        <div role="dialog" aria-modal="true" aria-label="Temporary login" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-semibold text-slate-800">{newLogin.name} has been added</h2>
+            <p className="text-sm text-slate-600 mt-2">A welcome email and a confirmation link were sent to {newLogin.email}. This temporary password is shown only once; they must change it at first sign-in.</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 my-4">
+              <code data-testid="temp-password" className="text-sm font-mono font-bold text-slate-800 select-all">{newLogin.password}</code>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setNewLogin(null)} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Done</button>
+            </div>
           </div>
         </div>
       )}

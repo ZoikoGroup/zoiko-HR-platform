@@ -1,0 +1,22 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "We received your demo request" %}
+{% set preheader = "Thanks for booking a Zoiko HR demo. Your reference is " ~ reference ~ ". We will confirm a time within one business day." %}
+{% set badge = "Demo request" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because this address was used to book a demo on the Zoiko HR website.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">We have your demo request</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ first_name }}</strong>, thank you for booking a Zoiko HR demo. A product specialist will email you within one business day to confirm the time and send the meeting details.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Reference", reference, first=True, mono=True) }}
+{{ ui.detail_row("Preferred time", when) }}
+{{ ui.detail_row("Format", demo_format) }}
+{{ ui.detail_row("Topics", interests) }}
+{% endcall %}
+{{ ui.button(login_url, "Visit Zoiko HR") }}
+{% call ui.notice("Did not make this request?", "info") %}
+If you did not book a demo, you can ignore this email. Nobody will contact you unless you made the request.
+{% endcall %}
+{{ ui.signoff() }}
+{% endblock %}
