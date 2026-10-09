@@ -10,7 +10,7 @@ import { validateAddEmployee, addEmployeePayload, serverAddEmployeeErrors } from
 afterEach(() => cleanup());
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 80)); });
 
-const GOOD = { first_name: "Aarav", last_name: "Sharma", email: "aarav@example.com", phone: "", job_title: "Engineer", department_id: "", designation_id: "", employment_type: "full_time", date_of_joining: "2026-10-01", basic_salary: "", ctc: "" };
+const GOOD = { first_name: "Aarav", last_name: "Sharma", email: "aarav@gmail.com", phone: "", job_title: "Engineer", department_id: "", designation_id: "", employment_type: "full_time", date_of_joining: "2026-10-01", basic_salary: "", ctc: "" };
 
 test("rules: nothing about a password, and every required box is named", () => {
   assert.deepEqual(validateAddEmployee(GOOD), {});
@@ -21,7 +21,7 @@ test("rules: nothing about a password, and every required box is named", () => {
   assert.match(validateAddEmployee({ ...GOOD, phone: "123" }).phone, /10-digit/);
   assert.match(validateAddEmployee({ ...GOOD, basic_salary: "500", ctc: "100" }).ctc, /less than the basic/);
   assert.match(validateAddEmployee({ ...GOOD, first_name: "R2D2" }).first_name, /only letters/);
-  assert.deepEqual(addEmployeePayload({ ...GOOD, email: " Aarav@Example.com ", department_id: "4", basic_salary: "100" }).department_id, 4);
+  assert.deepEqual(addEmployeePayload({ ...GOOD, email: " Aarav@gmail.com ", department_id: "4", basic_salary: "100" }).department_id, 4);
   assert.equal(serverAddEmployeeErrors({ message: "Employee with this email already exists" }).fieldErrors.email, "An employee with this email already exists");
   assert.equal(serverAddEmployeeErrors({ validation: [{ loc: ["body", "password"], msg: "Field required" }] }).fieldErrors.password, "This is required");
 });
@@ -59,7 +59,7 @@ test("the form has no password box, and saving with details missing names what i
 
 test("a complete form adds the employee, sends no password, and shows the temporary one once", async (t) => {
   const calls = await openPage(t);
-  type("e.g. Aarav", "Aarav"); type("e.g. Sharma", "Sharma"); type("name@company.com", "aarav@example.com"); type("e.g. Software Engineer", "Engineer");
+  type("e.g. Aarav", "Aarav"); type("e.g. Sharma", "Sharma"); type("name@company.com", "aarav@gmail.com"); type("e.g. Software Engineer", "Engineer");
   fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: "2026-10-01" } });
   await submit();
   assert.equal(calls.length, 1);
@@ -72,7 +72,7 @@ test("a complete form adds the employee, sends no password, and shows the tempor
 
 test("a refusal from the server shows under the box it is about", async (t) => {
   await openPage(t, async () => { throw Object.assign(new Error("x"), { validation: [{ loc: ["body", "email"], msg: "value is not a valid email address" }] }); });
-  type("e.g. Aarav", "Aarav"); type("e.g. Sharma", "Sharma"); type("name@company.com", "aarav@example.com"); type("e.g. Software Engineer", "Engineer");
+  type("e.g. Aarav", "Aarav"); type("e.g. Sharma", "Sharma"); type("name@company.com", "aarav@gmail.com"); type("e.g. Software Engineer", "Engineer");
   fireEvent.change(document.querySelector('input[type="date"]'), { target: { value: "2026-10-01" } });
   await submit();
   assert.match(document.getElementById("add-employee-form").textContent, /not a valid email address/);

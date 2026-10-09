@@ -2,6 +2,7 @@
 // and EmployeeSelfUpdate / EmployeeProfileUpdate, so the same message appears whether the browser or the server catches
 // the problem. Every check returns "" when the value is fine or blank (a blank box clears the stored value).
 import { phoneError } from "./phone";
+import { realEmailError } from "./realEmail";
 
 const clean = (v) => String(v ?? "").trim();
 const compact = (v) => clean(v).replace(/[\s-]/g, "");
@@ -35,7 +36,7 @@ export const FORMATS = {
   phone: (v) => phoneError(v),
   emergency_contact_phone: (v) => phoneError(v),
   pincode: (v) => (/^[A-Z0-9-]{3,10}$/.test(clean(v).replace(/\s/g, "").toUpperCase()) ? "" : "Enter a valid pincode: 3 to 10 letters or digits (for example 560001)."),
-  personal_email: (v) => (clean(v).length <= 255 && /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(clean(v)) ? "" : "Enter a valid email address, for example name@example.com."),
+  personal_email: (v) => (clean(v).length <= 255 && /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(clean(v)) ? realEmailError(v) : "Enter a valid email address, for example name@yourcompany.com."),
   emergency_contact_name: (v) => nameCheck(v, "Emergency contact name", 100),
   emergency_contact_relation: (v) => nameCheck(v, "Relation", 50),
   nationality: (v) => nameCheck(v, "Nationality", 50),

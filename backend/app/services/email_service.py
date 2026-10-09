@@ -1261,6 +1261,25 @@ def send_org_admin_account_activated_email(
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
 
+def send_email_verification(
+    email: str,
+    first_name: str,
+    expires_at_local: str,
+    timezone: str,
+    action_url: str,
+    organization_id=None,
+    db=None,
+) -> bool:
+    return send_approval_email(email, "email_verification.html", {
+        "subject": "Confirm your email address for Zoiko HR",
+        "first_name": first_name,
+        "expires_at_local": expires_at_local,
+        "timezone": timezone,
+        "action_url": action_url or _login_url(),
+        "support_email": "",
+    }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
+
+
 def send_org_admin_password_reset_email(
     email: str,
     first_name: str,
@@ -1765,3 +1784,95 @@ def send_plain_email(to_email: str, subject: str, body: str, db=None, organizati
 def send_workflow_message(email: str, subject: str, body: str, db=None, organization_id=None):
     """Branded send used by workflow steps (see send_plain_email, which returns the error text)."""
     return send_plain_email(email, subject, body, db=db, organization_id=organization_id)[0]
+
+
+def send_pricing_request_received(
+    email: str,
+    first_name: str,
+    reference: str,
+    plan_label: str,
+    products: list,
+    db=None,
+) -> bool:
+    """Confirmation to the person who asked for pricing."""
+    return send_approval_email(email, "pricing_request_received.html", {
+        "subject": f"We received your pricing request ({reference}) | Zoiko HR",
+        "first_name": first_name,
+        "reference": reference,
+        "plan_label": plan_label,
+        "products": ", ".join(products) if products else "All HR products",
+        "support_email": "",
+        "login_url": _login_url(),
+    }, db=db)
+
+
+def send_pricing_request_to_sales(
+    email: str,
+    reference: str,
+    full_name: str,
+    work_email: str,
+    phone: str,
+    company: str,
+    job_title: str,
+    country: str,
+    company_size: str,
+    plan_label: str,
+    products: list,
+    billing_preference: str,
+    timeline: str,
+    message: str,
+    db=None,
+) -> bool:
+    """Tell the sales team about a new pricing request (one e-mail per recipient)."""
+    return send_approval_email(email, "pricing_request_sales.html", {
+        "subject": f"New pricing request {reference}: {company}",
+        "reference": reference,
+        "full_name": full_name,
+        "work_email": work_email,
+        "phone": phone or "Not given",
+        "company": company,
+        "job_title": job_title or "Not given",
+        "country": country,
+        "company_size": company_size,
+        "plan_label": plan_label,
+        "products": ", ".join(products) if products else "Not specified",
+        "billing_preference": billing_preference or "Not specified",
+        "timeline": timeline or "Not specified",
+        "message": message or "No message.",
+    }, db=db)
+
+
+def send_demo_request_received(email: str, first_name: str, reference: str, when: str, demo_format: str, interests: list, db=None) -> bool:
+    """Confirmation to the person who booked a demo."""
+    return send_approval_email(email, "demo_request_received.html", {
+        "subject": f"We received your demo request ({reference}) | Zoiko HR",
+        "first_name": first_name,
+        "reference": reference,
+        "when": when,
+        "demo_format": demo_format,
+        "interests": ", ".join(interests) if interests else "A general overview",
+        "login_url": _login_url(),
+    }, db=db)
+
+
+def send_demo_request_to_admins(
+    email: str, reference: str, full_name: str, work_email: str, phone: str, company: str, job_title: str, country: str,
+    company_size: str, interests: list, when: str, demo_format: str, message: str, db=None,
+) -> bool:
+    """Tell a super admin (or the sales inbox) about a new demo request."""
+    return send_approval_email(email, "demo_request_admin.html", {
+        "subject": f"New demo request {reference}: {company}",
+        "reference": reference,
+        "full_name": full_name,
+        "work_email": work_email,
+        "phone": phone or "Not given",
+        "company": company,
+        "job_title": job_title or "Not given",
+        "country": country,
+        "company_size": company_size,
+        "interests": ", ".join(interests) if interests else "A general overview",
+        "when": when,
+        "demo_format": demo_format,
+        "message": message or "No message.",
+        "requests_url": _login_url().rsplit("/login", 1)[0] + "/super-admin/demo-requests",
+    }, db=db)

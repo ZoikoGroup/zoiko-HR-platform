@@ -16,6 +16,7 @@ export default function RegistrationSuccessPage() {
   const location = useLocation();
   const orgName = location.state?.organizationName ?? "Your Organization";
   const email = location.state?.email ?? "";
+  const emailConfirmed = !!location.state?.emailConfirmed;       // came through Google: the address is already confirmed
   const planCode = location.state?.planCode ?? "";
   const evaluationEndsAt = location.state?.evaluationEndsAt ?? "";
 
@@ -100,7 +101,7 @@ export default function RegistrationSuccessPage() {
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">
               <span className="font-medium text-slate-700">{orgName}</span>{" "}
-              is active and ready to use. We've sent a confirmation to
+              is ready.{emailConfirmed ? " Your email address was confirmed by Google:" : " To finish, confirm your email address with the link we've sent to"}
             </p>
             <p className="mt-0.5 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-700">
               <Mail size={14} className="text-slate-400" />
@@ -127,11 +128,22 @@ export default function RegistrationSuccessPage() {
                 Workspace activated — no approval needed
               </span>
             </div>
+            <div className="ml-3 h-3 w-px bg-slate-200" />
+            <div className="flex items-center gap-3">
+              <div className="grid h-6 w-6 shrink-0 place-items-center rounded-full bg-amber-100 text-amber-600">
+                <Mail size={13} />
+              </div>
+              <span className="text-sm text-slate-700">
+                {emailConfirmed ? "Email address confirmed by Google" : "Confirm your email address to sign in"}
+              </span>
+            </div>
           </div>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-slate-400">
             Your {evaluationDays}-day evaluation has started.
-            No credit card required. Sign in now to set up your organization.
+            {emailConfirmed
+              ? "No credit card required. Sign in with Google or with your password to set up your organization."
+              : "No credit card required. Open the confirmation email first (check spam too), then sign in to set up your organization."}
           </p>
 
           <button

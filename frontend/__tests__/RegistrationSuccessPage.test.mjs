@@ -55,7 +55,8 @@ test("RegistrationSuccessPage: renders immediate-usability copy (no approval mes
 
   assert.ok(screen.getByText("Your workspace is ready"));
   assert.ok(screen.getByText(/Workspace activated — no approval needed/));
-  assert.ok(screen.getByText(/is active and ready to use/));
+  assert.ok(screen.getByText(/To finish, confirm your email address/));
+  assert.ok(screen.getByText(/Confirm your email address to sign in/));
 
   assert.equal(
     screen.queryByText(/awaiting.*approval/i),

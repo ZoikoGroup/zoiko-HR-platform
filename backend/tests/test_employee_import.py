@@ -125,3 +125,65 @@ def test_database_errors_are_reported_without_sql_dumps(db):
     assert res["failed"] == 1
     msg = res["errors"][0]["error"]
     assert "[SQL" not in msg and "psycopg2" not in msg
+
+
+# ── the import reads the headings people actually use, and explains a file it cannot read
+def _book(sheets):
+    wb = openpyxl.Workbook()
+    wb.remove(wb.active)
+    for title, rows in sheets:
+        ws = wb.create_sheet(title)
+        for r in rows:
+            ws.append(r)
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
+
+
+def _run(db, data, name="people.xlsx"):
+    return service.import_employees_from_file(db=db, file_bytes=data, filename=name, organization_id=1, current_user_id=None)
+
+
+def test_headings_with_stars_hints_and_other_wordings_are_understood(db):
+    headers = ["First Name *", "Surname", "E-mail", "Position", "Date of Joining (YYYY-MM-DD)", "Mobile Number"]
+    data = _book([("Staff", [headers, ["Asha", "Rao", "asha.rao@example.com", "Analyst", "2026-09-01", "9876543210"],
+                             ["Ravi", "Iyer", "ravi.iyer@example.com", "Designer", "2026-09-02", "9876543211"]])])
+    res = _run(db, data)
+    assert (res["created"], res["failed"], res["skipped"]) == (2, 0, 0), res["errors"]
+    asha = db.query(Employee).filter_by(email="asha.rao@example.com").one()
+    assert (asha.first_name, asha.last_name, asha.job_title) == ("Asha", "Rao", "Analyst")
+
+
+def test_a_title_row_or_notes_above_the_headings_do_not_stop_the_import_and_row_numbers_match_the_file(db):
+    rows = [["Employees to import"], ["Fill one row per person"], [], ["First Name", "Last Name", "Email", "Job Title", "Date of Joining"],
+            ["Asha", "Rao", "asha.rao@example.com", "Analyst", "2026-09-01"], ["", "", "", "", ""], ["Bad", "Row", "not-an-email", "Analyst", "2026-09-01"]]
+    res = _run(db, _book([("Staff", rows)]))
+    assert res["created"] == 1
+    assert [e["row"] for e in res["errors"]] == [7], "the bad row is reported at the row it is on in the spreadsheet"
+
+
+def test_the_sheet_that_looks_like_a_staff_list_is_used_even_when_it_is_not_the_first(db):
+    data = _book([("Read me", [["How to use this file"], ["Fill in the Staff sheet"]]),
+                  ("Staff", [["First Name", "Last Name", "Email", "Job Title", "Date of Joining"], ["Asha", "Rao", "asha.rao@example.com", "Analyst", "2026-09-01"]])])
+    assert _run(db, data)["created"] == 1
+
+
+def test_a_file_without_the_required_columns_gets_one_clear_message_not_one_per_row(db):
+    data = _book([("Staff", [["Name", "Mail", "Team"]] + [[f"P{i}", f"p{i}@example.com", "Ops"] for i in range(1, 21)])])
+    res = _run(db, data)
+    assert res["created"] == 0 and len(res["errors"]) == 1, res["errors"]
+    message = res["errors"][0]["error"]
+    assert "no column for" in message and "First Name" in message and "Job Title" in message and "Date of Joining" in message
+    assert "Columns found: Name, Mail, Team" in message and "template" in message.lower()
+
+
+def test_csv_with_semicolons_a_bom_and_starred_headings_imports(db):
+    text = "\ufeffFirst Name*;Last Name*;Email*;Job Title*;Date of Joining*\nAsha;Rao;asha.rao@example.com;Analyst;2026-09-01\nRavi;Iyer;ravi.iyer@example.com;Designer;01/09/2026\n"
+    res = _run(db, text.encode("utf-8"), "people.csv")
+    assert (res["created"], res["failed"], res["skipped"]) == (2, 0, 0), res["errors"]
+
+
+def test_the_template_file_itself_still_imports(db):
+    with open("../frontend/public/templates/employee-import-template.xlsx", "rb") as f:
+        res = _run(db, f.read(), "employee-import-template.xlsx")
+    assert res["errors"] == [] or all("Missing required" in e["error"] or "date" in e["error"].lower() for e in res["errors"]), res["errors"]

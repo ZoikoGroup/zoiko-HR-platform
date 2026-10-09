@@ -8,7 +8,7 @@
 {% block content %}
 <h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Your workspace is ready</h1>
 <p class="t-body dm-text-body" style="{{ S.p }}">Hello,</p>
-<p class="t-body dm-text-body" style="{{ S.p }}">Thank you for registering <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> with Zoiko HR. Your workspace and admin account are active immediately — no approval step required. Sign in below to get started.</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Thank you for registering <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> with Zoiko HR. Your workspace and admin account are active immediately — no approval step required. First confirm your email address with the separate confirmation message we sent you, then sign in below to get started.</p>
 {% call ui.details() %}
 {{ ui.detail_row("Organization", organization_name, first=True) }}
 {{ ui.detail_row("Status", "Active") }}

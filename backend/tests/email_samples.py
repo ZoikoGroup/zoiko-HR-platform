@@ -77,6 +77,23 @@ SENDER_SAMPLES = [
         organization_id=42)),
     ("send_org_admin_account_activated_email", dict(
         email="new.admin@acme.test", first_name="Riley", workspace_name="Acme Corp", organization_id=42)),
+    ("send_pricing_request_received", dict(
+        email="lee@acme-corp.com", first_name="Lee", reference="PR-2026-000042", plan_label="Advanced",
+        products=["Core HR", "Leave Management"])),
+    ("send_pricing_request_to_sales", dict(
+        email="sales@zoikohr.com", reference="PR-2026-000042", full_name="Lee Park", work_email="lee@acme-corp.com",
+        phone="+1 555 0100", company="Acme Corp", job_title="HR Director", country="United States", company_size="51-200",
+        plan_label="Advanced", products=["Core HR"], billing_preference="Annual", timeline="In 1-3 months", message="We need multi-entity leave.")),
+    ("send_demo_request_received", dict(
+        email="lee@acme-corp.com", first_name="Lee", reference="DM-2026-000042", when="Tue, 13 Oct 2026 · Morning (9am-12pm) (Asia/Kolkata)",
+        demo_format="Live video call", interests=["Core HR", "Leave Management"])),
+    ("send_demo_request_to_admins", dict(
+        email="super@zoikohr.com", reference="DM-2026-000042", full_name="Lee Park", work_email="lee@acme-corp.com", phone="+1 555 0100",
+        company="Acme Corp", job_title="HR Director", country="India", company_size="51-200", interests=["Core HR"],
+        when="Tue, 13 Oct 2026 · Morning (9am-12pm)", demo_format="Live video call", message="Interested in leave policies.")),
+    ("send_email_verification", dict(
+        email="new.user@acme.test", first_name="Riley", expires_at_local="Oct 11, 2026 10:30", timezone="UTC",
+        action_url=f"{APP}/verify-email", organization_id=42)),
     ("send_org_admin_password_reset_email", dict(
         email="admin@acme.test", first_name="Riley", expires_at_local="Sep 26, 2026 10:30", timezone="UTC",
         action_url=f"{APP}/reset-password", organization_id=42)),

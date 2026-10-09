@@ -161,12 +161,31 @@ function EcoFooterCard({ card }) {
   );
 }
 
+// The styles below are inline (fixed 7- and 6-column grids), so phones and tablets get these overrides.
+const FOOTER_RESPONSIVE = `
+  .zf { overflow-x: hidden; }
+  @media (max-width: 1024px) {
+    .zf .zf-main { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+    .zf .zf-main > :first-child { grid-column: 1 / -1; }
+    .zf .zf-eco { grid-template-columns: repeat(3, minmax(0, 1fr)) !important; }
+  }
+  @media (max-width: 768px) {
+    .zf .zf-cta { flex-direction: column !important; align-items: flex-start !important; padding: 28px 24px !important; }
+    .zf .zf-cta-actions { flex-wrap: wrap; }
+  }
+  @media (max-width: 640px) {
+    .zf .zf-main { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; padding: 32px 20px 0 !important; }
+    .zf .zf-eco { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  }
+`;
+
 export default function Footer() {
   return (
-    <footer style={styles.root}>
+    <footer className="zf" style={styles.root}>
+      <style>{FOOTER_RESPONSIVE}</style>
       {/* CTA Banner */}
       <div style={styles.ctaBannerWrap}>
-        <div style={styles.ctaBanner}>
+        <div className="zf-cta" style={styles.ctaBanner}>
           <div>
             <h2 style={styles.ctaTitle}>
               Everything your business runs on —<br />connected in one.
@@ -179,7 +198,7 @@ export default function Footer() {
               Start with one product, one pillar or the full Zoiko One platform.
             </p>
           </div>
-          <div style={styles.ctaActions}>
+          <div className="zf-cta-actions" style={styles.ctaActions}>
             <button style={styles.btnDemo}>Get a Demo &nbsp;→</button>
             <button style={styles.btnExplore}>Explore Products</button>
             <button style={styles.btnPricing}>Pricing</button>
@@ -188,7 +207,7 @@ export default function Footer() {
       </div>
 
       {/* Main Nav Grid */}
-      <div style={styles.footerMain}>
+      <div className="zf-main" style={styles.footerMain}>
         {/* Brand Column */}
         <div style={styles.brandCol}>
           <div style={styles.logoWrap}>
@@ -248,7 +267,7 @@ export default function Footer() {
           Zoiko One runs business operations. The platforms below are ecosystem siblings
           they are not Zoiko One products.
         </p>
-        <div style={styles.ecosystemCards}>
+        <div className="zf-eco" style={styles.ecosystemCards}>
           {ecosystemCards.map((card) => (
             <EcoFooterCard key={card.name} card={card} />
           ))}

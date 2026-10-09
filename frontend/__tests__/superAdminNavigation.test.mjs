@@ -58,6 +58,8 @@ const EXPECTED_GROUPS = [
     title: "PLATFORM ADMINISTRATION",
     items: [
       { label: "Notifications", href: "/super-admin/notifications" },
+      { label: "Demo Requests", href: "/super-admin/demo-requests" },
+      { label: "Pricing Requests", href: "/super-admin/pricing-requests" },
     ],
   },
 ];

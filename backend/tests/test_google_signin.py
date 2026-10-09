@@ -66,7 +66,7 @@ def _start(c):
 
 
 def _call_back(c, monkeypatch, email="ann@example.com", problem=None):
-    monkeypatch.setattr(google_auth, "verified_email_for_code", lambda code: (None, problem) if problem else (email, None))
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code: {"email": None if problem else email, "name": "Pat Lee", "error": problem})
     _, q = _start(c)
     return c.get("/auth/google/callback", params={"code": "abc", "state": q["state"][0]})
 
@@ -119,12 +119,16 @@ def test_the_email_match_ignores_capitals(env, monkeypatch):
     assert "google_ticket" in _query(r)
 
 
-def test_nobody_is_created_and_an_unknown_email_is_told_so(env, monkeypatch):
+def test_nobody_is_created_and_an_unknown_email_is_sent_to_register_with_their_address_filled_in(env, monkeypatch):
     from app.modules.employee.models import Employee
     before = env.db.query(Employee).count()
     r = _call_back(env, monkeypatch, email="stranger@example.com")
-    assert _query(r) == {"google_error": ["no_account"]}
-    assert env.db.query(Employee).count() == before
+    assert r.status_code == 302 and r.headers["location"].startswith("https://app.example.com/register?")
+    q = _query(r)
+    assert q["google_email"] == ["stranger@example.com"] and q["google_name"] == ["Pat Lee"]
+    assert google_auth.signup_proof_matches(q["google_proof"][0], "stranger@example.com")
+    assert not google_auth.signup_proof_matches(q["google_proof"][0], "someone.else@example.com"), "the proof is for that address only"
+    assert env.db.query(Employee).count() == before, "nobody is created by signing in"
 
 
 def test_an_unverified_or_failed_google_answer_is_refused(env, monkeypatch):
@@ -140,7 +144,7 @@ def test_a_deactivated_account_cannot_get_in_through_google(env, monkeypatch):
 
 
 def test_a_callback_not_started_by_this_browser_or_with_a_forged_state_is_refused(env, monkeypatch):
-    monkeypatch.setattr(google_auth, "verified_email_for_code", lambda code: ("ann@example.com", None))
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code: {"email": "ann@example.com", "name": "Ann", "error": None})
     _, q = _start(env)
     other = TestClient(env.app, raise_server_exceptions=False, follow_redirects=False)      # a browser that never started a sign-in: no cookie
     r = other.get("/auth/google/callback", params={"code": "abc", "state": q["state"][0]})
@@ -175,3 +179,14 @@ def test_a_password_sign_in_still_works_after_the_refactor(env):
     ok = env.post("/auth/login", json={"email": "ann@example.com", "password": "Passw0rd1"})
     assert ok.status_code == 200 and ok.json()["access_token"]
     assert env.post("/auth/login", json={"email": "ann@example.com", "password": "wrong"}).status_code == 401
+
+
+def test_a_signup_proof_cannot_be_forged_or_kept_past_its_time(env, monkeypatch):
+    proof = google_auth.make_signup_proof("new@gmail.com")
+    assert google_auth.signup_proof_matches(proof, "NEW@gmail.com")
+    assert not google_auth.signup_proof_matches(proof[:-2] + "ab", "new@gmail.com")
+    assert not google_auth.signup_proof_matches("", "new@gmail.com") and not google_auth.signup_proof_matches(None, "new@gmail.com")
+    real_time = time.time
+    monkeypatch.setattr(google_auth.time, "time", lambda: real_time() + google_auth.SIGNUP_PROOF_TTL_SECONDS + 5)
+    assert not google_auth.signup_proof_matches(proof, "new@gmail.com")
+    assert not google_auth.signup_proof_matches(google_auth.make_ticket(1), "new@gmail.com"), "a sign-in ticket is not a signup proof"

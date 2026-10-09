@@ -7,7 +7,7 @@ from sqlalchemy import (
     Text, ForeignKey, UniqueConstraint, JSON, Index,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func, false
+from sqlalchemy.sql import func, false, true
 from sqlalchemy.types import TypeDecorator, VARCHAR
 
 from app.database import Base
@@ -94,8 +94,9 @@ class Gender(str, enum.Enum):
 
 
 class SecurityActionPurpose(str, enum.Enum):
-    INVITE = "invite"
-    RESET  = "reset"
+    INVITE       = "invite"
+    RESET        = "reset"
+    VERIFY_EMAIL = "verify_email"
 
 
 class SecurityActionToken(Base):
@@ -177,6 +178,10 @@ class Employee(Base):
     # except change-password until the user sets their own password.
     password_changed_at  = Column(DateTime, nullable=True)
     must_change_password = Column(Boolean, default=False, nullable=False, server_default=false())
+    # False until the owner of the address has clicked the confirmation link we e-mailed. Accounts that existed before
+    # this was introduced are treated as confirmed (the column defaults to true); every NEW account starts unconfirmed.
+    email_verified       = Column(Boolean, default=True, nullable=False, server_default=true())
+    email_verified_at    = Column(DateTime, nullable=True)
 
     department     = relationship("Department", back_populates="employees")
     designation    = relationship("Designation", backref="employees")

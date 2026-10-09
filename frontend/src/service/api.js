@@ -128,6 +128,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
         if (detail.entitlement_state) extra = { entitlement: detail };
         detail = detail.message || JSON.stringify(detail);
       }
+      if (typeof data?.error === "string") extra = { ...extra, code: data.error };
       if (data?.feature_key && data?.upgrade_url) {
         extra = { entitlement: { entitlement_state: data.state, feature_key: data.feature_key, required_plan: data.required_plan, upgrade_url: data.upgrade_url } };
       }

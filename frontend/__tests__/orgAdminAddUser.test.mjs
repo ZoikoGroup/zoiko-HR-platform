@@ -10,7 +10,7 @@ import { render, screen, cleanup, act, fireEvent, within } from "@testing-librar
 
 const userSvc = {};
 const empSvc = {};
-const auth = { user: { id: 1, role: "admin", email: "a@example.com" }, role: "admin", isAuthenticated: true };
+const auth = { user: { id: 1, role: "admin", email: "a@gmail.com" }, role: "admin", isAuthenticated: true };
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 120)); });
 const mocked = new WeakSet();
 
@@ -22,6 +22,7 @@ function register(t) {
   Object.assign(userSvc, {
     createUser: async () => ({ message: "ok", temporary_password: null }), resetPassword: async () => ({}),
     updateUser: async () => ({}), deactivateUser: async () => ({}), activateUser: async () => ({}), archiveUser: async () => ({}),
+    getUser: async () => ({}),
     getAssignableRoles: async () => ({ roles: [{ value: "employee", label: "Employee", description: "Self-service access." }, { value: "hr_admin", label: "HR Admin", description: "Manages HR data." }] }),
   });
   if (mocked.has(t)) return;
@@ -65,7 +66,7 @@ test("required fields are enforced and everything filled in is sent", async (t) 
   assert.equal(sent.length, 0);
   assert.ok(screen.getByText("First name is required") && screen.getByText("Job title is required"));
 
-  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@example.com"); type(/^Job title/, "Engineer");
+  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
   type(/^Department/, "Platform"); type(/^Designation/, "Senior Engineer"); type(/^Gender/, "male"); type(/^Employment type/, "contract");
   type(/^City/, "Pune"); type(/^Basic salary/, "50000"); type(/^PAN/, "ABCDE1234F"); type(/^IFSC/, "HDFC0001234");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
@@ -84,11 +85,65 @@ test("required fields are enforced and everything filled in is sent", async (t) 
 
 test("a server error is shown in the form and the form stays open", async (t) => {
   await open(t, { createUser: async () => { throw new Error("User with this email already exists."); } });
-  type(/^First name/, "A"); type(/^Last name/, "B"); type(/^Email/, "a@example.com"); type(/^Job title/, "Dev");
+  type(/^First name/, "A"); type(/^Last name/, "B"); type(/^Email/, "a@gmail.com"); type(/^Job title/, "Dev");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
   assert.ok(screen.getByRole("alert").textContent.includes("already exists"));
   assert.equal(screen.getByRole("button", { name: "Create User" }).disabled, false);
+  cleanup();
+});
+
+test("View shows the employee's complete details", async (t) => {
+  register(t);
+  empSvc.getEmployees = async () => ({ items: [{ id: 7, firstName: "Rahul", lastName: "Mehta", email: "rahul@gmail.com", phone: "9876543210", role: "employee", jobTitle: "Engineer", status: "active", employeeCode: "EMP7" }], total: 1 });
+  userSvc.getUser = async () => ({
+    id: 7, first_name: "Rahul", last_name: "Mehta", full_name: "Rahul Mehta", email: "rahul@gmail.com", role: "employee",
+    phone: "9876543210", job_title: "Engineer", status: "active", department: "Platform", designation: "Senior Engineer",
+    pan_number: "ABCDE1234F", uan_number: "123456789012", bank_account: "000111222", bank_ifsc: "HDFC0001234", city: "Pune", ctc: "1200000",
+  });
+  const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  fireEvent.click(screen.getByTitle("View"));
+  await settle();
+  assert.ok(screen.getByText("Platform"));
+  assert.ok(screen.getByText("Senior Engineer"));
+  assert.ok(screen.getByText("ABCDE1234F"));
+  assert.ok(screen.getByText("HDFC0001234"));
+  cleanup();
+});
+
+test("Edit prefills and sends the complete employee details", async (t) => {
+  register(t);
+  const sent = [];
+  empSvc.getEmployees = async () => ({ items: [{ id: 7, firstName: "Rahul", lastName: "Mehta", email: "rahul@gmail.com", phone: "9876543210", role: "employee", jobTitle: "Engineer", status: "active", employeeCode: "EMP7" }], total: 1 });
+  userSvc.getUser = async () => ({
+    id: 7, first_name: "Rahul", last_name: "Mehta", full_name: "Rahul Mehta", email: "rahul@gmail.com", role: "employee",
+    phone: "9876543210", job_title: "Engineer", status: "active", department: "Platform", designation: "Senior Engineer",
+    pan_number: "ABCDE1234F", city: "Pune", work_email: "rahul@corp.com",
+  });
+  userSvc.updateUser = async (id, p) => { sent.push([id, p]); return {}; };
+  const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
+  render(React.createElement(Page));
+  await settle();
+  fireEvent.click(screen.getByTitle("Edit"));
+  await settle();
+  assert.equal(screen.getByLabelText(/^Department/).value, "Platform");
+  assert.equal(screen.getByLabelText(/^Designation/).value, "Senior Engineer");
+  assert.equal(screen.getByLabelText(/^PAN/).value, "ABCDE1234F");
+  assert.equal(screen.getByLabelText(/^Email/).disabled, true);
+  type(/^City/, "Mumbai");
+  fireEvent.click(screen.getByRole("button", { name: "Save Changes" }));
+  await settle();
+  assert.equal(sent.length, 1);
+  const [id, p] = sent[0];
+  assert.equal(id, 7);
+  assert.equal(p.city, "Mumbai");
+  assert.equal(p.department_name, "Platform");
+  assert.equal(p.designation_name, "Senior Engineer");
+  assert.equal(p.pan_number, "ABCDE1234F");
+  assert.equal(p.work_email, "rahul@corp.com");
+  assert.equal(p.role, "employee");
   cleanup();
 });
 

@@ -1,0 +1,20 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Confirm your email address" %}
+{% set preheader = "Confirm this is your email address to finish setting up your Zoiko HR account. The link expires at " ~ expires_at_local ~ " " ~ timezone ~ "." %}
+{% set badge = "Security" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this security notification because this address was used to create a Zoiko HR account.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Confirm your email address</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ first_name }}</strong>, a Zoiko HR account was created with this email address. To make sure it is really yours, please confirm it. You can sign in once it is confirmed.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Link type", "Single-use confirmation link", first=True) }}
+{{ ui.detail_row("Expires at", expires_at_local ~ " " ~ timezone) }}
+{% endcall %}
+{{ ui.button(action_url, "Confirm my email address") }}
+{% call ui.notice("Did not expect this?", "info") %}
+If you did not create or were not expecting a Zoiko HR account, you can safely ignore this email. Nothing happens until the link is used.
+{% endcall %}
+{{ ui.signoff() }}
+{% endblock %}

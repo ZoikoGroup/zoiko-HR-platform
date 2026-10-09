@@ -126,6 +126,28 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
     return _record_sign_in(request, db, service.login_employee(db, data))
 
 
+# ── Confirming an e-mail address ─────────────────────────────────────────────
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+@auth_router.post("/verify-email", response_model=dict, summary="Confirm an email address from the emailed link")
+@limiter.limit("20/minute")
+def verify_email(request: Request, data: VerifyEmailRequest, db: Session = Depends(get_db)):
+    return service.verify_email(db, data.token)
+
+
+@auth_router.post("/resend-verification", response_model=dict, summary="Send a new confirmation link")
+@limiter.limit("5/hour")
+def resend_verification(request: Request, data: ResendVerificationRequest, db: Session = Depends(get_db)):
+    return service.resend_email_verification(db, data.email)
+
+
 # ── Sign in with Google ───────────────────────────────────────────────────────
 
 class GoogleExchangeRequest(BaseModel):
@@ -172,12 +194,21 @@ def google_callback(request: Request, db: Session = Depends(get_db), code: Optio
         return back(google_error="cancelled" if error == "access_denied" else "failed")
     if not code or not google_auth.state_matches_browser(state or "", request.cookies.get(google_auth.NONCE_COOKIE)):
         return back(google_error="expired")
-    email, problem = google_auth.verified_email_for_code(code)
+    profile = google_auth.verified_profile_for_code(code)
+    email, problem = profile["email"], profile["error"]
     if problem:
         return back(google_error=problem)
     employee = db.query(Employee).filter(func.lower(Employee.email) == email).first()
     if not employee:
-        return back(google_error="no_account")
+        # Google confirmed who they are, but they have no account yet: send them to Register with their address filled in.
+        response = RedirectResponse(google_auth.frontend_register_url(
+            google_email=email, google_name=profile.get("name") or "", google_proof=google_auth.make_signup_proof(email)), status_code=302)
+        response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
+        return response
+    if not employee.email_verified:       # Google has just confirmed this person controls the address
+        employee.email_verified = True
+        employee.email_verified_at = datetime.utcnow()
+        db.commit()
     return back(google_ticket=google_auth.make_ticket(employee.id))
 
 

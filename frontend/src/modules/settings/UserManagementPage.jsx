@@ -1,3 +1,4 @@
+import { realEmailError } from "../../utils/realEmail";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
@@ -475,6 +476,7 @@ export default function UserManagementPage() {
     const errors = {};
     if (!formData.email.trim()) errors.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
+    else if (realEmailError(formData.email)) errors.email = realEmailError(formData.email);
     if (!formData.first_name.trim()) errors.first_name = "First name is required";
     if (!formData.last_name.trim()) errors.last_name = "Last name is required";
     if (!formData.role) errors.role = "Role is required";

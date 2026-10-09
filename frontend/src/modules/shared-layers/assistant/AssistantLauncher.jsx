@@ -15,7 +15,7 @@ import ConversationView from "./ConversationView";
 // "authenticated" even while the login form is the thing on screen. The
 // launcher is mounted once at the app root regardless of route, so it needs
 // its own route check rather than relying on the token check alone.
-const PUBLIC_PATHS = new Set(["/", "/login", "/forgot-password", "/reset-password", "/terms", "/register", "/register/success"]);
+const PUBLIC_PATHS = new Set(["/", "/login", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/register", "/register/success"]);
 
 /**
  * WF-01 Persistent Launcher and Docked Panel — mounted once at the app

@@ -310,12 +310,12 @@ export default function LandingHeader() {
             })}
           </div>
 
-          <div className="flex items-center gap-4 text-sm font-semibold">
-            <Link to="/login" className="text-[#0A1128] no-underline">
+          <div className="flex items-center gap-3 sm:gap-4 text-sm font-semibold shrink-0">
+            <Link to="/login" className="text-[#0A1128] no-underline whitespace-nowrap">
               Sign In
             </Link>
-            <button onClick={() => navigate("/get-demo")} className="inline-flex items-center gap-1 bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-full px-5 py-2.5 shadow-md shadow-blue-200 transition-all duration-200">
-              Get a Demo <ArrowRight size={15} />
+            <button onClick={() => navigate("/book-demo")} className="inline-flex items-center gap-1 whitespace-nowrap bg-[#3B82F6] hover:bg-[#2563EB] text-white rounded-full px-3.5 sm:px-5 py-2 sm:py-2.5 shadow-md shadow-blue-200 transition-all duration-200">
+              Get a Demo <ArrowRight size={15} className="hidden sm:inline" />
             </button>
           </div>
         </div>

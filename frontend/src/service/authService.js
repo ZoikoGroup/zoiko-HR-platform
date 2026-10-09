@@ -28,6 +28,16 @@ export async function login({ email, password }) {
   }
 }
 
+/** Confirms an e-mail address from the link that was e-mailed. */
+export async function verifyEmail(token) {
+  return await api.post("/auth/verify-email", { token }, { auth: false });
+}
+
+/** Asks for a new confirmation link (the answer is the same whether or not the address has an account). */
+export async function resendVerification(email) {
+  return await api.post("/auth/resend-verification", { email }, { auth: false });
+}
+
 /** Is Sign in with Google set up on this server? (false when the server cannot be reached: the button then says so) */
 export async function googleSignInEnabled() {
   try {
@@ -46,7 +56,7 @@ export async function loginWithGoogleTicket(ticket) {
   return user;
 }
 
-export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail }) {
+export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail, googleProof }) {
   try {
     const payload = { name, email, password, organization, plan_code: planCode };
     if (orgType) payload.org_type = orgType;
@@ -59,6 +69,7 @@ export async function register({ name, email, password, organization, planCode, 
     if (industry) payload.industry = industry;
     if (taxNumber) payload.tax_number = taxNumber;
     if (registeredEmail) payload.registered_email = registeredEmail;
+    if (googleProof) payload.google_proof = googleProof;
     const data = await api.post(
       "/auth/register",
       payload,

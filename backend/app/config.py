@@ -104,6 +104,8 @@ class Settings(BaseSettings):
     SMTP_PASSWORD: str = ""
     SMTP_FROM_EMAIL: str = "info@zoikohr.com"
     SMTP_USE_TLS: str = "true"
+    # Who is told about a new "Request Pricing" submission (comma separated). Blank = the SMTP_FROM_EMAIL inbox.
+    SALES_NOTIFY_EMAIL: str = ""
 
     # ── Email branding / layout (app/email_templates/_layouts) ─────────────
     # Absolute public HTTPS base the email logo PNGs are served from
@@ -128,6 +130,15 @@ class Settings(BaseSettings):
     # mode. Re-verify against `client.models.list()` before changing this.
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
+
+    # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────
+    # EMAIL_REAL_ONLY refuses placeholder and disposable addresses wherever an account or contact address is entered.
+    # EMAIL_DNS_CHECK also asks DNS whether the domain can receive mail (an inconclusive lookup never blocks anyone).
+    # REQUIRE_EMAIL_VERIFICATION makes every NEW account confirm its address from a link before it can sign in.
+    EMAIL_REAL_ONLY: bool = True
+    EMAIL_DNS_CHECK: bool = True
+    REQUIRE_EMAIL_VERIFICATION: bool = True
+    EMAIL_VERIFY_TTL_HOURS: int = 48
 
     # ── Sign in with Google (app/modules/employee/google_auth.py) ───────────────
     # Blank = the "Continue with Google" button says it is not set up. Register {API_BASE_URL}/auth/google/callback as an

@@ -258,13 +258,6 @@ RESET_TOKEN_TTL_MINUTES = 60    # password-reset links (short-lived)
 RESET_RATE_LIMIT_PER_HOUR = 5   # admin-initiated resets per target user
 TOKEN_TIMEZONE = "UTC"
 
-LINK_RESET_ROLES = (
-    UserRole.SUPER_ADMIN,
-    UserRole.ADMIN,
-    UserRole.HR_ADMIN,
-    UserRole.BILLING_ADMIN,
-    UserRole.MANAGER,
-)
 INVALID_TOKEN_MESSAGE = "This link is invalid or has expired. Please request a new one."
 
 
@@ -340,6 +333,9 @@ def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tu
     now = datetime.utcnow()
     if purpose == SecurityActionPurpose.RESET:
         expires_at = now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+    elif purpose == SecurityActionPurpose.VERIFY_EMAIL:
+        from app.config import settings as _s
+        expires_at = now + timedelta(hours=max(int(_s.EMAIL_VERIFY_TTL_HOURS or 48), 1))
     else:
         expires_at = now + timedelta(hours=TOKEN_TTL_HOURS)
     # A new link supersedes every outstanding one for this user and purpose.
@@ -359,11 +355,22 @@ def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tu
 def _action_link(purpose, raw_token: str) -> str:
     from app.config import settings
 
+    if purpose == SecurityActionPurpose.VERIFY_EMAIL:
+        from app.services.link_settings import is_other_product_host
+        frontend = (settings.FRONTEND_URL or "").strip().rstrip("/")
+        if not frontend or is_other_product_host(frontend):
+            from app.services.email_service import PRODUCTION_APP_URL
+            frontend = PRODUCTION_APP_URL
+        return f"{frontend}/verify-email?token={raw_token}"
     if purpose != SecurityActionPurpose.INVITE:
         # A reset link opens the app's own "Choose a new password" page, which reaches the API through the app's configured
         # address. It no longer depends on API_BASE_URL (which defaults to localhost and made emailed links dead on a server
         # where nobody had set it).
-        frontend = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+        from app.services.link_settings import is_other_product_host
+        frontend = (settings.FRONTEND_URL or "").strip().rstrip("/")
+        if not frontend or is_other_product_host(frontend):
+            from app.services.email_service import PRODUCTION_APP_URL
+            frontend = PRODUCTION_APP_URL           # a mistyped site address must not send people to another product
         return f"{frontend}/reset-password?token={raw_token}"
     base = (settings.API_BASE_URL or "http://localhost:8000").rstrip("/")
     return f"{base}/auth/accept-invite?token={raw_token}"
@@ -454,6 +461,9 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
     employee.hashed_password = hash_password(new_password)
     employee.password_changed_at = datetime.utcnow()  # signs out every earlier session
     employee.must_change_password = False
+    if not employee.email_verified:        # the link only ever went to this inbox, so using it proves the address is theirs
+        employee.email_verified = True
+        employee.email_verified_at = datetime.utcnow()
     db.commit()
     db.refresh(employee)
 
@@ -469,11 +479,65 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# EMAIL VERIFICATION: an account can be used only by someone who can open its inbox
+# ═══════════════════════════════════════════════════════════════════════════════
+
+EMAIL_NOT_VERIFIED_CODE = "EMAIL_NOT_VERIFIED"
+VERIFY_LINK_INVALID_MESSAGE = "This confirmation link is invalid or has expired. Ask for a new one from the sign-in page."
+
+
+def begin_email_verification(db: Session, employee: Employee) -> None:
+    """Marks a NEW account's address as unconfirmed and e-mails the single-use confirmation link. Does nothing when
+    verification is switched off (REQUIRE_EMAIL_VERIFICATION=false)."""
+    from app.config import settings
+
+    if not settings.REQUIRE_EMAIL_VERIFICATION:
+        return
+    employee.email_verified = False
+    employee.email_verified_at = None
+    raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.VERIFY_EMAIL)
+    db.commit()
+    _notify_email_async(
+        "send_email_verification",
+        email=employee.email,
+        first_name=employee.first_name or _full_name(employee),
+        expires_at_local=_format_token_datetime(expires_at),
+        timezone=TOKEN_TIMEZONE,
+        action_url=_action_link(SecurityActionPurpose.VERIFY_EMAIL, raw_token),
+        organization_id=employee.organization_id,
+    )
+
+
+def verify_email(db: Session, raw_token: str) -> dict:
+    """Consumes a confirmation link: the address is now confirmed and the person may sign in."""
+    consumed = _consume_action_token(db, raw_token, SecurityActionPurpose.VERIFY_EMAIL)
+    if consumed is None:
+        raise BadRequestException(VERIFY_LINK_INVALID_MESSAGE)
+    employee = db.query(Employee).filter(Employee.email == consumed["email"]).first()
+    if not employee:
+        raise BadRequestException(VERIFY_LINK_INVALID_MESSAGE)
+    employee.email_verified = True
+    employee.email_verified_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Your email address is confirmed. You can now sign in.", "email": employee.email}
+
+
+def resend_email_verification(db: Session, email: str) -> dict:
+    """Sends a fresh confirmation link to an account that is still unconfirmed. The answer is the same for an unknown
+    address, an already-confirmed one and an unconfirmed one, so it cannot be used to find out who has an account."""
+    generic = {"message": "If that address belongs to an account that still needs confirming, a new confirmation link has been sent."}
+    employee = db.query(Employee).filter(func.lower(Employee.email) == (email or "").strip().lower()).first()
+    if employee and employee.is_active and not employee.email_verified:
+        begin_email_verification(db, employee)
+    return generic
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # AUTH SERVICE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
-    employee = db.query(Employee).filter(Employee.email == data.email).first()
+    employee = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).first()
     if not employee:
         raise UnauthorizedException("Invalid email or password.")
 
@@ -528,6 +592,13 @@ def issue_login(db: Session, employee: Employee) -> dict:
 
     if employee.status == EmployeeStatus.DEACTIVATED:
         raise UnauthorizedException("Your account has been deactivated.")
+
+    if not employee.email_verified:
+        raise ZoikoException(
+            403, EMAIL_NOT_VERIFIED_CODE,
+            f"Please confirm your email address before signing in. We sent a confirmation link to {_mask_email(employee.email)}. "
+            "Open it, then sign in. You can ask for a new link below.",
+        )
 
     from app.modules.hr.models import Organization as HrOrg
     org_obj = None
@@ -642,6 +713,13 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.add(employee)
     db.commit()
     db.refresh(employee)
+    from app.modules.employee import google_auth
+    if data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email):
+        employee.email_verified = True             # Google has already confirmed this person controls the address
+        employee.email_verified_at = datetime.utcnow()
+        db.commit()
+    else:
+        begin_email_verification(db, employee)    # the new organization admin confirms the address before signing in
 
     from app.modules.billing import service as billing_service
     from app.modules.billing.models import DataClassification, BillingAuditAction
@@ -951,6 +1029,7 @@ def create_organization_user(
                 organization_id=employee.organization_id,
                 db=db,
             )
+            begin_email_verification(db, employee)
 
         return employee, temp_password
     except Exception as exc:
@@ -1010,6 +1089,7 @@ def get_organization_user(
     user = query.first()
     if not user:
         raise NotFoundException("User", user_id)
+    user._profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
     return user
 
 
@@ -1032,11 +1112,41 @@ def update_organization_user(
             update_data["phone"] = normalize_phone(update_data["phone"])
         except ValueError as exc:
             raise BadRequestException(str(exc))
-    for field, value in update_data.items():
+
+    # Simple account/employee columns handled directly.
+    for field in ("first_name", "last_name", "phone", "role", "job_title", "is_active"):
+        if field in update_data and update_data[field] is not None:
+            setattr(user, field, update_data[field])
+
+    if update_data.get("employment_type") is not None:
+        user.employment_type = update_data["employment_type"]
+    if update_data.get("status") is not None:
+        user.status = EmployeeStatus(update_data["status"])
+        user.is_active = user.status != EmployeeStatus.INACTIVE
+
+    # Extra import-style fields (plain columns plus department/designation by name), same as create.
+    extra = _import_style_fields(db, data, user.organization_id, created_by=updated_by_id)
+    profile_fields = extra.pop("_profile", {})
+    for field, value in extra.items():
         setattr(user, field, value)
+
+    if profile_fields:
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
+        if profile is None:
+            profile = EmployeeProfile(
+                employee_id=user.id,
+                organization_id=user.organization_id,
+                **profile_fields,
+            )
+            db.add(profile)
+        else:
+            for field, value in profile_fields.items():
+                setattr(profile, field, value)
+
     user.updated_by = updated_by_id
     db.commit()
     db.refresh(user)
+    user._profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
 
     if "role" in update_data and user.role != old_role:
         if old_role == UserRole.ADMIN or user.role == UserRole.ADMIN:
@@ -1199,20 +1309,15 @@ def archive_organization_user(
 
 
 def request_password_reset(db: Session, email: str) -> dict:
-    """Public forgot-password flow for admin-class accounts (ADMIN, HR_ADMIN,
-    BILLING_ADMIN). Issues a single-use RESET token and emails a link. Always
-    returns the same generic message whether or not the email belongs to an
-    active admin account — never discloses account existence (no user
-    enumeration)."""
+    """Public forgot-password flow for any active account (admin or employee).
+    Issues a single-use RESET token and emails a link. Always returns the same
+    generic message whether or not the email belongs to an active account —
+    never discloses account existence (no user enumeration)."""
     generic_message = (
         "If an account exists for that email, a password reset link has been sent."
     )
     employee = db.query(Employee).filter(Employee.email == email).first()
-    if (
-        not employee
-        or employee.role not in LINK_RESET_ROLES
-        or not employee.is_active
-    ):
+    if not employee or not employee.is_active:
         return {"message": generic_message}
 
     raw_token, expires_at = _issue_action_token(
@@ -1409,6 +1514,7 @@ def create_employee(
         emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
 
         _record_employee_added(db, actor, employee, resolved_org_id)
+        begin_email_verification(db, employee)
         if generated:
             employee.temporary_password = initial_password      # not stored: shown once in the reply to whoever added them
 
@@ -1512,8 +1618,51 @@ _ENUM_FIELDS = {
 _REQUIRED_FIELDS = {"first_name", "last_name", "email", "job_title", "date_of_joining"}
 
 
-def _normalise_header(h: str) -> str:
-    return _COLUMN_MAP.get(h.strip().lower(), h.strip().lower())
+# Other ways people head the same columns.
+_HEADER_ALIASES = {
+    "firstname": "first_name", "first": "first_name", "given name": "first_name", "forename": "first_name", "fname": "first_name",
+    "lastname": "last_name", "last": "last_name", "surname": "last_name", "family name": "last_name", "lname": "last_name",
+    "email address": "email", "e mail": "email", "email id": "email", "emailid": "email", "mail": "email", "official email": "email",
+    "login email": "email", "email login": "email", "mail id": "email",
+    "phone number": "phone", "mobile": "phone", "mobile number": "phone", "contact number": "phone", "contact": "phone", "telephone": "phone", "cell": "phone",
+    "designation title": "job_title", "position": "job_title", "role": "job_title", "title": "job_title", "job role": "job_title", "jobtitle": "job_title",
+    "joining date": "date_of_joining", "date joined": "date_of_joining", "doj": "date_of_joining", "join date": "date_of_joining", "hire date": "date_of_joining",
+    "start date": "date_of_joining", "date of hire": "date_of_joining", "dateofjoining": "date_of_joining",
+    "dob": "date_of_birth", "birth date": "date_of_birth", "birthday": "date_of_birth", "dateofbirth": "date_of_birth",
+    "dept": "department_name", "department name": "department_name",
+    "manager": "reporting_manager", "reporting to": "reporting_manager", "reports to": "reporting_manager", "line manager": "reporting_manager",
+    "employee type": "employment_type", "type": "employment_type", "employment": "employment_type",
+    "salary": "basic_salary", "basic": "basic_salary", "annual ctc": "ctc", "gender sex": "gender", "sex": "gender",
+    "emp id": "employee_id", "empid": "employee_id", "employee no": "employee_id", "employee number": "employee_id", "emp code": "employee_code",
+    "zip": "pincode", "zip code": "pincode", "postal code": "pincode", "pin code": "pincode", "pin": "pincode",
+}
+
+
+def _clean_header(h) -> str:
+    """A column heading reduced to plain lower-case words: no *, no (hints), no [notes], no BOM, _ - . / read as spaces."""
+    text = str(h if h is not None else "").replace("\ufeff", "").replace("\xa0", " ").lower()
+    text = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", text)
+    text = re.sub(r"[*:#]", " ", text)
+    text = re.sub(r"[_\-./]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+_CLEAN_MAP = {_clean_header(k): v for k, v in _COLUMN_MAP.items()}
+_CLEAN_MAP.update({_clean_header(k): v for k, v in _HEADER_ALIASES.items()})
+_KNOWN_FIELDS = set(_CLEAN_MAP.values())
+
+
+def _normalise_header(h) -> str:
+    cleaned = _clean_header(h)
+    return _CLEAN_MAP.get(cleaned, cleaned.replace(" ", "_"))
+
+
+def _header_score(cells) -> int:
+    """How many of a row's cells are headings the import knows (used to find the heading row)."""
+    return len({_normalise_header(c) for c in cells if c is not None and str(c).strip()} & _KNOWN_FIELDS)
+
+
+_REQUIRED_LABELS = {"first_name": "First Name", "last_name": "Last Name", "email": "Email", "job_title": "Job Title", "date_of_joining": "Date of Joining"}
 
 
 def _parse_date(val, row_num: int, field: str, errors: list) -> Optional[date]:
@@ -1616,14 +1765,32 @@ def import_employees_from_file(
     if not rows:
         return result
 
+    found = {_normalise_header(h) for h in result.pop("_headers", [])}
+    absent = [f for f in ("first_name", "last_name", "email", "job_title", "date_of_joining") if f not in found]
+    if absent:
+        # not 20 identical row errors: the FILE has no such column, so say that once, and say what it does have
+        names = [_REQUIRED_LABELS[f] for f in absent]
+        shown = [h for h in (list(rows[0].keys()) if rows else []) if not h.startswith("__")][:12]
+        result["skipped"] = len(rows)
+        result["total_rows"] = len(rows)
+        result["errors"].append({
+            "row": 0, "employee_id": "", "email": "", "field": ", ".join(absent),
+            "error": f"The file has no column for: {', '.join(names)}. Columns found: {', '.join(shown) or 'none'}. "
+                     "Use the template headings: First Name, Last Name, Email, Job Title, Date of Joining (download the template on the import dialog).",
+        })
+        return result
+
     seen_emails = set()
     seen_import_ids = set()
     created_for_email = []
 
     # Use savepoints so individual row failures don't rollback valid rows
     for row_num, row in enumerate(rows, start=2):
+        row_num = row.get("__row") or row_num          # the row number as it appears in the file
         norm = {}
         for k, v in row.items():
+            if k == "__row":
+                continue
             field = _normalise_header(k)
             norm[field] = v
         row_data = norm
@@ -1643,6 +1810,16 @@ def import_employees_from_file(
         if not re.match(r"[^@]+@[^@]+\.[^@]+", email_val):
             result["skipped"] += 1
             result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": "Invalid email format"})
+            continue
+        from app.core.email_quality import check_real_email
+        try:
+            email_val = check_real_email(email_val) or email_val
+            for contact in ("work_email", "personal_email"):
+                if str(row_data.get(contact) or "").strip():
+                    check_real_email(row_data.get(contact), label=contact.replace("_", " ").capitalize())
+        except ValueError as exc:
+            result["skipped"] += 1
+            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": str(exc)})
             continue
 
         # Check duplicate by email within the same org (tenant isolation)
@@ -1861,6 +2038,9 @@ def import_employees_from_file(
     if import_committed:
         workspace_name = _org_workspace_name(db, organization_id)
         for item in created_for_email:
+            new_person = db.query(Employee).filter(Employee.email == item["email"], Employee.organization_id == organization_id).first()
+            if new_person is not None:
+                begin_email_verification(db, new_person)       # each imported person confirms their own address before signing in
             _notify_email(
                 "send_employee_welcome_email",
                 email=item["email"],
@@ -1941,15 +2121,25 @@ def _parse_excel(file_bytes: bytes, result: dict) -> list[dict]:
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "file", "error": "Excel file has no sheets"})
         return []
 
-    rows_iter = ws.iter_rows(values_only=True)
-    try:
-        headers = [str(c).strip() if c else "" for c in next(rows_iter)]
-    except StopIteration:
+    # the sheet (and the row in it) whose first rows look most like headings: a title row, notes or an instructions sheet
+    # above the real column headings must not stop the import
+    best = None
+    for sheet in wb.worksheets:
+        rows_all = list(sheet.iter_rows(values_only=True))
+        for idx, candidate in enumerate(rows_all[:15]):
+            score = _header_score(candidate)
+            if best is None or score > best[0]:
+                best = (score, sheet, rows_all, idx)
+    if best is None or not best[2]:
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "file", "error": "Excel file is empty"})
+        wb.close()
         return []
+    _, ws, rows_all, header_idx = best
+    headers = [str(c).strip() if c is not None and str(c).strip() else "" for c in rows_all[header_idx]]
+    result["_headers"] = [h for h in headers if h]
 
     parsed = []
-    for row_idx, row in enumerate(rows_iter, start=2):
+    for offset, row in enumerate(rows_all[header_idx + 1:], start=header_idx + 2):
         record = {}
         has_data = False
         for col_idx, val in enumerate(row):
@@ -1958,6 +2148,7 @@ def _parse_excel(file_bytes: bytes, result: dict) -> list[dict]:
                 if val is not None and str(val).strip():
                     has_data = True
         if has_data:
+            record["__row"] = offset                 # the row number as it appears in the spreadsheet
             parsed.append(record)
 
     wb.close()
@@ -1965,18 +2156,29 @@ def _parse_excel(file_bytes: bytes, result: dict) -> list[dict]:
 
 
 def _parse_csv(file_bytes: bytes, result: dict) -> list[dict]:
-    text = file_bytes.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = file_bytes.decode("latin-1")
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    rows_all = list(csv.reader(io.StringIO(text), dialect))
+    if not rows_all or not any(any(c.strip() for c in r) for r in rows_all):
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "file", "error": "CSV file has no headers"})
         return []
+    header_idx = max(range(min(len(rows_all), 15)), key=lambda i: (_header_score(rows_all[i]), -i))
+    headers = [c.strip() for c in rows_all[header_idx]]
+    result["_headers"] = [h for h in headers if h]
 
     parsed = []
-    for row_idx, row in enumerate(reader, start=2):
-        cleaned = {k.strip(): v.strip() if v else "" for k, v in row.items()}
-        has_data = any(v for v in cleaned.values())
-        if has_data:
-            parsed.append(cleaned)
+    for offset, row in enumerate(rows_all[header_idx + 1:], start=header_idx + 2):
+        record = {headers[i]: (row[i].strip() if i < len(row) and row[i] else "") for i in range(len(headers)) if headers[i]}
+        if any(v for v in record.values()):
+            record["__row"] = offset
+            parsed.append(record)
 
     return parsed
 
