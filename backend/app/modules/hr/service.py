@@ -9,7 +9,8 @@ import os
 import re
 from datetime import date, datetime, timedelta
 from typing import List, Optional
-from sqlalchemy import func, or_, case, and_
+from sqlalchemy import func, or_, case, and_, false
+from app.core.pagination import legacy_list, list_or_page, page_of, wants_page
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
@@ -1672,7 +1673,10 @@ def get_leave_requests(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
-) -> list[dict]:
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+):
+    """Leave requests, newest first: a plain list (capped) without page/per_page, else a page dict."""
     query = (
         db.query(
             LeaveRequest,
@@ -1702,7 +1706,9 @@ def get_leave_requests(
 
     # created_at has second precision, so two requests applied in the same second tie;
     # the id tiebreak keeps the newest request first (ZHR-93).
-    results = query.order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc()).all()
+    ordered = query.order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
+    paged = page_of(ordered, page, per_page) if wants_page(page, per_page) else None
+    results = paged["items"] if paged else legacy_list(ordered, "/hr/leaves")
 
     reviewers = _rows_by_id(db, Employee, [row[0].reviewed_by for row in results])
     leave_requests = []
@@ -1741,6 +1747,8 @@ def get_leave_requests(
             "updated_at": lr.updated_at,
         })
 
+    if paged:
+        return {**paged, "items": leave_requests}
     return leave_requests
 
 
@@ -2441,8 +2449,8 @@ def create_salary_revision(db: Session, data: SalaryRevisionCreate, org_id: int)
     db.refresh(revision)
     return revision
 
-def get_salary_revisions(db: Session, org_id: int) -> list[SalaryRevision]:
-    return db.query(SalaryRevision).filter(SalaryRevision.organization_id == org_id).all()
+def get_salary_revisions(db: Session, org_id: int, page: Optional[int] = None, per_page: Optional[int] = None):
+    return list_or_page(db.query(SalaryRevision).filter(SalaryRevision.organization_id == org_id), page, per_page, label="/hr/compensation/revisions")
 
 
 def update_salary_revision(db: Session, revision_id: int, data, org_id: int) -> SalaryRevision:
@@ -2948,13 +2956,13 @@ def create_engagement_survey(db: Session, data: EngagementSurveyCreate, organiza
     return survey
 
 
-def get_engagement_surveys(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[EngagementSurvey]:
+def get_engagement_surveys(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(EngagementSurvey)
     if organization_id:
         query = query.filter(EngagementSurvey.organization_id == organization_id)
     if employee_id:
         query = query.filter(EngagementSurvey.employee_id == employee_id)
-    return query.order_by(EngagementSurvey.created_at.desc()).all()
+    return list_or_page(query.order_by(EngagementSurvey.created_at.desc()), page, per_page, label="/hr/engagement")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2970,13 +2978,13 @@ def create_ess_request(db: Session, data: EssRequestCreate, organization_id: int
     return request
 
 
-def get_ess_requests(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[EssRequest]:
+def get_ess_requests(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(EssRequest)
     if organization_id:
         query = query.filter(EssRequest.organization_id == organization_id)
     if employee_id:
         query = query.filter(EssRequest.employee_id == employee_id)
-    return query.order_by(EssRequest.created_at.desc()).all()
+    return list_or_page(query.order_by(EssRequest.created_at.desc()), page, per_page, label="/hr/ess")
 
 
 def update_ess_request(db: Session, request_id: int, data, organization_id: int) -> EssRequest:
@@ -3120,7 +3128,7 @@ def get_onboarding_analytics(db: Session, organization_id: Optional[int] = None)
     }
 
 # NEW HIRES SERVICE
-def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Optional[str] = None, status: Optional[str] = None) -> list[OnboardingNewHire]:
+def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Optional[str] = None, status: Optional[str] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(OnboardingNewHire).filter(OnboardingNewHire.is_deleted == False)
     if organization_id:
         query = query.filter(OnboardingNewHire.organization_id == organization_id)
@@ -3132,7 +3140,7 @@ def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Op
             (OnboardingNewHire.email.ilike(f"%{search}%")) |
             (OnboardingNewHire.position.ilike(f"%{search}%"))
         )
-    return query.order_by(OnboardingNewHire.created_at.desc()).all()
+    return list_or_page(query.order_by(OnboardingNewHire.created_at.desc()), page, per_page, label="/hr/onboarding/new-hires")
 
 def get_new_hire_by_id(db: Session, new_hire_id: int, organization_id: Optional[int] = None) -> OnboardingNewHire:
     query = db.query(OnboardingNewHire).filter(OnboardingNewHire.id == new_hire_id, OnboardingNewHire.is_deleted == False)
@@ -3727,13 +3735,13 @@ def create_performance_goal(db: Session, data: PerformanceGoalCreate, organizati
     return goal
 
 
-def get_performance_goals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[PerformanceGoal]:
+def get_performance_goals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     q = db.query(PerformanceGoal)
     if organization_id:
         q = q.filter(PerformanceGoal.organization_id == organization_id)
     if employee_id:
         q = q.filter(PerformanceGoal.employee_id == employee_id)
-    return q.order_by(PerformanceGoal.created_at.desc()).all()
+    return list_or_page(q.order_by(PerformanceGoal.created_at.desc()), page, per_page, label="/hr/performance/goals")
 
 
 def get_performance_goal(db: Session, goal_id: int, organization_id: Optional[int] = None) -> PerformanceGoal:
@@ -3769,7 +3777,7 @@ def create_performance_kpi(db: Session, data: PerformanceKpiCreate, organization
     return kpi
 
 
-def get_performance_kpis(db: Session, organization_id: Optional[int] = None, goal_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[PerformanceKpi]:
+def get_performance_kpis(db: Session, organization_id: Optional[int] = None, goal_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     q = db.query(PerformanceKpi)
     if organization_id:
         q = q.filter(PerformanceKpi.organization_id == organization_id)
@@ -3777,7 +3785,7 @@ def get_performance_kpis(db: Session, organization_id: Optional[int] = None, goa
         q = q.filter(PerformanceKpi.goal_id == goal_id)
     if employee_id:
         q = q.filter(PerformanceKpi.employee_id == employee_id)
-    return q.order_by(PerformanceKpi.created_at.desc()).all()
+    return list_or_page(q.order_by(PerformanceKpi.created_at.desc()), page, per_page, label="/hr/performance/kpis")
 
 
 def get_performance_kpi(db: Session, kpi_id: int, organization_id: Optional[int] = None) -> PerformanceKpi:
@@ -3819,7 +3827,9 @@ def get_performance_feedback(
     employee_id: Optional[int] = None,
     reviewer_id: Optional[int] = None,
     review_id: Optional[int] = None,
-) -> list[PerformanceFeedback]:
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+):
     q = db.query(PerformanceFeedback)
     if organization_id:
         q = q.filter(PerformanceFeedback.organization_id == organization_id)
@@ -3829,7 +3839,7 @@ def get_performance_feedback(
         q = q.filter(PerformanceFeedback.reviewer_id == reviewer_id)
     if review_id:
         q = q.filter(PerformanceFeedback.review_id == review_id)
-    return q.order_by(PerformanceFeedback.submitted_at.desc()).all()
+    return list_or_page(q.order_by(PerformanceFeedback.submitted_at.desc()), page, per_page, label="/hr/performance/feedback")
 
 
 def delete_performance_feedback(db: Session, fb_id: int, organization_id: Optional[int] = None) -> None:
@@ -3866,13 +3876,13 @@ def create_appraisal(db: Session, data: AppraisalCreate, organization_id: Option
     return appraisal
 
 
-def get_appraisals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[Appraisal]:
+def get_appraisals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     q = db.query(Appraisal)
     if organization_id:
         q = q.filter(Appraisal.organization_id == organization_id)
     if employee_id:
         q = q.filter(Appraisal.employee_id == employee_id)
-    return q.order_by(Appraisal.created_at.desc()).all()
+    return list_or_page(q.order_by(Appraisal.created_at.desc()), page, per_page, label="/hr/performance/appraisals")
 
 
 def get_appraisal(db: Session, appraisal_id: int, organization_id: Optional[int] = None) -> Appraisal:
@@ -4024,7 +4034,8 @@ def create_performance_review(db: Session, data: PerformanceReviewCreate, organi
 
 def get_performance_reviews(
     db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, involved_id: Optional[int] = None,
-) -> list[PerformanceReview]:
+    page: Optional[int] = None, per_page: Optional[int] = None,
+):
     """involved_id limits the list to reviews where that person is the employee or one of the reviewers."""
     query = db.query(PerformanceReview)
     if organization_id:
@@ -4036,7 +4047,7 @@ def get_performance_reviews(
             PerformanceReview.employee_id == involved_id, PerformanceReview.reviewer_id == involved_id,
             PerformanceReview.hr_reviewer_id == involved_id, PerformanceReview.admin_reviewer_id == involved_id,
         ))
-    return query.order_by(PerformanceReview.created_at.desc(), PerformanceReview.id.desc()).all()
+    return list_or_page(query.order_by(PerformanceReview.created_at.desc(), PerformanceReview.id.desc()), page, per_page, label="/hr/performance")
 
 
 def get_performance_review(db: Session, review_id: int, organization_id: Optional[int] = None) -> PerformanceReview:
@@ -5578,7 +5589,9 @@ def get_hr_documents(
     exclude_categories: Optional[str] = None,
     folder_id: Optional[int] = None,
     current_user=None,
-) -> list:
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+):
     """
     Return all non-deleted HR documents, with optional filtering.
     Resolves employee_name, employee_id_str, employee_code, legacy_code and
@@ -5643,7 +5656,7 @@ def get_hr_documents(
     if employee_id_str:
         emp_ids = resolve_employee_ids_by_identifier(db, employee_id_str, organization_id)
         if not emp_ids:
-            return []
+            return page_of(query.filter(false()), page, per_page) if wants_page(page, per_page) else []
         query = query.filter(HrDocument.employee_id.in_(emp_ids))
     if search:
         term = f"%{search.strip()}%"
@@ -5657,7 +5670,10 @@ def get_hr_documents(
         else:
             query = query.filter(text_clause)
 
-    docs = query.order_by(HrDocument.created_at.desc()).all()
+    ordered = query.order_by(HrDocument.created_at.desc())
+    # pages need a total order (id breaks created_at ties); the plain list keeps its original ordering
+    paged = page_of(ordered.order_by(HrDocument.id.desc()), page, per_page) if wants_page(page, per_page) else None
+    docs = paged["items"] if paged else legacy_list(ordered, "/hr/documents")
 
     # Attach convenience name fields without a JOIN (keeps it simple)
     person_ids = {pid for doc in docs for pid in (doc.employee_id, doc.uploaded_by) if pid}
@@ -5698,6 +5714,8 @@ def get_hr_documents(
 
         result.append(d)
 
+    if paged:
+        return {**paged, "items": result}
     return result
 
 

@@ -5,6 +5,8 @@ from typing import Optional
 from sqlalchemy import func, asc, desc
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.pagination import legacy_list, page_of, wants_page
+
 logger = logging.getLogger("zoiko")
 
 from app.modules.hr.models import (
@@ -223,14 +225,23 @@ def _get_records_query(
     return query
 
 
-def get_all_attendance_records(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[dict]:
+def get_all_attendance_records(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None,
+                               page: Optional[int] = None, per_page: Optional[int] = None):
+    """Every record, newest first: a plain list (capped) without page/per_page, else a page dict."""
     query = db.query(AttendanceRecord)
     if organization_id:
         query = query.filter(AttendanceRecord.organization_id == organization_id)
     if employee_id:
         query = query.filter(AttendanceRecord.employee_id == employee_id)
     # employee (and its department) were lazy-loaded per record: one query per distinct employee. Batch them.
-    records = query.options(selectinload(AttendanceRecord.employee).joinedload(Employee.department)).order_by(AttendanceRecord.date.desc()).all()
+    loaded = query.options(selectinload(AttendanceRecord.employee).joinedload(Employee.department))
+    if wants_page(page, per_page):
+        # pages need a total order: id breaks ties between records of the same date
+        paged = page_of(loaded.order_by(AttendanceRecord.date.desc(), AttendanceRecord.id.desc()), page, per_page)
+        records = paged["items"]
+    else:
+        paged = None
+        records = legacy_list(loaded.order_by(AttendanceRecord.date.desc()), "/hr/attendance")
     items = []
     for r in records:
         items.append({
@@ -245,6 +256,8 @@ def get_all_attendance_records(db: Session, organization_id: Optional[int] = Non
             "employee_name": r.employee.full_name if r.employee else None,
             "department": r.employee.department.name if r.employee and r.employee.department else None,
         })
+    if paged:
+        return {**paged, "items": items}
     return items
 
 

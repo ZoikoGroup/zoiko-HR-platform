@@ -386,12 +386,22 @@ def get_pending_changes(
 def get_all_plan_changes(
     db: Session,
     organization_id: Optional[int] = None,
-) -> list[BillingPlanChange]:
-    """Return all plan changes across platform or for a specific org."""
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
+):
+    """Plan changes across the platform or for one org, newest first.
+
+    Without page/limit: the plain list (capped at LEGACY_LIST_CAP). With them: (rows, total) for that page."""
+    from app.core.pagination import legacy_list, page_of, wants_page
+
     q = db.query(BillingPlanChange)
     if organization_id:
         q = q.filter(BillingPlanChange.organization_id == organization_id)
-    return q.order_by(BillingPlanChange.created_at.desc()).all()
+    q = q.order_by(BillingPlanChange.created_at.desc())
+    if not wants_page(page, limit):
+        return legacy_list(q, "/billing/plan-changes")
+    out = page_of(q.order_by(BillingPlanChange.id.desc()), page, limit)     # id breaks created_at ties for stable pages
+    return out["items"], out["total"]
 
 
 # ── Execute due changes (called by scheduler job) ─────────────────────────
