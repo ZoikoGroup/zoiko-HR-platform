@@ -61,6 +61,32 @@ alone costs 5 queries / ~1.25 s.
 | `/super-admin/command-center/commercial-health?days=30` | 14 | 3322 | 4135 | 2 |
 | `/super-admin/command-center/overview?days=30` | 24 | 5455 | 6273 | 2 |
 
+## Part B — auth path collapsed (after)
+
+`get_current_user` / login / refresh now resolve the user with **one** query
+(`Employee` + joined `Organization`) and read the rest from the cached
+`OrgAccess` decision (`app/core/org_access.py`), which is invalidated on every
+write through a `Session` flush listener and on the eval-expiry/bulk-update
+paths. Also: `evaluation_access_block_reason` is now a pure read — the
+write that used to auto-end overdue evaluations on the auth hot path moved to
+a 10-minute scheduler interval job (+ the existing 02:10 cron). Measured
+against the same Neon DB, same dev box:
+
+```
+SELECT 1 round-trip: unchanged ~210ms
+/auth/me cold (cache miss):  queries=4  db_ms≈1057
+/auth/me hot  (cached):      queries=2  db_ms≈620   (was 6 / ≈1455ms)
+```
+
+`/auth/me` total time dropped from **1.9 s to ≈ 1.0–1.2 s**; query count fixed
+at 2 (auth lookup + the endpoint's own read). The two remaining queries pay
+~210 ms each of Neon round-trip — further gains live in Part D.
+
+## Part C/D/E
+
+Pendings (entitlement middleware cache, connection-pool hardening) keep the
+fixed numbers above and cut the remaining per-query tax.
+
 ## Observations driving parts B–D
 
 1. **Fixed auth cost = 6 queries.** Part B removes/collapses these (one

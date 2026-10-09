@@ -10,6 +10,18 @@ from app.config import settings
 
 
 @pytest.fixture(autouse=True)
+def _clear_caches():
+    """Drop the in-process cache before and after every test. The cached org-access
+    TTL (30s) would otherwise let an org status/evaluation change in one test
+    leak a stale decision into the next."""
+    from app.core.cache import clear_caches
+
+    clear_caches()
+    yield
+    clear_caches()
+
+
+@pytest.fixture(autouse=True)
 def _relaxed_email_rules(request, monkeypatch):
     if "strict_emails" in request.fixturenames:
         monkeypatch.setattr(settings, "EMAIL_REAL_ONLY", True)

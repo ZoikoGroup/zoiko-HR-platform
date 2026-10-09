@@ -197,6 +197,24 @@ def _ensure_scheduler():
         misfire_grace_time=3600,
     )
 
+    # Part B: the auth path no longer ends overdue ACTIVE evaluations on read
+    # (evaluation_access_block_reason). Every interval run reconciles ACTIVE
+    # evaluations whose evaluation_ends_at passed, flipping subscriptions to
+    # EVALUATION_EXPIRED. An overdue evaluation blocks sign-in anyway (the cached
+    # org-access decision still denies), so this job only tightens bookkeeping;
+    # the 02:10 daily cron remains as a backstop most likely to run exactly once.
+    _scheduler.add_job(
+        _execute_evaluation_expiry_job,
+        "interval",
+        seconds=600,
+        id="evaluation_expiry_interval",
+        name="Expire overdue evaluations (10-minute reconciliation)",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=300,
+    )
+
     _scheduler.add_job(
         _execute_evaluation_reminder_job,
         CronTrigger(hour=2, minute=15),

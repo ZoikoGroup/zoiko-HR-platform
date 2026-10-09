@@ -150,17 +150,36 @@ def get_current_user(
     if email is None:
         raise UnauthorizedException("Token is missing user information.")
 
-    from app.modules.hr.models import Employee
+    from app.modules.employee.models import Employee
+    from sqlalchemy.orm import joinedload
 
-    user = db.query(Employee).filter(Employee.email == email).first()
+    # Collapsed org/user lookup (Part B): one query loads the employee and its
+    # organization (deleted orgs included), filtered by the token's org_id so a
+    # token minted for another org finds nobody (rule 4). Blood-scoped SSO/org
+    # moves surface as a 401 either way; when the email exists in another org
+    # we reuse the old, more specific "session outdated" message instead of the
+    # generic "not found", at the cost of one extra query on auth failures only.
+    jwt_org_id = payload.get("organization_id")
+    q = db.query(Employee).options(joinedload(Employee.organization))
+    if jwt_org_id is None:
+        q = q.filter(Employee.email == email, Employee.organization_id.is_(None))
+    else:
+        q = q.filter(Employee.email == email, Employee.organization_id == jwt_org_id)
+    user = q.execution_options(include_deleted=True).first()
+
     if user is None:
+        alt = db.query(Employee).filter(Employee.email == email).first()
+        if alt is not None:
+            raise UnauthorizedException("Your session is outdated. Please log in again.")
         raise UnauthorizedException("User account not found. Please log in again.")
 
     # Deleting an organization ends its users' sessions immediately (checked first
     # so the user is told why, not just "log in again").
     if user.organization_id:
-        from app.modules.super_admin import organization_service
-        if organization_service.is_deleted(db, user.organization_id):
+        from app.core import org_access
+        oa = org_access.get_org_access(db, user.organization_id, org=user.organization)
+        if oa.deleted:
+            from app.modules.super_admin import organization_service
             raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
 
     from app.core.security import token_predates_password_change
@@ -174,28 +193,15 @@ def get_current_user(
                 "You must change your temporary password before continuing.",
             )
 
-    jwt_org_id = payload.get("organization_id")
-    if jwt_org_id is not None and user.organization_id is not None:
-        if jwt_org_id != user.organization_id:
-            import logging
-            logging.getLogger("zoiko").warning(
-                f"JWT org_id mismatch for user {user.email}: "
-                f"token={jwt_org_id}, db={user.organization_id}. "
-                f"Rejecting request — user should re-authenticate."
-            )
-            raise UnauthorizedException("Your session is outdated. Please log in again.")
-
-    # Evaluation expiry enforcement: every authenticated request re-validates
-    # so a valid refresh token cannot extend access past evaluation_ends_at
-    # or past a super-admin "End" action.
+    # Evaluation gate (Part B): the org access decision is cached, so this is 0
+    # queries on the hot path; the write that used to happen here (auto-ending an
+    # overdue evaluation on every request) moved to the scheduler. An ended or
+    # expired evaluation still revokes access immediately via the block reason.
     if user.organization_id:
-        from app.modules.hr.models import Organization, OrganizationStatus
-        from app.modules.billing import service as billing_service
-        org = db.query(Organization).filter(Organization.id == user.organization_id).first()
-        if org and org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-            block_reason = billing_service.evaluation_access_block_reason(db, user.organization_id)
-            if block_reason:
-                raise UnauthorizedException(block_reason)
+        from app.core import org_access
+        oa = org_access.get_org_access(db, user.organization_id, org=user.organization)
+        if oa.evaluation_block_reason:
+            raise UnauthorizedException(oa.evaluation_block_reason)
 
     return user
 

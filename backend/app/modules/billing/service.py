@@ -586,6 +586,11 @@ def expire_overdue_evaluations(db: Session) -> list[OrganizationEvaluation]:
             subscription.status = SubscriptionStatus.EVALUATION_EXPIRED
             db.commit()
 
+        # Bulk .update() above bypasses the ORM flush listeners, so invalidate
+        # the cached org-access decision explicitly for this org.
+        from app.core import org_access
+        org_access.invalidate_org_access(evaluation.organization_id)
+
         log_billing_audit(
             db,
             actor=None,
@@ -897,21 +902,27 @@ def _invalidate_entitlement_cache(organization_id: int) -> None:
         logger.warning("[billing] Entitlement cache invalidation failed: %s", e)
 
 
-def evaluation_access_block_reason(db: Session, organization_id: int) -> Optional[str]:
+def evaluation_access_block_reason(db: Session, organization_id: int, now: Optional[datetime] = None) -> Optional[str]:
     """Return a user-facing denial message when an APPROVED/ACTIVE org must no
     longer sign in (evaluation ended or expired with no paying subscription),
     or None when access is still granted. Used by the login and per-request
-    auth gates so a manually ended evaluation revokes access immediately —
-    previously only *overdue ACTIVE* evaluations were caught (ZHR-COM-ENT-001
-    §9). An overdue ACTIVE evaluation is ended in place so its subscription
-    flips to EVALUATION_EXPIRED instead of lingering."""
-    now = datetime.utcnow()
+    auth gates (ZHR-COM-ENT-001 §9).
+
+    This is a pure read: it never ends an evaluation here. Overdue ACTIVE
+    evaluations used to be ended in place on this read path (a DB write on the
+    auth hot path); that write now lives in the scheduler's evaluation-expiry
+    job (scheduler.py, interval + daily), so a request never mutates the DB
+    just to decide whether to let someone through. An ACTIVE evaluation whose
+    evaluation_ends_at has passed still produces the same block message below —
+    the user is denied regardless — and the scheduler flips the subscription to
+    EVALUATION_EXPIRED within minutes afterwards."""
+    if now is None:
+        now = datetime.utcnow()
 
     active_eval = get_active_evaluation(db, organization_id)
     if active_eval:
         if active_eval.evaluation_ends_at >= now:
             return None
-        end_evaluation(db, active_eval.id)
 
     subscription = (
         db.query(BillingSubscription)

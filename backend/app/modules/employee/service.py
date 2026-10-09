@@ -549,43 +549,45 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
 
 def issue_login(db: Session, employee: Employee) -> dict:
     """Everything that must be true before someone may sign in (their organization, its evaluation, their account), then
-    the tokens. Shared by the password sign-in and Sign in with Google, so both obey the same rules."""
-    # A deleted organization is invisible to normal queries, so check it explicitly
-    # and tell the user why, instead of a generic "invalid credentials".
-    from app.modules.super_admin import organization_service
-    if organization_service.is_deleted(db, employee.organization_id):
-        raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
+    the tokens. Shared by the password sign-in and Sign in with Google, so both obey the same rules.
+
+    Organization state comes from the cached org-access decision (app/core/org_access.py):
+    one query for the employee, zero for the org on a cache hit."""
+    from app.core import org_access
 
     if employee.organization_id:
-        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
-        if org:
-            if org.status == OrganizationStatus.PENDING:
-                raise UnauthorizedException(
-                    "Your organization registration is awaiting Super Admin approval. "
-                    "You will be able to sign in after approval."
-                )
-            elif org.status == OrganizationStatus.REJECTED:
-                reason = f" Reason: {org.rejection_reason}" if org.rejection_reason else ""
-                raise UnauthorizedException(
-                    f"Your organization registration has been rejected.{reason}"
-                )
-            elif org.status == OrganizationStatus.SUSPENDED:
-                raise UnauthorizedException(
-                    "Your organization has been suspended. Please contact support."
-                )
-            elif org.status == OrganizationStatus.DEACTIVATED:
-                raise UnauthorizedException(
-                    "Your organization has been deactivated. Please contact support."
-                )
+        oa = org_access.get_org_access(db, employee.organization_id)
+        # A deleted organization is invisible to normal queries, so check it explicitly
+        # and tell the user why, instead of a generic "invalid credentials".
+        if oa.deleted:
+            from app.modules.super_admin import organization_service
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
 
-            # Evaluation access gate: blocks login when the org's evaluation
-            # was ended (manually or expired) and no paying subscription is
-            # active — catches evaluations the super admin "End"-ed directly.
-            if org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-                from app.modules.billing import service as billing_svc
-                block_reason = billing_svc.evaluation_access_block_reason(db, org.id)
-                if block_reason:
-                    raise UnauthorizedException(block_reason)
+        if oa.status == "pending":
+            raise UnauthorizedException(
+                "Your organization registration is awaiting Super Admin approval. "
+                "You will be able to sign in after approval."
+            )
+        elif oa.status == "rejected":
+            reason = f" Reason: {oa.rejection_reason}" if oa.rejection_reason else ""
+            raise UnauthorizedException(
+                f"Your organization registration has been rejected.{reason}"
+            )
+        elif oa.status == "suspended":
+            raise UnauthorizedException(
+                "Your organization has been suspended. Please contact support."
+            )
+        elif oa.status == "deactivated":
+            raise UnauthorizedException(
+                "Your organization has been deactivated. Please contact support."
+            )
+
+        # Evaluation access gate: blocks login when the org's evaluation
+        # was ended (manually or expired) and no paying subscription is
+        # active — catches evaluations the super admin "End"-ed directly.
+        if oa.status in ("active", "approved"):
+            if oa.evaluation_block_reason:
+                raise UnauthorizedException(oa.evaluation_block_reason)
 
     if not employee.is_active:
         raise UnauthorizedException("Your account has been deactivated.")
@@ -600,11 +602,10 @@ def issue_login(db: Session, employee: Employee) -> dict:
             "Open it, then sign in. You can ask for a new link below.",
         )
 
-    from app.modules.hr.models import Organization as HrOrg
-    org_obj = None
+    org_code = None
     if employee.organization_id:
-        org_obj = db.query(HrOrg).filter(HrOrg.id == employee.organization_id).first()
-    org_code = org_obj.organization_code if org_obj else None
+        oa_code = org_access.get_org_access(db, employee.organization_id)
+        org_code = oa_code.organization_code
 
     token = create_access_token(data={
         "sub":  employee.email,

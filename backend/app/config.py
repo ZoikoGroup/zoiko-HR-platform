@@ -207,6 +207,15 @@ class Settings(BaseSettings):
     # a plan change on one instance won't invalidate another's stale cache.
     REDIS_URL: str = Field(default="", validation_alias="HR_REDIS_URL")
 
+    # Number of uvicorn workers the app runs as. Drives the org-access cache TTL
+    # (Part B: 30s single worker / 5s multi-worker without Redis) and, in Part D,
+    # sizing the connection pool so workers × per-worker pools stay under the
+    # Postgres connection limit. Plain WEB_CONCURRENCY is accepted too because
+    # .env.production already carries WEB_CONCURRENCY=2 without the HR_ alias.
+    WEB_CONCURRENCY: int = Field(
+        default=1, validation_alias=AliasChoices("HR_WEB_CONCURRENCY", "WEB_CONCURRENCY")
+    )
+
     # READ_ONLY (Section 14.1) is a read-compatible mode: reads (GET/HEAD) pass
     # and only mutations are blocked. Set False to treat READ_ONLY like a full
     # block (still safe, just less ergonomic during downgrade-pending windows).
