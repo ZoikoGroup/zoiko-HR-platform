@@ -107,7 +107,96 @@ connection limit. Same query counts, no request-path change — resilience only.
 
 ## Part E — final re-measure + report
 
-Pending (runs each endpoint once after a fresh boot for the report below).
+### How this was measured
+
+Same endpoints the pages call (traced from the frontend service layer), run
+before Part B and after Part D against the **same local PostgreSQL 17** seeded
+with 60 orgs, 755 employees (one org of 400), 1,800 rows in each billing
+snapshot table and 5,000 audit logs. Each endpoint: one cold call after boot,
+then the median of 5 warm calls, read from `X-Query-Count`. Local Postgres
+answers each query in well under 10 ms, so **query count is the metric that
+carries over to production**: on the real database each sequential query
+costs one network round-trip.
+
+### Per page (warm)
+
+| Page | Calls | Queries before → after | Slowest single call, before → after |
+|---|---|---|---|
+| Login (`/auth/login` + `/auth/me`) | 2 | 13 → 6 | 8 → 4 |
+| HR dashboard | 6 | 75 → 55 | 17 → 13 |
+| Employees list | 4 | 68 → 48 | 20 → 15 |
+| Employee profile | 1 | 10 → 5 | 10 → 5 |
+| Super Admin dashboard | 8 | 73 → 73 | 24 → 24 |
+| Billing Overview | 6 | 32 → 32 | 14 → 14 |
+| Organizations list | 1 | 6 → 6 | 6 → 6 |
+| Refunds | 2 | 8 → 8 | 5 → 5 |
+| Audit Logs | 2 | 5 → 5 | 3 → 3 |
+
+Every org-user request now pays **3–5 fewer sequential queries** (auth 4 → 1,
+entitlement middleware 4 → 2 on guarded routes). Super-admin pages are
+unchanged: a super admin's auth was already 1 query and those routes are not
+entitlement-guarded — their cost is the endpoints' own SQL (Phase 2).
+
+What that means at a given round-trip time, for the slowest call on each
+org-side page (queries are sequential within a request):
+
+| Slowest call | Before | After | Saved at 2 ms RTT | at 30 ms | at 210 ms (dev box → DB) |
+|---|---|---|---|---|---|
+| Employees list | 20 | 15 | 10 ms | 150 ms | 1.05 s |
+| HR dashboard (`performance`) | 17 | 13 | 8 ms | 120 ms | 0.84 s |
+| Employee profile | 10 | 5 | 10 ms | 150 ms | 1.05 s |
+| `/auth/me`, `/notifications/unread-count` | 5 | 2 | 6 ms | 90 ms | 0.63 s |
+
+### Security review fixes made in Part E
+
+Reviewing Part B against the rules ("no change may weaken auth, org deletion,
+evaluation expiry") found two windows, both now closed:
+
+1. **Deleted org on another worker.** Deletion was read from the cached
+   decision, so with several workers and no Redis a deleted org could keep
+   working on another worker for up to the TTL. `get_current_user` already
+   loads the org row fresh with the employee; deletion is now also read from
+   that row (no extra query). Always current.
+2. **Evaluation ending while a decision is cached.** The cached decision said
+   "allowed" with no end time, so access could outlive `evaluation_ends_at` by
+   up to the TTL. The decision now stores `allowed_until`; a cached entry past
+   that instant is treated as a miss and re-read. Expiry is exact again (cost:
+   one query, only on that miss).
+
+`tests/test_auth_path_cache.py` (9 tests) pins: the hot path is one query;
+deleted org refused while the cache is stale; evaluation end enforced on the
+dot with no write; end / convert / bulk expiry take effect on the next request;
+old tokens after a password change refused; `must_change_password` gate;
+token for another org refused.
+
+### Cache keys and their invalidation
+
+| Key | TTL | Invalidated by |
+|---|---|---|
+| `org_access:{org_id}` | 30 s (5 s with several workers and no Redis) | Session listener on commit for any write to `Organization`, `BillingSubscription`, `OrganizationEvaluation`, `BillingConversion`; explicit calls on the bulk-update paths (eval expiry, org delete/status); never trusted past `allowed_until` |
+| `billing_sub_exists:{org_id}` | 30 s | Same listener (via `invalidate_org_access`) |
+| entitlement staged-org list | 30 s | `PUT /super-admin/platform-settings/entitlement_staged_org_ids` (instantly on the instance that handled it; others within the TTL unless Redis is set) |
+
+Not cached on purpose: the delinquency gate inside `check_entitlement`
+(payment-policy enforcement).
+
+### Remaining bottlenecks (Phase 2+)
+
+- Super Admin dashboard: 73 queries across 8 calls; `command-center/overview`
+  alone runs 24 sequentially.
+- N+1: the employees list loads each row's department separately;
+  `/hr/departments` counts employees one department at a time.
+- `check_entitlement` still reads the feature-alias table on every guarded
+  request (cacheable; left for Phase 2).
+
+### Infrastructure notes (not changed)
+
+- The database in `backend/.env` is a **self-managed PostgreSQL 14 on Google
+  Cloud (Finland, 100 connection limit)**, not Neon; `.env.production` still
+  holds a placeholder. `HR_USE_NEON_POOLER` (Part D) only applies if production
+  really is on Neon.
+- The figures above are from a dev machine; run
+  `scripts/measure_latency.py` from the VM for production numbers.
 
 ## Observations driving parts B–D
 

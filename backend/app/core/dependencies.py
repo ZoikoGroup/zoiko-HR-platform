@@ -178,7 +178,10 @@ def get_current_user(
     if user.organization_id:
         from app.core import org_access
         oa = org_access.get_org_access(db, user.organization_id, org=user.organization)
-        if oa.deleted:
+        # The org row was just loaded with the employee (deleted orgs included), so read deletion from it directly:
+        # always current, even on another worker whose cached decision predates the delete.
+        fresh_deleted = user.organization is not None and user.organization.deleted_at is not None
+        if oa.deleted or fresh_deleted:
             from app.modules.super_admin import organization_service
             raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
 

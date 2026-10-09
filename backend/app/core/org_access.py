@@ -49,6 +49,9 @@ class OrgAccess:
     organization_code: Optional[str]
     rejection_reason: Optional[str]
     evaluation_block_reason: Optional[str]
+    # When access is granted only because an evaluation is still running: its end (ISO, naive UTC). A cached decision
+    # is never trusted past this moment, so an evaluation still stops access on the dot rather than up to a TTL later.
+    allowed_until: Optional[str] = None
 
 
 def _cache_ttl() -> int:
@@ -92,8 +95,15 @@ def _compute(db: Session, org_id: int, org=None, now: Optional[datetime] = None)
         # deliberate test allow-list) disables the gate here too. One query when
         # the evaluation is live, two only when it has ended and the
         # subscription must be read. Result is cached, so the hot path is O(0).
-        from app.modules.billing.service import evaluation_access_block_reason
+        from app.modules.billing.service import evaluation_access_block_reason, get_active_evaluation
         block_reason = evaluation_access_block_reason(db, org_id)
+        allowed_until = None
+        if block_reason is None:
+            active = get_active_evaluation(db, org_id)
+            if active is not None and active.evaluation_ends_at is not None:
+                allowed_until = active.evaluation_ends_at.isoformat()
+    else:
+        allowed_until = None
 
     return OrgAccess(
         exists=True,
@@ -102,7 +112,18 @@ def _compute(db: Session, org_id: int, org=None, now: Optional[datetime] = None)
         organization_code=org.organization_code,
         rejection_reason=org.rejection_reason,
         evaluation_block_reason=block_reason,
+        allowed_until=allowed_until,
     )
+
+
+def _expired(decision: OrgAccess, now: Optional[datetime] = None) -> bool:
+    """True when a cached 'allowed' decision rests on an evaluation that has since ended."""
+    if not decision.allowed_until:
+        return False
+    try:
+        return (now or datetime.utcnow()) > datetime.fromisoformat(decision.allowed_until)
+    except ValueError:
+        return True          # unreadable -> do not trust it
 
 
 def get_org_access(db: Session, org_id: int, *, org=None, now: Optional[datetime] = None) -> OrgAccess:
@@ -117,7 +138,10 @@ def get_org_access(db: Session, org_id: int, *, org=None, now: Optional[datetime
         logger.warning("[org_access] cache read failed for org %s — reading DB: %s", org_id, exc)
     if cached is not None:
         try:
-            return OrgAccess(**cached)
+            decision = OrgAccess(**cached)
+            if not _expired(decision, now):
+                return decision
+            # the evaluation this 'allowed' rested on has ended: fall through to an authoritative read
         except (TypeError, ValueError) as exc:
             logger.warning("[org_access] cached decision for org %s was invalid, re-reading: %s", org_id, exc)
 

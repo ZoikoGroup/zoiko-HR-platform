@@ -127,6 +127,7 @@ class TestNeonPoolerHost:
 class TestPoolSizingWarning:
     def test_warns_when_workers_times_pool_overruns_limit(self, monkeypatch, caplog):
         monkeypatch.setattr(database.settings, "USE_NEON_POOLER", False)
+        monkeypatch.setattr(database, "_is_sqlite", False)   # the guard skips SQLite; the suite may run on it
         monkeypatch.setattr(database.settings, "WEB_CONCURRENCY", 4)
         monkeypatch.setenv("HR_DB_CONNECTION_LIMIT", "10")
         with caplog.at_level("WARNING", logger="zoiko.hr"):
@@ -135,6 +136,7 @@ class TestPoolSizingWarning:
 
     def test_silent_when_within_limit(self, monkeypatch, caplog):
         monkeypatch.setattr(database.settings, "USE_NEON_POOLER", False)
+        monkeypatch.setattr(database, "_is_sqlite", False)   # the guard skips SQLite; the suite may run on it
         monkeypatch.setattr(database.settings, "WEB_CONCURRENCY", 1)
         monkeypatch.setenv("HR_DB_CONNECTION_LIMIT", "25")
         with caplog.at_level("WARNING", logger="zoiko.hr"):
