@@ -1011,3 +1011,12 @@ class BillingQuotation(Base):
     updated_at = Column(DateTime, onupdate=func.now())
 
     organization = relationship("Organization")
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_bws_org_snapshot_at", BillableWorkforceSnapshot.organization_id,
+       BillableWorkforceSnapshot.snapshot_at.desc(), BillableWorkforceSnapshot.id.desc())
+_Index("ix_bes_org_computed_at", BillingEntitlementSnapshot.organization_id,
+       BillingEntitlementSnapshot.computed_at.desc(), BillingEntitlementSnapshot.id.desc())

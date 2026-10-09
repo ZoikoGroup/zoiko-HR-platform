@@ -2047,17 +2047,22 @@ def cancel_plan_change(
 )
 def list_platform_plan_changes(
     organization_id: Optional[int] = Query(None, description="Filter by organization ID"),
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
+    limit: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_viewer),
 ):
     if _get_billing_role(current_user) != "super_admin" and organization_id is None:
         organization_id = getattr(current_user, "organization_id", None)
-    changes = plan_change_service.get_all_plan_changes(db, organization_id=organization_id)
+    result = plan_change_service.get_all_plan_changes(db, organization_id=organization_id, page=page, limit=limit)
+    changes, page_total = (result if isinstance(result, tuple) else (result, None))
     
     from app.modules.hr.models import Organization
     from app.modules.billing.models import BillingPlan
-    org_map = {o.id: o.name for o in db.query(Organization).all()}  # .name is a property, not a column
-    plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
+    # Names for just the orgs in this result (soft-deleted orgs stay unnamed, as before), and plan codes by column.
+    from app.modules.super_admin.organization_service import org_names_by_id
+    org_map = org_names_by_id(db, {c.organization_id for c in changes}, include_deleted=True)   # history keeps deleted orgs' names
+    plan_map = {pid: code.value if hasattr(code, "value") else str(code) for pid, code in db.query(BillingPlan.id, BillingPlan.code)}
     
     response_items = []
     for c in changes:
@@ -2069,7 +2074,7 @@ def list_platform_plan_changes(
             data["to_plan_code"] = plan_map.get(c.to_plan_id)
         response_items.append(PlanChangeResponse(**data))
         
-    return PlanChangeListResponse(list=response_items, total=len(response_items))
+    return PlanChangeListResponse(list=response_items, total=len(response_items) if page_total is None else page_total)
 
 
 @billing_router.get(
@@ -2087,8 +2092,10 @@ def list_plan_changes(
     
     from app.modules.hr.models import Organization
     from app.modules.billing.models import BillingPlan
-    org_map = {o.id: o.name for o in db.query(Organization).all()}  # .name is a property, not a column
-    plan_map = {p.id: p.code.value if hasattr(p.code, "value") else str(p.code) for p in db.query(BillingPlan).all()}
+    # Names for just the orgs in this result (soft-deleted orgs stay unnamed, as before), and plan codes by column.
+    from app.modules.super_admin.organization_service import org_names_by_id
+    org_map = org_names_by_id(db, {c.organization_id for c in changes}, include_deleted=True)   # history keeps deleted orgs' names
+    plan_map = {pid: code.value if hasattr(code, "value") else str(code) for pid, code in db.query(BillingPlan.id, BillingPlan.code)}
     
     response_items = []
     for c in changes:
@@ -2384,16 +2391,23 @@ def create_support_access(
 )
 def list_support_access(
     organization_id: Optional[int] = Query(None),
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
+    limit: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_super_admin),
 ):
+    from app.core.pagination import legacy_list, page_of, wants_page
     from app.modules.billing.models import SupportAccessGrant
 
     q = db.query(SupportAccessGrant)
     if organization_id is not None:
         q = q.filter(SupportAccessGrant.organization_id == organization_id)
-    grants = q.order_by(SupportAccessGrant.created_at.desc()).all()
-    return SupportAccessListResponse(list=grants, total=len(grants))
+    q = q.order_by(SupportAccessGrant.created_at.desc())
+    if not wants_page(page, limit):
+        grants = legacy_list(q, "/billing/support-access")
+        return SupportAccessListResponse(list=grants, total=len(grants))
+    out = page_of(q.order_by(SupportAccessGrant.id.desc()), page, limit)     # id breaks ties for stable pages
+    return SupportAccessListResponse(list=out["items"], total=out["total"])
 
 
 @billing_router.post(

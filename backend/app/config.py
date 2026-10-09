@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     APP_VERSION: str = Field(default="1.0.0", validation_alias="HR_APP_VERSION")
     DEBUG: bool = Field(default=False, validation_alias="HR_DEBUG")
 
+    # ── Per-request query instrumentation (app/core/query_stats.py) ────────
+    # When True, every SQL statement of a request is counted and timed, the
+    # request log line gains "queries= db_ms= checkouts=" plus the slowest
+    # statement, and the response gets X-Query-Count / X-DB-Time headers so
+    # tooling can benchmark without parsing logs. Off by default: pays only
+    # one attribute read per query when disabled.
+    LOG_QUERY_STATS: bool = Field(default=False, validation_alias="HR_LOG_QUERY_STATS")
+    # Also log every statement (SQL truncated to 200 chars, no bound values)
+    # per request — for N+1 hunting. Keep off on noisy services.
+    LOG_QUERY_SQL: bool = Field(default=False, validation_alias="HR_LOG_QUERY_SQL")
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def normalize_debug(cls, value):
@@ -195,6 +206,21 @@ class Settings(BaseSettings):
     # redis:// URL before running more than one backend process/instance, or
     # a plan change on one instance won't invalidate another's stale cache.
     REDIS_URL: str = Field(default="", validation_alias="HR_REDIS_URL")
+
+    # Number of uvicorn workers the app runs as. Drives the org-access cache TTL
+    # (Part B: 30s single worker / 5s multi-worker without Redis) and, in Part D,
+    # sizing the connection pool so workers × per-worker pools stay under the
+    # Postgres connection limit. Plain WEB_CONCURRENCY is accepted too because
+    # .env.production already carries WEB_CONCURRENCY=2 without the HR_ alias.
+    WEB_CONCURRENCY: int = Field(
+        default=1, validation_alias=AliasChoices("HR_WEB_CONCURRENCY", "WEB_CONCURRENCY")
+    )
+
+    # Part D: route DB connections through Neon's PgBouncer-compatible pooled
+    # host ("-pooler") once workers × pool exceeds the direct-connection limit
+    # (HR_DB_CONNECTION_LIMIT). The pooler host is derived from HR_DATABASE_URL
+    # automatically at engine build time.
+    USE_NEON_POOLER: bool = Field(default=False, validation_alias="HR_USE_NEON_POOLER")
 
     # READ_ONLY (Section 14.1) is a read-compatible mode: reads (GET/HEAD) pass
     # and only mutations are blocked. Set False to treat READ_ONLY like a full

@@ -197,3 +197,13 @@ class Employee(Base):
     def full_name(self) -> str:
         # a missing first or last name must not print as "None" or leave a stray space
         return " ".join(part for part in (self.first_name, self.last_name) if part and str(part).strip()).strip()
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_employees_created_at", Employee.created_at)
+_Index("ix_employees_org_created", Employee.organization_id, Employee.created_at)
+_Index("ix_employees_department_id", Employee.department_id)
+_Index("ix_employees_designation_id", Employee.designation_id)
+_Index("ix_employees_reporting_manager_id", Employee.reporting_manager_id)

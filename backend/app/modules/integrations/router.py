@@ -195,8 +195,8 @@ def list_events(db: Session = Depends(get_db)):
     )
     stats = {r[0]: {"deliveries": r[1], "last_delivery_at": _iso(r[2])} for r in rows}
     subs = {k: 0 for k in EVENT_CATALOG}
-    for w in db.query(Webhook).all():
-        for ev in (w.events or []):
+    for (events,) in db.query(Webhook.events):          # only the events column is needed
+        for ev in (events or []):
             if ev in subs:
                 subs[ev] += 1
     return {
@@ -233,16 +233,23 @@ def list_applications(db: Session = Depends(get_db)):
             })
     apps.append(hub_apps.stripe_app(db))
 
-    total = db.query(Webhook).count()
-    active = db.query(Webhook).filter(Webhook.is_active.is_(True)).count()
-    delivered = db.query(WebhookDelivery).filter(WebhookDelivery.status == "success").count()
-    attempted = db.query(WebhookDelivery).count()
+    # One pass per table (conditional counts) instead of five separate COUNT queries.
+    total, active, auto_disabled = db.query(
+        func.count(Webhook.id),
+        func.coalesce(func.sum(case((Webhook.is_active.is_(True), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((Webhook.auto_disabled.is_(True), 1), else_=0)), 0),
+    ).one()
+    attempted, delivered = db.query(
+        func.count(WebhookDelivery.id),
+        func.coalesce(func.sum(case((WebhookDelivery.status == "success", 1), else_=0)), 0),
+    ).one()
+    total, active, auto_disabled, attempted, delivered = (int(v) for v in (total, active, auto_disabled, attempted, delivered))
     last_delivery = db.query(WebhookDelivery).order_by(WebhookDelivery.id.desc()).first()
     apps.append({
         "key": "webhooks", "name": "Outbound Webhooks",
         "status": f"{active} active" if active else "Not connected",
         "href": None,
-        "details": {"registered": total, "auto_disabled": db.query(Webhook).filter(Webhook.auto_disabled.is_(True)).count()},
+        "details": {"registered": total, "auto_disabled": auto_disabled},
         "metrics": {"deliveries_attempted": attempted, "deliveries_succeeded": delivered},
         "last_activity_at": _iso(last_delivery.created_at if last_delivery else None),
         "last_activity": None,
@@ -252,9 +259,29 @@ def list_applications(db: Session = Depends(get_db)):
     return {"applications": apps}
 
 
+WEBHOOKS_MAX = 200
+
+
 @hub_router.get("/webhooks")
-def list_webhooks(db: Session = Depends(get_db)):
-    return {"webhooks": [_webhook_view(w) for w in db.query(Webhook).order_by(Webhook.id.desc()).all()]}
+def list_webhooks(
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=WEBHOOKS_MAX),
+    db: Session = Depends(get_db),
+):
+    """{"webhooks": [...]} newest first. Without page/page_size it is the list the hub page reads today, capped at
+    WEBHOOKS_MAX; with them it is that page plus total/page/page_size (the super-admin convention)."""
+    q = db.query(Webhook).order_by(Webhook.id.desc())
+    if page is None and page_size is None:
+        rows = q.limit(WEBHOOKS_MAX + 1).all()
+        if len(rows) > WEBHOOKS_MAX:
+            import logging
+            logging.getLogger("zoiko").warning("[hub] GET /super-admin/hub/webhooks hit the %d-row cap; pass page/page_size.", WEBHOOKS_MAX)
+        return {"webhooks": [_webhook_view(w) for w in rows[:WEBHOOKS_MAX]]}
+    page = page or 1
+    page_size = page_size or 25
+    total = q.order_by(None).count()
+    rows = q.offset((page - 1) * page_size).limit(page_size).all()
+    return {"webhooks": [_webhook_view(w) for w in rows], "total": total, "page": page, "page_size": page_size}
 
 
 @hub_router.post("/webhooks", status_code=201)

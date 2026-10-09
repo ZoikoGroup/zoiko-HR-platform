@@ -126,3 +126,9 @@ class WorkflowExecution(Base):
     finished_at = Column(DateTime, nullable=True)
 
     __table_args__ = (Index("ix_workflow_exec_due", "status", "resume_at"),)
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_workflow_workspaces_organization_id", WorkflowWorkspace.organization_id)

@@ -42,6 +42,7 @@ source would say.
 """
 
 import logging
+import time
 
 from cachetools import TTLCache
 
@@ -52,15 +53,26 @@ logger = logging.getLogger("zoiko.cache")
 _TTL_SECONDS = 120
 
 # ── In-process backend (default; used by local dev, tests, CI) ─────────────
+# The TTLCache itself uses the longest TTL (120s); shorter per-key TTLs are
+# enforced by storing (value, expires_monotonic) and checking on read, so one
+# cache can serve both the 2-minute entitlement decisions and the 5/30-second
+# org-access decisions without a cache per TTL.
 _local_cache = TTLCache(maxsize=1024, ttl=_TTL_SECONDS)
 
 
 class _InProcessCache:
     def get(self, key: str):
-        return _local_cache.get(key)
+        item = _local_cache.get(key)
+        if item is None:
+            return None
+        value, expires_at = item
+        if time.monotonic() > expires_at:
+            _local_cache.pop(key, None)
+            return None
+        return value
 
-    def set(self, key: str, value) -> None:
-        _local_cache[key] = value
+    def set(self, key: str, value, ttl=None) -> None:
+        _local_cache[key] = (value, time.monotonic() + (ttl if ttl is not None else _TTL_SECONDS))
 
     def invalidate_prefix(self, pattern: str) -> None:
         for k in [k for k in _local_cache.keys() if k.startswith(pattern)]:
@@ -90,11 +102,11 @@ class _RedisCache:
             logger.warning("[cache] Redis value for '%s' was not valid JSON, discarding: %s", key, exc)
             return None
 
-    def set(self, key: str, value) -> None:
+    def set(self, key: str, value, ttl=None) -> None:
         import json
 
         try:
-            self._client.set(key, json.dumps(value), ex=_TTL_SECONDS)
+            self._client.set(key, json.dumps(value), ex=ttl if ttl is not None else _TTL_SECONDS)
         except Exception as exc:
             logger.warning("[cache] Redis SET failed for '%s' — decision will not be cached: %s", key, exc)
 
@@ -138,9 +150,18 @@ def get_cached(key: str):
     return _backend.get(key)
 
 
-def set_cached(key: str, value) -> None:
-    _backend.set(key, value)
+def set_cached(key: str, value, ttl: int | None = None) -> None:
+    """Store a value with a per-key TTL. `ttl=None` uses the module default (120s)."""
+    _backend.set(key, value, ttl=ttl)
 
 
 def invalidate_cache(pattern: str) -> None:
     _backend.invalidate_prefix(pattern)
+
+
+def clear_caches() -> None:
+    """Drop every in-process cache entry. Used by the test suite to isolate
+    auth-path state changes between tests. Redis is intentionally NOT flushed
+    here (a shared instance may hold other tenants' keys); target Redis entries
+    with invalidate_cache(prefix) instead."""
+    _local_cache.clear()

@@ -9,9 +9,10 @@ import os
 import re
 from datetime import date, datetime, timedelta
 from typing import List, Optional
-from sqlalchemy import func, or_, case, and_
+from sqlalchemy import func, or_, case, and_, false
+from app.core.pagination import legacy_list, list_or_page, page_of, wants_page
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 logger = logging.getLogger("zoiko")
 
@@ -706,15 +707,22 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
     if not include_inactive:
         query = query.filter(Department.is_active == True)
     departments = query.all()
-    
+
+    # Active headcount for every listed department in one grouped query (was one COUNT per department).
+    counts = {}
+    dept_ids = [d.id for d in departments]
+    if dept_ids:
+        counts = dict(
+            db.query(Employee.department_id, func.count(Employee.id))
+            .filter(Employee.department_id.in_(dept_ids), Employee.status == EmployeeStatus.ACTIVE)
+            .group_by(Employee.department_id)
+            .all()
+        )
+
     result = []
     for dept in departments:
-        # Dynamically append active structural stats contextually 
-        active_emp_count = db.query(Employee).filter(
-            Employee.department_id == dept.id,
-            Employee.status == EmployeeStatus.ACTIVE
-        ).count()
-        
+        active_emp_count = counts.get(dept.id, 0)
+
         dept_dict = {
             "id": dept.id,
             "name": dept.name,
@@ -1665,7 +1673,10 @@ def get_leave_requests(
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
     department_id: Optional[int] = None,
-) -> list[dict]:
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+):
+    """Leave requests, newest first: a plain list (capped) without page/per_page, else a page dict."""
     query = (
         db.query(
             LeaveRequest,
@@ -1695,7 +1706,9 @@ def get_leave_requests(
 
     # created_at has second precision, so two requests applied in the same second tie;
     # the id tiebreak keeps the newest request first (ZHR-93).
-    results = query.order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc()).all()
+    ordered = query.order_by(LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
+    paged = page_of(ordered, page, per_page) if wants_page(page, per_page) else None
+    results = paged["items"] if paged else legacy_list(ordered, "/hr/leaves")
 
     reviewers = _rows_by_id(db, Employee, [row[0].reviewed_by for row in results])
     leave_requests = []
@@ -1734,6 +1747,8 @@ def get_leave_requests(
             "updated_at": lr.updated_at,
         })
 
+    if paged:
+        return {**paged, "items": leave_requests}
     return leave_requests
 
 
@@ -2434,8 +2449,8 @@ def create_salary_revision(db: Session, data: SalaryRevisionCreate, org_id: int)
     db.refresh(revision)
     return revision
 
-def get_salary_revisions(db: Session, org_id: int) -> list[SalaryRevision]:
-    return db.query(SalaryRevision).filter(SalaryRevision.organization_id == org_id).all()
+def get_salary_revisions(db: Session, org_id: int, page: Optional[int] = None, per_page: Optional[int] = None):
+    return list_or_page(db.query(SalaryRevision).filter(SalaryRevision.organization_id == org_id), page, per_page, label="/hr/compensation/revisions")
 
 
 def update_salary_revision(db: Session, revision_id: int, data, org_id: int) -> SalaryRevision:
@@ -2634,8 +2649,8 @@ def get_compliance_reports(db: Session = None) -> list[dict]:
 def get_compliance_dashboard(db: Session, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import ComplianceViolation, Audit, RequestStatus
     base_records = db.query(ComplianceRecord)
-    base_violations = db.query(ComplianceViolation)
-    base_audits = db.query(Audit)
+    base_violations = db.query(ComplianceViolation).filter(*_org_scope(ComplianceViolation, organization_id))
+    base_audits = db.query(Audit).filter(*_org_scope(Audit, organization_id))
     if organization_id:
         base_records = base_records.filter(ComplianceRecord.organization_id == organization_id)
     total_policies = base_records.with_entities(ComplianceRecord.policy_name).distinct().count()
@@ -2654,19 +2669,24 @@ def get_compliance_dashboard(db: Session, organization_id: Optional[int] = None)
 
 # ── Audits ──────────────────────────────────────────────────────────
 
-def get_audits(db: Session, status: Optional[str] = None, organization_id: Optional[int] = None) -> list[dict]:
+def _org_scope(model, organization_id):
+    """Filter for an organization's own rows. organization_id None = platform super admin (no filter)."""
+    return [model.organization_id == organization_id] if organization_id is not None else []
+
+
+def get_audits(db: Session, status: Optional[str] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     from app.modules.hr.models import Audit
-    q = db.query(Audit)
+    q = db.query(Audit).filter(*_org_scope(Audit, organization_id))
     if status:
         q = q.filter(Audit.status == status)
-    rows = q.order_by(Audit.created_at.desc()).all()
-    return [{"id": r.id, "title": r.title, "auditor": r.auditor, "score": r.score, "status": r.status, "created_at": r.created_at} for r in rows]
+    return list_or_page(q.order_by(Audit.created_at.desc()), page, per_page,
+                        label="compliance:Audit", serialize=lambda r: {"id": r.id, "title": r.title, "auditor": r.auditor, "score": r.score, "status": r.status, "created_at": r.created_at})
 
 
 def create_audit(db: Session, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import Audit
     payload = data.model_dump()
-    payload.pop("organization_id", None)
+    payload["organization_id"] = organization_id
     audit = Audit(**payload)
     db.add(audit)
     db.commit()
@@ -2677,7 +2697,7 @@ def create_audit(db: Session, data, organization_id: Optional[int] = None) -> di
 def get_audit_by_id(db: Session, audit_id: int, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import Audit
     from app.core.exceptions import NotFoundException
-    r = db.query(Audit).filter(Audit.id == audit_id).first()
+    r = db.query(Audit).filter(*_org_scope(Audit, organization_id)).filter(Audit.id == audit_id).first()
     if not r:
         raise NotFoundException("Audit", audit_id)
     return {"id": r.id, "title": r.title, "auditor": r.auditor, "score": r.score, "status": r.status, "created_at": r.created_at}
@@ -2686,7 +2706,7 @@ def get_audit_by_id(db: Session, audit_id: int, organization_id: Optional[int] =
 def update_audit(db: Session, audit_id: int, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import Audit
     from app.core.exceptions import NotFoundException
-    r = db.query(Audit).filter(Audit.id == audit_id).first()
+    r = db.query(Audit).filter(*_org_scope(Audit, organization_id)).filter(Audit.id == audit_id).first()
     if not r:
         raise NotFoundException("Audit", audit_id)
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -2699,7 +2719,7 @@ def update_audit(db: Session, audit_id: int, data, organization_id: Optional[int
 def delete_audit(db: Session, audit_id: int, organization_id: Optional[int] = None) -> None:
     from app.modules.hr.models import Audit
     from app.core.exceptions import NotFoundException
-    r = db.query(Audit).filter(Audit.id == audit_id).first()
+    r = db.query(Audit).filter(*_org_scope(Audit, organization_id)).filter(Audit.id == audit_id).first()
     if not r:
         raise NotFoundException("Audit", audit_id)
     db.delete(r)
@@ -2708,17 +2728,17 @@ def delete_audit(db: Session, audit_id: int, organization_id: Optional[int] = No
 
 # ── Regulatory Requirements ─────────────────────────────────────────
 
-def get_regulatory_requirements(db: Session, organization_id: Optional[int] = None) -> list[dict]:
+def get_regulatory_requirements(db: Session, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     from app.modules.hr.models import RegulatoryRequirement
-    q = db.query(RegulatoryRequirement)
-    rows = q.order_by(RegulatoryRequirement.created_at.desc()).all()
-    return [{"id": r.id, "name": r.name, "jurisdiction": r.jurisdiction, "category": r.category, "status": r.status} for r in rows]
+    q = db.query(RegulatoryRequirement).filter(*_org_scope(RegulatoryRequirement, organization_id))
+    return list_or_page(q.order_by(RegulatoryRequirement.created_at.desc()), page, per_page,
+                        label="compliance:RegulatoryRequirement", serialize=lambda r: {"id": r.id, "name": r.name, "jurisdiction": r.jurisdiction, "category": r.category, "status": r.status})
 
 
 def create_regulatory_requirement(db: Session, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import RegulatoryRequirement
     payload = data.model_dump()
-    payload.pop("organization_id", None)
+    payload["organization_id"] = organization_id
     r = RegulatoryRequirement(**payload)
     db.add(r)
     db.commit()
@@ -2728,19 +2748,19 @@ def create_regulatory_requirement(db: Session, data, organization_id: Optional[i
 
 # ── Risk Assessments ────────────────────────────────────────────────
 
-def get_risk_assessments(db: Session, status: Optional[str] = None, organization_id: Optional[int] = None) -> list[dict]:
+def get_risk_assessments(db: Session, status: Optional[str] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     from app.modules.hr.models import RiskAssessment
-    q = db.query(RiskAssessment)
+    q = db.query(RiskAssessment).filter(*_org_scope(RiskAssessment, organization_id))
     if status:
         q = q.filter(RiskAssessment.status == status)
-    rows = q.order_by(RiskAssessment.created_at.desc()).all()
-    return [{"id": r.id, "title": r.title, "category": r.category, "risk_score": r.risk_score, "mitigation_strategy": r.mitigation_strategy, "mitigation": r.mitigation_strategy, "status": r.status} for r in rows]
+    return list_or_page(q.order_by(RiskAssessment.created_at.desc()), page, per_page,
+                        label="compliance:RiskAssessment", serialize=lambda r: {"id": r.id, "title": r.title, "category": r.category, "risk_score": r.risk_score, "mitigation_strategy": r.mitigation_strategy, "mitigation": r.mitigation_strategy, "status": r.status})
 
 
 def create_risk_assessment(db: Session, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import RiskAssessment
     payload = data.model_dump()
-    payload.pop("organization_id", None)
+    payload["organization_id"] = organization_id
     r = RiskAssessment(**payload)
     db.add(r)
     db.commit()
@@ -2751,7 +2771,7 @@ def create_risk_assessment(db: Session, data, organization_id: Optional[int] = N
 def get_risk_assessment_by_id(db: Session, risk_id: int, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import RiskAssessment
     from app.core.exceptions import NotFoundException
-    r = db.query(RiskAssessment).filter(RiskAssessment.id == risk_id).first()
+    r = db.query(RiskAssessment).filter(*_org_scope(RiskAssessment, organization_id)).filter(RiskAssessment.id == risk_id).first()
     if not r:
         raise NotFoundException("RiskAssessment", risk_id)
     return {"id": r.id, "title": r.title, "category": r.category, "risk_score": r.risk_score, "mitigation_strategy": r.mitigation_strategy, "mitigation": r.mitigation_strategy, "status": r.status}
@@ -2760,7 +2780,7 @@ def get_risk_assessment_by_id(db: Session, risk_id: int, organization_id: Option
 def update_risk_assessment(db: Session, risk_id: int, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import RiskAssessment
     from app.core.exceptions import NotFoundException
-    r = db.query(RiskAssessment).filter(RiskAssessment.id == risk_id).first()
+    r = db.query(RiskAssessment).filter(*_org_scope(RiskAssessment, organization_id)).filter(RiskAssessment.id == risk_id).first()
     if not r:
         raise NotFoundException("RiskAssessment", risk_id)
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -2773,7 +2793,7 @@ def update_risk_assessment(db: Session, risk_id: int, data, organization_id: Opt
 def delete_risk_assessment(db: Session, risk_id: int, organization_id: Optional[int] = None) -> None:
     from app.modules.hr.models import RiskAssessment
     from app.core.exceptions import NotFoundException
-    r = db.query(RiskAssessment).filter(RiskAssessment.id == risk_id).first()
+    r = db.query(RiskAssessment).filter(*_org_scope(RiskAssessment, organization_id)).filter(RiskAssessment.id == risk_id).first()
     if not r:
         raise NotFoundException("RiskAssessment", risk_id)
     db.delete(r)
@@ -2786,29 +2806,25 @@ def get_compliance_violations(
     db: Session,
     status: Optional[str] = None,
     severity: Optional[str] = None,
-    organization_id: Optional[int] = None,
-) -> list[dict]:
+    organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     from app.modules.hr.models import ComplianceViolation
-    q = db.query(ComplianceViolation)
+    q = db.query(ComplianceViolation).filter(*_org_scope(ComplianceViolation, organization_id))
     if status:
         q = q.filter(ComplianceViolation.status == status)
     if severity:
         q = q.filter(ComplianceViolation.severity == severity)
-    rows = q.order_by(ComplianceViolation.created_at.desc()).all()
-    return [
-        {
+    return list_or_page(q.order_by(ComplianceViolation.created_at.desc()), page, per_page,
+                        label="compliance:ComplianceViolation", serialize=lambda r: {
             "id": r.id, "title": r.title, "violation": r.violation, "policy": r.policy,
             "employee": r.employee, "reported_by": r.reported_by, "severity": r.severity,
             "status": r.status, "date": r.date, "created_at": r.created_at,
-        }
-        for r in rows
-    ]
+        })
 
 
 def create_compliance_violation(db: Session, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import ComplianceViolation
     payload = data.model_dump()
-    payload.pop("organization_id", None)
+    payload["organization_id"] = organization_id
     r = ComplianceViolation(**payload)
     db.add(r)
     db.commit()
@@ -2823,7 +2839,7 @@ def create_compliance_violation(db: Session, data, organization_id: Optional[int
 def get_compliance_violation_by_id(db: Session, violation_id: int, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import ComplianceViolation
     from app.core.exceptions import NotFoundException
-    r = db.query(ComplianceViolation).filter(ComplianceViolation.id == violation_id).first()
+    r = db.query(ComplianceViolation).filter(*_org_scope(ComplianceViolation, organization_id)).filter(ComplianceViolation.id == violation_id).first()
     if not r:
         raise NotFoundException("ComplianceViolation", violation_id)
     return {
@@ -2836,7 +2852,7 @@ def get_compliance_violation_by_id(db: Session, violation_id: int, organization_
 def update_compliance_violation(db: Session, violation_id: int, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import ComplianceViolation
     from app.core.exceptions import NotFoundException
-    r = db.query(ComplianceViolation).filter(ComplianceViolation.id == violation_id).first()
+    r = db.query(ComplianceViolation).filter(*_org_scope(ComplianceViolation, organization_id)).filter(ComplianceViolation.id == violation_id).first()
     if not r:
         raise NotFoundException("ComplianceViolation", violation_id)
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -2853,7 +2869,7 @@ def update_compliance_violation(db: Session, violation_id: int, data, organizati
 def delete_compliance_violation(db: Session, violation_id: int, organization_id: Optional[int] = None) -> None:
     from app.modules.hr.models import ComplianceViolation
     from app.core.exceptions import NotFoundException
-    r = db.query(ComplianceViolation).filter(ComplianceViolation.id == violation_id).first()
+    r = db.query(ComplianceViolation).filter(*_org_scope(ComplianceViolation, organization_id)).filter(ComplianceViolation.id == violation_id).first()
     if not r:
         raise NotFoundException("ComplianceViolation", violation_id)
     db.delete(r)
@@ -2866,26 +2882,22 @@ def get_corrective_actions(
     db: Session,
     violation_id: Optional[int] = None,
     assigned_to: Optional[str] = None,
-    organization_id: Optional[int] = None,
-) -> list[dict]:
+    organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     from app.modules.hr.models import CorrectiveAction
-    q = db.query(CorrectiveAction)
+    q = db.query(CorrectiveAction).filter(*_org_scope(CorrectiveAction, organization_id))
     if violation_id:
         q = q.filter(CorrectiveAction.violation_id == violation_id)
     if assigned_to:
         q = q.filter(CorrectiveAction.assigned_to == assigned_to)
-    rows = q.order_by(CorrectiveAction.created_at.desc()).all()
-    return [
-        {"id": r.id, "title": r.title, "violation_id": r.violation_id, "assigned_to": r.assigned_to,
-         "status": r.status, "deadline": r.deadline}
-        for r in rows
-    ]
+    return list_or_page(q.order_by(CorrectiveAction.created_at.desc()), page, per_page,
+                        label="compliance:CorrectiveAction", serialize=lambda r: {"id": r.id, "title": r.title, "violation_id": r.violation_id, "assigned_to": r.assigned_to,
+         "status": r.status, "deadline": r.deadline})
 
 
 def create_corrective_action(db: Session, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import CorrectiveAction
     payload = data.model_dump()
-    payload.pop("organization_id", None)
+    payload["organization_id"] = organization_id
     r = CorrectiveAction(**payload)
     db.add(r)
     db.commit()
@@ -2897,7 +2909,7 @@ def create_corrective_action(db: Session, data, organization_id: Optional[int] =
 def get_corrective_action_by_id(db: Session, action_id: int, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import CorrectiveAction
     from app.core.exceptions import NotFoundException
-    r = db.query(CorrectiveAction).filter(CorrectiveAction.id == action_id).first()
+    r = db.query(CorrectiveAction).filter(*_org_scope(CorrectiveAction, organization_id)).filter(CorrectiveAction.id == action_id).first()
     if not r:
         raise NotFoundException("CorrectiveAction", action_id)
     return {"id": r.id, "title": r.title, "violation_id": r.violation_id, "assigned_to": r.assigned_to,
@@ -2907,7 +2919,7 @@ def get_corrective_action_by_id(db: Session, action_id: int, organization_id: Op
 def update_corrective_action(db: Session, action_id: int, data, organization_id: Optional[int] = None) -> dict:
     from app.modules.hr.models import CorrectiveAction
     from app.core.exceptions import NotFoundException
-    r = db.query(CorrectiveAction).filter(CorrectiveAction.id == action_id).first()
+    r = db.query(CorrectiveAction).filter(*_org_scope(CorrectiveAction, organization_id)).filter(CorrectiveAction.id == action_id).first()
     if not r:
         raise NotFoundException("CorrectiveAction", action_id)
     for field, value in data.model_dump(exclude_unset=True).items():
@@ -2921,7 +2933,7 @@ def update_corrective_action(db: Session, action_id: int, data, organization_id:
 def delete_corrective_action(db: Session, action_id: int, organization_id: Optional[int] = None) -> None:
     from app.modules.hr.models import CorrectiveAction
     from app.core.exceptions import NotFoundException
-    r = db.query(CorrectiveAction).filter(CorrectiveAction.id == action_id).first()
+    r = db.query(CorrectiveAction).filter(*_org_scope(CorrectiveAction, organization_id)).filter(CorrectiveAction.id == action_id).first()
     if not r:
         raise NotFoundException("CorrectiveAction", action_id)
     db.delete(r)
@@ -2941,13 +2953,13 @@ def create_engagement_survey(db: Session, data: EngagementSurveyCreate, organiza
     return survey
 
 
-def get_engagement_surveys(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[EngagementSurvey]:
+def get_engagement_surveys(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(EngagementSurvey)
     if organization_id:
         query = query.filter(EngagementSurvey.organization_id == organization_id)
     if employee_id:
         query = query.filter(EngagementSurvey.employee_id == employee_id)
-    return query.order_by(EngagementSurvey.created_at.desc()).all()
+    return list_or_page(query.order_by(EngagementSurvey.created_at.desc()), page, per_page, label="/hr/engagement")
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -2963,13 +2975,13 @@ def create_ess_request(db: Session, data: EssRequestCreate, organization_id: int
     return request
 
 
-def get_ess_requests(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[EssRequest]:
+def get_ess_requests(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(EssRequest)
     if organization_id:
         query = query.filter(EssRequest.organization_id == organization_id)
     if employee_id:
         query = query.filter(EssRequest.employee_id == employee_id)
-    return query.order_by(EssRequest.created_at.desc()).all()
+    return list_or_page(query.order_by(EssRequest.created_at.desc()), page, per_page, label="/hr/ess")
 
 
 def update_ess_request(db: Session, request_id: int, data, organization_id: int) -> EssRequest:
@@ -3066,6 +3078,7 @@ def get_onboarding_dashboard(db: Session, organization_id: Optional[int] = None)
 
     upcoming = (
         live.filter(OnboardingNewHire.joining_date >= func.current_date(), OnboardingNewHire.status.notin_(["cancelled", "completed"]))
+        .options(joinedload(OnboardingNewHire.department))          # read per joiner below; was one query each
         .order_by(OnboardingNewHire.joining_date).limit(10).all()
     )
     recent = recent_q.order_by(OnboardingActivity.created_at.desc()).limit(10).all()
@@ -3112,7 +3125,7 @@ def get_onboarding_analytics(db: Session, organization_id: Optional[int] = None)
     }
 
 # NEW HIRES SERVICE
-def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Optional[str] = None, status: Optional[str] = None) -> list[OnboardingNewHire]:
+def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Optional[str] = None, status: Optional[str] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(OnboardingNewHire).filter(OnboardingNewHire.is_deleted == False)
     if organization_id:
         query = query.filter(OnboardingNewHire.organization_id == organization_id)
@@ -3124,7 +3137,7 @@ def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Op
             (OnboardingNewHire.email.ilike(f"%{search}%")) |
             (OnboardingNewHire.position.ilike(f"%{search}%"))
         )
-    return query.order_by(OnboardingNewHire.created_at.desc()).all()
+    return list_or_page(query.order_by(OnboardingNewHire.created_at.desc()), page, per_page, label="/hr/onboarding/new-hires")
 
 def get_new_hire_by_id(db: Session, new_hire_id: int, organization_id: Optional[int] = None) -> OnboardingNewHire:
     query = db.query(OnboardingNewHire).filter(OnboardingNewHire.id == new_hire_id, OnboardingNewHire.is_deleted == False)
@@ -3237,7 +3250,7 @@ def delete_new_hire(db: Session, new_hire_id: int, organization_id: int) -> None
     log_onboarding_activity(db, new_hire.id, "Delete New Hire", f"Soft deleted new hire record of {new_hire.candidate_name}.", organization_id)
 
 # PRE-ONBOARDING SERVICE (TASKS)
-def get_preboarding_tasks(db: Session, organization_id: Optional[int] = None, new_hire_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[OnboardingPreboardingTask]:
+def get_preboarding_tasks(db: Session, organization_id: Optional[int] = None, new_hire_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(OnboardingPreboardingTask).filter(OnboardingPreboardingTask.is_deleted == False)
     if organization_id:
         query = query.filter(OnboardingPreboardingTask.organization_id == organization_id)
@@ -3248,7 +3261,7 @@ def get_preboarding_tasks(db: Session, organization_id: Optional[int] = None, ne
             (OnboardingPreboardingTask.employee_id == employee_id) |
             (OnboardingPreboardingTask.onboarding_new_hire_id == employee_id)
         )
-    return query.order_by(OnboardingPreboardingTask.created_at.desc()).all()
+    return list_or_page(query.order_by(OnboardingPreboardingTask.created_at.desc()), page, per_page, label="/onboarding/preboarding-tasks")
 
 def create_preboarding_task(db: Session, data: OnboardingPreboardingTaskCreate, organization_id: int) -> OnboardingPreboardingTask:
     task = OnboardingPreboardingTask(**data.model_dump(exclude={"tenant_id"}))
@@ -3282,7 +3295,7 @@ def delete_preboarding_task(db: Session, task_id: int, organization_id: int) -> 
 
 
 # CHECKLISTS SERVICE
-def get_checklists(db: Session, organization_id: Optional[int] = None, is_template: bool = True, new_hire_id: Optional[int] = None, category: Optional[str] = None) -> list[OnboardingChecklist]:
+def get_checklists(db: Session, organization_id: Optional[int] = None, is_template: bool = True, new_hire_id: Optional[int] = None, category: Optional[str] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(OnboardingChecklist).filter(OnboardingChecklist.is_deleted == False)
     if organization_id:
         query = query.filter(OnboardingChecklist.organization_id == organization_id)
@@ -3294,7 +3307,7 @@ def get_checklists(db: Session, organization_id: Optional[int] = None, is_templa
             query = query.filter(OnboardingChecklist.onboarding_new_hire_id == new_hire_id)
     if category:
         query = query.filter(OnboardingChecklist.category == category)
-    return query.order_by(OnboardingChecklist.created_at.desc()).all()
+    return list_or_page(query.order_by(OnboardingChecklist.created_at.desc()), page, per_page, label="/onboarding/checklist-assignments")
 
 def create_checklist(db: Session, data: OnboardingChecklistCreate, organization_id: int) -> OnboardingChecklist:
     checklist = OnboardingChecklist(
@@ -3400,11 +3413,11 @@ def assign_checklist_template(db: Session, new_hire_id: int, template_id: int, o
     return checklist
 
 # ORIENTATION SERVICE
-def get_orientations(db: Session, organization_id: Optional[int] = None) -> list[OnboardingOrientation]:
+def get_orientations(db: Session, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(OnboardingOrientation).filter(OnboardingOrientation.is_deleted == False)
     if organization_id:
         query = query.filter(OnboardingOrientation.organization_id == organization_id)
-    return query.order_by(OnboardingOrientation.date.desc()).all()
+    return list_or_page(query.order_by(OnboardingOrientation.date.desc()), page, per_page, label="/onboarding/orientation-sessions")
 
 def _check_orientation_date(new_date) -> None:
     """A session cannot be put on a day that has already passed (one day of grace covers time zones)."""
@@ -3719,13 +3732,13 @@ def create_performance_goal(db: Session, data: PerformanceGoalCreate, organizati
     return goal
 
 
-def get_performance_goals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[PerformanceGoal]:
+def get_performance_goals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     q = db.query(PerformanceGoal)
     if organization_id:
         q = q.filter(PerformanceGoal.organization_id == organization_id)
     if employee_id:
         q = q.filter(PerformanceGoal.employee_id == employee_id)
-    return q.order_by(PerformanceGoal.created_at.desc()).all()
+    return list_or_page(q.order_by(PerformanceGoal.created_at.desc()), page, per_page, label="/hr/performance/goals")
 
 
 def get_performance_goal(db: Session, goal_id: int, organization_id: Optional[int] = None) -> PerformanceGoal:
@@ -3761,7 +3774,7 @@ def create_performance_kpi(db: Session, data: PerformanceKpiCreate, organization
     return kpi
 
 
-def get_performance_kpis(db: Session, organization_id: Optional[int] = None, goal_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[PerformanceKpi]:
+def get_performance_kpis(db: Session, organization_id: Optional[int] = None, goal_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     q = db.query(PerformanceKpi)
     if organization_id:
         q = q.filter(PerformanceKpi.organization_id == organization_id)
@@ -3769,7 +3782,7 @@ def get_performance_kpis(db: Session, organization_id: Optional[int] = None, goa
         q = q.filter(PerformanceKpi.goal_id == goal_id)
     if employee_id:
         q = q.filter(PerformanceKpi.employee_id == employee_id)
-    return q.order_by(PerformanceKpi.created_at.desc()).all()
+    return list_or_page(q.order_by(PerformanceKpi.created_at.desc()), page, per_page, label="/hr/performance/kpis")
 
 
 def get_performance_kpi(db: Session, kpi_id: int, organization_id: Optional[int] = None) -> PerformanceKpi:
@@ -3811,7 +3824,9 @@ def get_performance_feedback(
     employee_id: Optional[int] = None,
     reviewer_id: Optional[int] = None,
     review_id: Optional[int] = None,
-) -> list[PerformanceFeedback]:
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+):
     q = db.query(PerformanceFeedback)
     if organization_id:
         q = q.filter(PerformanceFeedback.organization_id == organization_id)
@@ -3821,7 +3836,7 @@ def get_performance_feedback(
         q = q.filter(PerformanceFeedback.reviewer_id == reviewer_id)
     if review_id:
         q = q.filter(PerformanceFeedback.review_id == review_id)
-    return q.order_by(PerformanceFeedback.submitted_at.desc()).all()
+    return list_or_page(q.order_by(PerformanceFeedback.submitted_at.desc()), page, per_page, label="/hr/performance/feedback")
 
 
 def delete_performance_feedback(db: Session, fb_id: int, organization_id: Optional[int] = None) -> None:
@@ -3858,13 +3873,13 @@ def create_appraisal(db: Session, data: AppraisalCreate, organization_id: Option
     return appraisal
 
 
-def get_appraisals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None) -> list[Appraisal]:
+def get_appraisals(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     q = db.query(Appraisal)
     if organization_id:
         q = q.filter(Appraisal.organization_id == organization_id)
     if employee_id:
         q = q.filter(Appraisal.employee_id == employee_id)
-    return q.order_by(Appraisal.created_at.desc()).all()
+    return list_or_page(q.order_by(Appraisal.created_at.desc()), page, per_page, label="/hr/performance/appraisals")
 
 
 def get_appraisal(db: Session, appraisal_id: int, organization_id: Optional[int] = None) -> Appraisal:
@@ -4016,7 +4031,8 @@ def create_performance_review(db: Session, data: PerformanceReviewCreate, organi
 
 def get_performance_reviews(
     db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None, involved_id: Optional[int] = None,
-) -> list[PerformanceReview]:
+    page: Optional[int] = None, per_page: Optional[int] = None,
+):
     """involved_id limits the list to reviews where that person is the employee or one of the reviewers."""
     query = db.query(PerformanceReview)
     if organization_id:
@@ -4028,7 +4044,7 @@ def get_performance_reviews(
             PerformanceReview.employee_id == involved_id, PerformanceReview.reviewer_id == involved_id,
             PerformanceReview.hr_reviewer_id == involved_id, PerformanceReview.admin_reviewer_id == involved_id,
         ))
-    return query.order_by(PerformanceReview.created_at.desc(), PerformanceReview.id.desc()).all()
+    return list_or_page(query.order_by(PerformanceReview.created_at.desc(), PerformanceReview.id.desc()), page, per_page, label="/hr/performance")
 
 
 def get_performance_review(db: Session, review_id: int, organization_id: Optional[int] = None) -> PerformanceReview:
@@ -5570,7 +5586,9 @@ def get_hr_documents(
     exclude_categories: Optional[str] = None,
     folder_id: Optional[int] = None,
     current_user=None,
-) -> list:
+    page: Optional[int] = None,
+    per_page: Optional[int] = None,
+):
     """
     Return all non-deleted HR documents, with optional filtering.
     Resolves employee_name, employee_id_str, employee_code, legacy_code and
@@ -5635,7 +5653,7 @@ def get_hr_documents(
     if employee_id_str:
         emp_ids = resolve_employee_ids_by_identifier(db, employee_id_str, organization_id)
         if not emp_ids:
-            return []
+            return page_of(query.filter(false()), page, per_page) if wants_page(page, per_page) else []
         query = query.filter(HrDocument.employee_id.in_(emp_ids))
     if search:
         term = f"%{search.strip()}%"
@@ -5649,7 +5667,10 @@ def get_hr_documents(
         else:
             query = query.filter(text_clause)
 
-    docs = query.order_by(HrDocument.created_at.desc()).all()
+    ordered = query.order_by(HrDocument.created_at.desc())
+    # pages need a total order (id breaks created_at ties); the plain list keeps its original ordering
+    paged = page_of(ordered.order_by(HrDocument.id.desc()), page, per_page) if wants_page(page, per_page) else None
+    docs = paged["items"] if paged else legacy_list(ordered, "/hr/documents")
 
     # Attach convenience name fields without a JOIN (keeps it simple)
     person_ids = {pid for doc in docs for pid in (doc.employee_id, doc.uploaded_by) if pid}
@@ -5690,6 +5711,8 @@ def get_hr_documents(
 
         result.append(d)
 
+    if paged:
+        return {**paged, "items": result}
     return result
 
 

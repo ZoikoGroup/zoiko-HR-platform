@@ -50,6 +50,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
+from app.core.pagination import Page
 from app.core.rate_limiter import limiter
 
 from app.modules.hr import recruitment_service
@@ -549,16 +550,19 @@ def create_application(
 
 @recruitment_router.get(
     "/applications",
-    response_model=list[ApplicationResponse],
+    response_model=list[ApplicationResponse] | Page[ApplicationResponse],
     summary="List applications",
 )
 def list_applications(
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     candidate_id: Optional[int] = Query(None, description="Filter by candidate ID"),
     requisition_id: Optional[int] = Query(None, description="Filter by requisition ID"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return recruitment_service.get_applications(db, current_user.organization_id, candidate_id, requisition_id)
+    return recruitment_service.get_applications(db, current_user.organization_id, candidate_id, requisition_id,
+                                                page=page, per_page=per_page)
 
 
 @recruitment_router.put(

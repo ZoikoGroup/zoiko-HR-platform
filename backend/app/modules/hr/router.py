@@ -31,6 +31,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
+from app.core.pagination import Page
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -470,10 +471,12 @@ def leave_statistics(
 
 @hr_router.get(
     "/leaves",
-    response_model=list[LeaveRequestResponse],
+    response_model=list[LeaveRequestResponse] | Page[LeaveRequestResponse],
     summary="List leave requests",
 )
 def list_leave_requests(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
@@ -485,7 +488,8 @@ def list_leave_requests(
 ):
     if current_user.role == UserRole.EMPLOYEE:
         employee_id = current_user.id
-    return service.get_leave_requests(db, current_user.organization_id, employee_id, status, leave_type, start_date, end_date, department_id)
+    return service.get_leave_requests(db, current_user.organization_id, employee_id, status, leave_type, start_date, end_date, department_id,
+                                      page=page, per_page=per_page)
 
 
 # ── Leave Type Configs ─────────────────────────────────────────────────────
@@ -795,9 +799,12 @@ def update_structure_component(id: int, comp_id: int, data: StructureComponentUp
 
 
 
-@hr_router.get("/compensation/revisions", response_model=list[SalaryRevisionResponse], summary="List salary revisions")
-def get_salary_revisions(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_salary_revisions(db, current_user.organization_id)
+@hr_router.get("/compensation/revisions", response_model=list[SalaryRevisionResponse] | Page[SalaryRevisionResponse], summary="List salary revisions")
+def get_salary_revisions(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
+    db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_salary_revisions(db, current_user.organization_id, page=page, per_page=per_page)
 
 @hr_router.post("/compensation/revisions", response_model=SalaryRevisionResponse, summary="Create salary revision", dependencies=[Depends(get_current_admin)])
 def create_salary_revision(data: SalaryRevisionCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
@@ -909,16 +916,18 @@ def list_compliance_reports_endpoint(_=Depends(get_current_user)):
 
 @hr_router.get(
     "/compliance/audits",
-    response_model=list[AuditResponse],
+    response_model=list[AuditResponse] | Page[AuditResponse],
     summary="List structural system audits",
     tags=["📜 Compliance"],
 )
 def list_audits_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
 ):
-    return service.get_audits(db, status=status_filter, organization_id=current_user.organization_id)
+    return service.get_audits(db, status=status_filter, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -970,12 +979,14 @@ def delete_audit_endpoint(audit_id: int, db: Session = Depends(get_db), current_
 
 @hr_router.get(
     "/compliance/regulations",
-    response_model=list[RegulatoryRequirementResponse],
+    response_model=list[RegulatoryRequirementResponse] | Page[RegulatoryRequirementResponse],
     summary="List regulatory requirements",
     tags=["📜 Compliance"],
 )
-def list_regulations_endpoint(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_regulatory_requirements(db, organization_id=current_user.organization_id)
+def list_regulations_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_regulatory_requirements(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -994,16 +1005,18 @@ def create_regulation_endpoint(data: RegulatoryRequirementCreate, db: Session = 
 
 @hr_router.get(
     "/compliance/risks",
-    response_model=list[RiskResponse],
+    response_model=list[RiskResponse] | Page[RiskResponse],
     summary="List risk assessments",
     tags=["📜 Compliance"],
 )
 def list_risks_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
 ):
-    return service.get_risk_assessments(db, status=status_filter, organization_id=current_user.organization_id)
+    return service.get_risk_assessments(db, status=status_filter, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1055,17 +1068,19 @@ def delete_risk_endpoint(risk_id: int, db: Session = Depends(get_db), current_us
 
 @hr_router.get(
     "/compliance/violations",
-    response_model=list[ViolationResponse],
+    response_model=list[ViolationResponse] | Page[ViolationResponse],
     summary="List compliance violations",
     tags=["📜 Compliance"],
 )
 def list_violations_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
     severity: Optional[str] = Query(None),
 ):
-    return service.get_compliance_violations(db, status=status_filter, severity=severity, organization_id=current_user.organization_id)
+    return service.get_compliance_violations(db, status=status_filter, severity=severity, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1116,17 +1131,19 @@ def delete_violation_endpoint(violation_id: int, db: Session = Depends(get_db), 
 
 @hr_router.get(
     "/compliance/corrective-actions",
-    response_model=list[CorrectiveActionResponse],
+    response_model=list[CorrectiveActionResponse] | Page[CorrectiveActionResponse],
     summary="List corrective actions",
     tags=["📜 Compliance"],
 )
 def list_corrective_actions_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     violation_id: Optional[int] = Query(None),
     assigned_to: Optional[str] = Query(None),
 ):
-    return service.get_corrective_actions(db, violation_id=violation_id, assigned_to=assigned_to, organization_id=current_user.organization_id)
+    return service.get_corrective_actions(db, violation_id=violation_id, assigned_to=assigned_to, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1185,15 +1202,17 @@ def create_engagement_survey(data: EngagementSurveyCreate, db: Session = Depends
 
 @hr_router.get(
     "/engagement",
-    response_model=list[EngagementSurveyResponse],
+    response_model=list[EngagementSurveyResponse] | Page[EngagementSurveyResponse],
     summary="List engagement surveys",
 )
 def list_engagement_surveys(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_engagement_surveys(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_engagement_surveys(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1207,15 +1226,17 @@ def create_ess_request(data: EssRequestCreate, db: Session = Depends(get_db), cu
 
 @hr_router.get(
     "/ess",
-    response_model=list[EssRequestResponse],
+    response_model=list[EssRequestResponse] | Page[EssRequestResponse],
     summary="List ESS requests",
 )
 def list_ess_requests(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_ess_requests(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_ess_requests(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.put(
@@ -1254,16 +1275,18 @@ def delete_ess_request(
 
 @hr_router.get(
     "/onboarding/new-hires",
-    response_model=list[OnboardingNewHireResponse],
+    response_model=list[OnboardingNewHireResponse] | Page[OnboardingNewHireResponse],
     summary="List all new hires",
 )
 def list_new_hires(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 ):
-    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id)
+    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1322,16 +1345,19 @@ def create_onboarding_record(data: OnboardingNewHireCreate, db: Session = Depend
 
 @hr_router.get(
     "/onboarding/records",
-    response_model=list[OnboardingNewHireResponse],
+    response_model=list[OnboardingNewHireResponse] | Page[OnboardingNewHireResponse],
     summary="List onboarding records (alias)",
 )
 def list_onboarding_records(
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 ):
-    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id)
+    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id,
+                                 page=page, per_page=per_page)
 
 
 @hr_router.get(
@@ -1369,16 +1395,18 @@ def delete_onboarding_record(record_id: int, db: Session = Depends(get_db), curr
 
 @hr_router.get(
     "/onboarding/preboarding-tasks",
-    response_model=list[OnboardingPreboardingTaskResponse],
+    response_model=list[OnboardingPreboardingTaskResponse] | Page[OnboardingPreboardingTaskResponse],
     summary="List pre-boarding tasks",
 )
 def list_preboarding_tasks(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     new_hire_id: Optional[int] = Query(None),
     employee_id: Optional[int] = Query(None),
 ):
-    return service.get_preboarding_tasks(db, new_hire_id=new_hire_id, employee_id=employee_id, organization_id=current_user.organization_id)
+    return service.get_preboarding_tasks(db, new_hire_id=new_hire_id, employee_id=employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1472,15 +1500,17 @@ def delete_checklist_template(checklist_id: int, db: Session = Depends(get_db), 
 
 @hr_router.get(
     "/onboarding/checklist-assignments",
-    response_model=list[OnboardingChecklistResponse],
+    response_model=list[OnboardingChecklistResponse] | Page[OnboardingChecklistResponse],
     summary="List checklist assignments for a new hire",
 )
 def list_checklist_assignments(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     onboarding_record_id: Optional[int] = Query(None),
 ):
-    return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id)
+    return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1519,11 +1549,13 @@ def delete_checklist_assignment(checklist_id: int, db: Session = Depends(get_db)
 
 @hr_router.get(
     "/onboarding/orientation-sessions",
-    response_model=list[OnboardingOrientationResponse],
+    response_model=list[OnboardingOrientationResponse] | Page[OnboardingOrientationResponse],
     summary="List orientation sessions",
 )
-def list_orientation_sessions(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_orientations(db, organization_id=current_user.organization_id)
+def list_orientation_sessions(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_orientations(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1861,17 +1893,19 @@ def create_performance_review(data: PerformanceReviewCreate, db: Session = Depen
 
 @hr_router.get(
     "/performance",
-    response_model=list[PerformanceReviewResponse],
+    response_model=list[PerformanceReviewResponse] | Page[PerformanceReviewResponse],
     summary="List performance reviews",
 )
 def list_performance_reviews(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
     # an ordinary employee sees only reviews they are part of; admins see the whole organization
     involved = current_user.id if current_user.role == UserRole.EMPLOYEE else None
-    return service.get_performance_reviews(db, organization_id=current_user.organization_id, employee_id=employee_id, involved_id=involved)
+    return service.get_performance_reviews(db, organization_id=current_user.organization_id, employee_id=employee_id, involved_id=involved, page=page, per_page=per_page)
 
 
 # ── Performance Default Reviewers ────────────────────────────────
@@ -1940,15 +1974,17 @@ def get_default_reviewers(
 
 @hr_router.get(
     "/performance/goals",
-    response_model=list[PerformanceGoalResponse],
+    response_model=list[PerformanceGoalResponse] | Page[PerformanceGoalResponse],
     summary="List performance goals",
 )
 def list_performance_goals(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_performance_goals(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_performance_goals(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1992,16 +2028,18 @@ def delete_performance_goal(goal_id: int, db: Session = Depends(get_db), current
 
 @hr_router.get(
     "/performance/kpis",
-    response_model=list[PerformanceKpiResponse],
+    response_model=list[PerformanceKpiResponse] | Page[PerformanceKpiResponse],
     summary="List performance KPIs",
 )
 def list_performance_kpis(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     goal_id: Optional[int] = Query(None, description="Filter by goal ID"),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_performance_kpis(db, organization_id=current_user.organization_id, goal_id=goal_id, employee_id=employee_id)
+    return service.get_performance_kpis(db, organization_id=current_user.organization_id, goal_id=goal_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -2045,17 +2083,19 @@ def delete_performance_kpi(kpi_id: int, db: Session = Depends(get_db), current_u
 
 @hr_router.get(
     "/performance/feedback",
-    response_model=list[PerformanceFeedbackResponse],
+    response_model=list[PerformanceFeedbackResponse] | Page[PerformanceFeedbackResponse],
     summary="List performance feedback",
 )
 def list_performance_feedback(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
     reviewer_id: Optional[int] = Query(None, description="Filter by reviewer ID"),
     review_id: Optional[int] = Query(None, description="Filter by review ID"),
 ):
-    return service.get_performance_feedback(db, organization_id=current_user.organization_id, employee_id=employee_id, reviewer_id=reviewer_id, review_id=review_id)
+    return service.get_performance_feedback(db, organization_id=current_user.organization_id, employee_id=employee_id, reviewer_id=reviewer_id, review_id=review_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -2081,15 +2121,17 @@ def delete_performance_feedback(fb_id: int, db: Session = Depends(get_db), curre
 
 @hr_router.get(
     "/performance/appraisals",
-    response_model=list[AppraisalResponse],
+    response_model=list[AppraisalResponse] | Page[AppraisalResponse],
     summary="List appraisals",
 )
 def list_appraisals(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_appraisals(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_appraisals(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -2607,7 +2649,7 @@ _DOCUMENT_UPLOAD_DIR = os.environ.get(
 
 @hr_router.get(
     "/documents",
-    response_model=list[HrDocumentResponse],
+    response_model=list[HrDocumentResponse] | Page[HrDocumentResponse],
     summary="List HR documents",
     description=(
         "Returns all non-deleted HR documents. "
@@ -2619,6 +2661,8 @@ _DOCUMENT_UPLOAD_DIR = os.environ.get(
     tags=["📄 HR Documents"],
 )
 def list_hr_documents(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     category:       Optional[str] = Query(None, description="Filter by category (company, employee, policy, contract, other)"),
@@ -2640,6 +2684,8 @@ def list_hr_documents(
         folder_id=folder_id,
         organization_id=current_user.organization_id,
         current_user=current_user,
+        page=page,
+        per_page=per_page,
     )
 
 

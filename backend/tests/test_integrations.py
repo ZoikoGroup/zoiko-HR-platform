@@ -438,7 +438,15 @@ def test_manual_retry_endpoint(world):
     assert world["client"].post(f"/super-admin/hub/deliveries/{d.id}/retry").status_code == 400
 
 
-def test_applications_reflect_real_state(world):
+def test_applications_reflect_real_state(world, monkeypatch):
+    # The status is derived from live config. The developer .env carries real
+    # Google OAuth creds for manual dev sign-in, which would report "Active"
+    # (the real app serves the google routes) and break the "fresh state"
+    # assertion — pin the creds off so the test is hermetic.
+    monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
+    monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
+    monkeypatch.setattr("app.config.settings.GOOGLE_CLIENT_ID", "")
+    monkeypatch.setattr("app.config.settings.GOOGLE_CLIENT_SECRET", "")
     c = world["client"]
     apps = {a["key"]: a for a in c.get("/super-admin/hub/applications").json()["applications"]}
     assert apps["slack"]["status"] == "Not configured" and apps["twilio"]["status"] == "Not configured"
