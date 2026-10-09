@@ -31,6 +31,7 @@ from app.core.exceptions import (
     generic_exception_handler,
 )
 from app.core.rate_limiter import limiter
+from app.core import query_stats as _query_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("zoiko.hr")
@@ -155,17 +156,39 @@ app = FastAPI(
 )
 
 
+_QUERY_STATS = _query_stats.install()     # HR_LOG_QUERY_STATS=true only (dev); off in production by default
+
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     start = datetime.utcnow()
+    # Started by the outermost QueryStatsMiddleware (so entitlement-middleware queries count too); fallback for safety.
+    stats = (_query_stats.current() or _query_stats.start()) if _QUERY_STATS else None
     response = await call_next(request)
     elapsed = (datetime.utcnow() - start).total_seconds()
-    logger.info(
-        f"{request.method} {request.url.path} -> {response.status_code} ({elapsed:.3f}s) "
-        f"from {request.client.host if request.client else 'unknown'}"
-    )
+    if stats is not None:
+        try:
+            response.headers["X-Query-Count"] = str(stats.count)
+            response.headers["X-DB-Time"] = f"{stats.db_seconds * 1000:.1f}"
+            response.headers["X-Pool-Checkouts"] = str(stats.checkouts)
+        except Exception:
+            pass  # headers may be read-only for a streamed response; the log line still carries the numbers
+        logger.info(
+            f"{request.method} {request.url.path} -> {response.status_code} "
+            f"queries={stats.count} db_ms={stats.db_seconds * 1000:.1f} "
+            f"checkouts={stats.checkouts} total_ms={elapsed * 1000:.1f}"
+        )
+        if stats.slowest_sql is not None:
+            logger.info(f"    slowest {stats.slowest_ms * 1000:.1f} ms  {stats.slowest_sql}")
+        for ms, sql in stats.statements:
+            logger.info(f"    {ms:>7.1f} ms  {sql}")
+    else:
+        logger.info(
+            f"{request.method} {request.url.path} -> {response.status_code} ({elapsed:.3f}s) "
+            f"from {request.client.host if request.client else 'unknown'}"
+        )
     return response
 
 
@@ -192,7 +215,7 @@ app.add_middleware(
     # (frontend and backend run on different origins/ports) can never read
     # the real filename off the response — every document view/download
     # silently falls back to a generic "document-{id}" name.
-    expose_headers=["Content-Disposition"],
+    expose_headers=["Content-Disposition", "X-Query-Count", "X-DB-Time", "X-Pool-Checkouts"],
 )
 
 app.state.limiter = limiter
@@ -294,6 +317,11 @@ if settings.ENFORCE_ENTITLEMENTS:
         allow_read_in_read_only=settings.ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY,
         routes_provider=lambda: app.routes,
     )
+if _QUERY_STATS:
+    # Outermost layer, so every query of the request (entitlement checks included) is counted. Dev only.
+    app.add_middleware(_query_stats.QueryStatsMiddleware)
+
+if settings.ENFORCE_ENTITLEMENTS:
     try:
         from app.services.email_service import link_config_problems
         for problem in link_config_problems():

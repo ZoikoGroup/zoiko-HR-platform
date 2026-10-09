@@ -52,6 +52,17 @@ class Settings(BaseSettings):
     APP_VERSION: str = Field(default="1.0.0", validation_alias="HR_APP_VERSION")
     DEBUG: bool = Field(default=False, validation_alias="HR_DEBUG")
 
+    # ── Per-request query instrumentation (app/core/query_stats.py) ────────
+    # When True, every SQL statement of a request is counted and timed, the
+    # request log line gains "queries= db_ms= checkouts=" plus the slowest
+    # statement, and the response gets X-Query-Count / X-DB-Time headers so
+    # tooling can benchmark without parsing logs. Off by default: pays only
+    # one attribute read per query when disabled.
+    LOG_QUERY_STATS: bool = Field(default=False, validation_alias="HR_LOG_QUERY_STATS")
+    # Also log every statement (SQL truncated to 200 chars, no bound values)
+    # per request — for N+1 hunting. Keep off on noisy services.
+    LOG_QUERY_SQL: bool = Field(default=False, validation_alias="HR_LOG_QUERY_SQL")
+
     @field_validator("DEBUG", mode="before")
     @classmethod
     def normalize_debug(cls, value):
