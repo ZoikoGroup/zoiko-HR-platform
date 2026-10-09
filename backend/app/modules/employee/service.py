@@ -13,7 +13,7 @@ from typing import Optional, List
 from decimal import Decimal
 
 from sqlalchemy import cast, extract, func, Integer, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base
 from app.modules.integrations.events import emit_event
@@ -1071,7 +1071,7 @@ def get_organization_users(
             query = query.filter(Employee.is_active == False)
 
     total = query.count()
-    users = query.order_by(Employee.created_at.desc()).offset(
+    users = query.options(joinedload(Employee.department), joinedload(Employee.designation)).order_by(Employee.created_at.desc()).offset(
         (page - 1) * per_page
     ).limit(per_page).all()
 
@@ -2242,6 +2242,12 @@ def _generate_import_template_bytes() -> dict:
     return buf.read()
 
 
+def _employee_list_loads():
+    """Relationships EmployeeResponse reads while serializing a list (department, designation, manager's name). All three
+    are many-to-one, so joinedload keeps LIMIT/OFFSET exact and turns ~1 query per distinct related row into none."""
+    return (joinedload(Employee.department), joinedload(Employee.designation), joinedload(Employee.reporting_manager))
+
+
 def get_all_employees(
     db: Session,
     page: int = 1,
@@ -2278,7 +2284,7 @@ def get_all_employees(
         query = query.filter(Employee.status == status)
 
     total = query.count()
-    employees = query.offset((page - 1) * per_page).limit(per_page).all()
+    employees = query.options(*_employee_list_loads()).offset((page - 1) * per_page).limit(per_page).all()
 
     return {
         "total":    total,
@@ -2332,7 +2338,7 @@ def get_employees(
         query = query.filter(Employee.employment_type == employment_type)
 
     total = query.count()
-    employees = query.offset((page - 1) * per_page).limit(per_page).all()
+    employees = query.options(*_employee_list_loads()).offset((page - 1) * per_page).limit(per_page).all()
 
     return {
         "total":    total,

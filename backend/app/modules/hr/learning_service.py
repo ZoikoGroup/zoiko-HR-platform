@@ -2,14 +2,14 @@ from datetime import datetime, date
 from typing import Optional
 import json
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.modules.hr.models import (
     LearningCourse, LearningEnrollment, LearningPath, LearningPathItem,
     LearningCertification, LearningSkill, LearningAssessment,
     LearningAssessmentQuestion, LearningQuizAttempt,
     LearningTrainingProgram, LearningTrainingProgramAssignment,
-    LearningCalendarEvent,
+    LearningCalendarEvent, Employee,
 )
 from app.modules.hr.schemas import (
     CourseCreate, CourseUpdate,
@@ -158,7 +158,7 @@ def get_enrollments(
         query = query.filter(LearningEnrollment.organization_id == organization_id)
 
     total = query.count()
-    enrollments = query.order_by(LearningEnrollment.enrolled_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    enrollments = query.options(selectinload(LearningEnrollment.employee)).order_by(LearningEnrollment.enrolled_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
 
     items = []
     for e in enrollments:
@@ -866,6 +866,10 @@ def get_program_assignments(db: Session, program_id: int, organization_id: Optio
     assignments = db.query(LearningTrainingProgramAssignment).filter(
         LearningTrainingProgramAssignment.program_id == program_id
     ).all()
+    # The assignment model has no `employee` relationship (reading a.employee raised AttributeError, so this list failed
+    # whenever a program had assignments). Resolve names in one batched lookup instead.
+    emp_ids = {a.employee_id for a in assignments if a.employee_id}
+    names = {e.id: e.full_name for e in db.query(Employee).filter(Employee.id.in_(emp_ids))} if emp_ids else {}
     items = []
     for a in assignments:
         items.append({
@@ -875,7 +879,7 @@ def get_program_assignments(db: Session, program_id: int, organization_id: Optio
             "status": a.status,
             "attended_at": a.attended_at,
             "created_at": a.created_at,
-            "employee_name": a.employee.full_name if a.employee else None,
+            "employee_name": names.get(a.employee_id),
         })
     return items
 
@@ -1044,6 +1048,7 @@ def get_learning_dashboard(db: Session, organization_id: Optional[int] = None) -
 
     recent_enrollments_raw = (
         db.query(LearningEnrollment)
+        .options(selectinload(LearningEnrollment.employee))
         .filter(*enroll_org_filter)
         .order_by(LearningEnrollment.enrolled_at.desc())
         .limit(10)

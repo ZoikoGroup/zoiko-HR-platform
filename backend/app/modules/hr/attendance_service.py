@@ -3,7 +3,7 @@ from datetime import date, timedelta
 from typing import Optional
 
 from sqlalchemy import func, asc, desc
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 logger = logging.getLogger("zoiko")
 
@@ -229,7 +229,8 @@ def get_all_attendance_records(db: Session, organization_id: Optional[int] = Non
         query = query.filter(AttendanceRecord.organization_id == organization_id)
     if employee_id:
         query = query.filter(AttendanceRecord.employee_id == employee_id)
-    records = query.order_by(AttendanceRecord.date.desc()).all()
+    # employee (and its department) were lazy-loaded per record: one query per distinct employee. Batch them.
+    records = query.options(selectinload(AttendanceRecord.employee).joinedload(Employee.department)).order_by(AttendanceRecord.date.desc()).all()
     items = []
     for r in records:
         items.append({
@@ -267,7 +268,7 @@ def get_attendance_records(
 
     sort_col = SORTABLE_FIELDS_RECORDS.get(sort_by, AttendanceRecord.date)
     sort_fn = desc if sort_order == "desc" else asc
-    records = query.order_by(sort_fn(sort_col)).offset((page - 1) * per_page).limit(per_page).all()
+    records = query.options(selectinload(AttendanceRecord.employee)).order_by(sort_fn(sort_col)).offset((page - 1) * per_page).limit(per_page).all()
 
     items = []
     for r in records:
@@ -857,7 +858,7 @@ def get_leave_requests(
         query = query.filter(LeaveRequest.leave_type == leave_type)
     
     total = query.count()
-    items = query.order_by(LeaveRequest.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
+    items = query.options(selectinload(LeaveRequest.employee)).order_by(LeaveRequest.created_at.desc()).offset((page - 1) * per_page).limit(per_page).all()
     
     result = []
     for r in items:

@@ -3,7 +3,7 @@ import io
 from datetime import datetime, timedelta
 from typing import Optional
 from sqlalchemy import func, asc, desc
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.modules.hr.models import (
     Asset, AssetMaintenanceRequest, AssetRequest, AssetCategory,
@@ -182,7 +182,7 @@ def get_assets(
 
     sort_col = SORTABLE_FIELDS.get(sort_by, Asset.created_at)
     sort_fn = desc if sort_order == "desc" else asc
-    assets = query.order_by(sort_fn(sort_col)).offset((page - 1) * per_page).limit(per_page).all()
+    assets = query.options(selectinload(Asset.employee)).order_by(sort_fn(sort_col)).offset((page - 1) * per_page).limit(per_page).all()
 
     items = []
     for a in assets:
@@ -295,7 +295,7 @@ def export_assets_csv(db: Session, search=None, status=None, category=None, depa
     query = _get_asset_query(db, search, status, category, department, employee_id, organization_id)
     sort_col = SORTABLE_FIELDS.get(sort_by, Asset.created_at)
     sort_fn = desc if sort_order == "desc" else asc
-    assets = query.order_by(sort_fn(sort_col)).all()
+    assets = query.options(selectinload(Asset.employee)).order_by(sort_fn(sort_col)).all()
 
     output = io.StringIO()
     writer = csv.writer(output)
@@ -320,7 +320,7 @@ def export_assets_excel(db: Session, search=None, status=None, category=None, de
     query = _get_asset_query(db, search, status, category, department, employee_id, organization_id)
     sort_col = SORTABLE_FIELDS.get(sort_by, Asset.created_at)
     sort_fn = desc if sort_order == "desc" else asc
-    assets = query.order_by(sort_fn(sort_col)).all()
+    assets = query.options(selectinload(Asset.employee)).order_by(sort_fn(sort_col)).all()
 
     wb = Workbook()
     ws = wb.active

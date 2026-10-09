@@ -11,7 +11,7 @@ from datetime import date, datetime, timedelta
 from typing import List, Optional
 from sqlalchemy import func, or_, case, and_
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 logger = logging.getLogger("zoiko")
 
@@ -706,15 +706,22 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
     if not include_inactive:
         query = query.filter(Department.is_active == True)
     departments = query.all()
-    
+
+    # Active headcount for every listed department in one grouped query (was one COUNT per department).
+    counts = {}
+    dept_ids = [d.id for d in departments]
+    if dept_ids:
+        counts = dict(
+            db.query(Employee.department_id, func.count(Employee.id))
+            .filter(Employee.department_id.in_(dept_ids), Employee.status == EmployeeStatus.ACTIVE)
+            .group_by(Employee.department_id)
+            .all()
+        )
+
     result = []
     for dept in departments:
-        # Dynamically append active structural stats contextually 
-        active_emp_count = db.query(Employee).filter(
-            Employee.department_id == dept.id,
-            Employee.status == EmployeeStatus.ACTIVE
-        ).count()
-        
+        active_emp_count = counts.get(dept.id, 0)
+
         dept_dict = {
             "id": dept.id,
             "name": dept.name,
@@ -3066,6 +3073,7 @@ def get_onboarding_dashboard(db: Session, organization_id: Optional[int] = None)
 
     upcoming = (
         live.filter(OnboardingNewHire.joining_date >= func.current_date(), OnboardingNewHire.status.notin_(["cancelled", "completed"]))
+        .options(joinedload(OnboardingNewHire.department))          # read per joiner below; was one query each
         .order_by(OnboardingNewHire.joining_date).limit(10).all()
     )
     recent = recent_q.order_by(OnboardingActivity.created_at.desc()).limit(10).all()

@@ -233,16 +233,23 @@ def list_applications(db: Session = Depends(get_db)):
             })
     apps.append(hub_apps.stripe_app(db))
 
-    total = db.query(Webhook).count()
-    active = db.query(Webhook).filter(Webhook.is_active.is_(True)).count()
-    delivered = db.query(WebhookDelivery).filter(WebhookDelivery.status == "success").count()
-    attempted = db.query(WebhookDelivery).count()
+    # One pass per table (conditional counts) instead of five separate COUNT queries.
+    total, active, auto_disabled = db.query(
+        func.count(Webhook.id),
+        func.coalesce(func.sum(case((Webhook.is_active.is_(True), 1), else_=0)), 0),
+        func.coalesce(func.sum(case((Webhook.auto_disabled.is_(True), 1), else_=0)), 0),
+    ).one()
+    attempted, delivered = db.query(
+        func.count(WebhookDelivery.id),
+        func.coalesce(func.sum(case((WebhookDelivery.status == "success", 1), else_=0)), 0),
+    ).one()
+    total, active, auto_disabled, attempted, delivered = (int(v) for v in (total, active, auto_disabled, attempted, delivered))
     last_delivery = db.query(WebhookDelivery).order_by(WebhookDelivery.id.desc()).first()
     apps.append({
         "key": "webhooks", "name": "Outbound Webhooks",
         "status": f"{active} active" if active else "Not connected",
         "href": None,
-        "details": {"registered": total, "auto_disabled": db.query(Webhook).filter(Webhook.auto_disabled.is_(True)).count()},
+        "details": {"registered": total, "auto_disabled": auto_disabled},
         "metrics": {"deliveries_attempted": attempted, "deliveries_succeeded": delivered},
         "last_activity_at": _iso(last_delivery.created_at if last_delivery else None),
         "last_activity": None,
