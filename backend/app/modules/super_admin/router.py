@@ -378,10 +378,24 @@ def list_organizations(
     total = q.count()
     orgs = q.order_by(Organization.created_at.desc()).offset((page - 1) * page_size).limit(page_size).all()
 
-    all_employees = db.query(Employee).filter(Employee.organization_id.in_([o.id for o in orgs])).all() if orgs else []
-    emp_by_org = {}
-    for e in all_employees:
-        emp_by_org.setdefault(e.organization_id, []).append(e)
+    # Headcounts and the admin per org, without loading every employee of every listed org as a full row (a 200-org
+    # page used to pull ~5,000 employee objects just to count them). One grouped count + one narrow admin lookup.
+    page_org_ids = [o.id for o in orgs]
+    counts_by_org = {}
+    admin_by_org = {}
+    if page_org_ids:
+        for oid, total_n, active_n in db.query(
+            Employee.organization_id,
+            sa.func.count(Employee.id),
+            sa.func.coalesce(sa.func.sum(sa.case((Employee.status == EmployeeStatus.ACTIVE, 1), else_=0)), 0),
+        ).filter(Employee.organization_id.in_(page_org_ids)).group_by(Employee.organization_id):
+            counts_by_org[oid] = (int(total_n), int(active_n))
+        for oid, first, last, email in (
+            db.query(Employee.organization_id, Employee.first_name, Employee.last_name, Employee.email)
+            .filter(Employee.organization_id.in_(page_org_ids), Employee.role == UserRole.ADMIN)
+            .order_by(Employee.id)
+        ):
+            admin_by_org.setdefault(oid, (" ".join(p for p in (first, last) if p and str(p).strip()).strip(), email))
 
     plan_display = {
         BillingPlanCode.CORE: "Core",
@@ -409,8 +423,8 @@ def list_organizations(
 
     result = []
     for o in orgs:
-        org_emps = emp_by_org.get(o.id, [])
-        admin = next((e for e in org_emps if e.role and e.role.value == UserRole.ADMIN.value), None)
+        n_total, n_active = counts_by_org.get(o.id, (0, 0))
+        admin = admin_by_org.get(o.id)          # (full name, email) of the org's first admin, or None
         sub = subs.get(o.id)
         ev = evals.get(o.id)
         sub_plan = None
@@ -440,15 +454,13 @@ def list_organizations(
             organization_code=o.organization_code,
             status=o.status.value if o.status else None,
             is_active=bool(o.is_active),
-            total_employees=len(org_emps),
-            user_count=len(org_emps),
-            active_employees=sum(
-                1 for e in org_emps if e.status and e.status.value == EmployeeStatus.ACTIVE.value
-            ),
+            total_employees=n_total,
+            user_count=n_total,
+            active_employees=n_active,
             subscription_plan=sub_plan,
             evaluation_ends_at=eval_end,
-            admin_name=admin.full_name if admin else None,
-            admin_email=admin.email if admin else None,
+            admin_name=admin[0] if admin else None,
+            admin_email=admin[1] if admin else None,
             approved_by_name=approver.full_name if approver else None,
             approved_at=o.approved_at,
             suspended_at=o.suspended_at,

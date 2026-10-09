@@ -293,3 +293,11 @@ class ExpenseBudget(Base):
     is_active = Column(Boolean, nullable=False, default=True)
     created_by = Column(Integer, ForeignKey("employees.id"), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_super_admin_support_tickets_organization_id", SupportTicket.organization_id)
+_Index("ix_super_admin_security_events_organization_id", SecurityEvent.organization_id)
+_Index("ix_super_admin_login_activities_org_created", LoginActivity.organization_id, LoginActivity.created_at)

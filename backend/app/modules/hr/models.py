@@ -2042,3 +2042,16 @@ class OrganizationConfig(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "key", name="uq_org_config_key"),
     )
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_leave_requests_org_created", LeaveRequest.organization_id, LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
+_Index("ix_compensation_bands_organization_id", CompensationBand.organization_id)
+_Index("ix_salary_revisions_organization_id", SalaryRevision.organization_id)
+_Index("ix_salary_structures_organization_id", SalaryStructure.organization_id)
+_Index("ix_employee_benefits_organization_id", EmployeeBenefit.organization_id)
+_Index("ix_asset_requests_employee_id", AssetRequest.employee_id)
+_Index("ix_onboarding_new_hires_employee_id", OnboardingNewHire.employee_id)
+_Index("ix_onboarding_preboarding_tasks_employee_id", OnboardingPreboardingTask.employee_id)
