@@ -2061,7 +2061,7 @@ def list_platform_plan_changes(
     from app.modules.billing.models import BillingPlan
     # Names for just the orgs in this result (soft-deleted orgs stay unnamed, as before), and plan codes by column.
     from app.modules.super_admin.organization_service import org_names_by_id
-    org_map = org_names_by_id(db, {c.organization_id for c in changes})
+    org_map = org_names_by_id(db, {c.organization_id for c in changes}, include_deleted=True)   # history keeps deleted orgs' names
     plan_map = {pid: code.value if hasattr(code, "value") else str(code) for pid, code in db.query(BillingPlan.id, BillingPlan.code)}
     
     response_items = []
@@ -2094,7 +2094,7 @@ def list_plan_changes(
     from app.modules.billing.models import BillingPlan
     # Names for just the orgs in this result (soft-deleted orgs stay unnamed, as before), and plan codes by column.
     from app.modules.super_admin.organization_service import org_names_by_id
-    org_map = org_names_by_id(db, {c.organization_id for c in changes})
+    org_map = org_names_by_id(db, {c.organization_id for c in changes}, include_deleted=True)   # history keeps deleted orgs' names
     plan_map = {pid: code.value if hasattr(code, "value") else str(code) for pid, code in db.query(BillingPlan.id, BillingPlan.code)}
     
     response_items = []

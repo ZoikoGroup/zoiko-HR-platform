@@ -728,7 +728,11 @@ def create_application(db: Session, data: ApplicationCreate, organization_id: Op
 
 def get_applications(db: Session, organization_id: Optional[int] = None,
                      candidate_id: Optional[int] = None,
-                     requisition_id: Optional[int] = None) -> list[RecruitmentApplication]:
+                     requisition_id: Optional[int] = None,
+                     page: Optional[int] = None, per_page: Optional[int] = None):
+    """Applications of the organization: the plain list (unordered, as before; capped) without page/per_page, else a
+    page dict ordered newest first."""
+    from app.core.pagination import legacy_list, page_of, wants_page
     query = db.query(RecruitmentApplication)
     if organization_id:
         query = query.filter(RecruitmentApplication.organization_id == organization_id)
@@ -736,7 +740,9 @@ def get_applications(db: Session, organization_id: Optional[int] = None,
         query = query.filter(RecruitmentApplication.candidate_id == candidate_id)
     if requisition_id:
         query = query.filter(RecruitmentApplication.requisition_id == requisition_id)
-    return query.all()
+    if wants_page(page, per_page):
+        return page_of(query.order_by(RecruitmentApplication.id.desc()), page, per_page)
+    return legacy_list(query, "/hr/recruitment/applications")
 
 
 def update_application_status(db: Session, application_id: int, status: str, organization_id: Optional[int] = None) -> RecruitmentApplication:

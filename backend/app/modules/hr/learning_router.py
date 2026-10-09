@@ -7,6 +7,7 @@ Defines all HTTP endpoints for the Learning & Development sub-module.
 from datetime import date
 from typing import Optional
 
+from app.core.pagination import Page
 from fastapi import APIRouter, Depends, Query, status, Response
 from sqlalchemy.orm import Session
 
@@ -355,16 +356,18 @@ def remove_path_item(
 
 @learning_router.get(
     "/certifications",
-    response_model=list[CertificationResponse],
+    response_model=list[CertificationResponse] | Page[CertificationResponse],
     summary="List certifications",
     description="Returns all certifications, optionally filtered by employee ID."
 )
 def list_certifications(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_certifications(db, employee_id, organization_id=current_user.organization_id)
+    return learning_service.get_certifications(db, employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @learning_router.post(
@@ -430,16 +433,18 @@ def delete_certification(
 
 @learning_router.get(
     "/skills",
-    response_model=list[SkillResponse],
+    response_model=list[SkillResponse] | Page[SkillResponse],
     summary="List skills",
     description="Returns all skills, optionally filtered by employee ID."
 )
 def list_skills(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_skills(db, employee_id)
+    return learning_service.get_skills(db, employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @learning_router.post(
@@ -466,7 +471,7 @@ def get_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_skill_by_id(db, id)
+    return learning_service.get_skill_by_id(db, id, organization_id=current_user.organization_id)
 
 
 @learning_router.put(
@@ -481,7 +486,7 @@ def update_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.update_skill(db, id, data)
+    return learning_service.update_skill(db, id, data, organization_id=current_user.organization_id)
 
 
 @learning_router.delete(
@@ -495,7 +500,7 @@ def delete_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    learning_service.delete_skill(db, id)
+    learning_service.delete_skill(db, id, organization_id=current_user.organization_id)
     return {"message": f"Skill {id} has been deleted successfully."}
 
 

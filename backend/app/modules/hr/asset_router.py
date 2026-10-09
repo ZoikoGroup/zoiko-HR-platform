@@ -377,13 +377,14 @@ def list_asset_reports(
     page: Optional[int] = Query(None, ge=1),
     per_page: Optional[int] = Query(None, ge=1, le=200),
     db: Session = Depends(get_db),
-    _=Depends(get_current_user),
+    current_user=Depends(get_current_user),
 ):
     """Without page/per_page: the plain list (newest first, at most 200) the Asset Reports page reads today.
     With them: {items, total, page, per_page}."""
+    org_id = current_user.organization_id
     if page is None and per_page is None:
-        return asset_service.get_asset_reports(db)
-    rows, total = asset_service.get_asset_reports(db, page=page, per_page=per_page)
+        return asset_service.get_asset_reports(db, organization_id=org_id)
+    rows, total = asset_service.get_asset_reports(db, page=page, per_page=per_page, organization_id=org_id)
     return AssetReportPage(items=rows, total=total, page=page or 1, per_page=min(per_page or 25, 200))
 
 
@@ -398,7 +399,7 @@ def create_asset_report(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return asset_service.create_asset_report(db, data, current_user.id)
+    return asset_service.create_asset_report(db, data, current_user.id, organization_id=current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -409,10 +410,9 @@ def create_asset_report(
     "/settings",
     response_model=list[AssetSettingResponse],
     summary="List asset settings",
-    dependencies=[Depends(get_current_admin)],
 )
-def list_asset_settings(db: Session = Depends(get_db)):
-    return asset_service.get_asset_settings(db)
+def list_asset_settings(db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return asset_service.get_asset_settings(db, organization_id=current_user.organization_id)
 
 
 @asset_router.put(
@@ -426,7 +426,8 @@ def update_asset_setting(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return asset_service.update_asset_setting(db, setting_key, setting_value, current_user.id)
+    return asset_service.update_asset_setting(db, setting_key, setting_value, current_user.id,
+                                              organization_id=current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════

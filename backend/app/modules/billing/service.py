@@ -490,7 +490,7 @@ def list_platform_evaluations(
     org_map = {}
     try:
         from app.modules.super_admin.organization_service import org_names_by_id
-        org_map = org_names_by_id(db, {ev.organization_id for ev in evaluations})     # this page's orgs only
+        org_map = org_names_by_id(db, {ev.organization_id for ev in evaluations}, include_deleted=True)  # this page's orgs, deleted ones named
     except Exception:
         pass
 
@@ -1201,7 +1201,7 @@ def list_platform_invoices(
     org_map = {}
     try:
         from app.modules.super_admin.organization_service import org_names_by_id
-        org_map = org_names_by_id(db, {inv.organization_id for inv in invoices})      # this page's orgs only
+        org_map = org_names_by_id(db, {inv.organization_id for inv in invoices}, include_deleted=True)   # this page's orgs, deleted ones named
     except Exception:
         pass
 

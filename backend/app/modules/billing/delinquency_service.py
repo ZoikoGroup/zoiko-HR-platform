@@ -530,7 +530,7 @@ def list_platform_delinquency_cases(db: Session) -> list[dict]:
     org_map = {}
     try:
         from app.modules.super_admin.organization_service import org_names_by_id
-        org_map = org_names_by_id(db, {c.organization_id for c in cases})             # only orgs with an open case
+        org_map = org_names_by_id(db, {c.organization_id for c in cases}, include_deleted=True)  # orgs with an open case, deleted ones named
     except Exception:
         pass
 

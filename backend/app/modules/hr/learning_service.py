@@ -2,6 +2,7 @@ from datetime import datetime, date
 from typing import Optional
 import json
 from sqlalchemy import func
+from app.core.pagination import list_or_page
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.hr.models import (
@@ -317,13 +318,13 @@ def create_certification(db: Session, data: CertificationCreate, created_by: int
     return cert
 
 
-def get_certifications(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None) -> list[LearningCertification]:
+def get_certifications(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
     query = db.query(LearningCertification)
     if employee_id:
         query = query.filter(LearningCertification.employee_id == employee_id)
     if organization_id is not None:
         query = query.filter(LearningCertification.organization_id == organization_id)
-    return query.order_by(LearningCertification.issue_date.desc()).all()
+    return list_or_page(query.order_by(LearningCertification.issue_date.desc()), page, per_page, label="/certifications")
 
 
 def get_certification_by_id(db: Session, cert_id: int) -> LearningCertification:
@@ -352,6 +353,10 @@ def delete_certification(db: Session, cert_id: int, organization_id: Optional[in
 def create_skill(db: Session, data: SkillCreate, organization_id: Optional[int] = None) -> LearningSkill:
     skill = LearningSkill(**data.model_dump())
     if organization_id is not None:
+        # the skill is filed under the admin's organization, so it may only be for one of that organization's people
+        owner = db.query(Employee.organization_id).filter(Employee.id == skill.employee_id).scalar()
+        if owner != organization_id:
+            raise NotFoundException("Employee", skill.employee_id)
         skill.organization_id = organization_id
     db.add(skill)
     db.commit()
@@ -359,22 +364,29 @@ def create_skill(db: Session, data: SkillCreate, organization_id: Optional[int] 
     return skill
 
 
-def get_skills(db: Session, employee_id: Optional[int] = None) -> list[LearningSkill]:
+def get_skills(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
+    """Skills of the caller's organization (organization_id None = platform super admin: every org)."""
     query = db.query(LearningSkill)
+    if organization_id is not None:
+        query = query.filter(LearningSkill.organization_id == organization_id)
     if employee_id:
         query = query.filter(LearningSkill.employee_id == employee_id)
-    return query.order_by(LearningSkill.skill_name).all()
+    return list_or_page(query.order_by(LearningSkill.skill_name), page, per_page, label="/skills")
 
 
-def get_skill_by_id(db: Session, skill_id: int) -> LearningSkill:
-    skill = db.query(LearningSkill).filter(LearningSkill.id == skill_id).first()
+def get_skill_by_id(db: Session, skill_id: int, organization_id: Optional[int] = None) -> LearningSkill:
+    """Another organization's skill reads as not found, like every other org-scoped record."""
+    query = db.query(LearningSkill).filter(LearningSkill.id == skill_id)
+    if organization_id is not None:
+        query = query.filter(LearningSkill.organization_id == organization_id)
+    skill = query.first()
     if not skill:
         raise NotFoundException("LearningSkill", skill_id)
     return skill
 
 
-def update_skill(db: Session, skill_id: int, data: SkillUpdate) -> LearningSkill:
-    skill = get_skill_by_id(db, skill_id)
+def update_skill(db: Session, skill_id: int, data: SkillUpdate, organization_id: Optional[int] = None) -> LearningSkill:
+    skill = get_skill_by_id(db, skill_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(skill, field, value)
@@ -383,8 +395,8 @@ def update_skill(db: Session, skill_id: int, data: SkillUpdate) -> LearningSkill
     return skill
 
 
-def delete_skill(db: Session, skill_id: int) -> None:
-    skill = get_skill_by_id(db, skill_id)
+def delete_skill(db: Session, skill_id: int, organization_id: Optional[int] = None) -> None:
+    skill = get_skill_by_id(db, skill_id, organization_id)
     db.delete(skill)
     db.commit()
 

@@ -916,16 +916,18 @@ def list_compliance_reports_endpoint(_=Depends(get_current_user)):
 
 @hr_router.get(
     "/compliance/audits",
-    response_model=list[AuditResponse],
+    response_model=list[AuditResponse] | Page[AuditResponse],
     summary="List structural system audits",
     tags=["📜 Compliance"],
 )
 def list_audits_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
 ):
-    return service.get_audits(db, status=status_filter, organization_id=current_user.organization_id)
+    return service.get_audits(db, status=status_filter, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -977,12 +979,14 @@ def delete_audit_endpoint(audit_id: int, db: Session = Depends(get_db), current_
 
 @hr_router.get(
     "/compliance/regulations",
-    response_model=list[RegulatoryRequirementResponse],
+    response_model=list[RegulatoryRequirementResponse] | Page[RegulatoryRequirementResponse],
     summary="List regulatory requirements",
     tags=["📜 Compliance"],
 )
-def list_regulations_endpoint(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_regulatory_requirements(db, organization_id=current_user.organization_id)
+def list_regulations_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_regulatory_requirements(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1001,16 +1005,18 @@ def create_regulation_endpoint(data: RegulatoryRequirementCreate, db: Session = 
 
 @hr_router.get(
     "/compliance/risks",
-    response_model=list[RiskResponse],
+    response_model=list[RiskResponse] | Page[RiskResponse],
     summary="List risk assessments",
     tags=["📜 Compliance"],
 )
 def list_risks_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
 ):
-    return service.get_risk_assessments(db, status=status_filter, organization_id=current_user.organization_id)
+    return service.get_risk_assessments(db, status=status_filter, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1062,17 +1068,19 @@ def delete_risk_endpoint(risk_id: int, db: Session = Depends(get_db), current_us
 
 @hr_router.get(
     "/compliance/violations",
-    response_model=list[ViolationResponse],
+    response_model=list[ViolationResponse] | Page[ViolationResponse],
     summary="List compliance violations",
     tags=["📜 Compliance"],
 )
 def list_violations_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
     severity: Optional[str] = Query(None),
 ):
-    return service.get_compliance_violations(db, status=status_filter, severity=severity, organization_id=current_user.organization_id)
+    return service.get_compliance_violations(db, status=status_filter, severity=severity, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1123,17 +1131,19 @@ def delete_violation_endpoint(violation_id: int, db: Session = Depends(get_db), 
 
 @hr_router.get(
     "/compliance/corrective-actions",
-    response_model=list[CorrectiveActionResponse],
+    response_model=list[CorrectiveActionResponse] | Page[CorrectiveActionResponse],
     summary="List corrective actions",
     tags=["📜 Compliance"],
 )
 def list_corrective_actions_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     violation_id: Optional[int] = Query(None),
     assigned_to: Optional[str] = Query(None),
 ):
-    return service.get_corrective_actions(db, violation_id=violation_id, assigned_to=assigned_to, organization_id=current_user.organization_id)
+    return service.get_corrective_actions(db, violation_id=violation_id, assigned_to=assigned_to, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1335,16 +1345,19 @@ def create_onboarding_record(data: OnboardingNewHireCreate, db: Session = Depend
 
 @hr_router.get(
     "/onboarding/records",
-    response_model=list[OnboardingNewHireResponse],
+    response_model=list[OnboardingNewHireResponse] | Page[OnboardingNewHireResponse],
     summary="List onboarding records (alias)",
 )
 def list_onboarding_records(
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 ):
-    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id)
+    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id,
+                                 page=page, per_page=per_page)
 
 
 @hr_router.get(
@@ -1382,16 +1395,18 @@ def delete_onboarding_record(record_id: int, db: Session = Depends(get_db), curr
 
 @hr_router.get(
     "/onboarding/preboarding-tasks",
-    response_model=list[OnboardingPreboardingTaskResponse],
+    response_model=list[OnboardingPreboardingTaskResponse] | Page[OnboardingPreboardingTaskResponse],
     summary="List pre-boarding tasks",
 )
 def list_preboarding_tasks(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     new_hire_id: Optional[int] = Query(None),
     employee_id: Optional[int] = Query(None),
 ):
-    return service.get_preboarding_tasks(db, new_hire_id=new_hire_id, employee_id=employee_id, organization_id=current_user.organization_id)
+    return service.get_preboarding_tasks(db, new_hire_id=new_hire_id, employee_id=employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1485,15 +1500,17 @@ def delete_checklist_template(checklist_id: int, db: Session = Depends(get_db), 
 
 @hr_router.get(
     "/onboarding/checklist-assignments",
-    response_model=list[OnboardingChecklistResponse],
+    response_model=list[OnboardingChecklistResponse] | Page[OnboardingChecklistResponse],
     summary="List checklist assignments for a new hire",
 )
 def list_checklist_assignments(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     onboarding_record_id: Optional[int] = Query(None),
 ):
-    return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id)
+    return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1532,11 +1549,13 @@ def delete_checklist_assignment(checklist_id: int, db: Session = Depends(get_db)
 
 @hr_router.get(
     "/onboarding/orientation-sessions",
-    response_model=list[OnboardingOrientationResponse],
+    response_model=list[OnboardingOrientationResponse] | Page[OnboardingOrientationResponse],
     summary="List orientation sessions",
 )
-def list_orientation_sessions(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_orientations(db, organization_id=current_user.organization_id)
+def list_orientation_sessions(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_orientations(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(

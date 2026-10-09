@@ -612,13 +612,14 @@ def update_asset_category(db: Session, category_id: int, data: AssetCategoryCrea
     return category
 
 
-def create_asset_report(db: Session, data: AssetReportGenerate, generated_by: int) -> AssetReport:
+def create_asset_report(db: Session, data: AssetReportGenerate, generated_by: int, organization_id: int | None = None) -> AssetReport:
     report = AssetReport(
         report_type=data.report_type,
         title=data.title,
         description=data.description,
         parameters=data.parameters,
         generated_by=generated_by,
+        organization_id=organization_id,
     )
     db.add(report)
     db.commit()
@@ -629,10 +630,13 @@ def create_asset_report(db: Session, data: AssetReportGenerate, generated_by: in
 ASSET_REPORTS_MAX = 200
 
 
-def get_asset_reports(db: Session, page: int | None = None, per_page: int | None = None):
+def get_asset_reports(db: Session, page: int | None = None, per_page: int | None = None, organization_id: int | None = None):
     """Newest first. With page/per_page: (rows, total) for that page. Without: the plain list the page has always used,
     capped at ASSET_REPORTS_MAX (a warning is logged when the cap cuts rows off)."""
-    q = db.query(AssetReport).order_by(AssetReport.created_at.desc(), AssetReport.id.desc())
+    q = db.query(AssetReport)
+    if organization_id is not None:                   # None = platform super admin
+        q = q.filter(AssetReport.organization_id == organization_id)
+    q = q.order_by(AssetReport.created_at.desc(), AssetReport.id.desc())
     if page is None and per_page is None:
         rows = q.limit(ASSET_REPORTS_MAX + 1).all()
         if len(rows) > ASSET_REPORTS_MAX:
@@ -645,12 +649,24 @@ def get_asset_reports(db: Session, page: int | None = None, per_page: int | None
     return q.offset((page - 1) * per_page).limit(per_page).all(), q.order_by(None).count()
 
 
-def get_asset_settings(db: Session) -> list[AssetSetting]:
-    return db.query(AssetSetting).order_by(AssetSetting.setting_key).all()
+def get_asset_settings(db: Session, organization_id: int | None = None) -> list[AssetSetting]:
+    """The organization's settings: its own value for a key where it has one, otherwise the platform default
+    (organization_id NULL). A platform super admin (organization_id None) sees the defaults."""
+    defaults = db.query(AssetSetting).filter(AssetSetting.organization_id.is_(None)).all()
+    if organization_id is None:
+        return sorted(defaults, key=lambda s: s.setting_key)
+    own = {s.setting_key: s for s in db.query(AssetSetting).filter(AssetSetting.organization_id == organization_id)}
+    merged = {s.setting_key: s for s in defaults}
+    merged.update(own)
+    return [merged[k] for k in sorted(merged)]
 
 
-def update_asset_setting(db: Session, setting_key: str, setting_value: str, updated_by: int) -> AssetSetting:
-    setting = db.query(AssetSetting).filter(AssetSetting.setting_key == setting_key).first()
+def update_asset_setting(db: Session, setting_key: str, setting_value: str, updated_by: int,
+                         organization_id: int | None = None) -> AssetSetting:
+    """Writes the caller's organization's own row (never the platform default, never another org's)."""
+    q = db.query(AssetSetting).filter(AssetSetting.setting_key == setting_key)
+    q = q.filter(AssetSetting.organization_id.is_(None)) if organization_id is None else q.filter(AssetSetting.organization_id == organization_id)
+    setting = q.first()
     if setting:
         setting.setting_value = setting_value
         setting.updated_by = updated_by
@@ -659,6 +675,7 @@ def update_asset_setting(db: Session, setting_key: str, setting_value: str, upda
             setting_key=setting_key,
             setting_value=setting_value,
             updated_by=updated_by,
+            organization_id=organization_id,
         )
         db.add(setting)
     db.commit()
