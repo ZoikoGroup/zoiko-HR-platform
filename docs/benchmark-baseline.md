@@ -82,10 +82,23 @@ SELECT 1 round-trip: unchanged ~210ms
 at 2 (auth lookup + the endpoint's own read). The two remaining queries pay
 ~210 ms each of Neon round-trip — further gains live in Part D.
 
-## Part C/D/E
+## Part C — entitlement middleware cached
 
-Pendings (entitlement middleware cache, connection-pool hardening) keep the
-fixed numbers above and cut the remaining per-query tax.
+`_is_org_in_scope` used to read `entitlement_staged_org_ids` AND probe for a
+billing subscription on every guarded request (2 queries / ~450 ms Neon).
+Both are now short-TTL (30 s) cached via the shared cache backend,
+invalidated synchronously by `PUT /super-admin/platform-settings/
+entitlement_staged_org_ids` and by the org_access flush listener on any
+org/subscription/evaluation write. Sample guarded endpoint on the same box:
+
+```
+/hr/departments  cold: queries=14 db_ms≈3350  (was baseline: 12 / 2898)
+/hr/departments  hot:  queries=6  db_ms≈1660  → includes get_current_user(1) + entitlement(0)
+```
+
+## Part D/E
+
+Pendings (connection-pool hardening), then the final re-measure + report.
 
 ## Observations driving parts B–D
 

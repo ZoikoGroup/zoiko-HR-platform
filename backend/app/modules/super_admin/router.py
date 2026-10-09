@@ -1116,6 +1116,11 @@ def update_platform_setting(
     row.value = data.value
     db.commit()
     db.refresh(row)
+    # The entitlement middleware caches the staging list (Part C); make an ops
+    # edit take effect on the very next request instead of after the 30s TTL.
+    if key == "entitlement_staged_org_ids":
+        from app.core.cache import invalidate_cache
+        invalidate_cache("entitlement_staged_org_ids")
     db.add(AuditLog(
         action=AuditAction.CONFIG_CHANGE,
         entity_type="PlatformSetting",

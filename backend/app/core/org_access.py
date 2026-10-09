@@ -135,6 +135,10 @@ def invalidate_org_access(org_id: int) -> None:
         return
     try:
         invalidate_cache(f"{_CACHE_PREFIX}{org_id}")
+        # The entitlement middleware also caches whether this org has any
+        # billing subscription (Part C); a subscription/evaluation write here
+        # is exactly the event that should refresh it.
+        invalidate_cache(f"billing_sub_exists:{org_id}")
     except Exception as exc:
         logger.error("[org_access] invalidation FAILED for org %s — a stale decision may be served until its "
                      "TTL lapses. Investigate: %s", org_id, exc)
