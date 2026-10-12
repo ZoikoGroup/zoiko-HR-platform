@@ -39,7 +39,7 @@ export const superAdminService = {
   getOrganizationAuditLogs: (orgId, params) => api.get(`/super-admin/organizations/${orgId}/audit-logs`, { params }),
 
   // Audit Logs
-  getAuditLogs: (params) => api.get("/super-admin/audit-logs", { params }),
+  getAuditLogs: (params, opts) => api.get("/super-admin/audit-logs", { params, ...opts }),
   getAuditLogFilters: () => api.get("/super-admin/audit-logs/filters"),
 
   // Login Activity
@@ -57,15 +57,15 @@ export const superAdminService = {
 
 
   // Platform Command Center
-  getCommandCenterOverview: (params) => api.get("/super-admin/command-center/overview", { params }),
-  getCommandCenterAttention: () => api.get("/super-admin/command-center/attention"),
-  getCommandCenterCustomerHealth: () => api.get("/super-admin/command-center/customer-health"),
-  getCommandCenterCommercialHealth: (params) => api.get("/super-admin/command-center/commercial-health", { params }),
-  getCommandCenterLifecycle: () => api.get("/super-admin/command-center/lifecycle"),
-  getCommandCenterPlatformHealth: () => api.get("/super-admin/command-center/platform-health"),
+  getCommandCenterOverview: (params, opts) => api.get("/super-admin/command-center/overview", { params, ...opts }),
+  getCommandCenterAttention: (opts) => api.get("/super-admin/command-center/attention", opts),
+  getCommandCenterCustomerHealth: (opts) => api.get("/super-admin/command-center/customer-health", opts),
+  getCommandCenterCommercialHealth: (params, opts) => api.get("/super-admin/command-center/commercial-health", { params, ...opts }),
+  getCommandCenterLifecycle: (opts) => api.get("/super-admin/command-center/lifecycle", opts),
+  getCommandCenterPlatformHealth: (opts) => api.get("/super-admin/command-center/platform-health", opts),
   updateCommandCenterPlatformHealth: (serviceName, data) =>
     api.put(`/super-admin/command-center/platform-health/${serviceName}`, data),
-  getCommandCenterSecurity: (params) => api.get("/super-admin/command-center/security", { params }),
+  getCommandCenterSecurity: (params, opts) => api.get("/super-admin/command-center/security", { params, ...opts }),
   getCommandCenterIncidents: (params) => api.get("/super-admin/command-center/incidents", { params }),
   createCommandCenterIncident: (data) => api.post("/super-admin/command-center/incidents", data),
   resolveCommandCenterIncident: (id) => api.put(`/super-admin/command-center/incidents/${id}/resolve`),
