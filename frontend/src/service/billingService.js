@@ -3,7 +3,7 @@ import { api } from "./api";
 // Billing & Subscription API client — mirrors the backend billing router.
 export const billingService = {
   // ── Plans ────────────────────────────────────────────────────────────────
-  getPlans: (params) => api.get("/billing/plans", { params }),
+  getPlans: (params, opts) => api.get("/billing/plans", { params, ...opts }),
   createPlan: (data) => api.post("/billing/plans", data),
   updatePlan: (id, data) => api.put(`/billing/plans/${id}`, data),
 
@@ -25,7 +25,7 @@ export const billingService = {
   cancelSubscription: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/cancel`, data),
 
   // ── Discounts ────────────────────────────────────────────────────────────
-  getDiscounts: (params) => api.get("/billing/discounts", { params }),
+  getDiscounts: (params, opts) => api.get("/billing/discounts", { params, ...opts }),
   createDiscount: (data) => api.post("/billing/discounts", data),
 
   // ── Checkout (Stripe hosted) ─────────────────────────────────────────────
@@ -56,8 +56,8 @@ export const billingService = {
   getDelinquencyStatus: (orgId) =>
     api.get(`/billing/organizations/${orgId}/delinquency`),
 
-  getPlatformDelinquency: () =>
-    api.get("/billing/delinquency"),
+  getPlatformDelinquency: (opts) =>
+    api.get("/billing/delinquency", opts),
 
 
   createSupportAccess: (data) =>
