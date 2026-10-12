@@ -21,6 +21,13 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # Idempotent: a dev/staging database that already has this table via
+    # Base.metadata.create_all() (this project's dev-boot path) must not
+    # crash with DuplicateTable when `alembic upgrade` is run there too.
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if 'plan_entitlement_mappings' in inspector.get_table_names():
+        return
     op.create_table(
         'plan_entitlement_mappings',
         sa.Column('id', sa.Integer(), primary_key=True),
@@ -35,4 +42,7 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    op.drop_table('plan_entitlement_mappings')
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if 'plan_entitlement_mappings' in inspector.get_table_names():
+        op.drop_table('plan_entitlement_mappings')

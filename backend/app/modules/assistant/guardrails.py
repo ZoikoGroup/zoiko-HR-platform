@@ -6,8 +6,12 @@ input sanitization, prompt-injection defenses, kill-switch checks, and output
 citation/disclosure validation.
 """
 
+import hashlib
+import random
 import re
+from datetime import datetime, timedelta
 
+from sqlalchemy import text as sql_text
 from sqlalchemy.orm import Session
 
 from app.core.sanitize import sanitize_input
@@ -171,3 +175,48 @@ def check_output_disclosure(answer_text: str | None) -> str | None:
         if marker in answer_text:
             return "prompt_leak"
     return None
+
+
+# ── Shared rate limiting for the public assistant ───────────────────────────
+# The in-process slowapi limiter on public_router.py is per-worker-process —
+# production runs this app under multiple gunicorn workers, so an
+# in-memory-only limit lets one visitor get up to (worker_count x limit)
+# requests through. This backs the same limit with Postgres instead, so the
+# count is genuinely shared across every worker, with no new infrastructure
+# (this project deliberately runs no Redis/Memcached — see the original
+# architecture notes on in-process orchestration). One row per (ip, minute);
+# the IP is hashed, never stored raw, matching this module's existing
+# logging-privacy convention (see safety_service.py).
+_RATE_LIMIT_CLEANUP_CHANCE = 0.02  # ~1 in 50 calls opportunistically prunes old rows
+
+
+def check_public_rate_limit(db: Session, client_ip: str, limit: int = 10) -> bool:
+    """Returns True if this request is allowed, False if the caller has
+    exceeded `limit` requests in the current one-minute window. Atomic
+    across concurrent workers via Postgres's ON CONFLICT upsert — no
+    read-then-write race."""
+    ip_hash = hashlib.sha256((client_ip or "unknown").encode()).hexdigest()[:32]
+    window_start = datetime.utcnow().replace(second=0, microsecond=0)
+
+    row = db.execute(
+        sql_text(
+            """
+            INSERT INTO public_rate_limits (ip_hash, window_start, request_count)
+            VALUES (:ip_hash, :window_start, 1)
+            ON CONFLICT (ip_hash, window_start)
+            DO UPDATE SET request_count = public_rate_limits.request_count + 1
+            RETURNING request_count
+            """
+        ),
+        {"ip_hash": ip_hash, "window_start": window_start},
+    ).first()
+    db.commit()
+
+    if random.random() < _RATE_LIMIT_CLEANUP_CHANCE:
+        db.execute(
+            sql_text("DELETE FROM public_rate_limits WHERE window_start < :cutoff"),
+            {"cutoff": datetime.utcnow() - timedelta(hours=1)},
+        )
+        db.commit()
+
+    return (row[0] if row else 1) <= limit
