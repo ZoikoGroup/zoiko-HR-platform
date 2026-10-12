@@ -46,7 +46,7 @@ export const superAdminService = {
   getLoginActivity: (params) => api.get("/super-admin/login-activity", { params }),
 
   // Notifications
-  getNotifications: (params) => api.get("/super-admin/notifications", { params }),
+  getNotifications: (params, opts) => api.get("/super-admin/notifications", { params, ...opts }),
   getNotification: (id) => api.get(`/super-admin/notifications/${id}`),
   createNotification: (data) => api.post("/super-admin/notifications", data),
   markNotificationRead: (id) => api.put(`/super-admin/notifications/${id}/read`),

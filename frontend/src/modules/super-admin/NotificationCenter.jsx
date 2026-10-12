@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useMemo, useRef } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import NotificationDetailDialog from "../../components/notifications/NotificationDetailDialog";
@@ -25,12 +27,8 @@ const fieldCls = "w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm 
 const looksLikeHtml = (text) => /<[a-z][\s\S]*>/i.test(text);
 
 export default function NotificationCenter() {
-  const [notifications, setNotifications] = useState([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [filter, setFilter] = useState("");
   const [showCreate, setShowCreate] = useState(false);
@@ -42,25 +40,26 @@ export default function NotificationCenter() {
   const [selectedId, setSelectedId] = useState(null);
   const sendInFlight = useRef(false);
 
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      setError(null);
-      const params = { page, page_size: pageSize };
-      if (filter === "read") params.is_read = true;
-      if (filter === "unread") params.is_read = false;
-      const data = await superAdminService.getNotifications(params);
-      setNotifications(data.notifications || []);
-      setTotal(data.total || 0);
-    } catch (e) {
-      console.error("Failed to load notifications", e);
-      setError(e.message || "Failed to load notifications.");
-    } finally {
-      setLoading(false);
-    }
+  // The list is a query keyed by the page and the read/unread filter: a recent view needs no request, and changing the
+  // page or filter keeps the previous rows on screen until the new ones arrive.
+  const qc = useQueryClient();
+  const params = useMemo(() => {
+    const p = { page, page_size: pageSize };
+    if (filter === "read") p.is_read = true;
+    if (filter === "unread") p.is_read = false;
+    return p;
   }, [page, pageSize, filter]);
-
-  useEffect(() => { load(); }, [load]);
+  const listQuery = useQuery({
+    queryKey: keys.superAdmin.notifications.list(params),
+    queryFn: ({ signal }) => superAdminService.getNotifications(params, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const notifications = listQuery.data?.notifications || [];
+  const total = listQuery.data?.total || 0;
+  const loading = listQuery.isPending;                                  // first load only; refreshes keep the rows
+  const error = listQuery.isError ? (listQuery.error?.message || "Failed to load notifications.") : null;
+  // After reading, deleting or sending a notification the lists (every page and filter) are stale.
+  const load = () => qc.invalidateQueries({ queryKey: keys.superAdmin.notifications.all });
 
   const handleMarkRead = async (id) => {
     setActionError(null);
