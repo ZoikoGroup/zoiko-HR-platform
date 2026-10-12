@@ -8,14 +8,14 @@ export const billingService = {
   updatePlan: (id, data) => api.put(`/billing/plans/${id}`, data),
 
   // ── Evaluations ──────────────────────────────────────────────────────────
-  getPlatformEvaluations: (params) => api.get("/billing/evaluations", { params }),
-  getEvaluations: (orgId) => api.get(`/billing/evaluations/${orgId}`),
+  getPlatformEvaluations: (params, opts) => api.get("/billing/evaluations", { params, ...opts }),
+  getEvaluations: (orgId, opts) => api.get(`/billing/evaluations/${orgId}`, opts),
   startEvaluation: (data) => api.post("/billing/evaluations", data),
   endEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/end`, data),
 
   // ── Conversions ──────────────────────────────────────────────────────────
   convertEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/convert`, data),
-  getConversions: (orgId) => api.get(`/billing/evaluations/${orgId}/conversions`),
+  getConversions: (orgId, opts) => api.get(`/billing/evaluations/${orgId}/conversions`, opts),
 
   // ── Subscriptions ────────────────────────────────────────────────────────
   getSubscription: (orgId) => api.get(`/billing/subscriptions/${orgId}`),
