@@ -1,5 +1,6 @@
 /** ZHR-42: User Management and the ZoikoHR dashboard describe each employee's status the same way. */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -26,7 +27,7 @@ async function openPage(t) {
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
   t.mock.module("react-router-dom", { exports: { useNavigate: () => () => {}, Link: ({ children }) => children } });
   const { default: Page } = await import(`../src/modules/organization-admin/UserManagementPage.jsx?t=${Math.random()}`);
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
 }
 

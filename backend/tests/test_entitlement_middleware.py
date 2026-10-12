@@ -245,6 +245,65 @@ class TestOrganizationsWithoutBilling:
         assert client.get("/hr/attendance/records", headers=_AUTH).status_code == 200
 
 
+class TestStagingCache:
+    """Part C: the staging list and sub-existence are short-TTL cached to keep
+    the middleware at 0 DB queries after the first guarded request per TTL; the
+    platform-settings PUT invalidates them so an ops edit lands immediately."""
+
+    def test_staged_list_is_cached_and_refreshes_after_invalidation(self, monkeypatch):
+        from app.modules.billing import entitlement_middleware as em
+        from app.core.cache import get_cached, invalidate_cache
+
+        class _Session:
+            def __init__(self, value):
+                self._value = value
+
+            def query(self, *a, **kw):
+                return _FakeQuery(_FakeSettingRow(self._value))
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        mw = em.EntitlementMiddleware(lambda *_: None, db_session_factory=None, routes_provider=lambda: [])
+        assert mw._staged_org_ids(_Session("12,47")) == {"12", "47"}
+        # the DB could change, but the cached list still serves within the TTL
+        assert mw._staged_org_ids(_Session("99")) == {"12", "47"}
+        assert get_cached(em._STAGED_CACHE_KEY) == ["12", "47"]
+        # the platform-settings PUT calls this exact invalidation
+        invalidate_cache(em._STAGED_CACHE_KEY)
+        assert mw._staged_org_ids(_Session("99")) == {"99"}
+
+    def test_sub_existence_is_cached_and_refreshes_after_invalidation(self):
+        from app.modules.billing import entitlement_middleware as em
+        from app.core.cache import invalidate_cache
+
+        class _Session:
+            def __init__(self, missing):
+                self._missing = missing
+
+            def query(self, *a, **kw):
+                if a and "BillingSubscription" in str(a[0]):
+                    return _FakeQuery(None if self._missing else object())
+                return _FakeQuery(None)
+
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *exc):
+                return False
+
+        mw = em.EntitlementMiddleware(lambda *_: None, db_session_factory=None, routes_provider=lambda: [])
+        assert mw._has_subscription(_Session(False), 7) is True
+        # stale cached True still serves after the DB says the sub is gone
+        assert mw._has_subscription(_Session(True), 7) is True
+        # any org/sub/evaluation write invalidates via invalidate_org_access
+        invalidate_cache(f"{em._SUB_EXISTS_PREFIX}7")
+        assert mw._has_subscription(_Session(True), 7) is False
+
+
 class TestCustomerMessages:
     def test_a_blocked_feature_explains_itself_and_points_at_the_upgrade(self, monkeypatch):
         client = _build_test_client(

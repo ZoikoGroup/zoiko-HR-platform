@@ -9,9 +9,12 @@ org fully usable — the user could still log in.
 
 Fixed behavior pinned here:
   1. An ACTIVE evaluation still allows login (no false positive).
-  2. Overdue ACTIVE evaluation blocks login and is flipped to EVALUATION_ENDED.
+  2. Overdue ACTIVE evaluation blocks login. The evaluation/subscription are
+     NOT flipped on the auth hot path any more (Part B: the gate is a pure read)
+     — expire_overdue_evaluations() (the 10-minute scheduler interval job, and
+     the 02:10 daily cron) does the bookkeeping, and the test drives it directly.
   3. A super-admin ended evaluation blocks login, and the subscription moves
-     to EVALUATION_EXPIRED so entitlements stop resolving.
+      to EVALUATION_EXPIRED so entitlements stop resolving.
   4. A converted (paid) org keeps login even though its evaluation is no longer
      ACTIVE.
 """
@@ -95,6 +98,11 @@ def test_overdue_active_evaluation_blocks_login_and_ends(db):
 
     with pytest.raises(UnauthorizedException):
         _login(db, data)
+
+    # The gate denied access; the state flip is the scheduler/service's job
+    # (Part B made the auth path read-only), so drive it here like the
+    # 10-minute interval job does.
+    billing_service.expire_overdue_evaluations(db)
 
     db.refresh(evaluation)
     assert evaluation.status == EvaluationStatus.EVALUATION_ENDED

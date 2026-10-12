@@ -7,6 +7,7 @@ import useFilteredNavigation from "../hooks/useFilteredNavigation";
 import { collectNavMatches } from "../utils/navigationSearch";
 import { ROLE_LABELS } from "../config/roles";
 import { useAuth } from "../context/AuthContext";
+import { prefetchRoute } from "../lib/prefetch";
 
 import SearchBar from "./SearchBar.jsx";
 import logo from "../assets/zoikohr-icon-svg.svg";
@@ -19,6 +20,13 @@ function isActive(href, pathname, search = "") {
   if (hrefSearch) return pathname === cleanHref && search === hrefSearch;
   return pathname === cleanHref || pathname.startsWith(`${cleanHref}/`);
 }
+
+// Warm the page's code (and first data) when the person shows intent: pointer over, keyboard focus, or a touch.
+const prefetchProps = (href) => ({
+  onMouseEnter: () => prefetchRoute(href),
+  onFocus: () => prefetchRoute(href),
+  onTouchStart: () => prefetchRoute(href),
+});
 
 function MenuItem({ item, pathname, search }) {
   const hasActiveChild = item.children
@@ -68,6 +76,7 @@ function MenuItem({ item, pathname, search }) {
   return (
     <NavLink
       to={item.href ?? "/"}
+      {...prefetchProps(item.href)}
       className={({ isActive: navActive }) => {
         const exactQueryItem = item.href?.includes("?");
         const isCurrent = exactQueryItem ? isActive(item.href, pathname, search) : navActive || isActive(item.href, pathname, search);
@@ -149,6 +158,7 @@ export default function Sidebar({ open, onClose }) {
                   <NavLink
                     key={item.href}
                     to={item.href ?? "/"}
+                    {...prefetchProps(item.href)}
                     className={({ isActive: navActive }) =>
                       `group flex items-center gap-3 rounded-[14px] border px-4 py-3 text-sm transition duration-200 ${
                         navActive

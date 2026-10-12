@@ -1,5 +1,6 @@
 
 import { humanizeValidationError } from "../utils/validationMessage";
+import { queryClient } from "../lib/queryClient";
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "zoiko_access_token";
@@ -27,6 +28,13 @@ export function getStoredUser() {
 
 export function setSession({ accessToken, refreshToken, user } = {}) {
   sharedGets.clear();
+  // A different person signing in must not see the previous person's cached data. A token refresh for the same
+  // person keeps the cache.
+  if (user) {
+    let previous = null;
+    try { previous = getStoredUser()?.id ?? null; } catch { previous = null; }
+    if (previous === null || previous !== user.id) queryClient.clear();
+  }
   if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken);
   if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -35,12 +43,14 @@ export function setSession({ accessToken, refreshToken, user } = {}) {
 
 export function clearSession() {
   sharedGets.clear();
+  queryClient.clear();               // signing out (or an invalid session) leaves no cached data behind
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
 function notifySessionInvalid(reason) {
+  queryClient.clear();
   if (sessionInvalidNotified) return;
   sessionInvalidNotified = true;
   if (typeof window !== "undefined") {

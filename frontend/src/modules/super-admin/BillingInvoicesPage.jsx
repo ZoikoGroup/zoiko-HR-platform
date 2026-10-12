@@ -1,4 +1,7 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useMemo } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import {
   Receipt, AlertTriangle, ExternalLink, FileDown, RefreshCw, Filter, Eye,
   ChevronLeft, ChevronRight, Building2, CircleDollarSign, CheckCircle, Clock, Search
@@ -94,39 +97,29 @@ export default function BillingInvoicesPage() {
   const [page, setPage] = useState(1);
   const [limit] = useState(20);
 
-  const [invoices, setInvoices] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
   // Detail Modal State
   const [activeInvoice, setActiveInvoice] = useState(null);
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = {
-        page,
-        limit,
-        organization_id: selectedOrg?.id || undefined,
-        status: statusFilter || undefined,
-        currency: currencyFilter || undefined,
-      };
-      const data = await billingService.getPlatformInvoices(params);
-      setInvoices(data.list || []);
-      setTotal(data.total || 0);
-    } catch (e) {
-      console.error("Failed to load platform invoices", e);
-      setError(e.message || "Failed to load invoices.");
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedOrg, statusFilter, currencyFilter, page, limit]);
-
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  // The list is a query keyed by the filters and page: a recent view needs no request, and changing a filter or page
+  // keeps the previous rows on screen until the new ones arrive.
+  const params = useMemo(() => ({
+    page,
+    limit,
+    organization_id: selectedOrg?.id || undefined,
+    status: statusFilter || undefined,
+    currency: currencyFilter || undefined,
+  }), [selectedOrg, statusFilter, currencyFilter, page, limit]);
+  const invoicesQuery = useQuery({
+    queryKey: keys.billing.invoices.list(params),
+    queryFn: ({ signal }) => billingService.getPlatformInvoices(params, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const invoices = invoicesQuery.data?.list || [];
+  const total = invoicesQuery.data?.total || 0;
+  const loading = invoicesQuery.isPending;                              // first load only; refreshes keep the rows
+  const refreshing = invoicesQuery.isFetching;
+  const error = invoicesQuery.isError ? (invoicesQuery.error?.message || "Failed to load invoices.") : null;
+  const loadData = () => invoicesQuery.refetch();
 
   const handleClearFilters = () => {
     setSelectedOrg(null);
@@ -160,11 +153,11 @@ export default function BillingInvoicesPage() {
         action={
           <button
             onClick={loadData}
-            disabled={loading}
+            disabled={refreshing}
             className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50 transition shadow-sm disabled:opacity-50"
             title="Refresh Invoices"
           >
-            <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
+            <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? "animate-spin" : ""}`} /> Refresh
           </button>
         }
       />
@@ -278,9 +271,7 @@ export default function BillingInvoicesPage() {
         </h3>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-          </div>
+          <TableSkeleton rows={6} label="Loading invoices" />
         ) : filteredInvoices.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
             <Receipt className="mx-auto mb-3 h-10 w-10 text-slate-300" />
@@ -362,6 +353,7 @@ export default function BillingInvoicesPage() {
               <div className="flex items-center gap-2">
                 <button
                   onClick={() => setPage((p) => Math.max(1, p - 1))}
+                  aria-label="Previous page"
                   disabled={page <= 1 || loading}
                   className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition"
                 >
@@ -370,6 +362,7 @@ export default function BillingInvoicesPage() {
                 <span className="font-semibold text-slate-700">Page {page} of {totalPages}</span>
                 <button
                   onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                  aria-label="Next page"
                   disabled={page >= totalPages || loading}
                   className="p-2 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40 transition"
                 >

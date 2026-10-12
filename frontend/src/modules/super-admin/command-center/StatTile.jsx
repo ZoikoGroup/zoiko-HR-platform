@@ -1,8 +1,7 @@
-import { LineChart, Line, ResponsiveContainer } from "recharts";
+import Sparkline from "../../../components/Sparkline";
 import { formatDeltaPct, INK, INK_SOFT, EMERALD, RED } from "./format";
 
 export default function StatTile({ icon: Icon, iconGradient, title, valueDisplay, deltaPct, series, sparklineColor }) {
-  const chartData = (series?.values || []).map((v, i) => ({ i, v }));
   const deltaLabel = formatDeltaPct(deltaPct);
   const deltaPositive = (deltaPct ?? 0) >= 0;
 
@@ -25,13 +24,9 @@ export default function StatTile({ icon: Icon, iconGradient, title, valueDisplay
             </p>
           )}
         </div>
-        {chartData.length > 1 && (
+        {(series?.values?.length || 0) > 1 && (
           <div className="w-16 h-8 flex-shrink-0">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartData}>
-                <Line type="monotone" dataKey="v" stroke={sparklineColor} strokeWidth={2} dot={false} isAnimationActive={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            <Sparkline values={series.values} color={sparklineColor} />
           </div>
         )}
       </div>

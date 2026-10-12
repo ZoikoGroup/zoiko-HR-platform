@@ -23,11 +23,13 @@ Safety / staged rollout (ZHR-COM-ENT-001 "safe enforcement"):
   - Org-level staging (independent axis from enforce_keys): the
     "entitlement_staged_org_ids" platform setting, when non-empty, restricts
     hard enforcement to that subset of organization IDs — every other org
-    stays report-only regardless of key staging. Read live from the database
-    on every guarded request (not a cached/static value), so ops can add/
-    remove pilot orgs via PUT /super-admin/platform-settings/
-    entitlement_staged_org_ids without a redeploy. Empty (the default) means
-    "no org-level restriction" — unchanged behavior from before this existed.
+    stays report-only regardless of key staging. Read from a short-TTL cache
+    (30s, see _STAGED_TTL), and invalidated immediately by
+    PUT /super-admin/platform-settings/entitlement_staged_org_ids, so ops can
+    add/remove pilot orgs via the platform-settings route and the change takes
+    effect on the very next request on the instance that saved it (within the
+    30s TTL on other workers). Empty (the default) means "no org-level
+    restriction" — unchanged behavior from before this existed.
   - READ_ONLY is read-compatible: GET/HEAD pass while mutations are blocked
     (Section 14.1 mode semantics); configurable via allow_read_in_read_only.
 
@@ -50,8 +52,8 @@ pilot org (no unexpected blocks, no support escalation) is the signal to
 expand the list, not a fixed timer.
 
 Roll back instantly: set the value back to "" (empty). This immediately
-returns to report-only for every org, with no redeploy and no restart —
-the next request re-reads the setting from the database.
+    returns to report-only for every org — the PUT invalidates the cached
+    staging list — with no redeploy and no restart.
 
 Expand to everyone: once satisfied, either keep adding org IDs, or clear the
 list to "" AND rely on HR_ENTITLEMENTS_ENFORCE_KEYS / HR_ENFORCE_ENTITLEMENTS
@@ -63,15 +65,32 @@ means "no restriction on this axis," never "block everyone").
 import json
 import logging
 
-from fastapi import Request
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.core.cache import get_cached, set_cached
 from app.core.security import decode_access_token
 from app.modules.billing.entitlement_service import ENTITLED_AVAILABLE, READ_ONLY, check_entitlement
 
 logger = logging.getLogger("zoiko.billing.entitlement.enforce")
 
 _READ_METHODS = frozenset({"GET", "HEAD"})
+
+# ── Per-request cost trimming (Part C) ───────────────────────────────────────
+# The middleware used to read the staging setting AND probe for a billing
+# subscription on every guarded request (2 DB round-trips ≈ 400ms on Neon).
+# Both are now short-TTL cached and invalidated on their write paths:
+#   * staging list  — invalidated by PUT /platform-settings/entitlement_staged_org_ids
+#   * sub existence — invalidated by the org_access flush listener (any org /
+#     subscription / evaluation write) via org_access.invalidate_org_access.
+# Fail-closed: a cache miss recomputes from the DB; a stale *non-empty* list
+# enforces MORE orgs (stricter); a stale *empty* list can only cause an org to
+# be enforced that just left the pilot list — for at most the TTL below. Roll
+# back quickly enough that this window is acceptable, or use the PUT endpoint,
+# which invalidates synchronously.
+_STAGED_CACHE_KEY = "entitlement_staged_org_ids"
+_STAGED_TTL_SECONDS = 30
+_SUB_EXISTS_PREFIX = "billing_sub_exists:"
+_SUB_EXISTS_TTL_SECONDS = 30
 
 
 def _blocked_start(status: int) -> dict:
@@ -160,29 +179,58 @@ class EntitlementMiddleware:
         otherwise only the listed keys are hard-enforced."""
         return not self.enforce_keys or key in self.enforce_keys
 
-    def _is_org_in_scope(self, db, org_id: int) -> bool:
-        """Org-level staged rollout: empty list means no org-level
-        restriction (every org enforced, subject to _is_enforced's key
-        staging); otherwise only the listed organization IDs are
-        hard-enforced. Reads the live database value on every call — this is
-        the one deliberately uncached read in the request path, so an ops
-        edit via the platform-settings endpoint takes effect on the very next
-        request, not after a cache TTL or restart."""
-        from app.modules.billing.models import BillingSubscription
-        from app.modules.super_admin.models import PlatformSetting
+    def _staged_org_ids(self, db) -> set[str]:
+        """The live pilot-org list, cached for _STAGED_TTL seconds. The
+        platform-settings PUT invalidates this key synchronously, so the roll
+        back / add-pilot flows take effect on the next request on the writing
+        instance and within the TTL on every other worker."""
+        cached = get_cached(_STAGED_CACHE_KEY)
+        if cached is not None:
+            return set(cached)
 
-        # An organization with no billing subscription at all predates billing or was created outside the
-        # self-serve flow. It has no plan to measure against, so it is left alone instead of being locked out.
-        if db.query(BillingSubscription.id).filter(BillingSubscription.organization_id == org_id).first() is None:
-            return False
+        from app.modules.super_admin.models import PlatformSetting
 
         row = (
             db.query(PlatformSetting)
-            .filter(PlatformSetting.key == "entitlement_staged_org_ids")
+            .filter(PlatformSetting.key == _STAGED_CACHE_KEY)
             .first()
         )
         raw = row.value if row is not None else ""
         org_ids = {s.strip() for s in (raw or "").split(",") if s.strip()}
+        set_cached(_STAGED_CACHE_KEY, sorted(org_ids), ttl=_STAGED_TTL_SECONDS)
+        return org_ids
+
+    def _has_subscription(self, db, org_id: int) -> bool:
+        """Whether the org has ANY billing subscription row, cached for
+        _SUB_EXISTS_TTL seconds. Invalidated by the org_access flush listener
+        after any org / subscription / evaluation commit, and by
+        invalidate_org_access."""
+        from app.modules.billing.models import BillingSubscription
+
+        key = f"{_SUB_EXISTS_PREFIX}{org_id}"
+        cached = get_cached(key)
+        if cached is not None:
+            return bool(cached)
+        exists = (
+            db.query(BillingSubscription.id)
+            .filter(BillingSubscription.organization_id == org_id)
+            .first()
+            is not None
+        )
+        set_cached(key, exists, ttl=_SUB_EXISTS_TTL_SECONDS)
+        return exists
+
+    def _is_org_in_scope(self, db, org_id: int) -> bool:
+        """Org-level staged rollout: empty list means no org-level
+        restriction (every org enforced, subject to _is_enforced's key
+        staging); otherwise only the listed organization IDs are
+        hard-enforced."""
+        # An organization with no billing subscription at all predates billing or was created outside the
+        # self-serve flow. It has no plan to measure against, so it is left alone instead of being locked out.
+        if not self._has_subscription(db, org_id):
+            return False
+
+        org_ids = self._staged_org_ids(db)
         return not org_ids or str(org_id) in org_ids
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send):

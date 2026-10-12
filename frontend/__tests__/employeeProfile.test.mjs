@@ -1,5 +1,6 @@
 /** ZHR-84: My Profile checks banking and identity formats and says what is wrong, field by field. */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -50,7 +51,7 @@ async function load(t, { updateProfileError } = {}) {
   t.mock.module("../src/service/employee.js", { exports: svc });
   t.mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   const { default: Page } = await import(`../src/pages/Peoples/Employees/Profile/EmployeeProfile.jsx?t=${Math.random()}`);
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   return calls;
 }

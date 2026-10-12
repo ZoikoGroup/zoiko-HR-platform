@@ -14,7 +14,7 @@ from sqlalchemy import (
     Text, Enum, ForeignKey, Float, JSON, Time, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import Session, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.database import Base
 
@@ -478,16 +478,28 @@ class AssetReport(Base):
     generated_by = Column(Integer, ForeignKey("employees.id"), nullable=True)
     parameters   = Column(JSON, nullable=True)
     file_url     = Column(String(500), nullable=True)
+    # NULL only for reports from before reports were org-scoped with no generator (platform super admins see those)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     created_at   = Column(DateTime, server_default=func.now())
 
 
 class AssetSetting(Base):
+    """One value per (organization, key). Rows with organization_id NULL are platform defaults: an organization reads
+    its own value when it has one, otherwise the default (migration b3c4d5e6f7a8)."""
     __tablename__ = "asset_settings"
 
     id            = Column(Integer, primary_key=True, index=True)
-    setting_key   = Column(String(100), nullable=False, unique=True)
+    setting_key   = Column(String(100), nullable=False)
     setting_value = Column(Text, nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    updated_by    = Column(Integer, ForeignKey("employees.id"), nullable=True)
     updated_at    = Column(DateTime, onupdate=func.now())
+
+    __table_args__ = (
+        Index("uq_asset_settings_org_key", "organization_id", "setting_key", unique=True),
+        Index("uq_asset_settings_default_key", "setting_key", unique=True,
+              postgresql_where=text("organization_id IS NULL"), sqlite_where=text("organization_id IS NULL")),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -674,6 +686,8 @@ class Audit(Base):
     score       = Column(Float, nullable=True)
     status      = Column(String(50), default="pending", nullable=False)
     created_at  = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
 
 class RegulatoryRequirement(Base):
@@ -685,6 +699,8 @@ class RegulatoryRequirement(Base):
     category     = Column(String(100), nullable=True)
     status       = Column(String(50), default="active", nullable=False)
     created_at   = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
 
 class RiskAssessment(Base):
@@ -697,6 +713,8 @@ class RiskAssessment(Base):
     mitigation_strategy = Column(Text, nullable=True)
     status              = Column(String(50), default="open", nullable=False)
     created_at          = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
 
 class ComplianceViolation(Base):
@@ -712,6 +730,8 @@ class ComplianceViolation(Base):
     status      = Column(String(50), default="investigating", nullable=False)
     date        = Column(Date, nullable=True)
     created_at  = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
     corrective_actions = relationship(
         "CorrectiveAction", back_populates="violation_ref", cascade="all, delete-orphan"
@@ -728,6 +748,8 @@ class CorrectiveAction(Base):
     status       = Column(String(50), default="pending", nullable=False)
     deadline     = Column(Date, nullable=True)
     created_at   = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
     violation_ref = relationship("ComplianceViolation", back_populates="corrective_actions")
 
@@ -2042,3 +2064,16 @@ class OrganizationConfig(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "key", name="uq_org_config_key"),
     )
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_leave_requests_org_created", LeaveRequest.organization_id, LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
+_Index("ix_compensation_bands_organization_id", CompensationBand.organization_id)
+_Index("ix_salary_revisions_organization_id", SalaryRevision.organization_id)
+_Index("ix_salary_structures_organization_id", SalaryStructure.organization_id)
+_Index("ix_employee_benefits_organization_id", EmployeeBenefit.organization_id)
+_Index("ix_asset_requests_employee_id", AssetRequest.employee_id)
+_Index("ix_onboarding_new_hires_employee_id", OnboardingNewHire.employee_id)
+_Index("ix_onboarding_preboarding_tasks_employee_id", OnboardingPreboardingTask.employee_id)

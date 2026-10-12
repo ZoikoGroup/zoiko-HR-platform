@@ -482,15 +482,21 @@ export const getShiftEfficiency = (params = {}) => api.get("/hr/attendance/analy
 
 // ── LEAVE CRUD SPECIFIC ─────────────────────────────────────────────────────
 export const createLeaveRequest = (payload) => api.post("/hr/leaves", payload);
-export const getLeaveRequests = (employeeId, params = {}) => {
+export const getLeaveRequests = (employeeId, params = {}, opts) => {
   const query = new URLSearchParams();
   if (employeeId) query.set("employee_id", employeeId);
   if (params.status) query.set("status", params.status);
   if (params.leave_type) query.set("leave_type", params.leave_type);
   if (params.start_date) query.set("start_date", params.start_date);
   if (params.end_date) query.set("end_date", params.end_date);
+  // server-side paging and filters (the response is then { items, total, page, per_page })
+  if (params.page) query.set("page", params.page);
+  if (params.per_page) query.set("per_page", params.per_page);
+  if (params.search) query.set("search", params.search);
+  if (params.department_name) query.set("department_name", params.department_name);
+  if (params.decided) query.set("decided", "true");
   const qs = query.toString();
-  return api.get(`/hr/leaves${qs ? `?${qs}` : ""}`);
+  return api.get(`/hr/leaves${qs ? `?${qs}` : ""}`, opts);
 };
 export const getLeaveRequest = (id) => api.get(`/hr/leaves/${id}`);
 export const updateLeaveRequest = (id, payload) => api.put(`/hr/leaves/${id}`, payload);
@@ -509,8 +515,8 @@ export const getLeaveTypeConfigs = () => api.get("/hr/leaves/type-configs");
 export const createLeaveTypeConfig = (payload) => api.post("/hr/leaves/type-configs", payload);
 export const updateLeaveTypeConfig = (id, payload) => api.put(`/hr/leaves/type-configs/${id}`, payload);
 export const deleteLeaveTypeConfig = (id) => api.delete(`/hr/leaves/type-configs/${id}`);
-export const getLeaveBalances = (employeeId) =>
-  api.get(`/hr/leaves/balance${employeeId ? `?employee_id=${employeeId}` : ""}`);
+export const getLeaveBalances = (employeeId, opts) =>
+  api.get(`/hr/leaves/balance${employeeId ? `?employee_id=${employeeId}` : ""}`, opts);
 export const updateLeaveBalance = (id, payload) => api.put(`/hr/leaves/balance/${id}`, payload);
 export const initLeaveBalances = (employeeId, year) =>
   api.post(`/hr/leaves/balance/init?employee_id=${employeeId}&year=${year}`);

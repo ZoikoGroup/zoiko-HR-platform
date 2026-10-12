@@ -3,6 +3,7 @@
  * forced password change, and the Expenses page.
  */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -81,7 +82,7 @@ async function openUsers(t, overrides) {
   reset(overrides);
   register(t);
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   await settle();
   // A super admin picks an organization first; its users are listed after that.
@@ -236,7 +237,7 @@ test("you cannot reset your own password from the list", async (t) => {
   auth.user = { id: 99, email: "bob@gmail.com", role: "admin" };
   auth.role = "admin";
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   await settle();
   assert.equal(screen.getByTitle("Use account settings to change your own password").disabled, true);
@@ -252,7 +253,7 @@ test("forced password change page validates and submits", async (t) => {
   assert.ok(passwordProblem("short1"));
   assert.ok(passwordProblem("lettersonly"));
   assert.equal(passwordProblem("GoodPass1"), null);
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   const fields = document.querySelectorAll('input[type="password"]');
   fireEvent.change(fields[0], { target: { value: "Temp-old-1" } });
   fireEvent.change(fields[1], { target: { value: "weak" } });
@@ -275,7 +276,7 @@ test("Expenses shows real claims, per-currency totals, and honest empty states",
   reset();
   register(t);
   const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.ok(screen.getByText("No expense claims in this period."));
   assert.ok(screen.getByText("No expense claims yet."));
@@ -290,7 +291,7 @@ test("Expenses shows real claims, per-currency totals, and honest empty states",
       budgets: async () => ({ budgets: [{ id: 1, name: "Travel Q3", organization_name: "Globex Inc", category: "Travel", period_start: "2026-07-01", period_end: "2026-09-30", currency: "USD", allocated: "1000.00", spent: "1200.00", remaining: "-200.00", utilization_pct: 120, over_budget: true }] }),
     },
   });
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.ok(screen.getByText("Bob Brown"));
   assert.ok(screen.getByText("USD 340.50", { selector: "td" }));
@@ -310,7 +311,7 @@ test("Expenses sections fail and retry independently; filters reach the API", as
   expSvc.claims = async (p) => { claimCalls.push(p); return { claims: [CLAIM], total: 1 }; };
   expSvc.budgets = async () => { if (budgetsFail) throw new Error("boom"); return { budgets: [] }; };
   const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.ok(screen.getByText("Bob Brown")); // claims fine
   assert.ok(screen.getByText("Budgets: boom")); // budgets failed on their own
@@ -333,7 +334,7 @@ test("Expenses is super-admin only", async (t) => {
   auth.user = { role: "admin" };
   auth.role = "admin";
   const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.ok(screen.getByText(/super admins only/));
   cleanup();
@@ -355,7 +356,7 @@ test("Expenses shows each organization separately, including ones with no claims
   });
   register(t);
   const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.ok(screen.getByText("Expenses by Organization (3)"));
   const acme = within(screen.getByRole("button", { name: "Acme Ltd expenses" }));
@@ -451,7 +452,7 @@ test("organization creation errors stay in the dialog; non-super-admins do not s
   auth.user = { id: 99, email: "a@gmail.com", role: "admin" };
   auth.role = "admin";
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.equal(screen.queryByRole("button", { name: /Add Organization/ }), null);
   cleanup();
@@ -468,7 +469,7 @@ test("super admin sees organizations first and a user list only after opening on
   } });
   register(t);
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   await settle();
   assert.equal(calls.length, 0); // no cross-organization user list
@@ -499,7 +500,7 @@ test("Back goes to the previous page, or to the organization list when inside an
   reset();
   register(t);
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   await settle();
   fireEvent.click(screen.getByRole("button", { name: "Back to previous page" }));
@@ -533,7 +534,7 @@ test("organization cards: suspend, reactivate, reset the admin's password and de
   });
   register(t);
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   await settle();
 

@@ -1,4 +1,7 @@
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useRef } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { Hourglass, AlertTriangle, PlayCircle, Square, ArrowUpRight, Clock, X } from "lucide-react";
 import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
@@ -23,20 +26,16 @@ const STATUS_PILLS = {
 
 export default function BillingEvaluationsPage() {
   const [selectedOrg, setSelectedOrg] = useState(null);
-  const [evaluations, setEvaluations] = useState([]);
-  const [conversions, setConversions] = useState([]);
-  const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(null);
 
   const [startModal, setStartModal] = useState(false);
   const [startForm, setStartForm] = useState({ evaluation_ends_at: "", approved_package_scope: "", data_classification: "synthetic", conversion_owner: "" });
 
-  const [plans, setPlans] = useState([]);
-
-  useEffect(() => {
-    billingService.getPlans().then(res => setPlans(res.list || [])).catch(() => {});
-  }, []);
+  const qc = useQueryClient();
+  // Plans are needed by the convert dialog; they change rarely and are shared with the other billing pages' cache.
+  const plansQuery = useQuery({ queryKey: keys.billing.plans(), queryFn: ({ signal }) => billingService.getPlans(undefined, { signal }), retry: false });
+  const plans = plansQuery.data?.list || [];
 
   const [convertModal, setConvertModal] = useState(null);
   const [convertError, setConvertError] = useState(null);
@@ -45,30 +44,35 @@ export default function BillingEvaluationsPage() {
   const [convertForm, setConvertForm] = useState({ plan_id: "", billing_cycle: "monthly", quantity_basis: "", commercial_effective_at: "", approver: "", order_form_reference: "", signed_agreement_reference: "" });
 
 
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  // The list is a query keyed by the selected organization (all evaluations, or one organization's evaluations and
+  // conversions). Switching organization keeps the previous rows on screen until the new ones arrive.
+  const evalQuery = useQuery({
+    queryKey: keys.billing.evaluations.list({ organization_id: selectedOrg?.id ?? null }),
+    queryFn: async ({ signal }) => {
       if (selectedOrg) {
         const [evalData, convData] = await Promise.all([
-          billingService.getEvaluations(selectedOrg.id),
-          billingService.getConversions(selectedOrg.id),
+          billingService.getEvaluations(selectedOrg.id, { signal }),
+          billingService.getConversions(selectedOrg.id, { signal }),
         ]);
-        setEvaluations(evalData.list || []);
-        setConversions(convData.list || []);
-      } else {
-        const evalData = await billingService.getPlatformEvaluations();
-        setEvaluations(evalData.list || []);
-        setConversions([]);
+        return { evaluations: evalData.list || [], conversions: convData.list || [] };
       }
-    } catch (e) {
-      setError(e.message || "Failed to load evaluations");
-    } finally {
-      setLoading(false);
-    }
-  }, [selectedOrg]);
+      const evalData = await billingService.getPlatformEvaluations(undefined, { signal });
+      return { evaluations: evalData.list || [], conversions: [] };
+    },
+    placeholderData: keepPreviousData,
+  });
+  const evaluations = evalQuery.data?.evaluations || [];
+  const conversions = evalQuery.data?.conversions || [];
+  const loading = evalQuery.isPending;                                   // first load only; refreshes keep the rows
+  const loadError = evalQuery.isError ? (evalQuery.error?.message || "Failed to load evaluations") : null;
 
-  useEffect(() => { loadData(); }, [loadData]);
+  // After starting, ending or converting an evaluation: evaluations, subscriptions/plans, the organization lists and
+  // statuses, and the dashboard figures (lifecycle, attention) all change.
+  const loadData = () => Promise.all([
+    qc.invalidateQueries({ queryKey: keys.billing.all }),
+    qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all }),
+    qc.invalidateQueries({ queryKey: keys.superAdmin.commandCenter.all }),
+  ]);
 
   const handleStart = async () => {
     if (!selectedOrg || !startForm.evaluation_ends_at) return;
@@ -171,20 +175,18 @@ export default function BillingEvaluationsPage() {
         </div>
       )}
 
-      {error && (
-        <div className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
+      {(error || loadError) && (
+        <div role="alert" className="flex items-center gap-3 rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 shadow-sm">
           <AlertTriangle className="h-5 w-5 shrink-0" />
-          <span className="text-[#475569]">{error}</span>
-          <button onClick={() => setError(null)} className="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 underline underline-offset-2 transition-colors duration-200 hover:text-red-700">
-            <X className="h-3.5 w-3.5" /> Dismiss
+          <span className="text-[#475569]">{error || loadError}</span>
+          <button onClick={() => (error ? setError(null) : evalQuery.refetch())} className="ml-auto flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-red-600 underline underline-offset-2 transition-colors duration-200 hover:text-red-700">
+            {error ? <><X className="h-3.5 w-3.5" /> Dismiss</> : "Retry"}
           </button>
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
-        </div>
+        <TableSkeleton rows={6} label="Loading evaluations" />
       ) : (
         <>
           <div className="rounded-2xl border border-[#E2E8F0] bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04),0_4px_16px_rgba(15,23,42,0.06)] transition-all duration-200 ease-in-out">

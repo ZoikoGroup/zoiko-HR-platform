@@ -11,6 +11,7 @@ import "./support/setup-jsdom.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { render, screen, cleanup, act, fireEvent, waitFor, within } from "@testing-library/react";
 import { formatBadge, relativeTime } from "../src/utils/notificationFormat.js";
 import { sanitizeHtml } from "../src/utils/sanitizeHtml.js";
@@ -96,7 +97,7 @@ async function renderContent(t, props) {
   cleanup();
   mockModules(t);
   const mod = await import(`../src/components/notifications/NotificationContent.jsx?t=${Math.random()}`);
-  await act(async () => { render(React.createElement(mod.default, props)); });
+  await act(async () => { render(withQuery(React.createElement(mod.default, props))); });
 }
 
 const BASE = {
@@ -165,7 +166,7 @@ async function renderCenter(t) {
   mockModules(t);
   superAdminService.getNotifications = async () => ({ notifications: ADMIN_ROWS, total: 2 });
   const mod = await import(`../src/modules/super-admin/NotificationCenter.jsx?t=${Math.random()}`);
-  await act(async () => { render(React.createElement(mod.default)); });
+  await act(async () => { render(withQuery(React.createElement(mod.default))); });
   await settle();
 }
 
@@ -243,7 +244,7 @@ async function renderBell(t, unread) {
   notificationService.getUnreadCount = async () => ({ unread_count: unread });
   notificationService.list = async () => ({ items: ITEMS, total: 3, unread_count: unread });
   const mod = await import(`../src/components/NotificationBell.jsx?t=${Math.random()}`);
-  await act(async () => { render(React.createElement(mod.default)); });
+  await act(async () => { render(withQuery(React.createElement(mod.default))); });
   await settle();
 }
 
@@ -304,7 +305,7 @@ test("bell: empty dropdown says there is nothing", async (t) => {
   notificationService.getUnreadCount = async () => ({ unread_count: 0 });
   notificationService.list = async () => ({ items: [], total: 0, unread_count: 0 });
   const mod = await import(`../src/components/NotificationBell.jsx?t=${Math.random()}`);
-  await act(async () => { render(React.createElement(mod.default)); });
+  await act(async () => { render(withQuery(React.createElement(mod.default))); });
   fireEvent.click(screen.getByRole("button", { name: "Notifications" }));
   await settle();
   assert.ok(screen.getByText("You have no notifications"));
@@ -317,7 +318,7 @@ async function renderInbox(t, role = "employee", setup = () => {}) {
   setup();
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ role }) } });
   const mod = await import(`../src/pages/NotificationsPage.jsx?t=${Math.random()}`);
-  await act(async () => { render(React.createElement(mod.default)); });
+  await act(async () => { render(withQuery(React.createElement(mod.default))); });
   await settle();
 }
 

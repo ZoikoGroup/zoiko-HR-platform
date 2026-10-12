@@ -1,5 +1,6 @@
 /** ZHR-102: Add Employee on the dashboard does not ask for (or demand) a password and tells the person what is missing. */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -33,7 +34,7 @@ async function openPage(t, create) {
   t.mock.module("../src/service/orgAdminService.js", { exports: { getOrganizationDetails: async () => ({ name: "Acme" }) } });
   t.mock.module("../src/service/employee.js", { exports: { getDesignations: async () => [], createEmployee: create || (async (p) => { calls.push(p); return { id: 9, email: p.email, temporaryPassword: "Tmp#Pass12345" }; }) } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/HrDashBoard.jsx?t=${Math.random()}`);
-  render(React.createElement(MemoryRouter, null, React.createElement(Page)));
+  render(withQuery(React.createElement(MemoryRouter, null, React.createElement(Page))));
   await settle();
   fireEvent.click(screen.getAllByRole("button", { name: /Add Employee/ })[0]);
   await settle();

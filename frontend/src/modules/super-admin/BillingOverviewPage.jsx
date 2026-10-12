@@ -1,4 +1,5 @@
-import { useState, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useNavigate } from "react-router-dom";
 import {
   AlertTriangle, CreditCard, CheckCircle, XCircle,
@@ -48,47 +49,35 @@ function formatCents(cents) {
 
 export default function BillingOverviewPage() {
   const navigate = useNavigate();
-  const [plans, setPlans] = useState([]);
-  const [discounts, setDiscounts] = useState([]);
-  const [orgs, setOrgs] = useState([]);
-  const [commercialHealth, setCommercialHealth] = useState(null);
-  const [lifecycle, setLifecycle] = useState(null);
-  const [delinquencyCount, setDelinquencyCount] = useState(0);
+  // Each section is its own cached query. The commercial-health and lifecycle ones use the same keys as the dashboard,
+  // so coming from the dashboard they are already there and cost no request.
+  const qc = useQueryClient();
+  const plansQuery = useQuery({ queryKey: keys.billing.plans(), queryFn: ({ signal }) => billingService.getPlans(undefined, { signal }) });
+  const soft = { retry: false };                                     // optional sections: a failure just leaves them empty
+  const discountsQuery = useQuery({ queryKey: keys.billing.discounts(), queryFn: ({ signal }) => billingService.getDiscounts(undefined, { signal }), ...soft });
+  const orgsQuery = useQuery({ queryKey: keys.superAdmin.organizations.list({ page: 1, page_size: 5 }), queryFn: ({ signal }) => superAdminService.getOrganizations({ page: 1, page_size: 5 }, { signal }), ...soft });
+  const commercialQuery = useQuery({ queryKey: keys.superAdmin.commandCenter.commercialHealth(30), queryFn: ({ signal }) => superAdminService.getCommandCenterCommercialHealth({ days: 30 }, { signal }), ...soft });
+  const lifecycleQuery = useQuery({ queryKey: keys.superAdmin.commandCenter.lifecycle(), queryFn: ({ signal }) => superAdminService.getCommandCenterLifecycle({ signal }), ...soft });
+  const delinquencyQuery = useQuery({ queryKey: keys.billing.delinquency(), queryFn: ({ signal }) => billingService.getPlatformDelinquency({ signal }), ...soft });
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [refreshing, setRefreshing] = useState(false);
+  const plans = plansQuery.data?.list || [];
+  const discounts = discountsQuery.data?.list || [];
+  const orgs = orgsQuery.data?.organizations || [];
+  const commercialHealth = commercialQuery.data ?? null;
+  const lifecycle = lifecycleQuery.data ?? null;
+  const delinquencyCount = delinquencyQuery.data?.total || delinquencyQuery.data?.list?.length || 0;
 
-  const loadAll = async (showRefresh = false) => {
-    if (showRefresh) setRefreshing(true);
-    else setLoading(true);
-    setError(null);
-    try {
-      const [plansData, discountsData, orgsData, commercialData, lifecycleData, delinquencyData] = await Promise.all([
-        billingService.getPlans(),
-        billingService.getDiscounts().catch(() => ({ list: [], total: 0 })),
-        superAdminService.getOrganizations({ page: 1, page_size: 5 }).catch(() => ({ organizations: [], total: 0 })),
-        superAdminService.getCommandCenterCommercialHealth({ days: 30 }).catch(() => null),
-        superAdminService.getCommandCenterLifecycle().catch(() => null),
-        billingService.getPlatformDelinquency().catch(() => ({ list: [], total: 0 })),
-      ]);
-
-      setPlans(plansData.list || []);
-      setDiscounts(discountsData.list || []);
-      setOrgs(orgsData.organizations || []);
-      setCommercialHealth(commercialData);
-      setLifecycle(lifecycleData);
-      setDelinquencyCount(delinquencyData.total || delinquencyData.list?.length || 0);
-    } catch (e) {
-      console.error("Failed to load billing overview", e);
-      setError(e.message || "Unable to load billing overview.");
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
+  const loading = plansQuery.isPending;                                // the page shows once the plans are in
+  const error = plansQuery.isError ? (plansQuery.error?.message || "Unable to load billing overview.") : null;
+  const refreshing = [plansQuery, discountsQuery, orgsQuery, commercialQuery, lifecycleQuery, delinquencyQuery].some((q) => q.isFetching) && !loading;
+  const loadAll = (showRefresh = false) => {
+    if (!showRefresh && plansQuery.isError) return plansQuery.refetch();
+    return Promise.all([
+      qc.invalidateQueries({ queryKey: keys.billing.all }),
+      qc.invalidateQueries({ queryKey: keys.superAdmin.commandCenter.all }),
+      qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all }),
+    ]);
   };
-
-  useEffect(() => { loadAll(); }, []);
 
   const activePlans = plans.filter(p => p.is_active);
   const contractPlans = plans.filter(p => p.is_contract_priced);
@@ -141,7 +130,7 @@ export default function BillingOverviewPage() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+        <div role="alert" className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
           <AlertTriangle className="h-5 w-5 flex-shrink-0" />
           <span>{error}</span>
           <button onClick={() => loadAll()} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>

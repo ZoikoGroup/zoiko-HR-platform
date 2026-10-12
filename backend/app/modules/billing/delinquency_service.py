@@ -520,18 +520,19 @@ def list_platform_delinquency_cases(db: Session) -> list[dict]:
     """Platform-wide list of all organizations with open delinquency cases."""
     from app.modules.hr.models import Organization
 
-    org_map = {}
-    try:
-        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in db.query(Organization).all()}
-    except Exception:
-        pass
-
     cases = (
         db.query(DelinquencyCase)
         .filter(DelinquencyCase.status == DelinquencyCaseStatus.OPEN)
         .order_by(DelinquencyCase.failed_at.asc())
         .all()
     )
+
+    org_map = {}
+    try:
+        from app.modules.super_admin.organization_service import org_names_by_id
+        org_map = org_names_by_id(db, {c.organization_id for c in cases}, include_deleted=True)  # orgs with an open case, deleted ones named
+    except Exception:
+        pass
 
     now = now_utc()
     results = []

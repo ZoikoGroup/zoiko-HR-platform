@@ -27,6 +27,30 @@ def _is_development_environment() -> bool:
     return env_name in {"development", "test", "testing"} or debug_flag in {"1", "true", "yes", "on"} or is_pytest
 
 
+def _apply_neon_pooler(raw_url: str, use_pooler: bool) -> str:
+    """Neon recommends its PgBouncer-compatible pooled host ("-pooler") once the
+    app opens more than ~10 direct connections: `host-xxx.us-east-2.aws.neon.tech`
+    becomes `host-xxx-pooler.us-east-2.aws.neon.tech`. Opt in with
+    HR_USE_NEON_POOLER=true (works per-environment — set it only where the
+    worker count times pool size exceeds the direct-connection limit)."""
+    if not use_pooler:
+        return raw_url
+    parsed = urlparse(raw_url)
+    if not parsed.hostname or not parsed.hostname.endswith(".neon.tech"):
+        logger.warning("HR_USE_NEON_POOLER is set but %r is not a Neon host; ignoring.", parsed.hostname)
+        return raw_url
+    if "-pooler" in parsed.hostname:
+        return raw_url
+    parts = parsed.hostname.split(".")
+    parts[0] = f"{parts[0]}-pooler"
+    netloc = ".".join(parts)
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    if parsed.username:
+        netloc = parsed.username + (f":{parsed.password}" if parsed.password else "") + "@" + netloc
+    return raw_url.replace(parsed.netloc, netloc, 1)
+
+
 def resolve_database_url(raw_url: str | None = None) -> str:
     """Resolve the PostgreSQL database URL.
 
@@ -40,6 +64,7 @@ def resolve_database_url(raw_url: str | None = None) -> str:
             "(Neon). Please set HR_DATABASE_URL in your .env file."
         )
 
+    candidate_url = _apply_neon_pooler(candidate_url, settings.USE_NEON_POOLER)
     parsed = urlparse(candidate_url)
     # Allow any scheme in development (e.g., SQLite memory) for tests.
     if _is_development_environment():
@@ -71,17 +96,50 @@ else:
     # Bound the TCP/TLS handshake. psycopg2's default is no timeout at all, so an
     # unreachable database hangs the boot for minutes instead of failing fast.
     engine_kwargs["connect_args"]["connect_timeout"] = int(os.getenv("HR_DB_CONNECT_TIMEOUT", "30"))
+    # psycopg2 keepalives: a silent middlebox (NAT, Neon LB) can drop an idle
+    # TCP socket without either side noticing, leaving a "dead" pooled
+    # connection that only fails on next use. Proactive keepalive probes let
+    # pool_pre_ping catch those long before a request does.
+    engine_kwargs["connect_args"]["keepalives"] = 1
+    engine_kwargs["connect_args"]["keepalives_idle"] = int(os.getenv("HR_DB_KEEPALIVE_IDLE", "60"))
+    engine_kwargs["connect_args"]["keepalives_interval"] = int(os.getenv("HR_DB_KEEPALIVE_INTERVAL", "10"))
+    engine_kwargs["connect_args"]["keepalives_count"] = int(os.getenv("HR_DB_KEEPALIVE_COUNT", "3"))
     engine_kwargs.update({
+        # pool_pre_ping: verify with SELECT 1 on every checkout. Cheap and the
+        # single best defense against stale pooled connections.
         "pool_pre_ping": True,
         # Per worker process: total connections = workers x (pool_size + max_overflow). Keep that under the
         # database's connection limit (Neon: use the pooled "-pooler" host for larger values).
         "pool_size": int(os.getenv("HR_DB_POOL_SIZE", "5")),
         "max_overflow": int(os.getenv("HR_DB_MAX_OVERFLOW", "10")),
         "pool_timeout": int(os.getenv("HR_DB_POOL_TIMEOUT", "30")),
-        "pool_recycle": 1800,
+        "pool_recycle": int(os.getenv("HR_DB_POOL_RECYCLE", "300")),
     })
 
 engine = create_engine(resolved_database_url, **engine_kwargs)
+
+
+def _warn_on_pool_sizing() -> None:
+    """Boot-time guard for peak pooled connections = workers x (pool_size +
+    max_overflow). Neon's direct connection limit is small (10 on free/startup
+    tiers); exceeding it makes new connections hang/fail mid-request. Warn so
+    the fix (lower pool sizes, fewer workers, or HR_USE_NEON_POOLER=true)
+    happens before an outage instead of after one."""
+    if _is_sqlite or settings.USE_NEON_POOLER:
+        return
+    workers = max(int(getattr(settings, "WEB_CONCURRENCY", 1) or 1), 1)
+    pooled_per_worker = engine_kwargs.get("pool_size", 5) + engine_kwargs.get("max_overflow", 10)
+    connection_limit = int(os.getenv("HR_DB_CONNECTION_LIMIT", "25"))
+    if workers * pooled_per_worker > int(connection_limit * 0.8):
+        logger.warning(
+            "Pool sizing risk: %d worker(s) x %d connections each = %d, above 80%% of the "
+            "configured connection limit (%d). Request spikes may exhaust the database. "
+            "Lower HR_DB_POOL_SIZE/HR_DB_MAX_OVERFLOW, cut workers, or set "
+            "HR_USE_NEON_POOLER=true.", workers, pooled_per_worker,
+            workers * pooled_per_worker, connection_limit)
+
+
+_warn_on_pool_sizing()
 
 
 # -- 2. Session factory -------------------------------------------------------

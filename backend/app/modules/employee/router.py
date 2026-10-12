@@ -300,27 +300,25 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         raise UnauthorizedException("Invalid or expired refresh token.")
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
-    if employee:  # before the is_active check: a deleted organization deactivates its users
-        from app.modules.super_admin import organization_service
-        if organization_service.is_deleted(db, employee.organization_id):
+    if employee and employee.organization_id:
+        # before the is_active check: a deleted organization deactivates its users
+        from app.core import org_access
+        oa = org_access.get_org_access(db, employee.organization_id)
+        if oa.deleted:
+            from app.modules.super_admin import organization_service
             raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
     if not employee or not employee.is_active:
         raise UnauthorizedException("Employee not found or inactive.")
 
+    if employee.organization_id:
+        from app.core import org_access
+        oa = org_access.get_org_access(db, employee.organization_id)
+        if oa.status in ("active", "approved") and oa.evaluation_block_reason:
+            raise UnauthorizedException(oa.evaluation_block_reason)
+
     from app.core.security import token_predates_password_change
     if token_predates_password_change(payload, employee):
         raise UnauthorizedException("Your password was changed. Please log in again.")
-
-
-    if employee.organization_id:
-        from app.modules.hr.models import Organization, OrganizationStatus
-        from app.modules.billing import service as billing_service
-        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
-        if org and org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-            if billing_service.evaluation_access_block_reason(db, employee.organization_id):
-                raise UnauthorizedException(
-                    "Your evaluation period has ended. Contact sales to continue."
-                )
 
     new_token = create_access_token(data={
         "sub": employee.email,

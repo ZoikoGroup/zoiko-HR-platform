@@ -10,6 +10,26 @@ from app.config import settings
 
 
 @pytest.fixture(autouse=True)
+def _clear_caches():
+    """Drop the in-process cache before and after every test. The cached org-access
+    TTL (30s) would otherwise let an org status/evaluation change in one test
+    leak a stale decision into the next."""
+    from app.core.cache import clear_caches, invalidate_cache
+
+    def _clear():
+        clear_caches()
+        # With HR_REDIS_URL set (CI) the entitlement/org-access caches live in Redis, which clear_caches() leaves alone;
+        # entries would leak between tests. Flush it only when it is a local instance.
+        url = settings.REDIS_URL or ""
+        if url and any(h in url for h in ("localhost", "127.0.0.1", "redis://redis")):
+            invalidate_cache("")
+
+    _clear()
+    yield
+    _clear()
+
+
+@pytest.fixture(autouse=True)
 def _relaxed_email_rules(request, monkeypatch):
     if "strict_emails" in request.fixturenames:
         monkeypatch.setattr(settings, "EMAIL_REAL_ONLY", True)

@@ -38,13 +38,16 @@ def attendance_dashboard(
     return attendance_service.get_attendance_dashboard(db, current_user.organization_id, department=department)
 
 
-@attendance_router.get("", summary="List all attendance records (unpaginated)")
+@attendance_router.get("", summary="List attendance records (plain list without page/per_page, capped at 1000)")
 def list_all_attendance(
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the plain list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     employee_id = current_user.id if current_user.role == UserRole.EMPLOYEE else None
-    return attendance_service.get_all_attendance_records(db, current_user.organization_id, employee_id=employee_id)
+    return attendance_service.get_all_attendance_records(db, current_user.organization_id, employee_id=employee_id,
+                                                         page=page, per_page=per_page)
 
 
 # ── ATTENDANCE RECORDS CRUD ──────────────────────────────────────────────────

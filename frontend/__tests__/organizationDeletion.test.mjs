@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import React from "react";
 import { render, screen, cleanup, act, fireEvent, waitFor, within } from "@testing-library/react";
+import { withQuery } from "./support/queryWrapper.mjs";
 
 const sa = {};
 const userSvc = {};
@@ -61,7 +62,7 @@ async function openOrganizations(t, over) {
   reset(over);
   register(t);
   const { default: Page } = await import("../src/modules/super-admin/OrganizationsPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
 }
 
@@ -183,7 +184,7 @@ test("User Management: Delete organization opens the same dialog and the list re
   sa.deleteOrganization = async (id, body) => { deleted.push([id, body.confirm_name]); return { message: "Organization 'Acme Ltd' was deleted." }; };
   sa.getOrganizations = async () => ({ organizations: deleted.length ? [] : [ORG], total: deleted.length ? 0 : 1 });
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.equal(screen.queryByText("Olivia Owner"), null); // users appear only after an organization is opened
   fireEvent.click(screen.getByRole("button", { name: "Open Acme Ltd" }));

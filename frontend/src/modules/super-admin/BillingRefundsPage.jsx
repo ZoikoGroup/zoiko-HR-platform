@@ -1,4 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useParams } from "react-router-dom";
 import {
   AlertTriangle, CheckCircle, RotateCcw, Clock, Filter, DollarSign, Plus,
@@ -54,26 +57,17 @@ function StatCard({ label, value, icon: Icon, color, sub }) {
 }
 
 /** Stat cards — own request, own error state. */
-function RefundStats({ organizationId, refreshKey, onWarning }) {
-  const [summary, setSummary] = useState(null);
-  const [error, setError] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await billingService.getRefundSummary(organizationId ? { organization_id: organizationId } : {});
-      setSummary(data);
-      onWarning?.(data.provider_warning || null);
-    } catch (e) {
-      setError(e.message || "Failed to load summary");
-    } finally {
-      setLoading(false);
-    }
-  }, [organizationId, onWarning]);
-
-  useEffect(() => { load(); }, [load, refreshKey]);
+function RefundStats({ organizationId, onWarning }) {
+  const params = organizationId ? { organization_id: organizationId } : {};
+  const query = useQuery({
+    queryKey: keys.billing.refunds.summary(params),
+    queryFn: ({ signal }) => billingService.getRefundSummary(params, { signal }),
+  });
+  const summary = query.data ?? null;
+  const loading = query.isPending;
+  const error = query.isError ? (query.error?.message || "Failed to load summary") : null;
+  const load = () => query.refetch();
+  useEffect(() => { if (query.data) onWarning?.(query.data.provider_warning || null); }, [query.data, onWarning]);
 
   if (error) return <WidgetError message={`Summary unavailable: ${error}`} onRetry={load} />;
   const s = summary || {};
@@ -103,17 +97,12 @@ export default function BillingRefundsPage() {
   const [filters, setFilters] = useState(EMPTY_REFUND_FILTERS);
   const [debounced, setDebounced] = useState(EMPTY_REFUND_FILTERS);
   const [page, setPage] = useState(1);
-  const [refreshKey, setRefreshKey] = useState(0);
   const [warning, setWarning] = useState(null);
   const [notice, setNotice] = useState(null);
 
   const activeOrgId = orgId || selectedOrg?.id || "";
 
-  // Table widget state
-  const [rows, setRows] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const qc = useQueryClient();
 
   // Debounce every filter change (amount typing in particular) and reset paging.
   useEffect(() => {
@@ -122,26 +111,29 @@ export default function BillingRefundsPage() {
   }, [filters]);
 
 
-  const loadTable = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await billingService.listRefunds(
-        buildRefundParams({ ...debounced, organizationId: activeOrgId }, { page, pageSize: PAGE_SIZE }),
-      );
-      setRows(data.list || []);
-      setTotal(data.total || 0);
-      setWarning(data.provider_warning || null);
-    } catch (e) {
-      setError(e.message || "Failed to load refund requests");
-    } finally {
-      setLoading(false);
-    }
-  }, [debounced, activeOrgId, page]);
+  // The table is a query keyed by the filters and page: changing either keeps the previous rows on screen until the
+  // new ones arrive, and a recent view needs no request.
+  const tableParams = useMemo(
+    () => buildRefundParams({ ...debounced, organizationId: activeOrgId }, { page, pageSize: PAGE_SIZE }),
+    [debounced, activeOrgId, page],
+  );
+  const tableQuery = useQuery({
+    queryKey: keys.billing.refunds.list(tableParams),
+    queryFn: ({ signal }) => billingService.listRefunds(tableParams, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const rows = tableQuery.data?.list || [];
+  const total = tableQuery.data?.total || 0;
+  const loading = tableQuery.isPending;                         // first load only; refreshes keep the rows
+  const error = tableQuery.isError ? (tableQuery.error?.message || "Failed to load refund requests") : null;
+  const loadTable = () => tableQuery.refetch();
+  useEffect(() => { if (tableQuery.data) setWarning(tableQuery.data.provider_warning || null); }, [tableQuery.data]);
 
-  useEffect(() => { loadTable(); }, [loadTable, refreshKey]);
-
-  const refreshAll = () => setRefreshKey((k) => k + 1);
+  // After any request or decision: the refund list and summary, and the invoices a processed refund touches.
+  const refreshAll = () => {
+    qc.invalidateQueries({ queryKey: keys.billing.refunds.all });
+    qc.invalidateQueries({ queryKey: keys.billing.invoices.all });
+  };
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const clearFilters = () => { setFilters(EMPTY_REFUND_FILTERS); setSelectedOrg(null); };
   const filtersActive = hasActiveRefundFilters(filters) || (!orgId && !!selectedOrg);
@@ -231,7 +223,7 @@ export default function BillingRefundsPage() {
           <div className="flex items-center gap-2">
             <button
               onClick={refreshAll}
-              disabled={loading}
+              disabled={tableQuery.isFetching}
               className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
             >
               <RefreshCw className={`h-3.5 w-3.5 ${loading ? "animate-spin" : ""}`} /> Refresh
@@ -263,7 +255,7 @@ export default function BillingRefundsPage() {
         </div>
       )}
 
-      <RefundStats organizationId={activeOrgId} refreshKey={refreshKey} onWarning={setWarning} />
+      <RefundStats organizationId={activeOrgId} onWarning={setWarning} />
 
       {/* Filters */}
       <div className="space-y-4 rounded-3xl border border-slate-200 bg-white p-5 shadow-[0_4px_20px_rgba(0,0,0,0.02)]">
@@ -334,9 +326,7 @@ export default function BillingRefundsPage() {
         {error ? (
           <WidgetError message={error} onRetry={loadTable} />
         ) : loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-          </div>
+          <TableSkeleton rows={6} label="Loading refunds" />
         ) : rows.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-400">
             {filtersActive

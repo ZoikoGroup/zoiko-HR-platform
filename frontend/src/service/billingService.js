@@ -3,29 +3,29 @@ import { api } from "./api";
 // Billing & Subscription API client — mirrors the backend billing router.
 export const billingService = {
   // ── Plans ────────────────────────────────────────────────────────────────
-  getPlans: (params) => api.get("/billing/plans", { params }),
+  getPlans: (params, opts) => api.get("/billing/plans", { params, ...opts }),
   createPlan: (data) => api.post("/billing/plans", data),
   updatePlan: (id, data) => api.put(`/billing/plans/${id}`, data),
 
   // ── Evaluations ──────────────────────────────────────────────────────────
-  getPlatformEvaluations: (params) => api.get("/billing/evaluations", { params }),
-  getEvaluations: (orgId) => api.get(`/billing/evaluations/${orgId}`),
+  getPlatformEvaluations: (params, opts) => api.get("/billing/evaluations", { params, ...opts }),
+  getEvaluations: (orgId, opts) => api.get(`/billing/evaluations/${orgId}`, opts),
   startEvaluation: (data) => api.post("/billing/evaluations", data),
   endEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/end`, data),
 
   // ── Conversions ──────────────────────────────────────────────────────────
   convertEvaluation: (id, data) => api.post(`/billing/evaluations/${id}/convert`, data),
-  getConversions: (orgId) => api.get(`/billing/evaluations/${orgId}/conversions`),
+  getConversions: (orgId, opts) => api.get(`/billing/evaluations/${orgId}/conversions`, opts),
 
   // ── Subscriptions ────────────────────────────────────────────────────────
-  getSubscription: (orgId) => api.get(`/billing/subscriptions/${orgId}`),
+  getSubscription: (orgId, opts) => api.get(`/billing/subscriptions/${orgId}`, opts),
   upgradeSubscription: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/upgrade`, data),
   downgradeDryRun: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/downgrade-dry-run`, data),
   downgradeSubscription: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/downgrade`, data),
   cancelSubscription: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/cancel`, data),
 
   // ── Discounts ────────────────────────────────────────────────────────────
-  getDiscounts: (params) => api.get("/billing/discounts", { params }),
+  getDiscounts: (params, opts) => api.get("/billing/discounts", { params, ...opts }),
   createDiscount: (data) => api.post("/billing/discounts", data),
 
   // ── Checkout (Stripe hosted) ─────────────────────────────────────────────
@@ -44,20 +44,20 @@ export const billingService = {
 
   // ── Invoices ─────────────────────────────────────────────────────────────
   getInvoices: (orgId) => api.get(`/billing/invoices/${orgId}`),
-  getPlatformInvoices: (params) => api.get("/billing/invoices", { params }),
+  getPlatformInvoices: (params, opts) => api.get("/billing/invoices", { params, ...opts }),
 
   // ── Provider refs (Stripe customer/subscription IDs) ─────────────────────
   getProviderRefs: (orgId) => api.get(`/billing/provider-refs/${orgId}`),
 
   // ── Delinquency & Support Access (Prompt 5, Section 10 G1-G5 / O3) ───────
-  getDelinquency: (orgId) =>
-    api.get(`/billing/organizations/${orgId}/delinquency`),
+  getDelinquency: (orgId, opts) =>
+    api.get(`/billing/organizations/${orgId}/delinquency`, opts),
 
   getDelinquencyStatus: (orgId) =>
     api.get(`/billing/organizations/${orgId}/delinquency`),
 
-  getPlatformDelinquency: () =>
-    api.get("/billing/delinquency"),
+  getPlatformDelinquency: (opts) =>
+    api.get("/billing/delinquency", opts),
 
 
   createSupportAccess: (data) =>
@@ -65,8 +65,8 @@ export const billingService = {
 
   // orgId is optional — omit it to list grants across every organization
   // (genuinely platform-wide, unlike evaluations/invoices/delinquency).
-  listSupportAccess: (orgId) =>
-    api.get("/billing/support-access", { params: orgId ? { organization_id: orgId } : {} }),
+  listSupportAccess: (orgId, opts) =>
+    api.get("/billing/support-access", { params: orgId ? { organization_id: orgId } : {}, ...opts }),
 
   revokeSupportAccess: (grantId) =>
     api.post(`/billing/support-access/${grantId}/revoke`),
@@ -116,9 +116,9 @@ export const billingService = {
 
   // Platform-wide, server-side filtered + paginated (status, organization_id,
   // request_type, created_from/created_before, min/max_amount_cents, page, page_size).
-  listRefunds: (params) => api.get("/billing/refunds", { params }),
+  listRefunds: (params, opts) => api.get("/billing/refunds", { params, ...opts }),
 
-  getRefundSummary: (params) => api.get("/billing/refunds/summary", { params }),
+  getRefundSummary: (params, opts) => api.get("/billing/refunds/summary", { params, ...opts }),
 
   // ── Customer Self-Serve Billing (/billing/me/* — Prompt 6) ───────────────
   // Scoped to the caller's own organization via their JWT; owner sees full

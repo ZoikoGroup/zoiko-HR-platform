@@ -1,3 +1,4 @@
+import { prefetchAfterLogin } from "../lib/prefetch";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import {
   login as loginRequest,
@@ -61,6 +62,7 @@ export function AuthProvider({ children }) {
     try {
       const loggedInUser = await loginRequest(credentials);
       setUser(loggedInUser);
+      prefetchAfterLogin(loggedInUser?.role);     // warm the next likely pages' code once the landing page has rendered
       return loggedInUser;
     } catch (err) {
       setError(err.message || "Unable to sign in");
@@ -76,6 +78,7 @@ export function AuthProvider({ children }) {
     try {
       const loggedInUser = await googleTicketRequest(ticket);
       setUser(loggedInUser);
+      prefetchAfterLogin(loggedInUser?.role);     // warm the next likely pages' code once the landing page has rendered
       return loggedInUser;
     } catch (err) {
       setError(err.message || "Unable to sign in with Google");

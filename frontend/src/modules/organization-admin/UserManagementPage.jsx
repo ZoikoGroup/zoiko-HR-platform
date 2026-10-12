@@ -1,5 +1,7 @@
 import { realEmailError } from "../../utils/realEmail";
-import { useState, useMemo, useRef, useEffect, useCallback } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useAuth } from "../../context/AuthContext";
 import { importEmployees, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
@@ -228,22 +230,21 @@ export default function OrgAdminUserManagementPage() {
   const [search, setSearch] = useState("");
   const [role, setRole] = useState("All roles");
   const [status, setStatus] = useState("All statuses");
-  const [users, setUsers] = useState([]);
-  const [rawEmployees, setRawEmployees] = useState([]);
   const fileInputRef = useRef(null);
   const [modalOpen, setModalOpen] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
-  const [loadError, setLoadError] = useState(null);
   const [notice, setNotice] = useState(null);
 
   const [showAddModal, setShowAddModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState(emptyAddForm);
-  const [roleOptions, setRoleOptions] = useState([
+  // the built-in options stay if the list cannot be loaded
+  const rolesQuery = useQuery({ queryKey: keys.orgAdmin.assignableRoles(), queryFn: ({ signal }) => getAssignableRoles({ signal }), staleTime: 5 * 60_000, retry: false });
+  const roleOptions = rolesQuery.data?.roles?.length ? rolesQuery.data.roles : [
     { value: "employee", label: "Employee" }, { value: "hr_admin", label: "HR Admin" }, { value: "admin", label: "Admin" },
-  ]);
+  ];
   const [formErrors, setFormErrors] = useState({});
   const [createdPassword, setCreatedPassword] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
@@ -262,36 +263,33 @@ export default function OrgAdminUserManagementPage() {
 
   const [viewModal, setViewModal] = useState(null);
 
-  const fetchUsers = useCallback(async () => {
-    try {
-      const data = await getEmployees({ per_page: 200, include_all_roles: true });
-      const items = data.items || [];
-      setRawEmployees(items);
-      setUsers(items.map((e) => ({
-        id: e.id,
-        displayId: e.employeeCode || e.employee_code || e.employeeId || e.employee_id || "",
-        name: `${e.firstName || e.first_name || ""} ${e.lastName || e.last_name || ""}`.trim(),
-        email: e.email || "",
-        phone: e.phone || e.phoneNumber || "",
-        role: e.role
-          ? (ROLE_DISPLAY_LABELS[e.role] || e.role.charAt(0).toUpperCase() + e.role.slice(1))
-          : "Employee",
-        roleValue: e.role || "employee",
-        title: e.jobTitle || e.job_title || "",
-        // the same resolver the ZoikoHR dashboard uses, so both screens always say the same thing
-        status: (() => { const label = resolveEmployeeDisplayStatus(e).label; return label === "Working" ? "Active" : label; })(),
-      })));
-      setLoadError(null);
-    } catch (err) {
-      setRawEmployees([]);
-      setUsers([]);
-      setLoadError(err?.response?.data?.detail || err?.message || "Failed to load users.");
-    }
-  }, []);
-
-  useEffect(() => {
-    fetchUsers();
-  }, [fetchUsers]);
+  // Everyone in the organization as one cached query: opening the page again shows the list at once and refreshes it
+  // quietly. Any change to people invalidates it (and the HR employee lists and dashboard, which show the same people).
+  const qc = useQueryClient();
+  const usersQuery = useQuery({
+    queryKey: keys.orgAdmin.users.list({ per_page: 200, include_all_roles: true }),
+    queryFn: ({ signal }) => getEmployees({ per_page: 200, include_all_roles: true }, { signal }),
+  });
+  const rawEmployees = useMemo(() => usersQuery.data?.items || [], [usersQuery.data]);
+  const users = useMemo(() => rawEmployees.map((e) => ({
+    id: e.id,
+    displayId: e.employeeCode || e.employee_code || e.employeeId || e.employee_id || "",
+    name: `${e.firstName || e.first_name || ""} ${e.lastName || e.last_name || ""}`.trim(),
+    email: e.email || "",
+    phone: e.phone || e.phoneNumber || "",
+    role: e.role
+      ? (ROLE_DISPLAY_LABELS[e.role] || e.role.charAt(0).toUpperCase() + e.role.slice(1))
+      : "Employee",
+    roleValue: e.role || "employee",
+    title: e.jobTitle || e.job_title || "",
+    // the same resolver the ZoikoHR dashboard uses, so both screens always say the same thing
+    status: (() => { const label = resolveEmployeeDisplayStatus(e).label; return label === "Working" ? "Active" : label; })(),
+  })), [rawEmployees]);
+  const loadError = usersQuery.isError ? (usersQuery.error?.response?.data?.detail || usersQuery.error?.message || "Failed to load users.") : null;
+  const fetchUsers = () => Promise.all([
+    qc.invalidateQueries({ queryKey: keys.orgAdmin.users.all }),
+    qc.invalidateQueries({ queryKey: keys.hr.all }),
+  ]);
 
   useEffect(() => {
     if (!notice) return;
@@ -441,14 +439,6 @@ export default function OrgAdminUserManagementPage() {
     resetAddForm();
     setShowAddModal(true);
   };
-
-  useEffect(() => {
-    let cancelled = false;
-    getAssignableRoles()
-      .then((res) => { if (!cancelled && res?.roles?.length) setRoleOptions(res.roles); })
-      .catch(() => {}); // keep the built-in options if the list cannot be loaded
-    return () => { cancelled = true; };
-  }, []);
 
   const validateAddForm = () => {
     const errors = {};

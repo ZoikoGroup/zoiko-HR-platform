@@ -1,4 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
+import { CardGridSkeleton, TableSkeleton } from "../../components/LoadingSkeletons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useNavigate } from "react-router-dom";
 import {
   Users, Building2, Clock, CheckCircle2, Target, RefreshCw,
@@ -191,9 +194,6 @@ export default function HrDashBoard() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Executive");
   const [deptView, setDeptView] = useState("Headcount");
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [org, setOrg] = useState(null);
 
   const [addOpen, setAddOpen] = useState(false);
   const [reportsOpen, setReportsOpen] = useState(false);
@@ -204,19 +204,13 @@ export default function HrDashBoard() {
   const [saving, setSaving] = useState(false);
   const [designations, setDesignations] = useState([]);
 
-  const [dashboardData, setDashboardData] = useState({
-    hrDashboard: null,
-    employees: [],
-    departments: [],
-    attendance: {},
-    leave: {},
-    compensation: null,
-    performance: null,
-  });
-
-  const fetchData = async () => {
-    try {
-      setError(null);
+  // One cached query for the whole dashboard (each part still degrades to empty on its own failure). It refreshes
+  // every 60 s, but only while the tab is visible (refetchIntervalInBackground is off).
+  const qc = useQueryClient();
+  const dashboard = useQuery({
+    queryKey: keys.hr.dashboard(),
+    refetchInterval: 60_000,
+    queryFn: async () => {
       const results = await Promise.allSettled([
         getHrDashboardStats(),
         getHrEmployees(),
@@ -227,13 +221,10 @@ export default function HrDashBoard() {
         getPerformanceDashboard(),
         getOrganizationDetails().catch(() => null),
       ]);
-
       const [hrResult, employeesResult, departmentsResult, attendanceResult, leaveResult, compensationResult, performanceResult, orgResult] = results;
-
       const safeValue = (result, transform = (v) => v) =>
         result.status === "fulfilled" ? transform(result.value) : null;
-
-      setDashboardData({
+      return {
         hrDashboard: safeValue(hrResult, (v) => v || {}),
         employees: safeValue(employeesResult, extractArray) || [],
         departments: safeValue(departmentsResult, extractArray) || [],
@@ -241,21 +232,16 @@ export default function HrDashBoard() {
         leave: safeValue(leaveResult, (v) => v || {}) || {},
         compensation: safeValue(compensationResult, (v) => v || {}),
         performance: safeValue(performanceResult, (v) => v || {}),
-      });
-
-      if (orgResult?.status === "fulfilled" && orgResult.value) setOrg(orgResult.value);
-    } catch (err) {
-      setError("Failed to load dashboard data.");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 60000);
-    return () => clearInterval(interval);
-  }, []);
+        org: orgResult?.status === "fulfilled" ? orgResult.value || null : null,
+      };
+    },
+  });
+  const loading = dashboard.isPending;
+  const error = dashboard.isError ? "Failed to load dashboard data." : null;
+  const dashboardData = dashboard.data || { hrDashboard: null, employees: [], departments: [], attendance: {}, leave: {}, compensation: null, performance: null };
+  const org = dashboard.data?.org || null;
+  // a person was added: the dashboard and every employee list are out of date
+  const fetchData = () => qc.invalidateQueries({ queryKey: keys.hr.all });
 
   useEffect(() => {
     if (!toast) return;
@@ -504,8 +490,10 @@ export default function HrDashBoard() {
       </div>
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <RefreshCw size={24} className="animate-spin" style={{ color: BLUE }} />
+        <div className="space-y-5">
+          <div className="h-[130px] rounded-[20px] bg-slate-100 animate-pulse" />
+          <CardGridSkeleton cards={4} label="Loading dashboard" />
+          <TableSkeleton rows={4} label="Loading dashboard" />
         </div>
       ) : (
         <>

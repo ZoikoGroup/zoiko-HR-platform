@@ -1,13 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
+import { CardGridSkeleton, TableSkeleton } from "../../../../components/LoadingSkeletons";
 import { useNavigate } from "react-router-dom";
 import { Calendar, Clock, Plus, AlertCircle, ChevronRight, Briefcase, Filter } from "lucide-react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import StatCard from "../../../../components/employee/StatCard";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
-import { getLeaveBalances, getLeaveRequests } from "../../../../service/employee";
-import { getStoredUser } from "../../../../service/api";
 import { formatDate } from "../../../../utils/dateTime";
-import { useAutoRefresh } from "../../../../utils/useAutoRefresh";
+import { useMyLeaveBalances, useMyLeaveRequests } from "../../../../hooks/useMyLeave";
 import ContactHRDialog from "../../../../components/employee/ContactHRDialog";
 import { formatLeaveType, leaveTypeAccent, leaveTypeColor } from "../../../../utils/leaveTypeUtils";
 
@@ -18,57 +17,15 @@ function formatLeaveDate(dateStr) {
 
 export default function MyLeaveDashboard() {
   const navigate = useNavigate();
-  const [balances, setBalances] = useState([]);
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("all");
-  const [updatedAt, setUpdatedAt] = useState(null);
   const [showContactHR, setShowContactHR] = useState(false);
-  const mounted = useRef(true);
-
-  const load = async ({ silent = false } = {}) => {
-    const employeeId = getStoredUser()?.id;
-    if (!employeeId) {
-      if (mounted.current) {
-        setError("User not found. Please log in again.");
-        setLoading(false);
-      }
-      return;
-    }
-    if (!silent) {
-      setLoading(true);
-      setError(null);
-    }
-    try {
-      const [balancesRes, historyRes] = await Promise.all([getLeaveBalances(employeeId), getLeaveRequests(employeeId)]);
-      if (!mounted.current) return;
-      setBalances(Array.isArray(balancesRes) ? balancesRes : []);
-      const list = Array.isArray(historyRes) ? [...historyRes] : [];
-      list.sort((a, b) => {
-        const da = a.created_at || a.appliedOn || a.start_date;
-        const db = b.created_at || b.appliedOn || b.start_date;
-        const diff = new Date(db || 0) - new Date(da || 0);
-        return diff || (Number(b.id) || 0) - (Number(a.id) || 0);
-      });
-      setHistory(list);
-      setError(null);
-      setUpdatedAt(new Date());
-    } catch (err) {
-      // a failed background refresh keeps what is on screen; only the first load shows the error
-      if (mounted.current && !silent) setError(err.message || "Failed to load leave data");
-    } finally {
-      if (mounted.current && !silent) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    mounted.current = true;
-    load();
-    return () => { mounted.current = false; };
-  }, []);
-
-  useAutoRefresh(load);
+  const { query: historyQuery, records: history, missingUser } = useMyLeaveRequests();
+  const { query: balancesQuery, balances } = useMyLeaveBalances();
+  const loading = !missingUser && (historyQuery.isPending || balancesQuery.isPending);
+  const firstError = (historyQuery.isError && !historyQuery.data ? historyQuery.error : null) || (balancesQuery.isError && !balancesQuery.data ? balancesQuery.error : null);
+  const error = missingUser ? "User not found. Please log in again." : firstError ? (firstError.message || "Failed to load leave data") : null;
+  const updatedAt = historyQuery.dataUpdatedAt ? new Date(historyQuery.dataUpdatedAt) : null;
+  const load = () => Promise.all([historyQuery.refetch(), balancesQuery.refetch()]);
 
   const leaveTypes = useMemo(() => {
     // Balances are stored per year: show the current year's allocation when it exists,
@@ -100,9 +57,8 @@ export default function MyLeaveDashboard() {
   if (loading) {
     return (
       <EmployeePageShell title="My Leave" subtitle="View your leave balances, active requests, and complete history.">
-        <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        </div>
+        <CardGridSkeleton cards={3} label="Loading leave" />
+        <div className="mt-6 rounded-2xl border border-slate-200 dark:border-slate-700"><TableSkeleton rows={5} label="Loading leave history" /></div>
       </EmployeePageShell>
     );
   }
@@ -204,7 +160,7 @@ export default function MyLeaveDashboard() {
               Track previous requests and live status
               {updatedAt ? ` \u00b7 updated ${updatedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}` : ""}
               {" "}
-              <button type="button" onClick={() => load({ silent: true })} className="text-blue-600 dark:text-blue-400 font-semibold hover:underline">Refresh</button>
+              <button type="button" onClick={load} className="text-blue-600 dark:text-blue-400 font-semibold hover:underline">Refresh</button>
             </p>
           </div>
 

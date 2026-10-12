@@ -3,6 +3,7 @@ import "./support/setup-jsdom.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
 const realTz = process.env.TZ;
@@ -37,7 +38,7 @@ test("the Audit Logs table and detail dialog show IST and no UTC", async (t) => 
   try {
     ({ default: Page } = await import(`../src/modules/super-admin/AuditLogsPage.jsx?t=${Math.random()}`));
   } catch (e) { assert.fail(`AuditLogsPage could not load: ${e.message}`); }
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   assert.match(document.body.textContent, /07 Oct 2026, 09:30:00 IST/);
   assert.doesNotMatch(document.body.textContent, /UTC/);

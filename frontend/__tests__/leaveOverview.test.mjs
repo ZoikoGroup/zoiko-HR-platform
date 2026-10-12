@@ -1,6 +1,7 @@
 /** ZHR-91 / ZHR-93: My Leave shows the leave the person really applied for, with the right type, newest first. */
 import "./support/setup-jsdom.mjs";
-import { test, afterEach } from "node:test";
+import { withQuery } from "./support/queryWrapper.mjs";
+import { test, afterEach, mock } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -8,6 +9,11 @@ import { render, screen, cleanup, act, fireEvent } from "@testing-library/react"
 import { formatLeaveType } from "../src/utils/leaveTypeUtils.js";
 
 afterEach(() => cleanup());
+// mocked once: the shared hook module is cached across tests, so per-test mocks would not reach it
+const svc = { getLeaveRequests: async () => [], getLeaveBalances: async () => [] };
+mock.module("../src/service/employee.js", { exports: { getLeaveRequests: (...a) => svc.getLeaveRequests(...a), getLeaveBalances: (...a) => svc.getLeaveBalances(...a), contactHR: async () => ({}), createLeaveRequest: async () => ({}) } });
+mock.module("../src/service/api.js", { exports: { getStoredUser: () => ({ id: 5 }), api: {}, API_BASE_URL: "" } });
+mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children, actions }) => React.createElement("div", null, actions, children) } });
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60)); });
 
 const REQUESTS = [
@@ -17,11 +23,9 @@ const REQUESTS = [
 const BALANCES = [{ id: 1, leave_type: "sick", total_days: 10, used_days: 0, pending_days: 2, year: new Date().getFullYear() }];
 
 async function load(t, { requests = REQUESTS, balances = BALANCES } = {}) {
-  t.mock.module("../src/service/employee.js", { exports: { getLeaveRequests: async () => requests, getLeaveBalances: async () => balances, contactHR: async () => ({}), createLeaveRequest: async () => ({}) } });
-  t.mock.module("../src/service/api.js", { exports: { getStoredUser: () => ({ id: 5 }), api: {}, API_BASE_URL: "" } });
-  t.mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children, actions }) => React.createElement("div", null, actions, children) } });
+  svc.getLeaveRequests = async () => requests; svc.getLeaveBalances = async () => balances;
   const { default: Page } = await import(`../src/pages/Peoples/Employees/Leaves/Employee_MyLeaveDashboard.jsx?t=${Math.random()}`);
-  render(React.createElement(MemoryRouter, null, React.createElement(Page)));
+  render(withQuery(React.createElement(MemoryRouter, null, React.createElement(Page))));
   await settle();
 }
 
@@ -64,11 +68,9 @@ test("with no balances the page says so and Contact HR opens a dialog", async (t
 test("when HR approves while the page is open, the page shows Approved on the next refresh", async (t) => {
   let rows = REQUESTS.map((r) => ({ ...r }));
   let down = false;
-  t.mock.module("../src/service/employee.js", { exports: { getLeaveRequests: async () => { if (down) throw new Error("offline"); return rows; }, getLeaveBalances: async () => BALANCES, contactHR: async () => ({}), createLeaveRequest: async () => ({}) } });
-  t.mock.module("../src/service/api.js", { exports: { getStoredUser: () => ({ id: 5 }), api: {}, API_BASE_URL: "" } });
-  t.mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children, actions }) => React.createElement("div", null, actions, children) } });
+  svc.getLeaveRequests = async () => { if (down) throw new Error("offline"); return rows; }; svc.getLeaveBalances = async () => BALANCES;
   const { default: Page } = await import(`../src/pages/Peoples/Employees/Leaves/Employee_MyLeaveDashboard.jsx?t=${Math.random()}`);
-  render(React.createElement(MemoryRouter, null, React.createElement(Page)));
+  render(withQuery(React.createElement(MemoryRouter, null, React.createElement(Page))));
   await settle();
   assert.equal(document.querySelectorAll("h4").length, 2);
   assert.doesNotMatch(document.body.textContent, /Approved by|Approved on/);

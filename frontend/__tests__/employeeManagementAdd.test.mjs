@@ -1,5 +1,6 @@
 /** ZHR-102: adding an employee on Employee Management never asks for, or demands, a password. */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -21,7 +22,7 @@ async function open(t, create) {
   t.mock.module("../src/service/userService.js", { exports: { resetPassword: async () => ({}) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   const { default: Page } = await import(`../src/pages/Peoples/Employees/EmployeeManagement/employees.jsx?t=${Math.random()}`);
-  render(React.createElement(MemoryRouter, null, React.createElement(Page)));
+  render(withQuery(React.createElement(MemoryRouter, null, React.createElement(Page))));
   await settle();
   return calls;
 }

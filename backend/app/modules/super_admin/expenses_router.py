@@ -259,11 +259,12 @@ def claims_by_organization(
         if name != "cancelled":
             bucket["claimed"] += Decimal(amount)
     organizations = []
-    for org in db.query(Organization).order_by(Organization.id).all():
-        entry = per_org.get(org.id) or {"totals": {}, "counts": {name: 0 for name in STATUS_GROUPS}}
+    # Every live org is listed (even with no claims), but only its id and name columns are needed.
+    for org_id, oname, dname in db.query(Organization.id, Organization.organization_name, Organization.display_name).order_by(Organization.id):
+        entry = per_org.get(org_id) or {"totals": {}, "counts": {name: 0 for name in STATUS_GROUPS}}
         organizations.append({
-            "organization_id": org.id,
-            "organization_name": _org_name(org),
+            "organization_id": org_id,
+            "organization_name": oname or dname or "",
             "claim_count": sum(entry["counts"].values()),
             "counts": entry["counts"],
             "totals": {cur: {k: _money(v) for k, v in vals.items()} for cur, vals in sorted(entry["totals"].items())},

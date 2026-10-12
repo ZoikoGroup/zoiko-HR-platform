@@ -18,6 +18,7 @@ from app.database import Base, get_db
 from app.modules.employee import router as emp_router
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.models import AttendanceRecord, Department, Organization, OrganizationStatus
+from app.modules.billing.models import EvaluationStatus, OrganizationEvaluation
 from app.modules.super_admin import models as SAM
 from app.modules.super_admin import organization_service as svc
 from app.modules.super_admin import router as sa_router_module
@@ -61,6 +62,15 @@ def world(monkeypatch):
     acme = Organization(id=1, name="Acme", organization_name="Acme Ltd", status=OrganizationStatus.ACTIVE, is_active=True)
     globex = Organization(id=2, name="Globex", organization_name="Globex Inc", status=OrganizationStatus.ACTIVE, is_active=True)
     db.add_all([acme, globex])
+    # Real registrations always create a live evaluation; these bare seed orgs
+    # have none, and the cached org-access gate (Part B) would block their
+    # logins exactly as the production gate does. Seed ACTIVE evaluations so the
+    # suite asserts deleted-org behavior, not "org has no billing rows" behavior.
+    for org_id in (1, 2):
+        db.add(OrganizationEvaluation(
+            organization_id=org_id, status=EvaluationStatus.ACTIVE,
+            evaluation_ends_at=datetime.utcnow() + timedelta(days=30),
+        ))
     db.commit()
     p = {
         "sa": _emp(db, "root@example.com", UserRole.SUPER_ADMIN, None, "Root"),
