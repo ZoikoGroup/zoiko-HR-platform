@@ -40,7 +40,7 @@ export const superAdminService = {
 
   // Audit Logs
   getAuditLogs: (params, opts) => api.get("/super-admin/audit-logs", { params, ...opts }),
-  getAuditLogFilters: () => api.get("/super-admin/audit-logs/filters"),
+  getAuditLogFilters: (opts) => api.get("/super-admin/audit-logs/filters", opts),
 
   // Login Activity
   getLoginActivity: (params) => api.get("/super-admin/login-activity", { params }),

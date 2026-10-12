@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useSearchParams } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import {
@@ -108,19 +110,16 @@ export default function AuditLogsPage() {
   // What the query actually uses: text inputs are debounced, selects/dates apply at once.
   const [applied, setApplied] = useState(filters);
   const [page, setPage] = useState(() => Math.max(1, Number(searchParams.get("page")) || 1));
-  const [options, setOptions] = useState({ actions: [], entity_types: [] });
-  const [logs, setLogs] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [selected, setSelected] = useState(null);
 
-  // Dropdown options come from the server: every loggable action + entity types present.
-  useEffect(() => {
-    superAdminService.getAuditLogFilters()
-      .then((o) => setOptions({ actions: o.actions || [], entity_types: o.entity_types || [] }))
-      .catch(() => { /* the page still works; selects just show "All" */ });
-  }, []);
+  // Dropdown options come from the server: every loggable action + entity types present. They change rarely, so a
+  // visit within 5 minutes reuses them; if the request fails the page still works and the selects just show "All".
+  const filterOptions = useQuery({
+    queryKey: keys.superAdmin.auditLogs.filters(),
+    queryFn: ({ signal }) => superAdminService.getAuditLogFilters({ signal }),
+    staleTime: 5 * 60_000,
+  });
+  const options = { actions: filterOptions.data?.actions || [], entity_types: filterOptions.data?.entity_types || [] };
 
   // Any filter change -> debounce -> apply and go back to page 1.
   useEffect(() => {
@@ -134,22 +133,19 @@ export default function AuditLogsPage() {
     setSearchParams(filtersToSearchParams(applied, page), { replace: true });
   }, [applied, page, setSearchParams]);
 
-  const loadLogs = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await superAdminService.getAuditLogs(buildAuditParams(applied, { page, pageSize: PAGE_SIZE }));
-      setLogs(data.logs || []);
-      setTotal(data.total || 0);
-    } catch (e) {
-      console.error("Failed to load audit logs", e);
-      setError(e.message || "Failed to load audit logs.");
-    } finally {
-      setLoading(false);
-    }
-  }, [applied, page]);
-
-  useEffect(() => { loadLogs(); }, [loadLogs]);
+  // The log list is a query keyed by the applied filters and the page; changing either keeps the previous rows on
+  // screen until the new ones arrive.
+  const params = useMemo(() => buildAuditParams(applied, { page, pageSize: PAGE_SIZE }), [applied, page]);
+  const logsQuery = useQuery({
+    queryKey: keys.superAdmin.auditLogs.list(params),
+    queryFn: ({ signal }) => superAdminService.getAuditLogs(params, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const logs = logsQuery.data?.logs || [];
+  const total = logsQuery.data?.total || 0;
+  const loading = logsQuery.isPending;                                  // first load only; refreshes keep the rows
+  const error = logsQuery.isError ? (logsQuery.error?.message || "Failed to load audit logs.") : null;
+  const loadLogs = () => logsQuery.refetch();
 
   const setFilter = (key, value) => setFilters((f) => ({ ...f, [key]: value }));
   const clearFilters = () => { setFilters(EMPTY_AUDIT_FILTERS); setApplied(EMPTY_AUDIT_FILTERS); setPage(1); };

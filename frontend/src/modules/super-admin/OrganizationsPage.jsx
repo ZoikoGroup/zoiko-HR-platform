@@ -59,6 +59,7 @@ export default function SuperAdminOrganizationsPage() {
   const loadOrgs = useCallback(() => {
     qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all });
     qc.invalidateQueries({ queryKey: keys.superAdmin.commandCenter.all });
+    qc.invalidateQueries({ queryKey: keys.superAdmin.auditLogs.all });        // the action wrote an audit entry
   }, [qc]);
 
   const handleApprove = async (org) => {

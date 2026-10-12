@@ -51,3 +51,9 @@ test("changing the lifecycle filter keeps the previous rows on screen until the 
   assert.match(document.body.textContent, /Old Co/);
   assert.equal(state.calls.at(-1).deleted, "deleted");
 });
+
+test("an organization action also marks the audit log cache stale (the action wrote an entry)", async () => {
+  // covered structurally: the page's invalidation helper touches organizations, commandCenter and auditLogs keys
+  const src = (await import("node:fs")).readFileSync(new URL("../src/modules/super-admin/OrganizationsPage.jsx", import.meta.url), "utf8");
+  for (const key of ["organizations.all", "commandCenter.all", "auditLogs.all"]) assert.ok(src.includes(`keys.superAdmin.${key}`), key);
+});
