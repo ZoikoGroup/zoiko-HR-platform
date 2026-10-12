@@ -489,6 +489,12 @@ export const getLeaveRequests = (employeeId, params = {}) => {
   if (params.leave_type) query.set("leave_type", params.leave_type);
   if (params.start_date) query.set("start_date", params.start_date);
   if (params.end_date) query.set("end_date", params.end_date);
+  // server-side paging and filters (the response is then { items, total, page, per_page })
+  if (params.page) query.set("page", params.page);
+  if (params.per_page) query.set("per_page", params.per_page);
+  if (params.search) query.set("search", params.search);
+  if (params.department_name) query.set("department_name", params.department_name);
+  if (params.decided) query.set("decided", "true");
   const qs = query.toString();
   return api.get(`/hr/leaves${qs ? `?${qs}` : ""}`);
 };

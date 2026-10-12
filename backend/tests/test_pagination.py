@@ -127,3 +127,15 @@ def test_legacy_list_is_capped_with_a_warning(env, monkeypatch, caplog):
         body = env.get("/hr/performance/goals").json()
     assert len(body) == 12
     assert any("row cap" in r.message for r in caplog.records)
+
+
+def test_leave_filters_search_department_and_decided_apply_before_paging(env):
+    from app.modules.hr.models import RequestStatus  # noqa: F401
+    r = env.get("/hr/leaves", params={"page": 1, "per_page": 5, "search": "H R"})        # employee full name
+    assert r.status_code == 200 and r.json()["total"] == N
+    r = env.get("/hr/leaves", params={"page": 1, "per_page": 5, "search": "zzz-nobody"})
+    assert r.json()["total"] == 0 and r.json()["items"] == []
+    r = env.get("/hr/leaves", params={"page": 1, "per_page": 5, "decided": "true"})
+    assert r.json()["total"] == 0                                                         # all seeded requests are pending
+    r = env.get("/hr/leaves", params={"page": 1, "per_page": 5, "department_name": "No Such Dept"})
+    assert r.json()["total"] == 0

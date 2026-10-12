@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { Calendar, Clock, CheckCircle, XCircle, Search, Trash2, Filter, AlertCircle, FileText } from "lucide-react";
 import HRPage from "../../../components/HRPage";
@@ -106,7 +106,10 @@ function formatDate(dateStr) {
 
 export default function LeaveRequests() {
   const [records, setRecords] = useState([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [debouncedSearch, setDebouncedSearch] = useState("");
+  const [reloadKey, setReloadKey] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -121,14 +124,11 @@ export default function LeaveRequests() {
     let mounted = true;
     const fetch = async () => {
       try {
-        const [leaveData, dashData, emps] = await Promise.all([
-          getLeaveRequests(),
+        const [dashData, emps] = await Promise.all([
           getLeaveDashboard(),
           getHrEmployees(),
         ]);
         if (!mounted) return;
-        const rawLeaves = Array.isArray(leaveData) ? leaveData : (leaveData?.items || leaveData?.data || []);
-        setRecords(Array.isArray(rawLeaves) ? rawLeaves : []);
         if (dashData) {
           setStats({
             total_requests: dashData.total_requests || 0,
@@ -145,39 +145,46 @@ export default function LeaveRequests() {
         setDepartments(deptNames.map(name => ({ id: name, name })));
       } catch {
         // ignore
-      } finally {
-        if (mounted) setLoading(false);
       }
     };
     fetch();
     return () => { mounted = false; };
   }, []);
 
-  const filtered = useMemo(() => {
-    let result = records;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((r) => 
-        (r.employee_name || "").toLowerCase().includes(q) ||
-        (r.employee_code || "").toLowerCase().includes(q) ||
-        (r.department || "").toLowerCase().includes(q)
-      );
-    }
-    if (statusFilter) result = result.filter((r) => r.status === statusFilter);
-    if (departmentFilter) result = result.filter((r) => r.department === departmentFilter);
-    if (approverFilter) {
-      if (approverFilter === "approved") {
-        result = result.filter((r) => r.approved_by && r.approved_by !== "-");
-      } else if (approverFilter === "rejected") {
-        result = result.filter((r) => r.approved_by && r.approved_by !== "-" && r.status === "rejected");
-      }
-    }
-    return result;
-  }, [records, search, statusFilter, departmentFilter, approverFilter]);
+  // typing in the search box waits a moment before asking the server
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedSearch(search.trim()), 300);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  // One page of requests at a time, filtered and searched on the server, so a big organization never loads (or loses)
+  // requests beyond the first thousand.
+  useEffect(() => {
+    let live = true;
+    setLoading(true);
+    getLeaveRequests(null, {
+      page: currentPage,
+      per_page: ITEMS_PER_PAGE,
+      status: statusFilter === "pending" || statusFilter === "approved" || statusFilter === "rejected" ? statusFilter : undefined,
+      search: debouncedSearch || undefined,
+      department_name: departmentFilter || undefined,
+      decided: approverFilter === "approved" || approverFilter === "rejected" ? true : undefined,
+    })
+      .then((data) => {
+        if (!live) return;
+        const rows = Array.isArray(data) ? data : (data?.items || data?.data || []);
+        setRecords(Array.isArray(rows) ? rows : []);
+        setTotalCount(Array.isArray(data) ? rows.length : (data?.total ?? rows.length));
+      })
+      .catch(() => { if (live) { setRecords([]); setTotalCount(0); } })
+      .finally(() => { if (live) setLoading(false); });
+    return () => { live = false; };
+  }, [currentPage, statusFilter, debouncedSearch, departmentFilter, approverFilter, reloadKey]);
+
+  // "rejected" in the approver filter means decided AND rejected
+  const paginated = approverFilter === "rejected" ? records.filter((r) => r.status === "rejected") : records;
+  const totalPages = Math.max(1, Math.ceil(totalCount / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
-  const paginated = filtered.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
 
   const handleReview = async (id, status) => {
     setSubmitting(true);
@@ -185,8 +192,7 @@ export default function LeaveRequests() {
     try {
       await reviewLeaveRequest(id, { status });
       setMessage({ type: 'success', text: `Request ${status} successfully` });
-      const data = await getLeaveRequests();
-      setRecords(Array.isArray(data) ? data : []);
+      setReloadKey((k) => k + 1);
       setTimeout(() => setMessage(null), 3000);
     } catch {
       setMessage({ type: 'error', text: `Failed to ${status} request` });
@@ -201,8 +207,7 @@ export default function LeaveRequests() {
     try {
       await deleteLeaveRequest(id);
       setMessage({ type: 'success', text: "Leave request deleted" });
-      const data = await getLeaveRequests();
-      setRecords(Array.isArray(data) ? data : []);
+      setReloadKey((k) => k + 1);
       setTimeout(() => setMessage(null), 3000);
     } catch {
       setMessage({ type: 'error', text: "Failed to delete request" });

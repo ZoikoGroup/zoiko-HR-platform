@@ -1675,8 +1675,14 @@ def get_leave_requests(
     department_id: Optional[int] = None,
     page: Optional[int] = None,
     per_page: Optional[int] = None,
+    search: Optional[str] = None,
+    department_name: Optional[str] = None,
+    decided: Optional[bool] = None,
 ):
-    """Leave requests, newest first: a plain list (capped) without page/per_page, else a page dict."""
+    """Leave requests, newest first: a plain list (capped) without page/per_page, else a page dict.
+
+    search matches employee name, employee code or department name; department_name is an exact department name;
+    decided=True keeps only approved/rejected requests."""
     query = (
         db.query(
             LeaveRequest,
@@ -1703,6 +1709,16 @@ def get_leave_requests(
         query = query.filter(LeaveRequest.end_date <= end_date)
     if department_id:
         query = query.filter(Employee.department_id == department_id)
+    if department_name:
+        query = query.filter(Department.name == department_name)
+    if decided:
+        query = query.filter(LeaveRequest.status.in_([RequestStatus.APPROVED, RequestStatus.REJECTED]))
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        query = query.filter(or_(
+            Employee.first_name.ilike(term), Employee.last_name.ilike(term), Employee.employee_code.ilike(term),
+            (Employee.first_name + " " + Employee.last_name).ilike(term), Department.name.ilike(term),
+        ))
 
     # created_at has second precision, so two requests applied in the same second tie;
     # the id tiebreak keeps the newest request first (ZHR-93).

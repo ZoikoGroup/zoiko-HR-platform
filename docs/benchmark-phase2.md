@@ -118,29 +118,30 @@ database (each sequential query = one round-trip). "N+1" = query count grows wit
 
 ## Part G: results and report
 
-### ⚠ Data-scoping bugs found (not fixed: they change responses, so they need your approval)
+### Data-scoping bugs found and FIXED (follow-up commit)
 
-1. **Asset reports and asset settings are not org-scoped at all.** `asset_reports` and `asset_settings` have no
-   `organization_id` column.
-   - `GET /hr/assets/reports` (`app/modules/hr/asset_router.py`, `asset_service.get_asset_reports`): any signed-in
-     user, in any organization and at any role, sees every organization's asset reports (title, description,
-     parameters, generator).
-   - `GET /hr/assets/settings` returns one global set of settings; `PUT /hr/assets/settings` lets any org admin change
-     a setting **for every organization**.
-   - Fix needs a migration (add `organization_id`, backfill reports from `generated_by` → employee's org) and a
-     decision on existing settings rows, which cannot be attributed to an org (copy to every org, or start empty).
-2. **Learning skills are readable and writable across organizations.** `learning_skills.organization_id` exists but is
-   never used for reads/writes:
-   - `GET /hr/learning/skills` returns every organization's skills (only an optional `employee_id` filter).
-   - `GET`, `PUT`, `DELETE /hr/learning/skills/{id}` never check the organization: any user can read, and any org admin
-     can change or delete, another organization's skill records by id.
-   - Fix is small (filter by `current_user.organization_id` in the four routes); it removes other orgs' rows from
-     responses, hence asking first.
+Three groups of records were visible and editable across organizations. All are fixed, with migrations and tests
+(`tests/test_org_scoping.py`, 10 tests):
 
-Also found and **fixed** (it was a crash, not a response change): `GET` training-program assignments read
-`assignment.employee`, a relationship the model does not have, so the endpoint raised `AttributeError` (HTTP 500)
-whenever a program had any assignment. It now resolves names in one batched lookup
-(`app/modules/hr/learning_service.py:869`).
+1. **Asset reports and asset settings** had no `organization_id`. Migration `b3c4d5e6f7a8` adds it:
+   - reports: backfilled from the employee who generated each one;
+   - settings: existing rows become **platform defaults** (`organization_id` NULL). An organization reads its own value
+     for a key when it has one, otherwise the default; org admins only ever write their own row. (Creating a setting
+     used to crash: the model had no `updated_by` column; that is fixed too.) The global unique key on `setting_key`
+     became unique per organization, plus one default per key.
+2. **Learning skills**: list, get, update and delete now filter by the caller's organization (another org's skill reads
+   as "not found"); creating a skill for another organization's employee is refused.
+3. **Compliance (audits, regulations, risks, violations, corrective actions)**: not in the original list. These five
+   tables had no organization column at all, so every organization could list, open, edit and delete every other
+   organization's compliance records, and the compliance dashboard counted them all. Migration `c4d5e6f7a8b9` adds the
+   column; all list/get/update/delete/create paths and the dashboard counts are scoped. Existing rows cannot be
+   attributed (no creator column), so they stay unassigned and only a platform super admin sees them; to give them back
+   to an organization: `UPDATE compliance_audits SET organization_id = <id> WHERE id IN (...)` (same for the other four).
+
+Both migrations were run on the seeded PostgreSQL database: upgrade, downgrade (restores the old shape) and re-upgrade.
+
+Also fixed (a crash, not a leak): the training-program assignments list raised `AttributeError` (HTTP 500) whenever a
+program had assignments (`app/modules/hr/learning_service.py:869`).
 
 ### Before / after (same seeded data, same machine)
 
@@ -232,8 +233,10 @@ page.
 | `GET /billing/plan-changes`, `GET /billing/support-access` | `total` is the full count in paged mode |
 | `GET /hr/assets/reports`, `GET /super-admin/hub/webhooks` | (Part B) |
 
-**Frontend follow-up (not done):** the Leave page (and the other pages above) still fetch the plain list. Big orgs will
-see at most 1,000 rows until those pages pass `page`/`per_page`. No UI changes were made in this phase.
+**Frontend:** the HR Leave Requests page (`modules/zoiko-hr/leave/leave-requests.jsx`) now asks the server for one page of
+8 at a time, with search, status, department and approver filters applied on the server (new `search`,
+`department_name`, `decided` parameters on `GET /hr/leaves`). The other pages above still read the plain list (capped at
+1,000 rows) and can follow the same pattern.
 
 **Still unpaginated, intentionally** (bounded by configuration size, not by people × time): leave type configs and
 balances, shifts, holidays, pay grades/bands/salary components/structures/allowances/benefits, document folders,
@@ -241,11 +244,13 @@ checklist templates, compliance reports, asset categories, learning paths/calend
 `/billing/plans`, `/billing/discounts`, platform settings, assistant controls and knowledge sources, connect channels,
 hub events/applications, `/super-admin/documents/organizations` (one row per org), `/billing/delinquency` (open cases).
 
-**Still unpaginated, should be paged next** (grow over time; not changed to keep this phase's scope): compliance
-audits/violations/risks/corrective actions, onboarding records/preboarding tasks/checklist assignments/orientation
-sessions/attendees/documents, `/hr/documents/assigned-to-me`, `/hr/documents/approvals/pending`,
-`/hr/learning/certifications`, `/hr/learning/skills` (after the scoping fix), `/hr/recruitment/applications`,
-employee lifecycle, employee compensation/benefits, assistant handoffs, conversations, privacy requests.
+**Also paged in the follow-up** (same backward-compatible approach): compliance audits/regulations/risks/violations/
+corrective actions, onboarding records/preboarding tasks/checklist assignments/orientation sessions,
+`/hr/learning/certifications`, `/hr/learning/skills`, `/hr/recruitment/applications`.
+
+**Still unpaginated, should be paged next:** onboarding orientation attendees/documents,
+`/hr/documents/assigned-to-me`, `/hr/documents/approvals/pending`, employee lifecycle, employee compensation/benefits,
+assistant handoffs, conversations, privacy requests.
 
 Audit logs keep offset paging: the UI shows page numbers and a total. The COUNT over 50k rows is a sequential scan
 (about 11 ms here); keyset pagination on `(created_at, id)` is the next step if the table reaches millions of rows.

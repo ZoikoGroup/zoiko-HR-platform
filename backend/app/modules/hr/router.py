@@ -485,11 +485,14 @@ def list_leave_requests(
     start_date: Optional[date] = Query(None, description="Filter by start date"),
     end_date: Optional[date] = Query(None, description="Filter by end date"),
     department_id: Optional[int] = Query(None, description="Filter by department ID"),
+    search: Optional[str] = Query(None, max_length=100, description="Employee name, code or department"),
+    department_name: Optional[str] = Query(None, max_length=150, description="Exact department name"),
+    decided: Optional[bool] = Query(None, description="true = only approved/rejected requests"),
 ):
     if current_user.role == UserRole.EMPLOYEE:
         employee_id = current_user.id
     return service.get_leave_requests(db, current_user.organization_id, employee_id, status, leave_type, start_date, end_date, department_id,
-                                      page=page, per_page=per_page)
+                                      page=page, per_page=per_page, search=search, department_name=department_name, decided=decided)
 
 
 # ── Leave Type Configs ─────────────────────────────────────────────────────
