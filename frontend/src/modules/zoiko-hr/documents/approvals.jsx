@@ -44,7 +44,18 @@ const CategoryPill = ({ category }) => {
     </span>
   );
 };
-const ROLE_LABELS = { manager: "Manager", hr_admin: "HR Admin", admin: "Org Admin" };
+// There is no Manager approval stage: only an HR Admin or the Organization Admin approves a document.
+// Older documents may still carry a "manager" step; it is shown as the HR Admin stage that now owns it.
+const ROLE_LABELS = { manager: "HR Admin", hr_admin: "HR Admin", admin: "Org Admin" };
+const stageLabel = (role) => ROLE_LABELS[role] || role;
+// One chip per stage: a legacy manager step and the HR Admin step are the same stage now.
+const collapseStages = (steps) => (steps || []).reduce((out, s) => {
+  const label = stageLabel(s.required_role);
+  const prev = out.find((o) => stageLabel(o.required_role) === label);
+  if (!prev) out.push(s);
+  else if (prev.status !== "approved" && s.status === "pending") out[out.indexOf(prev)] = s;
+  return out;
+}, []);
 const STATUS_FILTERS = ["all", "pending", "approved", "rejected", "expired"];
 
 export default function Approvals() {
@@ -142,8 +153,9 @@ export default function Approvals() {
   const pendingCount = pendingApprovals.length;
   const isStep = (d) => d.required_role !== undefined;
 
-  const renderApprovalChain = (steps) => {
-    if (!steps || steps.length === 0) return null;
+  const renderApprovalChain = (allSteps) => {
+    const steps = collapseStages(allSteps);
+    if (steps.length === 0) return null;
     return (
       <div className="flex items-center gap-1.5 flex-wrap">
         {steps.map((s, i) => (
@@ -157,7 +169,7 @@ export default function Approvals() {
              s.status === "skipped" ? <SkipForward className="w-3 h-3" /> :
              s.status === "rejected" ? <X className="w-3 h-3" /> :
              <Clock className="w-3 h-3" />}
-            {ROLE_LABELS[s.required_role] || s.required_role}
+            {stageLabel(s.required_role)}
             {i < (steps?.length || 0) - 1 && <span className="text-slate-300 mx-0.5">→</span>}
           </span>
         ))}
@@ -245,10 +257,10 @@ export default function Approvals() {
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
           <Shield className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
           <div>
-            <p className="text-sm font-semibold text-blue-800">Approval Chain: Manager → HR Admin → Org Admin</p>
+            <p className="text-sm font-semibold text-blue-800">Approval Chain: HR Admin → Org Admin</p>
             <p className="text-xs text-blue-600 mt-0.5">
-              Org Admin and HR Admin approvals instantly approve the document, skipping remaining chain steps.
-              Managers approve only their step.
+              Only an HR Admin or the Org Admin can approve or reject a document. An approval by either one
+              completes the document and skips any remaining step.
             </p>
           </div>
         </div>
@@ -358,7 +370,7 @@ export default function Approvals() {
                         <div className="flex items-center gap-1.5 mt-1">
                           <UserCheck className="w-3.5 h-3.5 text-blue-500" />
                           <span className="text-xs text-blue-600 font-medium">
-                            Step {d.step_order}: {ROLE_LABELS[d.required_role] || d.required_role}
+                            Step {d.step_order}: {stageLabel(d.required_role)}
                           </span>
                         </div>
                       )}

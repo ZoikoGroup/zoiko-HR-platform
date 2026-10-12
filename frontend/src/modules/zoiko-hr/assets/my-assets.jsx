@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { Package, Tag, Calendar, AlertCircle, Search } from "lucide-react";
 import { getAssets } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const statusColors = {
   assigned: "bg-blue-100 text-blue-800", available: "bg-green-100 text-green-800",
@@ -16,7 +17,7 @@ const conditionColors = {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDateUtil(dateStr);
 }
 
 export default function MyAssets() {

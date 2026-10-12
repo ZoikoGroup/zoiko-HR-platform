@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Workspace access updated" %}
+{% set preheader = "Your Zoiko HR workspace access rights have changed." %}
+{% set badge = "Access updated" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this security notification because it concerns your Zoiko HR account.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Workspace access updated</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">An authorized administrator changed your access permissions to <strong class="dm-text-strong" style="{{ S.strong }}">{{ workspace_name }}</strong>, effective {{ effective_date_local }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Workspace", workspace_name, first=True) }}
+{{ ui.detail_row("Effective date", effective_date_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Review my access") }}
+<p class="dm-text-muted" style="{{ S.muted }}">If you don't recognize this change, contact your workspace administrator.</p>
+{{ ui.signoff() }}
+{% endblock %}

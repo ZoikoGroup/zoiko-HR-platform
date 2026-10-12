@@ -6,7 +6,7 @@ import { ROLES } from "../config/roles";
 import { useMemo } from "react";
 
 export default function ProtectedRoute({ children, allowedRoles }) {
-  const { isAuthenticated, loading, hasRole, canAccessProduct, getFirstAccessibleRoute, defaultRedirect, products, role } = useAuth();
+  const { isAuthenticated, loading, hasRole, canAccessProduct, getFirstAccessibleRoute, defaultRedirect, products, role, user } = useAuth();
   const location = useLocation();
 
   const normalizedAllowedRoles = useMemo(() => {
@@ -28,6 +28,11 @@ export default function ProtectedRoute({ children, allowedRoles }) {
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace state={{ from: location }} />;
+  }
+
+  // An admin set a temporary password: the user must choose their own first.
+  if (user?.mustChangePassword) {
+    return <Navigate to="/change-password" replace />;
   }
 
   if (normalizedAllowedRoles && !hasRole(normalizedAllowedRoles)) {

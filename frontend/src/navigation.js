@@ -14,6 +14,7 @@ import {
   ClipboardCheck,
   ClipboardList,
   Clock,
+  CreditCard,
   FileCheck2,
   FileText,
   GitBranch,
@@ -44,7 +45,6 @@ import {
   Tags,
   Target,
   TrendingUp,
-  User,
   UserCheck,
   UserCircle,
   UserPlus,
@@ -55,7 +55,6 @@ import {
   UserRoundCheck,
   ThumbsUp,
   Wrench,
-  Settings,
   Server,
   Database,
   HardDrive,
@@ -70,9 +69,15 @@ import {
   Plus,
   ScrollText,
   HandCoins,
+  Hourglass,
+  Webhook,
+  Scale,
+  KeyRound,
+  AlertTriangle,
+  Tag,
 } from "lucide-react";
 
-import { ROLES } from "./config/roles";
+import { ROLES } from "./config/roles.js";
 
 // Platform core commands
 const platform = {
@@ -83,42 +88,68 @@ const platform = {
   ],
 };
 
-// Super Admin / Platform Owner profile
-const superAdminProfile = {
-  title: "PROFILE",
-  items: [
-    {
-      label: "Platform Owner",
-      href: "/admin-profile",
-      icon: User,
-      dp: true,
-    },
-  ],
-};
-
 // ── Super Admin (Organization Owner) — per ZHR-COM-BILL-001 ──────────────────
 // Sidebar sections map to the spec's billing/subscription ownership model.
 // Separation of duties: HR Admin, IT Admin and Security Admin permission sets
 // remain separate — super_admin does NOT auto-inherit them.
+//
+// NOTE: this group is deliberately titled "PLATFORM ADMINISTRATION" rather
+// than "PLATFORM" — SECTION_EXCLUSIONS in useFilteredNavigation.js hides a
+// section titled exactly "PLATFORM" for super_admin (that exclusion targets
+// the unrelated `platform` section below, shared by other roles). Reusing
+// "PLATFORM" here would silently render this group empty for super_admin.
 
-const superAdminBilling = {
+const superAdminCommandCenter = {
+  title: "COMMAND CENTER",
+  items: [
+    { label: "Dashboard", href: "/super-admin/dashboard", icon: LayoutDashboard },
+  ],
+};
+
+const superAdminOrganizations = {
+  title: "ORGANIZATIONS",
+  items: [
+    { label: "Organizations", href: "/super-admin/organizations", icon: Building2 },
+  ],
+};
+
+const superAdminBillingSubscription = {
   title: "BILLING & SUBSCRIPTION",
   items: [
     { label: "Overview", href: "/super-admin/billing", icon: LayoutDashboard },
     { label: "Plans & Catalog", href: "/super-admin/billing/plans", icon: Package },
+    { label: "Evaluations & Trials", href: "/super-admin/billing/evaluations", icon: Hourglass },
     { label: "Plan Changes", href: "/super-admin/billing/plan-changes", icon: GitBranch },
+    { label: "Invoices", href: "/super-admin/billing/invoices", icon: Receipt },
     { label: "Refunds & Credits", href: "/super-admin/billing/refunds", icon: HandCoins },
     { label: "Discounts", href: "/super-admin/billing/discounts", icon: Percent },
+    { label: "Delinquency & Collections", href: "/super-admin/billing/delinquency", icon: AlertTriangle },
   ],
 };
 
-const superAdminPlatform = {
-  title: "SUPER ADMIN",
+const superAdminPaymentsReconciliation = {
+  title: "PAYMENTS & RECONCILIATION",
   items: [
-    { label: "Dashboard",                href: "/super-admin/dashboard",           icon: LayoutDashboard },
-    { label: "Organizations",            href: "/super-admin/organizations",       icon: Building2 },
-    { label: "Access & Role Management", href: "/super-admin/access",              icon: Shield },
-    { label: "Audit Logs",               href: "/super-admin/audit-logs",          icon: FileTextIcon },
+    { label: "Webhook Events", href: "/super-admin/billing/webhook-events", icon: Webhook },
+    { label: "Provider Reconciliation", href: "/super-admin/billing/reconciliation", icon: Scale },
+  ],
+};
+
+const superAdminAccessSecurity = {
+  title: "ACCESS & SECURITY",
+  items: [
+    { label: "Access & Role Management", href: "/super-admin/access", icon: Shield },
+    { label: "Support Access Grants", href: "/super-admin/support-access", icon: KeyRound },
+    { label: "Audit Logs", href: "/super-admin/audit-logs", icon: FileTextIcon },
+  ],
+};
+
+const superAdminPlatformAdministration = {
+  title: "PLATFORM ADMINISTRATION",
+  items: [
+    { label: "Notifications", href: "/super-admin/notifications", icon: Bell },
+    { label: "Demo Requests", href: "/super-admin/demo-requests", icon: CalendarDays },
+    { label: "Pricing Requests", href: "/super-admin/pricing-requests", icon: Tag },
   ],
 };
 
@@ -136,7 +167,7 @@ const products = {
           { label: "Dashboard",            href: "/zoiko-hr/documents",                    icon: LayoutDashboard },
           { label: "Employee Documents",   href: "/zoiko-hr/documents/employee-upload",     icon: UploadCloud },
           { label: "Company Documents",    href: "/zoiko-hr/documents/company-documents",   icon: Building2 },
-          { label: "Approval Workflow",    href: "/zoiko-hr/documents/approvals",           icon: ClipboardCheck },
+          { label: "Approval Workflow",    href: "/zoiko-hr/documents/approvals",           icon: ClipboardCheck, featureKey: "hr.documents.workflow" },
         ]},
         { label: "Departments",        icon: Building2, children: [
           { label: "Dashboard",            href: "/zoiko-hr/departments",             icon: LayoutDashboard },
@@ -216,22 +247,25 @@ const products = {
           { label: "Allowances",         href: "/zoiko-hr/compensation/allowances",     icon: WalletCards },
           { label: "Benefits",           href: "/zoiko-hr/compensation/benefits",       icon: HeartHandshake },
         ]},
-        { label: "ESS",                icon: User, excludeRoles: [ROLES.ADMIN], children: [
+        { label: "ESS",                icon: LayoutDashboard, excludeRoles: [ROLES.ADMIN], children: [
           { label: "Dashboard",          href: "/zoiko-hr/ess",                   icon: LayoutDashboard },
-          { label: "Profile",            href: "/zoiko-hr/ess/profile",           icon: User },
+          { label: "Profile",            href: "/zoiko-hr/ess/profile",           icon: UserCircle },
           { label: "Leave Management",   href: "/zoiko-hr/ess/leave",             icon: Calendar },
           { label: "Attendance",         href: "/zoiko-hr/ess/attendance",        icon: Clock },
-          { label: "My Documents",       href: "/zoiko-hr/ess/my-documents",      icon: FileText },
           { label: "Learning",           href: "/zoiko-hr/ess/requests",          icon: BookOpen },
           { label: "Settings",           href: "/zoiko-hr/ess/settings",          icon: SlidersHorizontal },
         ]},
-        { label: "Employee Documents", icon: FolderOpen, excludeRoles: [ROLES.ADMIN], children: [
-          { label: "My Files",           href: "/zoiko-hr/ess/documents/my-files",        icon: FolderOpen },
-          { label: "Payslips",           href: "/zoiko-hr/ess/documents/payslips",        icon: Receipt },
-          { label: "Offer & Contracts",  href: "/zoiko-hr/ess/documents/contracts",       icon: FileSignature },
-          { label: "Tax & Compliance",   href: "/zoiko-hr/ess/documents/tax",             icon: ShieldCheck },
-          { label: "Upload Request",     href: "/zoiko-hr/ess/documents/upload-request",  icon: UploadCloud },
-        ]},
+        // "Employee Documents" (/zoiko-hr/ess/documents/*) removed: confirmed via
+        // `grep -n "/zoiko-hr/ess/documents" src/App.jsx` that none of its 5 routes
+        // were ever registered — dead nav entries. "/zoiko-hr/ess/my-documents"
+        // (formerly linked here as "My Documents") is also removed from this
+        // sidebar as redundant with the "Documents" section under MY WORKSPACE
+        // (/employee/documents/*, the actively-designed surface) — but its route
+        // stays registered and unlinked-but-reachable: 8 other zoiko-hr/ess/*.jsx
+        // pages (dashboard, profile, leave-management, attendance, settings,
+        // requests, assigned-documents) cross-link to it from their own internal
+        // tab strip, so removing the route would 404 from within that
+        // self-contained mini nav. See PR description.
         { label: "Travel",             icon: Plane, children: [
           { label: "Dashboard",          href: "/zoiko-hr/travel",                icon: LayoutDashboard },
           { label: "Travel Requests",    href: "/zoiko-hr/travel/requests",       icon: Plane },
@@ -279,8 +313,19 @@ const employeeWorkspace = {
       children: [
         { label: "Dashboard",   href: "/employee/ess",            icon: LayoutDashboard },
         { label: "Attendance",  href: "/employee/ess/attendance", icon: Clock },
-        { label: "Learning",    href: "/employee/ess/requests",   icon: BookOpen },
         { label: "Settings",    href: "/employee/ess/settings",   icon: SlidersHorizontal },
+      ],
+    },
+
+    // ── Learning ───────────────────────────────────────────────────────────
+    {
+      label: "Learning",
+      icon: BookOpen,
+      children: [
+        { label: "Dashboard",          href: "/employee/learning",                   icon: LayoutDashboard },
+        { label: "Courses",            href: "/employee/learning/courses",           icon: BookOpen },
+        { label: "Training Programs",  href: "/employee/learning/training-programs", icon: GraduationCap },
+        { label: "Assessments",        href: "/employee/learning/assessments",       icon: ClipboardCheck },
       ],
     },
 
@@ -306,7 +351,6 @@ const employeeWorkspace = {
         { label: "Payslips",          href: "/employee/documents/payslips",        icon: Receipt },
         { label: "Offer & Contracts", href: "/employee/documents/contracts",       icon: FileSignature },
         { label: "Tax & Compliance",  href: "/employee/documents/tax",             icon: ShieldCheck },
-        { label: "Upload Request",    href: "/employee/documents/upload-request",  icon: UploadCloud },
       ],
     },
 
@@ -331,8 +375,8 @@ const userManagement = {
   title: "USER MANAGEMENT",
   items: [
     { label: "User Management", href: "/hr-admin/settings", icon: Users },
-    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen },
-    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy },
+    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen, featureKey: "hr.ai.policy_qa" },
+    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy, featureKey: "hr.ai.workflow_assist" },
   ],
 };
 
@@ -344,6 +388,15 @@ const settings = {
   ],
 };
 
+// Notifications inbox for the Organization and User portals (ZHR-20). Hidden for
+// super_admin in useFilteredNavigation - they use the Notification Center.
+const notificationsSection = {
+  title: "NOTIFICATIONS",
+  items: [
+    { label: "Notifications", href: "/shared/notifications", icon: Bell },
+  ],
+};
+
 // Shared Layers collapsible section
 const sharedLayersSection = {
   title: "SHARED LAYERS",
@@ -352,12 +405,11 @@ const sharedLayersSection = {
       label: "Shared Layers",
       icon: Layers,
       children: [
-        { label: "Zoiko ID", href: "/shared/id", icon: User },
+        { label: "Zoiko ID", href: "/shared/id", icon: UserCheck },
         { label: "Zoiko Workflow", href: "/shared/workflow", icon: Workflow },
         { label: "Zoiko Hub", href: "/shared/hub", icon: Layers },
         { label: "Zoiko Connect", href: "/shared/connect", icon: Globe },
         { label: "Documents", href: "/shared/documents", icon: FileText },
-        { label: "Approvals", href: "/shared/approvals", icon: FileCheck2 },
         { label: "Expenses", href: "/shared/expenses", icon: WalletCards },
       ],
     },
@@ -381,19 +433,24 @@ const organizationAdminDashboard = {
     { label: "Dashboard", href: "/organization-admin/dashboard", icon: LayoutDashboard },
     { label: "My Organization", href: "/organization-admin/organization", icon: Building2 },
     { label: "Payroll Guidance", href: "/organization-admin/payroll-guidance", icon: BookOpen, badge: "Payroll" },
+    { label: "Billing & Plan", href: "/organization-admin/billing-and-plan", icon: CreditCard },
   ],
 };
 
 export const sections = [
-  superAdminBilling,
-  superAdminPlatform,
-  superAdminProfile,
+  superAdminCommandCenter,
+  superAdminOrganizations,
+  superAdminBillingSubscription,
+  superAdminPaymentsReconciliation,
+  superAdminAccessSecurity,
+  superAdminPlatformAdministration,
   organizationAdminDashboard,
   hrAdminDashboard,
   platform,
   products,
   // Employee-only workspace section (filtered to role=employee by useFilteredNavigation)
   employeeWorkspace,
+  notificationsSection,
   sharedLayersSection,
   userManagement,
   settings,

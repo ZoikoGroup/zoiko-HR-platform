@@ -13,9 +13,10 @@ from typing import Optional, List
 from decimal import Decimal
 
 from sqlalchemy import cast, extract, func, Integer, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.database import Base
+from app.modules.integrations.events import emit_event
 
 logger = logging.getLogger("zoiko.employee.service")
 
@@ -57,7 +58,7 @@ from app.modules.super_admin.models import (
 from app.core.security import hash_password, verify_password, create_access_token
 from app.core.exceptions import (
     NotFoundException, AlreadyExistsException,
-    UnauthorizedException, BadRequestException,
+    UnauthorizedException, BadRequestException, ZoikoException,
 )
 
 
@@ -140,6 +141,85 @@ def _full_name(employee) -> str:
     return f"{employee.first_name} {employee.last_name}".strip() or employee.email
 
 
+# ── Organization activity recording (ZHR-36) ──────────────────────────────────
+# Every employee mutation funnels through these two helpers so the Super Admin's
+# Workflows page shows the same shape for every action: which organization, which
+# actor and role, which employee, what changed, success or failure, when (UTC).
+# `activity` is imported lazily inside the helpers: activity_service reads the
+# super_admin models, and importing it at module scope would close a cycle.
+
+def _activity_org_name(db: Session, organization_id: Optional[int]) -> Optional[str]:
+    """Denormalised onto the event so the sentence survives an org rename."""
+    if organization_id is None:
+        return None
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    return (org.organization_name or org.display_name or org.name) if org else None
+
+
+def _resolve_actor(db: Session, actor):
+    """Accepts an ORM row or a bare id, so call sites that only have an id still
+    get a named actor and a role in the feed."""
+    if actor is None or not isinstance(actor, int):
+        return actor
+    return db.query(Employee).filter(Employee.id == actor).first()
+
+
+def _record(db: Session, action_type: str, actor, organization_id, *, commit: bool = True, **kwargs) -> None:
+    from app.modules.super_admin import activity_service
+
+    actor = _resolve_actor(db, actor)
+    activity_service.record_activity(
+        db,
+        action_type=action_type,
+        actor=actor,
+        organization_id=organization_id,
+        organization_name=_activity_org_name(db, organization_id),
+        commit=commit,
+        **kwargs,
+    )
+
+
+def _record_failure(action_type: str, db: Session, actor, organization_id, error,
+                    **kwargs) -> None:
+    """An action that was attempted and failed still belongs in the feed."""
+    from app.modules.super_admin import activity_service
+
+    activity_service.record_failure(
+        db,
+        action_type=action_type,
+        actor=_resolve_actor(db, actor),
+        organization_id=organization_id,
+        error=error,
+        **kwargs,
+    )
+
+
+def _employee_target(employee) -> dict:
+    """Target bits for an employee row: name for the sentence, code for the label."""
+    return {
+        "target": employee,
+        "target_name": _full_name(employee) if employee is not None else None,
+        "entity_type": "Employee",
+        "entity_id": getattr(employee, "id", None),
+    }
+
+
+def _record_employee_added(db: Session, actor, employee, organization_id) -> None:
+    _record(db, "employee.added", actor, organization_id,
+            **_employee_target(employee),
+            changes=activity_diff_new(employee))
+
+
+def activity_diff_new(employee) -> list:
+    """A create event lists the fields it set, so the detail panel is not empty."""
+    from app.modules.super_admin.activity_service import diff, json_safe
+
+    # Table columns only: __dict__ also carries relationship collections, which
+    # would lazy-load whole child tables just to describe one insert.
+    return diff({}, {c.name: json_safe(getattr(employee, c.name, None))
+                     for c in Employee.__table__.columns})
+
+
 def _notify_email(sender_name: str, **kwargs) -> bool:
     """Best-effort outbound email — never blocks the underlying action."""
     try:
@@ -173,16 +253,11 @@ def _notify_email_async(sender_name: str, **kwargs) -> None:
 # SECURITY ACTION TOKENS (single-use, expiring)
 # ═══════════════════════════════════════════════════════════════════════════════
 
-TOKEN_TTL_HOURS = 24
+TOKEN_TTL_HOURS = 24            # invitations
+RESET_TOKEN_TTL_MINUTES = 60    # password-reset links (short-lived)
+RESET_RATE_LIMIT_PER_HOUR = 5   # admin-initiated resets per target user
 TOKEN_TIMEZONE = "UTC"
 
-LINK_RESET_ROLES = (
-    UserRole.SUPER_ADMIN,
-    UserRole.ADMIN,
-    UserRole.HR_ADMIN,
-    UserRole.BILLING_ADMIN,
-    UserRole.MANAGER,
-)
 INVALID_TOKEN_MESSAGE = "This link is invalid or has expired. Please request a new one."
 
 
@@ -202,11 +277,69 @@ def _org_workspace_name(db: Session, organization_id) -> str:
     return (org.organization_name or org.display_name or "") if org else ""
 
 
+def _revoke_outstanding_tokens(db: Session, email: str, purpose) -> int:
+    return (
+        db.query(SecurityActionToken)
+        .filter(
+            SecurityActionToken.email == email,
+            SecurityActionToken.purpose == purpose,
+            SecurityActionToken.used_at.is_(None),
+        )
+        .update({SecurityActionToken.used_at: datetime.utcnow()}, synchronize_session=False)
+    )
+
+
+PASSWORD_POLICY_MESSAGE = "Password must be at least 8 characters and include a letter and a number."
+
+
+def validate_password_policy(password: str) -> None:
+    if (
+        not password
+        or len(password) < 8
+        or not any(c.isalpha() for c in password)
+        or not any(c.isdigit() for c in password)
+    ):
+        raise BadRequestException(PASSWORD_POLICY_MESSAGE)
+
+
+def _send_email_sync(db: Session, sender_name: str, recipient: str, **kwargs) -> tuple[bool, Optional[str]]:
+    """Send an email now and report the real outcome (ok, reason). Used where
+    the caller must know whether the email went out."""
+    from app.services import email_service
+
+    try:
+        ok = getattr(email_service, sender_name)(email=recipient, db=db, **kwargs)
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.exception("Email send raised via %s", sender_name)
+        return False, f"{type(exc).__name__}"
+    if ok:
+        return True, None
+    from app.modules.super_admin.models import EmailDeliveryLog
+
+    row = (
+        db.query(EmailDeliveryLog)
+        .filter(EmailDeliveryLog.recipient_email == recipient, EmailDeliveryLog.status != "sent")
+        .order_by(EmailDeliveryLog.id.desc())
+        .first()
+    )
+    reason = (row.error_message if row and row.error_message else "the mail server rejected or could not deliver it")
+    return False, reason[:200]
+
+
 def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tuple[str, datetime]:
     """Create a single-use token row; returns (raw_token, expires_at). Only the
     SHA-256 hash is stored — the raw token is embedded in the emailed link."""
     raw_token = secrets.token_urlsafe(32)
-    expires_at = datetime.utcnow() + timedelta(hours=TOKEN_TTL_HOURS)
+    now = datetime.utcnow()
+    if purpose == SecurityActionPurpose.RESET:
+        expires_at = now + timedelta(minutes=RESET_TOKEN_TTL_MINUTES)
+    elif purpose == SecurityActionPurpose.VERIFY_EMAIL:
+        from app.config import settings as _s
+        expires_at = now + timedelta(hours=max(int(_s.EMAIL_VERIFY_TTL_HOURS or 48), 1))
+    else:
+        expires_at = now + timedelta(hours=TOKEN_TTL_HOURS)
+    # A new link supersedes every outstanding one for this user and purpose.
+    _revoke_outstanding_tokens(db, email, purpose)
     token = SecurityActionToken(
         email=email,
         organization_id=organization_id,
@@ -220,9 +353,27 @@ def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tu
 
 
 def _action_link(purpose, raw_token: str) -> str:
-    base = os.environ.get("API_BASE_URL", "http://localhost:8000")
-    path = "accept-invite" if purpose == SecurityActionPurpose.INVITE else "reset-password"
-    return f"{base}/auth/{path}?token={raw_token}"
+    from app.config import settings
+
+    if purpose == SecurityActionPurpose.VERIFY_EMAIL:
+        from app.services.link_settings import is_other_product_host
+        frontend = (settings.FRONTEND_URL or "").strip().rstrip("/")
+        if not frontend or is_other_product_host(frontend):
+            from app.services.email_service import PRODUCTION_APP_URL
+            frontend = PRODUCTION_APP_URL
+        return f"{frontend}/verify-email?token={raw_token}"
+    if purpose != SecurityActionPurpose.INVITE:
+        # A reset link opens the app's own "Choose a new password" page, which reaches the API through the app's configured
+        # address. It no longer depends on API_BASE_URL (which defaults to localhost and made emailed links dead on a server
+        # where nobody had set it).
+        from app.services.link_settings import is_other_product_host
+        frontend = (settings.FRONTEND_URL or "").strip().rstrip("/")
+        if not frontend or is_other_product_host(frontend):
+            from app.services.email_service import PRODUCTION_APP_URL
+            frontend = PRODUCTION_APP_URL           # a mistyped site address must not send people to another product
+        return f"{frontend}/reset-password?token={raw_token}"
+    base = (settings.API_BASE_URL or "http://localhost:8000").rstrip("/")
+    return f"{base}/auth/accept-invite?token={raw_token}"
 
 
 def _consume_action_token(db: Session, raw_token: str, purpose) -> Optional[dict]:
@@ -298,6 +449,7 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
     flag back with it. Raises BadRequestException (generic) for every invalid
     state — the same message whether the token never existed, expired, or was used.
     """
+    validate_password_policy(new_password)
     consumed = _consume_action_token(db, raw_token, purpose)
     if consumed is None:
         raise BadRequestException(INVALID_TOKEN_MESSAGE)
@@ -307,6 +459,11 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
         raise BadRequestException(INVALID_TOKEN_MESSAGE)
 
     employee.hashed_password = hash_password(new_password)
+    employee.password_changed_at = datetime.utcnow()  # signs out every earlier session
+    employee.must_change_password = False
+    if not employee.email_verified:        # the link only ever went to this inbox, so using it proves the address is theirs
+        employee.email_verified = True
+        employee.email_verified_at = datetime.utcnow()
     db.commit()
     db.refresh(employee)
 
@@ -322,56 +479,115 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
+# EMAIL VERIFICATION: an account can be used only by someone who can open its inbox
+# ═══════════════════════════════════════════════════════════════════════════════
+
+EMAIL_NOT_VERIFIED_CODE = "EMAIL_NOT_VERIFIED"
+VERIFY_LINK_INVALID_MESSAGE = "This confirmation link is invalid or has expired. Ask for a new one from the sign-in page."
+
+
+def begin_email_verification(db: Session, employee: Employee) -> None:
+    """Marks a NEW account's address as unconfirmed and e-mails the single-use confirmation link. Does nothing when
+    verification is switched off (REQUIRE_EMAIL_VERIFICATION=false)."""
+    from app.config import settings
+
+    if not settings.REQUIRE_EMAIL_VERIFICATION:
+        return
+    employee.email_verified = False
+    employee.email_verified_at = None
+    raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.VERIFY_EMAIL)
+    db.commit()
+    _notify_email_async(
+        "send_email_verification",
+        email=employee.email,
+        first_name=employee.first_name or _full_name(employee),
+        expires_at_local=_format_token_datetime(expires_at),
+        timezone=TOKEN_TIMEZONE,
+        action_url=_action_link(SecurityActionPurpose.VERIFY_EMAIL, raw_token),
+        organization_id=employee.organization_id,
+    )
+
+
+def verify_email(db: Session, raw_token: str) -> dict:
+    """Consumes a confirmation link: the address is now confirmed and the person may sign in."""
+    consumed = _consume_action_token(db, raw_token, SecurityActionPurpose.VERIFY_EMAIL)
+    if consumed is None:
+        raise BadRequestException(VERIFY_LINK_INVALID_MESSAGE)
+    employee = db.query(Employee).filter(Employee.email == consumed["email"]).first()
+    if not employee:
+        raise BadRequestException(VERIFY_LINK_INVALID_MESSAGE)
+    employee.email_verified = True
+    employee.email_verified_at = datetime.utcnow()
+    db.commit()
+    return {"message": "Your email address is confirmed. You can now sign in.", "email": employee.email}
+
+
+def resend_email_verification(db: Session, email: str) -> dict:
+    """Sends a fresh confirmation link to an account that is still unconfirmed. The answer is the same for an unknown
+    address, an already-confirmed one and an unconfirmed one, so it cannot be used to find out who has an account."""
+    generic = {"message": "If that address belongs to an account that still needs confirming, a new confirmation link has been sent."}
+    employee = db.query(Employee).filter(func.lower(Employee.email) == (email or "").strip().lower()).first()
+    if employee and employee.is_active and not employee.email_verified:
+        begin_email_verification(db, employee)
+    return generic
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
 # AUTH SERVICE
 # ═══════════════════════════════════════════════════════════════════════════════
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
-    employee = db.query(Employee).filter(Employee.email == data.email).first()
+    employee = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).first()
     if not employee:
         raise UnauthorizedException("Invalid email or password.")
 
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
 
-    if employee.organization_id:
-        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
-        if org:
-            if org.status == OrganizationStatus.PENDING:
-                raise UnauthorizedException(
-                    "Your organization registration is awaiting Super Admin approval. "
-                    "You will be able to sign in after approval."
-                )
-            elif org.status == OrganizationStatus.REJECTED:
-                reason = f" Reason: {org.rejection_reason}" if org.rejection_reason else ""
-                raise UnauthorizedException(
-                    f"Your organization registration has been rejected.{reason}"
-                )
-            elif org.status == OrganizationStatus.SUSPENDED:
-                raise UnauthorizedException(
-                    "Your organization has been suspended. Please contact support."
-                )
-            elif org.status == OrganizationStatus.DEACTIVATED:
-                raise UnauthorizedException(
-                    "Your organization has been deactivated. Please contact support."
-                )
+    return issue_login(db, employee)
 
-            # Evaluation expiry check: approved orgs with expired evaluations
-            if org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-                from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
-                from app.modules.billing import service as billing_svc
-                evaluation = (
-                    db.query(OrganizationEvaluation)
-                    .filter(
-                        OrganizationEvaluation.organization_id == org.id,
-                        OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
-                    )
-                    .first()
-                )
-                if evaluation and evaluation.evaluation_ends_at < datetime.utcnow():
-                    billing_svc.end_evaluation(db, evaluation.id)
-                    raise UnauthorizedException(
-                        "Your evaluation period has expired. Contact sales to continue."
-                    )
+
+def issue_login(db: Session, employee: Employee) -> dict:
+    """Everything that must be true before someone may sign in (their organization, its evaluation, their account), then
+    the tokens. Shared by the password sign-in and Sign in with Google, so both obey the same rules.
+
+    Organization state comes from the cached org-access decision (app/core/org_access.py):
+    one query for the employee, zero for the org on a cache hit."""
+    from app.core import org_access
+
+    if employee.organization_id:
+        oa = org_access.get_org_access(db, employee.organization_id)
+        # A deleted organization is invisible to normal queries, so check it explicitly
+        # and tell the user why, instead of a generic "invalid credentials".
+        if oa.deleted:
+            from app.modules.super_admin import organization_service
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
+
+        if oa.status == "pending":
+            raise UnauthorizedException(
+                "Your organization registration is awaiting Super Admin approval. "
+                "You will be able to sign in after approval."
+            )
+        elif oa.status == "rejected":
+            reason = f" Reason: {oa.rejection_reason}" if oa.rejection_reason else ""
+            raise UnauthorizedException(
+                f"Your organization registration has been rejected.{reason}"
+            )
+        elif oa.status == "suspended":
+            raise UnauthorizedException(
+                "Your organization has been suspended. Please contact support."
+            )
+        elif oa.status == "deactivated":
+            raise UnauthorizedException(
+                "Your organization has been deactivated. Please contact support."
+            )
+
+        # Evaluation access gate: blocks login when the org's evaluation
+        # was ended (manually or expired) and no paying subscription is
+        # active — catches evaluations the super admin "End"-ed directly.
+        if oa.status in ("active", "approved"):
+            if oa.evaluation_block_reason:
+                raise UnauthorizedException(oa.evaluation_block_reason)
 
     if not employee.is_active:
         raise UnauthorizedException("Your account has been deactivated.")
@@ -379,11 +595,17 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if employee.status == EmployeeStatus.DEACTIVATED:
         raise UnauthorizedException("Your account has been deactivated.")
 
-    from app.modules.hr.models import Organization as HrOrg
-    org_obj = None
+    if not employee.email_verified:
+        raise ZoikoException(
+            403, EMAIL_NOT_VERIFIED_CODE,
+            f"Please confirm your email address before signing in. We sent a confirmation link to {_mask_email(employee.email)}. "
+            "Open it, then sign in. You can ask for a new link below.",
+        )
+
+    org_code = None
     if employee.organization_id:
-        org_obj = db.query(HrOrg).filter(HrOrg.id == employee.organization_id).first()
-    org_code = org_obj.organization_code if org_obj else None
+        oa_code = org_access.get_org_access(db, employee.organization_id)
+        org_code = oa_code.organization_code
 
     token = create_access_token(data={
         "sub":  employee.email,
@@ -441,19 +663,24 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         uuid=org_uuid,
         organization_code=org_code,
         organization_name=data.organization,
-        status=OrganizationStatus.PENDING,
-        is_active=False,
+        status=OrganizationStatus.ACTIVE,
+        is_active=True,
         address=data.address,
         city=data.city,
         state=data.state,
         country=data.country,
         timezone=data.timezone or "UTC",
         industry=data.industry,
+        org_type=data.org_type,
+        phone=data.phone,
+        tax_number=data.tax_number,
+        registered_email=data.registered_email,
         employee_id_prefix=derive_employee_id_prefix(data.organization),
     )
     db.add(org)
     db.commit()
     db.refresh(org)
+    emit_event(db, "organization.created", {"id": org.id, "name": org.name, "code": org.organization_code}, org.id)
 
     dept_code = f"MGMT_{org.id}"
     dept_department_code = f"{org_code}DEP001"
@@ -487,6 +714,13 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.add(employee)
     db.commit()
     db.refresh(employee)
+    from app.modules.employee import google_auth
+    if data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email):
+        employee.email_verified = True             # Google has already confirmed this person controls the address
+        employee.email_verified_at = datetime.utcnow()
+        db.commit()
+    else:
+        begin_email_verification(db, employee)    # the new organization admin confirms the address before signing in
 
     from app.modules.billing import service as billing_service
     from app.modules.billing.models import DataClassification, BillingAuditAction
@@ -525,7 +759,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         details={
             "organization": org.name,
             "code": org.code,
-            "status": "PENDING",
+            "status": org.status.value,
             "evaluation_id": evaluation.id,
             "plan_code": data.plan_code,
         },
@@ -533,10 +767,14 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.add(audit)
 
     notification = Notification(
-        title="Organization Evaluation Requested",
-        message=f"Organization '{org.name}' requested a {data.plan_code} evaluation.",
+        title="New Organization Signed Up",
+        message=f"Organization '{org.name}' signed up and started a {data.plan_code} evaluation. It is active immediately — no action needed.",
         notification_type="org_registration",
         priority="high",
+        # Internal Super Admin event: target_org_id / target_user_id mean "the org this
+        # is ABOUT", not recipients. "system" keeps it out of every recipient inbox
+        # (the column default, "all", would broadcast it to the whole platform).
+        target_type="system",
         target_org_id=org.id,
         target_user_id=employee.id,
     )
@@ -579,6 +817,20 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     except Exception as e:
         logger.warning(f"[email] Failed to notify super admins about organization {org.name}: {e}")
 
+    # Commercial quotation: email the registrant a quote for the selected
+    # plan with an Accept/Reject link. Accepting notifies the registrant +
+    # every Super Admin and sends an invoice (see quotation_service.py).
+    # Never blocks registration itself — logs and continues on failure.
+    from app.modules.billing import quotation_service
+    quotation_service.create_and_send_quotation(
+        db,
+        organization=org,
+        plan_code=data.plan_code,
+        billing_cycle=data.billing_cycle,
+        recipient_email=data.email,
+        recipient_name=_full_name(employee),
+    )
+
     return {
         "message": (
             "Evaluation workspace requested. It is not a paid subscription "
@@ -605,7 +857,12 @@ def change_password(
     if not verify_password(current_password, employee.hashed_password):
         raise UnauthorizedException("Current password is incorrect.")
 
+    validate_password_policy(new_password)
+    if verify_password(new_password, employee.hashed_password):
+        raise BadRequestException("Your new password must be different from the current one.")
+
     employee.hashed_password = hash_password(new_password)
+    employee.must_change_password = False
     db.commit()
     db.refresh(employee)
 
@@ -627,73 +884,159 @@ def change_password(
 # USER MANAGEMENT SERVICE (Organization Admin)
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def role_str(role) -> str:
+    return getattr(role, "value", str(role))
+
+
+_IMPORT_PLAIN_FIELDS = (
+    "date_of_birth", "confirmation_date", "gender", "work_email", "personal_email", "company", "business_unit",
+    "division", "team", "current_address", "permanent_address", "address", "city", "state", "country", "pincode",
+    "basic_salary", "ctc",
+)
+
+
+def _clean(value):
+    value = value.strip() if isinstance(value, str) else value
+    return value if value not in ("", None) else None
+
+
+def _import_style_fields(db: Session, data, organization_id, created_by=None) -> dict:
+    """Employee columns for the extra fields a bulk import also accepts. Department and
+    designation are matched by name (case-insensitive) within the organization and
+    created when missing, exactly as the import does."""
+    out = {}
+    for name in _IMPORT_PLAIN_FIELDS:
+        value = _clean(getattr(data, name, None))
+        if value is not None:
+            out[name] = value
+    if data.confirmation_date is None:
+        out.pop("confirmation_date", None)
+
+    dept_name = _clean(data.department_name)
+    if dept_name and organization_id:
+        dept = db.query(Department).filter(Department.name.ilike(dept_name),
+                                           Department.organization_id == organization_id).first()
+        if dept is None:
+            dept = Department(
+                name=dept_name,
+                code="DEPT" + hashlib.md5(f"{dept_name}_{organization_id}".encode()).hexdigest()[:6].upper(),
+                description="Created when adding a user", organization_id=organization_id,
+            )
+            db.add(dept)
+            db.flush()
+        out["department_id"] = dept.id
+    desig_name = _clean(data.designation_name)
+    if desig_name and organization_id:
+        desig = db.query(Designation).filter(Designation.title.ilike(desig_name),
+                                             Designation.organization_id == organization_id).first()
+        if desig is None:
+            desig = Designation(title=desig_name, department_name=dept_name, organization_id=organization_id,
+                                source="user_form", created_by=created_by)
+            db.add(desig)
+            db.flush()
+        out["designation_id"] = desig.id
+
+    profile = {k: _clean(getattr(data, k, None)) for k in ("pan_number", "uan_number", "bank_account", "bank_ifsc")}
+    out["_profile"] = {k: v for k, v in profile.items() if v}
+    return out
+
+
 def create_organization_user(
     db: Session,
     data: "UserCreateRequest",
     organization_id: int,
     created_by_id: int,
+    actor=None,
 ) -> Employee:
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("User", "email")
+    """Invite a user into an organization and record the invite for the feed."""
+    try:
+        existing = db.query(Employee).filter(Employee.email == data.email).first()
+        if existing:
+            raise AlreadyExistsException("User", "email")
 
-    temp_password = _generate_temp_password()
-    role = data.role
+        temp_password = _generate_temp_password()
+        role = data.role
 
-    from app.core.code_generation import generate_employee_code
-    new_employee_code = generate_employee_code(db, organization_id=organization_id)
+        from app.core.code_generation import generate_employee_code
+        new_employee_code = generate_employee_code(db, organization_id=organization_id)
 
-    employee = Employee(
-        email=data.email,
-        hashed_password=hash_password(temp_password),
-        employee_code=new_employee_code,
-        employee_id=_generate_employee_id(db, organization_id=organization_id),
-        role=role,
-        is_active=True,
-        first_name=data.first_name,
-        last_name=data.last_name,
-        phone=data.phone or "",
-        job_title=data.job_title or _role_to_default_title(role),
-        employment_type=EmploymentType.FULL_TIME,
-        status=EmployeeStatus.ACTIVE,
-        date_of_joining=date.today(),
-        organization_id=organization_id,
-        created_by=created_by_id,
-    )
-    db.add(employee)
-    db.commit()
-    db.refresh(employee)
-
-    if role == UserRole.ADMIN:
-        raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.INVITE)
+        extra = _import_style_fields(db, data, organization_id, created_by=created_by_id)
+        profile_fields = extra.pop("_profile", {})
+        status = EmployeeStatus(data.status) if data.status else EmployeeStatus.ACTIVE
+        employee = Employee(
+            email=data.email,
+            hashed_password=hash_password(temp_password),
+            # the password was generated and e-mailed in clear text: it must be replaced at first sign-in
+            must_change_password=True,
+            employee_code=new_employee_code,
+            # Platform-level users (Super Admin) have no organization, so no org-scoped employee ID.
+            employee_id=_generate_employee_id(db, organization_id=organization_id) if organization_id else None,
+            role=role,
+            is_active=status != EmployeeStatus.INACTIVE,
+            first_name=data.first_name,
+            last_name=data.last_name,
+            phone=data.phone or "",
+            job_title=data.job_title or _role_to_default_title(role),
+            employment_type=data.employment_type or EmploymentType.FULL_TIME,
+            status=status,
+            date_of_joining=data.date_of_joining or date.today(),
+            organization_id=organization_id,
+            created_by=created_by_id,
+            **extra,
+        )
+        db.add(employee)
+        db.flush()
+        if profile_fields and organization_id:
+            db.add(EmployeeProfile(employee_id=employee.id, organization_id=organization_id, **profile_fields))
         db.commit()
-        inviter = db.query(Employee).filter(Employee.id == created_by_id).first() if created_by_id else None
-        inviter_name = _full_name(inviter) if inviter else ""
-        _notify_email(
-            "send_org_admin_invite_email",
-            email=employee.email,
-            first_name=employee.first_name or _full_name(employee),
-            inviter_name=inviter_name,
-            workspace_name=_org_workspace_name(db, employee.organization_id),
-            expires_at_local=_format_token_datetime(expires_at),
-            timezone=TOKEN_TIMEZONE,
-            action_url=_action_link(SecurityActionPurpose.INVITE, raw_token),
-            organization_id=employee.organization_id,
-            db=db,
-        )
-    else:
-        _notify_email(
-            "send_employee_welcome_email",
-            email=employee.email,
-            employee_name=_full_name(employee),
-            first_name=employee.first_name or _full_name(employee),
-            workspace_name=_org_workspace_name(db, employee.organization_id),
-            temporary_password=temp_password,
-            organization_id=employee.organization_id,
-            db=db,
+        db.refresh(employee)
+        emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(role)}, organization_id)
+        _record(
+            db, "employee.invited", actor or created_by_id, organization_id,
+            entity_type="Employee", entity_id=employee.id,
+            target_name=_full_name(employee), target_code=employee.employee_code,
+            changes=[{"field": "role", "label": "Role", "before": None,
+                      "after": role_str(role)},
+                     {"field": "email", "label": "Email", "before": None,
+                      "after": employee.email}],
+            details={"invite_link_sent": role in (UserRole.ADMIN, UserRole.SUPER_ADMIN)},
         )
 
-    return employee, temp_password
+        if role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
+            raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.INVITE)
+            db.commit()
+            inviter = db.query(Employee).filter(Employee.id == created_by_id).first() if created_by_id else None
+            inviter_name = _full_name(inviter) if inviter else ""
+            _notify_email(
+                "send_org_admin_invite_email",
+                email=employee.email,
+                first_name=employee.first_name or _full_name(employee),
+                inviter_name=inviter_name,
+                workspace_name=_org_workspace_name(db, employee.organization_id),
+                expires_at_local=_format_token_datetime(expires_at),
+                timezone=TOKEN_TIMEZONE,
+                action_url=_action_link(SecurityActionPurpose.INVITE, raw_token),
+                organization_id=employee.organization_id,
+                db=db,
+            )
+        else:
+            _notify_email(
+                "send_employee_welcome_email",
+                email=employee.email,
+                employee_name=_full_name(employee),
+                first_name=employee.first_name or _full_name(employee),
+                workspace_name=_org_workspace_name(db, employee.organization_id),
+                temporary_password=temp_password,
+                organization_id=employee.organization_id,
+                db=db,
+            )
+            begin_email_verification(db, employee)
+
+        return employee, temp_password
+    except Exception as exc:
+        _record_failure("employee.invited", db, actor or created_by_id,
+                        organization_id, exc, target_name=data.email)
+        raise
 
 
 def get_organization_users(
@@ -728,7 +1071,7 @@ def get_organization_users(
             query = query.filter(Employee.is_active == False)
 
     total = query.count()
-    users = query.order_by(Employee.created_at.desc()).offset(
+    users = query.options(joinedload(Employee.department), joinedload(Employee.designation)).order_by(Employee.created_at.desc()).offset(
         (page - 1) * per_page
     ).limit(per_page).all()
 
@@ -739,13 +1082,15 @@ def get_organization_user(
     db: Session,
     user_id: int,
     organization_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = db.query(Employee).filter(
-        Employee.id == user_id,
-        Employee.organization_id == organization_id,
-    ).first()
+    query = db.query(Employee).filter(Employee.id == user_id)
+    if not skip_org_filter:
+        query = query.filter(Employee.organization_id == organization_id)
+    user = query.first()
     if not user:
         raise NotFoundException("User", user_id)
+    user._profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
     return user
 
 
@@ -755,15 +1100,54 @@ def update_organization_user(
     data: "UserUpdateRequest",
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     old_role = user.role
     update_data = data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
+    if "phone" in update_data and update_data["phone"] != user.phone:
+        # Only a number that is being changed is checked, so a user whose stored number predates this rule can
+        # still have their other details saved.
+        from app.core.phone import normalize_phone
+        try:
+            update_data["phone"] = normalize_phone(update_data["phone"])
+        except ValueError as exc:
+            raise BadRequestException(str(exc))
+
+    # Simple account/employee columns handled directly.
+    for field in ("first_name", "last_name", "phone", "role", "job_title", "is_active"):
+        if field in update_data and update_data[field] is not None:
+            setattr(user, field, update_data[field])
+
+    if update_data.get("employment_type") is not None:
+        user.employment_type = update_data["employment_type"]
+    if update_data.get("status") is not None:
+        user.status = EmployeeStatus(update_data["status"])
+        user.is_active = user.status != EmployeeStatus.INACTIVE
+
+    # Extra import-style fields (plain columns plus department/designation by name), same as create.
+    extra = _import_style_fields(db, data, user.organization_id, created_by=updated_by_id)
+    profile_fields = extra.pop("_profile", {})
+    for field, value in extra.items():
         setattr(user, field, value)
+
+    if profile_fields:
+        profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
+        if profile is None:
+            profile = EmployeeProfile(
+                employee_id=user.id,
+                organization_id=user.organization_id,
+                **profile_fields,
+            )
+            db.add(profile)
+        else:
+            for field, value in profile_fields.items():
+                setattr(profile, field, value)
+
     user.updated_by = updated_by_id
     db.commit()
     db.refresh(user)
+    user._profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
 
     if "role" in update_data and user.role != old_role:
         if old_role == UserRole.ADMIN or user.role == UserRole.ADMIN:
@@ -785,8 +1169,9 @@ def deactivate_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = False
     user.status = EmployeeStatus.INACTIVE
     user.updated_by = updated_by_id
@@ -821,8 +1206,9 @@ def activate_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = True
     user.status = EmployeeStatus.ACTIVE
     user.updated_by = updated_by_id
@@ -856,8 +1242,9 @@ def suspend_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = False
     user.status = EmployeeStatus.SUSPENDED
     user.updated_by = updated_by_id
@@ -890,8 +1277,9 @@ def archive_organization_user(
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
 ) -> Employee:
-    user = get_organization_user(db, user_id, organization_id)
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     user.is_active = False
     user.status = EmployeeStatus.ARCHIVED
     user.updated_by = updated_by_id
@@ -922,20 +1310,15 @@ def archive_organization_user(
 
 
 def request_password_reset(db: Session, email: str) -> dict:
-    """Public forgot-password flow for admin-class accounts (ADMIN, HR_ADMIN,
-    BILLING_ADMIN). Issues a single-use RESET token and emails a link. Always
-    returns the same generic message whether or not the email belongs to an
-    active admin account — never discloses account existence (no user
-    enumeration)."""
+    """Public forgot-password flow for any active account (admin or employee).
+    Issues a single-use RESET token and emails a link. Always returns the same
+    generic message whether or not the email belongs to an active account —
+    never discloses account existence (no user enumeration)."""
     generic_message = (
         "If an account exists for that email, a password reset link has been sent."
     )
     employee = db.query(Employee).filter(Employee.email == email).first()
-    if (
-        not employee
-        or employee.role not in LINK_RESET_ROLES
-        or not employee.is_active
-    ):
+    if not employee or not employee.is_active:
         return {"message": generic_message}
 
     raw_token, expires_at = _issue_action_token(
@@ -955,43 +1338,130 @@ def request_password_reset(db: Session, email: str) -> dict:
     return {"message": generic_message}
 
 
+def request_own_password_reset(db: Session, employee: Employee) -> dict:
+    """A signed-in user who does not remember their current password asks for a reset link. The link goes only to the
+    email address on their own account, so any role (including a plain employee) can use it."""
+    if not employee.is_active:
+        raise BadRequestException("This account is deactivated.")
+    raw_token, expires_at = _issue_action_token(db, employee.email, employee.organization_id, SecurityActionPurpose.RESET)
+    db.commit()
+    _notify_email_async(
+        "send_org_admin_password_reset_email",
+        email=employee.email,
+        first_name=employee.first_name or _full_name(employee),
+        expires_at_local=_format_token_datetime(expires_at),
+        timezone=TOKEN_TIMEZONE,
+        action_url=_action_link(SecurityActionPurpose.RESET, raw_token),
+        organization_id=employee.organization_id,
+    )
+    return {"message": "A password reset link has been sent to the email address on your account.", "email": _mask_email(employee.email)}
+
+
+def _mask_email(email: str) -> str:
+    name, _, domain = (email or "").partition("@")
+    return f"{name[:2]}{'*' * max(len(name) - 2, 1)}@{domain}"
+
+
+def hr_recipients(db: Session, employee: Employee) -> list[Employee]:
+    """The active HR admins of the person's organization; if there are none, the organization admins."""
+    base = db.query(Employee).filter(Employee.organization_id == employee.organization_id, Employee.is_active == True, Employee.id != employee.id)  # noqa: E712
+    people = base.filter(Employee.role == UserRole.HR_ADMIN).all()
+    return people or base.filter(Employee.role == UserRole.ADMIN).all()
+
+
+def contact_hr(db: Session, employee: Employee, topic: str, message: str) -> dict:
+    """Email an employee's message to their HR team, with the sender's name and address so HR can answer them."""
+    recipients = hr_recipients(db, employee)
+    if not recipients:
+        raise BadRequestException("No HR contact is set up for your organization yet. Please speak to your manager.")
+    name = _full_name(employee)
+    subject = f"[Employee request] {topic} - {name}"
+    body = (
+        f"{name} ({employee.email}) sent a message to HR from the employee portal.\n"
+        f"Topic: {topic}\n"
+        f"Message:\n{message}\n"
+        f"Reply to {employee.email} to answer them."
+    )
+    for person in recipients:
+        _notify_email_async("send_plain_email", to_email=person.email, subject=subject, body=body, organization_id=employee.organization_id)
+    return {"message": "Your message has been sent to the HR team.", "sent_to": len(recipients)}
+
+
 def reset_user_password(
     db: Session,
     user_id: int,
     organization_id: int,
     updated_by_id: int,
+    skip_org_filter: bool = False,
+    method: str = "link",
 ) -> tuple[Employee, Optional[str]]:
-    user = get_organization_user(db, user_id, organization_id)
+    """Admin-initiated password reset.
 
-    if user.role in LINK_RESET_ROLES:
+    method="link": single-use, 60-minute emailed link. If the email cannot be
+        sent the token is revoked and a clear 502 is raised (no dangling link).
+    method="temporary": a temporary password is set (returned once); the user
+        must change it at next login.
+    Either way every session issued before now is invalidated.
+    Returns (user, temp_password_or_None).
+    """
+    user = get_organization_user(db, user_id, organization_id, skip_org_filter)
+
+    if user.id == updated_by_id:
+        raise BadRequestException(
+            "You cannot reset your own password here. Use your account settings to change it."
+        )
+    if method not in ("link", "temporary"):
+        raise BadRequestException("Reset method must be 'link' or 'temporary'.")
+    if not user.is_active:
+        raise BadRequestException("This account is deactivated. Reactivate it before resetting the password.")
+
+    # Per-user rate limit, counted from the audit trail of completed resets.
+    from app.modules.super_admin.models import AuditAction, AuditLog
+
+    recent = (
+        db.query(AuditLog)
+        .filter(
+            AuditLog.action == AuditAction.PASSWORD_RESET,
+            AuditLog.entity_type == "Employee",
+            AuditLog.entity_id == user.id,
+            AuditLog.created_at >= datetime.utcnow() - timedelta(hours=1),
+        )
+        .count()
+    )
+    if recent >= RESET_RATE_LIMIT_PER_HOUR:
+        raise ZoikoException(
+            429, "RATE_LIMITED",
+            "Too many password resets for this user in the last hour. Please try again later.",
+        )
+
+    if method == "link":
         raw_token, expires_at = _issue_action_token(db, user.email, user.organization_id, SecurityActionPurpose.RESET)
-        user.updated_by = updated_by_id
         db.commit()
-        _notify_email_async(
-            "send_org_admin_password_reset_email",
-            email=user.email,
+        ok, reason = _send_email_sync(
+            db, "send_org_admin_password_reset_email", user.email,
             first_name=user.first_name or _full_name(user),
             expires_at_local=_format_token_datetime(expires_at),
             timezone=TOKEN_TIMEZONE,
             action_url=_action_link(SecurityActionPurpose.RESET, raw_token),
-            organization_id=organization_id,
+            organization_id=user.organization_id,
         )
+        if not ok:
+            _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET)
+            db.commit()
+            raise ZoikoException(502, "EMAIL_SEND_FAILED", f"Email could not be sent: {reason}")
+        user.updated_by = updated_by_id
+        user.password_changed_at = datetime.utcnow()  # end existing sessions now
+        db.commit()
         return user, None
 
     temp_password = _generate_temp_password()
+    _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET)
     user.hashed_password = hash_password(temp_password)
+    user.must_change_password = True
+    user.password_changed_at = datetime.utcnow()
     user.updated_by = updated_by_id
     db.commit()
     db.refresh(user)
-
-    _notify_email_async(
-        "send_password_reset",
-        email=user.email,
-        temp_password=temp_password,
-        first_name=user.first_name or _full_name(user),
-        organization_id=organization_id,
-    )
-
     return user, temp_password
 
 
@@ -999,46 +1469,73 @@ def reset_user_password(
 # EMPLOYEE CRUD
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional[int] = None) -> Employee:
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("Employee", "email")
+def create_employee(
+    db: Session,
+    data: EmployeeCreate,
+    organization_id: Optional[int] = None,
+    actor=None,
+) -> Employee:
+    """Create one employee and record the action for the platform activity feed.
 
-    if data.department_id:
-        dept = db.query(Department).filter(Department.id == data.department_id).first()
-        if not dept:
-            raise NotFoundException("Department", data.department_id)
+    ``actor`` is the Employee who asked for it (the router passes
+    ``current_user``); it is what the Super Admin's Workflows page shows, so an
+    add is always attributable to a person and a role.
+    """
+    resolved_org_id = organization_id or (data.organization_id if hasattr(data, "organization_id") else None)
+    try:
+        existing = db.query(Employee).filter(Employee.email == data.email).first()
+        if existing:
+            raise AlreadyExistsException("Employee", "email")
 
-    from app.core.code_generation import generate_employee_code
+        if data.department_id:
+            dept = db.query(Department).filter(Department.id == data.department_id).first()
+            if not dept:
+                raise NotFoundException("Department", data.department_id)
 
-    employee_data = data.model_dump(exclude={"password"})
-    employee_data.pop("employee_id", None)
-    resolved_org_id = organization_id or employee_data.get("organization_id")
-    if not resolved_org_id:
-        raise BadRequestException("organization_id is required to create an employee")
-    employee = Employee(
-        **employee_data,
-        hashed_password=hash_password(data.password),
-        employee_code=generate_employee_code(db, organization_id=resolved_org_id),
-        organization_id=resolved_org_id,
-    )
+        from app.core.code_generation import generate_employee_code
 
-    db.add(employee)
-    db.commit()
-    db.refresh(employee)
+        employee_data = data.model_dump(exclude={"password"})
+        employee_data.pop("employee_id", None)
+        employee_data.pop("organization_id", None)
+        if not resolved_org_id:
+            raise BadRequestException("organization_id is required to create an employee")
+        generated = not data.password
+        initial_password = data.password or _generate_temp_password()
+        employee = Employee(
+            **employee_data,
+            hashed_password=hash_password(initial_password),
+            must_change_password=True if generated else False,
+            employee_code=generate_employee_code(db, organization_id=resolved_org_id),
+            organization_id=resolved_org_id,
+        )
 
-    _notify_email(
-        "send_employee_welcome_email",
-        email=employee.email,
-        employee_name=_full_name(employee),
-        first_name=employee.first_name or _full_name(employee),
-        workspace_name=_org_workspace_name(db, resolved_org_id),
-        temporary_password=data.password,
-        organization_id=resolved_org_id,
-        db=db,
-    )
+        db.add(employee)
+        db.commit()
+        db.refresh(employee)
+        emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
 
-    return employee
+        _record_employee_added(db, actor, employee, resolved_org_id)
+        begin_email_verification(db, employee)
+        if generated:
+            employee.temporary_password = initial_password      # not stored: shown once in the reply to whoever added them
+
+        _notify_email(
+            "send_employee_welcome_email",
+            email=employee.email,
+            employee_name=_full_name(employee),
+            first_name=employee.first_name or _full_name(employee),
+            workspace_name=_org_workspace_name(db, resolved_org_id),
+            temporary_password=initial_password,
+            organization_id=resolved_org_id,
+            db=db,
+        )
+
+        return employee
+    except Exception as exc:
+        attempted = f"{data.first_name} {data.last_name}".strip()
+        _record_failure("employee.added", db, actor, resolved_org_id, exc,
+                        target_name=attempted or None, entity_type="Employee")
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1122,8 +1619,51 @@ _ENUM_FIELDS = {
 _REQUIRED_FIELDS = {"first_name", "last_name", "email", "job_title", "date_of_joining"}
 
 
-def _normalise_header(h: str) -> str:
-    return _COLUMN_MAP.get(h.strip().lower(), h.strip().lower())
+# Other ways people head the same columns.
+_HEADER_ALIASES = {
+    "firstname": "first_name", "first": "first_name", "given name": "first_name", "forename": "first_name", "fname": "first_name",
+    "lastname": "last_name", "last": "last_name", "surname": "last_name", "family name": "last_name", "lname": "last_name",
+    "email address": "email", "e mail": "email", "email id": "email", "emailid": "email", "mail": "email", "official email": "email",
+    "login email": "email", "email login": "email", "mail id": "email",
+    "phone number": "phone", "mobile": "phone", "mobile number": "phone", "contact number": "phone", "contact": "phone", "telephone": "phone", "cell": "phone",
+    "designation title": "job_title", "position": "job_title", "role": "job_title", "title": "job_title", "job role": "job_title", "jobtitle": "job_title",
+    "joining date": "date_of_joining", "date joined": "date_of_joining", "doj": "date_of_joining", "join date": "date_of_joining", "hire date": "date_of_joining",
+    "start date": "date_of_joining", "date of hire": "date_of_joining", "dateofjoining": "date_of_joining",
+    "dob": "date_of_birth", "birth date": "date_of_birth", "birthday": "date_of_birth", "dateofbirth": "date_of_birth",
+    "dept": "department_name", "department name": "department_name",
+    "manager": "reporting_manager", "reporting to": "reporting_manager", "reports to": "reporting_manager", "line manager": "reporting_manager",
+    "employee type": "employment_type", "type": "employment_type", "employment": "employment_type",
+    "salary": "basic_salary", "basic": "basic_salary", "annual ctc": "ctc", "gender sex": "gender", "sex": "gender",
+    "emp id": "employee_id", "empid": "employee_id", "employee no": "employee_id", "employee number": "employee_id", "emp code": "employee_code",
+    "zip": "pincode", "zip code": "pincode", "postal code": "pincode", "pin code": "pincode", "pin": "pincode",
+}
+
+
+def _clean_header(h) -> str:
+    """A column heading reduced to plain lower-case words: no *, no (hints), no [notes], no BOM, _ - . / read as spaces."""
+    text = str(h if h is not None else "").replace("\ufeff", "").replace("\xa0", " ").lower()
+    text = re.sub(r"\([^)]*\)|\[[^\]]*\]", " ", text)
+    text = re.sub(r"[*:#]", " ", text)
+    text = re.sub(r"[_\-./]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+_CLEAN_MAP = {_clean_header(k): v for k, v in _COLUMN_MAP.items()}
+_CLEAN_MAP.update({_clean_header(k): v for k, v in _HEADER_ALIASES.items()})
+_KNOWN_FIELDS = set(_CLEAN_MAP.values())
+
+
+def _normalise_header(h) -> str:
+    cleaned = _clean_header(h)
+    return _CLEAN_MAP.get(cleaned, cleaned.replace(" ", "_"))
+
+
+def _header_score(cells) -> int:
+    """How many of a row's cells are headings the import knows (used to find the heading row)."""
+    return len({_normalise_header(c) for c in cells if c is not None and str(c).strip()} & _KNOWN_FIELDS)
+
+
+_REQUIRED_LABELS = {"first_name": "First Name", "last_name": "Last Name", "email": "Email", "job_title": "Job Title", "date_of_joining": "Date of Joining"}
 
 
 def _parse_date(val, row_num: int, field: str, errors: list) -> Optional[date]:
@@ -1164,6 +1704,23 @@ def _parse_decimal(val, row_num: int, field: str, errors: list):
     return None
 
 
+def _friendly_db_error(exc: Exception) -> str:
+    """One readable line for a failed row: no SQL, no driver names."""
+    text = str(exc)
+    low = text.lower()
+    if "employees_employee_code_key" in low:
+        return "The generated employee code was already taken. Please import again."
+    if "employees_email" in low or ("unique" in low and "email" in low):
+        return "An employee with this email already exists."
+    if "unique" in low or "duplicate key" in low:
+        return "This row duplicates an existing record."
+    text = text.split("[SQL")[0]
+    text = re.sub(r"\(psycopg2[^)]*\)\s*", "", text)
+    text = re.sub(r"\(sqlite3[^)]*\)\s*", "", text)
+    first = next((ln.strip() for ln in text.splitlines() if ln.strip()), "Unexpected error")
+    return first[:160]
+
+
 def _parse_enum(val, field: str):
     if not val or str(val).strip() == "":
         return None
@@ -1182,7 +1739,13 @@ def import_employees_from_file(
     filename: str,
     organization_id: int,
     current_user_id: int,
+    actor=None,
 ) -> dict:
+    """Bulk-import employees and record ONE grouped activity event for the whole file.
+
+    A 500-row import is one action by one person in one organization, so it is one
+    event with success/failure counts — not 500 rows in the Super Admin's feed.
+    """
     result = {
         "total_rows": 0,
         "created": 0,
@@ -1203,14 +1766,32 @@ def import_employees_from_file(
     if not rows:
         return result
 
+    found = {_normalise_header(h) for h in result.pop("_headers", [])}
+    absent = [f for f in ("first_name", "last_name", "email", "job_title", "date_of_joining") if f not in found]
+    if absent:
+        # not 20 identical row errors: the FILE has no such column, so say that once, and say what it does have
+        names = [_REQUIRED_LABELS[f] for f in absent]
+        shown = [h for h in (list(rows[0].keys()) if rows else []) if not h.startswith("__")][:12]
+        result["skipped"] = len(rows)
+        result["total_rows"] = len(rows)
+        result["errors"].append({
+            "row": 0, "employee_id": "", "email": "", "field": ", ".join(absent),
+            "error": f"The file has no column for: {', '.join(names)}. Columns found: {', '.join(shown) or 'none'}. "
+                     "Use the template headings: First Name, Last Name, Email, Job Title, Date of Joining (download the template on the import dialog).",
+        })
+        return result
+
     seen_emails = set()
     seen_import_ids = set()
     created_for_email = []
 
     # Use savepoints so individual row failures don't rollback valid rows
     for row_num, row in enumerate(rows, start=2):
+        row_num = row.get("__row") or row_num          # the row number as it appears in the file
         norm = {}
         for k, v in row.items():
+            if k == "__row":
+                continue
             field = _normalise_header(k)
             norm[field] = v
         row_data = norm
@@ -1231,13 +1812,22 @@ def import_employees_from_file(
             result["skipped"] += 1
             result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": "Invalid email format"})
             continue
-
-        # Check duplicate by email
-        existing = db.query(Employee).filter(Employee.email == email_val).first()
-        if existing and existing.organization_id != organization_id:
+        from app.core.email_quality import check_real_email
+        try:
+            email_val = check_real_email(email_val) or email_val
+            for contact in ("work_email", "personal_email"):
+                if str(row_data.get(contact) or "").strip():
+                    check_real_email(row_data.get(contact), label=contact.replace("_", " ").capitalize())
+        except ValueError as exc:
             result["skipped"] += 1
-            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": "Email already used in another organization"})
+            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": str(exc)})
             continue
+
+        # Check duplicate by email within the same org (tenant isolation)
+        existing = db.query(Employee).filter(
+            Employee.email == email_val,
+            Employee.organization_id == organization_id,
+        ).first()
 
         # Check in-batch duplicates
         if email_val in seen_emails:
@@ -1253,12 +1843,20 @@ def import_employees_from_file(
         if employee_id_val:
             seen_import_ids.add(employee_id_val)
 
+        from app.core.phone import normalize_phone
+        try:
+            normalize_phone(row_data.get("phone"))
+        except ValueError as exc:
+            result["skipped"] += 1
+            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "phone", "error": f"Invalid phone: {str(row_data.get('phone')).strip()}. {exc}"})
+            continue
+
         # Parse fields
         payload = {
             "first_name": str(row_data.get("first_name", "")).strip(),
             "last_name": str(row_data.get("last_name", "")).strip(),
             "email": email_val,
-            "phone": str(row_data.get("phone", "")).strip() or None,
+            "phone": normalize_phone(row_data.get("phone")),
             "job_title": str(row_data.get("job_title", "")).strip(),
             "work_email": str(row_data.get("work_email", "")).strip() or None,
             "personal_email": str(row_data.get("personal_email", "")).strip() or None,
@@ -1301,6 +1899,13 @@ def import_employees_from_file(
 
         # Enum fields
         row_invalid = False
+        # "Probation" is how sheets describe a new joiner's stage. It is not an account
+        # status: they are active, on probation (and keep an explicit employment type).
+        raw_status = str(row_data.get("status") or "").strip().lower().replace(" ", "_").replace("-", "_")
+        if raw_status in ("probation", "on_probation"):
+            row_data["status"] = "active"
+            if not str(row_data.get("employment_type") or "").strip():
+                row_data["employment_type"] = "probation"
         for f in ("employment_type", "status", "gender"):
             raw = row_data.get(f)
             parsed = _parse_enum(raw, f)
@@ -1308,7 +1913,7 @@ def import_employees_from_file(
                 payload[f] = parsed
             elif raw and str(raw).strip():
                 result["skipped"] += 1
-                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": f, "error": f"Invalid {f}: {raw}. Allowed: {', '.join(_ENUM_FIELDS.get(f, []))}"})
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": f, "error": f"Invalid {f}: {raw}. Allowed: {', '.join(sorted(_ENUM_FIELDS.get(f, [])) + (['probation'] if f == 'status' else []))}"})
                 row_invalid = True
                 break
         if row_invalid:
@@ -1350,6 +1955,8 @@ def import_employees_from_file(
                     title=designation_name,
                     department_name=dept_name or None,
                     organization_id=organization_id,
+                    source="import",
+                    created_by=current_user_id,
                 )
                 db.add(desig)
                 db.flush()
@@ -1358,6 +1965,7 @@ def import_employees_from_file(
 
         # Password
         password = str(row_data.get("password", "")).strip() if row_data.get("password") else None
+        password_generated = not password
         if not password:
             password = _generate_temp_password()
 
@@ -1368,6 +1976,9 @@ def import_employees_from_file(
                     for field, value in payload.items():
                         if value is not None:
                             setattr(existing, field, value)
+                    if payload.get("status"):
+                        # The status shown in User Management and the ability to sign in move together.
+                        existing.is_active = payload["status"] in ("active", "pending", "on_leave", "password_reset_required")
                     existing.updated_by = current_user_id
                     employee = existing
                     result["updated"] += 1
@@ -1377,10 +1988,11 @@ def import_employees_from_file(
                     employee = Employee(
                         **emp_data,
                         hashed_password=hash_password(password),
+                        must_change_password=password_generated,
                         employee_code=generate_employee_code(db, organization_id=organization_id),
                         organization_id=organization_id,
                         role=UserRole.EMPLOYEE,
-                        is_active=True,
+                        is_active=emp_data.get("status", "active") in ("active", "pending", "on_leave", "password_reset_required"),
                         created_by=current_user_id,
                     )
                     db.add(employee)
@@ -1409,7 +2021,7 @@ def import_employees_from_file(
                 })
         except Exception as e:
             result["failed"] += 1
-            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "general", "error": f"{'Update' if existing else 'Create'} failed: {str(e)[:200]}"})
+            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "general", "error": f"{'Update' if existing else 'Create'} failed: {_friendly_db_error(e)}"})
 
         result["total_rows"] = row_num - 1
 
@@ -1427,6 +2039,9 @@ def import_employees_from_file(
     if import_committed:
         workspace_name = _org_workspace_name(db, organization_id)
         for item in created_for_email:
+            new_person = db.query(Employee).filter(Employee.email == item["email"], Employee.organization_id == organization_id).first()
+            if new_person is not None:
+                begin_email_verification(db, new_person)       # each imported person confirms their own address before signing in
             _notify_email(
                 "send_employee_welcome_email",
                 email=item["email"],
@@ -1439,7 +2054,52 @@ def import_employees_from_file(
             )
 
     result["total_rows"] = len(rows)
+
+    # One grouped event for the whole file: what was imported, what failed, and
+    # whether the transaction committed at all.
+    _record_import_summary(db, actor, organization_id, result, filename, import_committed)
     return result
+
+
+def _record_import_summary(db: Session, actor, organization_id: int, result: dict,
+                           filename: str, import_committed: bool) -> None:
+    """One activity event summarising a bulk import, with success/failure counts."""
+    succeeded = (result.get("created", 0) or 0) + (result.get("updated", 0) or 0)
+    failed = result.get("failed", 0) or 0
+    counts = {
+        "total": result.get("total_rows", 0) or 0,
+        "created": result.get("created", 0) or 0,
+        "updated": result.get("updated", 0) or 0,
+        "skipped": result.get("skipped", 0) or 0,
+        "succeeded": succeeded,
+        "failed": failed,
+    }
+    # Failed only when nothing landed. A partially successful import is a success
+    # that reports its failures, so the feed does not show a red row for a file
+    # that mostly worked.
+    status = "success" if (import_committed and (succeeded > 0 or failed == 0)) else "failed"
+    error = None if status == "success" else (
+        result["errors"][0]["error"] if result.get("errors") else "Import failed")
+    first_errors = [
+        {"row": e.get("row"), "email": e.get("email"), "error": str(e.get("error"))[:200]}
+        for e in (result.get("errors") or [])[:10]
+    ]
+    _record(
+        db, "employee.bulk_imported", actor, organization_id,
+        entity_type="Employee", entity_id=None,
+        target_name=f"{counts['total']} rows from {filename}",
+        counts=counts,
+        status=status,
+        error=error,
+        details={
+            "filename": filename,
+            "departments_created": result.get("departments_created", 0),
+            "designations_created": result.get("designations_created", 0),
+            "committed": import_committed,
+            "first_errors": first_errors,
+        },
+        commit=True,
+    )
 
 
 def _parse_file(file_bytes: bytes, filename: str, result: dict) -> list[dict]:
@@ -1462,15 +2122,25 @@ def _parse_excel(file_bytes: bytes, result: dict) -> list[dict]:
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "file", "error": "Excel file has no sheets"})
         return []
 
-    rows_iter = ws.iter_rows(values_only=True)
-    try:
-        headers = [str(c).strip() if c else "" for c in next(rows_iter)]
-    except StopIteration:
+    # the sheet (and the row in it) whose first rows look most like headings: a title row, notes or an instructions sheet
+    # above the real column headings must not stop the import
+    best = None
+    for sheet in wb.worksheets:
+        rows_all = list(sheet.iter_rows(values_only=True))
+        for idx, candidate in enumerate(rows_all[:15]):
+            score = _header_score(candidate)
+            if best is None or score > best[0]:
+                best = (score, sheet, rows_all, idx)
+    if best is None or not best[2]:
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "file", "error": "Excel file is empty"})
+        wb.close()
         return []
+    _, ws, rows_all, header_idx = best
+    headers = [str(c).strip() if c is not None and str(c).strip() else "" for c in rows_all[header_idx]]
+    result["_headers"] = [h for h in headers if h]
 
     parsed = []
-    for row_idx, row in enumerate(rows_iter, start=2):
+    for offset, row in enumerate(rows_all[header_idx + 1:], start=header_idx + 2):
         record = {}
         has_data = False
         for col_idx, val in enumerate(row):
@@ -1479,6 +2149,7 @@ def _parse_excel(file_bytes: bytes, result: dict) -> list[dict]:
                 if val is not None and str(val).strip():
                     has_data = True
         if has_data:
+            record["__row"] = offset                 # the row number as it appears in the spreadsheet
             parsed.append(record)
 
     wb.close()
@@ -1486,18 +2157,29 @@ def _parse_excel(file_bytes: bytes, result: dict) -> list[dict]:
 
 
 def _parse_csv(file_bytes: bytes, result: dict) -> list[dict]:
-    text = file_bytes.decode("utf-8-sig")
-    reader = csv.DictReader(io.StringIO(text))
-    if not reader.fieldnames:
+    try:
+        text = file_bytes.decode("utf-8-sig")
+    except UnicodeDecodeError:
+        text = file_bytes.decode("latin-1")
+    sample = text[:4096]
+    try:
+        dialect = csv.Sniffer().sniff(sample, delimiters=",;\t|")
+    except csv.Error:
+        dialect = csv.excel
+    rows_all = list(csv.reader(io.StringIO(text), dialect))
+    if not rows_all or not any(any(c.strip() for c in r) for r in rows_all):
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "file", "error": "CSV file has no headers"})
         return []
+    header_idx = max(range(min(len(rows_all), 15)), key=lambda i: (_header_score(rows_all[i]), -i))
+    headers = [c.strip() for c in rows_all[header_idx]]
+    result["_headers"] = [h for h in headers if h]
 
     parsed = []
-    for row_idx, row in enumerate(reader, start=2):
-        cleaned = {k.strip(): v.strip() if v else "" for k, v in row.items()}
-        has_data = any(v for v in cleaned.values())
-        if has_data:
-            parsed.append(cleaned)
+    for offset, row in enumerate(rows_all[header_idx + 1:], start=header_idx + 2):
+        record = {headers[i]: (row[i].strip() if i < len(row) and row[i] else "") for i in range(len(headers)) if headers[i]}
+        if any(v for v in record.values()):
+            record["__row"] = offset
+            parsed.append(record)
 
     return parsed
 
@@ -1560,6 +2242,12 @@ def _generate_import_template_bytes() -> dict:
     return buf.read()
 
 
+def _employee_list_loads():
+    """Relationships EmployeeResponse reads while serializing a list (department, designation, manager's name). All three
+    are many-to-one, so joinedload keeps LIMIT/OFFSET exact and turns ~1 query per distinct related row into none."""
+    return (joinedload(Employee.department), joinedload(Employee.designation), joinedload(Employee.reporting_manager))
+
+
 def get_all_employees(
     db: Session,
     page: int = 1,
@@ -1596,7 +2284,7 @@ def get_all_employees(
         query = query.filter(Employee.status == status)
 
     total = query.count()
-    employees = query.offset((page - 1) * per_page).limit(per_page).all()
+    employees = query.options(*_employee_list_loads()).offset((page - 1) * per_page).limit(per_page).all()
 
     return {
         "total":    total,
@@ -1650,7 +2338,7 @@ def get_employees(
         query = query.filter(Employee.employment_type == employment_type)
 
     total = query.count()
-    employees = query.offset((page - 1) * per_page).limit(per_page).all()
+    employees = query.options(*_employee_list_loads()).offset((page - 1) * per_page).limit(per_page).all()
 
     return {
         "total":    total,
@@ -1670,53 +2358,91 @@ def get_employee_by_id(db: Session, employee_id: int, organization_id: Optional[
     return employee
 
 
-def update_employee(db: Session, employee_id: int, data: EmployeeUpdate, organization_id: Optional[int] = None) -> Employee:
+def update_employee(
+    db: Session,
+    employee_id: int,
+    data: EmployeeUpdate,
+    organization_id: Optional[int] = None,
+    actor=None,
+) -> Employee:
+    """Update an employee and record exactly which fields moved, and to what."""
     employee = get_employee_by_id(db, employee_id, organization_id)
+    org_id = employee.organization_id
+    try:
+        if data.department_id:
+            dept_query = db.query(Department).filter(Department.id == data.department_id)
+            if organization_id:
+                dept_query = dept_query.filter(Department.organization_id == organization_id)
+            dept = dept_query.first()
+            if not dept:
+                raise NotFoundException("Department", data.department_id)
 
-    if data.department_id:
-        dept_query = db.query(Department).filter(Department.id == data.department_id)
-        if organization_id:
-            dept_query = dept_query.filter(Department.organization_id == organization_id)
-        dept = dept_query.first()
-        if not dept:
-            raise NotFoundException("Department", data.department_id)
+        update_data = data.model_dump(exclude_unset=True)
+        from app.modules.super_admin.activity_service import changes_from, snapshot
 
-    update_data = data.model_dump(exclude_unset=True)
-    for field, value in update_data.items():
-        setattr(employee, field, value)
+        before = snapshot(employee, update_data.keys())
+        for field, value in update_data.items():
+            setattr(employee, field, value)
 
-    db.commit()
-    db.refresh(employee)
-    return employee
+        db.commit()
+        db.refresh(employee)
+        _record(
+            db, "employee.updated", actor, org_id,
+            **_employee_target(employee),
+            changes=changes_from(before, update_data),
+        )
+        return employee
+    except Exception as exc:
+        _record_failure("employee.updated", db, actor, org_id, exc,
+                        **_employee_target(employee))
+        raise
 
 
-def deactivate_employee(db: Session, employee_id: int, organization_id: Optional[int] = None) -> Employee:
+def deactivate_employee(db: Session, employee_id: int, organization_id: Optional[int] = None,
+                         actor=None) -> Employee:
+    """Deactivate an employee and record the account-state change it caused."""
     employee = get_employee_by_id(db, employee_id, organization_id)
-    employee.is_active = False
-    employee.status = EmployeeStatus.TERMINATED
+    org_id = employee.organization_id
+    try:
+        from app.modules.super_admin.activity_service import diff, json_safe
 
-    event = EmployeeLifecycle(
-        employee_id=employee_id,
-        organization_id=employee.organization_id,
-        event_type="exit",
-        event_date=datetime.now().date(),
-        status="completed",
-        reason="Employee deactivated via admin action",
-    )
-    db.add(event)
-    db.commit()
-    db.refresh(employee)
+        before = {"status": json_safe(employee.status), "is_active": json_safe(employee.is_active)}
+        employee.is_active = False
+        employee.status = EmployeeStatus.TERMINATED
 
-    _notify_email(
-        "send_employee_account_status_email",
-        email=employee.email,
-        employee_name=_full_name(employee),
-        status="deactivated",
-        organization_id=employee.organization_id,
-        db=db,
-    )
+        event = EmployeeLifecycle(
+            employee_id=employee_id,
+            organization_id=employee.organization_id,
+            event_type="exit",
+            event_date=datetime.now().date(),
+            status="completed",
+            reason="Employee deactivated via admin action",
+        )
+        db.add(event)
+        db.commit()
+        db.refresh(employee)
 
-    return employee
+        _record(
+            db, "employee.deactivated", actor, org_id,
+            **_employee_target(employee),
+            changes=diff(before, {"status": json_safe(employee.status),
+                                  "is_active": json_safe(employee.is_active)}),
+        )
+
+        _notify_email(
+            "send_employee_account_status_email",
+            email=employee.email,
+            employee_name=_full_name(employee),
+            status="deactivated",
+            organization_id=employee.organization_id,
+            db=db,
+        )
+
+        return employee
+    except Exception as exc:
+        _record_failure("employee.deactivated", db, actor, org_id, exc,
+                        **_employee_target(employee))
+        raise
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1799,34 +2525,61 @@ def delete_employee(
     employee_id: int,
     organization_id: Optional[int] = None,
     current_user_id: Optional[int] = None,
+    actor=None,
 ) -> dict:
-    """Hybrid delete for a single employee.
+    """Hybrid delete for a single employee, recorded for the activity feed.
 
     Mirrors the existing UI behavior: the trash action deactivates active
-    employees and permanently removes already-inactive ones.
+    employees and permanently removes already-inactive ones. Whichever branch
+    runs, the event says which one it was — a deactivated employee is not
+    reported as deleted.
     """
-    employee = get_employee_by_id(db, employee_id)
-    if employee.status == EmployeeStatus.ACTIVE:
-        _soft_delete_employee_record(db, employee_id)
+    employee = get_employee_by_id(db, employee_id, organization_id)
+    org_id = employee.organization_id
+    actor = actor or (db.query(Employee).filter(Employee.id == current_user_id).first()
+                      if current_user_id else None)
+    # Captured up front: the hard-delete branch removes the row with raw SQL, so
+    # every attribute access on `employee` after the commit would try to reload a
+    # row that no longer exists.
+    target_name = _full_name(employee)
+    target_code = employee.employee_code
+    action = "deactivated" if employee.status == EmployeeStatus.ACTIVE else "deleted"
+    try:
+        if action == "deactivated":
+            _soft_delete_employee_record(db, employee_id)
+            db.commit()
+            _notify_email(
+                "send_employee_account_status_email",
+                email=employee.email,
+                employee_name=target_name,
+                status="deactivated",
+                organization_id=org_id,
+                db=db,
+            )
+            _record(db, "employee.deactivated", actor, org_id,
+                    target_name=target_name, target_code=target_code,
+                    entity_type="Employee", entity_id=employee_id)
+            return {
+                "action": "deactivated",
+                "message": f"Employee {employee_id} has been deactivated.",
+            }
+        _hard_delete_employee(db, employee_id)
         db.commit()
-        _notify_email(
-            "send_employee_account_status_email",
-            email=employee.email,
-            employee_name=_full_name(employee),
-            status="deactivated",
-            organization_id=employee.organization_id,
-            db=db,
-        )
+        _record(db, "employee.deleted", actor, org_id,
+                target_name=target_name, target_code=target_code,
+                entity_type="Employee", entity_id=employee_id)
         return {
-            "action": "deactivated",
-            "message": f"Employee {employee_id} has been deactivated.",
+            "action": "deleted",
+            "message": f"Employee {employee_id} has been permanently deleted.",
         }
-    _hard_delete_employee(db, employee_id)
-    db.commit()
-    return {
-        "action": "deleted",
-        "message": f"Employee {employee_id} has been permanently deleted.",
-    }
+    except Exception as exc:
+        _record_failure(
+            "employee.deactivated" if action == "deactivated" else "employee.deleted",
+            db, actor, org_id, exc,
+            target_name=target_name, target_code=target_code,
+            entity_type="Employee", entity_id=employee_id,
+        )
+        raise
 
 
 def bulk_delete_employees(
@@ -1834,12 +2587,15 @@ def bulk_delete_employees(
     employee_ids: List[int],
     organization_id: Optional[int] = None,
     current_user_id: Optional[int] = None,
+    actor=None,
+    action_type: str = "employee.bulk_removed",
+    target_name: Optional[str] = None,
 ) -> dict:
-    """Delete multiple employees.
+    """Delete multiple employees and record ONE grouped activity event.
 
     Each row is processed in its own savepoint so a single failure does not
     roll back the rest. Active employees are deactivated; inactive ones are
-    permanently removed.
+    permanently removed. The event reports how many of each happened.
     """
     result = {
         "deactivated": 0,
@@ -1882,24 +2638,54 @@ def bulk_delete_employees(
             organization_id=employee.organization_id,
             db=db,
         )
+    _record_bulk_removal(db, actor or (db.query(Employee).filter(Employee.id == current_user_id).first()
+                                       if current_user_id else None),
+                         organization_id, result, action_type, target_name)
     return result
+
+
+def _record_bulk_removal(db: Session, actor, organization_id, result: dict,
+                         action_type: str, target_name: Optional[str]) -> None:
+    counts = {
+        "total": result.get("total", 0),
+        "succeeded": (result.get("deactivated", 0) or 0) + (result.get("deleted", 0) or 0),
+        "deactivated": result.get("deactivated", 0) or 0,
+        "deleted": result.get("deleted", 0) or 0,
+        "failed": result.get("failed", 0) or 0,
+    }
+    _record(
+        db, action_type, actor, organization_id,
+        entity_type="Employee", entity_id=None,
+        target_name=target_name or f"{counts['total']} employees",
+        counts=counts,
+        status="success" if counts["failed"] == 0 or counts["succeeded"] > 0 else "failed",
+        details={"first_errors": [
+            {"employee_id": e.get("employee_id"), "error": str(e.get("error"))[:200]}
+            for e in (result.get("errors") or [])[:10]
+        ]},
+        commit=True,
+    )
 
 
 def delete_all_employees(
     db: Session,
     organization_id: Optional[int] = None,
     current_user_id: Optional[int] = None,
+    actor=None,
 ) -> dict:
     """Deactivate every active employee and permanently remove every inactive
     employee in the organization (excluding the current admin, to avoid
-    self-deletion)."""
+    self-deletion). One grouped event, distinct from a selected bulk delete."""
     query = db.query(Employee).filter(Employee.role == UserRole.EMPLOYEE)
     if organization_id:
         query = query.filter(Employee.organization_id == organization_id)
     if current_user_id:
         query = query.filter(Employee.id != current_user_id)
     employee_ids = [row[0] for row in query.with_entities(Employee.id).all()]
-    return bulk_delete_employees(db, employee_ids, organization_id=organization_id, current_user_id=current_user_id)
+    return bulk_delete_employees(
+        db, employee_ids, organization_id=organization_id, current_user_id=current_user_id,
+        actor=actor, action_type="employee.all_removed", target_name="all employees",
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -2071,9 +2857,15 @@ def create_employee_profile(db: Session, data) -> EmployeeProfile:
     return profile
 
 
-def update_employee_profile(db: Session, employee_id: int, data, organization_id: Optional[int] = None) -> EmployeeProfile:
+def update_employee_profile(db: Session, employee_id: int, data, organization_id: Optional[int] = None,
+                            actor=None) -> EmployeeProfile:
+    """Update personal/bank/statutory details; recorded with sensitive values masked
+    (bank account, IFSC, PAN, UAN never reach the activity feed)."""
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
     profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == employee_id).first()
     update_data = data.model_dump(exclude_unset=True)
+    before = snapshot(profile, update_data.keys()) if profile else {k: None for k in update_data}
 
     if not profile:
         profile = EmployeeProfile(
@@ -2088,6 +2880,11 @@ def update_employee_profile(db: Session, employee_id: int, data, organization_id
 
     db.commit()
     db.refresh(profile)
+    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    if employee is not None:
+        _record(db, "employee.updated", actor, employee.organization_id,
+                **_employee_target(employee), changes=changes_from(before, update_data),
+                details={"section": "profile"})
     return profile
 
 
@@ -2489,11 +3286,18 @@ def export_employee_reports(db: Session, data: EmployeeExportRequest, organizati
 # EMPLOYEE COMPENSATION & BENEFITS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-def create_employee_compensation(db: Session, data: EmployeeCompensationCreate, org_id: int) -> EmployeeCompensation:
+def create_employee_compensation(db: Session, data: EmployeeCompensationCreate, org_id: int,
+                                 actor=None) -> EmployeeCompensation:
     comp = EmployeeCompensation(**data.model_dump(), organization_id=org_id)
     db.add(comp)
     db.commit()
     db.refresh(comp)
+    _record(
+        db, "payroll.compensation_added", actor, org_id,
+        entity_type="EmployeeCompensation", entity_id=comp.id,
+        **_compensation_target(db, comp),
+        changes=activity_diff_object(comp),
+    )
     return comp
 
 def get_employee_compensations(db: Session, org_id: int, employee_id: Optional[int] = None) -> list[EmployeeCompensation]:
@@ -2508,44 +3312,99 @@ def get_employee_compensation(db: Session, comp_id: int, org_id: int) -> Employe
         raise NotFoundException("EmployeeCompensation", comp_id)
     return comp
 
-def update_employee_compensation(db: Session, comp_id: int, data: EmployeeCompensationUpdate, org_id: int) -> EmployeeCompensation:
-    comp = db.query(EmployeeCompensation).filter(EmployeeCompensation.id == comp_id, EmployeeCompensation.organization_id == org_id).first()
-    if not comp:
-        raise NotFoundException("EmployeeCompensation", comp_id)
-    for key, value in data.model_dump(exclude_unset=True).items():
+def update_employee_compensation(db: Session, comp_id: int, data: EmployeeCompensationUpdate,
+                                 org_id: int, actor=None) -> EmployeeCompensation:
+    comp = get_employee_compensation(db, comp_id, org_id)
+    update_data = data.model_dump(exclude_unset=True)
+    from app.modules.super_admin.activity_service import changes_from, snapshot
+
+    before = snapshot(comp, update_data.keys())
+    for key, value in update_data.items():
         setattr(comp, key, value)
     db.commit()
     db.refresh(comp)
+    _record(
+        db, "payroll.compensation_updated", actor, org_id,
+        entity_type="EmployeeCompensation", entity_id=comp.id,
+        **_compensation_target(db, comp),
+        changes=changes_from(before, update_data),
+    )
     return comp
 
-def delete_employee_compensation(db: Session, comp_id: int, org_id: int) -> None:
-    comp = db.query(EmployeeCompensation).filter(EmployeeCompensation.id == comp_id, EmployeeCompensation.organization_id == org_id).first()
-    if not comp:
-        raise NotFoundException("EmployeeCompensation", comp_id)
+def delete_employee_compensation(db: Session, comp_id: int, org_id: int, actor=None) -> None:
+    comp = get_employee_compensation(db, comp_id, org_id)
+    target = _compensation_target(db, comp)
     from app.modules.hr.models import SalaryRevision
     db.query(SalaryRevision).filter(SalaryRevision.employee_compensation_id == comp_id).delete()
     db.delete(comp)
     db.commit()
+    _record(db, "payroll.compensation_deleted", actor, org_id,
+            entity_type="EmployeeCompensation", entity_id=comp_id, **target)
 
-def create_employee_benefit(db: Session, data: EmployeeBenefitCreate, org_id: int) -> EmployeeBenefit:
+def create_employee_benefit(db: Session, data: EmployeeBenefitCreate, org_id: int,
+                            actor=None) -> EmployeeBenefit:
     emp_benefit = EmployeeBenefit(**data.model_dump(), organization_id=org_id)
     db.add(emp_benefit)
     db.commit()
     db.refresh(emp_benefit)
+    _record(
+        db, "payroll.benefit_added", actor, org_id,
+        entity_type="EmployeeBenefit", entity_id=emp_benefit.id,
+        **_employee_target_for(db, emp_benefit.employee_id),
+        changes=activity_diff_object(emp_benefit),
+    )
     return emp_benefit
+
+
+def _compensation_target(db: Session, comp) -> dict:
+    """A compensation row is about an employee, so the feed names that employee.
+
+    Only the target bits are returned; the caller owns ``entity_type``/
+    ``entity_id``, which must stay the compensation row, not the employee.
+    """
+    employee_id = getattr(comp, "employee_id", None)
+    if employee_id:
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        if employee is not None:
+            return {"target_name": _full_name(employee),
+                    "target_code": employee.employee_code}
+    return {"target_name": f"compensation #{getattr(comp, 'id', '?')}"}
+
+
+def _employee_target_for(db: Session, employee_id) -> dict:
+    """Target bits only — the caller owns ``entity_type``/``entity_id``, which for
+    a benefit is the benefit row, not the employee it belongs to."""
+    if employee_id:
+        employee = db.query(Employee).filter(Employee.id == employee_id).first()
+        if employee is not None:
+            return {"target_name": _full_name(employee),
+                    "target_code": employee.employee_code}
+    return {"target_name": f"employee #{employee_id}"}
+
+
+def activity_diff_object(row) -> list:
+    """Fields set on a freshly created row, for the detail panel."""
+    from app.modules.super_admin.activity_service import diff, json_safe
+
+    return diff({}, {c.name: json_safe(getattr(row, c.name, None))
+                     for c in row.__table__.columns})
 
 def get_employee_benefits(db: Session, org_id: int) -> list[EmployeeBenefit]:
     return db.query(EmployeeBenefit).filter(EmployeeBenefit.organization_id == org_id).all()
 
-def delete_employee_benefit(db: Session, emp_benefit_id: int, org_id: int) -> None:
+def delete_employee_benefit(db: Session, emp_benefit_id: int, org_id: int, actor=None) -> None:
     emp_benefit = db.query(EmployeeBenefit).filter(EmployeeBenefit.id == emp_benefit_id, EmployeeBenefit.organization_id == org_id).first()
     if not emp_benefit:
         raise NotFoundException("EmployeeBenefit", emp_benefit_id)
+    target = _employee_target_for(db, getattr(emp_benefit, "employee_id", None))
     db.delete(emp_benefit)
     db.commit()
+    _record(db, "payroll.benefit_deleted", actor, org_id,
+            entity_type="EmployeeBenefit", entity_id=emp_benefit_id, **target)
 
 
-def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organization_id: int = None) -> dict:
+def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organization_id: int = None,
+                               actor=None) -> dict:
     deleted = []
     failed = []
     for eid in employee_ids:
@@ -2562,7 +3421,132 @@ def bulk_hard_delete_employees(db: Session, employee_ids: list[int], organizatio
         except Exception as ex:
             db.rollback()
             failed.append({"id": eid, "reason": str(ex)})
+    _record(
+        db, "employee.permanently_deleted", actor, organization_id,
+        entity_type="Employee", entity_id=None,
+        target_name=f"{len(employee_ids)} employees",
+        counts={"total": len(employee_ids), "succeeded": len(deleted),
+                "deleted": len(deleted), "failed": len(failed)},
+        status="success" if not failed or deleted else "failed",
+        details={"deleted_ids": deleted[:50],
+                 "first_errors": [{"id": f["id"], "error": str(f["reason"])[:200]}
+                                  for f in failed[:10]]},
+        commit=True,
+    )
     return {"deleted": deleted, "failed": failed}
+
+
+def _project_fk_values(db: Session, table, ref_col_name: str, marked_pks: set) -> set:
+    """Map a parent table's marked primary keys onto the column an FK targets."""
+    pk_cols = list(table.primary_key.columns)
+    if len(pk_cols) == 1 and pk_cols[0].name == ref_col_name:
+        return {pk for (pk,) in marked_pks}
+    vals = [pk for (pk,) in marked_pks]
+    if not vals:
+        return set()
+    rows = db.execute(table.select().where(pk_cols[0].in_(vals))).all()
+    return {getattr(r, ref_col_name) for r in rows if getattr(r, ref_col_name) is not None}
+
+
+def _purge_employee_residuals(db: Session, employee_id: int) -> list[str]:
+    """Delete every remaining row that references an employee being removed.
+
+    `hard_delete_employee` cleans up the HR-owned tables explicitly, but many
+    other modules (billing, assistant/chat, super-admin, knowledge, documents)
+    also hold foreign keys onto `employees.id`. Rather than enumerate them,
+    walk the FK graph from the employee — following only NOT NULL edges, which
+    are the ones that actually block a hard delete — and remove the closure.
+    Nullable FKs anywhere in the schema are severed with an UPDATE, then the
+    owned rows are deleted children-before-parents."""
+    from app.database import Base
+    from sqlalchemy import tuple_
+
+    # Force-register every model module so the FK graph is complete.
+    import app.modules.hr.models  # noqa: F401
+    import app.modules.employee.models  # noqa: F401
+    import app.modules.billing.models  # noqa: F401
+    import app.modules.assistant.models  # noqa: F401
+    from app.modules.super_admin import models as _sam  # noqa: F401
+    from app.modules.super_admin import command_center_models as _ccm  # noqa: F401
+
+    tables = list(Base.metadata.tables.values())
+    marked: dict[str, set] = {"employees": {(employee_id,)}}
+
+    # Mark owned descendants through NOT NULL FKs only. Nullable references are
+    # passive (approved_by, created_by, ...) and must not pull in whole other
+    # entities such as the organization.
+    changed = True
+    while changed:
+        changed = False
+        for child in tables:
+            for fk in child.foreign_keys:
+                if fk.parent.nullable:
+                    continue
+                parent = fk.column.table
+                parent_vals = marked.get(parent.name)
+                if not parent_vals:
+                    continue
+                projected = _project_fk_values(db, parent, fk.column.name, parent_vals)
+                if not projected:
+                    continue
+                pk_cols = list(child.primary_key.columns)
+                if len(pk_cols) != 1:
+                    continue
+                rows = db.execute(child.select().where(fk.parent.in_(projected))).all()
+                bucket = marked.setdefault(child.name, set())
+                for r in rows:
+                    pk = (getattr(r, pk_cols[0].name),)
+                    if pk not in bucket:
+                        bucket.add(pk)
+                        changed = True
+
+    covered = {name for name, pks in marked.items() if pks}
+
+    # Sever every nullable FK that points at a row we are about to delete.
+    for child in tables:
+        for fk in child.foreign_keys:
+            if not fk.parent.nullable or fk.column.table.name not in covered:
+                continue
+            ref_vals = _project_fk_values(db, fk.column.table, fk.column.name, marked[fk.column.table.name])
+            if not ref_vals:
+                continue
+            db.execute(
+                child.update().where(fk.parent.in_(ref_vals)).values({fk.parent.name: None})
+            )
+
+    # Order the remaining deletes children-before-parents on NOT NULL FKs.
+    child_map: dict[str, set] = {}
+    for tname in covered:
+        for fk in Base.metadata.tables[tname].foreign_keys:
+            parent_name = fk.column.table.name
+            if parent_name == tname or parent_name not in covered or fk.parent.nullable:
+                continue
+            child_map.setdefault(parent_name, set()).add(tname)
+
+    remaining = set(covered)
+    order: list[str] = []
+    while remaining:
+        ready = sorted(t for t in remaining if not (child_map.get(t, set()) & remaining))
+        if not ready:
+            raise RuntimeError(
+                f"Circular NOT NULL foreign-key dependency prevents deletion of employee "
+                f"{employee_id}: {sorted(remaining)}"
+            )
+        for tname in ready:
+            order.append(tname)
+            remaining.discard(tname)
+
+    purged = []
+    for tname in order:
+        table = Base.metadata.tables[tname]
+        pks = marked[tname]
+        pk_cols = list(table.primary_key.columns)
+        if len(pk_cols) == 1:
+            db.execute(table.delete().where(pk_cols[0].in_([pk for (pk,) in pks])))
+        else:
+            db.execute(table.delete().where(tuple_(*pk_cols).in_(list(pks))))
+        purged.append(tname)
+    return purged
 
 
 def hard_delete_employee(db: Session, employee_id: int, organization_id: int = None) -> None:
@@ -2740,5 +3724,6 @@ def hard_delete_employee(db: Session, employee_id: int, organization_id: int = N
     db.query(LoginActivity).filter(LoginActivity.user_id == employee_id).update({"user_id": None}, synchronize_session=False)
 
     db.flush()
+    _purge_employee_residuals(db, employee_id)
     db.query(Employee).filter(Employee.id == employee_id).delete()
     db.commit()

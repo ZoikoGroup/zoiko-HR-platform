@@ -1,0 +1,20 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Account status updated" %}
+{% set preheader = "Your Zoiko HR account status is now " ~ status_label ~ "." %}
+{% set badge = status_label %}
+{% set badge_tone = "success" if status == "activated" else "warning" %}
+{% set footer_reason %}You are receiving this security notification because it concerns your Zoiko HR account.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Account status updated</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Your Zoiko HR account status has been updated to <strong class="dm-text-strong" style="{{ S.strong }}">{{ status_label }}</strong>. {{ message }}</p>
+{% call ui.details() %}
+{{ ui.detail_row("Account status", status_label, first=True) }}
+{% endcall %}
+<p class="dm-text-muted" style="{{ S.muted }}">Access is limited by the role and organizational scope assigned by your administrator.</p>
+{% if action_url %}
+{{ ui.button(action_url, "Sign in to Zoiko HR") }}
+{% endif %}
+{{ ui.signoff() }}
+{% endblock %}

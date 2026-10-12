@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from "react";
 import { Plus, Star, Trash2, Edit3, Save, X, Phone, MapPin, Users, Loader2, AlertCircle, CheckCircle } from "lucide-react";
 import { getMyProfile, updateMyProfile } from "../../../../service/employee";
+import { validateContact, cleanContact, serverContactError, MAX_CONTACTS } from "../../../../utils/emergencyContactForm";
+import { PHONE_MAX_LENGTH } from "../../../../utils/phone";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 
 const RELATIONSHIPS = ["Spouse", "Parent", "Sibling", "Child", "Friend", "Guardian", "Other"];
@@ -62,41 +64,36 @@ export default function EmergencyContacts() {
     setSaving(true);
     setSuccess(false);
     setError(null);
-    updateMyProfile({ emergency_contacts: updatedContacts })
+    return updateMyProfile({ emergency_contacts: updatedContacts })
       .then(() => {
-        if (!mounted.current) return;
+        if (!mounted.current) return true;
         setContacts(updatedContacts);
         setSuccess(true);
         setTimeout(() => { if (mounted.current) setSuccess(false); }, 3000);
+        return true;
       })
       .catch((err) => {
-        if (mounted.current) setError(err?.message || "Failed to save emergency contacts");
+        if (mounted.current) setError(serverContactError(err) || err?.message || "Failed to save emergency contacts");
+        return false;
       })
       .finally(() => {
         if (mounted.current) setSaving(false);
       });
   };
 
-  const validate = (c) => {
-    const e = {};
-    if (!c.name.trim()) e.name = "Required";
-    if (!/^\+?\d[\d\s\-]{8,14}$/.test(c.primaryPhone)) e.primaryPhone = "Invalid phone";
-    if (c.alternatePhone && !/^\+?\d[\d\s\-]{8,14}$/.test(c.alternatePhone)) e.alternatePhone = "Invalid phone";
-    if (!c.address.trim()) e.address = "Required";
-    return e;
-  };
-
   const handleEdit = (c) => { setEditingId(c.id); setDraft({ ...c }); setErrors({}); };
   const handleCancelEdit = () => { setEditingId(null); setDraft(null); setErrors({}); };
 
-  const handleSave = (id) => {
-    const e = validate(draft);
+  const handleSave = async (id) => {
+    if (saving) return;
+    const e = validateContact(draft, contacts.filter((c) => c.id !== id));
     if (Object.keys(e).length) { setErrors(e); return; }
-    const updated = contacts.map((c) => c.id === id ? { ...draft } : c);
-    persistContacts(updated);
-    setEditingId(null);
-    setDraft(null);
-    setErrors({});
+    const updated = contacts.map((c) => c.id === id ? cleanContact(draft) : c);
+    if (await persistContacts(updated)) {
+      setEditingId(null);
+      setDraft(null);
+      setErrors({});
+    }
   };
 
   const handleDelete = (id) => {
@@ -109,15 +106,17 @@ export default function EmergencyContacts() {
     persistContacts(updated);
   };
 
-  const handleAdd = () => {
-    const e = validate(newContact);
+  const handleAdd = async () => {
+    if (saving) return;
+    if (contacts.length >= MAX_CONTACTS) { setErrors({ name: `You can add at most ${MAX_CONTACTS} emergency contacts.` }); return; }
+    const e = validateContact(newContact, contacts);
     if (Object.keys(e).length) { setErrors(e); return; }
-    const added = { ...newContact, id: Date.now().toString() };
-    const updated = [...contacts, added];
-    persistContacts(updated);
-    setNewContact(emptyContact);
-    setShowAdd(false);
-    setErrors({});
+    const added = { ...cleanContact(newContact), id: Date.now().toString(), isPrimary: contacts.length === 0 };
+    if (await persistContacts([...contacts, added])) {
+      setNewContact(emptyContact);
+      setShowAdd(false);
+      setErrors({});
+    }
   };
 
   const ContactCard = ({ contact }) => {
@@ -175,7 +174,7 @@ export default function EmergencyContacts() {
           {isEditing ? (
             <>
               <Field label="Full Name" icon={Users}>
-                <input className={inputCls(errors.name)} value={draft.name} onChange={(e) => setDraft((p) => ({ ...p, name: e.target.value }))} />
+                <input className={inputCls(errors.name)} value={draft.name} maxLength={100} onChange={(e) => { setDraft((p) => ({ ...p, name: e.target.value })); setErrors((x) => ({ ...x, name: undefined })); }} />
                 {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
               </Field>
               <Field label="Relationship" icon={Users}>
@@ -184,16 +183,16 @@ export default function EmergencyContacts() {
                 </select>
               </Field>
               <Field label="Primary Phone" icon={Phone}>
-                <input className={inputCls(errors.primaryPhone)} value={draft.primaryPhone} onChange={(e) => setDraft((p) => ({ ...p, primaryPhone: e.target.value }))} />
+                <input className={inputCls(errors.primaryPhone)} value={draft.primaryPhone} maxLength={PHONE_MAX_LENGTH} onChange={(e) => { setDraft((p) => ({ ...p, primaryPhone: e.target.value })); setErrors((x) => ({ ...x, primaryPhone: undefined })); }} />
                 {errors.primaryPhone && <p className="text-xs text-red-500 mt-1">{errors.primaryPhone}</p>}
               </Field>
               <Field label="Alternate Phone" icon={Phone}>
-                <input className={inputCls(errors.alternatePhone)} value={draft.alternatePhone} onChange={(e) => setDraft((p) => ({ ...p, alternatePhone: e.target.value }))} placeholder="Optional" />
+                <input className={inputCls(errors.alternatePhone)} value={draft.alternatePhone} maxLength={PHONE_MAX_LENGTH} onChange={(e) => { setDraft((p) => ({ ...p, alternatePhone: e.target.value })); setErrors((x) => ({ ...x, alternatePhone: undefined })); }} placeholder="Optional" />
                 {errors.alternatePhone && <p className="text-xs text-red-500 mt-1">{errors.alternatePhone}</p>}
               </Field>
               <div className="md:col-span-2">
                 <Field label="Home Address" icon={MapPin}>
-                  <input className={inputCls(errors.address)} value={draft.address} onChange={(e) => setDraft((p) => ({ ...p, address: e.target.value }))} />
+                  <input className={inputCls(errors.address)} value={draft.address} maxLength={500} onChange={(e) => { setDraft((p) => ({ ...p, address: e.target.value })); setErrors((x) => ({ ...x, address: undefined })); }} />
                   {errors.address && <p className="text-xs text-red-500 mt-1">{errors.address}</p>}
                 </Field>
               </div>
@@ -246,8 +245,10 @@ export default function EmergencyContacts() {
             </div>
           ) : (
             <button
+              disabled={contacts.length >= MAX_CONTACTS}
+              title={contacts.length >= MAX_CONTACTS ? `You can add at most ${MAX_CONTACTS} emergency contacts.` : undefined}
               onClick={() => { setShowAdd(true); setErrors({}); }}
-              className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2.5 rounded-xl transition shadow-sm shadow-blue-200"
+              className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed px-4 py-2.5 rounded-xl transition shadow-sm shadow-blue-200"
             >
               <Plus size={16} /> Add Contact
             </button>
@@ -288,7 +289,7 @@ export default function EmergencyContacts() {
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <Field label="Full Name" icon={Users}>
-                <input className={inputCls(errors.name)} value={newContact.name} onChange={(e) => setNewContact((p) => ({ ...p, name: e.target.value }))} placeholder="Jane Doe" />
+                <input className={inputCls(errors.name)} value={newContact.name} maxLength={100} onChange={(e) => { setNewContact((p) => ({ ...p, name: e.target.value })); setErrors((x) => ({ ...x, name: undefined })); }} placeholder="Jane Doe" />
                 {errors.name && <p className="text-xs text-red-500 mt-1">{errors.name}</p>}
               </Field>
               <Field label="Relationship" icon={Users}>
@@ -297,16 +298,16 @@ export default function EmergencyContacts() {
                 </select>
               </Field>
               <Field label="Primary Phone" icon={Phone}>
-                <input className={inputCls(errors.primaryPhone)} value={newContact.primaryPhone} onChange={(e) => setNewContact((p) => ({ ...p, primaryPhone: e.target.value }))} placeholder="+91 98765 43210" />
+                <input className={inputCls(errors.primaryPhone)} value={newContact.primaryPhone} maxLength={PHONE_MAX_LENGTH} onChange={(e) => { setNewContact((p) => ({ ...p, primaryPhone: e.target.value })); setErrors((x) => ({ ...x, primaryPhone: undefined })); }} placeholder="+91 98765 43210" />
                 {errors.primaryPhone && <p className="text-xs text-red-500 mt-1">{errors.primaryPhone}</p>}
               </Field>
               <Field label="Alternate Phone" icon={Phone}>
-                <input className={inputCls(errors.alternatePhone)} value={newContact.alternatePhone} onChange={(e) => setNewContact((p) => ({ ...p, alternatePhone: e.target.value }))} placeholder="Optional" />
+                <input className={inputCls(errors.alternatePhone)} value={newContact.alternatePhone} maxLength={PHONE_MAX_LENGTH} onChange={(e) => { setNewContact((p) => ({ ...p, alternatePhone: e.target.value })); setErrors((x) => ({ ...x, alternatePhone: undefined })); }} placeholder="Optional" />
                 {errors.alternatePhone && <p className="text-xs text-red-500 mt-1">{errors.alternatePhone}</p>}
               </Field>
               <div className="md:col-span-2">
                 <Field label="Home Address" icon={MapPin}>
-                  <input className={inputCls(errors.address)} value={newContact.address} onChange={(e) => setNewContact((p) => ({ ...p, address: e.target.value }))} placeholder="Full home address" />
+                  <input className={inputCls(errors.address)} value={newContact.address} maxLength={500} onChange={(e) => { setNewContact((p) => ({ ...p, address: e.target.value })); setErrors((x) => ({ ...x, address: undefined })); }} placeholder="Full home address" />
                   {errors.address && <p className="text-xs text-red-500 mt-1">{errors.address}</p>}
                 </Field>
               </div>
@@ -315,7 +316,7 @@ export default function EmergencyContacts() {
               <button onClick={() => { setShowAdd(false); setErrors({}); setNewContact(emptyContact); }} className="px-4 py-2 rounded-xl border border-slate-200 dark:border-[#334155] text-sm font-semibold text-slate-500 dark:text-[#94a3b8] hover:bg-slate-50 dark:hover:bg-[#0f172a] transition">
                 Cancel
               </button>
-              <button onClick={handleAdd} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition">
+              <button type="button" disabled={saving} onClick={handleAdd} className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold transition">
                 Add Contact
               </button>
             </div>

@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Subscription renewal confirmed" %}
+{% set preheader = "Your Zoiko HR subscription has been renewed." %}
+{% set badge = "Renewed" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Subscription renewal confirmed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">The subscription for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> changed or renewed to {{ plan_name }}, effective {{ effective_date_local }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Plan", plan_name, first=True) }}
+{{ ui.detail_row("Effective date", effective_date_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Review subscription") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

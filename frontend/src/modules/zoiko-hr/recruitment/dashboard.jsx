@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { LayoutDashboard, Users, Briefcase, Calendar, FileCheck2, TrendingUp, Target, CheckCircle, Clock, RefreshCw, AlertCircle, UserPlus, BarChart3, FileText, SlidersHorizontal } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getRecruitmentDashboard } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment" },
@@ -62,7 +63,7 @@ function PipelineStage({ label, count, total, color }) {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  try { return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }); }
+  try { return formatDateUtil(dateStr); }
   catch { return dateStr; }
 }
 

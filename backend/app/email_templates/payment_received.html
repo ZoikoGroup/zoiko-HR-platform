@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Payment received" %}
+{% set preheader = "Your payment for Zoiko HR has been received." %}
+{% set badge = "Paid" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ first_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Payment received</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">We received {{ currency }} {{ amount }} on {{ payment_date_local }} for invoice {{ invoice_number }}. Thank you for your payment.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Invoice number", invoice_number, first=True, mono=True) }}
+{{ ui.detail_row("Amount paid", currency ~ " " ~ amount) }}
+{{ ui.detail_row("Payment date", payment_date_local) }}
+{% endcall %}
+{{ ui.button(action_url, "View billing account") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

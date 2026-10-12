@@ -7,6 +7,7 @@ import {
   deleteSalaryRevision,
   getEmployeeCompensation,
 } from "../../../service/hrService";
+import { submitOnEnter, ENTER_HINT } from "../../../utils/submitOnEnter";
 
 const STATUS_COLORS = {
   approved: "bg-green-100 text-green-800",
@@ -411,12 +412,13 @@ export default function ZoikoHRSalaryRevisions() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                <textarea
+                <textarea onKeyDown={submitOnEnter}
                   rows={2}
                   value={formData.reason}
                   onChange={(e) => setFormData({ ...formData, reason: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">{ENTER_HINT}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Effective Date *</label>
@@ -486,12 +488,13 @@ export default function ZoikoHRSalaryRevisions() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-                <textarea
+                <textarea onKeyDown={submitOnEnter}
                   rows={2}
                   value={editForm.reason}
                   onChange={(e) => setEditForm({ ...editForm, reason: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">{ENTER_HINT}</p>
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Effective Date *</label>

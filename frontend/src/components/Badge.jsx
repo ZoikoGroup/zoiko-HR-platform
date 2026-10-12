@@ -21,6 +21,7 @@ export default function Badge({ variant, value }) {
     paternity: 'bg-sky-100 text-sky-800',
     bereavement: 'bg-gray-100 text-gray-800',
     unpaid: 'bg-amber-100 text-amber-800',
+    work_from_home: 'bg-emerald-100 text-emerald-800',
     other: 'bg-amber-100 text-amber-800',
   };
   const colorClass = variant === 'status' ? statusColors[value] : typeColors[value] || 'bg-gray-100 text-gray-800';

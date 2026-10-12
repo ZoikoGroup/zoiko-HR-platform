@@ -1,9 +1,8 @@
 import { useState, useEffect, useRef } from "react";
-import { Eye, EyeOff, Building, CreditCard, Hash, FileText, ChevronDown, Edit3, Save, X, Loader2, AlertCircle, CheckCircle } from "lucide-react";
-import { getMyProfile, updateMyProfile } from "../../../../service/employee";
+import { Eye, EyeOff, Building, CreditCard, Hash, FileText, Edit3, Save, X, Loader2, AlertCircle, CheckCircle } from "lucide-react";
+import { getMyProfile, getEmployeeProfile, updateEmployeeProfile } from "../../../../service/employee";
+import { FORMATS, cleanedValue, serverProfileErrors } from "../../../../utils/profileForm";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
-
-const PAYMENT_METHODS = ["Bank Transfer", "Check", "Digital Wallet"];
 
 const Field = ({ label, icon: Icon, children }) => (
   <div>
@@ -21,7 +20,6 @@ const defaultBankData = {
   accountNumber: "",
   ifscCode: "",
   panCard: "",
-  paymentMethod: "Bank Transfer",
 };
 
 export default function BankDetails() {
@@ -34,6 +32,7 @@ export default function BankDetails() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  const [empId, setEmpId] = useState(null);
   const mounted = useRef(true);
 
   useEffect(() => {
@@ -41,17 +40,20 @@ export default function BankDetails() {
     setLoading(true);
     setError(null);
     getMyProfile()
-      .then((res) => {
+      .then(async (res) => {
         if (!mounted.current) return;
         const p = res.data || res;
-        const bank = p.bankDetails || {
-          bankName: p.bankName || "",
-          accountHolder: p.accountHolder || p.fullName || "",
-          accountNumber: p.accountNumber || "",
-          ifscCode: p.ifscCode || "",
-          panCard: p.panCard || "",
-          paymentMethod: p.paymentMethod || "Bank Transfer",
+        setEmpId(p.id);
+        let ext = {};
+        try { const r = await getEmployeeProfile(p.id); ext = r.data || r || {}; } catch { ext = {}; }
+        const bank = {
+          bankName: ext.bank_name || "",
+          accountHolder: p.fullName || p.full_name || `${p.firstName || p.first_name || ""} ${p.lastName || p.last_name || ""}`.trim(),
+          accountNumber: ext.bank_account || "",
+          ifscCode: ext.bank_ifsc || "",
+          panCard: ext.pan_number || "",
         };
+        if (!mounted.current) return;
         setData(bank);
         setDraft(bank);
       })
@@ -64,36 +66,52 @@ export default function BankDetails() {
     return () => { mounted.current = false; };
   }, []);
 
-  const maskedAccount = data.accountNumber
-    ? "•••• •••• " + data.accountNumber.slice(-4)
-    : "•••• •••• ••••";
+  const hasAccount = !!data.accountNumber;
+  const maskedAccount = hasAccount ? "•••• •••• " + data.accountNumber.slice(-4) : "Not added yet";
+  const spacedAccount = hasAccount ? (data.accountNumber.match(/.{1,4}/g) || []).join(" ") : "Not added yet";
 
   const validate = () => {
     const e = {};
-    if (!draft.bankName.trim()) e.bankName = "Required";
-    if (!draft.accountHolder.trim()) e.accountHolder = "Required";
-    if (!/^\d{9,18}$/.test(draft.accountNumber)) e.accountNumber = "Must be 9–18 digits";
-    if (!/^[A-Z]{4}0[A-Z0-9]{6}$/.test(draft.ifscCode)) e.ifscCode = "Invalid IFSC format";
-    if (!/^[A-Z]{5}\d{4}[A-Z]$/.test(draft.panCard)) e.panCard = "Invalid PAN format";
+    if (!draft.bankName.trim()) e.bankName = "Bank name is required.";
+    else if (FORMATS.bank_name(draft.bankName)) e.bankName = FORMATS.bank_name(draft.bankName);
+    if (!draft.accountNumber.trim()) e.accountNumber = "Account number is required.";
+    else if (FORMATS.bank_account(draft.accountNumber)) e.accountNumber = FORMATS.bank_account(draft.accountNumber);
+    if (!draft.ifscCode.trim()) e.ifscCode = "IFSC code is required.";
+    else if (FORMATS.bank_ifsc(draft.ifscCode)) e.ifscCode = FORMATS.bank_ifsc(draft.ifscCode);
+    if (!draft.panCard.trim()) e.panCard = "PAN is required.";
+    else if (FORMATS.pan_number(draft.panCard)) e.panCard = FORMATS.pan_number(draft.panCard);
     return e;
   };
 
   const handleSave = () => {
     const e = validate();
     if (Object.keys(e).length) { setErrors(e); return; }
+    if (!empId) { setErrors({ _api: "Your profile could not be found. Reload the page and try again." }); return; }
     setSaving(true);
     setErrors({});
     setSuccess(false);
-    updateMyProfile({ bankDetails: draft })
+    const saved = {
+      ...draft,
+      bankName: cleanedValue("bank_name", draft.bankName),
+      accountNumber: cleanedValue("bank_account", draft.accountNumber),
+      ifscCode: cleanedValue("bank_ifsc", draft.ifscCode),
+      panCard: cleanedValue("pan_number", draft.panCard),
+    };
+    updateEmployeeProfile(empId, { bank_name: saved.bankName, bank_account: saved.accountNumber, bank_ifsc: saved.ifscCode, pan_number: saved.panCard })
       .then(() => {
         if (!mounted.current) return;
-        setData(draft);
+        setData(saved);
+        setDraft(saved);
         setEditMode(false);
         setSuccess(true);
         setTimeout(() => { if (mounted.current) setSuccess(false); }, 3000);
       })
       .catch((err) => {
-        if (mounted.current) setErrors({ _api: err?.message || "Failed to save bank details" });
+        if (!mounted.current) return;
+        const fields = serverProfileErrors(err?.validation);
+        const map = { bank_name: "bankName", bank_account: "accountNumber", bank_ifsc: "ifscCode", pan_number: "panCard" };
+        const mapped = Object.fromEntries(Object.entries(fields).map(([k, msg]) => [map[k] || "_api", msg]));
+        setErrors(Object.keys(mapped).length ? mapped : { _api: err?.message || "The bank details could not be saved." });
       })
       .finally(() => {
         if (mounted.current) setSaving(false);
@@ -186,10 +204,8 @@ export default function BankDetails() {
             <CreditCard size={32} className="opacity-40" />
           </div>
           <div className="mb-4">
-            <p className="text-xl tracking-[0.2em] font-mono font-semibold">
-              {showAccount && data.accountNumber
-                ? data.accountNumber.match(/.{1,4}/g)?.join(" ")
-                : maskedAccount}
+            <p data-testid="card-account" className="text-xl tracking-[0.2em] font-mono font-semibold">
+              {showAccount ? spacedAccount : maskedAccount}
             </p>
           </div>
           <div className="flex justify-between items-end">
@@ -198,6 +214,8 @@ export default function BankDetails() {
               <p className="font-semibold mt-0.5">{data.accountHolder || "—"}</p>
             </div>
             <button
+              type="button"
+              aria-pressed={showAccount}
               onClick={() => setShowAccount((v) => !v)}
               className="flex items-center gap-1.5 text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-lg transition font-medium"
             >
@@ -215,31 +233,29 @@ export default function BankDetails() {
                 className={inputClass("bankName")}
                 value={editMode ? draft.bankName : data.bankName}
                 disabled={!editMode}
-                onChange={(e) => setDraft((p) => ({ ...p, bankName: e.target.value }))}
+                maxLength={100} onChange={(e) => { setDraft((p) => ({ ...p, bankName: e.target.value })); setErrors((x) => ({ ...x, bankName: undefined })); }}
               />
               {errors.bankName && <p className="text-xs text-red-500 mt-1">{errors.bankName}</p>}
             </Field>
 
             <Field label="Account Holder Name" icon={FileText}>
-              <input
-                className={inputClass("accountHolder")}
-                value={editMode ? draft.accountHolder : data.accountHolder}
-                disabled={!editMode}
-                onChange={(e) => setDraft((p) => ({ ...p, accountHolder: e.target.value }))}
-              />
-              {errors.accountHolder && <p className="text-xs text-red-500 mt-1">{errors.accountHolder}</p>}
+              <input className={inputClass("accountHolder")} value={data.accountHolder} disabled readOnly />
+              <p className="text-[11px] text-slate-400 mt-1">The account must be in your own name as it appears on your profile.</p>
             </Field>
 
             <Field label="Account Number" icon={CreditCard}>
               <div className="relative">
                 <input
                   className={inputClass("accountNumber") + " pr-10"}
+                  type={editMode && !showAccount ? "password" : "text"}
+                  autoComplete="off"
                   value={editMode ? draft.accountNumber : (showAccount ? data.accountNumber : maskedAccount)}
                   disabled={!editMode}
-                  onChange={(e) => setDraft((p) => ({ ...p, accountNumber: e.target.value }))}
+                  maxLength={22} inputMode="numeric" onChange={(e) => { setDraft((p) => ({ ...p, accountNumber: e.target.value })); setErrors((x) => ({ ...x, accountNumber: undefined })); }}
                 />
                 <button
                   type="button"
+                  aria-label={showAccount ? "Hide account number" : "Show account number"}
                   onClick={() => setShowAccount((v) => !v)}
                   className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[#94a3b8] hover:text-slate-600 dark:hover:text-[#cbd5e1]"
                 >
@@ -254,7 +270,7 @@ export default function BankDetails() {
                 className={inputClass("ifscCode")}
                 value={editMode ? draft.ifscCode : data.ifscCode}
                 disabled={!editMode}
-                onChange={(e) => setDraft((p) => ({ ...p, ifscCode: e.target.value.toUpperCase() }))}
+                maxLength={11} onChange={(e) => { setDraft((p) => ({ ...p, ifscCode: e.target.value.toUpperCase() })); setErrors((x) => ({ ...x, ifscCode: undefined })); }}
               />
               {errors.ifscCode && <p className="text-xs text-red-500 mt-1">{errors.ifscCode}</p>}
             </Field>
@@ -264,24 +280,11 @@ export default function BankDetails() {
                 className={inputClass("panCard")}
                 value={editMode ? draft.panCard : data.panCard}
                 disabled={!editMode}
-                onChange={(e) => setDraft((p) => ({ ...p, panCard: e.target.value.toUpperCase() }))}
+                maxLength={10} onChange={(e) => { setDraft((p) => ({ ...p, panCard: e.target.value.toUpperCase() })); setErrors((x) => ({ ...x, panCard: undefined })); }}
               />
               {errors.panCard && <p className="text-xs text-red-500 mt-1">{errors.panCard}</p>}
             </Field>
 
-            <Field label="Payment Method" icon={ChevronDown}>
-              <div className="relative">
-                <select
-                  className={inputClass("paymentMethod") + " appearance-none pr-8"}
-                  value={editMode ? draft.paymentMethod : data.paymentMethod}
-                  disabled={!editMode}
-                  onChange={(e) => setDraft((p) => ({ ...p, paymentMethod: e.target.value }))}
-                >
-                  {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
-                </select>
-                <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-              </div>
-            </Field>
           </div>
 
           {!editMode && (

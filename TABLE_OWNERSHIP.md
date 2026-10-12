@@ -133,7 +133,7 @@
 - `super_admin_support_tickets`
 - `super_admin_approval_history`
 
-## Billing & Subscription (13)
+## Billing & Subscription (17)
 - `billing_plans`
 - `billing_subscriptions`
 - `billing_worker_states`
@@ -143,13 +143,27 @@
 - `billing_conversions`
 - `billing_discounts`
 - `billing_audit_logs`
+- `plan_entitlement_mappings`
+- `billing_idempotency_keys`
+- `billing_invoices`
+- `billing_plan_changes`
+- `billing_provider_refs`
+- `billing_reconciliation_cases`
+- `billing_refund_requests`
+- `billing_webhook_events`
+
+Self-serve surface: `/billing/me/*` (subscription / entitlements / cancel / reactivate /
+downgrade-impact), consumed by the org-admin **Billing & Plan** page
+(`/organization-admin/billing-and-plan`). Entitlement coverage is declared in
+`backend/app/modules/billing/route_entitlement_map.py` and enforced opt-in via
+`ENTITLED` middleware gated by `HR_ENFORCE_ENTITLEMENTS`.
 
 ## Frontend module ↔ backend ownership
 | Frontend module | Backend router |
 |---|---|
 | `platform` | `hr` / `employee` (auth) |
 | `super-admin` | `super_admin` + `billing` |
-| `organization-admin` | `hr` (org config, dashboard stats) |
+| `organization-admin` | `hr` (org config, dashboard stats) + `billing` (Self-Serve Billing & Plan) |
 | `hr-admin` | `hr` + `employee` |
 | `zoiko-hr` | `hr` |
 | `settings`, `shared-layers` | shared shell, no DB tables |

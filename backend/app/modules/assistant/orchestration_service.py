@@ -11,7 +11,7 @@ never a fabricated answer.
 import logging
 import re
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
 from app.modules.assistant import llm_client, retrieval_service, guardrails, audit_service, safety_service, risk_classification
@@ -421,6 +421,7 @@ def _answer_department_directory(db: Session, turn: ChatTurn) -> ChatTurn:
     department = matches[0]
     members = (
         db.query(Employee)
+        .options(joinedload(Employee.designation))          # read per member below
         .filter(Employee.organization_id == turn.organization_id, Employee.department_id == department.id,
                 Employee.status == EmployeeStatus.ACTIVE)
         .all()

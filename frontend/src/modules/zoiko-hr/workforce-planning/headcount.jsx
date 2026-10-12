@@ -1,8 +1,12 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
+import { employeeList, employeeLabel } from "../../../utils/employeeOptions";
 import { getWfHeadcounts, createWfHeadcount, updateWfHeadcount, deleteWfHeadcount, getDepartments } from "../../../service/hrService";
-import { Plus, Search, Edit3, Trash2, X, Users, Target, DollarSign } from "lucide-react";
+import { Plus, Search, Edit3, Trash2, X } from "lucide-react";
+import {
+  EMPTY_HEADCOUNT, headcountToForm, validateHeadcount, headcountPayload, serverHeadcountErrors, headcountRefusalField, departmentText,
+} from "../../../utils/headcountForm";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/workforce-planning" },
@@ -30,14 +34,6 @@ function SubNav() {
 }
 
 const ITEMS_PER_PAGE = 15;
-const CURRENT_YEAR = new Date().getFullYear();
-
-function validateForm(data) {
-  const errors = {};
-  if (!data.fiscal_year) errors.fiscal_year = "Fiscal year is required";
-  else if (data.fiscal_year < 2020 || data.fiscal_year > 2100) errors.fiscal_year = "Year must be between 2020 and 2100";
-  return errors;
-}
 
 const formatCurrency = (v) =>
   new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(v || 0);
@@ -53,9 +49,10 @@ export default function HeadcountPlanning() {
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [submitting, setSubmitting] = useState(false);
-  const [form, setForm] = useState({ department_id: "", fiscal_year: CURRENT_YEAR, approved_positions: "", filled_positions: "", vacant_positions: "", planned_hires: "", projected_cost: "" });
+  const [form, setForm] = useState({ ...EMPTY_HEADCOUNT });
   const [formErrors, setFormErrors] = useState({});
   const [departments, setDepartments] = useState([]);
+  const [departmentsReady, setDepartmentsReady] = useState(false);
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null);
@@ -68,7 +65,10 @@ export default function HeadcountPlanning() {
 
   useEffect(() => {
     fetchData();
-    getDepartments().then((res) => { if (res?.data) setDepartments(res.data); }).catch(() => {});
+    getDepartments()
+      .then((res) => setDepartments(employeeList(res?.data)))
+      .catch(() => setDepartments([]))
+      .finally(() => setDepartmentsReady(true));
   }, [fetchData]);
 
   const aggregated = useMemo(() => {
@@ -113,48 +113,40 @@ export default function HeadcountPlanning() {
 
   const openCreate = () => {
     setEditItem(null);
-    setForm({ department_id: "", fiscal_year: CURRENT_YEAR, approved_positions: "", filled_positions: "", vacant_positions: "", planned_hires: "", projected_cost: "" });
+    setForm({ ...EMPTY_HEADCOUNT });
     setFormErrors({});
     setShowModal(true);
   };
 
   const openEdit = (item) => {
     setEditItem(item);
-    setForm({
-      department_id: item.department_id || "",
-      fiscal_year: item.fiscal_year || CURRENT_YEAR,
-      approved_positions: item.approved_positions || "",
-      filled_positions: item.filled_positions || "",
-      vacant_positions: item.vacant_positions || "",
-      planned_hires: item.planned_hires || "",
-      projected_cost: item.projected_cost || "",
-    });
+    setForm(headcountToForm(item));
     setFormErrors({});
     setShowModal(true);
   };
 
+  const noDepartments = departmentsReady && departments.length === 0;
+
   const handleSubmit = async (e) => {
     e.preventDefault();
-    const errors = validateForm(form);
+    const ids = departmentsReady && departments.length ? departments.map((d) => d.id).concat(editItem?.department_id ? [editItem.department_id] : []) : null;
+    const errors = validateHeadcount(form, ids);
     setFormErrors(errors);
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
-      const payload = {
-        department_id: form.department_id ? parseInt(form.department_id) : null,
-        fiscal_year: parseInt(form.fiscal_year),
-        approved_positions: parseInt(form.approved_positions) || 0,
-        filled_positions: parseInt(form.filled_positions) || 0,
-        vacant_positions: parseInt(form.vacant_positions) || 0,
-        planned_hires: parseInt(form.planned_hires) || 0,
-        projected_cost: parseFloat(form.projected_cost) || 0,
-      };
+      const payload = headcountPayload(form);
       if (editItem) await updateWfHeadcount(editItem.id, payload);
       else await createWfHeadcount(payload);
       setShowModal(false);
       await fetchData();
-    } catch (err) { setFormErrors({ submit: err.message || "Failed to save" }); }
-    finally { setSubmitting(false); }
+    } catch (err) {
+      const fields = serverHeadcountErrors(err?.validation);
+      const target = headcountRefusalField(err?.message);
+      if (Object.keys(fields).length) setFormErrors(fields);
+      else if (target) setFormErrors({ [target]: err.message });
+      else setFormErrors({ submit: err.message || "The headcount record could not be saved." });
+    } finally { setSubmitting(false); }
   };
 
   const handleDelete = async (id) => {
@@ -163,7 +155,17 @@ export default function HeadcountPlanning() {
     catch (err) { setError(err.message || "Failed to delete"); }
   };
 
-  const handleField = (field) => (e) => setForm((prev) => ({ ...prev, [field]: e.target.value }));
+  const handleField = (field) => (e) => {
+    const value = e.target.value;
+    setForm((prev) => ({ ...prev, [field]: value }));
+    setFormErrors((prev) => (prev[field] || prev.submit ? { ...prev, [field]: undefined, submit: undefined } : prev));
+  };
+  const fieldError = (name) => (formErrors[name] ? <p role="alert" className="text-red-500 text-xs mt-1">{formErrors[name]}</p> : null);
+  const boxClass = (name) => `w-full border ${formErrors[name] ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500`;
+  // a department already on the record stays selectable even if the list did not include it
+  const departmentChoices = !form.department_id || departments.some((d) => String(d.id) === String(form.department_id))
+    ? departments
+    : [{ id: form.department_id, name: editItem?.department_name || `Department #${form.department_id}` }, ...departments];
 
   return (
     <HRPage title="Headcount Planning" subtitle="Department-wise workforce planning and vacancy tracking">
@@ -245,7 +247,7 @@ export default function HeadcountPlanning() {
                   <tr><td colSpan={8} className="px-4 py-10 text-center text-gray-400">No headcount records found.</td></tr>
                 ) : paginated.map((r) => (
                   <tr key={r.id} className="hover:bg-amber-50/50 transition-colors">
-                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{r.department_name || "-"}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900">{departmentText(r, departments)}</td>
                     <td className="px-4 py-3 text-sm text-gray-600">{r.fiscal_year}</td>
                     <td className="px-4 py-3 text-sm text-blue-600 font-medium text-right">{r.approved_positions || 0}</td>
                     <td className="px-4 py-3 text-sm text-green-600 font-medium text-right">{r.filled_positions || 0}</td>
@@ -291,57 +293,58 @@ export default function HeadcountPlanning() {
               <h2 className="text-lg font-bold text-gray-800">{editItem ? "Edit Headcount Record" : "New Headcount Record"}</h2>
               <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600 p-1"><X size={20} /></button>
             </div>
-            <form onSubmit={handleSubmit} className="p-6 space-y-4">
-              {formErrors.submit && <div className="text-red-500 text-sm bg-red-50 p-2 rounded">{formErrors.submit}</div>}
+            <form noValidate onSubmit={handleSubmit} className="p-6 space-y-4">
+              {formErrors.submit && <div role="alert" className="text-red-700 text-sm bg-red-50 border border-red-200 px-3 py-2 rounded-lg">{formErrors.submit}</div>}
+              {noDepartments && <div role="alert" className="text-amber-800 text-sm bg-amber-50 border border-amber-200 px-3 py-2 rounded-lg">There are no departments in this organization yet. Create a department first, then plan its headcount.</div>}
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Department</label>
-                  <select value={form.department_id} onChange={handleField("department_id")}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500">
-                    <option value="">Select</option>
-                    {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+                  <label htmlFor="hc-dept" className="block text-sm font-medium text-gray-700 mb-1">Department <span className="text-red-500">*</span></label>
+                  <select id="hc-dept" value={form.department_id} onChange={handleField("department_id")} disabled={noDepartments} aria-invalid={!!formErrors.department_id} className={boxClass("department_id")}>
+                    <option value="">{noDepartments ? "No departments yet" : "Select department"}</option>
+                    {departmentChoices.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
                   </select>
+                  {fieldError("department_id")}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Fiscal Year *</label>
-                  <input type="number" value={form.fiscal_year} onChange={handleField("fiscal_year")}
-                    className={`w-full border ${formErrors.fiscal_year ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500`} />
-                  {formErrors.fiscal_year && <p className="text-red-500 text-xs mt-1">{formErrors.fiscal_year}</p>}
+                  <label htmlFor="hc-year" className="block text-sm font-medium text-gray-700 mb-1">Fiscal Year <span className="text-red-500">*</span></label>
+                  <input id="hc-year" type="number" min="2020" max="2100" step="1" value={form.fiscal_year} onChange={handleField("fiscal_year")} aria-invalid={!!formErrors.fiscal_year} className={boxClass("fiscal_year")} />
+                  {fieldError("fiscal_year")}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Approved Positions</label>
-                  <input type="number" value={form.approved_positions} onChange={handleField("approved_positions")}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <label htmlFor="hc-approved" className="block text-sm font-medium text-gray-700 mb-1">Approved Positions</label>
+                  <input id="hc-approved" type="number" min="0" step="1" value={form.approved_positions} onChange={handleField("approved_positions")} aria-invalid={!!formErrors.approved_positions} className={boxClass("approved_positions")} />
+                  {fieldError("approved_positions")}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Filled Positions</label>
-                  <input type="number" value={form.filled_positions} onChange={handleField("filled_positions")}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <label htmlFor="hc-filled" className="block text-sm font-medium text-gray-700 mb-1">Filled Positions</label>
+                  <input id="hc-filled" type="number" min="0" step="1" value={form.filled_positions} onChange={handleField("filled_positions")} aria-invalid={!!formErrors.filled_positions} className={boxClass("filled_positions")} />
+                  {fieldError("filled_positions")}
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Vacant Positions</label>
-                  <input type="number" value={form.vacant_positions} onChange={handleField("vacant_positions")}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <label htmlFor="hc-vacant" className="block text-sm font-medium text-gray-700 mb-1">Vacant Positions</label>
+                  <input id="hc-vacant" type="number" min="0" step="1" value={form.vacant_positions} onChange={handleField("vacant_positions")} aria-invalid={!!formErrors.vacant_positions} className={boxClass("vacant_positions")} />
+                  {fieldError("vacant_positions")}
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Planned Hires</label>
-                  <input type="number" value={form.planned_hires} onChange={handleField("planned_hires")}
-                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                  <label htmlFor="hc-hires" className="block text-sm font-medium text-gray-700 mb-1">Planned Hires</label>
+                  <input id="hc-hires" type="number" min="0" step="1" value={form.planned_hires} onChange={handleField("planned_hires")} aria-invalid={!!formErrors.planned_hires} className={boxClass("planned_hires")} />
+                  {fieldError("planned_hires")}
                 </div>
               </div>
+              <p className="text-[11px] text-gray-400 -mt-2">Filled plus vacant cannot be more than approved. An empty number counts as 0.</p>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Projected Cost ($)</label>
-                <input type="number" step="0.01" value={form.projected_cost} onChange={handleField("projected_cost")}
-                  className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-teal-500" />
+                <label htmlFor="hc-cost" className="block text-sm font-medium text-gray-700 mb-1">Projected Cost ($)</label>
+                <input id="hc-cost" type="number" min="0" step="0.01" value={form.projected_cost} onChange={handleField("projected_cost")} aria-invalid={!!formErrors.projected_cost} className={boxClass("projected_cost")} />
+                {fieldError("projected_cost")}
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => setShowModal(false)}
                   className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-                <button type="submit" disabled={submitting}
+                <button type="submit" disabled={submitting || noDepartments}
                   className="px-4 py-2 text-sm bg-teal-600 hover:bg-teal-700 disabled:bg-teal-400 text-white rounded-lg font-medium transition-colors">
                   {submitting ? "Saving..." : editItem ? "Update" : "Create"}
                 </button>

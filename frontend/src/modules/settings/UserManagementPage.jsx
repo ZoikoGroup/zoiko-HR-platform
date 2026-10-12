@@ -1,28 +1,33 @@
-import { useState, useEffect, useCallback } from "react";
+import { realEmailError } from "../../utils/realEmail";
+import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
+import { useState, useEffect, useCallback, useRef } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useNavigate } from "react-router-dom";
 import {
   getUsers, createUser, updateUser, deactivateUser,
-  activateUser, resetPassword, suspendUser, archiveUser, hardDeleteUser,
+  activateUser, resetPassword, suspendUser, archiveUser, hardDeleteUser, getAssignableRoles,
 } from "../../service/userService";
 import { superAdminService } from "../../service/superAdminService";
 import {
   User, Edit, Trash2, Plus, Search, ChevronDown, Eye, EyeOff,
   RefreshCw, Unlock, CheckCircle, X, Building2, AlertTriangle,
   FileText, Download, Clock, Archive, Ban, Mail, Shield, Users,
-  UserCheck, UserX, Filter,
+  UserCheck, UserX, Filter, MoreVertical, ArrowLeft,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
-import { ROLE_CREATION_RULES, ROLE_LABELS } from "../../config/roles";
+import { ROLE_LABELS } from "../../config/roles";
+import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
 
-const ALL_ROLE_OPTIONS = [
-  { value: "admin", label: "Organization Admin" },
-  { value: "hr_admin", label: "HR Admin" },
-  { value: "employee", label: "Employee" },
-];
-
+// Role options come from GET /hr/admin/roles (single source of truth on the
+// server: label, description, platform/organization scope, and what the
+// signed-in user is allowed to assign). Nothing is hardcoded here.
 const ROLE_BADGES = {
+  super_admin: "bg-purple-100 text-purple-800 ring-purple-200",
   admin: "bg-blue-100 text-blue-800 ring-blue-200",
   hr_admin: "bg-blue-100 text-blue-800 ring-blue-200",
+  billing_admin: "bg-amber-100 text-amber-800 ring-amber-200",
+  manager: "bg-teal-100 text-teal-800 ring-teal-200",
   employee: "bg-green-100 text-green-800 ring-green-200",
 };
 
@@ -34,19 +39,22 @@ const STATUS_STYLES = {
   locked: { class: "bg-orange-50 text-orange-700 ring-orange-200", icon: LockIcon },
   archived: { class: "bg-slate-100 text-slate-600 ring-slate-200", icon: Archive },
   deactivated: { class: "bg-red-50 text-red-700 ring-red-200", icon: X },
+  on_leave: { class: "bg-blue-50 text-blue-700 ring-blue-200", icon: Clock },
+  password_reset_required: { class: "bg-yellow-50 text-yellow-700 ring-yellow-200", icon: Clock },
 };
 function LockIcon() { return <Ban className="w-3 h-3" />; }
 
-const ITEMS_PER_PAGE = 10;
+const ITEMS_PER_PAGE = 7; // sized so the list, filters and pager fit one screen without scrolling
 
 const initialForm = {
   email: "",
   first_name: "",
   last_name: "",
   phone: "",
-  role: "employee",
+  role: "",
   job_title: "",
   organization_id: "",
+  confirm_super_admin: false,
 };
 
 function ConfirmDialog({ open, title, message, confirmLabel, danger, onConfirm, onCancel }) {
@@ -66,6 +74,202 @@ function ConfirmDialog({ open, title, message, confirmLabel, danger, onConfirm, 
           <button onClick={onConfirm} className={`px-5 py-2.5 text-sm font-semibold text-white rounded-xl transition-all shadow-sm ${danger ? "bg-red-600 hover:bg-red-700 shadow-red-600/25" : "bg-blue-600 hover:bg-blue-700 shadow-blue-600/25"}`}>{confirmLabel}</button>
         </div>
       </div>
+    </div>
+  );
+}
+
+function RowMenu({ label, children }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const esc = (e) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => { document.removeEventListener("mousedown", close); document.removeEventListener("keydown", esc); };
+  }, [open]);
+  return (
+    <div className="relative" ref={ref}>
+      <button type="button" onClick={() => setOpen((o) => !o)} aria-haspopup="menu" aria-expanded={open} aria-label={label} title="More actions"
+        className="p-1.5 text-gray-400 hover:text-gray-700 hover:bg-gray-100 rounded-lg transition-all">
+        <MoreVertical className="w-4 h-4" />
+      </button>
+      {open && (
+        <div role="menu" className="absolute right-0 z-30 mt-1 w-44 rounded-xl border border-gray-200 bg-white py-1 shadow-lg" onClick={() => setOpen(false)}>
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuItem({ icon: Icon, danger, onClick, children }) {
+  return (
+    <button type="button" role="menuitem" onClick={onClick}
+      className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-gray-50 ${danger ? "text-red-600" : "text-gray-700"}`}>
+      <Icon className="w-4 h-4" /> {children}
+    </button>
+  );
+}
+
+function OrganizationPicker({ organizations, loading, busyId, onOpen, onSuspend, onReactivate, onResetPassword, onDelete }) {
+  const [q, setQ] = useState("");
+  const term = q.trim().toLowerCase();
+  const shown = organizations.filter((o) => !term || (o.name || "").toLowerCase().includes(term)
+    || (o.organization_code || "").toLowerCase().includes(term) || (o.admin_email || "").toLowerCase().includes(term));
+  return (
+    <div className="space-y-3">
+      <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3 flex items-center gap-3">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input type="text" aria-label="Search organizations" placeholder="Search organizations..." value={q} onChange={(e) => setQ(e.target.value)}
+            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-4 py-2.5 text-sm pl-10 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white" />
+        </div>
+        <p className="text-sm text-gray-500 whitespace-nowrap">{organizations.length} organization{organizations.length === 1 ? "" : "s"}</p>
+      </div>
+      {loading && organizations.length === 0 ? (
+        <p className="text-sm text-gray-500 px-1">Loading organizations…</p>
+      ) : shown.length === 0 ? (
+        <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
+          <Building2 className="w-8 h-8 text-gray-300 mx-auto mb-3" />
+          <p className="text-gray-700 font-semibold">{organizations.length === 0 ? "No organizations yet" : "No organizations match your search"}</p>
+          <p className="text-sm text-gray-400 mt-1">{organizations.length === 0 ? "Use Add Organization to create the first one." : "Try a different name."}</p>
+        </div>
+      ) : (
+        <div className="grid content-start gap-3 sm:grid-cols-2 xl:grid-cols-3 max-h-[calc(100vh-290px)] overflow-y-auto pr-1" aria-label="Organizations">
+          {shown.map((o) => {
+            const suspended = String(o.status || "").toLowerCase() === "suspended";
+            const busy = busyId === o.id;
+            return (
+              <div key={o.id} className="bg-white rounded-xl border border-gray-100 shadow-sm hover:border-blue-300 hover:shadow-md transition-all flex flex-col">
+                <button type="button" onClick={() => onOpen(o)} aria-label={`Open ${o.name}`} className="text-left p-4 flex-1">
+                  <div className="flex items-start gap-3">
+                    <div className="w-10 h-10 shrink-0 bg-blue-50 rounded-xl flex items-center justify-center"><Building2 className="w-5 h-5 text-blue-600" /></div>
+                    <div className="min-w-0 flex-1">
+                      <p className="font-semibold text-gray-900 truncate" title={o.name}>{o.name}</p>
+                      <p className="text-xs text-gray-400 truncate">{o.organization_code || o.code || ""}</p>
+                    </div>
+                    {o.status ? (
+                      <span className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold capitalize ${suspended ? "bg-orange-50 text-orange-700" : "bg-gray-100 text-gray-600"}`}>
+                        {String(o.status).replace(/_/g, " ")}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="mt-3 flex items-center gap-4 text-xs text-gray-500">
+                    <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5" /><b className="text-gray-800">{o.user_count ?? 0}</b> user{o.user_count === 1 ? "" : "s"}</span>
+                    <span className="flex items-center gap-1"><UserCheck className="w-3.5 h-3.5 text-emerald-500" /><b className="text-gray-800">{o.active_employees ?? 0}</b> active</span>
+                  </div>
+                  {o.admin_name || o.admin_email ? (
+                    <p className="mt-2 text-[11px] text-gray-400 truncate" title={o.admin_email || ""}>Admin: {o.admin_name || o.admin_email}</p>
+                  ) : null}
+                </button>
+                <div className="flex items-center gap-1 border-t border-gray-100 px-2 py-1.5">
+                  {suspended ? (
+                    <button type="button" disabled={busy} onClick={() => onReactivate(o)} aria-label={`Reactivate ${o.name}`}
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-emerald-700 hover:bg-emerald-50 rounded-lg disabled:opacity-50">
+                      <RefreshCw className="w-3.5 h-3.5" /> Reactivate
+                    </button>
+                  ) : (
+                    <button type="button" disabled={busy} onClick={() => onSuspend(o)} aria-label={`Suspend ${o.name}`}
+                      className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-orange-700 hover:bg-orange-50 rounded-lg disabled:opacity-50">
+                      <Ban className="w-3.5 h-3.5" /> Suspend
+                    </button>
+                  )}
+                  <button type="button" disabled={busy} onClick={() => onResetPassword(o)} aria-label={`Reset admin password for ${o.name}`}
+                    className="flex items-center gap-1 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-50 rounded-lg disabled:opacity-50">
+                    <Unlock className="w-3.5 h-3.5" /> Reset password
+                  </button>
+                  <button type="button" disabled={busy} onClick={() => onDelete(o)} aria-label={`Delete ${o.name}`}
+                    className="ml-auto flex items-center gap-1 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-50">
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
+                  </button>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+const EMPTY_ORG = { organization: "", admin_name: "", admin_email: "", plan_code: "core", billing_cycle: "monthly", industry: "", country: "" };
+
+function CreateOrganizationDialog({ onClose, onCreated }) {
+  const [form, setForm] = useState(EMPTY_ORG);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState("");
+  const set = (k) => (e) => setForm((f) => ({ ...f, [k]: e.target.value }));
+  const input = "w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500";
+
+  async function submit(e) {
+    e.preventDefault();
+    if (pending) return;
+    setPending(true);
+    setError("");
+    try {
+      const body = { ...form };
+      ["industry", "country"].forEach((k) => { if (!body[k].trim()) delete body[k]; });
+      onCreated(await superAdminService.createOrganization(body));
+    } catch (err) {
+      setError(err.message || "Could not create the organization.");
+    } finally {
+      setPending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Create organization"
+      onClick={() => { if (!pending) onClose(); }}>
+      <form onSubmit={submit} className="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-4 p-6 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h2 className="text-lg font-bold text-gray-900">Create organization</h2>
+        <p className="text-xs text-gray-500 mt-0.5">Creates the organization and its first administrator, and starts an evaluation.</p>
+        {error && <div className="mt-3 px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl" role="alert">{error}</div>}
+        <fieldset disabled={pending} className="mt-4 space-y-3">
+          <label className="block text-sm font-semibold text-gray-700">Organization name <span className="text-red-500">*</span>
+            <input className={`${input} mt-1 font-normal`} required maxLength={200} value={form.organization} onChange={set("organization")} placeholder="Acme Ltd" />
+          </label>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-semibold text-gray-700">Admin name <span className="text-red-500">*</span>
+              <input className={`${input} mt-1 font-normal`} required maxLength={200} value={form.admin_name} onChange={set("admin_name")} placeholder="Jane Smith" />
+            </label>
+            <label className="block text-sm font-semibold text-gray-700">Admin email <span className="text-red-500">*</span>
+              <input className={`${input} mt-1 font-normal`} required type="email" value={form.admin_email} onChange={set("admin_email")} placeholder="jane@acme.com" />
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-semibold text-gray-700">Plan
+              <select className={`${input} mt-1 font-normal`} value={form.plan_code} onChange={set("plan_code")}>
+                <option value="core">Core</option>
+                <option value="advanced">Advanced</option>
+              </select>
+            </label>
+            <label className="block text-sm font-semibold text-gray-700">Billing cycle
+              <select className={`${input} mt-1 font-normal`} value={form.billing_cycle} onChange={set("billing_cycle")}>
+                <option value="monthly">Monthly</option>
+                <option value="annual">Annual</option>
+              </select>
+            </label>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block text-sm font-semibold text-gray-700">Industry
+              <input className={`${input} mt-1 font-normal`} maxLength={100} value={form.industry} onChange={set("industry")} />
+            </label>
+            <label className="block text-sm font-semibold text-gray-700">Country
+              <input className={`${input} mt-1 font-normal`} maxLength={100} value={form.country} onChange={set("country")} />
+            </label>
+          </div>
+        </fieldset>
+        <div className="flex justify-end gap-3 mt-5">
+          <button type="button" onClick={onClose} disabled={pending}
+            className="px-4 py-2 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+          <button type="submit" disabled={pending}
+            className="px-5 py-2 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50">
+            {pending ? "Creating…" : "Create organization"}
+          </button>
+        </div>
+      </form>
     </div>
   );
 }
@@ -91,18 +295,24 @@ export default function UserManagementPage() {
   const navigate = useNavigate();
   const { user, role } = useAuth();
   const isSuperAdmin = role === "super_admin";
-  const allowedRoles = ROLE_CREATION_RULES[role] || [];
-  const canCreateUsers = allowedRoles.length > 0;
-  const ROLE_OPTIONS = ALL_ROLE_OPTIONS.filter((r) => allowedRoles.includes(r.value));
+  const rolesQuery = useQuery({ queryKey: keys.orgAdmin.assignableRoles(), queryFn: ({ signal }) => getAssignableRoles({ signal }), staleTime: 5 * 60_000 });
+  const roleOptions = rolesQuery.data?.roles || [];
+  useEffect(() => {
+    if (rolesQuery.isError) setToast({ message: rolesQuery.error?.message || "Failed to load roles", type: "error" });
+  }, [rolesQuery.errorUpdatedAt]);
 
-  const [users, setUsers] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const ROLE_OPTIONS = roleOptions;
+  const canCreateUsers = roleOptions.length > 0;
+  const roleInfo = (value) => roleOptions.find((r) => r.value === value);
+  const roleLabel = (value) => roleInfo(value)?.label || ROLE_LABELS[value] || value;
+
+  const [actionError, setError] = useState(null);
+  const [hiddenListError, setHiddenListError] = useState(0);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [orgFilter, setOrgFilter] = useState("");
+  const [selectedOrg, setSelectedOrg] = useState(null); // super admin: users are listed one organization at a time
+  const [orgBusyId, setOrgBusyId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
   const [editId, setEditId] = useState(null);
@@ -112,6 +322,13 @@ export default function UserManagementPage() {
   const [createdPassword, setCreatedPassword] = useState(null);
   const [showPassword, setShowPassword] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState({ open: false });
+  const [deleteOrgTarget, setDeleteOrgTarget] = useState(null);
+  const [showCreateOrg, setShowCreateOrg] = useState(false);
+  const [resetTarget, setResetTarget] = useState(null);
+  const [resetMethod, setResetMethod] = useState("link");
+  const [resetPending, setResetPending] = useState(false);
+  const [resetError, setResetError] = useState("");
+  const [copied, setCopied] = useState(false);
   const [toast, setToast] = useState({ message: null, type: "success" });
 
   const STATUS_OPTIONS = [
@@ -125,43 +342,38 @@ export default function UserManagementPage() {
     { value: "deactivated", label: "Deactivated" },
   ];
 
-  const fetchUsers = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
+  // The user list is a cached query keyed by who is looking and the filters: revisiting a page is instant and the
+  // current rows stay on screen while the next page or filter loads. A super admin sees nothing until an
+  // organization is opened.
+  const qc = useQueryClient();
+  const usersEnabled = !(isSuperAdmin && !selectedOrg);
+  const usersParams = isSuperAdmin
+    ? { scope: "super-admin", organization_id: selectedOrg?.id, page: currentPage, page_size: ITEMS_PER_PAGE, search: search || undefined, role: roleFilter || undefined, status: statusFilter || undefined }
+    : { scope: "organization", page: currentPage, per_page: ITEMS_PER_PAGE, search, role: roleFilter, status: statusFilter };
+  const usersQuery = useQuery({
+    queryKey: keys.orgAdmin.users.list(usersParams),
+    enabled: usersEnabled,
+    placeholderData: keepPreviousData,
+    queryFn: async ({ signal }) => {
+      const { scope, ...query } = usersParams;
       if (isSuperAdmin) {
-        const data = await superAdminService.getUsers({
-          page: currentPage,
-          page_size: ITEMS_PER_PAGE,
-          search: search || undefined,
-          role: "admin",
-          status: statusFilter || undefined,
-          organization_id: orgFilter ? parseInt(orgFilter) : undefined,
-        });
+        const data = await superAdminService.getUsers(query, { signal });
         const filteredUsers = (data.users || []).filter((u) => u.id !== user?.id);
-        setUsers(filteredUsers);
-        setTotal(data.total || 0);
-      } else {
-        const data = await getUsers({
-          page: currentPage,
-          per_page: ITEMS_PER_PAGE,
-          search,
-          role: roleFilter,
-          status: statusFilter,
-        });
-        setUsers(data.items || []);
-        setTotal(data.total || 0);
+        // Your own row is hidden here, so do not count it in the total either.
+        return { users: filteredUsers, total: Math.max(0, (data.total || 0) - ((data.users || []).length - filteredUsers.length)) };
       }
-    } catch (err) {
-      setError(err.message || "Failed to load users");
-      setUsers([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, search, roleFilter, statusFilter, orgFilter, isSuperAdmin]);
-
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+      const data = await getUsers(query, { signal });
+      return { users: data.items || [], total: data.total || 0 };
+    },
+  });
+  const users = usersEnabled ? usersQuery.data?.users || [] : [];
+  const total = usersEnabled ? usersQuery.data?.total || 0 : 0;
+  const loading = usersEnabled && usersQuery.isPending;
+  const listError = usersEnabled && usersQuery.isError && usersQuery.errorUpdatedAt !== hiddenListError ? (usersQuery.error?.message || "Failed to load users") : null;
+  const error = actionError || listError;
+  const dismissError = () => { setError(null); setHiddenListError(usersQuery.errorUpdatedAt); };
+  // after any change to people: every user list is out of date
+  const fetchUsers = () => qc.invalidateQueries({ queryKey: keys.orgAdmin.users.all });
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
@@ -176,15 +388,24 @@ export default function UserManagementPage() {
     setEditId(null);
   };
 
+  const openOrganization = (org) => {
+    setSelectedOrg({ id: org.id, name: org.name });
+    setSearch("");
+    setRoleFilter("");
+    setStatusFilter("");
+    setCurrentPage(1);
+  };
+
+  const closeOrganization = () => {
+    setSelectedOrg(null);
+    setError(null);
+    refreshOrganizations(); // counts may have changed
+  };
+
   const openCreate = () => {
     resetForm();
     setCreatedPassword(null);
-    if (isSuperAdmin) {
-      const defaultRole = getDefaultRole();
-      if (defaultRole !== "employee") {
-        setFormData(prev => ({ ...prev, role: defaultRole }));
-      }
-    }
+    setFormData((prev) => ({ ...prev, role: getDefaultRole(), organization_id: selectedOrg ? String(selectedOrg.id) : "" }));
     setShowModal(true);
   };
 
@@ -199,55 +420,42 @@ export default function UserManagementPage() {
       role: user.role || "employee",
       job_title: user.job_title || "",
       organization_id: user.organization_id || "",
+      confirm_super_admin: false,
     });
     setFormErrors({});
     setShowModal(true);
   };
 
-  const fetchOrganizations = async () => {
-    try {
-      const data = await superAdminService.getOrganizations();
-      return data.organizations || [];
-    } catch (err) {
-      setToast({ message: "Failed to fetch organizations", type: "error" });
-      return [];
-    }
-  };
-
-  const [organizations, setOrganizations] = useState([]);
-
+  const orgsQuery = useQuery({
+    queryKey: keys.superAdmin.organizations.list({ page_size: 200 }),
+    enabled: isSuperAdmin,
+    queryFn: ({ signal }) => superAdminService.getOrganizations({ page_size: 200 }, { signal }),
+  });
+  const organizations = orgsQuery.data?.organizations || [];
+  const orgsLoading = orgsQuery.isPending && isSuperAdmin;
   useEffect(() => {
-    if (isSuperAdmin) {
-      fetchOrganizations().then(setOrganizations);
-    }
-  }, [isSuperAdmin]);
+    if (orgsQuery.isError) setToast({ message: "Failed to fetch organizations", type: "error" });
+  }, [orgsQuery.errorUpdatedAt]);
 
   const getDefaultRole = () => {
-    if (allowedRoles.length > 0) {
-      const firstAllowed = allowedRoles[0];
-      const roleOption = ALL_ROLE_OPTIONS.find(r => r.value === firstAllowed);
-      if (roleOption) return roleOption.value;
-    }
-    return "employee";
+    const preferred = roleOptions.find((r) => r.value === "employee") || roleOptions[0];
+    return preferred ? preferred.value : "";
   };
 
-  useEffect(() => {
-    if (isSuperAdmin && formData.role === "employee") {
-      const defaultRole = getDefaultRole();
-      if (defaultRole !== "employee") {
-        setFormData(prev => ({ ...prev, role: defaultRole }));
-      }
-    }
-  }, [isSuperAdmin, allowedRoles]);
+  const selectedRole = roleInfo(formData.role);
+  const needsOrganization = isSuperAdmin && selectedRole?.scope === "organization";
+  const isPlatformRole = selectedRole?.scope === "platform";
 
   const validate = () => {
     const errors = {};
     if (!formData.email.trim()) errors.email = "Email is required";
     else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
+    else if (realEmailError(formData.email)) errors.email = realEmailError(formData.email);
     if (!formData.first_name.trim()) errors.first_name = "First name is required";
     if (!formData.last_name.trim()) errors.last_name = "Last name is required";
     if (!formData.role) errors.role = "Role is required";
-    if (isSuperAdmin && !formData.organization_id) errors.organization_id = "Organization is required";
+    if (!editId && needsOrganization && !formData.organization_id) errors.organization_id = "Select an organization for this role";
+    if (!editId && isPlatformRole && !formData.confirm_super_admin) errors.confirm_super_admin = "Confirm that this person should get full platform access";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
   };
@@ -264,7 +472,6 @@ export default function UserManagementPage() {
         phone: formData.phone.trim() || null,
         role: formData.role,
         job_title: formData.job_title.trim() || null,
-        organization_id: isSuperAdmin ? parseInt(formData.organization_id) : undefined,
       };
       if (editId) {
         await updateUser(editId, payload);
@@ -272,15 +479,17 @@ export default function UserManagementPage() {
         setShowModal(false);
         resetForm();
       } else {
+        if (needsOrganization) payload.organization_id = parseInt(formData.organization_id);
+        if (isPlatformRole) payload.confirm_super_admin = true;
         const res = await createUser(payload);
         setShowModal(false);
         setCreatedPassword(res.temporary_password || null);
-        setToast({ message: "User created successfully.", type: "success" });
+        setToast({ message: res.message || "User created successfully.", type: "success" });
         resetForm();
       }
       await fetchUsers();
     } catch (err) {
-      setFormErrors({ submit: err.response?.data?.detail || err.message || "Failed to save user" });
+      setFormErrors({ submit: err.message || "Failed to save user" });
     } finally {
       setSubmitting(false);
     }
@@ -339,28 +548,136 @@ export default function UserManagementPage() {
     successMsg: "User deleted.",
   });
 
-  const handleResetPassword = async (user) => {
-    setConfirmDialog({
-      open: true,
-      title: "Reset Password",
-      message: `Reset password for ${user.first_name} ${user.last_name}? A new temporary password will be generated.`,
-      confirmLabel: "Reset",
-      onConfirm: async () => {
-        setConfirmDialog({ open: false });
-        try {
-          const res = await resetPassword(user.id);
-          setCreatedPassword(res.temporary_password || null);
-          setToast({ message: "Password reset successfully.", type: "success" });
-        } catch (err) {
-          setToast({ message: err.response?.data?.detail || err.message || "Failed to reset password.", type: "error" });
-        }
-      },
-      onCancel: () => setConfirmDialog({ open: false }),
-    });
+  // Deleting an organization from here is the same soft delete the Organizations
+  // page uses (one service, one endpoint), then this list re-reads from the server.
+  const handleOrganizationDeleted = async (res) => {
+    const name = deleteOrgTarget?.name;
+    const deletedId = deleteOrgTarget?.id;
+    setDeleteOrgTarget(null);
+    refreshOrganizations();
+    if (deletedId && selectedOrg?.id === deletedId) {
+      setSelectedOrg(null); // the organization is gone; go back to the list
+      setToast({ message: res?.message || `Organization "${name}" was deleted.`, type: "success" });
+      return;
+    }
+    setToast({ message: res?.message || `Organization "${name}" was deleted.`, type: "success" });
+    await fetchUsers();
+  };
+
+  const handleOrganizationCreated = async (res) => {
+    setShowCreateOrg(false);
+    setShowPassword(false);
+    setCopied(false);
+    setCreatedPassword(res.temporary_password || null);
+    setToast({ message: res.message || `Organization "${res.organization_name}" was created.`, type: "success" });
+    refreshOrganizations();
+    await fetchUsers();
+  };
+
+  // organization counts and statuses changed: the organization lists and dashboard figures are out of date
+  const refreshOrganizations = () => qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all });
+
+  const handleSuspendOrganization = (org) => setConfirmDialog({
+    open: true, danger: true, title: "Suspend organization",
+    message: `Suspend ${org.name}? Its users will be blocked from signing in until it is reactivated. Nothing is deleted.`,
+    confirmLabel: "Suspend",
+    onCancel: () => setConfirmDialog({ open: false }),
+    onConfirm: async () => {
+      setConfirmDialog({ open: false });
+      setOrgBusyId(org.id);
+      try {
+        const token = await superAdminService.mintConfirmationToken(org.id, "update_organization_status");
+        await superAdminService.updateOrganizationStatus(org.id, {
+          status: "suspended", confirmation_id: token.confirmation_id, confirmation_token: token.token,
+        });
+        setToast({ message: `${org.name} was suspended.`, type: "success" });
+        await refreshOrganizations();
+      } catch (err) {
+        setToast({ message: err.message || "Could not suspend the organization.", type: "error" });
+      } finally {
+        setOrgBusyId(null);
+      }
+    },
+  });
+
+  const handleReactivateOrganization = (org) => setConfirmDialog({
+    open: true, title: "Reactivate organization",
+    message: `Reactivate ${org.name}? Its users will be able to sign in again.`,
+    confirmLabel: "Reactivate",
+    onCancel: () => setConfirmDialog({ open: false }),
+    onConfirm: async () => {
+      setConfirmDialog({ open: false });
+      setOrgBusyId(org.id);
+      try {
+        await superAdminService.reactivateOrganization(org.id);
+        setToast({ message: `${org.name} was reactivated.`, type: "success" });
+        await refreshOrganizations();
+      } catch (err) {
+        setToast({ message: err.message || "Could not reactivate the organization.", type: "error" });
+      } finally {
+        setOrgBusyId(null);
+      }
+    },
+  });
+
+  // Reset the password of the organization's administrator, through the same dialog as a user reset.
+  const handleResetOrganizationAdmin = async (org) => {
+    setOrgBusyId(org.id);
+    try {
+      const data = await superAdminService.getUsers({ organization_id: org.id, role: "admin", page_size: 5 });
+      const admin = (data.users || []).find((u) => u.id !== user?.id && u.is_active !== false) || (data.users || [])[0];
+      if (!admin) {
+        setToast({ message: `${org.name} has no organization admin to reset.`, type: "error" });
+        return;
+      }
+      handleResetPassword(admin);
+    } catch (err) {
+      setToast({ message: err.message || "Could not find the organization admin.", type: "error" });
+    } finally {
+      setOrgBusyId(null);
+    }
+  };
+
+  const handleResetPassword = (target) => {
+    setResetTarget(target);
+    setResetMethod("link");
+    setResetError("");
+  };
+
+  const submitReset = async () => {
+    if (resetPending || !resetTarget) return;
+    setResetPending(true);
+    setResetError("");
+    try {
+      const res = await resetPassword(resetTarget.id, resetMethod);
+      const target = resetTarget;
+      setResetTarget(null);
+      if (res.temporary_password) {
+        setShowPassword(false);
+        setCopied(false);
+        setCreatedPassword(res.temporary_password);
+        setToast({ message: `Temporary password set for ${target.email}. Share it securely.`, type: "success" });
+      } else {
+        setToast({ message: `Reset link sent to ${target.email}.`, type: "success" });
+      }
+    } catch (err) {
+      setResetError(err.message || "Failed to reset password.");
+    } finally {
+      setResetPending(false);
+    }
+  };
+
+  const copyPassword = async () => {
+    try {
+      await navigator.clipboard.writeText(createdPassword);
+      setCopied(true);
+    } catch {
+      setCopied(false);
+    }
   };
 
   const stats = isSuperAdmin ? [
-    { label: "Total Org Admins", value: total, color: "text-blue-600", bg: "bg-blue-50", icon: Users },
+    { label: "Total Users", value: total, color: "text-blue-600", bg: "bg-blue-50", icon: Users },
     { label: "Active", value: users.filter((u) => u.is_active !== false).length, color: "text-emerald-600", bg: "bg-emerald-50", icon: UserCheck },
     { label: "Inactive", value: users.filter((u) => u.is_active === false).length, color: "text-red-500", bg: "bg-red-50", icon: UserX },
   ] : [
@@ -369,7 +686,9 @@ export default function UserManagementPage() {
     { label: "Inactive", value: users.filter((u) => u.is_active === false).length, color: "text-red-500", bg: "bg-red-50", icon: UserX },
   ];
 
-  if (loading && users.length === 0) {
+  const showOrgPicker = isSuperAdmin && !selectedOrg;
+
+  if (loading && users.length === 0 && !showOrgPicker) {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
@@ -388,40 +707,69 @@ export default function UserManagementPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50">
+    <div className="bg-gray-50">
       <Toast message={toast.message} type={toast.type} onClose={() => setToast({ message: null })} />
       <ConfirmDialog {...confirmDialog} />
 
       <header className="bg-white border-b border-gray-200">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="py-6 flex items-center justify-between">
+        <div className="px-4 sm:px-6">
+          <div className="py-4 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+            <button type="button" onClick={() => (selectedOrg ? closeOrganization() : navigate(-1))}
+              aria-label={selectedOrg ? "Back to all organizations" : "Back to previous page"}
+              title={selectedOrg ? "Back to all organizations" : "Back to previous page"}
+              className="p-2 text-gray-500 hover:text-gray-800 bg-white border border-gray-200 hover:bg-gray-50 rounded-xl transition-all">
+              <ArrowLeft className="w-4 h-4" />
+            </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900 tracking-tight">User Management</h1>
+              <h1 className="text-xl font-bold text-gray-900 tracking-tight">User Management</h1>
               <p className="mt-1 text-sm text-gray-500">
-                {isSuperAdmin ? "Manage organization administrators across all organizations." : "Manage organization users and their roles."}
+                {isSuperAdmin ? (selectedOrg ? `Users of ${selectedOrg.name}.` : "Choose an organization to see and manage its users.") : "Manage organization users and their roles."}
               </p>
             </div>
-            {canCreateUsers && (
-              <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-sm shadow-blue-600/25 hover:shadow-md hover:shadow-blue-600/30">
-                <Plus className="w-4 h-4" /> Add User
-              </button>
-            )}
+            </div>
+            <div className="flex items-center gap-2">
+              {isSuperAdmin && (
+                <button onClick={() => setShowCreateOrg(true)} className="bg-white hover:bg-gray-50 text-blue-700 border border-blue-200 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all flex items-center gap-2">
+                  <Building2 className="w-4 h-4" /> Add Organization
+                </button>
+              )}
+              {canCreateUsers && (
+                <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold px-5 py-2.5 rounded-xl transition-all flex items-center gap-2 shadow-sm shadow-blue-600/25 hover:shadow-md hover:shadow-blue-600/30">
+                  <Plus className="w-4 h-4" /> Add User
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </header>
 
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-        <div className="space-y-6">
+      <main className="px-4 sm:px-6 py-4">
+        <div className="space-y-4">
           {error && (
             <div className="px-5 py-4 bg-red-50 border border-red-200 text-red-700 rounded-xl flex justify-between items-center text-sm">
               <div className="flex items-center gap-2">
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
-              <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 rounded-lg transition-colors ml-3">
+              <button onClick={dismissError} className="p-1 hover:bg-red-100 rounded-lg transition-colors ml-3">
                 <X className="w-4 h-4" />
               </button>
             </div>
+          )}
+
+          {showOrgPicker ? (
+            <OrganizationPicker organizations={organizations} loading={orgsLoading} busyId={orgBusyId} onOpen={openOrganization}
+              onSuspend={handleSuspendOrganization} onReactivate={handleReactivateOrganization}
+              onResetPassword={handleResetOrganizationAdmin} onDelete={(o) => setDeleteOrgTarget({ id: o.id, name: o.name })} />
+          ) : (
+          <>
+          {isSuperAdmin && selectedOrg && (
+            <nav className="flex items-center gap-2 text-sm" aria-label="Breadcrumb">
+              <button type="button" onClick={closeOrganization} className="font-semibold text-blue-600 hover:underline">All organizations</button>
+              <span className="text-gray-300">/</span>
+              <span className="flex items-center gap-1.5 font-semibold text-gray-800"><Building2 className="w-4 h-4 text-gray-400" />{selectedOrg.name}</span>
+            </nav>
           )}
 
           {stats && (
@@ -429,14 +777,14 @@ export default function UserManagementPage() {
               {stats.map((s) => {
                 const Icon = s.icon;
                 return (
-                  <div key={s.label} className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4 transition-all hover:shadow-md hover:border-gray-200">
+                  <div key={s.label} className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-2">
                     <div className="flex items-center justify-between">
                       <div>
                         <p className="text-xs font-semibold text-gray-400 uppercase tracking-wider">{s.label}</p>
-                        <p className={`text-3xl font-bold mt-1.5 ${s.color}`}>{s.value ?? "-"}</p>
+                        <p className={`text-xl font-bold leading-tight ${s.color}`}>{s.value ?? "-"}</p>
                       </div>
-                      <div className={`w-12 h-12 rounded-xl ${s.bg} flex items-center justify-center`}>
-                        <Icon className={`w-6 h-6 ${s.color}`} />
+                      <div className={`w-9 h-9 rounded-xl ${s.bg} flex items-center justify-center`}>
+                        <Icon className={`w-4 h-4 ${s.color}`} />
                       </div>
                     </div>
                   </div>
@@ -445,9 +793,9 @@ export default function UserManagementPage() {
             </div>
           )}
 
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-5 py-4">
+          <div className="bg-white rounded-xl border border-gray-100 shadow-sm px-4 py-3">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="relative flex-1 min-w-[240px]">
+              <div className="relative flex-1 min-w-[200px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
@@ -458,7 +806,7 @@ export default function UserManagementPage() {
                 />
               </div>
               <div className="h-8 w-px bg-gray-200 hidden sm:block" />
-              {!isSuperAdmin && (
+              {(
                 <div className="relative">
                   <select
                     value={roleFilter}
@@ -512,101 +860,90 @@ export default function UserManagementPage() {
             </div>
           ) : (
             <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="bg-gray-50/80 border-b border-gray-200">
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">User</th>
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Email</th>
-                      {isSuperAdmin && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Organization</th>}
-                      {!isSuperAdmin && <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Role</th>}
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Job Title</th>
-                      <th className="text-left px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Status</th>
-                      <th className="text-right px-5 py-3.5 font-semibold text-gray-500 text-xs uppercase tracking-wider">Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-100">
-                    {users.map((u) => {
-                      const statusKey = (u.status || (u.is_active ? "active" : "inactive")).toLowerCase();
-                      const st = STATUS_STYLES[statusKey] || STATUS_STYLES.inactive;
-                      const StatusIcon = st.icon;
-                      return (
-                        <tr key={u.id} className="hover:bg-gray-50/50 transition-colors group">
-                          <td className="px-5 py-4">
-                            <div className="flex items-center gap-3">
-                              <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-blue-600 rounded-xl flex items-center justify-center shadow-sm ring-2 ring-white">
-                                <span className="text-white font-semibold text-sm">{u.first_name?.charAt(0)}{u.last_name?.charAt(0)}</span>
-                              </div>
-                              <div>
-                                <p className="font-semibold text-gray-900">{u.first_name} {u.last_name}</p>
-                                {u.employee_id && <p className="text-xs text-gray-400 mt-0.5">{u.employee_id}</p>}
-                              </div>
+              <table className="w-full table-fixed text-sm">
+                <thead>
+                  <tr className="bg-gray-50/80 border-b border-gray-200 text-left text-[11px] font-semibold uppercase tracking-wider text-gray-500">
+                    <th className="px-4 py-2.5 w-[30%]">User</th>
+                    {isSuperAdmin && !selectedOrg && <th className="px-3 py-2.5 w-[18%]">Organization</th>}
+                    <th className="px-3 py-2.5 w-[18%]">Role</th>
+                    <th className="px-3 py-2.5 w-[13%]">Status</th>
+                    <th className="px-3 py-2.5 text-right">Actions</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100">
+                  {users.map((u) => {
+                    const statusKey = (u.status || (u.is_active ? "active" : "inactive")).toLowerCase();
+                    const st = STATUS_STYLES[statusKey] || STATUS_STYLES.inactive;
+                    const StatusIcon = st.icon;
+                    const isSelf = u.id === user?.id;
+                    return (
+                      <tr key={u.id} className="hover:bg-gray-50/50 transition-colors">
+                        <td className="px-4 py-2">
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <div className="w-8 h-8 shrink-0 bg-gradient-to-br from-blue-500 to-blue-600 rounded-lg flex items-center justify-center">
+                              <span className="text-white font-semibold text-xs">{u.first_name?.charAt(0)}{u.last_name?.charAt(0)}</span>
                             </div>
-                          </td>
-                          <td className="px-5 py-4 text-gray-600">{u.email}</td>
-                          {isSuperAdmin && (
-                            <td className="px-5 py-4">
-                              <div className="flex items-center gap-2">
-                                <div className="w-7 h-7 bg-gray-100 rounded-lg flex items-center justify-center shrink-0">
-                                  <Building2 className="w-3.5 h-3.5 text-gray-500" />
-                                </div>
-                                <span className="text-gray-700 font-semibold truncate max-w-[160px]">{u.organization_name || "-"}</span>
-                              </div>
-                            </td>
-                          )}
-                          {!isSuperAdmin && (
-                            <td className="px-5 py-4">
-                              <span className={`inline-flex items-center px-2.5 py-1 text-xs font-semibold rounded-full ring-1 ring-inset ${ROLE_BADGES[u.role] || "bg-gray-100 text-gray-800 ring-gray-200"}`}>
-                                {ROLE_LABELS[u.role] || u.role}
-                              </span>
-                            </td>
-                          )}
-                          <td className="px-5 py-4 text-gray-600 max-w-[160px] truncate">{u.job_title || "-"}</td>
-                          <td className="px-5 py-4">
-                            <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-semibold rounded-full ring-1 ring-inset ${st.class}`}>
-                              <StatusIcon className="w-3 h-3" />
-                              {statusKey.charAt(0).toUpperCase() + statusKey.slice(1)}
+                            <div className="min-w-0">
+                              <p className="font-semibold text-gray-900 truncate" title={`${u.first_name} ${u.last_name}`}>{u.first_name} {u.last_name}</p>
+                              <p className="text-xs text-gray-500 truncate" title={u.email}>{u.email}</p>
+                            </div>
+                          </div>
+                        </td>
+                        {isSuperAdmin && !selectedOrg && (
+                          <td className="px-3 py-2">
+                            <span className="flex items-center gap-1.5 min-w-0 text-gray-700 font-medium" title={u.organization_name || ""}>
+                              <Building2 className="w-3.5 h-3.5 shrink-0 text-gray-400" />
+                              <span className="truncate">{u.organization_name || "-"}</span>
                             </span>
                           </td>
-                          <td className="px-5 py-4 text-right">
-                            <div className="flex justify-end gap-0.5 opacity-60 group-hover:opacity-100 transition-opacity">
-                              <button onClick={() => openEdit(u)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Edit user">
-                                <Edit className="w-4 h-4" />
-                              </button>
+                        )}
+                        <td className="px-3 py-2">
+                          <span title={u.job_title || undefined} className={`inline-flex items-center px-2 py-0.5 text-xs font-semibold rounded-full ring-1 ring-inset ${ROLE_BADGES[u.role] || "bg-gray-100 text-gray-800 ring-gray-200"}`}>
+                            {roleLabel(u.role)}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-semibold rounded-full ring-1 ring-inset ${st.class}`}>
+                            <StatusIcon className="w-3 h-3" />
+                            {(() => { const label = resolveEmployeeDisplayStatus({ ...u, status: u.status || (u.is_active ? "active" : "inactive") }).label; return label === "Working" ? "Active" : label; })()}
+                          </span>
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center justify-end gap-0.5">
+                            <button onClick={() => openEdit(u)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Edit user" aria-label={`Edit ${u.first_name} ${u.last_name}`}>
+                              <Edit className="w-4 h-4" />
+                            </button>
+                            <button onClick={() => handleResetPassword(u)} disabled={isSelf}
+                              className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+                              title={isSelf ? "Use account settings to change your own password" : "Reset password"}
+                              aria-label={`Reset password for ${u.first_name} ${u.last_name}`}>
+                              <Unlock className="w-4 h-4" />
+                            </button>
+                            <RowMenu label={`More actions for ${u.first_name} ${u.last_name}`}>
                               {u.is_active !== false && u.status !== "suspended" ? (
                                 <>
-                                  <button onClick={() => handleDeactivate(u)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Deactivate">
-                                    <UserX className="w-4 h-4" />
-                                  </button>
-                                  <button onClick={() => handleSuspend(u)} className="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition-all" title="Suspend">
-                                    <Ban className="w-4 h-4" />
-                                  </button>
+                                  <MenuItem icon={UserX} onClick={() => handleDeactivate(u)}>Deactivate</MenuItem>
+                                  <MenuItem icon={Ban} onClick={() => handleSuspend(u)}>Suspend</MenuItem>
                                 </>
                               ) : (
-                                <button onClick={() => handleActivate(u)} className="p-2 text-gray-400 hover:text-green-600 hover:bg-green-50 rounded-lg transition-all" title="Activate">
-                                  <RefreshCw className="w-4 h-4" />
-                                </button>
+                                <MenuItem icon={RefreshCw} onClick={() => handleActivate(u)}>Activate</MenuItem>
                               )}
-                              <button onClick={() => handleArchive(u)} className="p-2 text-gray-400 hover:text-slate-600 hover:bg-slate-50 rounded-lg transition-all" title="Archive">
-                                <Archive className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => handleResetPassword(u)} className="p-2 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all" title="Reset password">
-                                <Unlock className="w-4 h-4" />
-                              </button>
-                              <button onClick={() => handleDelete(u)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all" title="Delete">
-                                <Trash2 className="w-4 h-4" />
-                              </button>
-                            </div>
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+                              <MenuItem icon={Archive} onClick={() => handleArchive(u)}>Archive</MenuItem>
+                              <MenuItem icon={Trash2} danger onClick={() => handleDelete(u)}>Delete user</MenuItem>
+                              {isSuperAdmin && u.organization_id && (
+                                <MenuItem icon={Building2} danger onClick={() => setDeleteOrgTarget({ id: u.organization_id, name: u.organization_name })}>Delete organization</MenuItem>
+                              )}
+                            </RowMenu>
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
 
               {totalPages > 1 && (
-                <div className="flex flex-col sm:flex-row justify-between items-center px-5 py-4 border-t border-gray-100 bg-gray-50/30 gap-3">
+                <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-2.5 border-t border-gray-100 bg-gray-50/30 gap-3">
                   <p className="text-sm text-gray-500">
                     Showing <span className="font-medium text-gray-700">{(safePage - 1) * ITEMS_PER_PAGE + 1}</span>
                     {" "}-{" "}
@@ -636,6 +973,8 @@ export default function UserManagementPage() {
                 </div>
               )}
             </div>
+          )}
+          </>
           )}
         </div>
 
@@ -698,6 +1037,7 @@ export default function UserManagementPage() {
                       </select>
                       <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400 pointer-events-none" />
                     </div>
+                    {selectedRole && <p className="text-xs text-gray-500 mt-1.5">{selectedRole.description}</p>}
                     {formErrors.role && <p className="text-xs text-red-500 mt-1.5 font-medium">{formErrors.role}</p>}
                   </div>
                   <div>
@@ -707,7 +1047,17 @@ export default function UserManagementPage() {
                       placeholder="+1-555-0100" />
                   </div>
                 </div>
-                {isSuperAdmin && (
+                {isPlatformRole && !editId && (
+                  <label className="flex items-start gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+                    <input type="checkbox" className="mt-0.5" checked={formData.confirm_super_admin}
+                      onChange={(e) => setFormData({ ...formData, confirm_super_admin: e.target.checked })} />
+                    <span>
+                      I understand this account will have full access to every organization. This action is audit-logged.
+                      {formErrors.confirm_super_admin && <span className="block text-red-600 font-medium mt-1">{formErrors.confirm_super_admin}</span>}
+                    </span>
+                  </label>
+                )}
+                {needsOrganization && !editId && (
                   <div>
                     <label className="block text-sm font-semibold text-gray-700 mb-1.5">Organization <span className="text-red-500">*</span></label>
                     <div className="relative">
@@ -743,6 +1093,56 @@ export default function UserManagementPage() {
           </div>
         )}
 
+        {showCreateOrg && <CreateOrganizationDialog onClose={() => setShowCreateOrg(false)} onCreated={handleOrganizationCreated} />}
+
+        {deleteOrgTarget && (
+          <DeleteOrganizationDialog org={deleteOrgTarget} onClose={() => setDeleteOrgTarget(null)} onDeleted={handleOrganizationDeleted} />
+        )}
+
+        {resetTarget && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label="Reset password"
+            onClick={() => { if (!resetPending) setResetTarget(null); }}>
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
+              <h2 className="text-lg font-bold text-gray-900">Reset password</h2>
+              <p className="text-sm text-gray-600 mt-1">
+                {resetTarget.first_name} {resetTarget.last_name} · <span className="font-mono">{resetTarget.email}</span>
+              </p>
+              {resetError && (
+                <div className="mt-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl" role="alert">
+                  {resetError}
+                  {resetMethod === "link" && /email/i.test(resetError) && (
+                    <button type="button" onClick={() => { setResetMethod("temporary"); setResetError(""); }}
+                      className="mt-2 block text-xs font-semibold text-red-800 underline">
+                      Email is unavailable - set a temporary password instead
+                    </button>
+                  )}
+                </div>
+              )}
+              <fieldset className="mt-4 space-y-2" disabled={resetPending}>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer ${resetMethod === "link" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}>
+                  <input type="radio" name="reset-method" className="mt-1" checked={resetMethod === "link"} onChange={() => setResetMethod("link")} />
+                  <span><span className="block text-sm font-semibold text-gray-900">Email a reset link (recommended)</span>
+                    <span className="block text-xs text-gray-500">The user gets a single-use link valid for 60 minutes and chooses their own password.</span></span>
+                </label>
+                <label className={`flex items-start gap-3 rounded-xl border p-3 cursor-pointer ${resetMethod === "temporary" ? "border-blue-500 bg-blue-50" : "border-gray-200"}`}>
+                  <input type="radio" name="reset-method" className="mt-1" checked={resetMethod === "temporary"} onChange={() => setResetMethod("temporary")} />
+                  <span><span className="block text-sm font-semibold text-gray-900">Set a temporary password</span>
+                    <span className="block text-xs text-gray-500">Shown to you once. The user must change it at next sign-in.</span></span>
+                </label>
+              </fieldset>
+              <p className="text-xs text-gray-400 mt-3">Either way, the user's current sessions are signed out and the action is audit-logged.</p>
+              <div className="flex justify-end gap-3 mt-5">
+                <button onClick={() => setResetTarget(null)} disabled={resetPending}
+                  className="px-4 py-2.5 text-sm font-semibold text-gray-700 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 disabled:opacity-50">Cancel</button>
+                <button onClick={submitReset} disabled={resetPending}
+                  className="px-5 py-2.5 text-sm font-semibold text-white bg-blue-600 rounded-xl hover:bg-blue-700 disabled:opacity-50">
+                  {resetPending ? "Working…" : resetMethod === "link" ? "Send reset link" : "Set temporary password"}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {createdPassword && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setCreatedPassword(null)}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md mx-4 p-6" onClick={(e) => e.stopPropagation()}>
@@ -752,7 +1152,7 @@ export default function UserManagementPage() {
                 </div>
                 <div>
                   <h2 className="text-lg font-bold text-gray-900">Temporary Password</h2>
-                  <p className="text-sm text-gray-500 mt-0.5">Share this with the user securely.</p>
+                  <p className="text-sm text-gray-500 mt-0.5">Shown once. Share it securely; the user must change it at next sign-in.</p>
                 </div>
               </div>
               <div className="bg-gray-50 border border-gray-200 rounded-xl px-4 py-3.5 mb-5">
@@ -760,9 +1160,12 @@ export default function UserManagementPage() {
                   <code className="text-sm font-mono font-bold text-gray-800 select-all">
                     {showPassword ? createdPassword : "••••••••••••"}
                   </code>
-                  <button onClick={() => setShowPassword(!showPassword)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all">
-                    {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </button>
+                  <div className="flex items-center gap-1">
+                    <button onClick={copyPassword} className="px-2.5 py-1.5 text-xs font-semibold text-gray-600 hover:bg-gray-100 rounded-lg transition-all">{copied ? "Copied" : "Copy"}</button>
+                    <button onClick={() => setShowPassword(!showPassword)} className="p-2 text-gray-400 hover:text-gray-600 hover:bg-gray-100 rounded-lg transition-all" aria-label="Toggle password visibility">
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
               </div>
               <div className="flex justify-end">

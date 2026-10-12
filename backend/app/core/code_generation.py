@@ -64,19 +64,21 @@ def generate_employee_code(db: Session, organization_id: Optional[int]) -> str:
         org = db.query(Organization).filter(Organization.id == organization_id).first()
         org_code = org.organization_code if org and org.organization_code else "UNK"
 
-    if organization_id is not None:
-        count = db.query(Employee).filter(
-            Employee.organization_id == organization_id,
-            Employee.employee_code.isnot(None),
-            Employee.employee_code.like(f"{org_code}E%"),
-        ).count()
-    else:
-        count = db.query(Employee).filter(
-            Employee.organization_id.is_(None),
-            Employee.employee_code.isnot(None),
-        ).count()
-
-    return f"{org_code}E{count + 1:05d}"
+    # Next number = highest existing number + 1. Counting rows reused codes as soon as
+    # any employee had been deleted (count drops below the highest code in use), which
+    # made imports fail with "duplicate key ... employees_employee_code_key".
+    prefix = f"{org_code}E"
+    rows = db.query(Employee.employee_code).filter(Employee.employee_code.like(f"{prefix}%")).all()
+    highest = 0
+    for (code,) in rows:
+        suffix = (code or "")[len(prefix):]
+        if suffix.isdigit():
+            highest = max(highest, int(suffix))
+    number = highest + 1
+    # Codes are unique across the whole table; step past anything already taken.
+    while db.query(Employee.id).filter(Employee.employee_code == f"{prefix}{number:05d}").first() is not None:
+        number += 1
+    return f"{prefix}{number:05d}"
 
 
 # ═══════════════════════════════════════════════════════════════════════════════

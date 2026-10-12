@@ -1,0 +1,15 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Payment recovered" %}
+{% set preheader = "Your payment was received and full service has been restored." %}
+{% set badge = "Service restored" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ customer_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Payment recovered</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ customer_name }}</strong>, your {{ plan_name }} subscription payment has been received and the delinquency restriction has been lifted.</p>
+{% call ui.notice("Service restored", "success") %}
+All standard services and entitlements for {{ subscription_number }} have been restored automatically.
+{% endcall %}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

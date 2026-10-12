@@ -1,0 +1,21 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Quotation accepted" %}
+{% set preheader = "Quotation " ~ quote_number ~ " has been accepted." %}
+{% set badge = "Accepted" %}
+{% set badge_tone = "success" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Quotation accepted</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+{% if audience == "super_admin" %}
+<p class="t-body dm-text-body" style="{{ S.p }}"><strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> has accepted quotation {{ quote_number }}. An invoice has been sent to the registrant.</p>
+{% else %}
+<p class="t-body dm-text-body" style="{{ S.p }}">You've accepted quotation {{ quote_number }} for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong>. An invoice is on its way to this email address.</p>
+{% endif %}
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Quotation number", quote_number, mono=True) }}
+{{ ui.detail_row("Amount", amount) }}
+{% endcall %}
+{{ ui.signoff() }}
+{% endblock %}

@@ -2,11 +2,28 @@ import { useEffect, useRef, useState } from "react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import { getMyProfile, updateMyProfile } from "../../../../service/employee";
 
+const DEFAULT_NOTIFICATIONS = { email: true, sms: false, push: true };
+
+/** What the server holds (or the defaults for someone who never saved) as three real on/off values. */
+function readSettings(p) {
+  const saved = p.notificationPreferences || p.notification_preferences || {};
+  return {
+    notifications: {
+      email: typeof saved.email === "boolean" ? saved.email : DEFAULT_NOTIFICATIONS.email,
+      sms: typeof saved.sms === "boolean" ? saved.sms : DEFAULT_NOTIFICATIONS.sms,
+      push: typeof saved.push === "boolean" ? saved.push : DEFAULT_NOTIFICATIONS.push,
+    },
+    language: p.language || "English",
+    timezone: p.timezone || "Asia/Kolkata",
+  };
+}
+
 export default function EssSettings() {
   const [notifications, setNotifications] = useState({ email: true, sms: false, push: true });
   const [language, setLanguage] = useState("English");
   const [timezone, setTimezone] = useState("Asia/Kolkata");
   const [loading, setLoading] = useState(true);
+  const [loaded, setLoaded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
@@ -20,23 +37,15 @@ export default function EssSettings() {
     getMyProfile()
       .then((res) => {
         if (!mounted.current) return;
-        const p = res.data || res;
-        if (p.notificationPreferences) {
-          setNotifications({
-            email: p.notificationPreferences.email ?? true,
-            sms: p.notificationPreferences.sms ?? false,
-            push: p.notificationPreferences.push ?? true,
-          });
-        }
-        if (p.language) setLanguage(p.language);
-        if (p.timezone) setTimezone(p.timezone);
+        const next = readSettings(res.data || res);
+        setNotifications(next.notifications);
+        setLanguage(next.language);
+        setTimezone(next.timezone);
+        setLoaded(true);
       })
-      .catch(() => {
-        if (mounted.current) {
-          setNotifications({ email: true, sms: false, push: true });
-          setLanguage("English");
-          setTimezone("Asia/Kolkata");
-        }
+      .catch((err) => {
+        // do not show made-up defaults as if they were saved: say the settings could not be loaded
+        if (mounted.current) setError(err?.message || "Your saved settings could not be loaded. Reload the page to try again.");
       })
       .finally(() => {
         if (mounted.current) setLoading(false);
@@ -46,17 +55,24 @@ export default function EssSettings() {
   }, []);
 
   const handleSave = () => {
+    if (saving || !loaded) return;
     setSaving(true);
     setError(null);
     setSuccess(false);
 
     updateMyProfile({
-      notificationPreferences: notifications,
+      notification_preferences: notifications,
       language,
       timezone,
     })
-      .then(() => {
+      .then(() => getMyProfile())
+      .then((res) => {
         if (!mounted.current) return;
+        // show what the server now holds, so the page and a reload always agree
+        const saved = readSettings(res.data || res);
+        setNotifications(saved.notifications);
+        setLanguage(saved.language);
+        setTimezone(saved.timezone);
         setSuccess(true);
         setTimeout(() => { if (mounted.current) setSuccess(false); }, 3000);
       })
@@ -107,6 +123,9 @@ export default function EssSettings() {
               </div>
               <button
                 type="button"
+                role="switch"
+                aria-checked={notifications[n.key]}
+                aria-label={n.label}
                 onClick={() => setNotifications((prev) => ({ ...prev, [n.key]: !prev[n.key] }))}
                 className={`relative w-11 h-6 rounded-full cursor-pointer transition-colors ${
                   notifications[n.key] ? "bg-blue-600" : "bg-gray-300"
@@ -155,7 +174,7 @@ export default function EssSettings() {
         <div className="flex justify-end">
           <button
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving || !loaded}
             className="px-7 py-2.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-sm font-semibold transition-colors"
           >
             {saving ? "Saving..." : "Save Changes"}

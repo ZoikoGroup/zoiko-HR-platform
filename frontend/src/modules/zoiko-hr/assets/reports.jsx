@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo } from "react";
 import { FileText, Download, BarChart3, ClipboardList, FileSearch, Archive } from "lucide-react";
 import { getAssetReports, createAssetReport } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const typeIcons = {
   inventory: Archive, depreciation: BarChart3,
@@ -21,7 +22,7 @@ const typeLabels = {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDateUtil(dateStr);
 }
 
 const REPORT_TYPES = [

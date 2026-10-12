@@ -1,10 +1,15 @@
+import { realEmailError } from "../../../../utils/realEmail";
+import { RefreshBar, TableSkeleton } from "../../../../components/LoadingSkeletons";
 import { useState, useEffect, useMemo } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../../../service/queryKeys";
 import { useNavigate, NavLink } from "react-router-dom";
 import HRPage from "../../../../components/HRPage";
 import EmployeeBulkActions from "../../../../components/EmployeeBulkActions";
 import { getEmployees, getDepartments, getDesignations, createEmployee, updateEmployee, deleteEmployee, getEmployeeById, importEmployees, downloadImportTemplate } from "../../../../service/employee";
 import { resetPassword } from "../../../../service/userService";
 import { User, Edit, Trash2, Plus, Search, Filter, X, CheckCircle, AlertCircle, RefreshCw, ChevronDown, ChevronUp, Eye, UserCheck, UserX, FileText, Unlock, Upload, Download } from "lucide-react";
+import { formatDate } from "../../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/employee-management" },
@@ -93,10 +98,8 @@ const initialForm = {
 
 export default function Employees() {
   const navigate = useNavigate();
-  const [employees, setEmployees] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [actionError, setError] = useState(null);       // errors from actions (delete, import, export...)
+  const [hiddenListError, setHiddenListError] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -109,57 +112,35 @@ export default function Employees() {
   const [formErrors, setFormErrors] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [exporting, setExporting] = useState(false);
-  const [deptList, setDeptList] = useState([]);
-  const [desigList, setDesigList] = useState([]);
-  const [managerList, setManagerList] = useState([]);
   const [resetPwdResult, setResetPwdResult] = useState(null);
+  const [newLogin, setNewLogin] = useState(null);      // the one-time login of the person just added
   const [showResetPwd, setShowResetPwd] = useState(false);
   const [showImportModal, setShowImportModal] = useState(false);
   const [importFile, setImportFile] = useState(null);
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
 
-  const fetchEmployees = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getEmployees({
-        page: currentPage,
-        per_page: ITEMS_PER_PAGE,
-        search: search,
-        status: statusFilter,
-        department_id: departmentFilter,
-        employment_type: employmentTypeFilter,
-      });
-      setEmployees(data.items || []);
-      setTotal(data.total || 0);
-    } catch (err) {
-      setError(err.message || "Failed to load employees");
-      setEmployees([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchEmployees();
-  }, [currentPage, search, statusFilter, departmentFilter, employmentTypeFilter]);
-
-  const fetchDropdownData = async () => {
-    const [depts, desigs, managers] = await Promise.allSettled([
-      getDepartments(),
-      getDesignations(),
-      getEmployees({ per_page: 1000 }),
-    ]);
-    if (depts.status === "fulfilled") setDeptList(Array.isArray(depts.value) ? depts.value : depts.value?.items || depts.value?.data || []);
-    if (desigs.status === "fulfilled") setDesigList(Array.isArray(desigs.value) ? desigs.value : desigs.value?.items || desigs.value?.data || []);
-    if (managers.status === "fulfilled") setManagerList(managers.value.items || []);
-  };
-
-  useEffect(() => {
-    fetchDropdownData();
-  }, []);
+  // The directory page is a cached query keyed by its filters: going back to a page already seen is instant, and while
+  // the next page or filter loads the current rows stay on screen. The lookup lists are cached on their own.
+  const qc = useQueryClient();
+  const listParams = { page: currentPage, per_page: ITEMS_PER_PAGE, search, status: statusFilter, department_id: departmentFilter, employment_type: employmentTypeFilter };
+  const listQuery = useQuery({
+    queryKey: keys.hr.employees.list(listParams),
+    queryFn: ({ signal }) => getEmployees(listParams, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const asList = (v) => (Array.isArray(v) ? v : v?.items || v?.data || []);
+  const deptList = asList(useQuery({ queryKey: keys.hr.departments(), queryFn: ({ signal }) => getDepartments({ signal }), staleTime: 5 * 60_000 }).data);
+  const desigList = asList(useQuery({ queryKey: keys.hr.designations(), queryFn: ({ signal }) => getDesignations({ signal }), staleTime: 5 * 60_000 }).data);
+  const managerList = useQuery({ queryKey: keys.hr.employees.list({ per_page: 200 }), queryFn: ({ signal }) => getEmployees({ per_page: 200 }, { signal }) }).data?.items || [];
+  const employees = listQuery.data?.items || [];
+  const total = listQuery.data?.total || 0;
+  const loading = listQuery.isPending;
+  const listError = listQuery.isError && listQuery.errorUpdatedAt !== hiddenListError ? (listQuery.error?.message || "Failed to load employees") : null;
+  const error = actionError || listError;
+  const dismissError = () => { setError(null); setHiddenListError(listQuery.errorUpdatedAt); };
+  // any change to the directory also changes the HR dashboard figures, so refresh the whole HR family
+  const fetchEmployees = () => qc.invalidateQueries({ queryKey: keys.hr.all });
 
   const departments = useMemo(() => {
     return deptList.map((d) => ({ id: d.id, name: d.name }));
@@ -243,9 +224,8 @@ export default function Employees() {
     if (!formData.last_name.trim()) errors.last_name = "Last name is required";
     if (!formData.email.trim()) errors.email = "Email is required";
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
+    else if (realEmailError(formData.email)) errors.email = realEmailError(formData.email);
     if (!formData.job_title.trim()) errors.job_title = "Job title is required";
-    if (!formData.password && !editId) errors.password = "Password is required for new employees";
-    if (formData.password && formData.password.length < 8) errors.password = "Password must be at least 8 characters";
     if (!formData.date_of_joining && !editId) errors.date_of_joining = "Date of joining is required";
     setFormErrors(errors);
     return Object.keys(errors).length === 0;
@@ -260,7 +240,6 @@ export default function Employees() {
         first_name: formData.first_name.trim(),
         last_name: formData.last_name.trim(),
         email: formData.email.trim(),
-        password: formData.password || undefined,
         phone: formData.phone.trim() || null,
         job_title: formData.job_title.trim(),
         employment_type: formData.employment_type,
@@ -289,7 +268,9 @@ export default function Employees() {
       if (editId) {
         await updateEmployee(editId, payload);
       } else {
-        await createEmployee(payload);
+        const created = await createEmployee(payload);
+        const temp = created?.temporaryPassword || created?.temporary_password;
+        if (temp) setNewLogin({ name: `${payload.first_name} ${payload.last_name}`.trim(), email: created?.email || payload.email, password: temp });
       }
       setShowModal(false);
       resetForm();
@@ -414,10 +395,7 @@ export default function Employees() {
     return (
       <HRPage title="Employees" subtitle="Manage employee directory and records.">
         <SubNav />
-        <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-500">Loading employees...</span>
-        </div>
+        <div className="rounded-2xl border border-slate-200"><TableSkeleton rows={8} label="Loading employees" /></div>
       </HRPage>
     );
   }
@@ -425,11 +403,12 @@ export default function Employees() {
   return (
     <HRPage title="Employees" subtitle="Manage employee directory and records.">
       <SubNav />
+      <RefreshBar active={listQuery.isFetching && !loading} />
 
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-center">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
+          <button onClick={dismissError} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
       )}
 
@@ -584,7 +563,7 @@ export default function Employees() {
                         <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[e.status] || ""}`}>{STATUS_OPTIONS.find((opt) => opt.value === e.status)?.label || e.status}</span>
                       </td>
                       <td className="px-3 py-3">
-                        <p className="text-xs text-gray-500">{(e.dateOfJoining || e.date_of_joining) ? new Date(e.dateOfJoining || e.date_of_joining).toLocaleDateString() : "-"}</p>
+                        <p className="text-xs text-gray-500">{(e.dateOfJoining || e.date_of_joining) ? formatDate(e.dateOfJoining || e.date_of_joining) : "-"}</p>
                       </td>
                       <td className="px-3 py-3 text-right">
                         <div className="flex items-center justify-end gap-1 flex-wrap">
@@ -809,11 +788,9 @@ export default function Employees() {
               </div>
 
               {!editId && (
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Password *</label>
-                  <input type="password" value={formData.password} onChange={(e) => setFormData({ ...formData, password: e.target.value })} className={`w-full border ${formErrors.password ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
-                  {formErrors.password && <p className="text-red-500 text-xs mt-1">{formErrors.password}</p>}
-                </div>
+                <p className="text-xs text-gray-500 bg-blue-50 border border-blue-100 rounded-lg px-3 py-2">
+                  No password is needed. A temporary one is generated and e-mailed, and shown to you once after you save. The employee must also confirm their email address, then choose their own password at first sign-in.
+                </p>
               )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowModal(false); resetForm(); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -822,6 +799,21 @@ export default function Employees() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {newLogin && (
+        <div role="dialog" aria-modal="true" aria-label="Temporary login" className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+          <div className="bg-white rounded-xl shadow-xl w-full max-w-md mx-4 p-6">
+            <h2 className="text-lg font-semibold text-slate-800">{newLogin.name} has been added</h2>
+            <p className="text-sm text-slate-600 mt-2">A welcome email and a confirmation link were sent to {newLogin.email}. This temporary password is shown only once; they must change it at first sign-in.</p>
+            <div className="bg-slate-50 border border-slate-200 rounded-lg px-4 py-3 my-4">
+              <code data-testid="temp-password" className="text-sm font-mono font-bold text-slate-800 select-all">{newLogin.password}</code>
+            </div>
+            <div className="flex justify-end">
+              <button onClick={() => setNewLogin(null)} className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700">Done</button>
+            </div>
           </div>
         </div>
       )}

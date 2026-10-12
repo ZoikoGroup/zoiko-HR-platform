@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { MetricsSkeleton } from "../../components/OrgAdminSkeleton";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDetailedMetrics } from "../../service/orgAdminService";
@@ -101,13 +102,9 @@ export default function OrgAdminMetricsPage() {
     return () => { cancelled = true; };
   }, []);
 
-  if (loading) {
-    return (
-      <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
-        <div className="text-center py-20 text-[13px]" style={{ color: INK_SOFT }}>Loading detailed metrics...</div>
-      </div>
-    );
-  }
+
+  if (loading) return <MetricsSkeleton />;
+
 
   if (!data) {
     return (

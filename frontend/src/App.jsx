@@ -1,26 +1,11 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useEffect, lazy, Suspense } from "react";
-import SuperAdminShell from "./components/SuperAdminShell";
+import { useEffect, Suspense } from "react";
+import { lazyRoute } from "./lib/lazyRoute";
+import { registerRoutes } from "./lib/prefetch";
+import AppLayout, { RouteBoundary } from "./components/AppLayout";
 import { flatRoutes } from "./navigation";
 import { AlertTriangle } from "lucide-react";
 import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES } from "./config/roles";
-
-function PagePlaceholderFallback({ title, path, badge }) {
-  return (
-    <div className="space-y-6 font-sans">
-      <div>
-        <h1 className="text-2xl font-bold text-slate-800">{title}</h1>
-      </div>
-      <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
-        <p className="text-sm text-slate-600">Route: <span className="font-semibold text-slate-800">{path ?? "unknown"}</span></p>
-        {badge && <p className="mt-2 text-sm text-slate-600">Badge: <span className="font-semibold text-[#3B82F6]">{badge}</span></p>}
-        <div className="mt-4 rounded-2xl bg-slate-50 border border-slate-100 p-4 text-sm text-slate-500">
-          Module page ready for implementation.
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function ModuleSpinner() {
   return (
@@ -29,180 +14,198 @@ function ModuleSpinner() {
     </div>
   );
 }
-import HomePage from "./pages/public/HomePage";
+const HomePage = lazyRoute(() => import("./pages/public/HomePage"));
 import LoginPage from "./pages/auth/LoginPage";
-import ForgotPasswordPage from "./pages/auth/ForgotPasswordPage";
-import RegisterPage from "./pages/auth/RegisterPage";
-import RegistrationSuccessPage from "./pages/auth/RegistrationSuccessPage";
-import ZoikoProductsPage from "./pages/public/ZoikoProductsPage";
-import PlatformPage from "./pages/public/PlatformPage";
-import SolutionsPage from "./pages/public/SolutionsPage";
-import PricingPage from "./pages/public/PricingPage";
-import ContactPage from "./pages/public/ContactPage";
-import ResourcesPage from "./pages/public/ResourcesPage";
-import AboutPage from "./pages/public/AboutPage";
-import ZoikoLeadershipPage from "./pages/public/ZoikoLeadershipPage";
-import ZoikoCareersPage from "./pages/public/ZoikoCareersPage";
-import ZoikoDemoPage from "./pages/public/ZoikoDemoPage";
-import ZoikoHRPage from "./pages/products/ZoikoHRPage";
-import ZoikoPeoplePage from "./pages/public/five-pillars/ZoikoPeoplePage";
-import ZoikoMoneyPage from "./pages/public/five-pillars/ZoikoMoneyPage";
-import ZoikoWorkPage from "./pages/public/five-pillars/ZoikoWorkPage";
-import ZoikoSupplyPage from "./pages/public/five-pillars/ZoikoSupplyPage";
-import ZoikoControlPage from "./pages/public/five-pillars/ZoikoControlPage";
-import ZoikoHowItWorksPage from "./pages/platform/ZoikoHowItWorksPage";
-import ZoikoSecurityPage from "./pages/platform/ZoikoSecurityPage";
-import ZoikoTrustCenterPage from "./pages/platform/ZoikoTrustCenterPage";
-import ZoikoConnectPage from "./pages/platform/ZoikoConnectPage";
-import ZoikoApiDocsPage from "./pages/platform/ZoikoApiDocsPage";
-import ZoikoSystemStatusPage from "./pages/platform/ZoikoSystemStatusPage";
-import ZoikoEcosystemPage from "./pages/public/eco-system/ZoikoEcosystemPage";
-import ZoikoVertexPage from "./pages/public/eco-system/ZoikoVertexPage";
-import ZoikoSuitePage from "./pages/public/eco-system/ZoikoSuitePage";
-import ZoikoSemaPage from "./pages/public/eco-system/ZoikoSemaPage";
-import ZoikoLocalPage from "./pages/public/eco-system/ZoikoLocalPage";
-import ZoikoDigitalPage from "./pages/public/eco-system/ZoikoDigitalPage";
+const ForgotPasswordPage = lazyRoute(() => import("./pages/auth/ForgotPasswordPage"));
+const ResetPasswordPage = lazyRoute(() => import("./pages/auth/ResetPasswordPage"));
+const TermsPage = lazyRoute(() => import("./pages/legal/TermsPage"));
+const HrProductsPage = lazyRoute(() => import("./pages/public/HrProductsPage"));
+const RequestPricingPage = lazyRoute(() => import("./pages/public/RequestPricingPage"));
+const BookDemoPage = lazyRoute(() => import("./pages/public/BookDemoPage"));
+const SuperAdminSalesRequestsPage = lazyRoute(() => import("./modules/super-admin/SalesRequestsPage"));
+const VerifyEmailPage = lazyRoute(() => import("./pages/auth/VerifyEmailPage"));
+const QuotationDecisionPage = lazyRoute(() => import("./pages/auth/QuotationDecisionPage"));
+const ChangePasswordPage = lazyRoute(() => import("./pages/auth/ChangePasswordPage"));
+const RegisterPage = lazyRoute(() => import("./pages/auth/RegisterPage"));
+const RegistrationSuccessPage = lazyRoute(() => import("./pages/auth/RegistrationSuccessPage"));
+const ZoikoProductsPage = lazyRoute(() => import("./pages/public/ZoikoProductsPage"));
+const PlatformPage = lazyRoute(() => import("./pages/public/PlatformPage"));
+const SolutionsPage = lazyRoute(() => import("./pages/public/SolutionsPage"));
+const PricingPage = lazyRoute(() => import("./pages/public/PricingPage"));
+const ContactPage = lazyRoute(() => import("./pages/public/ContactPage"));
+const ResourcesPage = lazyRoute(() => import("./pages/public/ResourcesPage"));
+const AboutPage = lazyRoute(() => import("./pages/public/AboutPage"));
+const ZoikoLeadershipPage = lazyRoute(() => import("./pages/public/ZoikoLeadershipPage"));
+const ZoikoCareersPage = lazyRoute(() => import("./pages/public/ZoikoCareersPage"));
+const ZoikoDemoPage = lazyRoute(() => import("./pages/public/ZoikoDemoPage"));
+const ZoikoHRPage = lazyRoute(() => import("./pages/products/ZoikoHRPage"));
+const ZoikoPeoplePage = lazyRoute(() => import("./pages/public/five-pillars/ZoikoPeoplePage"));
+const ZoikoMoneyPage = lazyRoute(() => import("./pages/public/five-pillars/ZoikoMoneyPage"));
+const ZoikoWorkPage = lazyRoute(() => import("./pages/public/five-pillars/ZoikoWorkPage"));
+const ZoikoSupplyPage = lazyRoute(() => import("./pages/public/five-pillars/ZoikoSupplyPage"));
+const ZoikoControlPage = lazyRoute(() => import("./pages/public/five-pillars/ZoikoControlPage"));
+const ZoikoHowItWorksPage = lazyRoute(() => import("./pages/platform/ZoikoHowItWorksPage"));
+const ZoikoSecurityPage = lazyRoute(() => import("./pages/platform/ZoikoSecurityPage"));
+const ZoikoTrustCenterPage = lazyRoute(() => import("./pages/platform/ZoikoTrustCenterPage"));
+const ZoikoConnectPage = lazyRoute(() => import("./pages/platform/ZoikoConnectPage"));
+const ZoikoApiDocsPage = lazyRoute(() => import("./pages/platform/ZoikoApiDocsPage"));
+const ZoikoSystemStatusPage = lazyRoute(() => import("./pages/platform/ZoikoSystemStatusPage"));
+const ZoikoEcosystemPage = lazyRoute(() => import("./pages/public/eco-system/ZoikoEcosystemPage"));
+const ZoikoVertexPage = lazyRoute(() => import("./pages/public/eco-system/ZoikoVertexPage"));
+const ZoikoSuitePage = lazyRoute(() => import("./pages/public/eco-system/ZoikoSuitePage"));
+const ZoikoSemaPage = lazyRoute(() => import("./pages/public/eco-system/ZoikoSemaPage"));
+const ZoikoLocalPage = lazyRoute(() => import("./pages/public/eco-system/ZoikoLocalPage"));
+const ZoikoDigitalPage = lazyRoute(() => import("./pages/public/eco-system/ZoikoDigitalPage"));
+import PlanGate from "./components/PlanGate";
 import ProtectedRoute from "./components/ProtectedRoute";
-import ErrorBoundary from "./components/ErrorBoundary";
 
 // Target 'HrDashBoard.jsx' directly
-import ZoikoHRModule from "./modules/zoiko-hr/HrDashBoard.jsx";
+const ZoikoHRModule = lazyRoute(() => import("./modules/zoiko-hr/HrDashBoard.jsx"));
 
 // Sub-module imports — lazy-loaded for code splitting
-const ZoikoHRLeaveDashboard = lazy(() => import("./modules/zoiko-hr/leave/dashboard.jsx"));
-const ZoikoHRLeaveRequests = lazy(() => import("./modules/zoiko-hr/leave/leave-requests.jsx"));
-const ZoikoHRLeaveCalendar = lazy(() => import("./modules/zoiko-hr/leave/leave-calendar.jsx"));
-const ZoikoHRLeaveReports = lazy(() => import("./modules/zoiko-hr/leave/reports.jsx"));
+const ZoikoHRLeaveDashboard = lazyRoute(() => import("./modules/zoiko-hr/leave/dashboard.jsx"));
+const ZoikoHRLeaveRequests = lazyRoute(() => import("./modules/zoiko-hr/leave/leave-requests.jsx"));
+const ZoikoHRLeaveCalendar = lazyRoute(() => import("./modules/zoiko-hr/leave/leave-calendar.jsx"));
+const ZoikoHRLeaveReports = lazyRoute(() => import("./modules/zoiko-hr/leave/reports.jsx"));
 
-const ZoikoHRDepartmentsDashboard = lazy(() => import("./modules/zoiko-hr/departments/dashboard.jsx"));
-const ZoikoHRDepartmentsDepartmentList = lazy(() => import("./modules/zoiko-hr/departments/department-list.jsx"));
-const ZoikoHRDepartmentsDepartmentStructure = lazy(() => import("./modules/zoiko-hr/departments/department-structure.jsx"));
-const ZoikoHRDepartmentsReports = lazy(() => import("./modules/zoiko-hr/departments/reports.jsx"));
-const ZoikoHRDepartmentsSettings = lazy(() => import("./modules/zoiko-hr/departments/settings.jsx"));
+const ZoikoHRDepartmentsDashboard = lazyRoute(() => import("./modules/zoiko-hr/departments/dashboard.jsx"));
+const ZoikoHRDepartmentsDepartmentList = lazyRoute(() => import("./modules/zoiko-hr/departments/department-list.jsx"));
+const ZoikoHRDepartmentsDepartmentStructure = lazyRoute(() => import("./modules/zoiko-hr/departments/department-structure.jsx"));
+const ZoikoHRDepartmentsReports = lazyRoute(() => import("./modules/zoiko-hr/departments/reports.jsx"));
+const ZoikoHRDepartmentsSettings = lazyRoute(() => import("./modules/zoiko-hr/departments/settings.jsx"));
 
-const ZoikoHRDesignationsDashboard = lazy(() => import("./modules/zoiko-hr/designations/dashboard.jsx"));
-const ZoikoHRDesignationList = lazy(() => import("./modules/zoiko-hr/designations/designation-list.jsx"));
-const ZoikoHRDesignationStructure = lazy(() => import("./modules/zoiko-hr/designations/designation-structure.jsx"));
-const ZoikoHRDesignationReports = lazy(() => import("./modules/zoiko-hr/designations/reports.jsx"));
-const ZoikoHRDesignationSettings = lazy(() => import("./modules/zoiko-hr/designations/settings.jsx"));
+const ZoikoHRDesignationsDashboard = lazyRoute(() => import("./modules/zoiko-hr/designations/dashboard.jsx"));
+const ZoikoHRDesignationList = lazyRoute(() => import("./modules/zoiko-hr/designations/designation-list.jsx"));
+const ZoikoHRDesignationStructure = lazyRoute(() => import("./modules/zoiko-hr/designations/designation-structure.jsx"));
+const ZoikoHRDesignationReports = lazyRoute(() => import("./modules/zoiko-hr/designations/reports.jsx"));
+const ZoikoHRDesignationSettings = lazyRoute(() => import("./modules/zoiko-hr/designations/settings.jsx"));
 
-const PerformanceDashboard = lazy(() => import("./modules/zoiko-hr/performance/dashboard.jsx"));
-const GoalsOKRs = lazy(() => import("./modules/zoiko-hr/performance/goals.jsx"));
-const PerformanceReviews = lazy(() => import("./modules/zoiko-hr/performance/reviews.jsx"));
-const Appraisals = lazy(() => import("./modules/zoiko-hr/performance/appraisals.jsx"));
-const PerformanceAnalytics = lazy(() => import("./modules/zoiko-hr/performance/analytics.jsx"));
-const RecruitmentDashboard = lazy(() => import("./modules/zoiko-hr/recruitment/dashboard.jsx"));
-const JobRequisitions = lazy(() => import("./modules/zoiko-hr/recruitment/job-requisitions.jsx"));
-const Candidates = lazy(() => import("./modules/zoiko-hr/recruitment/candidates.jsx"));
-const Interviews = lazy(() => import("./modules/zoiko-hr/recruitment/interviews.jsx"));
-const OfferManagement = lazy(() => import("./modules/zoiko-hr/recruitment/offers.jsx"));
-const ZoikoHROnboardingDashboard = lazy(() => import("./modules/zoiko-hr/onboarding/dashboard.jsx"));
-const ZoikoHROnboardingNewHires = lazy(() => import("./modules/zoiko-hr/onboarding/new-hires.jsx"));
-const ZoikoHROnboardingPreOnboarding = lazy(() => import("./modules/zoiko-hr/onboarding/pre-onboarding.jsx"));
-const ZoikoHROnboardingDocuments = lazy(() => import("./modules/zoiko-hr/onboarding/documents.jsx"));
-const ZoikoHROnboardingChecklists = lazy(() => import("./modules/zoiko-hr/onboarding/checklists.jsx"));
-const ZoikoHROnboardingOrientation = lazy(() => import("./modules/zoiko-hr/onboarding/orientation.jsx"));
-const ZoikoHROnboardingReports = lazy(() => import("./modules/zoiko-hr/onboarding/reports.jsx"));
-const ZoikoHROnboardingSettings = lazy(() => import("./modules/zoiko-hr/onboarding/settings.jsx"));
-const ZoikoHRLearning = lazy(() => import("./modules/zoiko-hr/learning/learning.jsx"));
+const PerformanceDashboard = lazyRoute(() => import("./modules/zoiko-hr/performance/dashboard.jsx"));
+const GoalsOKRs = lazyRoute(() => import("./modules/zoiko-hr/performance/goals.jsx"));
+const PerformanceReviews = lazyRoute(() => import("./modules/zoiko-hr/performance/reviews.jsx"));
+const Appraisals = lazyRoute(() => import("./modules/zoiko-hr/performance/appraisals.jsx"));
+const PerformanceAnalytics = lazyRoute(() => import("./modules/zoiko-hr/performance/analytics.jsx"));
+const RecruitmentDashboard = lazyRoute(() => import("./modules/zoiko-hr/recruitment/dashboard.jsx"));
+const JobRequisitions = lazyRoute(() => import("./modules/zoiko-hr/recruitment/job-requisitions.jsx"));
+const Candidates = lazyRoute(() => import("./modules/zoiko-hr/recruitment/candidates.jsx"));
+const Interviews = lazyRoute(() => import("./modules/zoiko-hr/recruitment/interviews.jsx"));
+const OfferManagement = lazyRoute(() => import("./modules/zoiko-hr/recruitment/offers.jsx"));
+const ZoikoHROnboardingDashboard = lazyRoute(() => import("./modules/zoiko-hr/onboarding/dashboard.jsx"));
+const ZoikoHROnboardingNewHires = lazyRoute(() => import("./modules/zoiko-hr/onboarding/new-hires.jsx"));
+const ZoikoHROnboardingPreOnboarding = lazyRoute(() => import("./modules/zoiko-hr/onboarding/pre-onboarding.jsx"));
+const ZoikoHROnboardingDocuments = lazyRoute(() => import("./modules/zoiko-hr/onboarding/documents.jsx"));
+const ZoikoHROnboardingChecklists = lazyRoute(() => import("./modules/zoiko-hr/onboarding/checklists.jsx"));
+const ZoikoHROnboardingOrientation = lazyRoute(() => import("./modules/zoiko-hr/onboarding/orientation.jsx"));
+const ZoikoHROnboardingReports = lazyRoute(() => import("./modules/zoiko-hr/onboarding/reports.jsx"));
+const ZoikoHROnboardingSettings = lazyRoute(() => import("./modules/zoiko-hr/onboarding/settings.jsx"));
+const ZoikoHRLearning = lazyRoute(() => import("./modules/zoiko-hr/learning/learning.jsx"));
 
-const EssDashboard = lazy(() => import("./modules/zoiko-hr/ess/dashboard.jsx"));
-const EssProfile = lazy(() => import("./modules/zoiko-hr/ess/profile.jsx"));
-const EssLeaveManagement = lazy(() => import("./modules/zoiko-hr/ess/leave-management.jsx"));
-const EssAttendance = lazy(() => import("./modules/zoiko-hr/ess/attendance.jsx"));
-const EssMyDocuments = lazy(() => import("./modules/zoiko-hr/ess/my-documents.jsx"));
-const EssAssignedDocuments = lazy(() => import("./modules/zoiko-hr/ess/assigned-documents.jsx"));
-const EssRequests = lazy(() => import("./modules/zoiko-hr/ess/requests.jsx"));
-const EssSettings = lazy(() => import("./modules/zoiko-hr/ess/settings.jsx"));
+const EssDashboard = lazyRoute(() => import("./modules/zoiko-hr/ess/dashboard.jsx"));
+const EssProfile = lazyRoute(() => import("./modules/zoiko-hr/ess/profile.jsx"));
+const EssLeaveManagement = lazyRoute(() => import("./modules/zoiko-hr/ess/leave-management.jsx"));
+const EssAttendance = lazyRoute(() => import("./modules/zoiko-hr/ess/attendance.jsx"));
+const EssMyDocuments = lazyRoute(() => import("./modules/zoiko-hr/ess/my-documents.jsx"));
+const EssAssignedDocuments = lazyRoute(() => import("./modules/zoiko-hr/ess/assigned-documents.jsx"));
+const EssRequests = lazyRoute(() => import("./modules/zoiko-hr/ess/requests.jsx"));
+const EssSettings = lazyRoute(() => import("./modules/zoiko-hr/ess/settings.jsx"));
 
-const TravelDashboard = lazy(() => import("./modules/zoiko-hr/travel/dashboard.jsx"));
-const TravelRequests = lazy(() => import("./modules/zoiko-hr/travel/travel-requests.jsx"));
-const TravelApprovals = lazy(() => import("./modules/zoiko-hr/travel/approvals.jsx"));
-const TravelExpenses = lazy(() => import("./modules/zoiko-hr/travel/expenses.jsx"));
-const TravelSettings = lazy(() => import("./modules/zoiko-hr/travel/settings.jsx"));
+const TravelDashboard = lazyRoute(() => import("./modules/zoiko-hr/travel/dashboard.jsx"));
+const TravelRequests = lazyRoute(() => import("./modules/zoiko-hr/travel/travel-requests.jsx"));
+const TravelApprovals = lazyRoute(() => import("./modules/zoiko-hr/travel/approvals.jsx"));
+const TravelExpenses = lazyRoute(() => import("./modules/zoiko-hr/travel/expenses.jsx"));
+const TravelSettings = lazyRoute(() => import("./modules/zoiko-hr/travel/settings.jsx"));
 
 // Assets — lazy-load individual components (named exports, can't use barrel lazy)
-const AssetsDashboard = lazy(() => import("./modules/zoiko-hr/assets/assetsdashboard"));
-const MyAssets = lazy(() => import("./modules/zoiko-hr/assets/my-assets"));
-const AssetCatalog = lazy(() => import("./modules/zoiko-hr/assets/inventory"));
-const AssetRequests = lazy(() => import("./modules/zoiko-hr/assets/returns"));
-const AssetMaintenance = lazy(() => import("./modules/zoiko-hr/assets/maintenance"));
-const AssetReports = lazy(() => import("./modules/zoiko-hr/assets/reports"));
-const AssetSettings = lazy(() => import("./modules/zoiko-hr/assets/settings"));
+const AssetsDashboard = lazyRoute(() => import("./modules/zoiko-hr/assets/assetsdashboard"));
+const MyAssets = lazyRoute(() => import("./modules/zoiko-hr/assets/my-assets"));
+const AssetCatalog = lazyRoute(() => import("./modules/zoiko-hr/assets/inventory"));
+const AssetRequests = lazyRoute(() => import("./modules/zoiko-hr/assets/returns"));
+const AssetMaintenance = lazyRoute(() => import("./modules/zoiko-hr/assets/maintenance"));
+const AssetReports = lazyRoute(() => import("./modules/zoiko-hr/assets/reports"));
+const AssetSettings = lazyRoute(() => import("./modules/zoiko-hr/assets/settings"));
 
-const DocumentsDashboard = lazy(() => import("./modules/zoiko-hr/documents/dashboard.jsx"));
-const CompanyDocuments = lazy(() => import("./modules/zoiko-hr/documents/company-documents.jsx"));
-const ApprovalWorkflow = lazy(() => import("./modules/zoiko-hr/documents/approvals.jsx"));
+const DocumentsDashboard = lazyRoute(() => import("./modules/zoiko-hr/documents/dashboard.jsx"));
+const CompanyDocuments = lazyRoute(() => import("./modules/zoiko-hr/documents/company-documents.jsx"));
+const ApprovalWorkflow = lazyRoute(() => import("./modules/zoiko-hr/documents/approvals.jsx"));
 
-const ZoikoHRAttendanceDashboard = lazy(() => import("./modules/zoiko-hr/attendance/dashboard.jsx"));
-const ZoikoHRAttendanceDailyRecords = lazy(() => import("./modules/zoiko-hr/attendance/daily-records.jsx"));
-const ZoikoHRAttendanceLeaves = lazy(() => import("./modules/zoiko-hr/attendance/leave-management.jsx"));
-const ZoikoHRAttendanceShifts = lazy(() => import("./modules/zoiko-hr/attendance/shifts.jsx"));
-const ZoikoHRAttendanceHolidays = lazy(() => import("./modules/zoiko-hr/attendance/holidays.jsx"));
-const ZoikoHRAttendanceAnalytics = lazy(() => import("./modules/zoiko-hr/attendance/analytics.jsx"));
+const ZoikoHRAttendanceDashboard = lazyRoute(() => import("./modules/zoiko-hr/attendance/dashboard.jsx"));
+const ZoikoHRAttendanceDailyRecords = lazyRoute(() => import("./modules/zoiko-hr/attendance/daily-records.jsx"));
+const ZoikoHRAttendanceLeaves = lazyRoute(() => import("./modules/zoiko-hr/attendance/leave-management.jsx"));
+const ZoikoHRAttendanceShifts = lazyRoute(() => import("./modules/zoiko-hr/attendance/shifts.jsx"));
+const ZoikoHRAttendanceHolidays = lazyRoute(() => import("./modules/zoiko-hr/attendance/holidays.jsx"));
+const ZoikoHRAttendanceAnalytics = lazyRoute(() => import("./modules/zoiko-hr/attendance/analytics.jsx"));
 
-const WorkforceDashboard = lazy(() => import("./modules/zoiko-hr/workforce-planning/dashboard.jsx"));
-const WorkforcePlans = lazy(() => import("./modules/zoiko-hr/workforce-planning/plans.jsx"));
-const HeadcountPlanning = lazy(() => import("./modules/zoiko-hr/workforce-planning/headcount.jsx"));
-const Succession = lazy(() => import("./modules/zoiko-hr/workforce-planning/succession.jsx"));
-const WorkforceReports = lazy(() => import("./modules/zoiko-hr/workforce-planning/reports.jsx"));
+const WorkforceDashboard = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/dashboard.jsx"));
+const WorkforcePlans = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/plans.jsx"));
+const HeadcountPlanning = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/headcount.jsx"));
+const Succession = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/succession.jsx"));
+const WorkforceReports = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/reports.jsx"));
 
-const ZoikoHRCompDashboard = lazy(() => import("./modules/zoiko-hr/compensation/dashboard.jsx"));
-const ZoikoHRCompSalaryStructures = lazy(() => import("./modules/zoiko-hr/compensation/salary-structures.jsx"));
-const ZoikoHRCompPayGrades = lazy(() => import("./modules/zoiko-hr/compensation/pay-grades.jsx"));
-const ZoikoHRCompSalaryComponents = lazy(() => import("./modules/zoiko-hr/compensation/salary-components.jsx"));
-const ZoikoHRCompBands = lazy(() => import("./modules/zoiko-hr/compensation/compensation-bands.jsx"));
-const ZoikoHRCompRevisions = lazy(() => import("./modules/zoiko-hr/compensation/salary-revisions.jsx"));
-const ZoikoHRCompAllowances = lazy(() => import("./modules/zoiko-hr/compensation/allowances.jsx"));
-const ZoikoHRCompBenefits = lazy(() => import("./modules/zoiko-hr/compensation/benefits.jsx"));
+const ZoikoHRCompDashboard = lazyRoute(() => import("./modules/zoiko-hr/compensation/dashboard.jsx"));
+const ZoikoHRCompSalaryStructures = lazyRoute(() => import("./modules/zoiko-hr/compensation/salary-structures.jsx"));
+const ZoikoHRCompPayGrades = lazyRoute(() => import("./modules/zoiko-hr/compensation/pay-grades.jsx"));
+const ZoikoHRCompSalaryComponents = lazyRoute(() => import("./modules/zoiko-hr/compensation/salary-components.jsx"));
+const ZoikoHRCompBands = lazyRoute(() => import("./modules/zoiko-hr/compensation/compensation-bands.jsx"));
+const ZoikoHRCompRevisions = lazyRoute(() => import("./modules/zoiko-hr/compensation/salary-revisions.jsx"));
+const ZoikoHRCompAllowances = lazyRoute(() => import("./modules/zoiko-hr/compensation/allowances.jsx"));
+const ZoikoHRCompBenefits = lazyRoute(() => import("./modules/zoiko-hr/compensation/benefits.jsx"));
 
-const ZoikoHRDashboard = lazy(() => import("./pages/Peoples/Employees/EmployeeManagement/dashboard.jsx"));
-const ZoikoHREmployees = lazy(() => import("./pages/Peoples/Employees/EmployeeManagement/employees.jsx"));
-const ZoikoHRProfile = lazy(() => import("./pages/Peoples/Employees/EmployeeManagement/profile.jsx"));
-const ZoikoHROrgChart = lazy(() => import("./pages/Peoples/Employees/EmployeeManagement/organization.jsx"));
-const ZoikoHRLifecycle = lazy(() => import("./pages/Peoples/Employees/EmployeeManagement/lifecycle.jsx"));
-const ZoikoHRReports = lazy(() => import("./pages/Peoples/Employees/EmployeeManagement/reports.jsx"));
+const ZoikoHRDashboard = lazyRoute(() => import("./pages/Peoples/Employees/EmployeeManagement/dashboard.jsx"));
+const ZoikoHREmployees = lazyRoute(() => import("./pages/Peoples/Employees/EmployeeManagement/employees.jsx"));
+const ZoikoHRProfile = lazyRoute(() => import("./pages/Peoples/Employees/EmployeeManagement/profile.jsx"));
+const ZoikoHROrgChart = lazyRoute(() => import("./pages/Peoples/Employees/EmployeeManagement/organization.jsx"));
+const ZoikoHRLifecycle = lazyRoute(() => import("./pages/Peoples/Employees/EmployeeManagement/lifecycle.jsx"));
+const ZoikoHRReports = lazyRoute(() => import("./pages/Peoples/Employees/EmployeeManagement/reports.jsx"));
 
-const OrgAdminDashboardPage = lazy(() => import("./modules/organization-admin/DashboardPage"));
-const OrgAdminOrganizationPage = lazy(() => import("./modules/organization-admin/OrganizationPage"));
-const OrgAdminAssetRequestsPage = lazy(() => import("./modules/organization-admin/AssetRequestsPage"));
-const OrgAdminAssetsPage = lazy(() => import("./modules/organization-admin/AssetsPage"));
-const OrgAdminEmployeeDocumentsPage = lazy(() => import("./modules/organization-admin/EmployeeDocumentsPage"));
-const OrgAdminUserManagementPage = lazy(() => import("./modules/organization-admin/UserManagementPage"));
-const OrgAdminMetricsPage = lazy(() => import("./modules/organization-admin/MetricsPage"));
-const OrgAdminPayrollGuidancePage = lazy(() => import("./modules/organization-admin/PayrollGuidancePage"));
+const OrgAdminDashboardPage = lazyRoute(() => import("./modules/organization-admin/DashboardPage"));
+const OrgAdminOrganizationPage = lazyRoute(() => import("./modules/organization-admin/OrganizationPage"));
+const OrgAdminAssetRequestsPage = lazyRoute(() => import("./modules/organization-admin/AssetRequestsPage"));
+const OrgAdminAssetsPage = lazyRoute(() => import("./modules/organization-admin/AssetsPage"));
+const OrgAdminEmployeeDocumentsPage = lazyRoute(() => import("./modules/organization-admin/EmployeeDocumentsPage"));
+const OrgAdminUserManagementPage = lazyRoute(() => import("./modules/organization-admin/UserManagementPage"));
+const OrgAdminMetricsPage = lazyRoute(() => import("./modules/organization-admin/MetricsPage"));
+const OrgAdminPayrollGuidancePage = lazyRoute(() => import("./modules/organization-admin/PayrollGuidancePage"));
+const OrgAdminBillingPlanPage = lazyRoute(() => import("./modules/organization-admin/BillingPlanPage"));
+const OrgAdminPayInvoicePage = lazyRoute(() => import("./modules/organization-admin/PayInvoicePage"));
 
-const HrAdminDashboardPage = lazy(() => import("./modules/hr-admin/DashboardPage"));
-const HrAdminOrganizationPage = lazy(() => import("./modules/hr-admin/OrganizationPage"));
+const HrAdminDashboardPage = lazyRoute(() => import("./modules/hr-admin/DashboardPage"));
+const HrAdminOrganizationPage = lazyRoute(() => import("./modules/hr-admin/OrganizationPage"));
 
-const SuperAdminDashboardPage = lazy(() => import("./modules/super-admin/DashboardPage"));
-const SuperAdminOrganizationsPage = lazy(() => import("./modules/super-admin/OrganizationsPage"));
-const SuperAdminAuditLogsPage = lazy(() => import("./modules/super-admin/AuditLogsPage"));
-const SuperAdminPlatformSettingsPage = lazy(() => import("./modules/super-admin/PlatformSettingsPage"));
-const NotificationCenter = lazy(() => import("./modules/super-admin/NotificationCenter"));
-const OrganizationDetailPage = lazy(() => import("./modules/super-admin/OrganizationDetailPage"));
-const SuperAdminAccessPage = lazy(() => import("./modules/super-admin/AccessPage"));
-const SuperAdminBillingOverviewPage = lazy(() => import("./modules/super-admin/BillingOverviewPage"));
-const SuperAdminBillingPlansPage = lazy(() => import("./modules/super-admin/BillingPlansPage"));
-const SuperAdminBillingDiscountsPage = lazy(() => import("./modules/super-admin/BillingDiscountsPage"));
-const SuperAdminBillingPlanChangesPage = lazy(() => import("./modules/super-admin/BillingPlanChangesPage"));
-const SuperAdminBillingRefundsPage = lazy(() => import("./modules/super-admin/BillingRefundsPage"));
+const SuperAdminDashboardPage = lazyRoute(() => import("./modules/super-admin/DashboardPage"));
+const SuperAdminOrganizationsPage = lazyRoute(() => import("./modules/super-admin/OrganizationsPage"));
+const SuperAdminAuditLogsPage = lazyRoute(() => import("./modules/super-admin/AuditLogsPage"));
+const NotificationCenter = lazyRoute(() => import("./modules/super-admin/NotificationCenter"));
+const NotificationsPage = lazyRoute(() => import("./pages/NotificationsPage"));
+const OrganizationDetailPage = lazyRoute(() => import("./modules/super-admin/OrganizationDetailPage"));
+const SuperAdminAccessPage = lazyRoute(() => import("./modules/super-admin/AccessPage"));
+const SuperAdminBillingOverviewPage = lazyRoute(() => import("./modules/super-admin/BillingOverviewPage"));
+const SuperAdminBillingPlansPage = lazyRoute(() => import("./modules/super-admin/BillingPlansPage"));
+const SuperAdminBillingDiscountsPage = lazyRoute(() => import("./modules/super-admin/BillingDiscountsPage"));
+const SuperAdminBillingPlanChangesPage = lazyRoute(() => import("./modules/super-admin/BillingPlanChangesPage"));
+const SuperAdminBillingRefundsPage = lazyRoute(() => import("./modules/super-admin/BillingRefundsPage"));
+const SuperAdminBillingEvaluationsPage = lazyRoute(() => import("./modules/super-admin/BillingEvaluationsPage"));
+const SuperAdminBillingInvoicesPage = lazyRoute(() => import("./modules/super-admin/BillingInvoicesPage"));
+const SuperAdminBillingDelinquencyPage = lazyRoute(() => import("./modules/super-admin/BillingDelinquencyPage"));
+const SuperAdminBillingWebhookEventsPage = lazyRoute(() => import("./modules/super-admin/BillingWebhookEventsPage"));
+const SuperAdminBillingReconciliationPage = lazyRoute(() => import("./modules/super-admin/BillingReconciliationPage"));
+const SuperAdminSupportAccessPage = lazyRoute(() => import("./modules/super-admin/SupportAccessPage"));
 
-const DashboardPage = lazy(() => import("./modules/platform/DashboardPage"));
-const OrganizationsPage = lazy(() => import("./modules/platform/OrganizationsPage"));
-const SubscriptionsPage = lazy(() => import("./modules/platform/SubscriptionsPage"));
+const DashboardPage = lazyRoute(() => import("./modules/platform/DashboardPage"));
+const OrganizationsPage = lazyRoute(() => import("./modules/platform/OrganizationsPage"));
+const SubscriptionsPage = lazyRoute(() => import("./modules/platform/SubscriptionsPage"));
 
-const ZoikoIdPage = lazy(() => import("./modules/shared-layers/ZoikoIdPage"));
-const ZoikoWorkflowPage = lazy(() => import("./modules/shared-layers/ZoikoWorkflowPage"));
-const ZoikoHubPage = lazy(() => import("./modules/shared-layers/ZoikoHubPage"));
-const ZoikoConnectPageModule = lazy(() => import("./modules/shared-layers/ZoikoConnectPage"));
-const DocumentsPage = lazy(() => import("./modules/shared-layers/DocumentsPage"));
-const ApprovalsPage = lazy(() => import("./modules/shared-layers/ApprovalsPage"));
-const ExpensesPage = lazy(() => import("./modules/shared-layers/ExpensesPage"));
-const AdminKnowledgePage = lazy(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
-const AdminHandoffsPage = lazy(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
-const AssistantLauncher = lazy(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
-const UserManagementPage = lazy(() => import("./modules/settings/UserManagementPage"));
+const ZoikoIdPage = lazyRoute(() => import("./modules/shared-layers/ZoikoIdPage"));
+const ZoikoWorkflowPage = lazyRoute(() => import("./modules/shared-layers/ZoikoWorkflowPage"));
+const ZoikoHubPage = lazyRoute(() => import("./modules/shared-layers/ZoikoHubPage"));
+const ZoikoConnectPageModule = lazyRoute(() => import("./modules/shared-layers/ZoikoConnectPage"));
+const DocumentsPage = lazyRoute(() => import("./modules/shared-layers/DocumentsPage"));
+const ExpensesPage = lazyRoute(() => import("./modules/shared-layers/ExpensesPage"));
+const AdminKnowledgePage = lazyRoute(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
+const AdminHandoffsPage = lazyRoute(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
+const SuperAdminKnowledgePage = lazyRoute(() => import("./modules/shared-layers/assistant/SuperAdminKnowledgePage"));
+const SuperAdminSupportTicketsPage = lazyRoute(() => import("./modules/shared-layers/assistant/SuperAdminSupportTicketsPage"));
+const AssistantLauncher = lazyRoute(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
+const UserManagementPage = lazyRoute(() => import("./modules/settings/UserManagementPage"));
 
 // ─────────────────────────────────────────────────────────────────────────────
 // EMPLOYEE WORKSPACE — src/pages/Peoples/Employees/
@@ -210,37 +213,38 @@ const UserManagementPage = lazy(() => import("./modules/settings/UserManagementP
 // ─────────────────────────────────────────────────────────────────────────────
 
 // Profile folder
-const EmployeeProfilePage = lazy(() => import("./pages/Peoples/Employees/Profile/EmployeeProfile.jsx"));
-const EmployeeBankDetails = lazy(() => import("./pages/Peoples/Employees/Profile/Employee_BankDetails.jsx"));
-const EmployeeAssetDetails = lazy(() => import("./pages/Peoples/Employees/Profile/Employee_AssetDetails.jsx"));
-const EmployeeEmergencyContacts = lazy(() => import("./pages/Peoples/Employees/Profile/Employee_EmergencyContacts.jsx"));
-const EmployeeSecuritySettings = lazy(() => import("./pages/Peoples/Employees/Profile/Employee_settings.jsx"));
+const EmployeeProfilePage = lazyRoute(() => import("./pages/Peoples/Employees/Profile/EmployeeProfile.jsx"));
+const EmployeeBankDetails = lazyRoute(() => import("./pages/Peoples/Employees/Profile/Employee_BankDetails.jsx"));
+const EmployeeAssetDetails = lazyRoute(() => import("./pages/Peoples/Employees/Profile/Employee_AssetDetails.jsx"));
+const EmployeeEmergencyContacts = lazyRoute(() => import("./pages/Peoples/Employees/Profile/Employee_EmergencyContacts.jsx"));
+const EmployeeSecuritySettings = lazyRoute(() => import("./pages/Peoples/Employees/Profile/Employee_settings.jsx"));
 
 // ESS folder
-const EmployeeEssDashboard = lazy(() => import("./pages/Peoples/Employees/ESS/Employee_EssDashboard.jsx"));
-const EmployeeEssAttendance = lazy(() => import("./pages/Peoples/Employees/ESS/Employee_EssAttendance.jsx"));
-const EmployeeEssRequests = lazy(() => import("./pages/Peoples/Employees/ESS/EmployeeLearning.jsx"));
-const EmployeeEssSettings = lazy(() => import("./pages/Peoples/Employees/ESS/Employee_EssSettings.jsx"));
+const EmployeeEssDashboard = lazyRoute(() => import("./pages/Peoples/Employees/ESS/Employee_EssDashboard.jsx"));
+const EmployeeEssAttendance = lazyRoute(() => import("./pages/Peoples/Employees/ESS/Employee_EssAttendance.jsx"));
+const EmployeeEssSettings = lazyRoute(() => import("./pages/Peoples/Employees/ESS/Employee_EssSettings.jsx"));
+
+// Learning folder
+const EmployeeLearningModule = lazyRoute(() => import("./pages/Peoples/Employees/Learning/EmployeeLearningModule.jsx"));
 
 // Leaves folder
-const EmployeeMyLeave = lazy(() => import("./pages/Peoples/Employees/Leaves/Employee_MyLeaveDashboard.jsx"));
-const EmployeeApplyLeave = lazy(() => import("./pages/Peoples/Employees/Leaves/Employee_ApplyLeaveForm.jsx"));
-const EmployeeLeaveCalendar = lazy(() => import("./pages/Peoples/Employees/Leaves/Employee_LeaveCalendar.jsx"));
-const EmployeeLeaveHistory = lazy(() => import("./pages/Peoples/Employees/Leaves/Employee_LeaveHistory.jsx"));
+const EmployeeMyLeave = lazyRoute(() => import("./pages/Peoples/Employees/Leaves/Employee_MyLeaveDashboard.jsx"));
+const EmployeeApplyLeave = lazyRoute(() => import("./pages/Peoples/Employees/Leaves/Employee_ApplyLeaveForm.jsx"));
+const EmployeeLeaveCalendar = lazyRoute(() => import("./pages/Peoples/Employees/Leaves/Employee_LeaveCalendar.jsx"));
+const EmployeeLeaveHistory = lazyRoute(() => import("./pages/Peoples/Employees/Leaves/Employee_LeaveHistory.jsx"));
 // Documents folder
-const EmployeeMyFiles = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_MyFiles.jsx"));
-const EmployeePayslips = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_Payslips.jsx"));
-const EmployeeOfferContracts = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_OfferContracts.jsx"));
-const EmployeeTaxCompliance = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_TaxCompliance.jsx"));
-const EmployeeUploadRequest = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_UploadRequest.jsx"));
-const EmployeeCompanyDocuments = lazy(() => import("./pages/Peoples/Employees/Documents/Employee_CompanyDocuments.jsx"));
+const EmployeeMyFiles = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_MyFiles.jsx"));
+const EmployeePayslips = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_Payslips.jsx"));
+const EmployeeOfferContracts = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_OfferContracts.jsx"));
+const EmployeeTaxCompliance = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_TaxCompliance.jsx"));
+const EmployeeCompanyDocuments = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_CompanyDocuments.jsx"));
 
 // Travel folder
-const EmployeeTravelDashboard = lazy(() => import("./pages/Peoples/Employees/Travel/Employee_TravelDashboard.jsx"));
-const EmployeeTravelRequests = lazy(() => import("./pages/Peoples/Employees/Travel/Employee_TravelRequests.jsx"));
-const EmployeeTravelApprovals = lazy(() => import("./pages/Peoples/Employees/Travel/Employee_TravelApprovals.jsx"));
-const EmployeeTravelExpenses = lazy(() => import("./pages/Peoples/Employees/Travel/Employee_TravelExpenses.jsx"));
-const EmployeeTravelSettings = lazy(() => import("./pages/Peoples/Employees/Travel/Employee_TravelSettings.jsx"));
+const EmployeeTravelDashboard = lazyRoute(() => import("./pages/Peoples/Employees/Travel/Employee_TravelDashboard.jsx"));
+const EmployeeTravelRequests = lazyRoute(() => import("./pages/Peoples/Employees/Travel/Employee_TravelRequests.jsx"));
+const EmployeeTravelApprovals = lazyRoute(() => import("./pages/Peoples/Employees/Travel/Employee_TravelApprovals.jsx"));
+const EmployeeTravelExpenses = lazyRoute(() => import("./pages/Peoples/Employees/Travel/Employee_TravelExpenses.jsx"));
+const EmployeeTravelSettings = lazyRoute(() => import("./pages/Peoples/Employees/Travel/Employee_TravelSettings.jsx"));
 
 const routeOverrides = {
   "/dashboard": <DashboardPage />,
@@ -251,7 +255,6 @@ const routeOverrides = {
   "/shared/hub": <ZoikoHubPage />,
   "/shared/connect": <ZoikoConnectPageModule />,
   "/shared/documents": <DocumentsPage />,
-  "/shared/approvals": <ApprovalsPage />,
   "/shared/expenses": <ExpensesPage />,
   "/zoiko-hr": <ZoikoHRModule />,
   // Departments
@@ -278,7 +281,7 @@ const routeOverrides = {
   "/zoiko-hr/attendance/shifts": <ZoikoHRAttendanceShifts />,
   "/zoiko-hr/attendance/holidays": <ZoikoHRAttendanceHolidays />,
   "/zoiko-hr/attendance/analytics": <ZoikoHRAttendanceAnalytics />,
-  "/zoiko-hr/performance": <PerformanceDashboard />,
+  "/zoiko-hr/performance": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceDashboard /></PlanGate>,
   "/zoiko-hr/recruitment": <RecruitmentDashboard />,
   "/zoiko-hr/onboarding": <ZoikoHROnboardingDashboard />,
   "/zoiko-hr/onboarding/new-hires": <ZoikoHROnboardingNewHires />,
@@ -339,10 +342,10 @@ const routeOverrides = {
   "/zoiko-hr/recruitment/interviews": <Interviews />,
   "/zoiko-hr/recruitment/offers": <OfferManagement />,
   // Performance
-  "/zoiko-hr/performance/goals": <GoalsOKRs />,
-  "/zoiko-hr/performance/reviews": <PerformanceReviews />,
-  "/zoiko-hr/performance/appraisals": <Appraisals />,
-  "/zoiko-hr/performance/analytics": <PerformanceAnalytics />,
+  "/zoiko-hr/performance/goals": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><GoalsOKRs /></PlanGate>,
+  "/zoiko-hr/performance/reviews": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceReviews /></PlanGate>,
+  "/zoiko-hr/performance/appraisals": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><Appraisals /></PlanGate>,
+  "/zoiko-hr/performance/analytics": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceAnalytics /></PlanGate>,
   // Documents
   "/zoiko-hr/documents": <DocumentsDashboard />,
   "/zoiko-hr/documents/company-documents": <CompanyDocuments />,
@@ -364,6 +367,8 @@ const routeOverrides = {
   "/organization-admin/users": <OrgAdminUserManagementPage />,
   "/organization-admin/metrics": <OrgAdminMetricsPage />,
   "/organization-admin/payroll-guidance": <OrgAdminPayrollGuidancePage />,
+  "/organization-admin/billing-and-plan": <OrgAdminBillingPlanPage />,
+  "/organization-admin/pay-invoice": <OrgAdminPayInvoicePage />,
   // HR Admin
   "/hr-admin/dashboard": <HrAdminDashboardPage />,
   "/hr-admin/my-organization": <HrAdminOrganizationPage />,
@@ -388,8 +393,10 @@ const routeOverrides = {
   "/super-admin/organizations/:orgId": <OrganizationDetailPage />,
   "/super-admin/access": <SuperAdminAccessPage />,
   "/super-admin/audit-logs": <SuperAdminAuditLogsPage />,
-  "/super-admin/settings": <SuperAdminPlatformSettingsPage />,
+  "/super-admin/demo-requests": <SuperAdminSalesRequestsPage />,
+  "/super-admin/pricing-requests": <SuperAdminSalesRequestsPage />,
   "/super-admin/notifications": <NotificationCenter />,
+  "/shared/notifications": <NotificationsPage />,
 
   // Super Admin — Billing & Subscription
   "/super-admin/billing": <SuperAdminBillingOverviewPage />,
@@ -397,6 +404,18 @@ const routeOverrides = {
   "/super-admin/billing/discounts": <SuperAdminBillingDiscountsPage />,
   "/super-admin/billing/plan-changes": <SuperAdminBillingPlanChangesPage />,
   "/super-admin/billing/refunds": <SuperAdminBillingRefundsPage />,
+  "/super-admin/billing/evaluations": <SuperAdminBillingEvaluationsPage />,
+  "/super-admin/billing/invoices": <SuperAdminBillingInvoicesPage />,
+  "/super-admin/billing/delinquency": <SuperAdminBillingDelinquencyPage />,
+
+  // Super Admin — Payments & Reconciliation
+  "/super-admin/billing/webhook-events": <SuperAdminBillingWebhookEventsPage />,
+  "/super-admin/billing/reconciliation": <SuperAdminBillingReconciliationPage />,
+
+  // Super Admin — Access & Security
+  "/super-admin/assistant-knowledge": <SuperAdminKnowledgePage />,
+  "/super-admin/support-tickets": <SuperAdminSupportTicketsPage />,
+  "/super-admin/support-access": <SuperAdminSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMPLOYEE WORKSPACE — /employee/* routes (role: employee only)
@@ -411,9 +430,16 @@ const routeOverrides = {
 
   // ESS
   "/employee/ess":            <EmployeeEssDashboard />,
+  "/employee/ess-dashboard":  <Navigate to="/employee/ess" replace />,
   "/employee/ess/attendance": <EmployeeEssAttendance />,
-  "/employee/ess/requests":   <EmployeeEssRequests />,
+  "/employee/ess/requests":   <Navigate to="/employee/learning" replace />,
   "/employee/ess/settings":   <EmployeeEssSettings />,
+
+  // Learning
+  "/employee/learning":                   <EmployeeLearningModule />,
+  "/employee/learning/courses":           <EmployeeLearningModule />,
+  "/employee/learning/training-programs": <EmployeeLearningModule />,
+  "/employee/learning/assessments":       <EmployeeLearningModule />,
 
   // Leaves
   "/employee/leaves":          <EmployeeMyLeave />,
@@ -426,7 +452,6 @@ const routeOverrides = {
   "/employee/documents/payslips":       <EmployeePayslips />,
   "/employee/documents/contracts":      <EmployeeOfferContracts />,
   "/employee/documents/tax":            <EmployeeTaxCompliance />,
-  "/employee/documents/upload-request": <EmployeeUploadRequest />,
 
   // Travel
   "/employee/travel":           <EmployeeTravelDashboard />,
@@ -435,6 +460,9 @@ const routeOverrides = {
   "/employee/travel/expenses":  <EmployeeTravelExpenses />,
   "/employee/travel/settings":  <EmployeeTravelSettings />,
 };
+
+// the sidebar prefetches a page's code chunk (and first data) when its link is hovered or focused
+registerRoutes(routeOverrides);
 
 function ScrollToTop() {
   const { pathname, hash } = useLocation();
@@ -452,7 +480,6 @@ export default function App() {
     ...flatRoutes.map(r => routePath(r.href)).filter(Boolean)
   ]));
 
-  const flatRouteMap = new Map(flatRoutes.map(r => [routePath(r.href), r]));
 
   function getAllowedRolesForPath(path) {
     return Object.keys(ROLE_ALLOWED_PREFIXES).filter((role) => {
@@ -476,43 +503,49 @@ export default function App() {
         <Route path="/" element={<Navigate to="/login" replace />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+        <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/terms" element={<TermsPage />} />
+        <Route path="/hr-products" element={<HrProductsPage />} />
+        <Route path="/request-pricing" element={<RequestPricingPage />} />
+        <Route path="/book-demo" element={<BookDemoPage />} />
+        <Route path="/get-demo" element={<Navigate to="/book-demo" replace />} />
+        <Route path="/verify-email" element={<VerifyEmailPage />} />
+        <Route path="/quotation/decide" element={<QuotationDecisionPage />} />
+        <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/register/success" element={<RegistrationSuccessPage />} />
 
-        {allPaths.map((path) => {
-          let element = routeOverrides[path];
-          const routeInfo = flatRouteMap.get(path);
-          const label = routeInfo ? routeInfo.label : path.split('/').pop();
-          const badge = routeInfo ? routeInfo.badge : null;
+        {/* Every signed-in page lives under one layout route: the shell (sidebar + header) renders once and the page
+            changes inside its <Outlet />. Each page keeps its own error boundary and its own role check. */}
+        <Route element={<AppLayout />}>
+          {allPaths.map((path) => {
+            let element = routeOverrides[path];
 
-          if (!element) {
-            element = (
-              <PagePlaceholderFallback
-                title={label}
+            if (!element) {
+              // No page built for this route: send the user home instead of a placeholder (ZHR-21).
+              element = <Navigate to="/super-admin/dashboard" replace />;
+            }
+
+            const allowedRoles = getAllowedRolesForPath(path);
+
+            return (
+              <Route
+                key={path}
                 path={path}
-                badge={badge}
+                element={
+                  <RouteBoundary>
+                    <ProtectedRoute allowedRoles={allowedRoles}>
+                      {element}
+                    </ProtectedRoute>
+                  </RouteBoundary>
+                }
               />
             );
-          }
+          })}
+        </Route>
 
-          const allowedRoles = getAllowedRolesForPath(path);
-
-          return (
-            <Route
-              key={path}
-              path={path}
-              element={
-                <ErrorBoundary>
-                  <ProtectedRoute allowedRoles={allowedRoles}>
-                    <SuperAdminShell>
-                      {element}
-                    </SuperAdminShell>
-                  </ProtectedRoute>
-                </ErrorBoundary>
-              }
-            />
-          );
-        })}
+        {/* Platform Settings page was removed (ZHR-18): keep old bookmarks working. */}
+        <Route path="/super-admin/settings" element={<Navigate to="/super-admin/dashboard" replace />} />
 
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>

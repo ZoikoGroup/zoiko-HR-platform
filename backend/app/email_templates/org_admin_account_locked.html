@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Account access locked" %}
+{% set preheader = "Your Zoiko HR account has been locked following security rules." %}
+{% set badge = "Locked" %}
+{% set badge_tone = "danger" %}
+{% set footer_reason %}You are receiving this security notification because it concerns your Zoiko HR account.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Account access locked</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Your account was locked after repeated unsuccessful access attempts or an authorized security action. Please follow the secure recovery process to restore access.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Account email", email, first=True) }}
+{{ ui.detail_row("Action required", "Password / account recovery") }}
+{% endcall %}
+{{ ui.button(action_url, "Restore account access") }}
+{{ ui.signoff() }}
+{% endblock %}

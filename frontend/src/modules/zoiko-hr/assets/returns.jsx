@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
 import { getAssetRequests, createAssetRequest, approveAssetRequest, rejectAssetRequest, fulfillAssetRequest, cancelAssetRequest } from "../../../service/hrService";
+import { formatDate } from "../../../utils/dateTime";
 
 const PRIORITY_OPTIONS = [
   { value: "low", label: "Low" }, { value: "medium", label: "Medium" },
@@ -194,8 +195,8 @@ export default function Returns() {
                       <td className="px-4 py-3 text-sm text-gray-700">{qty}</td>
                       <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${PRIORITY_COLORS[priority] || "bg-gray-100 text-gray-700"}`}>{priority}</span></td>
                       <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[status] || "bg-gray-100 text-gray-800"}`}>{status}</span></td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{reqOn ? new Date(reqOn).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : "-"}</td>
-                      <td className="px-4 py-3 text-sm text-gray-500">{appOn ? new Date(appOn).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }) : <span className="text-gray-300">-</span>}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{reqOn ? formatDate(reqOn) : "-"}</td>
+                      <td className="px-4 py-3 text-sm text-gray-500">{appOn ? formatDate(appOn) : <span className="text-gray-300">-</span>}</td>
                       <td className="px-4 py-3 text-right">
                         <div className="flex items-center justify-end gap-1">
                           {status === "pending" && (

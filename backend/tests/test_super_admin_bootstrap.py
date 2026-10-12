@@ -12,16 +12,17 @@ instance, e.g. the `pgvector/pgvector:pg16` service used in CI.
 """
 
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.main import app
 
-
 @pytest.fixture
 def client():
-    with TestClient(app) as c:
-        yield c
+    with patch("app.main.initialize_database"):
+        with TestClient(app) as c:
+            yield c
 
 
 def test_bootstrap_disabled_when_setup_key_unset(client, monkeypatch):
@@ -43,10 +44,12 @@ def test_bootstrap_rejects_wrong_key(client, monkeypatch):
 
 
 def test_bootstrap_succeeds_with_correct_key(client, monkeypatch):
+    import uuid
+    unique_email = f"sa3_{uuid.uuid4().hex[:8]}@example.com"
     monkeypatch.setattr(settings, "SUPER_ADMIN_SETUP_KEY", "correct-key")
     response = client.post(
         "/super-admin/bootstrap",
-        json={"setup_key": "correct-key", "email": "sa3@example.com", "password": "pw"},
+        json={"setup_key": "correct-key", "email": unique_email, "password": "pw"},
     )
     assert response.status_code == 200
     assert response.json()["created"] is True

@@ -6,6 +6,8 @@ import {
   updatePayGrade,
   deletePayGrade,
 } from "../../../service/hrService";
+import { formatDate, formatDateTime } from "../../../utils/dateTime";
+import { submitOnEnter, ENTER_HINT } from "../../../utils/submitOnEnter";
 
 const ITEMS_PER_PAGE = 8;
 
@@ -251,7 +253,7 @@ export default function PayGradesPage() {
                         <td className="px-4 py-3 text-gray-700">${parseFloat(g.min_salary || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-gray-700">${parseFloat(g.max_salary || 0).toLocaleString()}</td>
                         <td className="px-4 py-3 text-gray-700">{g.description || <span className="text-gray-300">-</span>}</td>
-                        <td className="px-4 py-3 text-gray-700">{g.created_at ? new Date(g.created_at).toLocaleDateString() : <span className="text-gray-300">-</span>}</td>
+                        <td className="px-4 py-3 text-gray-700">{g.created_at ? formatDate(g.created_at) : <span className="text-gray-300">-</span>}</td>
                         <td className="px-4 py-3 text-right">
                           <div className="flex items-center justify-end gap-1">
                             <button
@@ -359,12 +361,13 @@ export default function PayGradesPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
+                <textarea onKeyDown={submitOnEnter}
                   rows={2}
                   value={formData.description}
                   onChange={(e) => setFormData({ ...formData, description: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">{ENTER_HINT}</p>
               </div>
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowCreateModal(false); resetForm(); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
@@ -424,15 +427,16 @@ export default function PayGradesPage() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Description</label>
-                <textarea
+                <textarea onKeyDown={submitOnEnter}
                   rows={2}
                   value={editForm.description}
                   onChange={(e) => setEditForm({ ...editForm, description: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
+                <p className="text-[11px] text-gray-400 mt-1">{ENTER_HINT}</p>
               </div>
               {editItem.created_at && (
-                <div className="text-xs text-gray-400">Created: {new Date(editItem.created_at).toLocaleString()}</div>
+                <div className="text-xs text-gray-400">Created: {formatDateTime(editItem.created_at)}</div>
               )}
               <div className="flex justify-end gap-3 pt-2">
                 <button type="button" onClick={() => { setShowEditModal(false); setEditItem(null); }} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>

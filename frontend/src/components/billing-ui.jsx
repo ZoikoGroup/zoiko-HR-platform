@@ -36,6 +36,7 @@ import {
   Clock,
   Paperclip,
 } from "lucide-react";
+import { formatDateTime } from "../utils/dateTime";
 
 /* ------------------------------------------------------------------ *
  * Button
@@ -646,7 +647,7 @@ function formatTimelineTimestamp(value) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
-  return date.toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  return formatDateTime(date);
 }
 
 const TIMELINE_ICON_RULES = [

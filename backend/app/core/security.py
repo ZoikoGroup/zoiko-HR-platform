@@ -72,8 +72,10 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
             minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
         )
 
-    # Add expiry to the token payload
+    # Add expiry (and issue time, used to reject tokens that predate a
+    # password reset) to the token payload
     to_encode.update({"exp": expire})
+    to_encode.setdefault("iat", int(datetime.now(timezone.utc).timestamp()))
 
     # Encode everything into a JWT string using our secret key
     encoded_jwt = jwt.encode(
@@ -82,6 +84,20 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -
         algorithm=settings.ALGORITHM,
     )
     return encoded_jwt
+
+
+def token_predates_password_change(payload: dict, user) -> bool:
+    """True when the token was issued before the user's last password reset.
+
+    Tokens carry `iat` (whole seconds). A token without `iat` predates this
+    feature, so it is treated as issued at time 0 and dies on the first reset.
+    Tokens issued in the same second as the reset stay valid (second resolution).
+    """
+    changed = getattr(user, "password_changed_at", None)
+    if not changed:
+        return False
+    changed_ts = int(changed.replace(tzinfo=timezone.utc).timestamp())
+    return int(payload.get("iat") or 0) < changed_ts
 
 
 # ── JWT Token Verification ────────────────────────────────────────────────────

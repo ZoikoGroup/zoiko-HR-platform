@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { MessageSquare, Trash2, Pencil, Check, X, ChevronLeft } from "lucide-react";
+import { formatDate, formatTime } from "../../../utils/dateTime";
 
 function timeLabel(iso) {
   if (!iso) return "";
@@ -7,8 +8,8 @@ function timeLabel(iso) {
   const now = new Date();
   const sameDay = d.toDateString() === now.toDateString();
   return sameDay
-    ? d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-    : d.toLocaleDateString([], { month: "short", day: "numeric" });
+    ? formatTime(d)
+    : formatDate(d);
 }
 
 /**

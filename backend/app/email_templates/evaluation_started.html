@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Evaluation workspace active" %}
+{% set preheader = "Your Zoiko HR evaluation workspace is active." %}
+{% set badge = "Active" %}
+{% set badge_tone = "success" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Evaluation workspace active</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> team,</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">The evaluation workspace for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> is active until {{ evaluation_end_date }}. You can now begin testing approved product functionality.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Evaluation ends", evaluation_end_date) }}
+{% endcall %}
+{{ ui.button(action_url, "Open evaluation workspace") }}
+{{ ui.signoff() }}
+{% endblock %}

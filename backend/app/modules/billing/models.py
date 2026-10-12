@@ -59,6 +59,7 @@ class BillingClassification(str, enum.Enum):
 
 class SubscriptionStatus(str, enum.Enum):
     EVALUATION = "evaluation"
+    EVALUATION_EXPIRED = "evaluation_expired"
     ACTIVE = "active"
     PAST_DUE = "past_due"
     RESTRICTED = "restricted"
@@ -131,12 +132,14 @@ class BillingAuditAction(str, enum.Enum):
     SUBSCRIPTION_UPGRADED = "subscription_upgraded"
     SUBSCRIPTION_DOWNGRADED = "subscription_downgraded"
     SUBSCRIPTION_CANCELED = "subscription_canceled"
+    SUBSCRIPTION_REACTIVATED = "subscription_reactivated"
     DISCOUNT_CREATED = "discount_created"
     SUBSCRIPTION_ACTIVATED = "subscription_activated"
     SUBSCRIPTION_PAST_DUE = "subscription_past_due"
     SUBSCRIPTION_DELETED = "subscription_deleted"
     SUBSCRIPTION_STATUS_CHANGED = "subscription_status_changed"
     INVOICE_PAID = "invoice_paid"
+    INVOICE_CREATED = "invoice_created"
     INVOICE_PAYMENT_FAILED = "invoice_payment_failed"
     WEBHOOK_RECEIVED = "webhook_received"
     WEBHOOK_UNHANDLED = "webhook_unhandled"
@@ -151,6 +154,21 @@ class BillingAuditAction(str, enum.Enum):
     REFUND_REJECTED = "refund_rejected"
     CREDIT_REQUESTED = "credit_requested"
     CREDIT_APPROVED = "credit_approved"
+    DELINQUENCY_CASE_OPENED = "delinquency_case_opened"
+    DELINQUENCY_STAGE_CHANGED = "delinquency_stage_changed"
+    DELINQUENCY_RECOVERED = "delinquency_recovered"
+    DELINQUENCY_RETENTION_HOLD = "delinquency_retention_hold"
+    DELINQUENCY_TERMINATION_STARTED = "delinquency_termination_started"
+    SUPPORT_ACCESS_GRANTED = "support_access_granted"
+    SUPPORT_ACCESS_REVOKED = "support_access_revoked"
+    CONFIRMATION_TOKEN_CREATED = "confirmation_token_created"
+    CONFIRMATION_TOKEN_CONSUMED = "confirmation_token_consumed"
+    # ZHR-COM-ENT-001 §19.1 — commercial exception entitlement lifecycle
+    EXCEPTION_REQUESTED = "exception_requested"
+    EXCEPTION_APPROVED = "exception_approved"
+    EXCEPTION_REJECTED = "exception_rejected"
+    EXCEPTION_REVOKED = "exception_revoked"
+    EXCEPTION_EXPIRED = "exception_expired"
 
 
 # ── Models ────────────────────────────────────────────────────────────────────
@@ -312,6 +330,11 @@ class OrganizationEvaluation(Base):
     status = Column(
         CaseInsensitiveEnum(EvaluationStatus), default=EvaluationStatus.ACTIVE, nullable=False,
     )
+    # Milestone-reminder guards (Section 8.1) — set immediately after a
+    # successful send so a scheduler retry/replay never double-sends.
+    reminder_7d_sent_at = Column(DateTime, nullable=True)
+    reminder_halfway_sent_at = Column(DateTime, nullable=True)
+    reminder_2d_sent_at = Column(DateTime, nullable=True)
     created_at = Column(DateTime, server_default=func.now())
     updated_at = Column(DateTime, onupdate=func.now())
 
@@ -368,7 +391,9 @@ class PlanEntitlementMapping(Base):
     id = Column(Integer, primary_key=True)
     plan_code = Column(CaseInsensitiveEnum(PlanCode), nullable=False)
     feature_key = Column(String(150), nullable=False)
-    state = Column(String(30), nullable=False)   # one of the 5 canonical states
+    state = Column(String(30), nullable=False)   # canonical state vocabulary
+    mode = Column("mode", String(30), nullable=True, quote=True)     # Section 14.1 outward mode override (e.g. read_only)
+    limit_ref = Column(String(100), nullable=True)  # Section 14.1 quota/cap reference (e.g. "core.exports.limit=20/min")
     catalog_version = Column(String(50), nullable=False)
     approved_by = Column(String(255), nullable=False)
     approved_at = Column(DateTime, server_default=func.now())
@@ -391,7 +416,10 @@ class BillingAuditLog(Base):
     __tablename__ = "billing_audit_logs"
 
     id = Column(Integer, primary_key=True, index=True)
-    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    # organization_id is NULL for platform-level events (super-admin plan
+    # catalog ops, webhooks that don't map to any org). A 0 sentinel breaks
+    # the organizations FK — platform events record no org, not a fake one.
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     action = Column(CaseInsensitiveEnum(BillingAuditAction), nullable=False)
     entity_type = Column(String(100), nullable=False)
     entity_id = Column(Integer, nullable=True)
@@ -402,6 +430,8 @@ class BillingAuditLog(Base):
     reason = Column(Text, nullable=True)
     source = Column(String(50), nullable=True)          # "stripe_webhook" / "api" / "reconciliation"
     stripe_event_id = Column(String(255), nullable=True)  # traceability for webhook-driven rows
+    # Real client IP (trusted-proxy aware, IPv4-mapped normalised); 45 = longest IPv6 text.
+    ip_address = Column(String(45), nullable=True)
     created_at = Column(DateTime, server_default=func.now())
 
     organization = relationship("Organization")
@@ -601,3 +631,392 @@ class BillingRefundRequest(Base):
     updated_at = Column(DateTime, onupdate=func.now())
 
     organization = relationship("Organization")
+
+
+# ── Delinquency (Section 10 G1–G5, Section 22 DAY_* events) ────────────────
+
+class DelinquencyStage(str, enum.Enum):
+    """Graduated recovery stages per Section 10 G1. Recovery is attempted
+    through day 14; new commercial expansion is gated from day 10; controlled
+    service restriction starts day 20; termination/closure workflow at day 45
+    unless an Enterprise contractual cure period overrides the timing."""
+    RECOVERY = "recovery"                  # payment failed, still trying (day 0–14)
+    DAY_10_RESTRICT = "day_10_restrict"    # block new commercial expansion / cost-increasing actions
+    DAY_20_RESTRICT = "day_20_restrict"    # controlled service restriction, preserve read/remediation/privacy/export
+    DAY_45_TERMINATION = "day_45_termination"  # terminate standard subscription, begin closure workflow
+
+
+class DelinquencyCaseStatus(str, enum.Enum):
+    OPEN = "open"
+    RECOVERED = "recovered"
+    TERMINATED = "terminated"
+
+
+class DelinquencyCase(Base):
+    """One open delinquency case per organization while a payment failure is
+    being recovered. Tracks the graduated day-10/20/45 timeline and the
+    derived RESTRICTED stage so the entitlement layer can gate actions
+    without relying on frontend banners alone (Section 10 G2/G3)."""
+    __tablename__ = "billing_delinquency_cases"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), unique=True, nullable=False, index=True)
+    status = Column(CaseInsensitiveEnum(DelinquencyCaseStatus), default=DelinquencyCaseStatus.OPEN, nullable=False)
+    stage = Column(CaseInsensitiveEnum(DelinquencyStage), default=DelinquencyStage.RECOVERY, nullable=False)
+    stripe_event_id = Column(String(255), nullable=True)
+    failed_at = Column(DateTime, nullable=False)          # when invoice.payment_failed was received
+    recovered_at = Column(DateTime, nullable=True)
+    terminated_at = Column(DateTime, nullable=True)
+    retention_hold_until = Column(DateTime, nullable=True)  # G2/G5: export/retention window after termination
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")
+
+
+# ── Support Access (Section 18 O3 / G4 Billing Operations escalation) ─────
+
+class SupportAccessGrant(Base):
+    """Time-bounded, tenant-scoped, fully-logged grant of elevated Billing
+    Operations support access to an organization (Section 8/18: tenant-scoped,
+    logged and time-bounded). A durable opaque token is minted, expiry is
+    enforced, and every grant/revoke is recorded on the billing audit trail."""
+    __tablename__ = "billing_support_access_grants"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    token_hash = Column(String(128), nullable=False, unique=True)  # SHA-256 of the raw token
+    granted_by = Column(String(255), nullable=False)   # Billing Ops actor
+    reason = Column(Text, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    revoked_at = Column(DateTime, nullable=True)
+    revoked_by = Column(String(255), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    organization = relationship("Organization")
+
+
+# ── Confirmation Tokens (two-step destructive / state-changing actions) ────
+
+class ConfirmationTokenPurpose(str, enum.Enum):
+    DELETE_ORGANIZATION = "delete_organization"
+    UPDATE_ORGANIZATION_STATUS = "update_organization_status"
+
+
+class ConfirmationTokenStatus(str, enum.Enum):
+    PENDING = "pending"
+    CONSUMED = "consumed"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class ConfirmationToken(Base):
+    """One-time, time-bounded token minted before a destructive or
+    irrevocable organization action (e.g. hard-delete, forced status change).
+    The actor must present the token back to confirm the action — a two-step
+    pattern that prevents accidental destructive changes."""
+    __tablename__ = "billing_confirmation_tokens"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    purpose = Column(CaseInsensitiveEnum(ConfirmationTokenPurpose), nullable=False)
+    token_hash = Column(String(128), nullable=False, unique=True)  # SHA-256 of the raw token
+    expires_at = Column(DateTime, nullable=False)
+    status = Column(CaseInsensitiveEnum(ConfirmationTokenStatus), default=ConfirmationTokenStatus.PENDING, nullable=False)
+    actor_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    actor_email = Column(String(255), nullable=True)
+    consumed_at = Column(DateTime, nullable=True)
+    token_metadata = Column(JSON, nullable=True)   # e.g. the proposed target status / confirmation display
+    created_at = Column(DateTime, server_default=func.now())
+
+    organization = relationship("Organization")
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ZHR-COM-ENT-001 — Commercial Plan Entitlement & Subscription Control
+# (see docs/ZHR-COM-ENT-001-...-specification.md, Section 14).
+#
+# The spec's canonical table names are short and singular (commercial_sku,
+# feature_definition, ...). New tables below use those names verbatim so the
+# data model matches the spec document, while the N+1 existing pre-spec tables
+# keep their historical plural names. plan_feature_entitlement is already
+# covered by the existing plan_entitlement_mappings table (Phase 1 keeps that
+# table; Phase 2 adds the spec's `mode`/`limit_ref` vocabulary on top of it).
+# ═════════════════════════════════════════════════════════════════════════════
+
+class EntitlementMode(str, enum.Enum):
+    """Section 14.1 — the nine canonical entitlement modes. The historically
+    named `state` values (ENTITLED_AVAILABLE etc.) map onto these modes in
+    entitlement_service.py; `mode` is the outward-facing, spec vocabulary."""
+    ENABLED = "enabled"
+    DISABLED_PLAN = "disabled_plan"
+    READ_ONLY = "read_only"
+    CONFIG_REQUIRED = "config_required"
+    DEPENDENCY_REQUIRED = "dependency_required"
+    POLICY_BLOCKED = "policy_blocked"
+    RESTRICTED_BILLING = "restricted_billing"
+    INCIDENT_DISABLED = "incident_disabled"
+    LIMIT_REACHED = "limit_reached"
+
+
+class CommercialCatalogStatus(str, enum.Enum):
+    DRAFT = "draft"
+    PUBLISHED = "published"
+    RETIRED = "retired"
+
+
+class CommercialSkuType(str, enum.Enum):
+    SUBSCRIPTION = "subscription"
+    SEAT_ADDON = "seat_addon"
+    SERVICE = "service"
+
+
+class FeatureSensitivity(str, enum.Enum):
+    INTERNAL = "internal"
+    SENSITIVE = "sensitive"
+    RESTRICTED = "restricted"
+
+
+class FeatureEnforcementMode(str, enum.Enum):
+    OFF = "off"
+    REPORT_ONLY = "report_only"
+    ENFORCE = "enforce"
+
+
+class FeatureStatus(str, enum.Enum):
+    ACTIVE = "active"
+    DISABLED = "disabled"
+    DEPRECATED = "deprecated"
+
+
+class FeatureKeyAlias(Base):
+    """Section 14 `feature_key_alias` — durable canonical-alias mapping (Phase 11).
+    Legacy engineering key → Appendix A sibling. The resolver canonicalizes
+    every incoming feature_key through this table before validity / hard-block
+    checks, logging a deprecation warning on each alias hit. FEATURE_KEY_CANONICAL
+    in feature_keys.py mirrors these rows and is the in-code fallback when the
+    table is empty in a dev database that has not run migrations."""
+    __tablename__ = "feature_key_alias"
+
+    id = Column(Integer, primary_key=True, index=True)
+    alias_key = Column(String(150), nullable=False, index=True)
+    canonical_key = Column(String(150), nullable=False)
+    note = Column(String(255), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        UniqueConstraint("alias_key", name="uq_feature_key_alias_alias_key"),
+    )
+
+
+class DowngradeImpactSeverity(str, enum.Enum):
+    BLOCKING = "blocking"
+    WARNING = "warning"
+
+
+class CommercialExceptionStatus(str, enum.Enum):
+    PENDING_APPROVAL = "pending_approval"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    EXPIRED = "expired"
+    REVOKED = "revoked"
+
+
+class CommercialCatalogVersion(Base):
+    """Section 14 `commercial_catalog_version` — versioned, immutable-after-
+    publish catalog snapshot. checksum stays null until the canonical catalog
+    publishes an integrity digest."""
+    __tablename__ = "commercial_catalog_version"
+
+    id = Column(Integer, primary_key=True, index=True)
+    version = Column(String(50), unique=True, nullable=False)
+    status = Column(
+        CaseInsensitiveEnum(CommercialCatalogStatus), default=CommercialCatalogStatus.DRAFT, nullable=False,
+    )
+    effective_from = Column(DateTime, nullable=True)
+    effective_to = Column(DateTime, nullable=True)
+    approved_by = Column(String(255), nullable=True)
+    published_at = Column(DateTime, nullable=True)
+    checksum = Column(String(64), nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    skus = relationship("CommercialSku", back_populates="catalog_version")
+
+
+class CommercialSku(Base):
+    """Section 14 `commercial_sku` — rated catalog line. Amount may stay NULL
+    until price approval (P0 rule: live use is forbidden when a required value
+    is absent, mirroring BillingPlan's unpriced posture)."""
+    __tablename__ = "commercial_sku"
+
+    id = Column(Integer, primary_key=True, index=True)
+    catalog_version_id = Column(Integer, ForeignKey("commercial_catalog_version.id"), nullable=True)
+    code = Column(String(100), nullable=False)
+    type = Column(CaseInsensitiveEnum(CommercialSkuType), default=CommercialSkuType.SUBSCRIPTION, nullable=False)
+    interval = Column(String(20), nullable=True)   # monthly | annual | one_time
+    currency = Column(String(3), nullable=True)
+    amount_cents = Column(Integer, nullable=True)  # null until pricing approved
+    tax_code = Column(String(50), nullable=True)
+    provider_product_id = Column(String(255), nullable=True)
+    provider_price_id = Column(String(255), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    catalog_version = relationship("CommercialCatalogVersion", back_populates="skus")
+
+    __table_args__ = (
+        UniqueConstraint("catalog_version_id", "code", name="uq_catalog_sku_code"),
+    )
+
+
+class FeatureDefinition(Base):
+    """Section 14 `feature_definition` — stable semantic feature-key registry
+    with domain, sensitivity and enforcement posture. The engineering
+    FEATURE_KEYS frozenset in feature_keys.py stays the runtime gate; this
+    table is the durable, governable description of each key."""
+    __tablename__ = "feature_definition"
+
+    id = Column(Integer, primary_key=True, index=True)
+    key = Column(String(150), unique=True, nullable=False, index=True)
+    domain = Column(String(100), nullable=True)
+    description = Column(Text, nullable=True)
+    sensitivity = Column(
+        CaseInsensitiveEnum(FeatureSensitivity), default=FeatureSensitivity.INTERNAL, nullable=False,
+    )
+    enforcement_mode = Column(
+        CaseInsensitiveEnum(FeatureEnforcementMode), default=FeatureEnforcementMode.REPORT_ONLY, nullable=False,
+    )
+    status = Column(
+        CaseInsensitiveEnum(FeatureStatus), default=FeatureStatus.ACTIVE, nullable=False,
+    )
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+
+class DowngradeImpactItem(Base):
+    """Section 14 `downgrade_impact_item` — concrete blockers/warnings hanging
+    off a scheduled plan change (or a preview, where plan_change_id is NULL).
+    Populated from downgrade_blockers.Blocker rows so the impact is durable
+    and resolvable instead of living only in a JSON blob."""
+    __tablename__ = "downgrade_impact_item"
+
+    id = Column(Integer, primary_key=True, index=True)
+    plan_change_id = Column(Integer, ForeignKey("billing_plan_changes.id"), nullable=True, index=True)
+    feature_key = Column(String(150), nullable=False)
+    resource_type = Column(String(100), nullable=True)
+    resource_id = Column(String(200), nullable=True)
+    severity = Column(
+        CaseInsensitiveEnum(DowngradeImpactSeverity), default=DowngradeImpactSeverity.BLOCKING, nullable=False,
+    )
+    remediation = Column(Text, nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+
+    plan_change = relationship("BillingPlanChange", foreign_keys=[plan_change_id])
+
+
+class CommercialExceptionEntitlement(Base):
+    """Section 14 `commercial_exception_entitlement` — time-bound, operator-
+    approved entitlement override for a single (organization, feature_key).
+    Never indefinite: starts_at/expires_at are required. Grantable modes are
+    restricted to ENABLED / READ_ONLY (validated in exception_service; a
+    manual row inserting POLICY_BLOCKED etc. is meaningless).
+    Status lifecycle: PENDING_APPROVAL -> ACTIVE/REJECTED -> EXPIRED/REVOKED.
+    Mirror of approved_by/requested_by is kept so requester == approver can be
+    rejected (same-actor pattern shared with refund_service)."""
+    __tablename__ = "commercial_exception_entitlement"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    feature_key = Column(String(150), nullable=False, index=True)
+    mode = Column("mode", CaseInsensitiveEnum(EntitlementMode), nullable=False, quote=True)
+    reason = Column(Text, nullable=False)
+    requested_by = Column(String(255), nullable=False)
+    approved_by = Column(String(255), nullable=True)
+    starts_at = Column(DateTime, nullable=False)
+    expires_at = Column(DateTime, nullable=False)
+    status = Column(
+        CaseInsensitiveEnum(CommercialExceptionStatus),
+        default=CommercialExceptionStatus.PENDING_APPROVAL,
+        nullable=False,
+    )
+    rejection_reason = Column(Text, nullable=True)
+    rejected_by = Column(String(255), nullable=True)
+    revoked_by = Column(String(255), nullable=True)
+    revoked_at = Column(DateTime, nullable=True)
+    approved_at = Column(DateTime, nullable=True)
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")
+
+    __table_args__ = (
+        UniqueConstraint(
+            "organization_id", "feature_key", "starts_at", "expires_at",
+            name="uq_exception_org_feature_window",
+        ),
+    )
+
+
+# ── Registration Quotation (quote -> accept/reject -> invoice) ──────────────
+
+class QuotationStatus(str, enum.Enum):
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+
+
+class BillingQuotation(Base):
+    """A commercial quote emailed to the registrant right after their
+    organization signs up (self-serve evaluation registration). The
+    registrant accepts or rejects it via a single-use emailed link; accepting
+    notifies the registrant + every Super Admin and triggers an invoice
+    email. This is independent of Stripe — there is no real subscription/
+    payment yet at registration time, so amount_cents here is only the
+    quoted figure (from BillingPlan's list price), not a charge."""
+    __tablename__ = "billing_quotations"
+
+    id = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    quote_number = Column(String(50), nullable=False, unique=True)
+
+    plan_code = Column(CaseInsensitiveEnum(PlanCode), nullable=False)
+    billing_cycle = Column(CaseInsensitiveEnum(BillingCycle), nullable=False, default=BillingCycle.MONTHLY)
+    currency = Column(String(3), nullable=False, default="USD")
+    amount_cents = Column(Integer, nullable=False)
+
+    recipient_email = Column(String(255), nullable=False)
+    recipient_name = Column(String(200), nullable=True)
+
+    status = Column(CaseInsensitiveEnum(QuotationStatus), nullable=False, default=QuotationStatus.PENDING)
+    issued_at = Column(DateTime, server_default=func.now())
+    valid_until = Column(DateTime, nullable=False)
+    decided_at = Column(DateTime, nullable=True)
+
+    # Single-use decision link — only the hash is stored, matching
+    # SecurityActionToken's pattern (employee/models.py); kept local to this
+    # table rather than reusing that table, since a quotation has exactly one
+    # decision token for its whole lifetime and this avoids widening a
+    # security-sensitive shared table/enum for an unrelated concern.
+    decision_token_hash = Column(String(64), nullable=True, index=True)
+    decision_token_expires_at = Column(DateTime, nullable=True)
+
+    invoice_number = Column(String(50), nullable=True)
+    invoice_sent_at = Column(DateTime, nullable=True)
+
+    created_at = Column(DateTime, server_default=func.now())
+    updated_at = Column(DateTime, onupdate=func.now())
+
+    organization = relationship("Organization")
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_bws_org_snapshot_at", BillableWorkforceSnapshot.organization_id,
+       BillableWorkforceSnapshot.snapshot_at.desc(), BillableWorkforceSnapshot.id.desc())
+_Index("ix_bes_org_computed_at", BillingEntitlementSnapshot.organization_id,
+       BillingEntitlementSnapshot.computed_at.desc(), BillingEntitlementSnapshot.id.desc())

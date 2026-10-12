@@ -1,6 +1,6 @@
 import { useState, useRef } from "react";
 import { Upload, Download, FileDown, X, CircleCheck, CircleAlert, Loader2 } from "lucide-react";
-import { importEmployees } from "../service/employee";
+import { importEmployees, downloadImportTemplate as downloadImportTemplateFile } from "../service/employee";
 
 const COLUMNS = [
   { key: "first_name", label: "First Name", required: true },
@@ -69,21 +69,7 @@ export default function EmployeeBulkActions({ employees = [], onImport }) {
 
   async function handleDownloadTemplate() {
     try {
-      const { getAccessToken, API_BASE_URL } = await import("../service/api");
-      const token = getAccessToken();
-      const response = await fetch(`${API_BASE_URL}/hr/employee-management/employees/import/template`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-      if (!response.ok) throw new Error("Failed to download import template");
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const link = document.createElement("a");
-      link.href = url;
-      link.download = "employee-import-template.xlsx";
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      window.URL.revokeObjectURL(url);
+      await downloadImportTemplateFile();
     } catch (e) {
       console.error("Template download failed:", e.message);
     }

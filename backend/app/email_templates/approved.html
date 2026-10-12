@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Organization registration approved" %}
+{% set preheader = "Your Zoiko HR organization registration has been approved." %}
+{% set badge = "Approved" %}
+{% set badge_tone = "success" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Organization registration approved</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">We are pleased to inform you that the registration for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> has been approved. You can now access your organization workspace.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Status", "Approved") }}
+{% endcall %}
+{{ ui.button(login_url, "Sign in to Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

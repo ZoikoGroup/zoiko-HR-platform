@@ -1,6 +1,8 @@
+import { prefetchAfterLogin } from "../lib/prefetch";
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 import {
   login as loginRequest,
+  loginWithGoogleTicket as googleTicketRequest,
   register as registerRequest,
   logout as logoutRequest,
   fetchCurrentUser,
@@ -21,15 +23,22 @@ import {
 export const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
+  // Render the shell from the cached user and refresh /auth/me in the
+  // background; blocking on it left a blank "Checking your session…" screen.
   const [user, setUser] = useState(() => getCachedUser());
-  const [loading, setLoading] = useState(isAuthenticated());
+  const [loading, setLoading] = useState(() => !getCachedUser());
   const [error, setError] = useState(null);
 
 
   useEffect(() => {
     let active = true;
     if (!isAuthenticated()) {
-      setLoading(false);
+      // A cached user without a token is stale: never show an authenticated
+      // shell that cannot call the API.
+      if (active) {
+        setUser(null);
+        setLoading(false);
+      }
       return;
     }
     fetchCurrentUser()
@@ -53,9 +62,26 @@ export function AuthProvider({ children }) {
     try {
       const loggedInUser = await loginRequest(credentials);
       setUser(loggedInUser);
+      prefetchAfterLogin(loggedInUser?.role);     // warm the next likely pages' code once the landing page has rendered
       return loggedInUser;
     } catch (err) {
       setError(err.message || "Unable to sign in");
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  const loginWithGoogle = useCallback(async (ticket) => {
+    setError(null);
+    setLoading(true);
+    try {
+      const loggedInUser = await googleTicketRequest(ticket);
+      setUser(loggedInUser);
+      prefetchAfterLogin(loggedInUser?.role);     // warm the next likely pages' code once the landing page has rendered
+      return loggedInUser;
+    } catch (err) {
+      setError(err.message || "Unable to sign in with Google");
       throw err;
     } finally {
       setLoading(false);
@@ -174,6 +200,7 @@ export function AuthProvider({ children }) {
     loading,
     error,
     login,
+    loginWithGoogle,
     register,
     logout,
     hasRole,

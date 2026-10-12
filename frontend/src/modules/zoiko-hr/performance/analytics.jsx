@@ -4,6 +4,7 @@ import { Download, BarChart, PieChart, TrendingUp, Target, CheckCircle, Star, Us
 import HRPage from "../../../components/HRPage";
 import { BarChart as RechartsBarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer, PieChart as RechartsPieChart, Pie, Cell } from "recharts";
 import { getPerformanceAnalytics } from "../../../service/hrService";
+import { formatScore, scorePercent, analyticsRows } from "../../../utils/performanceScores";
 
 class ChartErrorBoundary extends React.Component {
   constructor(props) {
@@ -105,16 +106,20 @@ export default function PerformanceAnalytics() {
 
   const d = data || {};
 
-  const hasData = d.avg_performance_score != null || d.total_reviews > 0;
+  const hasData = (d.total_reviews ?? 0) > 0 || (d.total_goals ?? 0) > 0;
+  const avgRating = formatScore(d.avg_rating);
+  const avgAppraisal = formatScore(d.avg_appraisal_score);
+  const outOfRange = d.appraisals_out_of_range ?? 0;
 
+  // every bar is a percentage (0-100); the 1-5 rating is shown as a percentage of 5 so the scale is the same for all
   const scoreData = hasData ? [
     { name: "Avg Performance Score", value: d.avg_performance_score ?? 0, fill: "#3B82F6" },
     { name: "Goal Completion Rate", value: d.goal_completion_rate ?? 0, fill: "#10B981" },
     { name: "Review Completion Rate", value: d.review_completion_rate ?? 0, fill: "#F59E0B" },
-    { name: "Avg Rating", value: d.avg_rating ?? 0, fill: "#0A1128" },
+    { name: "Avg Appraisal Score", value: scorePercent(d.avg_appraisal_score) ?? 0, fill: "#0A1128" },
   ] : [];
 
-  const pieData = hasData ? [
+  const pieData = (d.total_reviews ?? 0) > 0 ? [
     { name: "Completed", value: d.completed_reviews ?? 0, color: "#10B981" },
     { name: "Pending", value: d.pending_reviews ?? 0, color: "#F59E0B" },
   ] : [];
@@ -136,10 +141,11 @@ export default function PerformanceAnalytics() {
                 onClick={() => {
                   const rows = [["Metric","Value"]];
                   const metrics = [
-                    ["Avg Performance Score", `${d.avg_performance_score ?? 0}%`],
+                    ["Avg Performance Score", d.avg_performance_score != null ? `${d.avg_performance_score}%` : "No data"],
                     ["Goal Completion", `${d.goal_completion_rate ?? 0}%`],
                     ["Review Completion", `${d.review_completion_rate ?? 0}%`],
-                    ["Avg Rating", d.avg_rating ? `${d.avg_rating}/5` : "0/5"],
+                    ["Avg Rating", avgRating],
+                    ["Avg Appraisal Score", avgAppraisal],
                     ["Total Reviews", d.total_reviews ?? 0],
                     ["Completed Reviews", d.completed_reviews ?? 0],
                     ["Total Goals", d.total_goals ?? 0],
@@ -148,7 +154,7 @@ export default function PerformanceAnalytics() {
                     ["Total Appraisals", d.total_appraisals ?? 0],
                   ];
                   metrics.forEach(m => rows.push(m));
-                  const csv = rows.map(r => r.join(",")).join("\n");
+                  const csv = analyticsRows(rows);
                   const blob = new Blob([csv], { type: "text/csv" });
                   const url = URL.createObjectURL(blob);
                   const a = document.createElement("a"); a.href = url; a.download = "performance_analytics.csv"; a.click();
@@ -162,10 +168,10 @@ export default function PerformanceAnalytics() {
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            <StatsCard title="Avg Performance Score" value={`${d.avg_performance_score ?? 0}%`} icon={TrendingUp} subtitle="Across all reviews" color="bg-blue-500" />
+            <StatsCard title="Avg Performance Score" value={d.avg_performance_score != null ? `${d.avg_performance_score}%` : "-"} icon={TrendingUp} subtitle="Average rating as a percentage of 5" color="bg-blue-500" />
             <StatsCard title="Goal Completion" value={`${d.goal_completion_rate ?? 0}%`} icon={Target} subtitle="Goals completed" color="bg-green-500" />
             <StatsCard title="Review Completion" value={`${d.review_completion_rate ?? 0}%`} icon={CheckCircle} subtitle="Reviews completed" color="bg-blue-500" />
-            <StatsCard title="Avg Rating" value={d.avg_rating ? `${d.avg_rating}/5` : "0/5"} icon={Star} subtitle="Across all reviews" color="bg-blue-500" />
+            <StatsCard title="Avg Rating" value={avgRating} icon={Star} subtitle={d.rated_reviews ? `Across ${d.rated_reviews} rated review${d.rated_reviews === 1 ? "" : "s"}` : "No reviews yet"} color="bg-blue-500" />
             <StatsCard title="Total Reviews" value={d.total_reviews ?? 0} icon={FileText} subtitle={`${d.completed_reviews ?? 0} completed`} color="bg-blue-500" />
             <StatsCard title="Total Goals" value={d.total_goals ?? 0} icon={Target} subtitle={`${d.completed_goals ?? 0} completed`} color="bg-blue-500" />
             <StatsCard title="Feedback Items" value={d.feedback_count ?? 0} icon={FileText} color="bg-cyan-500" />
@@ -182,7 +188,7 @@ export default function PerformanceAnalytics() {
                     <RechartsBarChart data={extractArray(scoreData)} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" />
                       <XAxis dataKey="name" />
-                      <YAxis />
+                      <YAxis domain={[0, 100]} tickFormatter={(v) => `${v}%`} />
                       <Tooltip formatter={(value) => [`${value}%`, "Value"]} />
                       <Legend />
                       <Bar dataKey="value" fill="#3B82F6" radius={[4, 4, 0, 0]} />
@@ -253,7 +259,7 @@ export default function PerformanceAnalytics() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Completion Rate</span>
-                    <span className="font-medium text-gray-900">{(d.total_reviews ? Math.round((d.completed_reviews / d.total_reviews) * 100) : 0)}%</span>
+                    <span className="font-medium text-gray-900">{d.review_completion_rate ?? 0}%</span>
                   </div>
                 </div>
               </div>
@@ -271,7 +277,7 @@ export default function PerformanceAnalytics() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Completion Rate</span>
-                    <span className="font-medium text-gray-900">{(d.total_goals ? Math.round((d.completed_goals / d.total_goals) * 100) : 0)}%</span>
+                    <span className="font-medium text-gray-900">{d.goal_completion_rate ?? 0}%</span>
                   </div>
                 </div>
               </div>
@@ -285,8 +291,17 @@ export default function PerformanceAnalytics() {
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-gray-600">Avg Score</span>
-                    <span className="font-medium text-gray-900">{d.avg_appraisal_score ? `${d.avg_appraisal_score}/5` : "-"}</span>
+                    <span className="font-medium text-gray-900">{avgAppraisal}</span>
                   </div>
+                  <div className="flex justify-between text-sm">
+                    <span className="text-gray-600">Scored</span>
+                    <span className="font-medium text-gray-900">{d.appraisals_scored ?? 0} of {d.total_appraisals ?? 0}</span>
+                  </div>
+                  {outOfRange > 0 ? (
+                    <p role="alert" className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-2 py-1.5">
+                      {outOfRange} appraisal{outOfRange === 1 ? " has" : "s have"} a final score outside the 0-5 scale and {outOfRange === 1 ? "is" : "are"} left out of this average. Correct {outOfRange === 1 ? "it" : "them"} on the Appraisals page.
+                    </p>
+                  ) : null}
                 </div>
               </div>
             </div>

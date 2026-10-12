@@ -13,11 +13,15 @@ ledger (Section 22), which is a later phase. `CATALOG_VERSION_DRAFT` marks
 every artifact produced here as pending the real approved catalog (Section 3).
 """
 
+import logging
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from sqlalchemy.orm import Session
 
+logger = logging.getLogger("zoiko.billing.service")
+
+from app.modules.integrations.events import emit_event
 from app.core.exceptions import (
     BadRequestException,
     NotFoundException,
@@ -29,6 +33,7 @@ from app.modules.billing.models import (
     BillingConversion,
     BillingCycle,
     BillingDiscount,
+    BillingInvoice,
     BillingPlan,
     BillingSubscription,
     BillingWorkerState,
@@ -137,15 +142,38 @@ def get_or_create_subscription(db: Session, organization_id: int) -> BillingSubs
     return subscription
 
 
+def clear_delinquency_restriction(db: Session, organization_id: int) -> bool:
+    """Return True when a recovered delinquency may be lifted (no other
+    suspension/restriction reason exists), so PAYMENT_RECOVERED can restore
+    the subscription to ACTIVE automatically (Section 22).
+
+    This is the single place that decides whether restoration is safe. If a
+    future suspension/restriction source (platform suspend, enterprise hold,
+    legal block) is introduced, it must be added here so recovery respects it.
+    """
+    from app.modules.hr.models import Organization, OrganizationStatus
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    if org is None:
+        return False
+    if org.status in (OrganizationStatus.SUSPENDED, OrganizationStatus.DEACTIVATED, OrganizationStatus.ON_HOLD):
+        return False
+    return True
+
+
 def to_overview_response(db: Session, subscription: BillingSubscription, trimmed: bool) -> dict:
-    """Full response for Organization Owner / Billing Admin. Trimmed response
-    for HR Admin / Organization Admin exposes plan + workforce usage only,
-    per Section 19's 'no financial detail by default' rule."""
+    """Full response for Organization Owner / Organization Admin / Billing Admin.
+    Trimmed response (HR Admin only) exposes plan + workforce usage only, per
+    Section 19's 'no financial detail by default' rule. evaluation_ends_at is
+    never trimmed — the trial countdown isn't financial detail."""
     plan_name = None
     if subscription.plan_id:
         plan = db.query(BillingPlan).filter(BillingPlan.id == subscription.plan_id).first()
         if plan:
             plan_name = plan.name
+
+    active_evaluation = get_active_evaluation(db, subscription.organization_id)
+    evaluation_ends_at = active_evaluation.evaluation_ends_at if active_evaluation else None
 
     if trimmed:
         return {
@@ -161,6 +189,7 @@ def to_overview_response(db: Session, subscription: BillingSubscription, trimmed
             "quantity": subscription.quantity,
             "committed_quantity": None,
             "service_start_at": None,
+            "evaluation_ends_at": evaluation_ends_at,
         }
     return {
         "organization_id": subscription.organization_id,
@@ -175,6 +204,7 @@ def to_overview_response(db: Session, subscription: BillingSubscription, trimmed
         "quantity": subscription.quantity,
         "committed_quantity": subscription.committed_quantity,
         "service_start_at": subscription.service_start_at,
+        "evaluation_ends_at": evaluation_ends_at,
     }
 
 
@@ -270,6 +300,56 @@ def is_plan_catalog_version_referenced(db: Session, catalog_version: str) -> boo
     ).first() is not None
 
 
+def get_plan_by_code_and_version(db: Session, code, catalog_version: str) -> Optional[BillingPlan]:
+    """Find an existing plan by (code, catalog_version).
+
+    billing_plans has no unique constraint on this pair, so a duplicate create
+    used to slip through and leave the catalog ambiguous (two ENTERPRISE rows in
+    one version). create_plan uses this to answer with a 409 naming the existing
+    draft instead of silently adding another one.
+    """
+    return (
+        db.query(BillingPlan)
+        .filter(
+            BillingPlan.code == code,
+            BillingPlan.catalog_version == catalog_version,
+        )
+        .order_by(BillingPlan.id)
+        .first()
+    )
+
+
+def suggest_next_catalog_version(db: Session, base_version: str) -> str:
+    """Next unused version string after `base_version`.
+
+    Bumps a trailing `-vN` when present (ZHR-COM-BILL-001-v1 -> ...-v2) so the
+    answer stays inside the project's naming convention, and falls back to an
+    incrementing suffix otherwise. Used to turn a dead-end "already exists"
+    into an actionable next step.
+    """
+    import re
+
+    existing = {
+        v for (v,) in db.query(BillingPlan.catalog_version).distinct().all() if v
+    }
+    clean = (base_version or "").strip()
+    match = re.match(r"^(.*?)(\d+)$", clean)
+
+    if match:
+        prefix, digits = match.group(1), match.group(2)
+        n = int(digits)
+        while True:
+            n += 1
+            candidate = f"{prefix}{n}"
+            if candidate not in existing:
+                return candidate
+
+    n = 2
+    while f"{clean}-v{n}" in existing:
+        n += 1
+    return f"{clean}-v{n}"
+
+
 def plan_to_dict(plan: BillingPlan) -> dict:
     return {
         "id": plan.id,
@@ -311,14 +391,7 @@ def start_evaluation(
         raise NotFoundException("Organization", organization_id)
 
     # Check for existing active evaluation
-    existing = (
-        db.query(OrganizationEvaluation)
-        .filter(
-            OrganizationEvaluation.organization_id == organization_id,
-            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
-        )
-        .first()
-    )
+    existing = get_active_evaluation(db, organization_id)
     if existing:
         raise BadRequestException("Organization already has an active evaluation.")
 
@@ -339,7 +412,33 @@ def start_evaluation(
 
     db.commit()
     db.refresh(evaluation)
+
+    # ZHR-COM-009 — notify the conversion owner (or billing recipients) that
+    # the evaluation workspace is live. Courtesy email only: never break the
+    # registration/onboarding call over a send failure.
+    try:
+        from app.services.email_service import resolve_billing_recipients, send_evaluation_started_email
+        recipients = [conversion_owner] if conversion_owner else resolve_billing_recipients(db, organization_id)
+        org_name = _org_display_name(db, organization_id)
+        end_display = evaluation.evaluation_ends_at.strftime("%B %d, %Y") if evaluation.evaluation_ends_at else ""
+        for email in recipients:
+            if email:
+                send_evaluation_started_email(email, org_name, end_display, db=db, organization_id=organization_id)
+    except Exception as e:
+        logger.error("[evaluation] Failed to send evaluation-start email for org %d: %s", organization_id, e)
+
     return evaluation
+
+
+def get_active_evaluation(db: Session, organization_id: int) -> Optional[OrganizationEvaluation]:
+    return (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.organization_id == organization_id,
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+        )
+        .first()
+    )
 
 
 def get_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
@@ -349,6 +448,68 @@ def get_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
     if not evaluation:
         raise NotFoundException("OrganizationEvaluation", evaluation_id)
     return evaluation
+
+
+def list_platform_evaluations(
+    db: Session,
+    status: str | None = None,
+    expiring_within_days: int | None = None,
+    organization_id: int | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
+    """Platform-wide evaluations list across all organizations, with filters
+    and pagination — mirrors list_platform_invoices()'s exact shape."""
+    from app.modules.hr.models import Organization
+
+    q = db.query(OrganizationEvaluation)
+
+    if status:
+        try:
+            q = q.filter(OrganizationEvaluation.status == EvaluationStatus[status.upper()])
+        except KeyError:
+            q = q.filter(OrganizationEvaluation.status == status)
+    if organization_id:
+        q = q.filter(OrganizationEvaluation.organization_id == organization_id)
+    if expiring_within_days is not None:
+        q = q.filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.evaluation_ends_at <= datetime.utcnow() + timedelta(days=expiring_within_days),
+        )
+
+    total = q.count()
+
+    offset = max(0, (page - 1) * limit)
+    order_col = (
+        OrganizationEvaluation.evaluation_ends_at.asc()
+        if expiring_within_days is not None
+        else OrganizationEvaluation.created_at.desc()
+    )
+    evaluations = q.order_by(order_col).offset(offset).limit(limit).all()
+
+    org_map = {}
+    try:
+        from app.modules.super_admin.organization_service import org_names_by_id
+        org_map = org_names_by_id(db, {ev.organization_id for ev in evaluations}, include_deleted=True)  # this page's orgs, deleted ones named
+    except Exception:
+        pass
+
+    items = []
+    for ev in evaluations:
+        items.append({
+            "id": ev.id,
+            "organization_id": ev.organization_id,
+            "organization_name": org_map.get(ev.organization_id) or f"Org #{ev.organization_id}",
+            "evaluation_ends_at": ev.evaluation_ends_at,
+            "approved_package_scope": ev.approved_package_scope,
+            "data_classification": role_value(ev.data_classification),
+            "conversion_owner": ev.conversion_owner,
+            "status": role_value(ev.status),
+            "created_at": ev.created_at,
+            "updated_at": ev.updated_at,
+        })
+
+    return items, total
 
 
 def get_org_evaluations(db: Session, organization_id: int) -> list[OrganizationEvaluation]:
@@ -366,9 +527,216 @@ def end_evaluation(db: Session, evaluation_id: int) -> OrganizationEvaluation:
         raise BadRequestException("Evaluation is not active.")
 
     evaluation.status = EvaluationStatus.EVALUATION_ENDED
+
+    # A trial that ends without a conversion is no longer a live entitlements
+    # source: flip the subscription out of EVALUATION so the entitlement
+    # resolver and the auth gate revoke access immediately (mirrors
+    # expire_overdue_evaluations). A real ACTIVE/commercial subscription is
+    # never overwritten.
+    subscription = (
+        db.query(BillingSubscription)
+        .filter(BillingSubscription.organization_id == evaluation.organization_id)
+        .first()
+    )
+    if subscription and subscription.status == SubscriptionStatus.EVALUATION:
+        subscription.status = SubscriptionStatus.EVALUATION_EXPIRED
+
     db.commit()
     db.refresh(evaluation)
     return evaluation
+
+
+def expire_overdue_evaluations(db: Session) -> list[OrganizationEvaluation]:
+    """Daily walk (ZHR-COM-ENT-001 §9): any ACTIVE evaluation past its
+    evaluation_ends_at ends automatically — no charge, no Stripe/provider call.
+    If the linked subscription never converted (still EVALUATION), it moves to
+    EVALUATION_EXPIRED so the frontend can render the distinction."""
+    overdue = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.evaluation_ends_at < datetime.utcnow(),
+        )
+        .all()
+    )
+
+    expired = []
+    for evaluation in overdue:
+        # ACTIVE -> EVALUATION_ENDED as a conditional UPDATE: two workers walking
+        # the same overdue evaluation must not both end it and both email the
+        # owner. Whoever loses the update skips the row entirely.
+        ended = (
+            db.query(OrganizationEvaluation)
+            .filter(
+                OrganizationEvaluation.id == evaluation.id,
+                OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            )
+            .update(
+                {OrganizationEvaluation.status: EvaluationStatus.EVALUATION_ENDED},
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+        if not ended:
+            logger.info("[evaluation] Evaluation %s already expired elsewhere; skipping", evaluation.id)
+            continue
+        db.refresh(evaluation)
+
+        subscription = get_or_create_subscription(db, evaluation.organization_id)
+        if subscription.status == SubscriptionStatus.EVALUATION:
+            subscription.status = SubscriptionStatus.EVALUATION_EXPIRED
+            db.commit()
+
+        # Bulk .update() above bypasses the ORM flush listeners, so invalidate
+        # the cached org-access decision explicitly for this org.
+        from app.core import org_access
+        org_access.invalidate_org_access(evaluation.organization_id)
+
+        log_billing_audit(
+            db,
+            actor=None,
+            organization_id=evaluation.organization_id,
+            action=BillingAuditAction.EVALUATION_ENDED,
+            entity_type="OrganizationEvaluation",
+            entity_id=evaluation.id,
+            before={"status": "active"},
+            after={"status": "evaluation_ended"},
+            reason="auto_expired",
+            source="scheduler",
+        )
+        _send_evaluation_milestone_email(db, evaluation, "expired")
+        expired.append(evaluation)
+
+    return expired
+
+
+def _org_display_name(db: Session, organization_id: int) -> str:
+    from app.modules.hr.models import Organization
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    return (org.name if org else None) or f"Organization #{organization_id}"
+
+
+def _claim_milestone(db: Session, evaluation_id: int, column: str, now) -> bool:
+    """Compare-and-set claim on a milestone marker.
+
+    Scheduled walks can run in more than one worker (and be triggered by hand
+    while the scheduler is running). Reading "was this sent?" and then writing it
+    is a race: both workers see NULL and both send. A single conditional UPDATE
+    makes exactly one of them win, so a milestone is emailed once. Returns True
+    for the winner only.
+    """
+    won = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.id == evaluation_id,
+            getattr(OrganizationEvaluation, column).is_(None),
+        )
+        .update({getattr(OrganizationEvaluation, column): now}, synchronize_session=False)
+    )
+    db.commit()
+    return won == 1
+
+
+def _send_evaluation_milestone_email(db: Session, evaluation: OrganizationEvaluation, milestone: str) -> None:
+    """milestone: '7d' | 'halfway' | '2d' | 'expired'. No-op (logged, not
+    raised) if the evaluation has no conversion_owner or if sending fails —
+    a milestone email is a courtesy notification, never allowed to break the
+    scheduler job (expiry/reminder walks) that calls it."""
+    if not evaluation.conversion_owner:
+        return
+    from app.services import email_service
+
+    org_name = _org_display_name(db, evaluation.organization_id)
+    ends_at_display = evaluation.evaluation_ends_at.strftime("%B %d, %Y") if evaluation.evaluation_ends_at else ""
+    sender = {
+        "7d": email_service.send_evaluation_7_days_remaining,
+        "halfway": email_service.send_evaluation_halfway_email,
+        "2d": email_service.send_evaluation_2_days_remaining,
+        "expired": email_service.send_evaluation_expired,
+    }[milestone]
+    try:
+        sender(
+            evaluation.conversion_owner, org_name, ends_at_display,
+            db=db, organization_id=evaluation.organization_id,
+        )
+        logger.info(
+            "[evaluation] Sent %s milestone email for evaluation %s to %s",
+            milestone, evaluation.id, evaluation.conversion_owner,
+        )
+    except Exception as e:
+        logger.error(
+            "[evaluation] Failed to send %s milestone email for evaluation %s: %s",
+            milestone, evaluation.id, e,
+        )
+
+
+def send_evaluation_reminders(db: Session) -> dict:
+    """Daily walk (ZHR-COM-ENT-001 §8.1): send the 7-day and 2-day reminder
+    emails exactly once per evaluation. Never touches evaluation/subscription
+    status — expiry is expire_overdue_evaluations()'s job. Reminder windows
+    are wide (±12h) so a job restart or clock skew doesn't skip a send."""
+    now = datetime.utcnow()
+    sent_7d = 0
+    sent_2d = 0
+
+    due_7d = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.reminder_7d_sent_at.is_(None),
+            OrganizationEvaluation.evaluation_ends_at >= now + timedelta(days=6, hours=12),
+            OrganizationEvaluation.evaluation_ends_at <= now + timedelta(days=7, hours=12),
+        )
+        .all()
+    )
+    for evaluation in due_7d:
+        if not _claim_milestone(db, evaluation.id, "reminder_7d_sent_at", now):
+            continue
+        _send_evaluation_milestone_email(db, evaluation, "7d")
+        sent_7d += 1
+
+    due_2d = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.reminder_2d_sent_at.is_(None),
+            OrganizationEvaluation.evaluation_ends_at >= now + timedelta(days=1, hours=12),
+            OrganizationEvaluation.evaluation_ends_at <= now + timedelta(days=2, hours=12),
+        )
+        .all()
+    )
+    for evaluation in due_2d:
+        if not _claim_milestone(db, evaluation.id, "reminder_2d_sent_at", now):
+            continue
+        _send_evaluation_milestone_email(db, evaluation, "2d")
+        sent_2d += 1
+
+    # Halfway (ZHR-COM-010) — the midpoint between evaluation creation and
+    # its deadline. Center-windowed (±12h) like the fixed-day reminders so a
+    # job restart or clock skew cannot skip or double-send it.
+    sent_halfway = 0
+    halfway_candidates = (
+        db.query(OrganizationEvaluation)
+        .filter(
+            OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+            OrganizationEvaluation.reminder_halfway_sent_at.is_(None),
+        )
+        .all()
+    )
+    for evaluation in halfway_candidates:
+        if not evaluation.created_at or not evaluation.evaluation_ends_at:
+            continue
+        midpoint = evaluation.created_at + (evaluation.evaluation_ends_at - evaluation.created_at) / 2
+        if (
+            now - timedelta(hours=12) <= midpoint <= now + timedelta(hours=12)
+        ):
+            if not _claim_milestone(db, evaluation.id, "reminder_halfway_sent_at", now):
+                continue
+            _send_evaluation_milestone_email(db, evaluation, "halfway")
+            sent_halfway += 1
+
+    return {"sent_7d": sent_7d, "sent_halfway": sent_halfway, "sent_2d": sent_2d}
 
 
 # ── Conversion ────────────────────────────────────────────────────────────────
@@ -384,15 +752,29 @@ def convert_evaluation(
     order_form_reference: Optional[str] = None,
     implementation_sow_reference: Optional[str] = None,
     signed_agreement_reference: Optional[str] = None,
+    actor=None,
 ) -> BillingConversion:
     evaluation = get_evaluation(db, evaluation_id)
+    if evaluation.status == EvaluationStatus.CONVERTED:
+        raise BadRequestException(
+            "This account has already been converted to a commercial account."
+        )
     if evaluation.status != EvaluationStatus.ACTIVE:
-        raise BadRequestException("Evaluation is not active.")
+        raise BadRequestException(
+            f"Evaluation is {role_value(evaluation.status).replace('_', ' ')}, "
+            "not active, so it cannot be converted."
+        )
 
     plan = get_plan_by_id(db, plan_id)
 
     # Back-billing rejection (Section 17): reject if commercial_effective_at
     # is earlier than now minus tolerance, unless signed agreement provided.
+    # The API hands us a tz-aware UTC instant (browser `toISOString()`); the
+    # platform stores naive UTC, so normalise before comparing or persisting.
+    if commercial_effective_at.tzinfo is not None:
+        commercial_effective_at = (
+            commercial_effective_at.astimezone(timezone.utc).replace(tzinfo=None)
+        )
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     if commercial_effective_at < (now - BACK_BILLING_TOLERANCE):
         if not signed_agreement_reference:
@@ -411,10 +793,25 @@ def convert_evaluation(
 
     subscription = get_or_create_subscription(db, evaluation.organization_id)
 
+    if (
+        subscription.billing_classification == BillingClassification.COMMERCIAL
+        and subscription.status == SubscriptionStatus.ACTIVE
+    ):
+        raise BadRequestException(
+            "This account is already a commercial account."
+        )
+
     if subscription.committed_quantity and not order_form_reference:
         raise BadRequestException(
             "order_form_reference is required when committed_quantity is set."
         )
+
+    before_state = {
+        "evaluation_status": role_value(evaluation.status),
+        "billing_classification": role_value(subscription.billing_classification),
+        "subscription_status": role_value(subscription.status),
+        "plan_code": role_value(subscription.plan_code) if subscription.plan_code else None,
+    }
 
     # Write immutable billing_conversion record
     conversion = BillingConversion(
@@ -447,8 +844,40 @@ def convert_evaluation(
         subscription.service_start_at = commercial_effective_at
     subscription.renewal_anchor_date = commercial_effective_at
 
-    db.commit()
+    # Audit row rides in the same transaction as the conversion: no commit has
+    # happened since the first write above, so it is all-or-nothing.
+    if actor is not None:
+        log_billing_audit(
+            db,
+            actor=actor,
+            organization_id=evaluation.organization_id,
+            action=BillingAuditAction.EVALUATION_CONVERTED,
+            entity_type="BillingConversion",
+            entity_id=conversion.id,
+            before=before_state,
+            after={
+                "evaluation_status": "converted",
+                "billing_classification": "commercial",
+                "subscription_status": "active",
+                "plan_code": role_value(plan.code),
+                "billing_cycle": role_value(billing_cycle),
+                "catalog_version": conversion.catalog_version,
+                "quantity_basis": conversion.quantity_basis,
+                "commercial_effective_at": commercial_effective_at.isoformat(),
+                "approver": conversion.approver,
+            },
+            commit=False,
+        )
+
+    try:
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
     db.refresh(conversion)
+    _invalidate_entitlement_cache(evaluation.organization_id)
+    emit_event(db, "subscription.converted", {"conversion_id": conversion.id, "plan_code": role_value(plan.code),
+                                              "billing_cycle": role_value(billing_cycle)}, evaluation.organization_id)
     return conversion
 
 
@@ -462,6 +891,56 @@ def get_conversions(db: Session, organization_id: int) -> list[BillingConversion
 
 
 # ── Subscription management ───────────────────────────────────────────────────
+
+def _invalidate_entitlement_cache(organization_id: int) -> None:
+    """Drop cached per-key entitlement decisions for an org after any
+    subscription mutation that changes plan/status (Phase 8)."""
+    try:
+        from app.modules.billing.entitlement_service import invalidate_entitlement_cache
+
+        invalidate_entitlement_cache(organization_id)
+    except Exception as e:
+        logger.warning("[billing] Entitlement cache invalidation failed: %s", e)
+
+
+def evaluation_access_block_reason(db: Session, organization_id: int, now: Optional[datetime] = None) -> Optional[str]:
+    """Return a user-facing denial message when an APPROVED/ACTIVE org must no
+    longer sign in (evaluation ended or expired with no paying subscription),
+    or None when access is still granted. Used by the login and per-request
+    auth gates (ZHR-COM-ENT-001 §9).
+
+    This is a pure read: it never ends an evaluation here. Overdue ACTIVE
+    evaluations used to be ended in place on this read path (a DB write on the
+    auth hot path); that write now lives in the scheduler's evaluation-expiry
+    job (scheduler.py, interval + daily), so a request never mutates the DB
+    just to decide whether to let someone through. An ACTIVE evaluation whose
+    evaluation_ends_at has passed still produces the same block message below —
+    the user is denied regardless — and the scheduler flips the subscription to
+    EVALUATION_EXPIRED within minutes afterwards."""
+    if now is None:
+        now = datetime.utcnow()
+
+    active_eval = get_active_evaluation(db, organization_id)
+    if active_eval:
+        if active_eval.evaluation_ends_at >= now:
+            return None
+
+    subscription = (
+        db.query(BillingSubscription)
+        .filter(BillingSubscription.organization_id == organization_id)
+        .first()
+    )
+    if subscription and subscription.status not in {
+        SubscriptionStatus.EVALUATION,
+        SubscriptionStatus.EVALUATION_EXPIRED,
+        SubscriptionStatus.CANCELED,
+        SubscriptionStatus.TERMINATED,
+        SubscriptionStatus.SUSPENDED,
+    }:
+        return None
+
+    return "Your evaluation period has ended. Contact sales to continue."
+
 
 def upgrade_subscription(
     db: Session,
@@ -487,6 +966,7 @@ def upgrade_subscription(
     # TODO: stub — proration calculation is a separate ticket (payment provider integration)
     db.commit()
     db.refresh(subscription)
+    _invalidate_entitlement_cache(organization_id)
     return subscription
 
 
@@ -526,6 +1006,7 @@ def schedule_downgrade(
     # TODO: stub — eligibility conflict detection (SSO/retention/integration)
     db.commit()
     db.refresh(subscription)
+    _invalidate_entitlement_cache(organization_id)
     return subscription
 
 
@@ -542,6 +1023,7 @@ def cancel_subscription(
     # TODO: stub — cancellation date handling for data retention
     db.commit()
     db.refresh(subscription)
+    _invalidate_entitlement_cache(organization_id)
     return subscription
 
 
@@ -615,14 +1097,19 @@ def log_billing_audit(
     reason: Optional[str] = None,
     source: Optional[str] = None,
     stripe_event_id: Optional[str] = None,
+    commit: bool = True,
 ) -> BillingAuditLog:
+    """``commit=False`` stages the row in the caller's open transaction so the
+    audit entry and the change it describes succeed or fail together."""
     log = BillingAuditLog(
         organization_id=organization_id,
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        actor_id=getattr(actor, "id", None),
-        actor_email=getattr(actor, "email", None),
+        actor_id=None if isinstance(actor, str) else getattr(actor, "id", None),
+        # Callers that only have an identity string (webhooks, services handed an
+        # email) must still be attributed — getattr(str, "email") is None.
+        actor_email=actor if isinstance(actor, str) else getattr(actor, "email", None),
         before=before,
         after=after,
         reason=reason,
@@ -630,8 +1117,11 @@ def log_billing_audit(
         stripe_event_id=stripe_event_id,
     )
     db.add(log)
-    db.commit()
-    db.refresh(log)
+    if commit:
+        db.commit()
+        db.refresh(log)
+    else:
+        db.flush()
     return log
 
 
@@ -669,3 +1159,70 @@ def backfill_plan_ids(db: Session) -> int:
     if count:
         db.commit()
     return count
+
+
+def list_platform_invoices(
+    db: Session,
+    status: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
+    organization_id: int | None = None,
+    currency: str | None = None,
+    min_amount_cents: int | None = None,
+    max_amount_cents: int | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
+    """Platform-wide invoice list across all organizations with filters and pagination."""
+    from app.modules.hr.models import Organization
+
+    q = db.query(BillingInvoice)
+
+    if status:
+        q = q.filter(BillingInvoice.status == status)
+    if date_from:
+        q = q.filter(BillingInvoice.created_at >= date_from)
+    if date_to:
+        q = q.filter(BillingInvoice.created_at <= date_to)
+    if organization_id:
+        q = q.filter(BillingInvoice.organization_id == organization_id)
+    if currency:
+        q = q.filter(BillingInvoice.currency == currency.upper())
+    if min_amount_cents is not None:
+        q = q.filter(BillingInvoice.amount_due_cents >= min_amount_cents)
+    if max_amount_cents is not None:
+        q = q.filter(BillingInvoice.amount_due_cents <= max_amount_cents)
+
+    total = q.count()
+
+    offset = max(0, (page - 1) * limit)
+    invoices = q.order_by(BillingInvoice.created_at.desc()).offset(offset).limit(limit).all()
+
+    org_map = {}
+    try:
+        from app.modules.super_admin.organization_service import org_names_by_id
+        org_map = org_names_by_id(db, {inv.organization_id for inv in invoices}, include_deleted=True)   # this page's orgs, deleted ones named
+    except Exception:
+        pass
+
+    items = []
+    for inv in invoices:
+        item = {
+            "id": inv.id,
+            "organization_id": inv.organization_id,
+            "organization_name": org_map.get(inv.organization_id) or f"Org #{inv.organization_id}",
+            "stripe_invoice_id": inv.stripe_invoice_id,
+            "amount_due_cents": inv.amount_due_cents,
+            "amount_paid_cents": inv.amount_paid_cents,
+            "currency": inv.currency,
+            "status": inv.status,
+            "hosted_invoice_url": inv.hosted_invoice_url,
+            "invoice_pdf_url": inv.invoice_pdf_url,
+            "period_start": inv.period_start,
+            "period_end": inv.period_end,
+            "created_at": inv.created_at,
+        }
+        items.append(item)
+
+    return items, total
+

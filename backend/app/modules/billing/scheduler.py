@@ -47,6 +47,87 @@ def _execute_plan_changes_job():
         logger.error("[scheduler] Plan change execution job failed: %s", e)
 
 
+def _execute_delinquency_walk_job():
+    """Job function: advance the delinquency timeline (day 10/20/45) for every
+    open case and dispatch stage-change notices (Section 10 G1-G5)."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.delinquency_service import run_delinquency_walk
+
+        db = SessionLocal()
+        try:
+            result = run_delinquency_walk(db)
+            logger.info(
+                "[scheduler] Delinquency walk: %d open, %d advanced, %d notified",
+                result["open_cases"], result["advanced"], result["notified"],
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Delinquency walk job failed: %s", e)
+
+
+def _execute_evaluation_expiry_job():
+    """Job function: end any ACTIVE evaluation whose evaluation_ends_at has
+    passed (Section 9 — "Ends automatically; no charge"). Never calls Stripe
+    or any payment provider."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.service import expire_overdue_evaluations
+
+        db = SessionLocal()
+        try:
+            expired = expire_overdue_evaluations(db)
+            logger.info("[scheduler] Evaluation expiry: %d evaluation(s) expired", len(expired))
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Evaluation expiry job failed: %s", e)
+
+
+def _execute_evaluation_reminder_job():
+    """Job function: send 7-day/2-day reminder emails exactly once per
+    evaluation (Section 8.1). Runs after evaluation-expiry (02:10) so an
+    evaluation expiring today has already been closed out before this job
+    would otherwise consider it for a reminder."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.service import send_evaluation_reminders
+
+        db = SessionLocal()
+        try:
+            result = send_evaluation_reminders(db)
+            logger.info(
+                "[scheduler] Evaluation reminders: %d 7-day, %d halfway, %d 2-day sent",
+                result["sent_7d"], result["sent_halfway"], result["sent_2d"],
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Evaluation reminder job failed: %s", e)
+
+
+def _execute_exception_expiry_job():
+    """Job function: expire any ACTIVE commercial entitlement exception whose
+    expires_at has passed (ZHR-COM-ENT-001 §19.1). Each expiry invalidates the
+    org's entitlement cache and writes an EXCEPTION_EXPIRED audit row so a
+    time-bound override never silently outlives its window."""
+    try:
+        from app.database import SessionLocal
+        from app.modules.billing.exception_service import expire_overdue_exceptions
+
+        db = SessionLocal()
+        try:
+            expired = expire_overdue_exceptions(db)
+            logger.info(
+                "[scheduler] Exception expiry: %d exception(s) expired", len(expired),
+            )
+        finally:
+            db.close()
+    except Exception as e:
+        logger.error("[scheduler] Exception expiry job failed: %s", e)
+
+
 def setup_scheduler(app=None) -> bool:
     """Register the plan-change scheduler with the FastAPI app lifecycle.
 
@@ -64,8 +145,30 @@ def setup_scheduler(app=None) -> bool:
         )
         return False
 
+    if app:
+        # Backwards-compatible registration for apps that do not use lifespan.
+        # Modern apps (main.py) call start_scheduler()/stop_scheduler() directly
+        # inside the FastAPI lifespan block instead.
+        @app.on_event("startup")
+        def _app_start():
+            start_scheduler()
+
+        @app.on_event("shutdown")
+        def _app_stop():
+            stop_scheduler()
+    else:
+        start_scheduler()
+
+    return True
+
+
+def _ensure_scheduler():
+    """Lazily build the BackgroundScheduler and register all daily jobs."""
     global _scheduler
-    _scheduler = BackgroundScheduler()
+    if _scheduler is not None and _scheduler.running:
+        return _scheduler
+    if _scheduler is None:
+        _scheduler = BackgroundScheduler()
 
     _scheduler.add_job(
         _execute_plan_changes_job,
@@ -76,22 +179,85 @@ def setup_scheduler(app=None) -> bool:
         misfire_grace_time=3600,
     )
 
-    if app:
-        @app.on_event("startup")
-        def start_scheduler():
-            _scheduler.start()
-            logger.info("[scheduler] Plan change scheduler started — daily at 02:00 UTC")
+    _scheduler.add_job(
+        _execute_delinquency_walk_job,
+        CronTrigger(hour=2, minute=5),
+        id="delinquency_walk",
+        name="Advance delinquency timeline and dispatch notices",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
 
-        @app.on_event("shutdown")
-        def stop_scheduler():
-            if _scheduler.running:
-                _scheduler.shutdown(wait=False)
-                logger.info("[scheduler] Plan change scheduler stopped")
-    else:
+    _scheduler.add_job(
+        _execute_evaluation_expiry_job,
+        CronTrigger(hour=2, minute=10),
+        id="evaluation_expiry_walk",
+        name="Expire evaluations past evaluation_ends_at",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    # Part B: the auth path no longer ends overdue ACTIVE evaluations on read
+    # (evaluation_access_block_reason). Every interval run reconciles ACTIVE
+    # evaluations whose evaluation_ends_at passed, flipping subscriptions to
+    # EVALUATION_EXPIRED. An overdue evaluation blocks sign-in anyway (the cached
+    # org-access decision still denies), so this job only tightens bookkeeping;
+    # the 02:10 daily cron remains as a backstop most likely to run exactly once.
+    _scheduler.add_job(
+        _execute_evaluation_expiry_job,
+        "interval",
+        seconds=600,
+        id="evaluation_expiry_interval",
+        name="Expire overdue evaluations (10-minute reconciliation)",
+        replace_existing=True,
+        coalesce=True,
+        max_instances=1,
+        misfire_grace_time=300,
+    )
+
+    _scheduler.add_job(
+        _execute_evaluation_reminder_job,
+        CronTrigger(hour=2, minute=15),
+        id="evaluation_reminder_walk",
+        name="Send evaluation 7-day/2-day reminder emails",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+
+    _scheduler.add_job(
+        _execute_exception_expiry_job,
+        CronTrigger(hour=2, minute=20),
+        id="exception_expiry_walk",
+        name="Expire time-bound commercial exception entitlements",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    return _scheduler
+
+
+def start_scheduler() -> bool:
+    """Start the background scheduler (registers plan-change + delinquency jobs
+    on first start). Safe to call once from the FastAPI lifespan."""
+    if not _SCHEDULER_AVAILABLE:
+        logger.warning("[scheduler] APScheduler not installed — background jobs disabled")
+        return False
+    global _scheduler
+    _scheduler = _ensure_scheduler()
+    if not _scheduler.running:
         _scheduler.start()
-        logger.info("[scheduler] Plan change scheduler started (standalone) — daily at 02:00 UTC")
-
+    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05, evaluation expiry 02:10, evaluation reminders 02:15 UTC")
     return True
+
+
+def stop_scheduler() -> bool:
+    """Stop the background scheduler. Safe to call from the FastAPI lifespan."""
+    global _scheduler
+    if _scheduler is not None and _scheduler.running:
+        _scheduler.shutdown(wait=False)
+        _scheduler = None
+        logger.info("[scheduler] Background scheduler stopped")
+        return True
+    return False
 
 
 def get_scheduler():

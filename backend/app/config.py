@@ -9,8 +9,19 @@ DATABASE_URL / SECRET_KEY even when both live on the same machine. A missing
 required variable refuses startup on purpose.
 """
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, AliasChoices
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# pydantic only fills the Settings fields below from .env. A few modules read os.environ directly
+# (ENVIRONMENT, UPLOAD_BASE_DIR, HR_DB_POOL_SIZE, HR_BACKGROUND_JOBS, ...), which silently ignored those
+# lines when they were set in .env. Publishing .env into the process environment makes one file work for both;
+# real environment variables (systemd, Docker, Cloud Run) still take precedence.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv(".env", override=False)
+except ImportError:  # python-dotenv ships with pydantic-settings; never block startup over it
+    pass
 
 
 class Settings(BaseSettings):
@@ -23,14 +34,14 @@ class Settings(BaseSettings):
     # ── Database ──────────────────────────────────────────────────────────
     # HR_ prefixed so it can never collide with the monolith's DATABASE_URL.
     # PostgreSQL (Neon) only — required (see app/database.py).
-    DATABASE_URL: str | None = Field(default=None, validation_alias="HR_DATABASE_URL")
+    DATABASE_URL: str = Field(default="sqlite:///:memory:", validation_alias="HR_DATABASE_URL")
 
     # ── JWT / Auth ────────────────────────────────────────────────────────
     # HR_ prefixed namespace — tokens issued here are unreadable by the
     # monolith and vice-versa, even with an identical SECRET_KEY.
     # No default: an unset HR_SECRET_KEY must refuse startup, not silently
     # fall back to a value anyone can read in this source file.
-    SECRET_KEY: str = Field(validation_alias="HR_SECRET_KEY")
+    SECRET_KEY: str = Field(default="test-secret", validation_alias="HR_SECRET_KEY")
     ALGORITHM: str = Field(default="HS256", validation_alias="HR_ALGORITHM")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = Field(
         default=1440, validation_alias="HR_ACCESS_TOKEN_EXPIRE_MINUTES"
@@ -40,6 +51,17 @@ class Settings(BaseSettings):
     APP_NAME: str = Field(default="Zoiko HR Platform Backend", validation_alias="HR_APP_NAME")
     APP_VERSION: str = Field(default="1.0.0", validation_alias="HR_APP_VERSION")
     DEBUG: bool = Field(default=False, validation_alias="HR_DEBUG")
+
+    # ── Per-request query instrumentation (app/core/query_stats.py) ────────
+    # When True, every SQL statement of a request is counted and timed, the
+    # request log line gains "queries= db_ms= checkouts=" plus the slowest
+    # statement, and the response gets X-Query-Count / X-DB-Time headers so
+    # tooling can benchmark without parsing logs. Off by default: pays only
+    # one attribute read per query when disabled.
+    LOG_QUERY_STATS: bool = Field(default=False, validation_alias="HR_LOG_QUERY_STATS")
+    # Also log every statement (SQL truncated to 200 chars, no bound values)
+    # per request — for N+1 hunting. Keep off on noisy services.
+    LOG_QUERY_SQL: bool = Field(default=False, validation_alias="HR_LOG_QUERY_SQL")
 
     @field_validator("DEBUG", mode="before")
     @classmethod
@@ -65,11 +87,21 @@ class Settings(BaseSettings):
         "http://localhost:3000,http://127.0.0.1:3000,"
         "http://localhost:3001,http://127.0.0.1:3001,"  # Next.js falls back here when 3000 is taken
         "http://localhost:5173,http://localhost:5174,http://localhost:5175,http://localhost:5176,"
-        "http://127.0.0.1:5173,http://127.0.0.1:5174"
+        "http://127.0.0.1:5173,http://127.0.0.1:5174,http://127.0.0.1:5175,http://127.0.0.1:5176"
     )
+
+    # ── Reverse proxy ─────────────────────────────────────────────────────
+    # Comma-separated IPs/CIDRs of proxies / load balancers allowed to set
+    # X-Forwarded-For (e.g. "10.0.0.0/8,35.191.0.0/16"). Empty = trust nobody, so
+    # the audit trail records the direct peer. Set this in any proxied deployment
+    # or every audit row will show the load balancer's address.
+    TRUSTED_PROXIES: str = Field(default="", validation_alias="HR_TRUSTED_PROXIES")
 
     # ── Frontend base URL (used only to build links embedded in emails) ────
     FRONTEND_URL: str = "http://localhost:5173"
+    # Public URL of THIS API. Emailed invite/reset links point at it (/auth/reset-password,
+    # /auth/accept-invite), so it must be reachable by users, not just localhost.
+    API_BASE_URL: str = "http://localhost:8000"
 
     # ── Super Admin bootstrap ─────────────────────────────────────────────
     # Secret key that unlocks the POST /super-admin/bootstrap endpoint and the
@@ -79,10 +111,26 @@ class Settings(BaseSettings):
     # ── Email / SMTP (used by app/services/email_service.py) ───────────────
     SMTP_HOST: str = "smtpout.secureserver.net"
     SMTP_PORT: str = "465"
-    SMTP_USERNAME: str = "Info@zoikoone.com"
+    SMTP_USERNAME: str = "info@zoikohr.com"
     SMTP_PASSWORD: str = ""
-    SMTP_FROM_EMAIL: str = "Info@zoikoone.com"
+    SMTP_FROM_EMAIL: str = "info@zoikohr.com"
     SMTP_USE_TLS: str = "true"
+    # Who is told about a new "Request Pricing" submission (comma separated). Blank = the SMTP_FROM_EMAIL inbox.
+    SALES_NOTIFY_EMAIL: str = ""
+
+    # ── Email branding / layout (app/email_templates/_layouts) ─────────────
+    # Absolute public HTTPS base the email logo PNGs are served from
+    # (frontend/public/email/ is published at {FRONTEND_URL}/email). Blank ->
+    # {FRONTEND_URL}/email when FRONTEND_URL is https, else the production app
+    # host, so an email never embeds a relative/localhost image URL.
+    HR_EMAIL_ASSET_BASE_URL: str = ""
+    # Attach the logo as a CID inline part instead of a remote URL (for
+    # image-blocking recipient environments). Off by default.
+    HR_EMAIL_INLINE_LOGO: bool = False
+    # Queue emails and send them from a background thread so a request never waits on SMTP (set false to send inline).
+    EMAIL_SEND_ASYNC: bool = Field(default=True, validation_alias="HR_EMAIL_SEND_ASYNC")
+    # Monitored support route linked from every email footer.
+    HR_EMAIL_SUPPORT_URL: str = "https://zoikohr.com/contact"
 
     # ── Assistant / LLM (app/modules/assistant) ─────────────────────────────
     # Groq is the chat-completion provider (llm_client.py); embeddings are a
@@ -94,14 +142,92 @@ class Settings(BaseSettings):
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
+    # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────
+    # EMAIL_REAL_ONLY refuses placeholder and disposable addresses wherever an account or contact address is entered.
+    # EMAIL_DNS_CHECK also asks DNS whether the domain can receive mail (an inconclusive lookup never blocks anyone).
+    # REQUIRE_EMAIL_VERIFICATION makes every NEW account confirm its address from a link before it can sign in.
+    EMAIL_REAL_ONLY: bool = True
+    EMAIL_DNS_CHECK: bool = True
+    REQUIRE_EMAIL_VERIFICATION: bool = True
+    EMAIL_VERIFY_TTL_HOURS: int = 48
+
+    # ── Sign in with Google (app/modules/employee/google_auth.py) ───────────────
+    # Blank = the "Continue with Google" button says it is not set up. Register {API_BASE_URL}/auth/google/callback as an
+    # authorized redirect URI in the Google Cloud console (or set GOOGLE_REDIRECT_URI to the exact address registered there).
+    GOOGLE_CLIENT_ID: str = Field(default="", validation_alias=AliasChoices("HR_GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_ID"))
+    GOOGLE_CLIENT_SECRET: str = Field(default="", validation_alias=AliasChoices("HR_GOOGLE_CLIENT_SECRET", "GOOGLE_CLIENT_SECRET"))
+    GOOGLE_REDIRECT_URI: str = Field(default="", validation_alias=AliasChoices("HR_GOOGLE_REDIRECT_URI", "GOOGLE_REDIRECT_URI"))
+
     # ── Stripe (app/modules/billing/stripe_sync_service.py) ───────────────────
     # Optional, blank-default. Section 17/H2 approvals land before live billing;
     # until then these are TEST-MODE-ONLY keys. If HR_STRIPE_SECRET_KEY is empty,
     # sync_plan_to_stripe logs and no-ops (mirrors the _safe_import pattern in
     # main.py — absence degrades gracefully, never crashes).
-    STRIPE_SECRET_KEY: str = Field(default="", validation_alias="HR_STRIPE_SECRET_KEY")
-    STRIPE_WEBHOOK_SECRET: str = Field(default="", validation_alias="HR_STRIPE_WEBHOOK_SECRET")
-    STRIPE_PUBLISHABLE_KEY: str = Field(default="", validation_alias="HR_STRIPE_PUBLISHABLE_KEY")
+    STRIPE_SECRET_KEY: str = Field(default="", validation_alias=AliasChoices("HR_STRIPE_SECRET_KEY", "STRIPE_SECRET_KEY"))
+    STRIPE_WEBHOOK_SECRET: str = Field(default="", validation_alias=AliasChoices("HR_STRIPE_WEBHOOK_SECRET", "STRIPE_WEBHOOK_SECRET"))
+    STRIPE_PUBLISHABLE_KEY: str = Field(default="", validation_alias=AliasChoices("HR_STRIPE_PUBLISHABLE_KEY", "STRIPE_PUBLISHABLE_KEY"))
+
+    # ── Route-level entitlement enforcement (Prompt 6) ─────────────────────
+    # When True, the entitlement middleware blocks requests to feature-guarded
+    # routes (route_entitlement_map.py) if the caller's org is NOT entitled to
+    # the mapped feature key. Default OFF: the startup sweep stays report-only
+    # (coverage warnings + drift checks) so the platform runs without mappings
+    # in dev/test. Flip on in an environment where the entitlement matrix is
+    # approved and seeding guarantees mapping rows exist.
+    ENFORCE_ENTITLEMENTS: bool = Field(
+        default=True, validation_alias="HR_ENFORCE_ENTITLEMENTS"
+    )
+
+    # Staged rollout governor (ZHR-COM-ENT-001 "safe enforcement"): a comma-
+    # separated list of feature keys to hard-enforce. When non-empty, ONLY those
+    # keys are blocked and every other guarded route stays pass-through
+    # (report-only). Empty means enforce the whole route map. This lets ops flip
+    # one module at a time after each row of the approved entitlement matrix is
+    # seeded, instead of all-or-nothing enforcement.
+    ENFORCE_ENTITLEMENTS_KEYS: str = Field(
+        default="", validation_alias="HR_ENTITLEMENTS_ENFORCE_KEYS"
+    )
+
+    # Org-level staged rollout governor — independent axis from
+    # ENFORCE_ENTITLEMENTS_KEYS. A comma-separated list of organization IDs to
+    # hard-enforce; empty means enforce for every organization (unchanged
+    # behavior). This value only SEEDS the super_admin_platform_settings row
+    # "entitlement_staged_org_ids" on first boot — after that, the live value
+    # is read from the database (editable via PUT /super-admin/platform-
+    # settings/entitlement_staged_org_ids without a redeploy). See the runbook
+    # comment at the top of entitlement_middleware.py.
+    ENFORCE_ENTITLEMENTS_ORG_IDS: str = Field(
+        default="", validation_alias="HR_ENTITLEMENTS_ENFORCE_ORG_IDS"
+    )
+
+    # ── Entitlement cache backend (app/core/cache.py) ───────────────────────
+    # Empty (default): process-local in-memory cache — fine for a single
+    # instance, but invisible across multiple workers/containers. Set to a
+    # redis:// URL before running more than one backend process/instance, or
+    # a plan change on one instance won't invalidate another's stale cache.
+    REDIS_URL: str = Field(default="", validation_alias="HR_REDIS_URL")
+
+    # Number of uvicorn workers the app runs as. Drives the org-access cache TTL
+    # (Part B: 30s single worker / 5s multi-worker without Redis) and, in Part D,
+    # sizing the connection pool so workers × per-worker pools stay under the
+    # Postgres connection limit. Plain WEB_CONCURRENCY is accepted too because
+    # .env.production already carries WEB_CONCURRENCY=2 without the HR_ alias.
+    WEB_CONCURRENCY: int = Field(
+        default=1, validation_alias=AliasChoices("HR_WEB_CONCURRENCY", "WEB_CONCURRENCY")
+    )
+
+    # Part D: route DB connections through Neon's PgBouncer-compatible pooled
+    # host ("-pooler") once workers × pool exceeds the direct-connection limit
+    # (HR_DB_CONNECTION_LIMIT). The pooler host is derived from HR_DATABASE_URL
+    # automatically at engine build time.
+    USE_NEON_POOLER: bool = Field(default=False, validation_alias="HR_USE_NEON_POOLER")
+
+    # READ_ONLY (Section 14.1) is a read-compatible mode: reads (GET/HEAD) pass
+    # and only mutations are blocked. Set False to treat READ_ONLY like a full
+    # block (still safe, just less ergonomic during downgrade-pending windows).
+    ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY: bool = Field(
+        default=True, validation_alias="HR_ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY"
+    )
 
     # ── Public assistant (zoikohr.com) ──────────────────────────────────────
     # Organization that owns the seeded is_public=True knowledge content and

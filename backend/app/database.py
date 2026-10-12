@@ -8,10 +8,11 @@ own database (HR_DATABASE_URL).
 
 import logging
 import os
-from urllib.parse import parse_qsl, urlparse
+import time
+from urllib.parse import urlparse
 
-from sqlalchemy import create_engine, exc, text
-from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy import create_engine, event, exc, inspect, text
+from sqlalchemy.orm import Session, declarative_base, sessionmaker, with_loader_criteria
 
 from app.config import settings
 
@@ -19,9 +20,35 @@ logger = logging.getLogger("zoiko.hr")
 
 
 def _is_development_environment() -> bool:
+    import sys
     env_name = (os.getenv("ENVIRONMENT") or os.getenv("APP_ENV") or "").strip().lower()
     debug_flag = str(getattr(settings, "DEBUG", False)).strip().lower()
-    return env_name == "development" or debug_flag in {"1", "true", "yes", "on"}
+    is_pytest = "pytest" in sys.modules or bool(os.getenv("PYTEST_CURRENT_TEST"))
+    return env_name in {"development", "test", "testing"} or debug_flag in {"1", "true", "yes", "on"} or is_pytest
+
+
+def _apply_neon_pooler(raw_url: str, use_pooler: bool) -> str:
+    """Neon recommends its PgBouncer-compatible pooled host ("-pooler") once the
+    app opens more than ~10 direct connections: `host-xxx.us-east-2.aws.neon.tech`
+    becomes `host-xxx-pooler.us-east-2.aws.neon.tech`. Opt in with
+    HR_USE_NEON_POOLER=true (works per-environment — set it only where the
+    worker count times pool size exceeds the direct-connection limit)."""
+    if not use_pooler:
+        return raw_url
+    parsed = urlparse(raw_url)
+    if not parsed.hostname or not parsed.hostname.endswith(".neon.tech"):
+        logger.warning("HR_USE_NEON_POOLER is set but %r is not a Neon host; ignoring.", parsed.hostname)
+        return raw_url
+    if "-pooler" in parsed.hostname:
+        return raw_url
+    parts = parsed.hostname.split(".")
+    parts[0] = f"{parts[0]}-pooler"
+    netloc = ".".join(parts)
+    if parsed.port:
+        netloc += f":{parsed.port}"
+    if parsed.username:
+        netloc = parsed.username + (f":{parsed.password}" if parsed.password else "") + "@" + netloc
+    return raw_url.replace(parsed.netloc, netloc, 1)
 
 
 def resolve_database_url(raw_url: str | None = None) -> str:
@@ -37,7 +64,11 @@ def resolve_database_url(raw_url: str | None = None) -> str:
             "(Neon). Please set HR_DATABASE_URL in your .env file."
         )
 
+    candidate_url = _apply_neon_pooler(candidate_url, settings.USE_NEON_POOLER)
     parsed = urlparse(candidate_url)
+    # Allow any scheme in development (e.g., SQLite memory) for tests.
+    if _is_development_environment():
+        return candidate_url
     if parsed.scheme in {"postgresql", "postgres"}:
         return candidate_url
 
@@ -53,16 +84,62 @@ resolved_database_url = resolve_database_url()
 # Postgres (e.g. test/dev on localhost) and a remote Neon DB both work without
 # hardcoding a mode. Honor the caller's explicit choice from the URL.
 _parsed_db = urlparse(resolved_database_url)
-_sslmode = dict(parse_qsl(_parsed_db.query)).get("sslmode")
+_sslmode = dict(_.split("=") for _ in _parsed_db.query.split("&") if "=" in _).get("sslmode")
 
-engine = create_engine(
-    resolved_database_url,
-    connect_args={"sslmode": _sslmode} if _sslmode else {},
-    pool_pre_ping=True,
-    pool_size=5,
-    max_overflow=10,
-    pool_recycle=1800,
-)
+_is_sqlite = resolved_database_url.startswith("sqlite")
+engine_kwargs = {
+    "connect_args": {"sslmode": _sslmode} if _sslmode else {},
+}
+if _is_sqlite:
+    engine_kwargs["connect_args"]["check_same_thread"] = False
+else:
+    # Bound the TCP/TLS handshake. psycopg2's default is no timeout at all, so an
+    # unreachable database hangs the boot for minutes instead of failing fast.
+    engine_kwargs["connect_args"]["connect_timeout"] = int(os.getenv("HR_DB_CONNECT_TIMEOUT", "30"))
+    # psycopg2 keepalives: a silent middlebox (NAT, Neon LB) can drop an idle
+    # TCP socket without either side noticing, leaving a "dead" pooled
+    # connection that only fails on next use. Proactive keepalive probes let
+    # pool_pre_ping catch those long before a request does.
+    engine_kwargs["connect_args"]["keepalives"] = 1
+    engine_kwargs["connect_args"]["keepalives_idle"] = int(os.getenv("HR_DB_KEEPALIVE_IDLE", "60"))
+    engine_kwargs["connect_args"]["keepalives_interval"] = int(os.getenv("HR_DB_KEEPALIVE_INTERVAL", "10"))
+    engine_kwargs["connect_args"]["keepalives_count"] = int(os.getenv("HR_DB_KEEPALIVE_COUNT", "3"))
+    engine_kwargs.update({
+        # pool_pre_ping: verify with SELECT 1 on every checkout. Cheap and the
+        # single best defense against stale pooled connections.
+        "pool_pre_ping": True,
+        # Per worker process: total connections = workers x (pool_size + max_overflow). Keep that under the
+        # database's connection limit (Neon: use the pooled "-pooler" host for larger values).
+        "pool_size": int(os.getenv("HR_DB_POOL_SIZE", "5")),
+        "max_overflow": int(os.getenv("HR_DB_MAX_OVERFLOW", "10")),
+        "pool_timeout": int(os.getenv("HR_DB_POOL_TIMEOUT", "30")),
+        "pool_recycle": int(os.getenv("HR_DB_POOL_RECYCLE", "300")),
+    })
+
+engine = create_engine(resolved_database_url, **engine_kwargs)
+
+
+def _warn_on_pool_sizing() -> None:
+    """Boot-time guard for peak pooled connections = workers x (pool_size +
+    max_overflow). Neon's direct connection limit is small (10 on free/startup
+    tiers); exceeding it makes new connections hang/fail mid-request. Warn so
+    the fix (lower pool sizes, fewer workers, or HR_USE_NEON_POOLER=true)
+    happens before an outage instead of after one."""
+    if _is_sqlite or settings.USE_NEON_POOLER:
+        return
+    workers = max(int(getattr(settings, "WEB_CONCURRENCY", 1) or 1), 1)
+    pooled_per_worker = engine_kwargs.get("pool_size", 5) + engine_kwargs.get("max_overflow", 10)
+    connection_limit = int(os.getenv("HR_DB_CONNECTION_LIMIT", "25"))
+    if workers * pooled_per_worker > int(connection_limit * 0.8):
+        logger.warning(
+            "Pool sizing risk: %d worker(s) x %d connections each = %d, above 80%% of the "
+            "configured connection limit (%d). Request spikes may exhaust the database. "
+            "Lower HR_DB_POOL_SIZE/HR_DB_MAX_OVERFLOW, cut workers, or set "
+            "HR_USE_NEON_POOLER=true.", workers, pooled_per_worker,
+            workers * pooled_per_worker, connection_limit)
+
+
+_warn_on_pool_sizing()
 
 
 # -- 2. Session factory -------------------------------------------------------
@@ -81,6 +158,45 @@ import app.modules.super_admin.command_center_models  # noqa: F401,E402
 import app.modules.assistant.models  # noqa: F401,E402
 import app.modules.billing.models  # noqa: F401,E402
 import app.modules.billing.feature_keys  # noqa: F401,E402
+import app.modules.sales_leads.models  # noqa: F401,E402
+
+
+# -- 4. Soft-deleted organizations are invisible by default (ZHR-35) ----------
+# One rule for the whole app instead of a filter in every query: every ORM
+# SELECT that touches Organization (lists, lookups, joins, lazy loads, counts)
+# gets `deleted_at IS NULL`. Code that must see deleted organizations (restore,
+# the "Deleted" filter, the login/session checks) opts out per query with
+# `.execution_options(include_deleted=True)`.
+@event.listens_for(Session, "do_orm_execute")
+def _hide_deleted_organizations(state):
+    if not state.is_select or state.execution_options.get("include_deleted", False):
+        return
+    from app.modules.hr.models import Organization
+
+    state.statement = state.statement.options(
+        with_loader_criteria(Organization, lambda cls: cls.deleted_at.is_(None), include_aliases=True)
+    )
+
+
+# Sentinels for the ALTER list below: the most recently added columns. If they
+# all resolve, every earlier statement has already been applied.
+_ALTER_PROBES = (
+    "SELECT deleted_at FROM organizations LIMIT 0",
+    "SELECT description FROM billing_plans LIMIT 0",
+    "SELECT priority FROM chat_handoffs LIMIT 0",
+    "SELECT tax_category FROM billing_plans LIMIT 0",
+)
+
+
+def _schema_alterations_needed() -> bool:
+    """True when at least one sentinel column is still missing."""
+    try:
+        with engine.connect() as conn:
+            for stmt in _ALTER_PROBES:
+                conn.execute(text(stmt))
+        return False
+    except exc.SQLAlchemyError:
+        return True
 
 
 def initialize_database() -> None:
@@ -90,17 +206,64 @@ def initialize_database() -> None:
         logger.info("Production DB init skipped; run `alembic upgrade head` before starting.")
         return
 
+    started = time.monotonic()
+
+    # pgvector backs knowledge_sources.embedding. Best-effort: a database where
+    # the extension cannot be created must not block the rest of the boot.
     try:
         with engine.begin() as conn:
             conn.execute(text("CREATE EXTENSION IF NOT EXISTS vector"))
-        Base.metadata.create_all(bind=engine)
-        logger.info("HR platform database tables initialized.")
     except exc.SQLAlchemyError as exc_info:
-        logger.error("Database initialization failed: %s", exc_info)
+        logger.warning("pgvector extension check skipped: %s", exc_info)
+
+    # create_all's checkfirst pass reflects all ~164 tables, which costs ~100s
+    # against a remote Neon instance. One table-name query is enough to know
+    # whether anything is actually missing, so only pay for create_all when it
+    # has work to do.
+    try:
+        with engine.connect() as conn:
+            existing_tables = set(inspect(conn).get_table_names())
+    except exc.SQLAlchemyError as exc_info:
+        logger.error("Schema inspection failed: %s", exc_info)
         raise
+
+    missing_tables = sorted(set(Base.metadata.tables) - existing_tables)
+    if missing_tables:
+        logger.info("Creating %d missing table(s): %s", len(missing_tables), ", ".join(missing_tables[:10]))
+        try:
+            Base.metadata.create_all(bind=engine)
+        except exc.SQLAlchemyError as exc_info:
+            logger.error("Database initialization failed: %s", exc_info)
+            raise
+        logger.info(
+            "HR platform database tables initialized: %d created in %.1fs.",
+            len(missing_tables), time.monotonic() - started,
+        )
+    else:
+        logger.info("Schema up to date (%d tables); skipped create_all (%.1fs).", len(existing_tables), time.monotonic() - started)
 
     # -- Schema migration: add columns that create_all won't retroactively add -----
     _ALTER_SQL = [
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deleted_by INTEGER REFERENCES employees(id)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS delete_reason TEXT",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS deletion_snapshot JSON",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS actor_name VARCHAR(200)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS actor_role VARCHAR(50)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS action_type VARCHAR(100)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS target_label VARCHAR(300)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS status VARCHAR(20)",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS changes JSON",
+        "ALTER TABLE super_admin_audit_logs ADD COLUMN IF NOT EXISTS error_message VARCHAR(500)",
+        "ALTER TABLE designations ADD COLUMN IF NOT EXISTS source VARCHAR(20)",
+        "ALTER TABLE designations ADD COLUMN IF NOT EXISTS created_by INTEGER",
+        "ALTER TABLE workflow_executions ADD COLUMN IF NOT EXISTS organization_id INTEGER REFERENCES organizations(id)",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS priority VARCHAR(20) NOT NULL DEFAULT 'normal'",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS assigned_to INTEGER REFERENCES employees(id)",
+        "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP",
+        "ALTER TABLE employees ADD COLUMN IF NOT EXISTS password_changed_at TIMESTAMP",
+        "ALTER TABLE employees ADD COLUMN IF NOT EXISTS must_change_password BOOLEAN NOT NULL DEFAULT FALSE",
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS plan_id INTEGER",
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS billing_cycle VARCHAR(50)",
         "ALTER TABLE billing_subscriptions ADD COLUMN IF NOT EXISTS billing_metric VARCHAR(50)",
@@ -130,18 +293,35 @@ def initialize_database() -> None:
         "ALTER TABLE chat_handoffs ADD COLUMN IF NOT EXISTS resolved_at TIMESTAMP",
         "ALTER TABLE hr_documents ADD COLUMN IF NOT EXISTS folder_id INTEGER",
         "ALTER TABLE knowledge_sources ADD COLUMN IF NOT EXISTS is_public BOOLEAN NOT NULL DEFAULT FALSE",
+        "ALTER TABLE plan_entitlement_mappings ADD COLUMN IF NOT EXISTS mode VARCHAR(30)",
+        "ALTER TABLE plan_entitlement_mappings ADD COLUMN IF NOT EXISTS limit_ref VARCHAR(100)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS org_type VARCHAR(100)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS phone VARCHAR(50)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS tax_number VARCHAR(100)",
+        "ALTER TABLE organizations ADD COLUMN IF NOT EXISTS registered_email VARCHAR(255)",
+        # Platform-level billing audit events carry NO org (super-admin catalog
+        # ops, unorg-mapped webhooks) — 0 breaks the organizations FK. Make the
+        # column nullable so log_billing_audit(organization_id=None) works.
+        "ALTER TABLE billing_audit_logs ALTER COLUMN organization_id DROP NOT NULL",
     ]
-    try:
-        from sqlalchemy import text as sql_text
-        Session = sessionmaker(bind=engine)
-        db = Session()
-        for stmt in _ALTER_SQL:
-            db.execute(sql_text(stmt))
-        db.commit()
-        db.close()
-        logger.info("Billing schema migration: ensured all billing_subscriptions columns exist.")
-    except Exception as exc_info:
-        logger.warning("Billing schema migration skipped: %s", exc_info)
+    # Each ALTER is a network round trip (~15s for the full list), so probe the
+    # newest sentinel columns first and skip the whole list once they exist.
+    if not _schema_alterations_needed():
+        logger.info("Billing schema migration: sentinel columns present; skipped.")
+    else:
+        try:
+            from sqlalchemy import text as sql_text
+            Session = sessionmaker(bind=engine)
+            db = Session()
+            try:
+                for stmt in _ALTER_SQL:
+                    db.execute(sql_text(stmt))
+                db.commit()
+            finally:
+                db.close()
+            logger.info("Billing schema migration: ensured all billing_subscriptions columns exist.")
+        except Exception as exc_info:
+            logger.warning("Billing schema migration skipped: %s", exc_info)
 
     # Backfill: map existing plan_code strings to plan_id FKs
     try:
@@ -167,6 +347,7 @@ def initialize_database() -> None:
                     catalog_version="ZHR-COM-BILL-001-v1",
                     billing_metric=BillingMetric.ACTIVE_WORKFORCE,
                     is_active=True, is_contract_priced=False,
+                    monthly_price=12.00, annual_price=120.00, currency="USD",
                     description="Essential HR tools for small to mid-size teams.",
                 ),
                 BillingPlan(
@@ -174,6 +355,7 @@ def initialize_database() -> None:
                     catalog_version="ZHR-COM-BILL-001-v1",
                     billing_metric=BillingMetric.ACTIVE_WORKFORCE,
                     is_active=True, is_contract_priced=False,
+                    monthly_price=25.00, annual_price=250.00, currency="USD",
                     description="Advanced HR, payroll, and compliance for growing organisations.",
                 ),
                 BillingPlan(
@@ -187,9 +369,25 @@ def initialize_database() -> None:
             db.add_all(plans)
             db.commit()
             logger.info("Billing plan catalog seeded: 3 plans (Core, Advanced, Enterprise).")
+        # Auto-sync plans to Stripe so price IDs are populated (required for checkout)
+        try:
+            from app.modules.billing.stripe_sync_service import sync_plan_to_stripe, stripe_enabled as stripe_sync_enabled
+            if stripe_sync_enabled():
+                all_plans = db.query(BillingPlan).filter(BillingPlan.is_active == True).all()
+                for p in all_plans:
+                    if not p.stripe_monthly_price_id and not p.is_contract_priced and p.monthly_price is not None:
+                        try:
+                            sync_plan_to_stripe(db, p)
+                            logger.info("Stripe sync completed for plan: %s", p.code)
+                        except Exception as sync_err:
+                            logger.warning("Stripe sync skipped for plan %s: %s", p.code, sync_err)
+        except Exception as sync_exc:
+            logger.warning("Stripe auto-sync skipped: %s", sync_exc)
         db.close()
     except Exception as exc_info:
         logger.warning("Billing plan seed skipped: %s", exc_info)
+
+    logger.info("Database initialization complete in %.1fs.", time.monotonic() - started)
 
 
 # -- 4. Session dependency -------------------------------------------------------

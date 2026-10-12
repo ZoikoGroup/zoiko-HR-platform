@@ -454,6 +454,22 @@ class ChatHandoff(Base):
     resolved_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
     resolved_at     = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, server_default=func.now())
+    # Super Admin support desk (ZHR-34). status maps: sent=new, open=in progress, resolved.
+    priority        = Column(String(20), nullable=False, default="normal", server_default="normal")
+    assigned_to     = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)
+    updated_at      = Column(DateTime, nullable=True)
+
+
+class ChatHandoffMessage(Base):
+    """A reply on a support ticket (the ticket's own issue_summary is message zero)."""
+    __tablename__ = "chat_handoff_messages"
+
+    id          = Column(Integer, primary_key=True, index=True)
+    handoff_id  = Column(Integer, ForeignKey("chat_handoffs.id"), nullable=False, index=True)
+    author_id   = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    author_role = Column(String(20), nullable=False, default="staff")  # staff | requester
+    body        = Column(Text, nullable=False)
+    created_at  = Column(DateTime, server_default=func.now())
 
 
 class ChatFeedback(Base):

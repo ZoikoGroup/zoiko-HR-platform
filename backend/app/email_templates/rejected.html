@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Registration update" %}
+{% set preheader = "An update is available regarding your registration request." %}
+{% set badge = "Declined" %}
+{% set badge_tone = "neutral" %}
+{% set footer_reason %}You are receiving this email because this address was used to register {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Registration update</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A decision was recorded regarding the registration for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong>. Status: Declined. Please review the details securely in your portal.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Status", "Declined") }}
+{% endcall %}
+{{ ui.button(action_url, "Review decision details") }}
+{{ ui.signoff() }}
+{% endblock %}

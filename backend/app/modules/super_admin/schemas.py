@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import List, Optional
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 # ── Bootstrap ────────────────────────────────────────────────────────────────
@@ -29,6 +29,8 @@ class OrganizationSummary(BaseModel):
     admin_name: Optional[str] = None
     admin_email: Optional[str] = None
     approved_by_name: Optional[str] = None
+    deleted_at: Optional[datetime] = None
+    delete_reason: Optional[str] = None
     approved_at: Optional[datetime] = None
     suspended_at: Optional[datetime] = None
     reactivated_at: Optional[datetime] = None
@@ -47,6 +49,10 @@ class OrganizationDetail(OrganizationSummary):
     city: Optional[str] = None
     timezone: Optional[str] = None
     industry: Optional[str] = None
+    org_type: Optional[str] = None
+    phone: Optional[str] = None
+    tax_number: Optional[str] = None
+    registered_email: Optional[str] = None
     hr_admins: int = 0
     managers: int = 0
     evaluation_ends_at: Optional[datetime] = None
@@ -55,6 +61,11 @@ class OrganizationDetail(OrganizationSummary):
 class OrganizationStatusUpdate(BaseModel):
     status: str  # active | suspended | deactivated | on_hold | approved | rejected
     reason: Optional[str] = None
+    # Two-step confirmation (Prompt 5): mint a token via
+    # POST /super-admin/organizations/{org_id}/confirmation-tokens, then present
+    # confirmation_id + confirmation_token here for destructive transitions.
+    confirmation_id: Optional[int] = None
+    confirmation_token: Optional[str] = None
 
 
 # ── Dashboard ────────────────────────────────────────────────────────────────
@@ -75,8 +86,11 @@ class AuditLogItem(BaseModel):
     action: Optional[str] = None
     entity_type: Optional[str] = None
     entity_id: Optional[int] = None
+    performed_by: Optional[int] = None
     performed_by_email: Optional[str] = None
     details: Optional[dict] = None
+    # Full client address (IPv4 or IPv6, up to 45 chars) — never truncated here.
+    ip_address: Optional[str] = None
     created_at: Optional[datetime] = None
 
     class Config:
@@ -106,16 +120,31 @@ class NotificationItem(BaseModel):
     is_read: bool = False
     target_org_id: Optional[int] = None
     created_at: Optional[datetime] = None
+    sender_name: Optional[str] = None
+    target_type: Optional[str] = None
+    audience: Optional[str] = None
+    sent_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
 
 
 class NotificationCreate(BaseModel):
-    title: str
-    message: str
+    title: str = Field(min_length=1, max_length=300)
+    message: str = ""
+    body_html: Optional[str] = Field(default=None, max_length=50_000)
     notification_type: str = "info"
     priority: str = "normal"
+    sender_name: Optional[str] = Field(default=None, max_length=120)
+    channels: Optional[List[str]] = None
+    # all | organization | user | role. Omitted = inferred from the ids/roles below.
+    target_type: Optional[str] = None
+    target_org_ids: List[int] = Field(default_factory=list)
+    target_user_ids: List[int] = Field(default_factory=list)
+    target_roles: List[str] = Field(default_factory=list)
+    # org_admins (default) | all_members - who in a targeted organization receives it
+    audience: str = "org_admins"
+    # legacy single-target fields (still accepted)
     target_org_id: Optional[int] = None
     target_user_id: Optional[int] = None
 
@@ -131,6 +160,29 @@ class PlatformSettingItem(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class EmailDeliveryLogItem(BaseModel):
+    id: int
+    organization_id: Optional[int] = None
+    recipient_email: str
+    template_name: str
+    subject: Optional[str] = None
+    status: str
+    error_message: Optional[str] = None
+    context_data: Optional[dict] = None
+    sent_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class EmailDeliveryLogResponse(BaseModel):
+    list: List[EmailDeliveryLogItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
 
 
 class PlatformSettingUpdate(BaseModel):

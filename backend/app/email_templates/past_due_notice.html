@@ -1,0 +1,22 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Invoice payment overdue" %}
+{% set preheader = "Action required to avoid Zoiko HR service restrictions." %}
+{% set badge = "Payment overdue" %}
+{% set badge_tone = "warning" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Invoice payment overdue</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">An invoice for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> is overdue. Please review your billing account to avoid service restrictions.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Invoice", subscription_number, mono=True) }}
+{{ ui.detail_row("Amount outstanding", currency ~ " " ~ overdue_amount) }}
+{% if (days_overdue|string).isdigit() %}
+{{ ui.detail_row("Days overdue", days_overdue) }}
+{% endif %}
+{% endcall %}
+{{ ui.button(action_url, "Review billing status") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

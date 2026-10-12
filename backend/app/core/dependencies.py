@@ -12,15 +12,15 @@ Role model (lowest number = highest privilege):
   employee       4  self-service (ESS) only
 """
 
-from datetime import datetime
+from typing import Optional
 
-from fastapi import Depends
+from fastapi import Depends, Query, Request
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.security import decode_access_token
-from app.core.exceptions import ForbiddenException, UnauthorizedException
+from app.core.exceptions import ForbiddenException, UnauthorizedException, ZoikoException
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/login")
 
@@ -121,7 +121,7 @@ def get_allowed_creation_roles(creator_role) -> list:
 __all__ = [
     "get_db", "get_current_user", "get_current_admin",
     "get_current_org_admin", "get_current_super_admin",
-    "get_organization_id", "get_super_admin_organization_id",
+    "get_organization_id", "get_scoped_organization_id", "get_super_admin_organization_id",
     "require_organization_access",
     "get_current_billing_owner", "get_current_billing_admin", "get_current_billing_viewer",
 ]
@@ -132,7 +132,12 @@ def _role_value(role) -> str:
 
 
 # ── Get Current Logged-In User ──────────────────────────────────────────────
+# Routes a user may call while a temporary password is still pending.
+_PASSWORD_CHANGE_ALLOWED_PATHS = ("/auth/change-password", "/auth/me", "/auth/logout", "/auth/refresh")
+
+
 def get_current_user(
+    request: Request = None,
     token: str = Depends(oauth2_scheme),
     db: Session = Depends(get_db),
 ):
@@ -145,44 +150,61 @@ def get_current_user(
     if email is None:
         raise UnauthorizedException("Token is missing user information.")
 
-    from app.modules.hr.models import Employee
+    from app.modules.employee.models import Employee
+    from sqlalchemy.orm import joinedload
 
-    user = db.query(Employee).filter(Employee.email == email).first()
+    # Collapsed org/user lookup (Part B): one query loads the employee and its
+    # organization (deleted orgs included), filtered by the token's org_id so a
+    # token minted for another org finds nobody (rule 4). Blood-scoped SSO/org
+    # moves surface as a 401 either way; when the email exists in another org
+    # we reuse the old, more specific "session outdated" message instead of the
+    # generic "not found", at the cost of one extra query on auth failures only.
+    jwt_org_id = payload.get("organization_id")
+    q = db.query(Employee).options(joinedload(Employee.organization))
+    if jwt_org_id is None:
+        q = q.filter(Employee.email == email, Employee.organization_id.is_(None))
+    else:
+        q = q.filter(Employee.email == email, Employee.organization_id == jwt_org_id)
+    user = q.execution_options(include_deleted=True).first()
+
     if user is None:
+        alt = db.query(Employee).filter(Employee.email == email).first()
+        if alt is not None:
+            raise UnauthorizedException("Your session is outdated. Please log in again.")
         raise UnauthorizedException("User account not found. Please log in again.")
 
-    jwt_org_id = payload.get("organization_id")
-    if jwt_org_id is not None and user.organization_id is not None:
-        if jwt_org_id != user.organization_id:
-            import logging
-            logging.getLogger("zoiko").warning(
-                f"JWT org_id mismatch for user {user.email}: "
-                f"token={jwt_org_id}, db={user.organization_id}. "
-                f"Rejecting request — user should re-authenticate."
-            )
-            raise UnauthorizedException("Your session is outdated. Please log in again.")
-
-    # Evaluation expiry enforcement: every authenticated request re-validates
-    # so a valid refresh token cannot extend access past evaluation_ends_at.
+    # Deleting an organization ends its users' sessions immediately (checked first
+    # so the user is told why, not just "log in again").
     if user.organization_id:
-        from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
-        from app.modules.billing import service as billing_service
-        from app.modules.hr.models import Organization, OrganizationStatus
-        org = db.query(Organization).filter(Organization.id == user.organization_id).first()
-        if org and org.status in (OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED):
-            evaluation = (
-                db.query(OrganizationEvaluation)
-                .filter(
-                    OrganizationEvaluation.organization_id == user.organization_id,
-                    OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
-                )
-                .first()
+        from app.core import org_access
+        oa = org_access.get_org_access(db, user.organization_id, org=user.organization)
+        # The org row was just loaded with the employee (deleted orgs included), so read deletion from it directly:
+        # always current, even on another worker whose cached decision predates the delete.
+        fresh_deleted = user.organization is not None and user.organization.deleted_at is not None
+        if oa.deleted or fresh_deleted:
+            from app.modules.super_admin import organization_service
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
+
+    from app.core.security import token_predates_password_change
+    if token_predates_password_change(payload, user):
+        raise UnauthorizedException("Your password was changed. Please log in again.")
+
+    if getattr(user, "must_change_password", False) and request is not None:
+        if request.url.path.rstrip("/") not in _PASSWORD_CHANGE_ALLOWED_PATHS:
+            raise ZoikoException(
+                403, "PASSWORD_CHANGE_REQUIRED",
+                "You must change your temporary password before continuing.",
             )
-            if evaluation and evaluation.evaluation_ends_at < datetime.utcnow():
-                billing_service.end_evaluation(db, evaluation.id)
-                raise UnauthorizedException(
-                    "Your evaluation period has expired. Contact sales to continue."
-                )
+
+    # Evaluation gate (Part B): the org access decision is cached, so this is 0
+    # queries on the hot path; the write that used to happen here (auto-ending an
+    # overdue evaluation on every request) moved to the scheduler. An ended or
+    # expired evaluation still revokes access immediately via the block reason.
+    if user.organization_id:
+        from app.core import org_access
+        oa = org_access.get_org_access(db, user.organization_id, org=user.organization)
+        if oa.evaluation_block_reason:
+            raise UnauthorizedException(oa.evaluation_block_reason)
 
     return user
 
@@ -235,6 +257,34 @@ def get_organization_id(current_user=Depends(get_current_user)) -> int:
     return current_user.organization_id
 
 
+def get_scoped_organization_id(
+    organization_id: Optional[int] = Query(None, description="Super Admin only: the organization to act on"),
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> int:
+    """Organization an admin-tools request applies to.
+
+    Organization users are always scoped to their own organization (a different
+    `organization_id` is rejected). A Super Admin has no organization of their
+    own, so they must name an existing, non-deleted one."""
+    from app.core.exceptions import BadRequestException, NotFoundException
+
+    role_val = _role_value(current_user.role)
+    if role_val == "super_admin":
+        if organization_id is None:
+            raise BadRequestException("Select an organization first.")
+        from app.modules.hr.models import Organization
+
+        if db.query(Organization.id).filter(Organization.id == organization_id).first() is None:
+            raise NotFoundException("Organization", organization_id)
+        return organization_id
+    if current_user.organization_id is None:
+        raise ForbiddenException("User is not associated with any organization.")
+    if organization_id is not None and organization_id != current_user.organization_id:
+        raise ForbiddenException("You can only act on your own organization.")
+    return current_user.organization_id
+
+
 def get_super_admin_organization_id(
     organization_id: int = None,
     current_user=Depends(get_current_user),
@@ -272,6 +322,18 @@ def get_current_billing_admin(current_user=Depends(get_current_user)):
     if role_val not in allowed_roles:
         raise ForbiddenException(
             f"This action requires billing admin privileges. Your role: {role_val}"
+        )
+    return current_user
+
+
+def get_current_billing_actor(current_user=Depends(get_current_user)):
+    """Organization decision-makers: Owner (super_admin), Organization Admin (admin),
+    and Billing Admin (billing_admin). Can execute billing self-service actions."""
+    role_val = _role_value(current_user.role)
+    allowed_roles = ["super_admin", "billing_admin", "admin"]
+    if role_val not in allowed_roles:
+        raise ForbiddenException(
+            f"This action requires an organization billing authority. Your role: {role_val}"
         )
     return current_user
 

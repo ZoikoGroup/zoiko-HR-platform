@@ -54,26 +54,33 @@ export const executeWorkflow = (id, idempotencyKey) =>
   api.post(`/assistant/workflows/${id}/execute`, {}, { headers: { "Idempotency-Key": idempotencyKey } });
 export const cancelWorkflow = (id) => api.post(`/assistant/workflows/${id}/cancel`, {});
 
-// ── Admin: knowledge base ────────────────────────────────────────────────────
-export const listKnowledgeSources = (params) => api.get("/assistant/admin/knowledge/sources", { params });
-export const createKnowledgeSource = (payload) => api.post("/assistant/admin/knowledge/sources", payload);
-export const publishKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/publish`, {});
-export const retireKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/retire`, {});
-export const suspendKnowledgeSource = (id) => api.post(`/assistant/admin/knowledge/sources/${id}/suspend`, {});
-export const listKnowledgeVersions = (id) => api.get(`/assistant/admin/knowledge/sources/${id}/versions`);
-export const addKnowledgeSourceVersion = (id, payload) => api.post(`/assistant/admin/knowledge/sources/${id}/versions`, payload);
-export const updateKnowledgeSource = (id, payload) => api.patch(`/assistant/admin/knowledge/sources/${id}`, payload);
-export const deleteKnowledgeSource = (id) => api.delete(`/assistant/admin/knowledge/sources/${id}`);
+// ── Admin tools (knowledge base, tickets, controls) ─────────────────────────
+// A Super Admin has no organization of their own, so they pick one and every
+// admin call below carries it as ?organization_id=. Organization admins never
+// set it: the server scopes them to their own organization.
+let adminOrganizationId = null;
+export const setAdminOrganization = (id) => { adminOrganizationId = id || null; };
+const scoped = (params) => (adminOrganizationId ? { ...(params || {}), organization_id: adminOrganizationId } : params);
+const adminGet = (path, params) => api.get(path, { params: scoped(params) });
+const adminSend = (method, path, body) => api[method](path, body, { params: scoped() });
 
-// ── Admin: handoff ticket queue ──────────────────────────────────────────────
-export const listHandoffTickets = (status) => api.get("/assistant/admin/handoffs", { params: status ? { status } : undefined });
+export const listKnowledgeSources = (params) => adminGet("/assistant/admin/knowledge/sources", params);
+export const createKnowledgeSource = (payload) => adminSend("post", "/assistant/admin/knowledge/sources", payload);
+export const publishKnowledgeSource = (id) => adminSend("post", `/assistant/admin/knowledge/sources/${id}/publish`, {});
+export const retireKnowledgeSource = (id) => adminSend("post", `/assistant/admin/knowledge/sources/${id}/retire`, {});
+export const suspendKnowledgeSource = (id) => adminSend("post", `/assistant/admin/knowledge/sources/${id}/suspend`, {});
+export const listKnowledgeVersions = (id) => adminGet(`/assistant/admin/knowledge/sources/${id}/versions`);
+export const addKnowledgeSourceVersion = (id, payload) => adminSend("post", `/assistant/admin/knowledge/sources/${id}/versions`, payload);
+export const updateKnowledgeSource = (id, payload) => adminSend("patch", `/assistant/admin/knowledge/sources/${id}`, payload);
+export const deleteKnowledgeSource = (id) => api.delete(`/assistant/admin/knowledge/sources/${id}`, { params: scoped() });
+
+export const listHandoffTickets = (status) => adminGet("/assistant/admin/handoffs", status ? { status } : undefined);
 export const resolveHandoffTicket = (id, resolutionNote) =>
-  api.post(`/assistant/admin/handoffs/${id}/resolve`, { resolution_note: resolutionNote || undefined });
+  adminSend("post", `/assistant/admin/handoffs/${id}/resolve`, { resolution_note: resolutionNote || undefined });
 
-// ── Admin: operational controls (kill switches) ─────────────────────────────
-export const listControls = () => api.get("/assistant/admin/controls");
+export const listControls = () => adminGet("/assistant/admin/controls");
 export const setControl = (controlType, isEnabled) =>
-  api.post("/assistant/admin/controls", { control_type: controlType, is_enabled: isEnabled });
+  adminSend("post", "/assistant/admin/controls", { control_type: controlType, is_enabled: isEnabled });
 
 /**
  * Streams a turn's answer via SSE. `onEvent(eventName, data)` is called for

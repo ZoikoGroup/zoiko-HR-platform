@@ -1,0 +1,16 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Evaluation midpoint review" %}
+{% set preheader = "Your Zoiko HR evaluation is at its midpoint." %}
+{% set badge = "Midpoint" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Evaluation midpoint review</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> team,</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Your evaluation for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> is at its midpoint. Review completed scenarios and remaining test cases before the evaluation end date: {{ evaluation_end_date }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Evaluation ends", evaluation_end_date, first=True) }}
+{% endcall %}
+{{ ui.button(action_url, "Review evaluation progress") }}
+{{ ui.signoff() }}
+{% endblock %}

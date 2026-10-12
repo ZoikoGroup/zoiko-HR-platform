@@ -7,7 +7,7 @@ from sqlalchemy import (
     Text, ForeignKey, UniqueConstraint, JSON, Index,
 )
 from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, false, true
 from sqlalchemy.types import TypeDecorator, VARCHAR
 
 from app.database import Base
@@ -94,8 +94,9 @@ class Gender(str, enum.Enum):
 
 
 class SecurityActionPurpose(str, enum.Enum):
-    INVITE = "invite"
-    RESET  = "reset"
+    INVITE       = "invite"
+    RESET        = "reset"
+    VERIFY_EMAIL = "verify_email"
 
 
 class SecurityActionToken(Base):
@@ -120,10 +121,12 @@ class SecurityActionToken(Base):
 
 class Employee(Base):
     __tablename__ = "employees"
-    __table_args__ = ()
+    __table_args__ = (
+        UniqueConstraint("organization_id", "email", name="uq_employees_organization_email"),
+    )
 
     id                  = Column(Integer, primary_key=True, index=True)
-    email               = Column(String(255), unique=True, nullable=False, index=True)
+    email               = Column(String(255), nullable=False, index=True)
     hashed_password     = Column(String(255), nullable=False)
     employee_id         = Column(String(20), nullable=True, index=True)
     employee_code       = Column(String(20), unique=True, nullable=False)
@@ -161,10 +164,24 @@ class Employee(Base):
     country             = Column(String(100), nullable=True)
     pincode             = Column(String(20), nullable=True)
     emergency_contacts  = Column(JSON, default=list, nullable=True)
+    notification_preferences = Column(JSON, nullable=True)      # {email, sms, push}; None = never saved, defaults apply
+    language            = Column(String(30), nullable=True)
+    travel_preferences  = Column(JSON, nullable=True)           # {currency, per_diem, auto_notify}; None = never saved
+    timezone            = Column(String(50), nullable=True)
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, onupdate=func.now())
     created_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
     updated_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
+
+    # Session invalidation + forced change (ZHR-31). Tokens issued before
+    # password_changed_at are rejected; must_change_password gates every route
+    # except change-password until the user sets their own password.
+    password_changed_at  = Column(DateTime, nullable=True)
+    must_change_password = Column(Boolean, default=False, nullable=False, server_default=false())
+    # False until the owner of the address has clicked the confirmation link we e-mailed. Accounts that existed before
+    # this was introduced are treated as confirmed (the column defaults to true); every NEW account starts unconfirmed.
+    email_verified       = Column(Boolean, default=True, nullable=False, server_default=true())
+    email_verified_at    = Column(DateTime, nullable=True)
 
     department     = relationship("Department", back_populates="employees")
     designation    = relationship("Designation", backref="employees")
@@ -178,4 +195,15 @@ class Employee(Base):
 
     @property
     def full_name(self) -> str:
-        return f"{self.first_name} {self.last_name}"
+        # a missing first or last name must not print as "None" or leave a stray space
+        return " ".join(part for part in (self.first_name, self.last_name) if part and str(part).strip()).strip()
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_employees_created_at", Employee.created_at)
+_Index("ix_employees_org_created", Employee.organization_id, Employee.created_at)
+_Index("ix_employees_department_id", Employee.department_id)
+_Index("ix_employees_designation_id", Employee.designation_id)
+_Index("ix_employees_reporting_manager_id", Employee.reporting_manager_id)

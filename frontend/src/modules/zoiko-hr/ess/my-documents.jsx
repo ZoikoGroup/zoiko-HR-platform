@@ -363,7 +363,6 @@ export default function EssMyDocuments() {
                             <p className="text-xs text-gray-400">{doc.file_size ? `${(doc.file_size / 1024).toFixed(1)} KB` : ""}</p>
                           </div>
                         </div>
-                        <StatusBadge status={doc.status} />
                       </div>
                       <div className="flex items-center justify-between mt-3 pt-3 border-t border-gray-50">
                         <span className="text-xs text-gray-400">Uploaded {fmtDate(doc.created_at)}</span>

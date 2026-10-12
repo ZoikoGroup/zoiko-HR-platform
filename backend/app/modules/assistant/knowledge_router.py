@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.database import get_db
-from app.core.dependencies import get_current_admin, get_organization_id
+from app.core.dependencies import get_current_admin, get_scoped_organization_id as get_organization_id
 from app.core.rate_limiter import limiter
 from fastapi import Request
 

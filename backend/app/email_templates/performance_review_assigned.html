@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Performance review action required" %}
+{% set preheader = "A performance review task is assigned to you." %}
+{% set badge = "Action required" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Performance review action required</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A performance review task for cycle <strong class="dm-text-strong" style="{{ S.strong }}">{{ cycle_name }}</strong> is assigned to you and due by {{ due_at_local }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Cycle", cycle_name, first=True) }}
+{{ ui.detail_row("Due date", due_at_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Complete performance task") }}
+{{ ui.signoff() }}
+{% endblock %}

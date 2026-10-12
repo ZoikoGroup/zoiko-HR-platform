@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Briefcase, UserPlus, Plus, Search, ChevronLeft, ChevronRight, MapPin, Building2, Clock, Users, AlertCircle, X, Edit2, Trash2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getRequisitions, createRequisition, updateRequisition, deleteRequisition, approveRequisition, rejectRequisition } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment" },
@@ -30,7 +31,7 @@ function SubNav() {
 
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  try { return new Date(dateStr).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" }); }
+  try { return formatDateUtil(dateStr); }
   catch { return dateStr; }
 }
 

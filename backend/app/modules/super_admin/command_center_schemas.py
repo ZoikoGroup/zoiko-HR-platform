@@ -27,6 +27,7 @@ class OverviewResponse(BaseModel):
     banner_status: str  # operational | degraded | outage
     active_p1_incidents: int
     mrr_pricing_configured: bool
+    pending_exception_approvals: int = 0  # ZHR-COM-ENT-001 §19.1 review queue
 
 
 # ── Needs Your Attention ─────────────────────────────────────────────────────

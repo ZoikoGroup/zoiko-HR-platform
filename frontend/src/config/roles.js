@@ -22,13 +22,12 @@ export const ROLE_DEFAULT_REDIRECT = {
   [ROLES.EMPLOYEE]: "/employee/ess",
 };
 
-// Define who can create which roles (fixes the UserManagementPage bug)
-export const ROLE_CREATION_RULES = {
-  [ROLES.SUPER_ADMIN]: [ROLES.ADMIN],
-  [ROLES.ADMIN]: [ROLES.ADMIN, ROLES.HR_ADMIN, ROLES.EMPLOYEE],
-  [ROLES.HR_ADMIN]: [ROLES.EMPLOYEE],
-  [ROLES.EMPLOYEE]: [],
-};
+// Which roles a user may create/assign comes from the server (GET /hr/admin/roles).
+
+// Shared Layers (Zoiko ID, Workflow, Hub, Connect, Documents, Expenses) are
+// Super Admin tools. Every other role keeps only the notifications inbox, which
+// lives under /shared/ but is an org-user surface, not a shared layer.
+const ORG_USER_SHARED_PREFIX = "/shared/notifications";
 
 // Route-prefix access matrix (authoritative for both guards and sidebar filtering)
 // Every product's primary path MUST appear in every role that should see it.
@@ -39,15 +38,25 @@ export const ROLE_ALLOWED_PREFIXES = {
     // ── Billing & Subscription (ZHR-COM-BILL-001 Section 19 — Organization Owner) ──
     "/super-admin/billing",
     "/super-admin/billing/plans",
+    "/super-admin/billing/evaluations",
     "/super-admin/billing/plan-changes",
+    "/super-admin/billing/invoices",
     "/super-admin/billing/refunds",
     "/super-admin/billing/discounts",
+    "/super-admin/billing/delinquency",
+    // ── Payments & Reconciliation ──
+    "/super-admin/billing/webhook-events",
+    "/super-admin/billing/reconciliation",
     // ── Platform administration ──
     "/super-admin/dashboard",
     "/super-admin/organizations",
     "/super-admin/access",
+    "/super-admin/support-access",
+    "/super-admin/support-tickets",
+    "/super-admin/assistant-knowledge",
     "/super-admin/audit-logs",
-    "/super-admin/settings",
+    "/super-admin/demo-requests",
+    "/super-admin/pricing-requests",
     "/super-admin/notifications",
     // ── Shared & platform ──
     "/dashboard",
@@ -77,6 +86,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/organization-admin/users",
     "/organization-admin/metrics",
     "/organization-admin/payroll-guidance",
+    "/organization-admin/billing-and-plan",
+    "/organization-admin/pay-invoice",
     // ── HR Assistant admin tools (knowledge base + support tickets) ──
     "/hr-admin/assistant-knowledge",
     "/hr-admin/assistant-handoffs",
@@ -91,7 +102,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 
   // HR Admin – Zoiko HR product + dedicated /hr-admin routes + shared product access
@@ -113,6 +124,8 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/hr-admin/settings",
     "/hr-admin/assistant-knowledge",
     "/hr-admin/assistant-handoffs",
+    "/organization-admin/billing-and-plan",
+    "/organization-admin/pay-invoice",
     // ── All product paths ──
     "/zoiko-hr",
     "/zoikotime",
@@ -124,7 +137,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 
   // Manager – HR + employee self-service + all product paths
@@ -132,6 +145,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/zoiko-hr",
     "/employee/profile",
     "/employee/ess",
+    "/employee/learning",
     "/employee/leaves",
     "/employee/documents",
     "/employee/travel",
@@ -145,7 +159,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/spend",
     "/inventory",
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 
   // Employee – self-service modules only + settings/shared
@@ -163,6 +177,12 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/ess/requests",
     "/employee/ess/settings",
 
+    // ── Learning ─────────────────────────────────────────────
+    "/employee/learning",
+    "/employee/learning/courses",
+    "/employee/learning/training-programs",
+    "/employee/learning/assessments",
+
     // ── Leaves ───────────────────────────────────────────────
     "/employee/leaves",
     "/employee/leaves/apply",
@@ -175,7 +195,6 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/documents/payslips",
     "/employee/documents/contracts",
     "/employee/documents/tax",
-    "/employee/documents/upload-request",
 
     // ── Travel ───────────────────────────────────────────────
     "/employee/travel",
@@ -186,7 +205,7 @@ export const ROLE_ALLOWED_PREFIXES = {
 
     // ── Shared & settings ──
     "/settings/",
-    "/shared/",
+    ORG_USER_SHARED_PREFIX,
   ],
 };
 

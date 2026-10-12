@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Commercial proposal ready" %}
+{% set preheader = "Your Zoiko HR commercial proposal is available for review." %}
+{% set badge = "Proposal" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Commercial proposal ready</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Thanks for registering <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong>. Here's your commercial proposal — please review it and choose to accept or reject it.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Plan", plan_name) }}
+{{ ui.detail_row("Quoted amount", amount) }}
+{{ ui.detail_row("Valid until", proposal_expiry_date) }}
+{% endcall %}
+{{ ui.button(action_url, "Review proposal") }}
+{{ ui.signoff() }}
+{% endblock %}

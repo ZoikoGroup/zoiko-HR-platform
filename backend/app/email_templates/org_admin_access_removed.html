@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Workspace access ended" %}
+{% set preheader = "Your access to " ~ workspace_name ~ " has ended." %}
+{% set badge = "Access ended" %}
+{% set badge_tone = "warning" %}
+{% set footer_reason %}You are receiving this security notification because it concerns your Zoiko HR account.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Workspace access ended</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Your access to <strong class="dm-text-strong" style="{{ S.strong }}">{{ workspace_name }}</strong> ended on {{ effective_date_local }}. Contact your designated workspace administrator if this was unexpected.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Workspace", workspace_name, first=True) }}
+{{ ui.detail_row("Access ended", effective_date_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Get access support") }}
+{{ ui.signoff() }}
+{% endblock %}

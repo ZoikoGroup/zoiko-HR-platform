@@ -24,6 +24,7 @@ from app.modules.billing.models import (
     BillingPlanChange,
     BillingRefundRequest,
     BillingSubscription,
+    DowngradeImpactItem,
     PlanChangeStatus,
     PlanChangeType,
     RefundRequestStatus,
@@ -220,6 +221,95 @@ class TestPlanChangeSchedule:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
+# DowngradeImpactItem persistence (ZHR-COM-ENT-001 §14) — Phase 1.5
+# ═════════════════════════════════════════════════════════════════════════════
+# preview_plan_change stays side-effect-free (pure); only schedule/execute
+# persist the concrete downgrade_impact_item rows so impact is durable.
+
+class TestDowngradeImpactPersistence:
+    def _change(self, db, mock_blockers, plan_code=PlanCode.ENTERPRISE):
+        _create_org(db)
+        sub, _ = _create_subscription(db)
+        target_plan = _create_plan(db, plan_code)
+        return schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers")
+    def test_schedule_persists_blocker_as_impact_item(self, mock_blockers, db):
+        _create_org(db)
+        _create_subscription(db)
+        target_plan = _create_plan(db, PlanCode.ENTERPRISE)
+        mock_blockers.return_value = [
+            Blocker(category="sso", feature_key="hr.identity.sso",
+                    message="Active SSO", severity="blocking"),
+        ]
+        change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert len(items) == 1
+        assert items[0].feature_key == "hr.identity.sso"
+        assert items[0].severity.value == "blocking"
+        assert items[0].remediation == "Active SSO"
+        assert items[0].resolved_at is None
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers", return_value=[])
+    def test_schedule_without_blockers_persists_none(self, mock_blockers, db):
+        change = self._change(db, mock_blockers)
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert items == []
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers")
+    def test_execute_resolves_outstanding_items(self, mock_blockers, db):
+        _create_org(db)
+        sub, _ = _create_subscription(db)
+        target_plan = _create_plan(db, PlanCode.ENTERPRISE)
+        mock_blockers.return_value = [
+            Blocker(category="sso", feature_key="hr.identity.sso",
+                    message="Active SSO", severity="blocking"),
+        ]
+        change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+        assert change.status == PlanChangeStatus.BLOCKED
+        change.effective_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+        db.commit()
+
+        mock_blockers.return_value = []
+        result = execute_due_changes(db)
+        assert result["executed"] == 1
+
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert len(items) == 1
+        assert items[0].resolved_at is not None
+
+    @patch("app.modules.billing.plan_change_service.detect_all_blockers")
+    def test_execute_recheck_syncs_updated_blockers(self, mock_blockers, db):
+        _create_org(db)
+        sub, _ = _create_subscription(db)
+        target_plan = _create_plan(db, PlanCode.ENTERPRISE)
+        mock_blockers.return_value = [
+            Blocker(category="sso", feature_key="hr.identity.sso",
+                    message="Active SSO", severity="blocking"),
+        ]
+        change = schedule_plan_change(db, 1, target_plan.id, BillingCycle.MONTHLY)
+        change.effective_at = datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(hours=1)
+        db.commit()
+
+        mock_blockers.return_value = [
+            Blocker(category="storage", feature_key="hr.documents.core",
+                    message="Storage in use", severity="blocking"),
+        ]
+        result = execute_due_changes(db)
+        assert result["blocked"] == 1
+
+        items = db.query(DowngradeImpactItem).filter(
+            DowngradeImpactItem.plan_change_id == change.id).all()
+        assert len(items) == 1
+        assert items[0].feature_key == "hr.documents.core"
+        assert items[0].severity.value == "blocking"
+        assert items[0].resolved_at is None
+
+
+# ═════════════════════════════════════════════════════════════════════════════
 # Cancel Tests
 # ═════════════════════════════════════════════════════════════════════════════
 
@@ -361,10 +451,20 @@ class TestBlockerDetection:
 # Refund Request Tests
 # ═════════════════════════════════════════════════════════════════════════════
 
+def _paid(db, cents=100_000, org_id=1):
+    """Refunds are capped at what the org actually paid, so seed a paid invoice."""
+    from app.modules.billing.models import BillingInvoice
+    db.add(BillingInvoice(organization_id=org_id, stripe_invoice_id=f"in_test_{org_id}",
+                          amount_due_cents=cents, amount_paid_cents=cents,
+                          currency="USD", status="paid"))
+    db.commit()
+
+
 class TestRefundRequest:
     def test_request_creates_refund(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test refund")
         assert req.id is not None
         assert req.status == RefundRequestStatus.PENDING_APPROVAL
@@ -373,12 +473,14 @@ class TestRefundRequest:
     def test_request_zero_amount_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         with pytest.raises(BadRequestException):
             request_refund(db, 1, 0, "Zero refund")
 
     def test_request_empty_reason_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         with pytest.raises(BadRequestException):
             request_refund(db, 1, 5000, "")
 
@@ -393,9 +495,22 @@ class TestRefundRequest:
 # ═════════════════════════════════════════════════════════════════════════════
 
 class TestRefundApproval:
-    def test_approve_sets_status(self, db):
+    def test_approve_sets_status(self, db, monkeypatch):
+        # This test exercises the local (no-Stripe-execution) fallback path —
+        # explicit, so it stays deterministic regardless of whatever
+        # HR_STRIPE_SECRET_KEY happens to be set in the environment pytest
+        # runs in (previously this implicitly relied on Stripe being
+        # unconfigured, which masked a real AttributeError bug in
+        # refund_service.py's Stripe-enabled branch — see _get_stripe_subscription_id).
+        # _execute_stripe_refund does `from ...stripe_client import stripe_enabled`
+        # freshly on every call, so patching the source module's attribute
+        # (not refund_service's namespace) is what actually takes effect.
+        import app.modules.billing.stripe_client as stripe_client_mod
+        monkeypatch.setattr(stripe_client_mod, "stripe_enabled", lambda: False)
+
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         approved = approve_refund(db, req.id, approved_by="ops@test.com")
         assert approved.status == RefundRequestStatus.APPROVED_AND_PROCESSED
@@ -404,6 +519,7 @@ class TestRefundApproval:
     def test_approve_same_actor_rejected(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         with pytest.raises(ForbiddenException):
             approve_refund(db, req.id, approved_by="owner@test.com")
@@ -411,6 +527,7 @@ class TestRefundApproval:
     def test_approve_non_pending_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         req.status = RefundRequestStatus.APPROVED_AND_PROCESSED
         db.commit()
@@ -420,6 +537,7 @@ class TestRefundApproval:
     def test_reject_sets_status(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         rejected = reject_refund(db, req.id, rejected_by="ops@test.com", rejection_reason="Insufficient docs")
         assert rejected.status == RefundRequestStatus.REJECTED
@@ -428,6 +546,7 @@ class TestRefundApproval:
     def test_reject_non_pending_raises(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 5000, "Test", requested_by="owner@test.com")
         req.status = RefundRequestStatus.REJECTED
         db.commit()
@@ -439,6 +558,7 @@ class TestRefundCredit:
     def test_credit_request_type(self, db):
         _create_org(db)
         _create_subscription(db)
+        _paid(db)
         req = request_refund(db, 1, 2500, "Credit adjustment",
                              request_type=RefundRequestType.CREDIT)
         assert req.request_type == RefundRequestType.CREDIT

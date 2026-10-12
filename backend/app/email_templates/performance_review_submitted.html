@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Performance review submitted" %}
+{% set preheader = "Your performance review submission was recorded." %}
+{% set badge = "Submitted" %}
+{% set badge_tone = "success" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Performance review submitted</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Your performance review for cycle <strong class="dm-text-strong" style="{{ S.strong }}">{{ cycle_name }}</strong> was successfully submitted and recorded.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Cycle", cycle_name, first=True) }}
+{{ ui.detail_row("Status", "Submitted") }}
+{% endcall %}
+{{ ui.button(action_url, "View submission record") }}
+{{ ui.signoff() }}
+{% endblock %}

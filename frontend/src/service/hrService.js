@@ -1,4 +1,4 @@
-import { api, API_BASE_URL } from "./api";
+import { api, API_BASE_URL, getAccessToken } from "./api";
 
 // ── CORE GENERIC FETCHERS ──────────────────────────────────────────────────
 export async function fetchList(resource) {
@@ -50,6 +50,7 @@ export const updateSalaryStructure = (id, payload) => api.put(`/hr/compensation/
 export const deleteSalaryStructure = (id) => api.delete(`/hr/compensation/salary-structures/${id}`);
 
 export const addStructureComponent = (id, payload) => api.post(`/hr/compensation/salary-structures/${id}/components`, payload);
+export const updateStructureComponent = (id, compId, payload) => api.put(`/hr/compensation/salary-structures/${id}/components/${compId}`, payload);
 export const deleteStructureComponent = (id, compId) => api.delete(`/hr/compensation/salary-structures/${id}/components/${compId}`);
 
 export const createEmployeeCompensation = (payload) => api.post("/hr/compensation/employee-compensation", payload);
@@ -125,7 +126,7 @@ export const getHrEmployees = async (params = {}) => {
     }
   }
 };
-export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);
@@ -156,7 +157,9 @@ export const deleteOnboardingRecord = (id) => api.delete(`/hr/onboarding/records
 // ── ONBOARDING DOCUMENTS ──────────────────────────────────────────────────
 export const getOnboardingDocuments = (recordId) => api.get(`/hr/onboarding/documents${recordId ? `?onboarding_record_id=${recordId}` : ''}`);
 export const getOnboardingDocumentById = (id) => api.get(`/hr/onboarding/documents/${id}`);
-export const createOnboardingDocument = (formData) => api.post("/hr/onboarding/documents", formData, { headers: { "Content-Type": undefined }, auth: true });
+export const createOnboardingDocument = (formData) => api.post("/hr/onboarding/documents", formData);
+/** The file of an onboarding document as { blob, filename } (the route needs the login token, so a plain link cannot open it). */
+export const getOnboardingDocumentFile = (id) => fetchDocumentFile(`/hr/onboarding/documents/${id}/file`, `onboarding-document-${id}`);
 export const updateOnboardingDocument = (id, payload) => api.put(`/hr/onboarding/documents/${id}`, payload);
 export const deleteOnboardingDocument = (id) => api.delete(`/hr/onboarding/documents/${id}`);
 
@@ -230,9 +233,8 @@ export const getAssetSettings = () => api.get("/hr/assets/settings");
 export const updateAssetSetting = (key, payload) => api.put(`/hr/assets/settings/${key}`, payload);
 
 export async function exportAssetsCsv() {
-  const { getAccessToken, API_BASE_URL: DynamicBaseUrl } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${DynamicBaseUrl}/hr/assets/export/csv`, {
+  const res = await fetch(`${API_BASE_URL}/hr/assets/export/csv`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Failed to export CSV");
@@ -246,9 +248,8 @@ export async function exportAssetsCsv() {
 }
 
 export async function exportAssetsExcel() {
-  const { getAccessToken, API_BASE_URL: DynamicBaseUrl } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${DynamicBaseUrl}/hr/assets/export/excel`, {
+  const res = await fetch(`${API_BASE_URL}/hr/assets/export/excel`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Failed to export Excel");
@@ -299,13 +300,16 @@ export const getQuizAttempts = (assessmentId, employeeId) => {
   return api.get(url);
 };
 
+export const startQuiz = (assessmentId, employeeId) => api.post("/hr/learning/assessments/start", { assessment_id: assessmentId, employee_id: employeeId });
+export const submitQuiz = (assessmentId, attemptId, answers) =>
+  api.post(`/hr/learning/assessments/${assessmentId}/attempts/${attemptId}/submit`, { answers: JSON.stringify(answers) });
+
 // ── LEARNING REPORTS ───────────────────────────────────────────────────────
 export const getCourseCompletionReport = () => api.get("/hr/learning/reports/course-completion");
 export const getCertificationReport = () => api.get("/hr/learning/reports/certifications");
 export const getSkillGapAnalysis = () => api.get("/hr/learning/reports/skill-gap");
 
 async function downloadLearningReport(endpoint, filename) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -403,7 +407,7 @@ export const getHrDashboardStats = () => api.get("/hr/dashboard/stats");
 // ════════════════════════════════════════════════════════════════════════════
 
 // ── Dashboard ──────────────────────────────────────────────────────────────
-export const getAttendanceDashboard = () => api.get("/hr/attendance/dashboard");
+export const getAttendanceDashboard = (params = {}) => api.get("/hr/attendance/dashboard", { params });
 
 // ── Attendance Records ────────────────────────────────────────────────────
 export const getAttendanceRecords = (params = {}) => api.get("/hr/attendance/records", { params });
@@ -433,48 +437,44 @@ export const deleteHoliday = (id) => api.delete(`/hr/attendance/holidays/${id}`)
 export const importHolidays = (payload) => api.post("/hr/attendance/holidays/import", payload);
 
 // ── Exports ────────────────────────────────────────────────────────────────
-export async function exportAttendanceCsv(params = {}) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
+// Attendance exports. The CSV and the Excel file come from different endpoints and are different
+// formats; the file name is taken from the server's Content-Disposition so the extension always
+// matches what was actually downloaded (ZHR-56).
+async function downloadAttendanceExport(kind, params = {}) {
   const token = getAccessToken();
   const queryString = Object.entries(params)
     .filter(([_, v]) => v !== undefined && v !== null && v !== "")
     .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
     .join("&");
-  const response = await fetch(`${API_BASE_URL}/hr/attendance/export/csv${queryString ? `?${queryString}` : ""}`, {
+  const response = await fetch(`${API_BASE_URL}/hr/attendance/export/${kind}${queryString ? `?${queryString}` : ""}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!response.ok) throw new Error("Failed to export attendance CSV");
+  if (!response.ok) {
+    let detail = "";
+    try { const body = await response.json(); detail = body?.message || body?.detail || ""; } catch { /* not JSON */ }
+    throw new Error(detail || `Failed to export attendance ${kind === "csv" ? "CSV" : "Excel"} (${response.status})`);
+  }
   const blob = await response.blob();
+  const header = response.headers.get("Content-Disposition") || "";
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  const filename = match ? decodeURIComponent(match[1]) : `attendance_export.${kind === "csv" ? "csv" : "xlsx"}`;
   const url = window.URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "attendance_export.csv";
+  a.download = filename;
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   window.URL.revokeObjectURL(url);
+  return filename;
 }
 
-export async function exportAttendanceExcel(params = {}) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
-  const token = getAccessToken();
-  const queryString = Object.entries(params)
-    .filter(([_, v]) => v !== undefined && v !== null && v !== "")
-    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`)
-    .join("&");
-  const response = await fetch(`${API_BASE_URL}/hr/attendance/export/excel${queryString ? `?${queryString}` : ""}`, {
-    headers: { Authorization: `Bearer ${token}` },
-  });
-  if (!response.ok) throw new Error("Failed to export attendance Excel");
-  const blob = await response.blob();
-  const url = window.URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "attendance_export.xlsx";
-  a.click();
-  window.URL.revokeObjectURL(url);
-}
+export const exportAttendanceCsv = (params = {}) => downloadAttendanceExport("csv", params);
+export const exportAttendanceExcel = (params = {}) => downloadAttendanceExport("excel", params);
 
 // ── Analytics ─────────────────────────────────────────────────────────────
 export const getAttendanceAnalytics = (params = {}) => api.get("/hr/attendance/analytics", { params });
+export const getAttendanceKpis = (params = {}) => api.get("/hr/attendance/analytics/summary", { params });
 export const getAttendanceTrends = (params = {}) => api.get("/hr/attendance/analytics/trends", { params });
 export const getDepartmentAnalysis = (params = {}) => api.get("/hr/attendance/analytics/department", { params });
 export const getOvertimeAnalytics = (params = {}) => api.get("/hr/attendance/analytics/overtime", { params });
@@ -482,15 +482,21 @@ export const getShiftEfficiency = (params = {}) => api.get("/hr/attendance/analy
 
 // ── LEAVE CRUD SPECIFIC ─────────────────────────────────────────────────────
 export const createLeaveRequest = (payload) => api.post("/hr/leaves", payload);
-export const getLeaveRequests = (employeeId, params = {}) => {
+export const getLeaveRequests = (employeeId, params = {}, opts) => {
   const query = new URLSearchParams();
   if (employeeId) query.set("employee_id", employeeId);
   if (params.status) query.set("status", params.status);
   if (params.leave_type) query.set("leave_type", params.leave_type);
   if (params.start_date) query.set("start_date", params.start_date);
   if (params.end_date) query.set("end_date", params.end_date);
+  // server-side paging and filters (the response is then { items, total, page, per_page })
+  if (params.page) query.set("page", params.page);
+  if (params.per_page) query.set("per_page", params.per_page);
+  if (params.search) query.set("search", params.search);
+  if (params.department_name) query.set("department_name", params.department_name);
+  if (params.decided) query.set("decided", "true");
   const qs = query.toString();
-  return api.get(`/hr/leaves${qs ? `?${qs}` : ""}`);
+  return api.get(`/hr/leaves${qs ? `?${qs}` : ""}`, opts);
 };
 export const getLeaveRequest = (id) => api.get(`/hr/leaves/${id}`);
 export const updateLeaveRequest = (id, payload) => api.put(`/hr/leaves/${id}`, payload);
@@ -509,8 +515,8 @@ export const getLeaveTypeConfigs = () => api.get("/hr/leaves/type-configs");
 export const createLeaveTypeConfig = (payload) => api.post("/hr/leaves/type-configs", payload);
 export const updateLeaveTypeConfig = (id, payload) => api.put(`/hr/leaves/type-configs/${id}`, payload);
 export const deleteLeaveTypeConfig = (id) => api.delete(`/hr/leaves/type-configs/${id}`);
-export const getLeaveBalances = (employeeId) =>
-  api.get(`/hr/leaves/balance${employeeId ? `?employee_id=${employeeId}` : ""}`);
+export const getLeaveBalances = (employeeId, opts) =>
+  api.get(`/hr/leaves/balance${employeeId ? `?employee_id=${employeeId}` : ""}`, opts);
 export const updateLeaveBalance = (id, payload) => api.put(`/hr/leaves/balance/${id}`, payload);
 export const initLeaveBalances = (employeeId, year) =>
   api.post(`/hr/leaves/balance/init?employee_id=${employeeId}&year=${year}`);
@@ -548,7 +554,6 @@ export const getWfReports = (params = {}) => api.get("/hr/workforce/reports", { 
 export const generateWfReport = (payload) => api.post("/hr/workforce/reports/generate", payload);
 
 async function downloadWfExport(endpoint, filename) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}${endpoint}`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -585,7 +590,9 @@ export const exportWfPdf = (reportType = "workforce_summary") =>
  *   category    {string}  – "company" | "employee" | "policy" | "contract" | "other"
  *   status      {string}  – "pending" | "approved" | "rejected" | "expired"
  *   employee_id {number}  – filter to a specific employee
- *   search      {string}  – search by title or document type
+ *   employee_id_str {string} – filter by employee ID, employee code, legacy code
+ *                               or numeric employee id; case-insensitive partial
+ *   search      {string}  – search by title, document type, or employee ID/code/name
  */
 export const getDocuments = (params = {}) => {
   // Build query string from non-empty params
@@ -601,12 +608,32 @@ export const getDocumentById = (documentId) =>
   api.get(`/hr/documents/${documentId}`).then(data => ({ data }));
 
 async function fetchDocumentFile(path, fallbackName) {
-  const { getAccessToken, API_BASE_URL: base } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${base}${path}`, {
+  const res = await fetch(`${API_BASE_URL}${path}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
-  if (!res.ok) throw new Error(`Failed to load document: ${res.status}`);
+  if (!res.ok) {
+    // Prefer the API's `detail` so the user is told *why* the preview failed.
+    // 410 in particular means the record exists but the bytes are not on the
+    // server — "Failed to load document: 410" told the user nothing (ZHR 44).
+    let detail = null;
+    try {
+      const body = await res.clone().json();
+      detail = typeof body?.detail === "string" ? body.detail : null;
+    } catch {
+      detail = null;
+    }
+    if (res.status === 410) {
+      throw new Error(detail || "This file is no longer stored on the server. Please upload it again.");
+    }
+    if (res.status === 403) {
+      throw new Error(detail || "You do not have permission to open this document.");
+    }
+    if (res.status === 401) {
+      throw new Error("Your session has expired. Sign in again to preview documents.");
+    }
+    throw new Error(detail || `Failed to load document: ${res.status}`);
+  }
   const blob = await res.blob();
   const disposition = res.headers.get("Content-Disposition") || "";
   const match = disposition.match(/filename="?([^"]+)"?/);
@@ -647,11 +674,10 @@ export const getDocumentVersionFile = (documentId, versionId) =>
  *   fd.append("tags", JSON.stringify(["onboarding"])); // optional
  */
 export async function uploadDocument(formData) {
-  const { getAccessToken, API_BASE_URL: base } = await import("./api");
   const token = getAccessToken();
   // Do NOT set Content-Type — browser sets it automatically with the correct
   // multipart boundary when body is a FormData instance.
-  const res = await fetch(`${base}/hr/documents/upload`, {
+  const res = await fetch(`${API_BASE_URL}/hr/documents/upload`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -695,9 +721,8 @@ export const getDocumentVersions = (documentId) =>
   api.get(`/hr/documents/${documentId}/versions`).then(data => ({ data }));
 
 export async function uploadDocumentVersion(documentId, formData) {
-  const { getAccessToken, API_BASE_URL: base } = await import("./api");
   const token = getAccessToken();
-  const res = await fetch(`${base}/hr/documents/${documentId}/versions`, {
+  const res = await fetch(`${API_BASE_URL}/hr/documents/${documentId}/versions`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token}` },
     body: formData,
@@ -763,7 +788,11 @@ export const deleteDepartment = (deptId) =>
 
 
 export const getDepartments = (params = {}) => api.get("/hr/departments", { params }).then(data => ({ data }));
-export const getDesignations = () => api.get("/hr/designations");
+export const getDesignations = (params) => api.get("/hr/designations", { params });
+// Server-computed report for the Designation Reports page (totals, per-department table, trends).
+export const getDesignationSettings = (params = {}) => api.get("/hr/designations/settings", { params });
+export const saveDesignationSettings = (payload) => api.put("/hr/designations/settings", payload);
+export const getDesignationReport = (params) => api.get("/hr/designations/report", { params });
 
 // ── DESIGNATIONS CRUD SPECIFIC ──────────────────────────────────────────────
 export const getDesignationById = (id) =>

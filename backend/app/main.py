@@ -31,6 +31,7 @@ from app.core.exceptions import (
     generic_exception_handler,
 )
 from app.core.rate_limiter import limiter
+from app.core import query_stats as _query_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("zoiko.hr")
@@ -59,9 +60,87 @@ async def lifespan(application: FastAPI):
     except Exception:
         # Table may not exist yet on a fresh DB before migration runs.
         logger.info("[startup] plan_entitlement_mappings: table not yet created.")
+
+    # Platform settings: seed any default keys missing from the table. Runs on
+    # every boot (not just first bootstrap) so a setting added after a
+    # platform was already bootstrapped — and bootstrap subsequently disabled,
+    # per the README's recommendation — still gets its default row.
+    try:
+        from app.modules.super_admin.router import _seed_platform_settings
+        from app.database import SessionLocal as _SessionLocal
+
+        _settings_db = _SessionLocal()
+        try:
+            created = _seed_platform_settings(_settings_db)
+            if created:
+                logger.info("[startup] Platform settings: seeded %d missing key(s).", created)
+        finally:
+            _settings_db.close()
+    except Exception as e:
+        logger.warning("[startup] Platform settings seed could not run: %s", e)
+
+    # Background jobs run in exactly one process, however many workers/containers are serving requests.
+    from app.core.leader import acquire_background_leadership
+    from app.database import engine as _engine
+
+    _leader = acquire_background_leadership(_engine)
+    if not _leader:
+        logger.info("[startup] Another process runs the background jobs; this one only serves requests.")
+
+    # Background scheduler: plan-change execution (02:00) + delinquency walk (02:05).
+    try:
+        if _leader:
+            from app.modules.billing.scheduler import start_scheduler
+
+            start_scheduler()
+    except Exception as e:
+        logger.warning("[startup] Scheduler could not be started: %s", e)
+
+    # Webhook delivery + workflow execution worker (ZHR-24/25).
+    try:
+        if _leader:
+            from app.modules.integrations.worker import start_worker
+
+            start_worker()
+    except Exception as e:
+        logger.warning("[startup] Integrations worker could not be started: %s", e)
+
+    # Route→feature sweep (Prompt 6): report FEATURE_KEYS with zero mapped
+    # routes and flag any mapped route that no longer exists (drift). Report-only
+    # by design; enable hard enforcement via HR_ENFORCE_ENTITLEMENTS.
+    try:
+        from app.modules.billing.route_entitlement_map import sweep_route_entitlement_map
+
+        sweep_route_entitlement_map(application)
+        logger.info(
+            "[startup] Route entitlement map: %d routes mapped.",
+            len(__import__("app.modules.billing.route_entitlement_map", fromlist=["ROUTE_ENTITLEMENT_MAP"]).ROUTE_ENTITLEMENT_MAP),
+        )
+    except Exception as e:
+        logger.warning("[startup] Entitlement map sweep could not run: %s", e)
+
     yield
+    # let emails that are still queued go out before the process exits
+    try:
+        from app.services.email_service import flush_email_queue
+
+        flush_email_queue(timeout=25)
+    except Exception:
+        pass
+    try:
+        from app.modules.integrations.worker import stop_worker
+
+        stop_worker()
+    except Exception:
+        pass
     # Dispose all pooled connections before shutdown so Neon's SSL teardown
     # doesn't race with SQLAlchemy's pool-reset rollback.
+    try:
+        from app.modules.billing.scheduler import stop_scheduler
+
+        stop_scheduler()
+    except Exception:
+        pass
     engine.dispose()
     logger.info("[shutdown] Database connection pool disposed.")
 
@@ -77,17 +156,39 @@ app = FastAPI(
 )
 
 
+_QUERY_STATS = _query_stats.install()     # HR_LOG_QUERY_STATS=true only (dev); off in production by default
+
+
 @app.middleware("http")
 async def request_logging_middleware(request: Request, call_next):
     if request.method == "OPTIONS":
         return await call_next(request)
     start = datetime.utcnow()
+    # Started by the outermost QueryStatsMiddleware (so entitlement-middleware queries count too); fallback for safety.
+    stats = (_query_stats.current() or _query_stats.start()) if _QUERY_STATS else None
     response = await call_next(request)
     elapsed = (datetime.utcnow() - start).total_seconds()
-    logger.info(
-        f"{request.method} {request.url.path} -> {response.status_code} ({elapsed:.3f}s) "
-        f"from {request.client.host if request.client else 'unknown'}"
-    )
+    if stats is not None:
+        try:
+            response.headers["X-Query-Count"] = str(stats.count)
+            response.headers["X-DB-Time"] = f"{stats.db_seconds * 1000:.1f}"
+            response.headers["X-Pool-Checkouts"] = str(stats.checkouts)
+        except Exception:
+            pass  # headers may be read-only for a streamed response; the log line still carries the numbers
+        logger.info(
+            f"{request.method} {request.url.path} -> {response.status_code} "
+            f"queries={stats.count} db_ms={stats.db_seconds * 1000:.1f} "
+            f"checkouts={stats.checkouts} total_ms={elapsed * 1000:.1f}"
+        )
+        if stats.slowest_sql is not None:
+            logger.info(f"    slowest {stats.slowest_ms * 1000:.1f} ms  {stats.slowest_sql}")
+        for ms, sql in stats.statements:
+            logger.info(f"    {ms:>7.1f} ms  {sql}")
+    else:
+        logger.info(
+            f"{request.method} {request.url.path} -> {response.status_code} ({elapsed:.3f}s) "
+            f"from {request.client.host if request.client else 'unknown'}"
+        )
     return response
 
 
@@ -95,22 +196,145 @@ _cors_origins = [o.strip() for o in settings.CORS_ORIGINS.split(",") if o.strip(
 app.add_middleware(
     CORSMiddleware,
     allow_origins=_cors_origins,
+    allow_origin_regex=r"https?://(localhost|127\.0\.0\.1)(:\d+)?",
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["Authorization", "Content-Type", "Accept"],
+    # Idempotency-Key: sent by billingService/checkoutService/assistantService
+    # on mutating requests (Stripe checkout, plan changes, workflow execution).
+    # Missing it here made the CORS preflight for those calls fail with a
+    # literal 400 ("Disallowed CORS headers") — the browser then blocks the
+    # real request before it's ever sent, which is what made the "Pay &
+    # Upgrade via Stripe" button silently do nothing.
+    # X-Confirmation-Id / X-Confirmation-Token: sent by superAdminService.deleteOrganization
+    # on the hard-delete DELETE call (two-step confirmation, Prompt 5). Missing them here
+    # made the CORS preflight fail, so the browser blocked the real DELETE before it was
+    # ever sent — the super-admin "delete organization" button silently did nothing.
+    allow_headers=["Authorization", "Content-Type", "Accept", "Idempotency-Key", "X-Confirmation-Id", "X-Confirmation-Token"],
     # Content-Disposition isn't on the CORS response-header safelist, so
     # without this, frontend `fetch()` calls against /hr/documents/{id}/file
     # (frontend and backend run on different origins/ports) can never read
     # the real filename off the response — every document view/download
     # silently falls back to a generic "document-{id}" name.
-    expose_headers=["Content-Disposition"],
+    expose_headers=["Content-Disposition", "X-Query-Count", "X-DB-Time", "X-Pool-Checkouts"],
 )
 
 app.state.limiter = limiter
 app.add_middleware(SlowAPIMiddleware)
+
+# Real client IP for audit rows (trusted-proxy aware) — see core/client_ip.py.
+from app.core.client_ip import ClientIPMiddleware, register_ip_stamping  # noqa: E402
+from app.modules.billing.models import BillingAuditLog as _BillingAuditLog  # noqa: E402
+from app.modules.super_admin.models import AuditLog as _AuditLog, LoginActivity as _LoginActivity  # noqa: E402
+
+register_ip_stamping(_AuditLog, _LoginActivity, _BillingAuditLog)
+app.add_middleware(ClientIPMiddleware)
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Redis response cache ─────────────────────────────────────────────────────
+# Transparently caches GET responses and invalidates on writes. Only active
+# when HR_REDIS_URL is set; zero overhead when Redis is unavailable.
+try:
+    from app.core.cache_middleware import CacheMiddleware
+    app.add_middleware(CacheMiddleware)
+    logger.info("[startup] Response cache middleware loaded.")
+except Exception as e:
+    logger.warning("[startup] Cache middleware could not be loaded: %s", e)
 app.add_exception_handler(ZoikoException, zoiko_exception_handler)
 app.add_exception_handler(Exception, generic_exception_handler)
+
+
+# ── Platform-wide UTC timestamp normalization ──────────────────────────────
+# Every module stores timestamps as naive UTC; FastAPI serializes them without
+# a timezone designator, which browsers then parse as local time (wrong).
+# This outermost middleware appends "Z" to any timezone-less ISO timestamp in
+# JSON responses so the frontend renders the correct instant everywhere.
+@app.middleware("http")
+async def normalize_utc_datetimes_middleware(request: Request, call_next):
+    from starlette.responses import Response
+
+    from app.core.utc_datetimes import append_utc_suffix
+
+    response = await call_next(request)
+    content_type = response.headers.get("content-type", "")
+    if "application/json" not in content_type.lower():
+        return response
+    content_encoding = response.headers.get("content-encoding", "")
+    if content_encoding and "gzip" in content_encoding.lower():
+        return response
+
+    # Inside a BaseHTTPMiddleware Starlette hands us a _StreamingResponse, so
+    # the body must be drained from `body_iterator` (there is no `.body()`).
+    body_parts = []
+    if hasattr(response, "body"):
+        body_parts.append(response.body())
+    elif hasattr(response, "body_iterator"):
+        async for chunk in response.body_iterator:
+            body_parts.append(chunk)
+    if not body_parts:
+        return response
+
+    original_body = b"".join(body_parts)
+    normalized = append_utc_suffix(original_body)
+    if normalized is None:
+        normalized = original_body
+
+    headers = dict(response.headers)
+    headers.pop("content-length", None)
+    return Response(
+        status_code=response.status_code,
+        headers=headers,
+        media_type=response.media_type,
+        content=normalized,
+    )
+
+
+# Compress larger responses (lists, dashboards, exports). Added after the UTC normalizer above so the
+# normalizer still sees plain JSON; small bodies are left alone, and already-encoded ones are skipped.
+from app.core.compression import SelectiveGZipMiddleware
+
+app.add_middleware(SelectiveGZipMiddleware, minimum_size=1000)
+
+
+# ── Route-level entitlement enforcement (Prompt 6) ─────────────────────────
+# Opt-in via HR_ENFORCE_ENTITLEMENTS (default OFF). When enabled, requests to
+# routes listed in route_entitlement_map.py are blocked (403) unless the caller's
+# organization is ENTITLED_AVAILABLE for the mapped feature key (or READ_ONLY
+# for reads, Section 14.1). HR_ENTITLEMENTS_ENFORCE_KEYS (comma list) restricts
+# hard enforcement to a subset of keys for a staged rollout — every other guarded
+# route stays pass-through. The startup sweep in the lifespan stays report-only
+# regardless, so dev/test can run without an approved entitlement matrix.
+if settings.ENFORCE_ENTITLEMENTS:
+    from app.modules.billing.entitlement_middleware import EntitlementMiddleware
+    from app.database import SessionLocal
+
+    _enforce_keys = frozenset(
+        k.strip() for k in settings.ENFORCE_ENTITLEMENTS_KEYS.split(",") if k.strip()
+    )
+    app.add_middleware(
+        EntitlementMiddleware,
+        db_session_factory=SessionLocal,
+        enforce_keys=_enforce_keys,
+        allow_read_in_read_only=settings.ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY,
+        routes_provider=lambda: app.routes,
+    )
+if _QUERY_STATS:
+    # Outermost layer, so every query of the request (entitlement checks included) is counted. Dev only.
+    app.add_middleware(_query_stats.QueryStatsMiddleware)
+
+if settings.ENFORCE_ENTITLEMENTS:
+    try:
+        from app.services.email_service import link_config_problems
+        for problem in link_config_problems():
+            logger.warning("[startup] Email links: %s", problem)
+    except Exception:  # a settings check must never stop the app from starting
+        logger.debug("email link settings check failed", exc_info=True)
+    logger.info(
+        "[startup] Entitlement enforcement ENABLED (HR_ENFORCE_ENTITLEMENTS=true)."
+        "%s",
+        f" Keys restricted to: {sorted(_enforce_keys)}" if _enforce_keys else "",
+    )
+else:
+    logger.info("[startup] Entitlement enforcement disabled (report-only sweep).")
 
 
 # ── Router imports (each imported independently so one failure never
@@ -135,9 +359,24 @@ workforce_router   = _safe_import(lambda: __import__("app.modules.hr.workforce_r
 org_config_router  = _safe_import(lambda: __import__("app.modules.hr.org_config_router", fromlist=["org_config_router"]).org_config_router, "hr.org_config_router")
 super_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.router", fromlist=["router"]).router, "super_admin.router")
 command_center_router = _safe_import(lambda: __import__("app.modules.super_admin.command_center_router", fromlist=["router"]).router, "super_admin.command_center_router")
+notification_recipient_router = _safe_import(lambda: __import__("app.modules.super_admin.notification_router", fromlist=["recipient_router"]).recipient_router, "super_admin.notification_router")
+integrations_connect_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["connect_router"]).connect_router, "integrations.connect_router")
+integrations_hub_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["hub_router"]).hub_router, "integrations.hub_router")
+integrations_workflow_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["workflow_router"]).workflow_router, "integrations.workflow_router")
+sa_documents_router = _safe_import(lambda: __import__("app.modules.super_admin.documents_router", fromlist=["router"]).router, "super_admin.documents_router")
+sa_expenses_router = _safe_import(lambda: __import__("app.modules.super_admin.expenses_router", fromlist=["router"]).router, "super_admin.expenses_router")
+sa_activity_router = _safe_import(lambda: __import__("app.modules.super_admin.activity_router", fromlist=["router"]).router, "super_admin.activity_router")
+sa_support_router = _safe_import(lambda: __import__("app.modules.super_admin.support_router", fromlist=["router"]).router, "super_admin.support_router")
+sa_approvals_router = _safe_import(lambda: __import__("app.modules.super_admin.approvals_router", fromlist=["router"]).router, "super_admin.approvals_router")
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
+sales_public_router = _safe_import(lambda: __import__("app.modules.sales_leads.router", fromlist=["public_router"]).public_router, "sales_leads.public_router")
+sales_admin_router = _safe_import(lambda: __import__("app.modules.sales_leads.router", fromlist=["admin_router"]).admin_router, "sales_leads.admin_router")
+demo_public_router = _safe_import(lambda: __import__("app.modules.sales_leads.demo", fromlist=["public_router"]).public_router, "sales_leads.demo.public_router")
+demo_admin_router = _safe_import(lambda: __import__("app.modules.sales_leads.demo", fromlist=["admin_router"]).admin_router, "sales_leads.demo.admin_router")
+billing_public_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["public_billing_router"]).public_billing_router, "billing.public_billing_router")
 billing_webhook_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["webhook_router"]).webhook_router, "billing.webhook_router")
+billing_quotation_router = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["quotation_router"]).quotation_router, "billing.quotation_router")
 
 app.include_router(auth_router)
 app.include_router(employee_router)
@@ -149,10 +388,25 @@ app.include_router(recruitment_router)
 app.include_router(workforce_router)
 app.include_router(org_config_router)
 app.include_router(super_admin_router)
+app.include_router(notification_recipient_router)
 app.include_router(command_center_router)
+app.include_router(integrations_connect_router)
+app.include_router(integrations_hub_router)
+app.include_router(integrations_workflow_router)
+app.include_router(sa_documents_router)
+app.include_router(sa_approvals_router)
+app.include_router(sa_support_router)
+app.include_router(sa_activity_router)
+app.include_router(sa_expenses_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
+app.include_router(billing_public_router)
+app.include_router(sales_public_router)
+app.include_router(sales_admin_router)
+app.include_router(demo_public_router)
+app.include_router(demo_admin_router)
 app.include_router(billing_webhook_router)
+app.include_router(billing_quotation_router)
 
 
 @app.get("/", include_in_schema=False, tags=["Meta"])

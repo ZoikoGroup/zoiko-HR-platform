@@ -1,9 +1,14 @@
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || "http://localhost:8000";
+import { humanizeValidationError } from "../utils/validationMessage";
+import { queryClient } from "../lib/queryClient";
+
+const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "zoiko_access_token";
 const REFRESH_KEY = "zoiko_refresh_token";
 const USER_KEY = "zoiko_user";
 const AUTH_INVALID_EVENT = "zoiko-auth-session-invalid";
+// A stalled request must never wedge a loading spinner forever.
+const REQUEST_TIMEOUT_MS = 20000;
 
 let refreshPromise = null;
 let sessionInvalidNotified = false;
@@ -22,6 +27,14 @@ export function getStoredUser() {
 }
 
 export function setSession({ accessToken, refreshToken, user } = {}) {
+  sharedGets.clear();
+  // A different person signing in must not see the previous person's cached data. A token refresh for the same
+  // person keeps the cache.
+  if (user) {
+    let previous = null;
+    try { previous = getStoredUser()?.id ?? null; } catch { previous = null; }
+    if (previous === null || previous !== user.id) queryClient.clear();
+  }
   if (accessToken) localStorage.setItem(TOKEN_KEY, accessToken);
   if (refreshToken) localStorage.setItem(REFRESH_KEY, refreshToken);
   if (user) localStorage.setItem(USER_KEY, JSON.stringify(user));
@@ -29,12 +42,15 @@ export function setSession({ accessToken, refreshToken, user } = {}) {
 }
 
 export function clearSession() {
+  sharedGets.clear();
+  queryClient.clear();               // signing out (or an invalid session) leaves no cached data behind
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(REFRESH_KEY);
   localStorage.removeItem(USER_KEY);
 }
 
 function notifySessionInvalid(reason) {
+  queryClient.clear();
   if (sessionInvalidNotified) return;
   sessionInvalidNotified = true;
   if (typeof window !== "undefined") {
@@ -54,7 +70,7 @@ function createApiError(message, status, extra = {}) {
  * Automatically attaches the bearer token (if present) and JSON headers,
  * and attempts a single silent refresh on a 401 response.
  */
-export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params } = {}) {
+export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params, signal } = {}) {
   let url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   if (params) {
     const query = Object.entries(params)
@@ -64,7 +80,9 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     if (query) url += `${url.includes("?") ? "&" : "?"}${query}`;
   }
 
-  const finalHeaders = { ...headers };
+  // a header explicitly set to undefined / null means "do not send it": fetch would otherwise send the text "undefined"
+  // (that broke every multipart upload, which needs the browser to add its own Content-Type with the boundary)
+  const finalHeaders = Object.fromEntries(Object.entries(headers).filter(([, v]) => v !== undefined && v !== null));
   if (body !== undefined && !(body instanceof FormData)) {
     finalHeaders["Content-Type"] = "application/json";
   }
@@ -73,16 +91,26 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     if (token) finalHeaders["Authorization"] = `Bearer ${token}`;
   }
 
+  // A caller-supplied signal cancels a superseded request (newer search,
+  // filter or page); the timeout keeps a stalled call from hanging forever.
+  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const finalSignal =
+    signal && typeof AbortSignal.any === "function" ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
   const res = await fetch(url, {
     method,
     headers: finalHeaders,
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
+    signal: finalSignal,
+  }).catch((e) => {
+    if (e?.name === "TimeoutError") throw createApiError("The server took too long to respond. Please try again.", 0);
+    throw e;
   });
 
   if (res.status === 401 && auth && retry) {
     const refreshResult = await tryRefreshToken();
     if (refreshResult.ok) {
-      return apiRequest(path, { method, body, headers, auth, retry: false });
+      return apiRequest(path, { method, body, headers, auth, retry: false, signal });
     }
     if (refreshResult.invalidSession) {
       clearSession();
@@ -96,22 +124,28 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
 
   if (!res.ok) {
     let detail;
+    let extra = {};
     try {
       const data = await res.json();
       detail = data?.detail || data?.message || data?.error;
       if (Array.isArray(detail)) {
-        // Handle FastAPI 422 validation errors nicely
-        detail = detail.map(err => {
-          const field = err.loc ? err.loc[err.loc.length - 1] : "Field";
-          return `${field}: ${err.msg}`;
-        }).join(", ");
+        // Handle FastAPI 422 validation errors nicely; the raw list stays on the error so a form can show each one
+        // next to its own field.
+        extra = { validation: detail };
+        detail = detail.map(humanizeValidationError).join(", ");
       } else if (typeof detail === "object" && detail !== null) {
-        detail = JSON.stringify(detail);
+        // A feature the plan does not include comes back as an object with a ready-to-show message.
+        if (detail.entitlement_state) extra = { entitlement: detail };
+        detail = detail.message || JSON.stringify(detail);
+      }
+      if (typeof data?.error === "string") extra = { ...extra, code: data.error };
+      if (data?.feature_key && data?.upgrade_url) {
+        extra = { entitlement: { entitlement_state: data.state, feature_key: data.feature_key, required_plan: data.required_plan, upgrade_url: data.upgrade_url } };
       }
     } catch {
       detail = res.statusText;
     }
-    throw createApiError(detail, res.status);
+    throw createApiError(detail, res.status, extra);
   }
 
   if (res.status === 204) return null;
@@ -129,6 +163,12 @@ async function tryRefreshToken() {
   return refreshPromise;
 }
 
+/** Silent token refresh for callers outside apiRequest (e.g. XHR uploads). */
+export async function refreshSession() {
+  const result = await tryRefreshToken();
+  return result.ok;
+}
+
 async function refreshAccessToken() {
   const refreshToken = getRefreshToken();
   if (!refreshToken) {
@@ -140,6 +180,10 @@ async function refreshAccessToken() {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ refresh_token: refreshToken }),
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    }).catch((e) => {
+      if (e?.name === "TimeoutError") return { ok: false, invalidSession: false, reason: "refresh_timeout" };
+      throw e;
     });
 
     if (res.status === 401 || res.status === 403) {
@@ -175,12 +219,48 @@ async function refreshAccessToken() {
   }
 }
 
+// Reference lists that many pages load at once (every performance/assets/recruitment page asks for the same
+// 200 employees). Identical GETs in flight share one request, and the answer is reused for a few seconds.
+// Any write, login or logout clears it, so a page never shows data older than the user's own last change.
+const SHARED_GET = /^\/hr\/(employees|departments|designations|attendance\/shifts)(\?|$)/;
+const SHARED_GET_TTL_MS = 10000;
+const sharedGets = new Map(); // key -> { promise, expires }
+
+export function clearApiCache() {
+  sharedGets.clear();
+}
+
+function sharedKey(path, opts) {
+  const query = opts?.params
+    ? Object.entries(opts.params).filter(([, v]) => v !== undefined && v !== null && v !== "").sort(([a], [b]) => a.localeCompare(b)).map(([k, v]) => `${k}=${v}`).join("&")
+    : "";
+  return `${getAccessToken() || ""}|${path}?${query}`;
+}
+
+function cachedGet(path, opts) {
+  const request = () => apiRequest(path, { ...opts, method: "GET" });
+  // a caller-supplied abort signal means "this answer may be thrown away": never share those
+  if (opts?.signal || !SHARED_GET.test(path)) return request();
+  const key = sharedKey(path, opts);
+  const hit = sharedGets.get(key);
+  if (hit && hit.expires > Date.now()) return hit.promise.then((data) => (data && typeof data === "object" ? structuredClone(data) : data));
+  const promise = request();
+  sharedGets.set(key, { promise, expires: Date.now() + SHARED_GET_TTL_MS });
+  promise.catch(() => sharedGets.delete(key));
+  return promise.then((data) => (data && typeof data === "object" ? structuredClone(data) : data));
+}
+
+const writing = (fn) => (...args) => {
+  clearApiCache();
+  return fn(...args).finally(clearApiCache);
+};
+
 export const api = {
-  get: (path, opts) => apiRequest(path, { ...opts, method: "GET" }),
-  post: (path, body, opts) => apiRequest(path, { ...opts, method: "POST", body }),
-  put: (path, body, opts) => apiRequest(path, { ...opts, method: "PUT", body }),
-  patch: (path, body, opts) => apiRequest(path, { ...opts, method: "PATCH", body }),
-  delete: (path, opts) => apiRequest(path, { ...opts, method: "DELETE" }),
+  get: cachedGet,
+  post: writing((path, body, opts) => apiRequest(path, { ...opts, method: "POST", body })),
+  put: writing((path, body, opts) => apiRequest(path, { ...opts, method: "PUT", body })),
+  patch: writing((path, body, opts) => apiRequest(path, { ...opts, method: "PATCH", body })),
+  delete: writing((path, opts) => apiRequest(path, { ...opts, method: "DELETE" })),
 };
 
 export { API_BASE_URL, AUTH_INVALID_EVENT };

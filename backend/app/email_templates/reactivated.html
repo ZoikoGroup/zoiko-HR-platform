@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Service access restored" %}
+{% set preheader = "Zoiko HR service access has been restored." %}
+{% set badge = "Restored" %}
+{% set badge_tone = "success" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Service access restored</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">The service restriction for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> was removed at {{ event_time_local }} {{ timezone }}. Authorized workspace access is now available.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Restored at", event_time_local ~ " " ~ timezone) }}
+{% endcall %}
+{{ ui.button(login_url, "Sign in to Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

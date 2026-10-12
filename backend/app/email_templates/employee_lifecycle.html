@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Employee record update" %}
+{% set preheader = "There is an update to your employee record: " ~ event_label ~ "." %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">{{ event_label }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ message }}</p>
+{% if effective_date %}
+{% call ui.details() %}
+{{ ui.detail_row("Update", event_label, first=True) }}
+{{ ui.detail_row("Effective date", effective_date) }}
+{% endcall %}
+{% endif %}
+<p class="dm-text-muted" style="{{ S.muted }}">Sign in to Zoiko HR to view the details of this update.</p>
+{{ ui.button(action_url, "View my employee record") }}
+{{ ui.signoff() }}
+{% endblock %}

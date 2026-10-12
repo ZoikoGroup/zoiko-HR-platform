@@ -2,21 +2,36 @@ import { useState, useEffect, useCallback } from "react";
 import { entitlementService } from "../service/entitlementService";
 import { getStoredUser } from "../service/api";
 
+export const ENTITLED_AVAILABLE = "ENTITLED_AVAILABLE";
+export const READ_ONLY = "READ_ONLY";
+
 /**
- * Hook to check entitlement for a specific feature key.
+ * Hook to resolve entitlement for one feature key from the
+ * server-authoritative Section 15 decision endpoint.
  *
- * Returns { state, loading, error, refetch } where state is one of:
- *   ENTITLED_AVAILABLE, NOT_ENTITLED, ENTITLED_NOT_CONFIGURED,
- *   DEPENDENCY_UNAVAILABLE, ENTITLED_POLICY_BLOCKED
+ * Returns:
+ *   state        — ENTITLED_AVAILABLE | READ_ONLY | NOT_ENTITLED | ...
+ *   mode         — enum value for the resolved client mode
+ *   reasonCode   — reason_code for blocked/read-only (null when granted)
+ *   requiredPlan — cheapest plan code that grants the key (null when granted)
+ *   allowed      — server decision boolean
+ *   granted      — true when state is ENTITLED_AVAILABLE or READ_ONLY
+ *   loading, error, refetch
+ *
+ * Fails closed: any transport/resolver error -> state NOT_ENTITLED.
  *
  * Usage:
- *   const { state, loading } = useEntitlement("hr.documents.bulk_distribution");
+ *   const { granted, mode, loading, refetch } =
+ *     useEntitlement("hr.documents.bulk_distribution");
  *   if (loading) return <Spinner />;
- *   if (state !== "ENTITLED_AVAILABLE") return <EntitlementGate state={state} />;
- *   return <YourComponent />;
+ *   if (!granted) return <EntitlementGate state={state} reason={reasonCode} />;
  */
 export function useEntitlement(featureKey) {
   const [state, setState] = useState(null);
+  const [mode, setMode] = useState(null);
+  const [reasonCode, setReasonCode] = useState(null);
+  const [requiredPlan, setRequiredPlan] = useState(null);
+  const [allowed, setAllowed] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -38,16 +53,21 @@ export function useEntitlement(featureKey) {
       setLoading(true);
       setError(null);
 
-      // The entitlement service returns the full snapshot.
-      // We extract the specific feature state from feature_states.
-      const snapshot = await entitlementService.getSnapshot(orgId);
-      const featureState = snapshot?.feature_states?.[featureKey];
+      const decision = await entitlementService.checkFeature(orgId, featureKey);
 
-      setState(featureState || "ENTITLED_NOT_CONFIGURED");
+      setState(decision?.state ?? "NOT_ENTITLED");
+      setMode(decision?.mode ?? null);
+      setReasonCode(decision?.reason_code ?? null);
+      setRequiredPlan(decision?.required_plan ?? null);
+      setAllowed(Boolean(decision?.allowed));
     } catch (err) {
-      // On error, fail closed: treat as not entitled
+      // Fail closed: resolver unavailable or unexpected -> not entitled.
       setError(err.message);
       setState("NOT_ENTITLED");
+      setMode(null);
+      setReasonCode(null);
+      setRequiredPlan(null);
+      setAllowed(false);
     } finally {
       setLoading(false);
     }
@@ -57,5 +77,18 @@ export function useEntitlement(featureKey) {
     fetchEntitlement();
   }, [fetchEntitlement]);
 
-  return { state, loading, error, refetch: fetchEntitlement };
+  const granted =
+    state === ENTITLED_AVAILABLE || state === READ_ONLY || allowed === true;
+
+  return {
+    state,
+    mode,
+    reasonCode,
+    requiredPlan,
+    allowed,
+    granted,
+    loading,
+    error,
+    refetch: fetchEntitlement,
+  };
 }

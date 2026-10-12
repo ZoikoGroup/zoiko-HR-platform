@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Document required in Zoiko HR" %}
+{% set preheader = "A document action is required in Zoiko HR." %}
+{% set badge = "Action required" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Document required in Zoiko HR</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A document action for <strong class="dm-text-strong" style="{{ S.strong }}">{{ document_name }}</strong> is assigned to you in Zoiko HR. Due by {{ due_at_local }}. Action required.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document", document_name, first=True) }}
+{{ ui.detail_row("Due date", due_at_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Review document request") }}
+{{ ui.signoff() }}
+{% endblock %}

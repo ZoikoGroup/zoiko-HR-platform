@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Payment overdue" %}
+{% set preheader = "Your account payment is overdue. Review your billing status." %}
+{% set badge = "Payment overdue" %}
+{% set badge_tone = "warning" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ customer_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Payment overdue</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ customer_name }}</strong>, this is a reminder that your subscription payment is now overdue by <strong class="dm-text-strong" style="{{ S.strong }}">{{ days_overdue }}</strong> days.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Subscription", subscription_number, first=True, mono=True) }}
+{{ ui.detail_row("Outstanding balance", currency ~ " " ~ overdue_amount) }}
+{{ ui.detail_row("Status", "Payment overdue") }}
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Day 10 of the delinquency timeline has been reached. New commercial expansion and cost-increasing actions on your {{ plan_name }} subscription have been restricted until the balance is resolved. Your existing reads, core HR records and billing-remediation paths remain available.</p>
+{{ ui.button(login_url, "Resolve overdue payment") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

@@ -28,7 +28,35 @@ export async function login({ email, password }) {
   }
 }
 
-export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail }) {
+/** Confirms an e-mail address from the link that was e-mailed. */
+export async function verifyEmail(token) {
+  return await api.post("/auth/verify-email", { token }, { auth: false });
+}
+
+/** Asks for a new confirmation link (the answer is the same whether or not the address has an account). */
+export async function resendVerification(email) {
+  return await api.post("/auth/resend-verification", { email }, { auth: false });
+}
+
+/** Is Sign in with Google set up on this server? (false when the server cannot be reached: the button then says so) */
+export async function googleSignInEnabled() {
+  try {
+    const data = await api.get("/auth/google/status", { auth: false });
+    return !!data?.enabled;
+  } catch {
+    return false;
+  }
+}
+
+/** Trades the one-time ticket the server handed back after Google for the same session a password sign-in gives. */
+export async function loginWithGoogleTicket(ticket) {
+  const data = await api.post("/auth/google/exchange", { ticket }, { auth: false });
+  const user = data.employee || data.user;
+  setSession({ accessToken: data.access_token, refreshToken: data.refresh_token, user });
+  return user;
+}
+
+export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail, googleProof }) {
   try {
     const payload = { name, email, password, organization, plan_code: planCode };
     if (orgType) payload.org_type = orgType;
@@ -41,6 +69,7 @@ export async function register({ name, email, password, organization, planCode, 
     if (industry) payload.industry = industry;
     if (taxNumber) payload.tax_number = taxNumber;
     if (registeredEmail) payload.registered_email = registeredEmail;
+    if (googleProof) payload.google_proof = googleProof;
     const data = await api.post(
       "/auth/register",
       payload,
@@ -53,16 +82,26 @@ export async function register({ name, email, password, organization, planCode, 
   }
 }
 
+// One in-flight /auth/me at a time; the shell and the route guards both mount
+// in dev, and /auth/me is a slow round trip to the database.
+let currentUserRequest = null;
+
 export async function fetchCurrentUser() {
-  try {
-    const user = await api.get("/auth/me");
-    return user;
-  } catch (err) {
-    const cached = getCachedUser();
-    if (cached) return cached;
-    if (err?.authInvalid) clearSession();
-    throw err;
-  }
+  if (currentUserRequest) return currentUserRequest;
+  currentUserRequest = (async () => {
+    try {
+      const user = await api.get("/auth/me");
+      return user;
+    } catch (err) {
+      const cached = getCachedUser();
+      if (cached) return cached;
+      if (err?.authInvalid) clearSession();
+      throw err;
+    }
+  })().finally(() => {
+    currentUserRequest = null;
+  });
+  return currentUserRequest;
 }
 
 export async function logout() {
@@ -101,6 +140,15 @@ export async function forgotPassword({ email }) {
     console.error("Forgot password request failed:", err);
     throw err;
   }
+}
+
+/** Sets a new password from the single-use token in an emailed reset link. */
+export async function resetPasswordWithToken({ token, password }) {
+  return await api.post("/auth/reset-password", { token, password }, { auth: false });
+}
+
+export async function forgotMyPassword() {
+  return await api.post("/auth/me/forgot-password", {});
 }
 
 export async function changePassword({ currentPassword, newPassword }) {

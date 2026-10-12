@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Support access granted" %}
+{% set preheader = "A time-bounded Billing Operations support access grant was issued." %}
+{% set badge = "Support access" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because you are on the Zoiko HR Billing Operations team.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Support access granted</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">A time-bounded Billing Operations support-access grant has been issued for organization <strong class="dm-text-strong" style="{{ S.strong }}">#{{ organization_id }}</strong>.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", "#" ~ organization_id, first=True, mono=True) }}
+{{ ui.detail_row("Grant duration", grant_duration_hours ~ " hours") }}
+{{ ui.detail_row("Expires at (UTC)", expires_at) }}
+{% endcall %}
+{{ ui.button(support_url, "Open organization") }}
+<p class="dm-text-muted" style="{{ S.muted }}">Access is tenant-scoped, logged on the billing audit trail and automatically expires.</p>
+{{ ui.signoff() }}
+{% endblock %}

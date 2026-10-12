@@ -11,7 +11,7 @@ lacks capacity/features the org currently depends on. Seven categories:
   3. Retention  — hr.compliance.core (data retention)
   4. Storage    — hr.documents.core (document storage)
   5. Workflow   — hr.attendance.shift_rostering (approval chains)
-  6. AI         — hr.ai.autonomous_action (hard-blocked, never passes)
+  6. AI         — hr.ai.autonomous_decision (hard-blocked, never passes)
   7. Governance — hr.compliance.core (compliance governance)
 
 All checks use feature keys that exist in FEATURE_KEYS.
@@ -95,6 +95,25 @@ def _check_feature_blocks_downgrade(
     if target_mapping is not None and target_mapping.state == ENTITLED_AVAILABLE:
         return []
 
+    if target_mapping is None:
+        # No operator-approved row: the plan baseline decides. A feature the target plan includes is no problem. One
+        # it leaves out is something to tell the customer about (they keep their data), not a reason to refuse a
+        # downgrade: nothing records per-organization use of SSO or the API, so "in use" cannot be proven.
+        from app.modules.billing.plan_baseline import baseline_included, feature_label
+
+        included = baseline_included(target_pc, feature_key)
+        if included:
+            return []
+        if included is False:
+            return [Blocker(
+                category=category,
+                feature_key=feature_key,
+                message=f"{feature_label(feature_key)} is not included in the {target_plan_code.title()} plan. "
+                        "You will lose access to it when the downgrade takes effect; your data is kept.",
+                severity="warning",
+                details={"current_state": current["state"], "target_plan": target_plan_code},
+            )]
+
     return [Blocker(
         category=category,
         feature_key=feature_key,
@@ -148,10 +167,15 @@ def check_workflow_blocker(db: Session, organization_id: int, target_plan_code) 
 # ── 6. AI Blocker ─────────────────────────────────────────────────────────
 
 def check_ai_blocker(db: Session, organization_id: int, target_plan_code) -> list[Blocker]:
-    """Check AI features. hr.ai.autonomous_action is hard-blocked to NOT_ENTITLED
-    by the entitlement engine (Section 8 E4), so it never passes. This check
-    is forward-compatible for when entitleable AI features are added."""
-    return _check_feature_blocks_downgrade(db, organization_id, "hr.ai.autonomous_action", "ai", target_plan_code)
+    """Check AI features. hr.ai.autonomous_decision is hard-blocked to
+    NOT_ENTITLED by the entitlement engine (Section 8 E4), so it never passes
+    (the retired hr.ai.autonomous_action spelling was removed from
+    FEATURE_KEYS entirely — using it here would make
+    _check_feature_blocks_downgrade's `not in FEATURE_KEYS` guard return []
+    before ever calling check_entitlement, silently skipping this check
+    rather than exercising the hard block). This check is forward-compatible
+    for when entitleable AI features are added."""
+    return _check_feature_blocks_downgrade(db, organization_id, "hr.ai.autonomous_decision", "ai", target_plan_code)
 
 
 # ── 7. Governance Blocker ─────────────────────────────────────────────────

@@ -44,4 +44,7 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
 # step before rolling out a new revision — not run automatically here, so
 # concurrently-starting instances (Cloud Run, multiple GKE pods) never race
 # each other applying the same migration.
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]
+# WEB_CONCURRENCY = worker processes (default 2). Each holds its own DB pool (HR_DB_POOL_SIZE + HR_DB_MAX_OVERFLOW),
+# and only one of them runs the background jobs (app/core/leader.py). On Cloud Run prefer 1-2 workers plus
+# platform concurrency; set HR_REDIS_URL so the response cache is shared across them.
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT} --workers ${WEB_CONCURRENCY:-2}"]

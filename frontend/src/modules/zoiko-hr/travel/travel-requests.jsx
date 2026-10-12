@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import { Plus, Search, Calendar, MapPin, DollarSign, Briefcase, User, X } from "lucide-react";
 import TravelLayout from "./TravelLayout";
+import { staffName, indexById } from "../../../utils/travelDisplay";
 import { api } from "../../../service/api";
 
 const formatCurrency = (amount) => 
@@ -33,6 +34,8 @@ export default function TravelRequests() {
   const [search, setSearch] = useState("");
   const [showModal, setShowModal] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState("");
+  const [loadError, setLoadError] = useState("");
   const [form, setForm] = useState({ employee_id: "", destination: "", purpose: "", start_date: "", end_date: "" });
 
   useEffect(() => {
@@ -48,6 +51,7 @@ export default function TravelRequests() {
         setEmployees(empRes?.items || empRes || []);
       } catch (err) {
         console.error("Failed to load initial modules:", err);
+        setLoadError(err?.message || "The travel requests could not be loaded.");
       } finally {
         setLoading(false);
       }
@@ -57,16 +61,21 @@ export default function TravelRequests() {
 
   const handleCreate = async (e) => {
     e.preventDefault();
-    if (!form.employee_id || !form.destination || !form.start_date || !form.end_date) {
-      alert("Please accurately fill all mandatory input parameters.");
+    if (!form.employee_id || !form.destination.trim() || !form.start_date || !form.end_date) {
+      setFormError("Choose the staff member, and enter the destination, start date and end date.");
       return;
     }
+    if (form.end_date < form.start_date) {
+      setFormError("The end date cannot be before the start date.");
+      return;
+    }
+    setFormError("");
     setSubmitting(true);
     try {
       const payload = { 
         employee_id: parseInt(form.employee_id),
-        destination: form.destination,
-        purpose: form.purpose,
+        destination: form.destination.trim(),
+        purpose: form.purpose.trim() || null,
         start_date: form.start_date,
         end_date: form.end_date,
       };
@@ -78,14 +87,15 @@ export default function TravelRequests() {
       setShowModal(false);
       setForm({ employee_id: "", destination: "", purpose: "", start_date: "", end_date: "" });
     } catch (err) {
-      alert("Failed to securely deploy your travel registration request.");
+      setFormError(err?.message || "The travel request could not be created. Please try again.");
     } finally {
       setSubmitting(false);
     }
   };
 
+  const employeesById = indexById(employees);
   const filtered = requests.filter(r => 
-    (r.employee_name || r.employee || "").toLowerCase().includes(search.toLowerCase()) ||
+    staffName(r, employeesById).toLowerCase().includes(search.toLowerCase()) ||
     (r.destination || "").toLowerCase().includes(search.toLowerCase())
   );
 
@@ -104,12 +114,14 @@ export default function TravelRequests() {
             />
           </div>
           <button 
-            onClick={() => setShowModal(true)} 
+            onClick={() => { setFormError(""); setShowModal(true); }} 
             className="flex items-center justify-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg text-sm font-semibold transition-colors shadow-sm"
           >
             <Plus className="w-4 h-4" /> Issue Request
           </button>
         </div>
+
+        {loadError && <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{loadError}</div>}
 
         {loading ? (
           <div className="text-center py-12 text-gray-500 font-medium">Syncing database entries...</div>
@@ -131,7 +143,7 @@ export default function TravelRequests() {
               <tbody className="divide-y divide-gray-100 text-gray-700 font-medium">
                 {filtered.map((row, idx) => (
                   <tr key={row.id || idx} className="hover:bg-gray-50/40 transition-colors">
-                    <td className="p-4 font-semibold text-gray-900">{getEmployeeDisplay(row.employee)}</td>
+                    <td className="p-4 font-semibold text-gray-900">{staffName(row, employeesById)}</td>
                     <td className="p-4">{getDestinationDisplay(row.destination)}</td>
                     <td className="p-4 text-gray-500">{row.purpose || "—"}</td>
                     <td className="p-4 text-gray-600">{row.start_date || "—"}</td>
@@ -156,6 +168,7 @@ export default function TravelRequests() {
                 <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-gray-600"><X className="w-5 h-5" /></button>
               </div>
               <form onSubmit={handleCreate} className="p-6 space-y-4">
+                {formError && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{formError}</div>}
                 <div>
                   <label className="block text-xs font-bold text-gray-500 uppercase tracking-wider mb-2">Select Active Employee</label>
                   <div className="relative">

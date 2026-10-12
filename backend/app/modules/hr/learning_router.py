@@ -7,6 +7,7 @@ Defines all HTTP endpoints for the Learning & Development sub-module.
 from datetime import date
 from typing import Optional
 
+from app.core.pagination import Page
 from fastapi import APIRouter, Depends, Query, status, Response
 from sqlalchemy.orm import Session
 
@@ -55,6 +56,19 @@ def learning_dashboard(
 # COURSES
 # ════════════════════════════════════════════════════════════════════════════
 
+def _is_learner(user) -> bool:
+    role = getattr(getattr(user, "role", None), "value", getattr(user, "role", None))
+    return str(role) not in ("admin", "hr_admin", "super_admin")
+
+
+def _own_attempt_or_404(attempt, user, attempt_id):
+    """A learner can open and submit only their own quiz attempts; anyone else's looks like it does not exist."""
+    owner = attempt["employee_id"] if isinstance(attempt, dict) else attempt.employee_id
+    if _is_learner(user) and owner != user.id:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("LearningQuizAttempt", attempt_id)
+
+
 @learning_router.get(
     "/courses",
     summary="List courses (paginated)",
@@ -70,6 +84,9 @@ def list_courses(
     status: Optional[str] = Query(None, description="Filter by status"),
     course_type: Optional[str] = Query(None, description="Filter by course type"),
 ):
+    # learners only ever see courses that are switched on; an inactive or half-prepared course is for admins only
+    if _is_learner(current_user):
+        status = "active"
     return learning_service.get_courses(db, page, per_page, search, category, status, course_type, organization_id=current_user.organization_id)
 
 
@@ -97,7 +114,11 @@ def get_course(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_course_by_id(db, course_id, organization_id=current_user.organization_id)
+    course = learning_service.get_course_by_id(db, course_id, organization_id=current_user.organization_id)
+    if _is_learner(current_user) and course.status != "active":
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("LearningCourse", course_id)
+    return course
 
 
 @learning_router.put(
@@ -335,16 +356,18 @@ def remove_path_item(
 
 @learning_router.get(
     "/certifications",
-    response_model=list[CertificationResponse],
+    response_model=list[CertificationResponse] | Page[CertificationResponse],
     summary="List certifications",
     description="Returns all certifications, optionally filtered by employee ID."
 )
 def list_certifications(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_certifications(db, employee_id, organization_id=current_user.organization_id)
+    return learning_service.get_certifications(db, employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @learning_router.post(
@@ -410,16 +433,18 @@ def delete_certification(
 
 @learning_router.get(
     "/skills",
-    response_model=list[SkillResponse],
+    response_model=list[SkillResponse] | Page[SkillResponse],
     summary="List skills",
     description="Returns all skills, optionally filtered by employee ID."
 )
 def list_skills(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_skills(db, employee_id)
+    return learning_service.get_skills(db, employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @learning_router.post(
@@ -446,7 +471,7 @@ def get_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_skill_by_id(db, id)
+    return learning_service.get_skill_by_id(db, id, organization_id=current_user.organization_id)
 
 
 @learning_router.put(
@@ -461,7 +486,7 @@ def update_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.update_skill(db, id, data)
+    return learning_service.update_skill(db, id, data, organization_id=current_user.organization_id)
 
 
 @learning_router.delete(
@@ -475,7 +500,7 @@ def delete_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    learning_service.delete_skill(db, id)
+    learning_service.delete_skill(db, id, organization_id=current_user.organization_id)
     return {"message": f"Skill {id} has been deleted successfully."}
 
 
@@ -494,7 +519,9 @@ def start_quiz(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.start_quiz(db, data)
+    if _is_learner(current_user):
+        data = data.model_copy(update={"employee_id": current_user.id})     # a learner can only start a quiz for themselves
+    return learning_service.start_quiz(db, data, organization_id=current_user.organization_id)
 
 
 @learning_router.get(
@@ -507,7 +534,9 @@ def get_quiz_attempt(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_quiz_attempt_by_id(db, attempt_id)
+    attempt = learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id)
+    _own_attempt_or_404(attempt, current_user, attempt_id)
+    return attempt
 
 
 @learning_router.get(
@@ -521,7 +550,7 @@ def list_assessments(
     current_user=Depends(get_current_user),
     course_id: Optional[int] = Query(None, description="Filter by course ID"),
 ):
-    return learning_service.get_assessments(db, course_id)
+    return learning_service.get_assessments(db, course_id, organization_id=current_user.organization_id, active_only=_is_learner(current_user))
 
 
 @learning_router.post(
@@ -535,7 +564,7 @@ def create_assessment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return learning_service.create_assessment(db, data, created_by=current_user.id)
+    return learning_service.create_assessment(db, data, created_by=current_user.id, organization_id=current_user.organization_id)
 
 
 @learning_router.get(
@@ -548,7 +577,11 @@ def get_assessment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_assessment_by_id(db, id)
+    assessment = learning_service.get_assessment_detail(db, id, organization_id=current_user.organization_id)
+    if _is_learner(current_user) and not assessment["is_active"]:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("LearningAssessment", id)
+    return assessment
 
 
 @learning_router.put(
@@ -563,7 +596,7 @@ def update_assessment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.update_assessment(db, id, data)
+    return learning_service.update_assessment(db, id, data, organization_id=current_user.organization_id)
 
 
 @learning_router.delete(
@@ -577,7 +610,7 @@ def delete_assessment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    learning_service.delete_assessment(db, id)
+    learning_service.delete_assessment(db, id, organization_id=current_user.organization_id)
     return {"message": f"Assessment {id} has been deleted successfully."}
 
 
@@ -593,7 +626,11 @@ def list_questions(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_questions(db, id)
+    questions = learning_service.get_questions(db, id, organization_id=current_user.organization_id)
+    if _is_learner(current_user):
+        # the answer key is for the people who write the quiz, not the people who take it
+        return [{**QuestionResponse.model_validate(q).model_dump(), "correct_answer": None} for q in questions]
+    return questions
 
 
 @learning_router.post(
@@ -609,7 +646,7 @@ def add_question(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.add_question(db, id, data)
+    return learning_service.add_question(db, id, data, organization_id=current_user.organization_id)
 
 
 @learning_router.put(
@@ -625,7 +662,7 @@ def update_question(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.update_question(db, q_id, data)
+    return learning_service.update_question(db, id, q_id, data, organization_id=current_user.organization_id)
 
 
 @learning_router.delete(
@@ -640,7 +677,7 @@ def delete_question(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    learning_service.delete_question(db, q_id)
+    learning_service.delete_question(db, id, q_id, organization_id=current_user.organization_id)
     return {"message": f"Question {q_id} has been deleted successfully."}
 
 
@@ -658,7 +695,8 @@ def submit_quiz(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.submit_quiz(db, attempt_id, data)
+    _own_attempt_or_404(learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id), current_user, attempt_id)
+    return learning_service.submit_quiz(db, attempt_id, data, organization_id=current_user.organization_id)
 
 
 @learning_router.get(
@@ -673,7 +711,9 @@ def list_quiz_attempts(
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_quiz_attempts(db, assessment_id=id, employee_id=employee_id)
+    if _is_learner(current_user):
+        employee_id = current_user.id        # a learner sees their own attempts only
+    return learning_service.get_quiz_attempts(db, assessment_id=id, employee_id=employee_id, organization_id=current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -692,7 +732,7 @@ def list_training_programs(
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     status: Optional[str] = Query(None, description="Filter by status"),
 ):
-    return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id)
+    return learning_service.get_training_programs(db, page, per_page, status, organization_id=current_user.organization_id, hide_cancelled=_is_learner(current_user))
 
 
 @learning_router.post(
@@ -719,7 +759,11 @@ def get_training_program(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_training_program_by_id(db, prog_id, organization_id=current_user.organization_id)
+    program = learning_service.get_training_program_by_id(db, prog_id, organization_id=current_user.organization_id)
+    if _is_learner(current_user) and program["status"] == "cancelled":
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("LearningTrainingProgram", prog_id)
+    return program
 
 
 @learning_router.put(

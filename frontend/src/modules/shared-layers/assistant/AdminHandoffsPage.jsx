@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import PageHeader from "../../../components/PageHeader";
 import { LifeBuoy, CheckCircle2, Clock, Search } from "lucide-react";
 import { listHandoffTickets, resolveHandoffTicket } from "../../../service/assistantService";
+import { formatDateTime } from "../../../utils/dateTime";
 
 const REASON_LABELS = {
   no_reliable_answer: "Assistant couldn't answer",
@@ -140,11 +141,11 @@ export default function AdminHandoffsPage() {
                     </div>
                     <p className="mt-1 text-sm text-slate-800">{t.issue_summary}</p>
                     <p className="mt-1 text-[11px] text-slate-500">
-                      Raised by {t.employee_name || `employee #${t.employee_id}`} · {new Date(t.created_at).toLocaleString()}
+                      Raised by {t.employee_name || `employee #${t.employee_id}`} · {formatDateTime(t.created_at)}
                     </p>
                     {t.status === "resolved" && (
                       <p className="mt-1 text-[11px] text-slate-500">
-                        Resolved by {t.resolved_by_name || "—"}{t.resolved_at ? ` on ${new Date(t.resolved_at).toLocaleString()}` : ""}
+                        Resolved by {t.resolved_by_name || "—"}{t.resolved_at ? ` on ${formatDateTime(t.resolved_at)}` : ""}
                         {t.resolution_note ? `: "${t.resolution_note}"` : ""}
                       </p>
                     )}

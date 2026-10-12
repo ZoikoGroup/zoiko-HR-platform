@@ -1,6 +1,6 @@
 import { useMemo } from "react";
-import { sections as allSections } from "../navigation";
-import { ROLE_ALLOWED_PREFIXES, VALID_ROLES, PRODUCT_ALLOWED_PREFIXES, PRODUCTS, ROLES, ROLE_DISALLOWED_PREFIXES } from "../config/roles";
+import { sections as allSections } from "../navigation.js";
+import { ROLE_ALLOWED_PREFIXES, VALID_ROLES, PRODUCT_ALLOWED_PREFIXES, PRODUCTS, ROLES, ROLE_DISALLOWED_PREFIXES } from "../config/roles.js";
 
 const SECTION_EXCLUSIONS = {
   // "ADMINISTRATION" duplicates the "USER MANAGEMENT" section for super admin
@@ -8,8 +8,14 @@ const SECTION_EXCLUSIONS = {
   // at the single-org employee page, which isn't organization-scoped for a
   // platform-wide super admin. Hidden here only for super_admin — the
   // Administration section still shows for admin/hr_admin roles.
-  super_admin: ["HR ADMIN", "ORGANIZATION ADMIN", "PRODUCTS", "MY WORKSPACE", "ADMINISTRATION", "PLATFORM"],
+  super_admin: ["HR ADMIN", "ORGANIZATION ADMIN", "PRODUCTS", "MY WORKSPACE", "ADMINISTRATION", "PLATFORM", "NOTIFICATIONS"],
+  // Shared Layers are Super Admin-only. Every org-facing role loses the
+  // sidebar section here; ROLE_ALLOWED_PREFIXES (roles.js) additionally denies
+  // the /shared/* routes themselves, so direct URL entry bounces too. The
+  // NOTIFICATIONS section is separate and stays.
+  admin: ["SHARED LAYERS"],
   hr_admin: ["SHARED LAYERS"],
+  manager: ["SHARED LAYERS"],
   employee: ["SHARED LAYERS"],
 };
 
@@ -55,10 +61,31 @@ function isAllowedPathForProducts(pathname, products) {
 // component and already branches on isSuperAdmin internally.
 const SUPER_ADMIN_HREF_OVERRIDES = {
   "/hr-admin/settings": "/settings/user-management",
+  // Assistant Knowledge and Support Tickets live under /hr-admin/ for org admins,
+  // which ProtectedRoute hard-blocks for super_admin (the click just bounced back
+  // to the dashboard). Super admin has its own cross-organization pages (ZHR-33/34).
+  "/hr-admin/assistant-knowledge": "/super-admin/assistant-knowledge",
+  "/hr-admin/assistant-handoffs": "/super-admin/support-tickets",
 };
 
-function filterNavItem(item, role, products, calcMode) {
+// Entitlement-aware item filtering. When an item carries `featureKey` and an
+// entitlements map is supplied ({featureKey: granted|undefined}), the item is
+// dropped unless the key resolves to a granted state. Items without a
+// featureKey are always kept. When no map is supplied nothing changes — this
+// keeps the layout identical until a sidebar container hydrates the snapshot.
+const GRANTED_STATES = new Set(["ENTITLED_AVAILABLE", "READ_ONLY"]);
+
+function isEntitledFeature(item, entitlements) {
+  if (!item.featureKey || !entitlements) return true;
+  const granted = entitlements[item.featureKey];
+  if (typeof granted === "boolean") return granted;
+  return GRANTED_STATES.has(granted);
+}
+
+function filterNavItem(item, role, products, calcMode, entitlements) {
   if (!item) return null;
+
+  if (!isEntitledFeature(item, entitlements)) return null;
 
   if (item.excludeRoles && item.excludeRoles.includes(role)) return null;
 
@@ -85,7 +112,7 @@ function filterNavItem(item, role, products, calcMode) {
 
   if (item.children) {
     const filteredChildren = item.children
-      .map((child) => filterNavItem(child, role, products, calcMode))
+      .map((child) => filterNavItem(child, role, products, calcMode, entitlements))
       .filter(Boolean);
 
     if (filteredChildren.length === 0) return null;
@@ -95,41 +122,47 @@ function filterNavItem(item, role, products, calcMode) {
   return item;
 }
 
-export default function useFilteredNavigation(role, product, products = []) {
-  return useMemo(() => {
-    const calcMode = localStorage.getItem("zoiko_payroll_calc_mode") || "standard";
+// Pure filtering core, extracted from the hook so it can be exercised by a
+// plain node:test unit test without a React render context or a
+// `localStorage` global (neither is available under plain `node --test`).
+export function filterSectionsForRole(sections, role, products = [], calcMode = "standard", entitlements = null) {
+  if (!role || !VALID_ROLES.includes(role)) return sections;
 
-    if (!role || !VALID_ROLES.includes(role)) return allSections;
+  const excludedTitles = SECTION_EXCLUSIONS[role] || [];
 
-    const excludedTitles = SECTION_EXCLUSIONS[role] || [];
-
-    if (role === ROLES.SUPER_ADMIN) {
-      return allSections
-        .map((section) => {
-          if (excludedTitles.includes(section.title)) return null;
-          if (section.items) {
-            const filteredItems = section.items
-              .map((item) => filterNavItem(item, role, products, calcMode))
-              .filter(Boolean);
-            if (filteredItems.length === 0) return null;
-            return { ...section, items: filteredItems };
-          }
-          return section;
-        })
-        .filter(Boolean);
-    }
-
-    return allSections
+  if (role === ROLES.SUPER_ADMIN) {
+    return sections
       .map((section) => {
         if (excludedTitles.includes(section.title)) return null;
-
-        const filteredItems = section.items
-          .map((item) => filterNavItem(item, role, products, calcMode))
-          .filter(Boolean);
-
-        if (filteredItems.length === 0) return null;
-        return { ...section, items: filteredItems };
+        if (section.items) {
+          const filteredItems = section.items
+            .map((item) => filterNavItem(item, role, products, calcMode, entitlements))
+            .filter(Boolean);
+          if (filteredItems.length === 0) return null;
+          return { ...section, items: filteredItems };
+        }
+        return section;
       })
       .filter(Boolean);
-  }, [role, products]);
+  }
+
+  return sections
+    .map((section) => {
+      if (excludedTitles.includes(section.title)) return null;
+
+      const filteredItems = section.items
+        .map((item) => filterNavItem(item, role, products, calcMode, entitlements))
+        .filter(Boolean);
+
+      if (filteredItems.length === 0) return null;
+      return { ...section, items: filteredItems };
+    })
+    .filter(Boolean);
+}
+
+export default function useFilteredNavigation(role, product, products = [], entitlements = null) {
+  return useMemo(() => {
+    const calcMode = localStorage.getItem("zoiko_payroll_calc_mode") || "standard";
+    return filterSectionsForRole(allSections, role, products, calcMode, entitlements);
+  }, [role, products, entitlements]);
 }

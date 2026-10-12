@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Invoice available" %}
+{% set preheader = "A new Zoiko HR invoice is available for review." %}
+{% set badge = "Invoice" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Invoice available</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A new invoice is available for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong>. Amount: {{ currency }} {{ amount }}. Payment due date: {{ payment_due_date }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Invoice number", invoice_number, first=True, mono=True) }}
+{{ ui.detail_row("Amount due", currency ~ " " ~ amount) }}
+{{ ui.detail_row("Due date", payment_due_date) }}
+{% endcall %}
+{{ ui.button(action_url, "Review and pay invoice") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

@@ -1,10 +1,9 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   Building2, Users, CircleDollarSign, Rocket, ShieldCheck, AlertTriangle,
   RefreshCw, Download, Plus, ExternalLink,
 } from "lucide-react";
-import { superAdminService } from "../../service/superAdminService";
 import StatTile from "./command-center/StatTile";
 import NeedsAttentionTable from "./command-center/NeedsAttentionTable";
 import CustomerHealthCard from "./command-center/CustomerHealthCard";
@@ -13,7 +12,8 @@ import OrgLifecycleFunnel from "./command-center/OrgLifecycleFunnel";
 import PlatformHealthCard from "./command-center/PlatformHealthCard";
 import SecurityAccessCard from "./command-center/SecurityAccessCard";
 import GovernanceAuditCard from "./command-center/GovernanceAuditCard";
-import { formatCurrencyFromCents, formatCompactNumber, INK, INK_SOFT, BLUE, EMERALD, RED } from "./command-center/format";
+import { useCommandCenter, useRefreshCommandCenter, useUpdateServiceStatus } from "./command-center/useCommandCenter";
+import { formatCurrencyFromCents, formatCompactNumber, BLUE, EMERALD, RED } from "./command-center/format";
 
 const BANNER_META = {
   operational: { label: "Production operational", dot: "bg-emerald-500", bg: "bg-emerald-50", border: "border-emerald-200/60", text: "text-emerald-700" },
@@ -21,77 +21,43 @@ const BANNER_META = {
   outage: { label: "Production outage", dot: "bg-red-500", bg: "bg-red-50", border: "border-red-200/60", text: "text-red-700" },
 };
 
+/** What a card shows when its own request failed: the other cards are unaffected. */
+function CardError({ title, error, onRetry }) {
+  return (
+    <div role="alert" className="bg-white border border-red-200 rounded-3xl shadow-sm p-6 h-full">
+      <div className="flex items-start gap-3">
+        <AlertTriangle className="h-5 w-5 flex-shrink-0 text-red-500 mt-0.5" />
+        <div className="min-w-0">
+          <h2 className="text-sm font-bold text-slate-900">{title}</h2>
+          <p className="mt-1 text-xs text-slate-500 break-words">{error?.message || "This section could not be loaded."}</p>
+          <button type="button" onClick={onRetry} className="mt-3 text-xs font-semibold text-blue-600 underline hover:text-blue-800">Retry</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function SuperAdminDashboardPage() {
   const navigate = useNavigate();
   const platformHealthRef = useRef(null);
-
   const [days, setDays] = useState(30);
-  const [overview, setOverview] = useState(null);
-  const [attention, setAttention] = useState([]);
-  const [customerHealth, setCustomerHealth] = useState(null);
-  const [commercialHealth, setCommercialHealth] = useState(null);
-  const [lifecycle, setLifecycle] = useState(null);
-  const [platformHealth, setPlatformHealth] = useState([]);
-  const [security, setSecurity] = useState(null);
-  const [recentAudit, setRecentAudit] = useState([]);
-  const [auditEventsCount, setAuditEventsCount] = useState(0);
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [lastLoadedAt, setLastLoadedAt] = useState(null);
+  // One query per card: each renders as soon as its own data arrives.
+  const q = useCommandCenter(days);
+  const refreshAll = useRefreshCommandCenter();
+  const updateStatus = useUpdateServiceStatus();
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = { days };
-      const [
-        overviewData, attentionData, customerHealthData, commercialHealthData,
-        lifecycleData, platformHealthData, securityData, auditLogsData,
-      ] = await Promise.all([
-        superAdminService.getCommandCenterOverview(params),
-        superAdminService.getCommandCenterAttention(),
-        superAdminService.getCommandCenterCustomerHealth(),
-        superAdminService.getCommandCenterCommercialHealth(params),
-        superAdminService.getCommandCenterLifecycle(),
-        superAdminService.getCommandCenterPlatformHealth(),
-        superAdminService.getCommandCenterSecurity(params),
-        superAdminService.getAuditLogs({ limit: 8 }),
-      ]);
-      setOverview(overviewData);
-      setAttention(attentionData?.items || []);
-      setCustomerHealth(customerHealthData);
-      setCommercialHealth(commercialHealthData);
-      setLifecycle(lifecycleData);
-      setPlatformHealth(platformHealthData || []);
-      setSecurity(securityData);
-      setRecentAudit(auditLogsData?.logs || []);
-      setAuditEventsCount(auditLogsData?.total || 0);
-      setLastLoadedAt(new Date());
-    } catch (e) {
-      console.error("Failed to load Platform Command Center", e);
-      setError(e.message || "Unable to load the Platform Command Center.");
-    } finally {
-      setLoading(false);
-    }
-  }, [days]);
+  const overview = q.overview.data || null;
+  const attention = q.attention.data?.items || [];
+  const platformHealth = q.platformHealth.data || [];
+  const recentAudit = q.recentAudit.data?.logs || [];
+  const auditEventsCount = q.recentAudit.data?.total || 0;
+  const loading = q.overview.isPending;                       // the KPI tiles wait for the overview only
+  const refreshing = Object.values(q).some((r) => r.isFetching);
+  const lastLoadedAt = q.overview.dataUpdatedAt ? new Date(q.overview.dataUpdatedAt) : null;
 
-  useEffect(() => { loadAll(); }, [loadAll]);
-
-  const handleUpdateServiceStatus = async (serviceName, status) => {
-    try {
-      const existing = platformHealth.find((s) => s.service_name === serviceName);
-      const updated = await superAdminService.updateCommandCenterPlatformHealth(serviceName, {
-        status,
-        availability_pct: existing?.availability_pct ?? null,
-        latency_p95_ms: existing?.latency_p95_ms ?? null,
-        notes: existing?.notes ?? null,
-      });
-      setPlatformHealth((prev) => prev.map((s) => (s.service_name === serviceName ? updated : s)));
-      loadAll();
-    } catch (e) {
-      console.error("Failed to update service health", e);
-    }
+  const handleUpdateServiceStatus = (serviceName, status) => {
+    updateStatus.mutate({ serviceName, status, existing: platformHealth.find((s) => s.service_name === serviceName) });
   };
 
   const handleExport = () => {
@@ -124,45 +90,45 @@ export default function SuperAdminDashboardPage() {
       <div className="max-w-7xl mx-auto space-y-6">
 
         {/* Header */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight" style={{ color: INK }}>
+        <div className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0A192F] via-[#0F2942] to-[#1E3A8A] px-6 py-7 sm:px-8 text-white shadow-xl shadow-blue-900/10">
+         <div className="relative z-10 flex flex-col lg:flex-row lg:items-center justify-between gap-5">
+          <div className="min-w-0">
+            <h1 className="text-2xl sm:text-3xl font-extrabold tracking-tight">
               Platform Command Center
             </h1>
-            <p className="mt-1.5 text-sm font-medium" style={{ color: INK_SOFT }}>
+            <p className="mt-1.5 text-sm font-medium text-slate-300">
               Commercial, customer, service, security and governance health across ZoikoHR.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2.5">
-            <LabeledSelect label="Environment" value="Production" options={["Production", "Staging"]} disabled />
-            <LabeledSelect label="Region" value="Global" options={["Global"]} disabled />
+          <div className="flex flex-wrap items-center gap-2.5 lg:justify-end shrink-0">
             <LabeledSelect
               label="Period"
               value={`Last ${days} days`}
               options={["Last 7 days", "Last 30 days", "Last 90 days"]}
               onChange={(v) => setDays(parseInt(v.match(/\d+/)[0], 10))}
             />
-            <button onClick={loadAll} className="p-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition" title="Refresh">
-              <RefreshCw className={`w-4 h-4 text-slate-600 ${loading ? "animate-spin" : ""}`} />
+            <button onClick={refreshAll} aria-label="Refresh" className="h-10 w-10 flex items-center justify-center rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition" title="Refresh">
+              <RefreshCw className={`w-4 h-4 text-white ${refreshing ? "animate-spin" : ""}`} />
             </button>
-            <button onClick={handleExport} className="flex items-center gap-1.5 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white hover:bg-slate-50 transition text-sm font-semibold text-slate-700">
+            <button onClick={handleExport} className="h-10 flex items-center gap-1.5 px-3.5 rounded-xl border border-white/20 bg-white/10 hover:bg-white/20 transition text-sm font-semibold text-white">
               <Download className="w-4 h-4" /> Export
             </button>
             <button
               onClick={() => navigate("/super-admin/organizations")}
-              className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl text-white text-sm font-semibold shadow-sm hover:opacity-90 transition"
-              style={{ background: BLUE }}
+              className="h-10 flex items-center gap-1.5 px-4 rounded-xl bg-blue-600 hover:bg-blue-500 text-white text-sm font-semibold shadow-lg shadow-blue-600/30 transition"
             >
               <Plus className="w-4 h-4" /> Create Organization
             </button>
           </div>
+         </div>
+         <div className="absolute -right-10 -bottom-24 w-72 h-72 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
         </div>
 
-        {error && (
-          <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+        {q.overview.isError && !overview && (
+          <div role="alert" className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-            <span>{error}</span>
-            <button onClick={loadAll} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
+            <span>{q.overview.error?.message || "Unable to load the key figures."}</span>
+            <button onClick={() => q.overview.refetch()} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
           </div>
         )}
 
@@ -193,7 +159,7 @@ export default function SuperAdminDashboardPage() {
         </div>
 
         {/* KPI tiles */}
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4 [&>div]:min-w-0">
           <StatTile
             icon={Building2} iconGradient="from-blue-500 to-indigo-500" title="Active Organizations"
             valueDisplay={loading ? "—" : overview?.active_organizations?.value ?? 0}
@@ -239,20 +205,44 @@ export default function SuperAdminDashboardPage() {
         )}
 
         {/* Attention / Customer Health / Commercial Health */}
-        <div className="grid grid-cols-1 lg:grid-cols-[1.2fr_0.8fr_1.3fr] gap-4 items-start">
-          <NeedsAttentionTable items={attention} loading={loading} />
-          <CustomerHealthCard data={customerHealth} loading={loading} />
-          <CommercialHealthCard data={commercialHealth} loading={loading} pricingConfigured={overview?.mrr_pricing_configured} />
+        {/* Row 1: what needs attention (wide) + customer health */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 [&>div]:min-w-0 [&>div>div]:h-full">
+          <div className="lg:col-span-2">
+            {q.attention.isError ? <CardError title="Needs Your Attention" error={q.attention.error} onRetry={() => q.attention.refetch()} />
+              : <NeedsAttentionTable items={attention} loading={q.attention.isPending} />}
+          </div>
+          <div>
+            {q.customerHealth.isError ? <CardError title="Customer Health" error={q.customerHealth.error} onRetry={() => q.customerHealth.refetch()} />
+              : <CustomerHealthCard data={q.customerHealth.data} loading={q.customerHealth.isPending} />}
+          </div>
         </div>
 
-        {/* Lifecycle / Platform Health / Security / Governance */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-          <OrgLifecycleFunnel data={lifecycle} loading={loading} />
-          <div ref={platformHealthRef}>
-            <PlatformHealthCard data={platformHealth} loading={loading} onUpdateStatus={handleUpdateServiceStatus} />
+        {/* Row 2: revenue (wide) + organization lifecycle */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 [&>div]:min-w-0 [&>div>div]:h-full">
+          <div className="lg:col-span-2">
+            {q.commercialHealth.isError ? <CardError title="Commercial Health" error={q.commercialHealth.error} onRetry={() => q.commercialHealth.refetch()} />
+              : <CommercialHealthCard data={q.commercialHealth.data} loading={q.commercialHealth.isPending} pricingConfigured={overview?.mrr_pricing_configured} />}
           </div>
-          <SecurityAccessCard data={security} loading={loading} />
-          <GovernanceAuditCard auditEventsCount={auditEventsCount} recentActivity={recentAudit} loading={loading} />
+          <div>
+            {q.lifecycle.isError ? <CardError title="Organization Lifecycle" error={q.lifecycle.error} onRetry={() => q.lifecycle.refetch()} />
+              : <OrgLifecycleFunnel data={q.lifecycle.data} loading={q.lifecycle.isPending} />}
+          </div>
+        </div>
+
+        {/* Row 3: platform health, security, governance: three equal columns */}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 [&>div]:min-w-0 [&>div>div]:h-full">
+          <div ref={platformHealthRef}>
+            {q.platformHealth.isError ? <CardError title="Platform Health" error={q.platformHealth.error} onRetry={() => q.platformHealth.refetch()} />
+              : <PlatformHealthCard data={platformHealth} loading={q.platformHealth.isPending} onUpdateStatus={handleUpdateServiceStatus} />}
+          </div>
+          <div>
+            {q.security.isError ? <CardError title="Security & Access" error={q.security.error} onRetry={() => q.security.refetch()} />
+              : <SecurityAccessCard data={q.security.data} loading={q.security.isPending} />}
+          </div>
+          <div className="md:col-span-2 xl:col-span-1">
+            {q.recentAudit.isError ? <CardError title="Governance & Audit" error={q.recentAudit.error} onRetry={() => q.recentAudit.refetch()} />
+              : <GovernanceAuditCard auditEventsCount={auditEventsCount} recentActivity={recentAudit} loading={q.recentAudit.isPending} />}
+          </div>
         </div>
       </div>
     </div>
@@ -261,16 +251,16 @@ export default function SuperAdminDashboardPage() {
 
 function LabeledSelect({ label, value, options, onChange, disabled }) {
   return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white">
-      <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wide">{label}</span>
+    <div className="h-10 flex items-center gap-2 px-3 rounded-xl border border-white/20 bg-white/10">
+      <span className="text-[11px] font-semibold text-slate-300 uppercase tracking-wide">{label}</span>
       <select
         value={value}
         disabled={disabled}
         onChange={(e) => onChange?.(e.target.value)}
-        className={`text-sm font-semibold text-slate-700 bg-transparent outline-none ${disabled ? "cursor-default appearance-none pr-0" : "cursor-pointer"}`}
+        className={`text-sm font-semibold text-white bg-transparent outline-none ${disabled ? "cursor-default appearance-none pr-0" : "cursor-pointer"}`}
       >
         {options.map((o) => (
-          <option key={o} value={o}>{o}</option>
+          <option key={o} value={o} className="text-slate-800">{o}</option>
         ))}
       </select>
     </div>

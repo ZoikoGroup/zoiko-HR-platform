@@ -31,6 +31,7 @@ import uuid
 from datetime import date, datetime
 from typing import Optional
 
+from app.core.pagination import Page
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status, Body
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
@@ -38,6 +39,8 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.entitlements import require_entitlement
+from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASHBOARD
 
 # Assuming these are imported from your config or database modules
 # from app.database import get_db
@@ -46,7 +49,8 @@ from app.core.entitlements import require_entitlement
 
 
 from app.modules.hr import service
-from app.modules.hr.models import LeaveType, RequestStatus, HrDocument
+from app.modules.hr import file_storage
+from app.modules.hr.models import LeaveType, RequestStatus, HrDocument, OnboardingNewHire
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.schemas import (
     DepartmentCreate, DepartmentUpdate, DepartmentResponse,
@@ -97,6 +101,7 @@ from app.modules.hr.schemas import (
     WorkforcePlanCreate, WorkforcePlanResponse,
     WorkforceSummaryResponse,
     DesignationCreate,
+    DesignationSettingsData,
     DesignationUpdate,
     DesignationResponse,
     HrDocumentUpdate,
@@ -113,14 +118,33 @@ hr_router   = APIRouter(prefix="/hr",   tags=["👥 HR Module"])
 # ── File upload validation constants ────────────────────────────────────────
 MAX_FILE_SIZE_MB = 10
 MAX_FILE_SIZE_BYTES = MAX_FILE_SIZE_MB * 1024 * 1024
-ALLOWED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".csv", ".txt", ".rtf", ".odt"}
+ALLOWED_EXTENSIONS = {
+    ".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".pdf",
+    ".doc", ".docx", ".xls", ".xlsx", ".csv", ".tsv", ".txt", ".rtf",
+    ".odt", ".ods", ".odp", ".ppt", ".pptx",
+}
 ALLOWED_MIME_TYPES = {
     "image/jpeg", "image/png", "image/gif",
     "application/pdf",
     "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     "text/csv", "text/plain", "application/rtf", "application/vnd.oasis.opendocument.text",
+    "image/webp", "image/bmp", "text/tab-separated-values",
+    "application/vnd.oasis.opendocument.spreadsheet", "application/vnd.oasis.opendocument.presentation",
+    "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    # Browsers/OSes routinely label Office files generically; the extension check above is the gate.
+    "application/octet-stream", "application/x-pdf", "text/rtf", "application/zip",
 }
+
+
+def _require_document_uploader(current_user) -> None:
+    """Only the organization's admins add documents. Employees (and managers) have
+    read-only access to what is shared with them (ZHR-46)."""
+    from app.core.exceptions import ForbiddenException
+
+    role = getattr(current_user.role, "value", current_user.role)
+    if str(role) not in ("admin", "hr_admin", "super_admin"):
+        raise ForbiddenException("Only an organization admin can upload documents. You can view and download the documents shared with you.")
 
 
 def _validate_upload_file(file: UploadFile):
@@ -270,6 +294,7 @@ def dashboard_stats(
     summary="Get current user's organization details",
     description="Returns organization info with admin details, subscription, employee counts."
 )
+@cached_response(prefix="hr:organization", ttl=TTL_DASHBOARD)
 def get_my_organization(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -289,7 +314,10 @@ def update_my_organization(
 ):
     if not current_user.organization_id:
         raise HTTPException(status_code=403, detail="Your account is not linked to an organization.")
-    return service.update_organization(db, current_user.organization_id, data)
+    result = service.update_organization(db, current_user.organization_id, data)
+    invalidate_prefix("hr:organization", org_id=current_user.organization_id)
+    invalidate_prefix("hr:org-dashboard", org_id=current_user.organization_id)
+    return result
 
 
 @hr_router.get(
@@ -297,6 +325,7 @@ def update_my_organization(
     summary="Organization Admin dashboard stats",
     description="Returns dashboard statistics for the organization admin."
 )
+@cached_response(prefix="hr:org-dashboard", ttl=TTL_DASHBOARD)
 def organization_dashboard_stats(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -442,10 +471,12 @@ def leave_statistics(
 
 @hr_router.get(
     "/leaves",
-    response_model=list[LeaveRequestResponse],
+    response_model=list[LeaveRequestResponse] | Page[LeaveRequestResponse],
     summary="List leave requests",
 )
 def list_leave_requests(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
@@ -454,10 +485,14 @@ def list_leave_requests(
     start_date: Optional[date] = Query(None, description="Filter by start date"),
     end_date: Optional[date] = Query(None, description="Filter by end date"),
     department_id: Optional[int] = Query(None, description="Filter by department ID"),
+    search: Optional[str] = Query(None, max_length=100, description="Employee name, code or department"),
+    department_name: Optional[str] = Query(None, max_length=150, description="Exact department name"),
+    decided: Optional[bool] = Query(None, description="true = only approved/rejected requests"),
 ):
     if current_user.role == UserRole.EMPLOYEE:
         employee_id = current_user.id
-    return service.get_leave_requests(db, current_user.organization_id, employee_id, status, leave_type, start_date, end_date, department_id)
+    return service.get_leave_requests(db, current_user.organization_id, employee_id, status, leave_type, start_date, end_date, department_id,
+                                      page=page, per_page=per_page, search=search, department_name=department_name, decided=decided)
 
 
 # ── Leave Type Configs ─────────────────────────────────────────────────────
@@ -484,7 +519,7 @@ def create_leave_type_config(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.create_leave_type_config(db, data, current_user.organization_id)
+    return service.create_leave_type_config(db, data, current_user.organization_id, actor=current_user)
 
 
 @hr_router.put(
@@ -498,7 +533,7 @@ def update_leave_type_config(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.update_leave_type_config(db, config_id, data, current_user.organization_id)
+    return service.update_leave_type_config(db, config_id, data, current_user.organization_id, actor=current_user)
 
 
 @hr_router.delete(
@@ -511,7 +546,7 @@ def delete_leave_type_config(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    service.delete_leave_type_config(db, config_id, current_user.organization_id)
+    service.delete_leave_type_config(db, config_id, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave type config deleted")
 
 
@@ -584,7 +619,7 @@ def update_leave_settings(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.update_leave_settings(db, current_user.organization_id, data)
+    return service.update_leave_settings(db, current_user.organization_id, data, actor=current_user)
 
 
 @hr_router.delete(
@@ -596,7 +631,7 @@ def reset_leave_settings(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    service.reset_leave_settings(db, current_user.organization_id)
+    service.reset_leave_settings(db, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave settings reset to defaults")
 
 
@@ -612,7 +647,15 @@ def get_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.get_leave_request(db, leave_id, current_user.organization_id)
+    record = service.get_leave_request(db, leave_id, current_user.organization_id)
+    _own_leave_or_404(record, current_user, leave_id)
+    return record
+
+
+def _own_leave_or_404(record, user, leave_id):
+    """An employee can open or change only their own leave request; someone else's looks like it does not exist."""
+    if user.role == UserRole.EMPLOYEE and record.employee_id != user.id:
+        raise NotFoundException("LeaveRequest", leave_id)
 
 
 @hr_router.put(
@@ -626,7 +669,14 @@ def update_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.update_leave_request(db, leave_id, data, current_user.organization_id)
+    if current_user.role == UserRole.EMPLOYEE:
+        record = service.get_leave_request(db, leave_id, current_user.organization_id)
+        _own_leave_or_404(record, current_user, leave_id)
+        changes = data.model_dump(exclude_unset=True)
+        if set(changes) - {"status"} or changes.get("status") != RequestStatus.CANCELLED:
+            raise BadRequestException("You can only withdraw your own request. Changes and approvals are done by HR.")
+        return service.withdraw_leave_request(db, record, actor=current_user)
+    return service.update_leave_request(db, leave_id, data, current_user.organization_id, actor=current_user)
 
 
 @hr_router.delete(
@@ -639,7 +689,12 @@ def delete_leave_request(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    service.delete_leave_request(db, leave_id, current_user.organization_id)
+    if current_user.role == UserRole.EMPLOYEE:
+        record = service.get_leave_request(db, leave_id, current_user.organization_id)
+        _own_leave_or_404(record, current_user, leave_id)
+        if record.status not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
+            raise BadRequestException("Only a request nobody has decided yet can be removed.")
+    service.delete_leave_request(db, leave_id, current_user.organization_id, actor=current_user)
     return SuccessResponse(message="Leave request deleted")
 
 
@@ -730,7 +785,7 @@ def delete_salary_structure(id: int, db: Session = Depends(get_db), current_user
 
 @hr_router.post("/compensation/salary-structures/{id}/components", response_model=StructureComponentResponse, summary="Add component to structure", dependencies=[Depends(get_current_admin)])
 def add_structure_component(id: int, data: StructureComponentCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_structure_component(db, data, current_user.organization_id)
+    return service.create_structure_component(db, data, current_user.organization_id, structure_id=id)
 
 @hr_router.get("/compensation/salary-structures/{id}/components", response_model=list[StructureComponentResponse], summary="Get structure components")
 def get_structure_components(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -738,14 +793,21 @@ def get_structure_components(id: int, db: Session = Depends(get_db), current_use
 
 @hr_router.delete("/compensation/salary-structures/{id}/components/{comp_id}", summary="Remove component from structure", dependencies=[Depends(get_current_admin)])
 def delete_structure_component(id: int, comp_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    service.delete_structure_component(db, comp_id, current_user.organization_id)
+    service.delete_structure_component(db, comp_id, current_user.organization_id, structure_id=id)
     return {"message": "Structure component removed successfully."}
 
+@hr_router.put("/compensation/salary-structures/{id}/components/{comp_id}", response_model=StructureComponentResponse, summary="Change a component's amount in a structure", dependencies=[Depends(get_current_admin)])
+def update_structure_component(id: int, comp_id: int, data: StructureComponentUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return service.update_structure_component(db, id, comp_id, data, current_user.organization_id)
 
 
-@hr_router.get("/compensation/revisions", response_model=list[SalaryRevisionResponse], summary="List salary revisions")
-def get_salary_revisions(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_salary_revisions(db, current_user.organization_id)
+
+@hr_router.get("/compensation/revisions", response_model=list[SalaryRevisionResponse] | Page[SalaryRevisionResponse], summary="List salary revisions")
+def get_salary_revisions(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
+    db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_salary_revisions(db, current_user.organization_id, page=page, per_page=per_page)
 
 @hr_router.post("/compensation/revisions", response_model=SalaryRevisionResponse, summary="Create salary revision", dependencies=[Depends(get_current_admin)])
 def create_salary_revision(data: SalaryRevisionCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
@@ -857,16 +919,18 @@ def list_compliance_reports_endpoint(_=Depends(get_current_user)):
 
 @hr_router.get(
     "/compliance/audits",
-    response_model=list[AuditResponse],
+    response_model=list[AuditResponse] | Page[AuditResponse],
     summary="List structural system audits",
     tags=["📜 Compliance"],
 )
 def list_audits_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
 ):
-    return service.get_audits(db, status=status_filter, organization_id=current_user.organization_id)
+    return service.get_audits(db, status=status_filter, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -918,12 +982,14 @@ def delete_audit_endpoint(audit_id: int, db: Session = Depends(get_db), current_
 
 @hr_router.get(
     "/compliance/regulations",
-    response_model=list[RegulatoryRequirementResponse],
+    response_model=list[RegulatoryRequirementResponse] | Page[RegulatoryRequirementResponse],
     summary="List regulatory requirements",
     tags=["📜 Compliance"],
 )
-def list_regulations_endpoint(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_regulatory_requirements(db, organization_id=current_user.organization_id)
+def list_regulations_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_regulatory_requirements(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -942,16 +1008,18 @@ def create_regulation_endpoint(data: RegulatoryRequirementCreate, db: Session = 
 
 @hr_router.get(
     "/compliance/risks",
-    response_model=list[RiskResponse],
+    response_model=list[RiskResponse] | Page[RiskResponse],
     summary="List risk assessments",
     tags=["📜 Compliance"],
 )
 def list_risks_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
 ):
-    return service.get_risk_assessments(db, status=status_filter, organization_id=current_user.organization_id)
+    return service.get_risk_assessments(db, status=status_filter, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1003,17 +1071,19 @@ def delete_risk_endpoint(risk_id: int, db: Session = Depends(get_db), current_us
 
 @hr_router.get(
     "/compliance/violations",
-    response_model=list[ViolationResponse],
+    response_model=list[ViolationResponse] | Page[ViolationResponse],
     summary="List compliance violations",
     tags=["📜 Compliance"],
 )
 def list_violations_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     status_filter: Optional[str] = Query(None, alias="status"),
     severity: Optional[str] = Query(None),
 ):
-    return service.get_compliance_violations(db, status=status_filter, severity=severity, organization_id=current_user.organization_id)
+    return service.get_compliance_violations(db, status=status_filter, severity=severity, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1064,17 +1134,19 @@ def delete_violation_endpoint(violation_id: int, db: Session = Depends(get_db), 
 
 @hr_router.get(
     "/compliance/corrective-actions",
-    response_model=list[CorrectiveActionResponse],
+    response_model=list[CorrectiveActionResponse] | Page[CorrectiveActionResponse],
     summary="List corrective actions",
     tags=["📜 Compliance"],
 )
 def list_corrective_actions_endpoint(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     violation_id: Optional[int] = Query(None),
     assigned_to: Optional[str] = Query(None),
 ):
-    return service.get_corrective_actions(db, violation_id=violation_id, assigned_to=assigned_to, organization_id=current_user.organization_id)
+    return service.get_corrective_actions(db, violation_id=violation_id, assigned_to=assigned_to, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1133,15 +1205,17 @@ def create_engagement_survey(data: EngagementSurveyCreate, db: Session = Depends
 
 @hr_router.get(
     "/engagement",
-    response_model=list[EngagementSurveyResponse],
+    response_model=list[EngagementSurveyResponse] | Page[EngagementSurveyResponse],
     summary="List engagement surveys",
 )
 def list_engagement_surveys(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_engagement_surveys(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_engagement_surveys(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1155,15 +1229,17 @@ def create_ess_request(data: EssRequestCreate, db: Session = Depends(get_db), cu
 
 @hr_router.get(
     "/ess",
-    response_model=list[EssRequestResponse],
+    response_model=list[EssRequestResponse] | Page[EssRequestResponse],
     summary="List ESS requests",
 )
 def list_ess_requests(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_ess_requests(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_ess_requests(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.put(
@@ -1202,16 +1278,18 @@ def delete_ess_request(
 
 @hr_router.get(
     "/onboarding/new-hires",
-    response_model=list[OnboardingNewHireResponse],
+    response_model=list[OnboardingNewHireResponse] | Page[OnboardingNewHireResponse],
     summary="List all new hires",
 )
 def list_new_hires(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 ):
-    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id)
+    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1270,16 +1348,19 @@ def create_onboarding_record(data: OnboardingNewHireCreate, db: Session = Depend
 
 @hr_router.get(
     "/onboarding/records",
-    response_model=list[OnboardingNewHireResponse],
+    response_model=list[OnboardingNewHireResponse] | Page[OnboardingNewHireResponse],
     summary="List onboarding records (alias)",
 )
 def list_onboarding_records(
+    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
 ):
-    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id)
+    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id,
+                                 page=page, per_page=per_page)
 
 
 @hr_router.get(
@@ -1317,16 +1398,18 @@ def delete_onboarding_record(record_id: int, db: Session = Depends(get_db), curr
 
 @hr_router.get(
     "/onboarding/preboarding-tasks",
-    response_model=list[OnboardingPreboardingTaskResponse],
+    response_model=list[OnboardingPreboardingTaskResponse] | Page[OnboardingPreboardingTaskResponse],
     summary="List pre-boarding tasks",
 )
 def list_preboarding_tasks(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     new_hire_id: Optional[int] = Query(None),
     employee_id: Optional[int] = Query(None),
 ):
-    return service.get_preboarding_tasks(db, new_hire_id=new_hire_id, employee_id=employee_id, organization_id=current_user.organization_id)
+    return service.get_preboarding_tasks(db, new_hire_id=new_hire_id, employee_id=employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1420,15 +1503,17 @@ def delete_checklist_template(checklist_id: int, db: Session = Depends(get_db), 
 
 @hr_router.get(
     "/onboarding/checklist-assignments",
-    response_model=list[OnboardingChecklistResponse],
+    response_model=list[OnboardingChecklistResponse] | Page[OnboardingChecklistResponse],
     summary="List checklist assignments for a new hire",
 )
 def list_checklist_assignments(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     onboarding_record_id: Optional[int] = Query(None),
 ):
-    return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id)
+    return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1467,11 +1552,13 @@ def delete_checklist_assignment(checklist_id: int, db: Session = Depends(get_db)
 
 @hr_router.get(
     "/onboarding/orientation-sessions",
-    response_model=list[OnboardingOrientationResponse],
+    response_model=list[OnboardingOrientationResponse] | Page[OnboardingOrientationResponse],
     summary="List orientation sessions",
 )
-def list_orientation_sessions(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.get_orientations(db, organization_id=current_user.organization_id)
+def list_orientation_sessions(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_orientations(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1585,6 +1672,14 @@ def list_onboarding_documents(
     return service.get_onboarding_documents(db, onboarding_record_id=onboarding_record_id, category=category, organization_id=current_user.organization_id)
 
 
+ONBOARDING_DOC_CATEGORIES = ("id_proof", "offer_letter", "nda", "education_certificates", "experience_letters", "bank_details", "other")
+
+
+def _field_problems(**problems: str) -> HTTPException:
+    """A 422 in the same shape as a validation error, so the page can show each message next to its own field."""
+    return HTTPException(status_code=422, detail=[{"loc": ["body", field], "msg": f"Value error, {msg}", "type": "value_error"} for field, msg in problems.items()])
+
+
 @hr_router.post(
     "/onboarding/documents",
     response_model=OnboardingDocumentResponse,
@@ -1595,15 +1690,50 @@ def list_onboarding_documents(
 async def upload_onboarding_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
-    file: UploadFile = File(..., description="The document file"),
-    title: str = Form(..., min_length=1, max_length=200),
-    category: str = Form(..., min_length=1, max_length=100),
-    onboarding_record_id: Optional[int] = Form(None),
+    file: Optional[UploadFile] = File(None, description="The document file"),
+    title: str = Form("", description="Document title"),
+    category: str = Form("", description="Document category"),
+    onboarding_record_id: Optional[str] = Form(None),
 ):
-    _validate_upload_file(file)
+    problems = {}
+    title = " ".join((title or "").split())
+    category = (category or "").strip()
+    if not title:
+        problems["title"] = "Title is required."
+    elif len(title) > 200:
+        problems["title"] = "Title can be at most 200 characters."
+    if not category:
+        problems["category"] = "Category is required."
+    elif category not in ONBOARDING_DOC_CATEGORIES:
+        problems["category"] = "Choose one of the listed categories."
+    if file is None or not (file.filename or "").strip():
+        problems["file"] = "Choose a file to upload."
+    record_id = None
+    if onboarding_record_id not in (None, ""):
+        try:
+            record_id = int(onboarding_record_id)
+        except ValueError:
+            problems["onboarding_record_id"] = "Choose a valid onboarding record."
+    if problems:
+        raise _field_problems(**problems)
+
+    if record_id is not None:
+        exists = db.query(OnboardingNewHire.id).filter(
+            OnboardingNewHire.id == record_id, OnboardingNewHire.is_deleted == False,
+            OnboardingNewHire.organization_id == current_user.organization_id,
+        ).first()
+        if not exists:
+            raise _field_problems(onboarding_record_id="The selected onboarding record was not found.")
+
+    try:
+        _validate_upload_file(file)
+    except HTTPException as exc:
+        raise _field_problems(file=str(exc.detail))
     contents = await file.read()
+    if not contents:
+        raise _field_problems(file="The selected file is empty.")
     if len(contents) > MAX_FILE_SIZE_BYTES:
-        raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
+        raise _field_problems(file=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
     os.makedirs(_ONBOARDING_DOC_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
@@ -1615,10 +1745,34 @@ async def upload_onboarding_document(
         title=title,
         category=category,
         file_path=file_path,
-        onboarding_new_hire_id=onboarding_record_id,
+        onboarding_new_hire_id=record_id,
         organization_id=current_user.organization_id,
     )
     return doc
+
+
+@hr_router.get(
+    "/onboarding/documents/{document_id}/file",
+    summary="Download an onboarding document's file",
+)
+def get_onboarding_document_file(
+    document_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    doc = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
+    resolved = file_storage.resolve_stored_file(doc.get("file_path"))
+    if not resolved:
+        raise HTTPException(status_code=410, detail="The file for this document is not available on the server. Upload it again.")
+    name = _os.path.basename(resolved)
+    ext = _os.path.splitext(name)[1]
+    download_name = f"{doc.get('title') or 'document'}{ext}"
+    return FileResponse(
+        path=resolved,
+        media_type=file_storage.effective_media_type(download_name, None),
+        filename=download_name,
+        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+    )
 
 
 @hr_router.get(
@@ -1742,15 +1896,19 @@ def create_performance_review(data: PerformanceReviewCreate, db: Session = Depen
 
 @hr_router.get(
     "/performance",
-    response_model=list[PerformanceReviewResponse],
+    response_model=list[PerformanceReviewResponse] | Page[PerformanceReviewResponse],
     summary="List performance reviews",
 )
 def list_performance_reviews(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_performance_reviews(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    # an ordinary employee sees only reviews they are part of; admins see the whole organization
+    involved = current_user.id if current_user.role == UserRole.EMPLOYEE else None
+    return service.get_performance_reviews(db, organization_id=current_user.organization_id, employee_id=employee_id, involved_id=involved, page=page, per_page=per_page)
 
 
 # ── Performance Default Reviewers ────────────────────────────────
@@ -1776,7 +1934,7 @@ def get_default_reviewers(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    employee = db.query(Employee).filter(Employee.id == employee_id).first()
+    employee = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == current_user.organization_id).first()
     if not employee:
         raise HTTPException(status_code=404, detail="Employee not found")
 
@@ -1819,15 +1977,17 @@ def get_default_reviewers(
 
 @hr_router.get(
     "/performance/goals",
-    response_model=list[PerformanceGoalResponse],
+    response_model=list[PerformanceGoalResponse] | Page[PerformanceGoalResponse],
     summary="List performance goals",
 )
 def list_performance_goals(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_performance_goals(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_performance_goals(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1871,16 +2031,18 @@ def delete_performance_goal(goal_id: int, db: Session = Depends(get_db), current
 
 @hr_router.get(
     "/performance/kpis",
-    response_model=list[PerformanceKpiResponse],
+    response_model=list[PerformanceKpiResponse] | Page[PerformanceKpiResponse],
     summary="List performance KPIs",
 )
 def list_performance_kpis(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     goal_id: Optional[int] = Query(None, description="Filter by goal ID"),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_performance_kpis(db, organization_id=current_user.organization_id, goal_id=goal_id, employee_id=employee_id)
+    return service.get_performance_kpis(db, organization_id=current_user.organization_id, goal_id=goal_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1924,17 +2086,19 @@ def delete_performance_kpi(kpi_id: int, db: Session = Depends(get_db), current_u
 
 @hr_router.get(
     "/performance/feedback",
-    response_model=list[PerformanceFeedbackResponse],
+    response_model=list[PerformanceFeedbackResponse] | Page[PerformanceFeedbackResponse],
     summary="List performance feedback",
 )
 def list_performance_feedback(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
     reviewer_id: Optional[int] = Query(None, description="Filter by reviewer ID"),
     review_id: Optional[int] = Query(None, description="Filter by review ID"),
 ):
-    return service.get_performance_feedback(db, organization_id=current_user.organization_id, employee_id=employee_id, reviewer_id=reviewer_id, review_id=review_id)
+    return service.get_performance_feedback(db, organization_id=current_user.organization_id, employee_id=employee_id, reviewer_id=reviewer_id, review_id=review_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -1960,15 +2124,17 @@ def delete_performance_feedback(fb_id: int, db: Session = Depends(get_db), curre
 
 @hr_router.get(
     "/performance/appraisals",
-    response_model=list[AppraisalResponse],
+    response_model=list[AppraisalResponse] | Page[AppraisalResponse],
     summary="List appraisals",
 )
 def list_appraisals(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return service.get_appraisals(db, organization_id=current_user.organization_id, employee_id=employee_id)
+    return service.get_appraisals(db, organization_id=current_user.organization_id, employee_id=employee_id, page=page, per_page=per_page)
 
 
 @hr_router.post(
@@ -2131,7 +2297,12 @@ def get_performance_review(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_performance_review(db, review_id, organization_id=current_user.organization_id)
+    review = service.get_performance_review(db, review_id, organization_id=current_user.organization_id)
+    if current_user.role == UserRole.EMPLOYEE and current_user.id not in (
+        review.employee_id, review.reviewer_id, review.hr_reviewer_id, review.admin_reviewer_id,
+    ):
+        raise NotFoundException("PerformanceReview", review_id)
+    return review
 
 
 @hr_router.put(
@@ -2143,7 +2314,7 @@ def update_performance_review(
     review_id: int,
     data: PerformanceReviewUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.update_performance_review(db, review_id, data, organization_id=current_user.organization_id)
 
@@ -2156,7 +2327,7 @@ def update_performance_review(
 def delete_performance_review(
     review_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     service.delete_performance_review(db, review_id, organization_id=current_user.organization_id)
     return {"message": f"Performance review {review_id} deleted successfully."}
@@ -2176,6 +2347,8 @@ def list_travel_requests(
     search: Optional[str] = Query(None),
     status: Optional[RequestStatus] = Query(None),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        employee_id = current_user.id                # a colleague's trips are not mine to see
     result = service.get_travel_requests(
         db, organization_id=current_user.organization_id,
         employee_id=employee_id, page=page, per_page=per_page,
@@ -2216,7 +2389,7 @@ def get_travel_settings(
 def update_travel_settings(
     data: TravelSettingUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.update_travel_settings(db, organization_id=current_user.organization_id, data=data)
 
@@ -2231,7 +2404,16 @@ def get_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+    request = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+    _own_travel_or_404(request, current_user, travel_id)
+    return request
+
+
+def _own_travel_or_404(request, user, travel_id):
+    """An employee can open or change only their own travel request; someone else's looks like it does not exist."""
+    if user.role == UserRole.EMPLOYEE and request.employee_id != user.id:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("TravelRequest", travel_id)
 
 
 @hr_router.put(
@@ -2245,6 +2427,16 @@ def update_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+        _own_travel_or_404(current, current_user, travel_id)
+        if current.status != RequestStatus.PENDING:
+            raise BadRequestException("Only a request that is still pending can be changed.")
+        changes = data.model_dump(exclude_unset=True)
+        if "status" in changes and changes["status"] not in (None, RequestStatus.PENDING, RequestStatus.CANCELLED):
+            raise BadRequestException("You cannot approve or reject a travel request.")
+        if "start_date" in changes or "end_date" in changes:
+            service.check_travel_dates(changes.get("start_date", current.start_date), changes.get("end_date", current.end_date), allow_past=False)
     return service.update_travel_request(db, travel_id, data, organization_id=current_user.organization_id)
 
 
@@ -2257,6 +2449,11 @@ def delete_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+        _own_travel_or_404(current, current_user, travel_id)
+        if current.status != RequestStatus.PENDING:
+            raise BadRequestException("Only a request that is still pending can be withdrawn.")
     service.delete_travel_request(db, travel_id, organization_id=current_user.organization_id)
     return {"message": "Travel request deleted successfully."}
 
@@ -2276,12 +2473,31 @@ def list_travel_expenses(
     per_page: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
 ):
+    if current_user.role == UserRole.EMPLOYEE:
+        employee_id = current_user.id                # a colleague's claims are not mine to see
     result = service.get_travel_expenses(
         db, organization_id=current_user.organization_id,
         request_id=request_id, employee_id=employee_id,
         status=status, page=page, per_page=per_page, search=search,
     )
     return result["items"]
+
+
+@hr_router.put(
+    "/travel-expenses/{expense_id}",
+    response_model=TravelExpenseResponse,
+    summary="Approve, reject or reimburse an expense claim",
+)
+def review_travel_expense(
+    expense_id: int,
+    data: TravelExpenseUpdate,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    changes = data.model_dump(exclude_unset=True)
+    if set(changes) != {"status"} or changes["status"] is None:
+        raise BadRequestException("Send the decision as a status: approved, rejected or completed.")
+    return service.review_travel_expense(db, expense_id, current_user.organization_id, changes["status"], current_user.id)
 
 
 @hr_router.post(
@@ -2330,6 +2546,41 @@ def list_designations(
     return service.get_designations(db, organization_id=current_user.organization_id)
 
 
+@hr_router.get(
+    "/designations/report",
+    summary="Designation report: totals, per-department table, headcount and growth trends",
+    tags=["📋 Designations"],
+)
+def designation_report(
+    months: int = Query(12, ge=1, le=36),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return service.get_designation_report(db, organization_id=current_user.organization_id, months=months)
+
+
+# These two routes must stay above /designations/{designation_id}, or "settings" would be read as an id.
+@hr_router.get(
+    "/designations/settings",
+    response_model=DesignationSettingsData,
+    summary="Designation module preferences of the caller's organization",
+    tags=["📋 Designations"],
+)
+def get_designation_settings_endpoint(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_designation_settings(db, current_user.organization_id)
+
+
+@hr_router.put(
+    "/designations/settings",
+    response_model=DesignationSettingsData,
+    summary="Save the designation module preferences (replaces the whole set)",
+    tags=["📋 Designations"],
+    dependencies=[Depends(get_current_admin)],
+)
+def save_designation_settings_endpoint(data: DesignationSettingsData, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return service.save_designation_settings(db, current_user.organization_id, data, updated_by=current_user.id)
+
+
 @hr_router.post(
     "/designations",
     response_model=DesignationResponse,
@@ -2339,7 +2590,7 @@ def list_designations(
     dependencies=[Depends(get_current_admin)],
 )
 def create_designation_endpoint(data: DesignationCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_designation(db, data, organization_id=current_user.organization_id)
+    return service.create_designation(db, data, organization_id=current_user.organization_id, created_by=current_user.id, source="manual")
 
 
 @hr_router.get(
@@ -2401,24 +2652,27 @@ _DOCUMENT_UPLOAD_DIR = os.environ.get(
 
 @hr_router.get(
     "/documents",
-    response_model=list[HrDocumentResponse],
+    response_model=list[HrDocumentResponse] | Page[HrDocumentResponse],
     summary="List HR documents",
     description=(
         "Returns all non-deleted HR documents. "
         "Supports optional filtering by `category`, `status`, `employee_id`, "
-        "`employee_id_str` (org-scoped Employee ID), and `search`. "
-        "Employee ID is the primary identifier across modules."
+        "`employee_id_str`, and `search`. "
+        "`employee_id_str` matches employee_id, employee_code, legacy_code or the "
+        "numeric employee id, case-insensitively, scoped to the caller's organization."
     ),
     tags=["📄 HR Documents"],
 )
 def list_hr_documents(
+    page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
     category:       Optional[str] = Query(None, description="Filter by category (company, employee, policy, contract, other)"),
     doc_status:     Optional[str] = Query(None, alias="status", description="Filter by status (pending, approved, rejected, expired)"),
     employee_id:    Optional[int] = Query(None, description="Filter by employee database ID"),
-    employee_id_str: Optional[str] = Query(None, description="Filter by Employee ID (e.g., ZO0001)"),
-    search:         Optional[str] = Query(None, description="Search by title or document type"),
+    employee_id_str: Optional[str] = Query(None, description="Filter by Employee ID/code (e.g., TEE00024, RA0001) — case-insensitive partial match"),
+    search:         Optional[str] = Query(None, description="Search by title, document type, employee name/code/ID"),
     exclude_categories: Optional[str] = Query(None, description="Comma-separated categories to exclude (e.g. employee,contract)"),
     folder_id:      Optional[int] = Query(None, description="Filter by folder ID (null = root)"),
 ):
@@ -2433,6 +2687,8 @@ def list_hr_documents(
         folder_id=folder_id,
         organization_id=current_user.organization_id,
         current_user=current_user,
+        page=page,
+        per_page=per_page,
     )
 
 
@@ -2463,6 +2719,7 @@ async def upload_hr_document_route(
     expiry_date: Optional[date] = Form(None),
     folder_id: Optional[int] = Form(None),
 ):
+    _require_document_uploader(current_user)
     _validate_upload_file(file)
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE_BYTES:
@@ -2486,7 +2743,7 @@ async def upload_hr_document_route(
         file_path=file_path,
         file_name=file.filename,
         file_size=len(contents),
-        mime_type=file.content_type,
+        mime_type=file_storage.effective_media_type(file.filename, file.content_type),
         organization_id=current_user.organization_id,
         description=description or note,
         document_type=document_type,
@@ -2542,12 +2799,22 @@ def get_hr_document_file(
 ):
     doc_data = service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)
     file_path = doc_data.get("file_path")
-    if not file_path or not _os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    resolved = file_storage.resolve_stored_file(file_path)
+    if not resolved:
+        # 410: the document record exists, the bytes are not on this host.
+        # A plain 404 read as "no such document" in the UI and hid the fact
+        # that the file simply is not there (ZHR 44).
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "The file for this document is not available on the server. "
+                "Ask an administrator to upload it again."
+            ),
+        )
     file_name = doc_data.get("file_name") or _os.path.basename(file_path)
-    media_type = doc_data.get("mime_type")
+    media_type = file_storage.effective_media_type(file_name, doc_data.get("mime_type"))
     return FileResponse(
-        path=file_path,
+        path=resolved,
         media_type=media_type,
         filename=file_name,
         headers={"Content-Disposition": f'inline; filename="{file_name}"'},
@@ -2648,6 +2915,7 @@ async def upload_document_version(
     file: UploadFile = File(..., description="The updated document file"),
     change_notes: Optional[str] = Form(None),
 ):
+    _require_document_uploader(current_user)
     _validate_upload_file(file)
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE_BYTES:
@@ -2656,7 +2924,7 @@ async def upload_document_version(
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
     file_path = os.path.join(_DOCUMENT_UPLOAD_DIR, unique_name)
-    contents = await file.read()
+    # (the upload was already read above; reading it again returned empty bytes and saved empty files)
     with open(file_path, "wb") as fh:
         fh.write(contents)
 
@@ -2666,7 +2934,7 @@ async def upload_document_version(
         file_path=file_path,
         file_name=file.filename,
         file_size=len(contents),
-        mime_type=file.content_type,
+        mime_type=file_storage.effective_media_type(file.filename, file.content_type),
         uploaded_by=current_user.id,
         organization_id=current_user.organization_id,
         change_notes=change_notes,
@@ -2689,12 +2957,19 @@ def get_document_version_file(
         db, document_id, version_id, organization_id=current_user.organization_id
     )
     file_path = version_data.get("file_path")
-    if not file_path or not _os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File not found on disk")
+    resolved = file_storage.resolve_stored_file(file_path)
+    if not resolved:
+        raise HTTPException(
+            status_code=410,
+            detail=(
+                "The file for this document version is not available on the server. "
+                "Ask an administrator to upload it again."
+            ),
+        )
     file_name = version_data.get("file_name") or _os.path.basename(file_path)
-    media_type = version_data.get("mime_type")
+    media_type = file_storage.effective_media_type(file_name, version_data.get("mime_type"))
     return FileResponse(
-        path=file_path,
+        path=resolved,
         media_type=media_type,
         filename=file_name,
         headers={"Content-Disposition": f'inline; filename="{file_name}"'},
@@ -2723,7 +2998,7 @@ def get_pending_approvals(
     description=(
         "If the current user is org admin (admin) or HR admin (hr_admin), "
         "all pending steps are approved and skipped — document is approved immediately. "
-        "Regular managers approve only their step in the chain."
+        "Only an HR Admin or the Organization Admin can approve."
     ),
     tags=["📄 HR Documents"],
 )
@@ -2859,6 +3134,7 @@ def create_folder(
     name: str = Form(...),
     parent_id: Optional[int] = Form(None),
 ):
+    _require_document_uploader(current_user)
     return service.create_document_folder(
         db,
         name=name,

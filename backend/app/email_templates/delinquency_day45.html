@@ -1,0 +1,16 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Termination and closure notice" %}
+{% set preheader = "Day 45: termination and controlled export / closure workflow begins. No immediate destructive purge." %}
+{% set badge = "Termination" %}
+{% set badge_tone = "danger" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ customer_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Termination and closure notice</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ customer_name }}</strong>, the day-45 termination milestone of the delinquency timeline has been reached for your {{ plan_name }} subscription.</p>
+{% call ui.notice("What happens now", "danger") %}
+Normal service ends. A controlled export / closure / deletion workflow begins. Your data is retained for a configured retrieval window ({{ retention_window_days }} days) to allow approved export, billing and privacy / legal-hold actions. No immediate destructive purge occurs.
+{% endcall %}
+{{ ui.button(export_url, "Start data export") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

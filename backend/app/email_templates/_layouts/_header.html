@@ -1,0 +1,34 @@
+{#-
+  Header: the Zoiko HR logo ALWAYS renders (§5.2 — Zoiko HR identity is
+  immutable). A tenant logo may only appear as a smaller secondary co-brand
+  beneath it; it never replaces the Zoiko HR logo.
+
+  Two <img>s: the full-colour logo is the default; the reversed variant is
+  hidden and only revealed by the dark-mode rules in base.html.
+-#}
+<tr>
+<td class="px" style="padding:28px 40px 20px 40px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">
+<tr>
+<td class="stack" valign="middle" style="vertical-align:middle;">
+<img class="zhr-logo zhr-logo-light" src="{{ logo_src }}" width="180" height="31" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:180px;max-width:180px;height:auto;color:{{ PALETTE.primary }};font-family:{{ FONT_STACK }};font-size:22px;font-weight:700;line-height:31px;">
+<!--[if !mso]><!--><div class="zhr-logo-dark-wrap" style="display:none;max-height:0;overflow:hidden;mso-hide:all;"><img class="zhr-logo zhr-logo-dark" src="{{ logo_dark_src }}" width="180" height="31" alt="Zoiko HR" style="display:block;border:0;outline:none;text-decoration:none;width:180px;max-width:180px;height:auto;color:#ffffff;font-family:{{ FONT_STACK }};font-size:22px;font-weight:700;line-height:31px;"></div><!--<![endif]-->
+</td>
+{% if _badge %}
+{% set _tone = BADGE_TONES[_badge_tone] %}
+<td class="stack stack-badge" valign="middle" align="right" style="vertical-align:middle;text-align:right;padding-left:12px;">
+<span class="badge-{{ _badge_tone }}" style="display:inline-block;padding:6px 12px;border:1px solid {{ _tone.border }};border-radius:999px;background-color:{{ _tone.bg }};color:{{ _tone.fg }};font-family:{{ FONT_STACK }};font-size:12px;line-height:16px;font-weight:700;letter-spacing:0.4px;text-transform:uppercase;">{{ _badge }}</span>
+</td>
+{% endif %}
+</tr>
+</table>
+{% if cobrand_logo_url %}
+<table role="presentation" cellpadding="0" cellspacing="0" border="0" style="margin-top:14px;">
+<tr>
+<td valign="middle" class="dm-text-muted" style="vertical-align:middle;padding-right:8px;font-family:{{ FONT_STACK }};font-size:12px;line-height:16px;color:#4b5563;">For</td>
+<td valign="middle" style="vertical-align:middle;"><img src="{{ cobrand_logo_url }}" height="24" alt="{{ tenant_name }}" style="display:block;border:0;outline:none;height:24px;width:auto;max-width:120px;color:#4b5563;font-family:{{ FONT_STACK }};font-size:12px;"></td>
+</tr>
+</table>
+{% endif %}
+</td>
+</tr>

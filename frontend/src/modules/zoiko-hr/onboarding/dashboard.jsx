@@ -15,20 +15,19 @@ import {
   Users,
   UserPlus,
   CheckCircle2,
-  XCircle,
   Clock,
   FileText,
   Package,
   Calendar,
-  BookOpen,
   TrendingUp,
   Building2,
   BarChart3,
   Activity,
   ChevronRight,
-  ArrowUpRight,
   Circle,
 } from "lucide-react";
+import { formatDate, formatDateTime } from "../../../utils/dateTime";
+import { monthLabel, barPercent, completionParts } from "../../../utils/onboardingDashboard";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -41,14 +40,10 @@ const NAV_ITEMS = [
   { label: "Settings", href: "/zoiko-hr/onboarding/settings" },
 ];
 
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
 const DEPARTMENT_COLORS = [
   "bg-blue-500", "bg-emerald-500", "bg-amber-500", "bg-[#0A1128]",
   "bg-rose-500", "bg-cyan-500", "bg-amber-600", "bg-teal-500",
 ];
-
-const PIE_COLORS = ["#22c55e", "#eab308", "#ef4444", "#3b82f6"];
 
 function SubNav() {
   return (
@@ -73,18 +68,12 @@ function SubNav() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color, change }) {
+function StatCard({ title, value, icon: Icon, color }) {
   return (
     <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
       <div>
         <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">{title}</p>
         <p className="text-2xl font-bold text-gray-800 mt-1">{value}</p>
-        {change !== undefined && (
-          <p className="text-xs text-gray-400 mt-1 flex items-center gap-1">
-            <ArrowUpRight size={12} className="text-green-500" />
-            {change} from last month
-          </p>
-        )}
       </div>
       <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color || "bg-blue-50"}`}>
         <Icon size={20} className={color ? "text-white" : "text-blue-600"} />
@@ -107,26 +96,27 @@ function PendingCard({ title, count, icon: Icon, color }) {
   );
 }
 
-function SimpleBar({ label, value, max, color }) {
-  const pct = max > 0 ? Math.round((value / max) * 100) : 0;
+// label | bar | value. The label column is wide enough for a department name and never runs into the bar:
+// a longer name is cut with "..." and the full name shows on hover.
+function SimpleBar({ label, value, max, color, labelClass = "w-24 sm:w-28", detail }) {
+  const pct = barPercent(value, max);
   return (
-    <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-10 shrink-0">{label}</span>
-      <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+    <div className="flex items-center gap-3" title={detail || `${label}: ${value}`}>
+      <span className={`text-xs text-gray-600 shrink-0 truncate ${labelClass}`}>{label}</span>
+      <div className="flex-1 min-w-0 h-5 bg-gray-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs font-medium text-gray-600 w-8 text-right">{value}</span>
+      <span className="text-xs font-medium text-gray-600 w-8 shrink-0 text-right">{value}</span>
     </div>
   );
 }
 
-function PieSegment({ label, value, total, color }) {
-  const pct = total > 0 ? Math.round((value / total) * 100) : 0;
+function PieSegment({ label, value, percent, color }) {
   return (
     <div className="flex items-center gap-2">
       <Circle size={10} fill={color} stroke={color} />
       <span className="text-xs text-gray-500 flex-1">{label}</span>
-      <span className="text-xs font-medium text-gray-700">{pct}% ({value})</span>
+      <span className="text-xs font-medium text-gray-700">{percent}% ({value})</span>
     </div>
   );
 }
@@ -135,6 +125,7 @@ export default function OnboardingDashboard() {
   const [dashboard, setDashboard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [reloads, setReloads] = useState(0);
 
   useEffect(() => {
     let mounted = true;
@@ -152,7 +143,7 @@ export default function OnboardingDashboard() {
     };
     fetch();
     return () => { mounted = false; };
-  }, []);
+  }, [reloads]);
 
   const stats = useMemo(() => {
     if (!dashboard) return null;
@@ -164,14 +155,9 @@ export default function OnboardingDashboard() {
 
   const deptData = stats?.departmentWise || [];
   const maxDept = Math.max(...deptData.map((d) => d.count), 1);
+  const deptTotal = deptData.reduce((sum, d) => sum + (d.count || 0), 0);
 
-  const completionRaw = stats?.completionStatus || { total: 0, completed: 0, pending: 0 };
-  const completionTotal = completionRaw.total || 0;
-  const completedCount = completionRaw.completed || 0;
-  const pendingCount = completionRaw.pending || 0;
-  const notStartedCount = Math.max(completionTotal - completedCount - pendingCount, 0);
-  const completionStatus = { completed: completedCount, pending: pendingCount, notStarted: notStartedCount };
-  const completionDenom = completionTotal || 1;
+  const completion = completionParts(stats?.completionStatus);
 
   const upcomingJoiners = stats?.upcomingJoiners || [];
   const recentActivities = stats?.recentActivities || [];
@@ -192,8 +178,9 @@ export default function OnboardingDashboard() {
     return (
       <HRPage title="Onboarding Dashboard" subtitle="Overview of onboarding activities and metrics.">
         <SubNav />
-        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg">
-          Error: {error}
+        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex items-center justify-between gap-3">
+          <span>{error}</span>
+          <button onClick={() => setReloads((n) => n + 1)} className="px-3 py-1.5 text-sm bg-white border border-red-200 rounded-lg hover:bg-red-100">Try again</button>
         </div>
       </HRPage>
     );
@@ -210,7 +197,6 @@ export default function OnboardingDashboard() {
             value={stats?.totalNewHires ?? 0}
             icon={Users}
             color="bg-blue-500"
-            change="+12%"
           />
           <StatCard
             title="Pending Onboarding"
@@ -223,7 +209,6 @@ export default function OnboardingDashboard() {
             value={stats?.completedOnboarding ?? 0}
             icon={CheckCircle2}
             color="bg-green-500"
-            change="+8%"
           />
         </div>
 
@@ -231,9 +216,9 @@ export default function OnboardingDashboard() {
           <h3 className="text-sm font-semibold text-gray-700 mb-3">Pending Items</h3>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
             <PendingCard title="Documents Pending" count={stats?.documentsPending ?? 0} icon={FileText} color="bg-blue-500" />
-            <PendingCard title="Assets Pending" count={stats?.assetsPending ?? 0} icon={Package} color="bg-[#0A1128]" />
+            <PendingCard title="Checklist Items Pending" count={stats?.checklistsPending ?? 0} icon={Package} color="bg-[#0A1128]" />
             <PendingCard title="Orientation Pending" count={stats?.orientationPending ?? 0} icon={Calendar} color="bg-amber-500" />
-            <PendingCard title="Training Pending" count={stats?.trainingPending ?? 0} icon={BookOpen} color="bg-rose-500" />
+            <PendingCard title="Upcoming Joiners" count={upcomingJoiners.length} icon={UserPlus} color="bg-rose-500" />
           </div>
         </div>
 
@@ -250,10 +235,12 @@ export default function OnboardingDashboard() {
                 monthlyTrend.map((m) => (
                   <SimpleBar
                     key={m.month}
-                    label={m.month}
+                    label={monthLabel(m.month)}
+                    labelClass="w-20"
                     value={m.count}
                     max={maxMonthly}
                     color="bg-blue-500"
+                    detail={`${monthLabel(m.month)}: ${m.count} joining`}
                   />
                 ))
               )}
@@ -272,10 +259,11 @@ export default function OnboardingDashboard() {
                 deptData.map((d, i) => (
                   <SimpleBar
                     key={d.department || i}
-                    label={d.department}
+                    label={d.department || "Unassigned"}
                     value={d.count}
                     max={maxDept}
                     color={DEPARTMENT_COLORS[i % DEPARTMENT_COLORS.length]}
+                    detail={`${d.department || "Unassigned"}: ${d.count} of ${deptTotal} new hire${deptTotal === 1 ? "" : "s"}`}
                   />
                 ))
               )}
@@ -289,28 +277,24 @@ export default function OnboardingDashboard() {
               <BarChart3 size={16} className="text-blue-600" />
               Completion Status
             </h3>
-            <div className="flex items-center justify-center gap-1 py-4">
-              {[
-                { key: "completed", value: completionStatus.completed, color: PIE_COLORS[0] },
-                { key: "pending", value: completionStatus.pending, color: PIE_COLORS[2] },
-                { key: "notStarted", value: completionStatus.notStarted, color: PIE_COLORS[3] },
-              ].map((seg) => (
-                <div
-                  key={seg.key}
-                  className="h-16 first:rounded-l-full last:rounded-r-full transition-all duration-500"
-                  style={{
-                    width: `${(seg.value / completionDenom) * 100}%`,
-                    backgroundColor: seg.color,
-                    minWidth: seg.value > 0 ? "4px" : "0",
-                  }}
-                />
-              ))}
-            </div>
-            <div className="space-y-1.5 mt-2">
-              <PieSegment label="Completed" value={completionStatus.completed} total={completionDenom} color={PIE_COLORS[0]} />
-              <PieSegment label="In Onboarding" value={completionStatus.pending} total={completionDenom} color={PIE_COLORS[2]} />
-              <PieSegment label="Not Started" value={completionStatus.notStarted} total={completionDenom} color={PIE_COLORS[3]} />
-            </div>
+            {completion.total === 0 ? (
+              <p className="text-xs text-gray-400 text-center py-6">No new hires yet</p>
+            ) : (
+              <>
+                <div className="flex items-center gap-0.5 py-4" role="img" aria-label={completion.parts.map((p) => `${p.label} ${p.percent}%`).join(", ")}>
+                  {completion.parts.filter((p) => p.value > 0).map((p) => (
+                    <div key={p.key} title={`${p.label}: ${p.value}`} className="h-12 first:rounded-l-full last:rounded-r-full transition-all duration-500"
+                      style={{ flexGrow: p.value, flexBasis: 0, minWidth: "6px", backgroundColor: p.color }} />
+                  ))}
+                </div>
+                <div className="space-y-1.5 mt-2">
+                  {completion.parts.map((p) => (
+                    <PieSegment key={p.key} label={p.label} value={p.value} percent={p.percent} color={p.color} />
+                  ))}
+                </div>
+                {completion.cancelled > 0 ? <p className="text-xs text-gray-400 mt-3">{completion.cancelled} cancelled (not counted above)</p> : null}
+              </>
+            )}
           </div>
 
           <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 lg:col-span-2">
@@ -329,7 +313,7 @@ export default function OnboardingDashboard() {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="text-sm text-gray-700">{act.description || act.message}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{act.timestamp || act.date || ""}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{act.timestamp ? formatDateTime(act.timestamp) : ""}</p>
                     </div>
                     <ChevronRight size={14} className="text-gray-300 shrink-0 mt-1" />
                   </div>
@@ -365,9 +349,9 @@ export default function OnboardingDashboard() {
                   {upcomingJoiners.map((j) => (
                     <tr key={j.id} className="hover:bg-gray-50 transition-colors">
                       <td className="px-4 py-2.5 font-medium text-gray-800">{j.name}</td>
-                      <td className="px-4 py-2.5 text-gray-500">{j.position}</td>
-                      <td className="px-4 py-2.5 text-gray-500">{j.department}</td>
-                      <td className="px-4 py-2.5 text-gray-500">{j.joining_date || "-"}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{j.position || "-"}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{j.department || "Unassigned"}</td>
+                      <td className="px-4 py-2.5 text-gray-500">{j.joining_date ? formatDate(j.joining_date) : "-"}</td>
                       <td className="px-4 py-2.5">
                         <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-blue-100 text-blue-700 capitalize">
                           {j.status ? j.status.replace(/_/g, " ") : "Upcoming"}

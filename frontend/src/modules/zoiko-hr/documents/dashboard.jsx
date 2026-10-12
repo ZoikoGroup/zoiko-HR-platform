@@ -6,6 +6,7 @@ import {
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import HRPage from "../../../components/HRPage";
 import { getDocuments, getDocumentDashboardStats } from "../../../service/hrService";
+import { formatDate } from "../../../utils/dateTime";
 
 const STATUS_META = {
   pending:  { label: "Pending",  bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-500"  },
@@ -38,8 +39,7 @@ const CategoryPill = ({ category }) => {
 };
 const fmtDate = (iso) => {
   if (!iso) return "—";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleDateString(undefined, { year: "numeric", month: "short", day: "numeric" });
+  return formatDate(iso);
 };
 
 const PIE_COLORS = { pending: "#f59e0b", approved: "#10b981", rejected: "#f43f5e", expired: "#94a3b8" };

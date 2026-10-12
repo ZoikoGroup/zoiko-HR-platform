@@ -16,11 +16,15 @@ from datetime import date as date_cls, datetime, timedelta
 
 from fastapi import APIRouter, Depends
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_super_admin
 from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.sql_helpers import latest_per_group
+from app.modules.super_admin import organization_service
 
 from app.modules.super_admin.command_center_models import (
     PlatformServiceHealth, PlatformIncident, PlatformDailySnapshot,
@@ -66,12 +70,12 @@ def _compute_platform_totals(db: Session) -> dict:
     from app.modules.billing.models import BillingSubscription, BillingPlan, SubscriptionStatus, BillingCycle
     from app.modules.super_admin.models import LoginActivity
 
-    orgs = db.query(Organization).all()
+    orgs = db.query(Organization.id, Organization.status).all()     # columns only; soft-delete filter still applies
     total_organizations = len(orgs)
     active_organizations = sum(
         1 for o in orgs if o.status and o.status.value == OrganizationStatus.ACTIVE.value
     )
-    total_workforce = db.query(Employee).filter(Employee.status == EmployeeStatus.ACTIVE).count()
+    total_workforce = organization_service.visible_employees(db).filter(Employee.status == EmployeeStatus.ACTIVE).count()
 
     cutoff = datetime.utcnow() - timedelta(days=30)
     activated_org_ids = {
@@ -114,18 +118,27 @@ def _compute_platform_totals(db: Session) -> dict:
 
 
 def _get_or_create_today_snapshot(db: Session) -> PlatformDailySnapshot:
+    """Upsert today's snapshot atomically.
+
+    Two concurrent dashboard loads both used to see no row for today and both
+    INSERT, tripping the unique constraint on snapshot_date. The INSERT now
+    carries ON CONFLICT DO UPDATE, so the loser of the race updates the winner's
+    row instead of failing."""
     today = date_cls.today()
-    snap = db.query(PlatformDailySnapshot).filter(PlatformDailySnapshot.snapshot_date == today).first()
     stats = _compute_platform_totals(db)
-    if snap is None:
-        snap = PlatformDailySnapshot(snapshot_date=today, **stats)
-        db.add(snap)
-    else:
-        for key, value in stats.items():
-            setattr(snap, key, value)
-    db.commit()
-    db.refresh(snap)
-    return snap
+    stmt = pg_insert(PlatformDailySnapshot).values(snapshot_date=today, **stats)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[PlatformDailySnapshot.snapshot_date],
+        set_=stats,
+    )
+    try:
+        db.execute(stmt)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+    return db.query(PlatformDailySnapshot).filter(
+        PlatformDailySnapshot.snapshot_date == today
+    ).one()
 
 
 def _compute_attention(db: Session) -> list[AttentionItem]:
@@ -135,7 +148,9 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
 
     items: list[AttentionItem] = []
     now = datetime.utcnow()
-    org_names = {o.id: o.name for o in db.query(Organization).all()}
+    # Names are filled in at the end for just the orgs that appear (organization_service.org_names_by_id), instead of
+    # loading every organization up front. Same soft-delete behaviour: a deleted org's name stays None.
+    org_names: dict = {}
 
     cutoff = now - timedelta(hours=2)
     failed_rows = (
@@ -170,6 +185,83 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{s.organization_id}",
         ))
 
+    # Evaluations expiring within 2 days without a conversion in progress —
+    # the leading-indicator complement to customer_health()'s lagging
+    # "Evaluation expired without conversion" signal (that one is left alone;
+    # this surfaces the risk BEFORE the trial lapses, not after). status ==
+    # ACTIVE alone already excludes converted evaluations (convert_evaluation
+    # always flips status to CONVERTED), so no separate BillingConversion
+    # join is needed here.
+    from app.modules.billing.models import OrganizationEvaluation, EvaluationStatus
+
+    for ev in db.query(OrganizationEvaluation).filter(
+        OrganizationEvaluation.status == EvaluationStatus.ACTIVE,
+        OrganizationEvaluation.evaluation_ends_at <= now + timedelta(days=2),
+    ).all():
+        hours_left = (ev.evaluation_ends_at - now).total_seconds() / 3600
+        items.append(AttentionItem(
+            severity="high" if hours_left < 24 else "medium",
+            issue="Evaluation expiring without conversion",
+            organization_id=ev.organization_id,
+            organization_name=org_names.get(ev.organization_id),
+            detected_at=ev.evaluation_ends_at,
+            action_label="Review evaluation",
+            action_href=f"/super-admin/billing/evaluations?org_id={ev.organization_id}",
+        ))
+
+    # Delinquency lifecycle anomalies (Section 10 G1-G5) surfaced to command
+    # center so escalation is not banner-dependent.
+    from app.modules.billing.models import DelinquencyCase, DelinquencyCaseStatus
+
+    _STAGE_SEVERITY = {"DAY_45_TERMINATION": "critical", "DAY_20_RESTRICT": "high", "DAY_10_RESTRICT": "high", "RECOVERY": "medium"}
+    for case in db.query(DelinquencyCase).filter(
+        DelinquencyCase.status == DelinquencyCaseStatus.OPEN
+    ).all():
+        stage = case.stage.value if case.stage else "recovery"
+        days = max(0, int((now - case.failed_at).total_seconds() // 86400)) if case.failed_at else 0
+        items.append(AttentionItem(
+            severity=_STAGE_SEVERITY.get(stage, "high"),
+            issue=f"Delinquency escalation: {days}d unpaid, stage {stage}",
+            organization_id=case.organization_id,
+            organization_name=org_names.get(case.organization_id),
+            detected_at=case.failed_at,
+            action_label="Review",
+            action_href=f"/super-admin/organizations/{case.organization_id}",
+        ))
+
+    # Active Billing Operations support-access grants — surface for review so
+    # time-bounded access is visible and auditable.
+    from app.modules.billing.models import SupportAccessGrant
+
+    for g in db.query(SupportAccessGrant).filter(SupportAccessGrant.revoked_at.is_(None)).all():
+        items.append(AttentionItem(
+            severity="low",
+            issue="Active support-access grant (expires)",
+            organization_id=g.organization_id,
+            organization_name=org_names.get(g.organization_id),
+            detected_at=g.expires_at,
+            action_label="Review",
+            action_href=f"/super-admin/organizations/{g.organization_id}",
+        ))
+
+    # Pending commercial exception approvals (ZHR-COM-ENT-001 §19.1) — the
+    # two-step workflow's operator queue. Keeping the list here forces every
+    # request into a visible review path before it can grant anything.
+    from app.modules.billing.models import CommercialExceptionEntitlement, CommercialExceptionStatus
+
+    for exc in db.query(CommercialExceptionEntitlement).filter(
+        CommercialExceptionEntitlement.status == CommercialExceptionStatus.PENDING_APPROVAL
+    ).all():
+        items.append(AttentionItem(
+            severity="high",
+            issue=f"Entitlement exception request: '{exc.feature_key}' ({exc.mode.value})",
+            organization_id=exc.organization_id,
+            organization_name=org_names.get(exc.organization_id),
+            detected_at=exc.created_at,
+            action_label="Review",
+            action_href=f"/super-admin/billing/exceptions?org_id={exc.organization_id}",
+        ))
+
     for t in db.query(SupportTicket).filter(
         SupportTicket.priority.in_(["urgent", "high"]), SupportTicket.status == "open"
     ).all():
@@ -197,16 +289,21 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{e.organization_id}" if e.organization_id else None,
         ))
 
-    for o in db.query(Organization).filter(Organization.status == OrganizationStatus.ON_HOLD).all():
+    for o in db.query(Organization.id, Organization.organization_name, Organization.display_name, Organization.on_hold_at
+                      ).filter(Organization.status == OrganizationStatus.ON_HOLD).all():
         items.append(AttentionItem(
             severity="medium",
             issue="Organization on hold",
             organization_id=o.id,
-            organization_name=o.name,
+            organization_name=o.organization_name or o.display_name or "",
             detected_at=o.on_hold_at,
             action_label="Review",
             action_href=f"/super-admin/organizations/{o.id}",
         ))
+
+    names = organization_service.org_names_by_id(db, {i.organization_id for i in items})
+    for i in items:
+        i.organization_name = names.get(i.organization_id) if i.organization_id else None
 
     severity_order = {"critical": 0, "high": 1, "medium": 2, "low": 3}
     items.sort(key=lambda i: severity_order.get(i.severity, 4))
@@ -272,6 +369,11 @@ def command_center_overview(days: int = 30, db: Session = Depends(get_db), _=Dep
     attention = _compute_attention(db)
     critical_attention_count = sum(1 for a in attention if a.severity in ("critical", "high"))
 
+    from app.modules.billing.models import CommercialExceptionEntitlement, CommercialExceptionStatus
+    pending_exceptions = db.query(CommercialExceptionEntitlement).filter(
+        CommercialExceptionEntitlement.status == CommercialExceptionStatus.PENDING_APPROVAL
+    ).count()
+
     pricing_configured = db.query(BillingPlan).filter(BillingPlan.monthly_price.isnot(None)).first() is not None
 
     return OverviewResponse(
@@ -297,6 +399,7 @@ def command_center_overview(days: int = 30, db: Session = Depends(get_db), _=Dep
         banner_status=banner_status,
         active_p1_incidents=active_p1,
         mrr_pricing_configured=pricing_configured,
+        pending_exception_approvals=pending_exceptions,
     )
 
 
@@ -319,8 +422,8 @@ def customer_health(db: Session = Depends(get_db), _=Depends(get_current_super_a
     from app.modules.billing.models import BillingSubscription, OrganizationEvaluation, EvaluationStatus
     from app.modules.super_admin.models import SecurityEvent, SupportTicket
 
-    orgs = db.query(Organization).all()
-    subs = {s.organization_id: s for s in db.query(BillingSubscription).all()}
+    orgs = db.query(Organization.id, Organization.status, Organization.organization_name, Organization.display_name).all()
+    subs = {s.organization_id: s for s in db.query(BillingSubscription.organization_id, BillingSubscription.status).all()}
     evals = {
         e.organization_id: e for e in db.query(OrganizationEvaluation)
         .filter(OrganizationEvaluation.status == EvaluationStatus.ACTIVE).all()
@@ -378,7 +481,7 @@ def customer_health(db: Session = Depends(get_db), _=Depends(get_current_super_a
 
     top = sorted(results, key=lambda r: r[1], reverse=True)[:5]
     top_at_risk = [
-        AtRiskOrg(organization_id=o.id, organization_name=o.name, risk_score=s, reasons=reasons)
+        AtRiskOrg(organization_id=o.id, organization_name=o.organization_name or o.display_name or "", risk_score=s, reasons=reasons)
         for o, s, reasons in top if s > 0
     ]
 
@@ -422,9 +525,13 @@ def commercial_health(days: int = 30, db: Session = Depends(get_db), _=Depends(g
         if plan and plan.monthly_price:
             failed_cents += int(plan.monthly_price * 100 * (s.quantity or 1))
 
-    latest_workforce_by_org = {}
-    for snap in db.query(BillableWorkforceSnapshot).order_by(BillableWorkforceSnapshot.snapshot_at.desc()).all():
-        latest_workforce_by_org.setdefault(snap.organization_id, snap)
+    # Latest snapshot per org (DISTINCT ON on Postgres), instead of loading the full 12-month history.
+    latest_workforce_by_org = {
+        row.organization_id: row for row in latest_per_group(
+            db, BillableWorkforceSnapshot, BillableWorkforceSnapshot.organization_id, BillableWorkforceSnapshot.snapshot_at,
+            [BillableWorkforceSnapshot.organization_id, BillableWorkforceSnapshot.quantity],
+        )
+    }
 
     overage_cents = 0
     overage_orgs = 0
@@ -439,9 +546,12 @@ def commercial_health(days: int = 30, db: Session = Depends(get_db), _=Depends(g
             if plan and plan.monthly_price:
                 overage_cents += int(plan.monthly_price * 100 * overage)
 
-    latest_entitlement_by_org = {}
-    for ent in db.query(BillingEntitlementSnapshot).order_by(BillingEntitlementSnapshot.computed_at.desc()).all():
-        latest_entitlement_by_org.setdefault(ent.organization_id, ent)
+    latest_entitlement_by_org = {
+        row.organization_id: row for row in latest_per_group(
+            db, BillingEntitlementSnapshot, BillingEntitlementSnapshot.organization_id, BillingEntitlementSnapshot.computed_at,
+            [BillingEntitlementSnapshot.organization_id, BillingEntitlementSnapshot.package],
+        )
+    }
 
     mismatch_count = 0
     for org_id, ent in latest_entitlement_by_org.items():
@@ -472,7 +582,7 @@ def lifecycle(db: Session = Depends(get_db), _=Depends(get_current_super_admin))
     from app.modules.billing.models import BillingSubscription
     from app.modules.super_admin.models import LoginActivity
 
-    orgs = db.query(Organization).all()
+    orgs = db.query(Organization.id, Organization.status).all()     # columns only; soft-delete filter still applies
     created = len(orgs)
     provisioned = sum(1 for o in orgs if o.status and o.status.value != OrganizationStatus.PENDING.value)
 
@@ -563,7 +673,7 @@ def security_overview(days: int = 30, db: Session = Depends(get_db), _=Depends(g
     from app.modules.hr.models import Organization, OrganizationStatus
     from app.modules.super_admin.models import LoginActivity, AuditLog, AuditAction
 
-    admin_users = db.query(Employee).filter(Employee.role == UserRole.ADMIN).count()
+    admin_users = organization_service.visible_employees(db).filter(Employee.role == UserRole.ADMIN).count()
     super_admins = db.query(Employee).filter(Employee.role == UserRole.SUPER_ADMIN).count()
 
     cutoff = datetime.utcnow() - timedelta(days=days)

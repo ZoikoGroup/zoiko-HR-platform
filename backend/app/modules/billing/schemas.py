@@ -8,7 +8,7 @@ List responses use { list, total } convention per super_admin pattern.
 from datetime import datetime
 from typing import Optional, List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from app.modules.billing.models import (
     BillingClassification,
@@ -185,6 +185,41 @@ class CatalogPublishResponse(BaseModel):
     version: str
 
 
+class CatalogCloneRequest(BaseModel):
+    """Seed a new DRAFT catalog version from an existing one.
+
+    Optional `from_version`; defaults to the latest published version. Every
+    plan is copied across as an unpublished draft with published_at left NULL,
+    so the new version can be re-priced freely and only becomes customer-visible
+    once it is published as a complete set.
+    """
+    from_version: Optional[str] = None
+
+
+class CatalogCloneResponse(BaseModel):
+    from_version: str
+    catalog_version: str
+    plans: List[CatalogPlanResponse]
+    total: int
+
+
+class PlanRepriceRequest(BaseModel):
+    """Change a published plan's rates.
+
+    Published plans are append-only, so a rate change is expressed as: cut the
+    next catalog version, apply the new rate there, sync Stripe, and publish.
+    Existing subscribers keep the rate they signed up at — only new checkouts
+    see the new one.
+    """
+    code: str
+    monthly_price: Optional[float] = None
+    annual_price: Optional[float] = None
+    publish: bool = True
+    # Optional override; defaults to the newest unpublished version, else a clone
+    # of the latest published one.
+    catalog_version: Optional[str] = None
+
+
 # ── Evaluation schemas ────────────────────────────────────────────────────────
 
 class EvaluationStartRequest(BaseModel):
@@ -214,14 +249,27 @@ class EvaluationListResponse(BaseModel):
     total: int
 
 
+class PlatformEvaluationItem(EvaluationResponse):
+    organization_name: Optional[str] = None
+
+
+class PlatformEvaluationListResponse(BaseModel):
+    list: List[PlatformEvaluationItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
 # ── Conversion schemas ────────────────────────────────────────────────────────
 
 class ConversionRequest(BaseModel):
+    model_config = {"str_strip_whitespace": True}
+
     plan_id: int
     billing_cycle: BillingCycle
-    quantity_basis: str
+    quantity_basis: str = Field(min_length=1, max_length=200)
     commercial_effective_at: datetime
-    approver: str
+    approver: str = Field(min_length=1, max_length=255)
     order_form_reference: Optional[str] = None
     implementation_sow_reference: Optional[str] = None
     signed_agreement_reference: Optional[str] = None
@@ -337,6 +385,29 @@ class DiscountListResponse(BaseModel):
     total: int
 
 
+# ── Registration quotation decision (public, token-based) ──────────────────
+
+class QuotationDecisionRequest(BaseModel):
+    token: str
+    decision: str  # "accept" | "reject" — validated in quotation_service.decide_quotation
+
+
+class QuotationInvoiceResponse(BaseModel):
+    """Authenticated, org-scoped invoice summary for the pay-invoice page —
+    distinct from QuotationDecisionRequest's public token-based flow."""
+    quote_number: str
+    invoice_number: Optional[str] = None
+    plan_id: int
+    plan_code: str
+    plan_name: str
+    billing_cycle: str
+    currency: str
+    amount_display: str
+    status: str
+    organization_id: int
+    organization_name: str
+
+
 # ── Checkout session schemas (Prompt 3) ────────────────────────────────────
 
 class CheckoutSessionRequest(BaseModel):
@@ -348,10 +419,31 @@ class CheckoutSessionRequest(BaseModel):
 
 
 class CheckoutSessionResponse(BaseModel):
-    checkout_session_id: str
-    checkout_url: str
+    checkout_session_id: Optional[str] = None
+    checkout_url: Optional[str] = None
     organization_id: int
     plan_id: int
+    # An org that already subscribes gets its existing Stripe subscription
+    # repriced in place instead of a second subscription — no Checkout
+    # redirect is involved, so both session fields are null on that path.
+    updated: bool = False
+    unchanged: bool = False
+    status: Optional[str] = None
+    message: Optional[str] = None
+
+
+class CheckoutConfirmRequest(BaseModel):
+    organization_id: int
+    checkout_session_id: str
+
+
+class CheckoutConfirmResponse(BaseModel):
+    status: str                       # confirmed | pending | failed
+    organization_id: int
+    plan_id: Optional[int] = None
+    plan_code: Optional[str] = None
+    subscription_status: Optional[str] = None
+    message: str
 
 
 # ── Provider ref schemas ────────────────────────────────────────────────────
@@ -387,15 +479,31 @@ class BillingInvoiceResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PlatformInvoiceItem(BillingInvoiceResponse):
+    organization_name: Optional[str] = None
+
+
+class PlatformInvoiceListResponse(BaseModel):
+    list: List[PlatformInvoiceItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
 class InvoiceListResponse(BaseModel):
     list: List[BillingInvoiceResponse]
     total: int
 
 
+
 # ── Reconciliation schemas ──────────────────────────────────────────────────
 
 class ReconciliationCaseResponse(BaseModel):
-    id: int
+    # Optional: a clean-match result (or the no-case-found fallback) has no
+    # BillingReconciliationCase row to report an id for — router.py's
+    # reconcile_subscription omits it in both of those branches, which a
+    # required int field would reject at response-validation time.
+    id: Optional[int] = None
     organization_id: int
     reason: str
     status: str
@@ -410,8 +518,23 @@ class ReconciliationCaseResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PlatformReconciliationCaseItem(ReconciliationCaseResponse):
+    organization_name: Optional[str] = None
+
+
+class PlatformReconciliationCaseListResponse(BaseModel):
+    list: List[PlatformReconciliationCaseItem]
+    total: int
+    page: int = 1
+    limit: int = 50
+
+
 class ReconcileRequest(BaseModel):
     organization_id: int
+
+
+class ResolveReconciliationCaseRequest(BaseModel):
+    notes: Optional[str] = None
 
 
 # ── Webhook event schemas ───────────────────────────────────────────────────
@@ -422,10 +545,18 @@ class WebhookEventListResponse(BaseModel):
     event_type: str
     processed: bool
     error_message: Optional[str] = None
+    payload: Optional[dict] = None
     created_at: Optional[datetime] = None
     processed_at: Optional[datetime] = None
 
     model_config = {"from_attributes": True}
+
+
+class WebhookReplayResponse(BaseModel):
+    status: str
+    message: str
+    event_id: str
+
 
 
 # ── Plan Change schemas (Prompt 4) ────────────────────────────────────────
@@ -457,9 +588,12 @@ class PlanChangeScheduleRequest(BaseModel):
 class PlanChangeResponse(BaseModel):
     id: int
     organization_id: int
+    organization_name: Optional[str] = None
     change_type: str
     from_plan_id: Optional[int] = None
+    from_plan_code: Optional[str] = None
     to_plan_id: int
+    to_plan_code: Optional[str] = None
     billing_cycle: str
     effective_at: datetime
     status: str
@@ -501,6 +635,7 @@ class RefundApproveRequest(BaseModel):
 class RefundResponse(BaseModel):
     id: int
     organization_id: int
+    organization_name: Optional[str] = None
     request_type: str
     amount_cents: int
     currency: str
@@ -521,3 +656,182 @@ class RefundResponse(BaseModel):
 class RefundListResponse(BaseModel):
     list: List[RefundResponse]
     total: int
+    page: int = 1
+    page_size: int = 20
+    # Set when the payment provider is unavailable; the list is still served.
+    provider_warning: Optional[str] = None
+
+
+class RefundSummaryResponse(BaseModel):
+    """Stat-card figures. Money is integer cents; every value is 0 on empty data."""
+    pending_count: int = 0
+    approved_total_cents: int = 0
+    credits_issued_cents: int = 0
+    processed_count: int = 0
+    currency: str = "USD"
+    provider_warning: Optional[str] = None
+
+
+# ── Delinquency & Support Access (Section 10 G1-G5, Section 18 O3) ─────────
+
+class DelinquencyStatusResponse(BaseModel):
+    organization_id: int
+    has_open_case: bool
+    stage: Optional[str] = None
+    status: Optional[str] = None
+    failed_at: Optional[datetime] = None
+    recovered_at: Optional[datetime] = None
+    retention_hold_until: Optional[datetime] = None
+    days_elapsed: Optional[int] = None
+
+
+class PlatformDelinquencyItem(DelinquencyStatusResponse):
+    organization_name: Optional[str] = None
+    amount_outstanding_cents: Optional[int] = 0
+    billing_contact_email: Optional[str] = None
+
+
+class PlatformDelinquencyListResponse(BaseModel):
+    list: List[PlatformDelinquencyItem]
+    total: int
+
+
+
+class SupportAccessRequest(BaseModel):
+    organization_id: int
+    reason: Optional[str] = None
+    ttl_hours: int = 24
+
+
+class SupportAccessResponse(BaseModel):
+    id: int
+    organization_id: int
+    granted_by: str
+    reason: Optional[str] = None
+    expires_at: datetime
+    revoked_at: Optional[datetime] = None
+    revoked_by: Optional[str] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class SupportAccessCreatedResponse(SupportAccessResponse):
+    token: str  # raw token, returned exactly once on creation
+
+
+class SupportAccessValidateRequest(BaseModel):
+    organization_id: int
+    token: str
+
+
+class SupportAccessListResponse(BaseModel):
+    list: List[SupportAccessResponse]
+    total: int
+
+
+# ── Commercial exception entitlements (ZHR-COM-ENT-001 §19.1) ──────────────
+
+class CommercialExceptionRequest(BaseModel):
+    """Tenant request for a time-bound entitlement override. Window is
+    mandatory — an exception is never indefinite."""
+    feature_key: str
+    mode: str = "enabled"          # grantable: enabled | read_only
+    reason: str
+    starts_at: datetime
+    expires_at: datetime
+
+
+class CommercialExceptionResponse(BaseModel):
+    id: int
+    organization_id: int
+    feature_key: str
+    mode: str
+    reason: str
+    requested_by: str
+    approved_by: Optional[str] = None
+    starts_at: datetime
+    expires_at: datetime
+    status: str
+    rejection_reason: Optional[str] = None
+    rejected_by: Optional[str] = None
+    revoked_by: Optional[str] = None
+    revoked_at: Optional[datetime] = None
+    approved_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    model_config = {"from_attributes": True}
+
+
+class CommercialExceptionListResponse(BaseModel):
+    list: List[CommercialExceptionResponse]
+    total: int
+
+
+class CommercialExceptionDecisionRequest(BaseModel):
+    decision_reason: Optional[str] = None
+
+
+# ── Customer Self-Serve Billing (/billing/me/*) — Prompt 6 ────────────────
+
+class MeSubscriptionResponse(BaseModel):
+    """Subscription scoped to the caller's own organization. Trimming (Section 19)
+    is applied server-side for HR Admin only: financial detail and billing
+    classification are nulled as in to_overview_response(trimmed=True).
+    Organization Admin ("admin") is an org decision-maker and gets the full
+    response. evaluation_ends_at is never trimmed — the trial countdown isn't
+    financial detail and both admin and hr_admin should see it."""
+    organization_id: int
+    billing_classification: Optional[str] = None
+    status: Optional[str] = None
+    billing_channel: Optional[str] = None
+    plan_id: Optional[int] = None
+    plan_code: Optional[str] = None
+    plan_name: Optional[str] = None
+    billing_cycle: Optional[str] = None
+    price_catalog_version: Optional[str] = None
+    billing_metric: Optional[str] = None
+    quantity: Optional[int] = None
+    committed_quantity: Optional[int] = None
+    renewal_anchor_date: Optional[datetime] = None
+    commercial_effective_at: Optional[datetime] = None
+    billing_timezone: Optional[str] = None
+    service_start_at: Optional[datetime] = None
+    evaluation_ends_at: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+class MeEntitlementsResponse(BaseModel):
+    organization_id: int
+    catalog_version: str
+    states: dict
+    contract_overrides: dict
+
+
+class MeCancelRequest(BaseModel):
+    reason: Optional[str] = None
+    effective_at: Optional[datetime] = None
+
+
+class MeReactivateRequest(BaseModel):
+    reason: Optional[str] = None
+
+
+class MeReactivateResponse(BaseModel):
+    organization_id: int
+    status: str
+    plan_code: Optional[str] = None
+    billing_empty_card: bool = False
+
+
+class MeDowngradeImpactRequest(BaseModel):
+    target_plan_code: str
+
+
+class MeDowngradeImpactResponse(BaseModel):
+    organization_id: int
+    eligible: bool
+    blockers: List[dict] = []
+    current_plan_code: Optional[str] = None
+    target_plan_code: str

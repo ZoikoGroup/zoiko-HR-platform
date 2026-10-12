@@ -16,6 +16,7 @@ from datetime import datetime
 
 from sqlalchemy.orm import Session
 
+from app.modules.hr.models import Organization
 from app.modules.billing.models import (
     BillingReconciliationCase,
     BillingSubscription,
@@ -140,3 +141,76 @@ def _subscription_to_dict(subscription: BillingSubscription | None) -> dict | No
             if subscription.commercial_effective_at else None
         ),
     }
+
+
+def list_reconciliation_cases(
+    db: Session,
+    status: str | None = None,
+    organization_id: int | None = None,
+    page: int = 1,
+    limit: int = 50,
+) -> tuple[list[dict], int]:
+    """List reconciliation cases platform-wide with organization names."""
+    query = db.query(BillingReconciliationCase)
+
+    if status:
+        query = query.filter(BillingReconciliationCase.status == status)
+    if organization_id:
+        query = query.filter(BillingReconciliationCase.organization_id == organization_id)
+
+    total = query.count()
+    offset = (page - 1) * limit
+    cases = query.order_by(BillingReconciliationCase.created_at.desc()).offset(offset).limit(limit).all()
+
+    # Org map for name resolution
+    org_ids = {c.organization_id for c in cases if c.organization_id}
+    org_map = {}
+    if org_ids:
+        orgs = db.query(Organization).filter(Organization.id.in_(org_ids)).all()
+        org_map = {o.id: getattr(o, "name", f"Org #{o.id}") for o in orgs}
+
+    result = []
+    for c in cases:
+        item = {
+            "id": c.id,
+            "organization_id": c.organization_id,
+            "organization_name": org_map.get(c.organization_id, f"Org #{c.organization_id}"),
+            "reason": c.reason.value if hasattr(c.reason, "value") else str(c.reason),
+            "status": c.status.value if hasattr(c.status, "value") else str(c.status),
+            "local_snapshot": c.local_snapshot,
+            "stripe_snapshot": c.stripe_snapshot,
+            "notes": c.notes,
+            "opened_by": c.opened_by,
+            "resolved_by": c.resolved_by,
+            "resolved_at": c.resolved_at,
+            "created_at": c.created_at,
+        }
+        result.append(item)
+
+    return result, total
+
+
+def resolve_reconciliation_case(
+    db: Session,
+    case_id: int,
+    resolved_by: str,
+    notes: str | None = None,
+) -> BillingReconciliationCase:
+    """Mark an open reconciliation case as resolved with audit note."""
+    case = db.query(BillingReconciliationCase).filter(
+        BillingReconciliationCase.id == case_id
+    ).first()
+    if not case:
+        raise ValueError(f"Reconciliation case {case_id} not found")
+
+    case.status = ReconciliationCaseStatus.RESOLVED
+    case.resolved_by = resolved_by
+    case.resolved_at = datetime.utcnow()
+    if notes:
+        existing_notes = case.notes or ""
+        case.notes = f"{existing_notes}\n[Resolved by {resolved_by}]: {notes}".strip()
+
+    db.commit()
+    db.refresh(case)
+    return case
+

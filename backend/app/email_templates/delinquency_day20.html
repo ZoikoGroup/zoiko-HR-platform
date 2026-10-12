@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Controlled service restriction" %}
+{% set preheader = "Controlled service restriction has been applied. Read and remediation paths remain available." %}
+{% set badge = "Service restricted" %}
+{% set badge_tone = "danger" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ customer_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Controlled service restriction</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ customer_name }}</strong>, your {{ plan_name }} subscription payment remains unpaid after <strong class="dm-text-strong" style="{{ S.strong }}">{{ days_overdue }}</strong> days.</p>
+{% call ui.notice("Day 20: service restricted", "danger") %}
+Paid expansion, non-essential write-heavy and premium operations are now restricted ({{ currency }} {{ overdue_amount }} outstanding).
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Approved read access to core HR records, billing remediation, privacy / legal-hold actions and controlled export paths remain available, consistent with the Zoiko HR billing standard for HR records.</p>
+{{ ui.button(login_url, "Resolve overdue payment") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

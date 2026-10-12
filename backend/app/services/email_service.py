@@ -1,6 +1,9 @@
 """
 Email service for sending approval workflow notifications and Billing module emails.
-Templates are stored in app/email_templates/ as HTML files.
+Templates are Jinja2 files in app/email_templates/ that all extend
+_layouts/base.html (shared Zoiko HR header/logo, mobile-safe layout, footer).
+Rendering uses autoescape + StrictUndefined: values are HTML-escaped and a
+missing variable fails the send loudly instead of rendering a blank field.
 Uses SMTP settings from PlatformSetting table (falls back to app.config.settings).
 The SMTP password is read only from app.config.settings (.env), never from the DB.
 """
@@ -11,66 +14,274 @@ import html as _html
 import ssl
 import smtplib
 import logging
+import queue
+import threading
+import time
+from dataclasses import dataclass
+from urllib.parse import urlparse
+
+from app.services.link_settings import is_other_product_host, link_config_problems as _link_config_problems
+
 import certifi
 from email.mime.text import MIMEText
+from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.application import MIMEApplication
+from jinja2 import Environment, FileSystemLoader, StrictUndefined, TemplateNotFound
+from markupsafe import Markup
+
+from app.config import settings as _app_settings
 
 logger = logging.getLogger("zoiko")
 
 TEMPLATE_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "email_templates")
 
-_IF_BLOCK_RE = re.compile(r"\{\{#if (\w+)\}\}(.*?)\{\{/if\}\}", re.DOTALL)
+# Production app host. Used as the logo asset host when FRONTEND_URL is not a
+# public https origin (local dev), so emails never embed localhost images.
+PRODUCTION_APP_URL = "https://app.zoikohr.com"
+
+# Raster logo assets built by scripts/build_email_assets.py. Aspect ratio of
+# the source SVG is 5241.58:895.85 -> 180x31 display size (360px @2x file).
+LOGO_FILE = "zoikohr-logo-email@2x.png"
+LOGO_DARK_FILE = "zoikohr-logo-email-white@2x.png"
+FAVICON_FILE = "zoikohr-favicon@2x.png"  # the Zoiko HR app icon (frontend/public/favicon.svg), 64px for a 32px display
+_LOGO_CIDS = {LOGO_FILE: "zoikohr-logo", LOGO_DARK_FILE: "zoikohr-logo-white", FAVICON_FILE: "zoikohr-favicon"}
+
+# Zoiko HR brand palette (from the logo). White text on primary is 8.3:1 and
+# primary on white is 8.3:1 — both clear WCAG 2.2 AA for text (4.5:1) and
+# non-text/button (3:1). Accents are decorative only (never carry text).
+PALETTE = {
+    "primary": "#06508d",
+    "accent_cyan": "#4bc5d4",
+    "accent_gold": "#eec23b",
+}
+
+FONT_STACK = Markup("-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif")
+
+# Inline styles for body copy in child templates (style="{{ S.p }}"). Kept
+# inline because many clients strip or ignore <style>.
+EMAIL_STYLES = {
+    "h1": Markup(f"margin:0 0 16px 0;font-family:{FONT_STACK};font-size:24px;line-height:30px;font-weight:700;color:#0f172a;"),
+    "p": Markup(f"margin:0 0 16px 0;font-family:{FONT_STACK};font-size:16px;line-height:24px;color:#1f2937;"),
+    "muted": Markup(f"margin:0 0 16px 0;font-family:{FONT_STACK};font-size:14px;line-height:21px;color:#4b5563;"),
+    "strong": Markup("color:#0f172a;font-weight:700;"),
+    "link": Markup(f"color:{PALETTE['primary']};text-decoration:underline;"),
+}
+
+# Badge / notice tones: fg on bg is >= 4.5:1 in both light and dark schemes.
+BADGE_TONES = {
+    "success": {"fg": "#065f46", "bg": "#d1fae5", "border": "#6ee7b7", "dark_fg": "#6ee7b7", "dark_bg": "#064e3b"},
+    "warning": {"fg": "#92400e", "bg": "#fef3c7", "border": "#fcd34d", "dark_fg": "#fcd34d", "dark_bg": "#78350f"},
+    "danger": {"fg": "#991b1b", "bg": "#fee2e2", "border": "#fca5a5", "dark_fg": "#fca5a5", "dark_bg": "#7f1d1d"},
+    "info": {"fg": "#06508d", "bg": "#e0f2fe", "border": "#7dd3fc", "dark_fg": "#7dd3fc", "dark_bg": "#0c4a6e"},
+    "neutral": {"fg": "#374151", "bg": "#f3f4f6", "border": "#d1d5db", "dark_fg": "#e5e7eb", "dark_bg": "#374151"},
+}
+
+_RTL_LANGUAGES = {"ar", "he", "fa", "ur", "yi", "ps", "sd", "ug", "dv", "ku"}
+
+_jinja_env = Environment(
+    loader=FileSystemLoader(TEMPLATE_DIR),
+    autoescape=True,
+    undefined=StrictUndefined,
+    trim_blocks=True,
+    lstrip_blocks=True,
+)
+_jinja_env.globals.update(
+    S=EMAIL_STYLES,
+    PALETTE=PALETTE,
+    BADGE_TONES=BADGE_TONES,
+    FONT_STACK=FONT_STACK,
+)
+
+# Subjects are plain text (a mail header), so no HTML escaping — but still
+# strict, so a missing variable can't silently produce a broken subject.
+_subject_env = Environment(autoescape=False, undefined=StrictUndefined)
+
 _TAG_RE = re.compile(r"<[^>]+>")
 
 
-def _load_template(name: str) -> str:
-    """Load an HTML email template from the templates directory."""
-    path = os.path.join(TEMPLATE_DIR, name)
-    if not os.path.exists(path):
-        logger.warning(f"Email template not found: {path}")
+class EmailTemplateMissing(Exception):
+    """Raised when a template file does not exist (logged as template_missing)."""
+
+
+@dataclass
+class RenderedEmail:
+    subject: str
+    html: str
+    text: str
+    inline_images: tuple = ()  # (cid, filename) pairs when CID logo mode is on
+    branding: dict = None
+
+
+def _frontend_url() -> str:
+    return (getattr(_app_settings, "FRONTEND_URL", "") or "").strip().rstrip("/")
+
+
+def link_config_problems() -> list[str]:
+    """Plain-language problems with the settings that decide where links in emails go (empty when fine)."""
+    return _link_config_problems(_frontend_url(), PRODUCTION_APP_URL)
+
+
+def _login_url() -> str:
+    """Login link for emails, derived from FRONTEND_URL (never a hardcoded
+    third-party host). A FRONTEND_URL that points at the umbrella platform instead of the Zoiko HR app (a mix-up in the
+    server settings) is ignored so the button still opens Zoiko HR."""
+    base = _frontend_url()
+    if not base or is_other_product_host(base):
+        return f"{PRODUCTION_APP_URL}/login"
+    return f"{base}/login"
+
+
+# Kept for importers (e.g. employee router); resolved from FRONTEND_URL.
+LOGIN_URL = _login_url()
+
+
+def _safe_https_url(url) -> str:
+    """Return `url` only if it is an absolute https URL with a host, else ""."""
+    url = (url or "").strip()
+    if not url:
         return ""
-    with open(path, "r", encoding="utf-8") as f:
-        return f.read()
+    parsed = urlparse(url)
+    if parsed.scheme != "https" or not parsed.netloc:
+        return ""
+    return url
 
 
-def _render_template(template: str, context: dict) -> str:
-    """Template renderer: evaluates {{#if key}}...{{/if}} conditional blocks
-    (rendered only when context[key] is truthy), then replaces {{key}} with
-    the corresponding context value.
-    """
-    def _eval_if(match):
-        key, inner = match.group(1), match.group(2)
-        return inner if context.get(key) else ""
+def _is_public_host(url: str) -> bool:
+    """False for localhost, private/loopback IPs and bare intranet names, which a recipient's mail client
+    could never load a logo from."""
+    import ipaddress
 
-    result = _IF_BLOCK_RE.sub(_eval_if, template)
-    for key, value in context.items():
-        if value is None:
-            value = ""
-        result = result.replace("{{" + key + "}}", str(value))
-    return result
+    host = (urlparse(url).hostname or "").lower()
+    if not host or host == "localhost" or host.endswith((".local", ".internal", ".localhost")):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return "." in host  # a normal DNS name
+    return not (ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_reserved)
+
+
+def email_asset_base() -> str:
+    """Absolute public HTTPS base URL for email image assets. SVG, data: URIs
+    and relative paths are never used (Gmail strips data URIs; clients don't
+    render SVG)."""
+    configured = (getattr(_app_settings, "HR_EMAIL_ASSET_BASE_URL", "") or "").strip().rstrip("/")
+    if configured:
+        if not _safe_https_url(configured):
+            logger.warning("[email] HR_EMAIL_ASSET_BASE_URL is not an absolute https URL: %s", configured)
+        return configured
+    frontend = _frontend_url()
+    if _safe_https_url(frontend) and _is_public_host(frontend):
+        return f"{frontend}/email"
+    return f"{PRODUCTION_APP_URL}/email"
+
+
+def _layout_context(branding: dict, context: dict) -> dict:
+    """Variables owned by the base layout. Applied last so a caller's context
+    can never replace the Zoiko HR logo (§5.2 immutable identity)."""
+    inline_logo = bool(getattr(_app_settings, "HR_EMAIL_INLINE_LOGO", False))
+    base = email_asset_base()
+
+    def _logo(filename):
+        return f"cid:{_LOGO_CIDS[filename]}" if inline_logo else f"{base}/{filename}"
+
+    locale = str(context.get("locale") or "en").replace("_", "-")
+    primary_lang = locale.split("-")[0].lower()
+    return {
+        "asset_base": base,
+        "logo_src": _logo(LOGO_FILE),
+        "logo_dark_src": _logo(LOGO_DARK_FILE),
+        "favicon_src": _logo(FAVICON_FILE),
+        "cobrand_logo_url": _safe_https_url(branding.get("logo_url")),
+        "tenant_name": branding.get("tenant_name", ""),
+        "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://zoikohr.com/contact",
+        "lang": locale,
+        "dir": "rtl" if primary_lang in _RTL_LANGUAGES else "ltr",
+        "delivery_class": str(context.get("delivery_class") or "A").upper(),
+        "unsubscribe_url": _safe_https_url(context.get("unsubscribe_url")),
+    }
+
+
+def _render_subject(subject: str, context: dict) -> str:
+    if "{{" in subject or "{%" in subject:
+        subject = _subject_env.from_string(subject).render(context)
+    # A subject is a single header line: collapse any whitespace/newlines.
+    return re.sub(r"\s+", " ", subject).strip()
 
 
 def _html_to_text(html: str) -> str:
-    """Small HTML->text conversion used for the multipart 'alternative' plain-text part."""
-    text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>", "\n", html)
+    """HTML -> plain-text for the multipart 'alternative' part. Drops <head>,
+    comments (incl. MSO/VML blocks, so buttons aren't duplicated) and hidden
+    blocks (preheader, spacer, dark-mode logo); keeps link targets."""
+    text = re.sub(r"(?is)<head\b.*?</head>", "", html)
+    text = re.sub(r"(?s)<!--.*?-->", "", text)
+    text = re.sub(r'(?is)<div\b[^>]*style="display:none[^"]*"[^>]*>.*?</div>', "", text)
+    text = re.sub(r"(?is)<img\b[^>]*>", "", text)
+
+    def _link(match):
+        href, label = match.group(1), _TAG_RE.sub("", match.group(2)).strip()
+        if not label or label == href or href.startswith("mailto:"):
+            return label or href
+        return f"{label}: {href}"
+
+    text = re.sub(r'(?is)<a\b[^>]*href="([^"]*)"[^>]*>(.*?)</a>', _link, text)
+    text = re.sub(r"(?i)<br\s*/?>|</p>|</div>|</tr>|</li>|</h[1-6]>", "\n", text)
     text = _TAG_RE.sub("", text)
+    text = _html.unescape(text)
+    text = text.replace("‌", "").replace(" ", " ")
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n[ \t]+", "\n", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()
 
 
+def render_email(
+    template_name: str,
+    context: dict,
+    organization_id=None,
+    db=None,
+    template_body: str = None,
+) -> RenderedEmail:
+    """Render subject, HTML and plain-text parts for a template.
+
+    Raises EmailTemplateMissing if the template file doesn't exist, and
+    jinja2 UndefinedError if the template references a variable the caller
+    didn't supply."""
+    branding = _get_org_branding(organization_id, db=db)
+    full_context = {**branding, **context}
+    full_context.update(_layout_context(branding, context))
+
+    try:
+        if template_body is not None:
+            template = _jinja_env.from_string(template_body)
+        else:
+            template = _jinja_env.get_template(template_name)
+    except TemplateNotFound as e:
+        raise EmailTemplateMissing(template_name) from e
+
+    subject = _render_subject(context.get("subject", "Zoiko HR notification"), full_context)
+    html_body = template.render(**full_context)
+    inline = ()
+    if full_context["logo_src"].startswith("cid:"):
+        inline = tuple((cid, filename) for filename, cid in _LOGO_CIDS.items())
+    return RenderedEmail(
+        subject=subject, html=html_body, text=_html_to_text(html_body),
+        inline_images=inline, branding=branding,
+    )
+
+
 def _get_smtp_settings(db=None) -> dict:
-    """Read SMTP settings from PlatformSetting table. Returns dict with keys:
-    host, port, username, password, from_email, use_tls.
-    Falls back to app.config.settings (environment-configured) if the DB is
-    unavailable or the platform_settings rows aren't populated.
-    The SMTP password is NEVER read from the DB — it comes exclusively from
-    app.config.settings (i.e. the .env file / environment).
+    """SMTP connection settings: host, port, username, password, from_email, use_tls.
+
+    The environment (.env / deployment config) is authoritative. The password only ever comes from there, and
+    a login only works together with its own username and sender address, so letting an older
+    `super_admin_platform_settings` row override the others sent mail from a stale address (registration
+    emails arrived from another product mailbox that row had been seeded with). A platform setting is used only
+    for a value the environment leaves empty.
     """
     from app.config import settings as _settings
-    defaults = {
+    env = {
         "host": _settings.SMTP_HOST,
         "port": _settings.SMTP_PORT,
         "username": _settings.SMTP_USERNAME,
@@ -87,28 +298,31 @@ def _get_smtp_settings(db=None) -> dict:
             db = SessionLocal()
             own_session = True
         try:
-            settings = db.query(PlatformSetting).filter(
-                PlatformSetting.category == "email"
-            ).all()
-            mapping = {s.key: s.value for s in settings if s.value}
-            return {
-                "host": mapping.get("smtp_host", defaults["host"]),
-                "port": mapping.get("smtp_port", defaults["port"]),
-                "username": mapping.get("smtp_username", defaults["username"]),
-                "password": defaults["password"],
-                "from_email": mapping.get("smtp_from_email", defaults["from_email"]),
-                "use_tls": mapping.get("smtp_use_tls", defaults["use_tls"]),
+            rows = db.query(PlatformSetting).filter(PlatformSetting.category == "email").all()
+            mapping = {r.key: r.value for r in rows if r.value}
+            fallback = {
+                "host": mapping.get("smtp_host"),
+                "port": mapping.get("smtp_port"),
+                "username": mapping.get("smtp_username"),
+                "from_email": mapping.get("smtp_from_email"),
+                "use_tls": mapping.get("smtp_use_tls"),
             }
+            merged = dict(env)
+            for key, db_value in fallback.items():
+                if env[key] in (None, "") and db_value not in (None, ""):
+                    merged[key] = db_value
+            return merged
         finally:
             if own_session:
                 db.close()
     except Exception as e:
         logger.warning(f"[email] Could not load SMTP settings from DB, using defaults: {e}")
-        return defaults
+        return env
 
 
 _BRANDING_DEFAULTS = {
-    "company_name": "Zoiko One",
+    "company_name": "Zoiko HR",
+    "tenant_name": "",
     "support_email": "",
     "website": "",
     "logo_url": "",
@@ -123,6 +337,8 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
     """Look up HR Organization branding for organization_id and return the
     template-context branding fields, with safe fallbacks. Returns the
     platform defaults if organization_id is None or the lookup fails.
+    `tenant_name` is the organization's own name ("" when there is none);
+    `company_name` falls back to "Zoiko HR".
     """
     if not organization_id:
         return dict(_BRANDING_DEFAULTS)
@@ -135,9 +351,8 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
         try:
             from app.modules.hr.models import Organization
             row = db.query(Organization).filter(Organization.id == organization_id).first()
-            company_name = (row.organization_name or row.display_name or "").strip() if row else ""
-            if not company_name:
-                company_name = _BRANDING_DEFAULTS["company_name"]
+            tenant_name = (row.organization_name or row.display_name or "").strip() if row else ""
+            company_name = tenant_name or _BRANDING_DEFAULTS["company_name"]
 
             reg_parts = []
             legal_entity = company_name
@@ -151,6 +366,7 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
 
             return {
                 "company_name": company_name,
+                "tenant_name": tenant_name,
                 "support_email": "",
                 "website": row.website or "" if row else "",
                 "logo_url": row.logo_url or "" if row else "",
@@ -167,6 +383,236 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
         return dict(_BRANDING_DEFAULTS)
 
 
+# ═══════════════════════════ SMTP delivery ═══════════════════════════
+#
+# Outgoing mail is serialized per process and spaced out. Scheduled walks
+# (evaluation reminders, expiry, invoice runs) can fire dozens of sends within
+# the same second, and shared-host SMTP relays answer that burst by accepting
+# the TCP/TLS connection and then dropping it mid-session — which surfaced as a
+# bare "Connection unexpectedly closed". One connection at a time plus a short
+# gap keeps the relay happy; a dropped connection is also retried with backoff
+# instead of being recorded as a failed send.
+
+_SMTP_LOCK = threading.Lock()
+_SMTP_MIN_GAP_SECONDS = 0.5
+_SMTP_MAX_ATTEMPTS = 3
+_SMTP_BACKOFF_SECONDS = (2, 7)
+_SMTP_CONNECT_TIMEOUT = 20
+_SMTP_COMMAND_TIMEOUT = 30
+_last_smtp_connect_at = 0.0
+
+
+def _smtp_error_text(e: Exception) -> str:
+    """Actionable, non-cryptic delivery error for the audit log."""
+    code = None
+    smtp_code = getattr(e, "smtp_code", None)
+    if smtp_code is not None:
+        code = smtp_code
+    elif getattr(e, "recipients", None):
+        first = next(iter(e.recipients.values()), None)
+        code = getattr(first, "recip_code", None)
+    parts = [type(e).__name__]
+    if code:
+        parts.append(f"SMTP {code}")
+    parts.append(str(e) or "no response from server")
+    return " | ".join(parts)[:300]
+
+
+def _is_permanent_smtp_error(e: Exception) -> bool:
+    """Auth failures, refused senders/recipients and TLS trust failures will
+    not fix themselves. Retrying them is what gets a mail provider to block the
+    sending IP, so they fail immediately with the provider's own wording."""
+    if isinstance(e, (smtplib.SMTPAuthenticationError, smtplib.SMTPRecipientsRefused,
+                      smtplib.SMTPSenderRefused, ssl.SSLCertVerificationError)):
+        return True
+    if isinstance(e, smtplib.SMTPResponseException):
+        return 500 <= (e.smtp_code or 0) < 600
+    if isinstance(e, smtplib.SMTPDataError):
+        code = None
+        if getattr(e, "recipients", None):
+            first = next(iter(e.recipients.values()), None)
+            code = getattr(first, "recip_code", None)
+        return code is None or code >= 500
+    return False
+
+
+def _smtp_send_once(smtp: dict, envelope_from: str, to_email: str, message: str) -> None:
+    port = int(smtp["port"])
+    use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
+    context_ssl = ssl.create_default_context(cafile=certifi.where())
+    implicit_tls = not (use_tls and port != 465)
+    server = (
+        smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=_SMTP_CONNECT_TIMEOUT)
+        if implicit_tls
+        else smtplib.SMTP(smtp["host"], port, timeout=_SMTP_CONNECT_TIMEOUT)
+    )
+    try:
+        # Connect timeout above covers the TCP/TLS handshake; the command
+        # timeout covers the conversation (a stalled DATA read is the other way
+        # a relay hangs a send on).
+        server.sock.settimeout(_SMTP_COMMAND_TIMEOUT)
+        server.ehlo()
+        if not implicit_tls:
+            server.starttls(context=context_ssl)
+            server.ehlo()
+        if smtp.get("username") and smtp.get("password"):
+            server.login(smtp["username"], smtp["password"])
+        server.sendmail(envelope_from, to_email, message)
+    finally:
+        try:
+            server.quit()
+        except Exception:
+            server.close()
+
+
+def _deliver_via_smtp(smtp: dict, envelope_from: str, to_email: str, message) -> str:
+    """Send one message. Returns "" on success, an error string on failure.
+
+    Serialized process-wide, spaced in time, and retried with backoff when the
+    relay drops a connection. Permanent rejections are never retried."""
+    global _last_smtp_connect_at
+
+    body = message.as_string() if hasattr(message, "as_string") else message
+    last_error = "unknown SMTP failure"
+    with _SMTP_LOCK:
+        for attempt in range(1, _SMTP_MAX_ATTEMPTS + 1):
+            wait = _last_smtp_connect_at + _SMTP_MIN_GAP_SECONDS - time.monotonic()
+            if wait > 0:
+                time.sleep(wait)
+            try:
+                _smtp_send_once(smtp, envelope_from, to_email, body)
+                _last_smtp_connect_at = time.monotonic()
+                return ""
+            except Exception as e:
+                _last_smtp_connect_at = time.monotonic()
+                last_error = _smtp_error_text(e)
+                permanent = _is_permanent_smtp_error(e)
+                logger.warning(
+                    "[email] SMTP attempt %s/%s to %s failed: %s",
+                    attempt, _SMTP_MAX_ATTEMPTS, to_email, last_error,
+                )
+                if permanent or attempt == _SMTP_MAX_ATTEMPTS:
+                    return last_error
+                time.sleep(_SMTP_BACKOFF_SECONDS[min(attempt - 1, len(_SMTP_BACKOFF_SECONDS) - 1)])
+    return last_error
+
+
+def _log_email_delivery(
+    email: str,
+    template_name: str,
+    subject: str,
+    status: str,
+    error_message: str = None,
+    organization_id: int = None,
+    context_data: dict = None,
+    db=None,
+):
+    """Write an EmailDeliveryLog row to the database for delivery audit evidence."""
+    try:
+        own_session = False
+        if db is None:
+            from app.database import SessionLocal
+            db = SessionLocal()
+            own_session = True
+        try:
+            from app.modules.super_admin.models import EmailDeliveryLog
+            log_row = EmailDeliveryLog(
+                organization_id=organization_id,
+                recipient_email=email,
+                template_name=template_name,
+                subject=subject[:300] if subject else None,
+                status=status,
+                error_message=error_message[:1000] if error_message else None,
+                context_data={k: str(v) for k, v in (context_data or {}).items() if k not in ("password", "token")},
+            )
+            db.add(log_row)
+            db.commit()
+        finally:
+            if own_session:
+                db.close()
+    except Exception as e:
+        logger.warning(f"[email] Failed to write EmailDeliveryLog: {e}")
+
+
+def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
+    """multipart/alternative(text, html) — wrapped in multipart/related when
+    the logo is CID-inlined, and in multipart/mixed when there are PDFs."""
+    alternative = MIMEMultipart("alternative")
+    alternative.attach(MIMEText(rendered.text, "plain", "utf-8"))
+    html_part = MIMEText(rendered.html, "html", "utf-8")
+    if rendered.inline_images:
+        related = MIMEMultipart("related")
+        related.attach(html_part)
+        for cid, filename in rendered.inline_images:
+            with open(os.path.join(TEMPLATE_DIR, "assets", filename), "rb") as f:
+                image = MIMEImage(f.read(), _subtype="png")
+            image.add_header("Content-ID", f"<{cid}>")
+            image.add_header("Content-Disposition", "inline", filename=filename)
+            related.attach(image)
+        alternative.attach(related)
+    else:
+        alternative.attach(html_part)
+
+    if not attachments:
+        return alternative
+    mixed = MIMEMultipart("mixed")
+    mixed.attach(alternative)
+    for filename, data in attachments:
+        part = MIMEApplication(data, _subtype="pdf")
+        part.add_header("Content-Disposition", "attachment", filename=filename)
+        mixed.attach(part)
+    return mixed
+
+
+# ═══════════════════════ Background sending ═══════════════════════
+#
+# One SMTP delivery takes several seconds (connect, TLS, login, send), and a request such as registration sends
+# five emails. Sent inside the request that took ~25 s, longer than the browser's 20 s timeout, so people were
+# told "the server took too long" for an account that had in fact been created. Request code now only queues the
+# message; a single worker thread sends them in order. Anything that needs the outcome (a workflow step passes
+# error_out, callers can pass wait=True) still sends immediately.
+
+_EMAIL_QUEUE: "queue.Queue" = queue.Queue()
+_email_worker = None
+_email_worker_lock = threading.Lock()
+
+
+def _async_enabled() -> bool:
+    import sys
+
+    if "pytest" in sys.modules:  # tests assert on the send itself
+        return False
+    return bool(getattr(_app_settings, "EMAIL_SEND_ASYNC", True))
+
+
+def _email_worker_loop() -> None:
+    while True:
+        job = _EMAIL_QUEUE.get()
+        try:
+            job()
+        except Exception:  # a bad message must never stop the worker
+            logger.exception("[email] background send failed")
+        finally:
+            _EMAIL_QUEUE.task_done()
+
+
+def _enqueue_email(job) -> None:
+    global _email_worker
+    with _email_worker_lock:
+        if _email_worker is None or not _email_worker.is_alive():
+            _email_worker = threading.Thread(target=_email_worker_loop, name="email-sender", daemon=True)
+            _email_worker.start()
+    _EMAIL_QUEUE.put(job)
+
+
+def flush_email_queue(timeout: float = 30.0) -> bool:
+    """Wait (up to timeout seconds) for queued emails to be sent, e.g. at shutdown. True when the queue drained."""
+    deadline = time.monotonic() + timeout
+    while _EMAIL_QUEUE.unfinished_tasks and time.monotonic() < deadline:
+        time.sleep(0.2)
+    return not _EMAIL_QUEUE.unfinished_tasks
+
+
 def send_approval_email(
     email: str,
     template_name: str,
@@ -177,106 +623,117 @@ def send_approval_email(
     from_email_override=None,
     from_display_name_override=None,
     template_body: str = None,
+    error_out: list = None,
+    wait: bool = False,
 ) -> bool:
-    """Send an email via SMTP.
+    """Queue (default) or immediately send an email. Returns True when it was queued or sent; the delivery result
+    is recorded in the email delivery log either way. wait=True, or passing error_out, sends before returning."""
+    if wait or error_out is not None or not _async_enabled():
+        return _send_approval_email_now(
+            email, template_name, context, db=db, organization_id=organization_id, attachments=attachments,
+            from_email_override=from_email_override, from_display_name_override=from_display_name_override,
+            template_body=template_body, error_out=error_out,
+        )
+    snapshot = dict(context)  # the caller's dict may change after we return
+    _enqueue_email(lambda: _send_approval_email_now(
+        email, template_name, snapshot, db=None, organization_id=organization_id, attachments=attachments,
+        from_email_override=from_email_override, from_display_name_override=from_display_name_override,
+        template_body=template_body, error_out=None,
+    ))
+    return True
 
-    attachments: optional list of (filename, bytes) tuples, attached as
-    application/pdf parts.
 
-    from_email_override / from_display_name_override: optional per-org
-    "From" identity override (e.g. from Payroll's PayrollEmailSettings).
-    Sent through this same shared SMTP connection — not a separate mail
-    server. None (the default) preserves the existing platform-wide
-    behavior for every current caller.
-    template_body: optional raw HTML body that overrides the on-disk
-    template. Used by billing flows whose org-level BillingConfiguration
-    supplies a custom template (e.g. dunning_email_template /
-    final_notice_template) — the branding/context rendering and SMTP
-    delivery path stay identical.
+def _send_approval_email_now(
+    email: str,
+    template_name: str,
+    context: dict,
+    db=None,
+    organization_id=None,
+    attachments=None,
+    from_email_override=None,
+    from_display_name_override=None,
+    template_body: str = None,
+    error_out: list = None,
+) -> bool:
+    """Send an email via SMTP with delivery audit logging. On a delivery failure the reason is appended to
+    `error_out` when a list is passed.
+
+    A missing template or an unrendered variable fails the send (logged and
+    recorded as `failed`) — no fallback HTML is ever sent in its place.
     """
-    if template_body is not None:
-        template = template_body
-    else:
-        template = _load_template(template_name)
-    if not template:
-        logger.warning(f"Cannot send email to {email}: template {template_name} not found")
+    try:
+        rendered = render_email(template_name, context, organization_id=organization_id, db=db, template_body=template_body)
+    except Exception as e:
+        reason = "template_missing" if isinstance(e, EmailTemplateMissing) else f"render_error: {e}"
+        logger.error(f"[email] Not sent to {email} | template={template_name} | {reason}")
+        _log_email_delivery(
+            email=email,
+            template_name=template_name,
+            subject=context.get("subject"),
+            status="failed",
+            error_message=reason,
+            organization_id=organization_id,
+            context_data=context,
+            db=db,
+        )
         return False
 
-    branding = _get_org_branding(organization_id, db=db)
-    full_context = {**branding, **context}
-    body = _render_template(template, full_context)
+    subject = rendered.subject
+    branding = rendered.branding or {}
     smtp = _get_smtp_settings(db=db)
 
-    subject = context.get("subject", "Zoiko One — Notification")
-    # Subjects may carry template placeholders (e.g. {{company_name}} resolved
-    # from the merged branding context). Render them against full_context so the
-    # org identity resolves without a second branding lookup. Existing subjects
-    # that contain no "{{" pass through unchanged.
-    if "{{" in subject:
-        subject = _render_template(subject, full_context)
-    # Envelope sender (MAIL FROM) always stays the authenticated SMTP account —
-    # most relays (incl. this one) reject or misdeliver mail whose envelope
-    # sender doesn't match the logged-in account, and it keeps SPF aligned.
-    # from_email_override only changes the visible "From" header, so a tenant
-    # can look like the sender to recipients without new SMTP credentials.
     envelope_from = smtp["from_email"]
     header_from = from_email_override or envelope_from
     to_email = email
-    sender_name = from_display_name_override or full_context.get("company_name") or "Zoiko One"
-    reply_to = full_context.get("support_email")
+    # The sender is always Zoiko HR (or the explicit override, e.g. "Zoiko HR Security"). It must not be the
+    # organization's own name: tenants choose that text, and a mailbox that shows "<their name>" as the sender of
+    # a platform email looks like impersonation.
+    sender_name = from_display_name_override or "Zoiko HR"
+    reply_to = context.get("support_email") or branding.get("support_email")
 
-    msg = MIMEMultipart("alternative")
+    msg = _build_message(rendered, attachments)
     msg["Subject"] = subject
     msg["From"] = f"{sender_name} <{header_from}>"
     msg["To"] = to_email
     if reply_to:
         msg["Reply-To"] = reply_to
-    # "alternative" parts are attached least-preferred first: plain text, then HTML.
-    msg.attach(MIMEText(_html_to_text(body), "plain", "utf-8"))
-    msg.attach(MIMEText(body, "html", "utf-8"))
 
-    if attachments:
-        for filename, data in attachments:
-            part = MIMEApplication(data, _subtype="pdf")
-            part.add_header("Content-Disposition", "attachment", filename=filename)
-            msg.attach(part)
-
-    try:
-        port = int(smtp["port"])
-        use_tls = str(smtp.get("use_tls", "true")).strip().lower() in ("1", "true", "yes")
-        # Use certifi's CA bundle rather than the OS trust store: on several
-        # deployment hosts (minimal containers, some Windows setups) the OS
-        # store is missing the issuer chain for the SMTP host's certificate,
-        # causing CERTIFICATE_VERIFY_FAILED on every send. That exception was
-        # being caught below and swallowed to `False`, so invoices looked
-        # "sent" while every email silently failed.
-        context_ssl = ssl.create_default_context(cafile=certifi.where())
-
-        if use_tls and port != 465:
-            # STARTTLS (e.g. port 587): plain connection, then upgrade to TLS.
-            with smtplib.SMTP(smtp["host"], port, timeout=30) as server:
-                server.starttls(context=context_ssl)
-                if smtp["username"] and smtp["password"]:
-                    server.login(smtp["username"], smtp["password"])
-                server.sendmail(envelope_from, to_email, msg.as_string())
-        else:
-            # Implicit TLS (e.g. port 465).
-            with smtplib.SMTP_SSL(smtp["host"], port, context=context_ssl, timeout=30) as server:
-                if smtp["username"] and smtp["password"]:
-                    server.login(smtp["username"], smtp["password"])
-                server.sendmail(envelope_from, to_email, msg.as_string())
-
-        logger.info(f"[email] Sent to {to_email} | template={template_name}")
-        return True
-    except Exception as e:
-        logger.error(f"[email] Failed to send to {to_email} | template={template_name} | error={e}")
+    error = _deliver_via_smtp(smtp, envelope_from, to_email, msg)
+    if error:
+        if error_out is not None:
+            error_out.append(error)
+        logger.error(f"[email] Failed to send to {to_email} | template={template_name} | error={error}")
+        _log_email_delivery(
+            email=to_email,
+            template_name=template_name,
+            subject=subject,
+            status="failed",
+            error_message=error,
+            organization_id=organization_id,
+            context_data=context,
+            db=db,
+        )
         return False
 
+    logger.info(f"[email] Sent to {to_email} | template={template_name}")
+    _log_email_delivery(
+        email=to_email,
+        template_name=template_name,
+        subject=subject,
+        status="sent",
+        organization_id=organization_id,
+        context_data=context,
+        db=db,
+    )
+    return True
 
-def send_registration_received(email: str, org_name: str, db=None):
+
+
+def send_registration_received(email: str, org_name: str, login_url: str = None, db=None):
     return send_approval_email(email, "registration_received.html", {
-        "subject": f"Registration Received — {org_name} | Zoiko One",
+        "subject": f"Welcome to Zoiko HR — {org_name}",
         "organization_name": org_name,
+        "action_url": login_url or _login_url(),
     }, db=db)
 
 
@@ -382,38 +839,74 @@ def send_leave_rejected(
     }, db=db, organization_id=organization_id)
 
 
-LOGIN_URL = "https://zoikoone.com/login"
-
-
-def send_approved(email: str, org_name: str, login_url: str = LOGIN_URL, db=None):
+def send_approved(
+    email: str,
+    org_name: str,
+    recipient_first_name: str = "",
+    login_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "approved.html", {
-        "subject": f"Registration Approved — {org_name} | Zoiko One",
+        "subject": f"Registration Approved — {org_name} | Zoiko HR",
         "organization_name": org_name,
-        "login_url": login_url,
-    }, db=db)
+        "first_name": recipient_first_name or "there",
+        "login_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
 
 
-def send_rejected(email: str, org_name: str, reason: str, db=None):
+def send_rejected(
+    email: str,
+    org_name: str,
+    reason: str = "",
+    recipient_first_name: str = "",
+    action_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "rejected.html", {
-        "subject": f"Registration Rejected — {org_name} | Zoiko One",
+        "subject": f"Registration Rejected — {org_name} | Zoiko HR",
         "organization_name": org_name,
+        "first_name": recipient_first_name or "there",
         "reason": reason,
-    }, db=db)
+        "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
 
 
-def send_suspended(email: str, org_name: str, db=None):
+def send_suspended(
+    email: str,
+    org_name: str,
+    recipient_first_name: str = "",
+    action_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "suspended.html", {
-        "subject": f"Account Suspended — {org_name} | Zoiko One",
+        "subject": f"Account Suspended — {org_name} | Zoiko HR",
         "organization_name": org_name,
-    }, db=db)
+        "first_name": recipient_first_name or "there",
+        "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
 
 
-def send_reactivated(email: str, org_name: str, login_url: str = LOGIN_URL, db=None):
+def send_reactivated(
+    email: str,
+    org_name: str,
+    recipient_first_name: str = "",
+    event_time_local: str = "",
+    timezone: str = "UTC",
+    login_url: str = None,
+    db=None,
+    organization_id=None,
+):
     return send_approval_email(email, "reactivated.html", {
-        "subject": f"Account Reactivated — {org_name} | Zoiko One",
+        "subject": f"Account Reactivated — {org_name} | Zoiko HR",
         "organization_name": org_name,
-        "login_url": login_url,
-    }, db=db)
+        "first_name": recipient_first_name or "there",
+        "event_time_local": event_time_local,
+        "timezone": timezone,
+        "login_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
 
 
 def send_password_reset(email: str, temp_password: str, first_name: str, db=None, organization_id=None):
@@ -421,7 +914,79 @@ def send_password_reset(email: str, temp_password: str, first_name: str, db=None
         "subject": "Password Reset — {{company_name}}",
         "first_name": first_name,
         "temporary_password": temp_password,
-        "login_url": LOGIN_URL,
+        "login_url": _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+# ── Registration Quotation Workflow ─────────────────────────────────────────
+# quote_sent.html / quote_accepted.html use the simple {{action_url}} +
+# {{first_name}} + {{organization_name}} style (single info card, single CTA).
+
+def send_quotation_proposal_email(
+    email: str,
+    recipient_first_name: str,
+    organization_name: str,
+    plan_name: str,
+    amount_display: str,
+    valid_until_display: str,
+    decision_url: str,
+    db=None,
+    organization_id=None,
+) -> bool:
+    return send_approval_email(email, "quote_sent.html", {
+        "subject": f"Your Zoiko HR Quotation for {organization_name}",
+        "first_name": recipient_first_name,
+        "organization_name": organization_name,
+        "plan_name": plan_name,
+        "amount": amount_display,
+        "proposal_expiry_date": valid_until_display,
+        "action_url": decision_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_quotation_accepted_email(
+    email: str,
+    recipient_first_name: str,
+    organization_name: str,
+    quote_number: str,
+    amount_display: str,
+    audience: str = "registrant",
+    db=None,
+    organization_id=None,
+) -> bool:
+    """audience: 'registrant' or 'super_admin' — only changes the message
+    wording (branched in the template)."""
+    return send_approval_email(email, "quote_accepted.html", {
+        "subject": f"Quotation {quote_number} Accepted — {organization_name}",
+        "first_name": recipient_first_name,
+        "organization_name": organization_name,
+        "quote_number": quote_number,
+        "amount": amount_display,
+        "audience": "super_admin" if audience == "super_admin" else "registrant",
+    }, db=db, organization_id=organization_id)
+
+
+def send_quotation_invoice_email(
+    email: str,
+    recipient_first_name: str,
+    organization_name: str,
+    invoice_number: str,
+    amount_display: str,
+    currency: str,
+    due_date_display: str,
+    pay_url: str = None,
+    db=None,
+    organization_id=None,
+) -> bool:
+    return send_approval_email(email, "invoice_sent.html", {
+        "subject": f"Invoice {invoice_number} from Zoiko HR",
+        "first_name": recipient_first_name,
+        "organization_name": organization_name,
+        "invoice_number": invoice_number,
+        "currency": currency,
+        "amount": amount_display.replace(f"{currency} ", ""),
+        "payment_due_date": due_date_display,
+        "action_url": pay_url or _login_url(),
     }, db=db, organization_id=organization_id)
 
 
@@ -450,8 +1015,8 @@ def send_invoice_email(
     attachments = [(pdf_filename or f"{invoice_number}.pdf", pdf_bytes)] if pdf_bytes else None
     balance_due = balance_due or total_amount
     return send_approval_email(email, "invoice_sent.html", {
-        "subject": f"Invoice {invoice_number} from {{{{company_name}}}} — {currency} {balance_due} due {due_date}",
-        "login_url": LOGIN_URL,
+        "subject": f"Invoice {invoice_number} from Zoiko HR — {currency} {balance_due} due {due_date}",
+        "login_url": _login_url(),
         "customer_name": customer_name,
         "recipient_first_name": recipient_first_name or customer_name,
         "invoice_number": invoice_number,
@@ -464,210 +1029,16 @@ def send_invoice_email(
         "amount_paid": amount_paid,
         "reference": reference,
         "notes": notes,
-        "line_items_html": _render_quote_items_html(line_items, currency),
-        "totals_html": _render_invoice_totals_html(subtotal, tax_amount, amount_paid, balance_due, currency),
+        # invoice_sent.html variables (shared with send_quotation_invoice_email)
+        "first_name": recipient_first_name or customer_name,
+        "organization_name": customer_name,
+        "amount": balance_due,
+        "payment_due_date": due_date,
+        "action_url": _login_url(),
     }, db=db, organization_id=organization_id, attachments=attachments)
 
 
 # ── Billing Module Emails ────────────────────────────────────────────────
-
-
-def _render_quote_items_html(line_items, currency: str = "USD") -> str:
-    """Render the quotation line-item rows as email-safe HTML. Values arrive
-    pre-formatted from the billing service — the template derives nothing."""
-    rows = []
-    for item in line_items or []:
-        desc = _html.escape(str(item.get("description") or ""))
-        qty = _html.escape(str(item.get("quantity") or ""))
-        rate = _html.escape(str(item.get("unit_price") or ""))
-        amount = _html.escape(str(item.get("total_amount") or ""))
-        cell = (
-            'padding:9px 0;border-top:1px solid #eaeef2;'
-            'font-size:13px;color:#1f2328;vertical-align:top;'
-        )
-        right = cell + 'text-align:right;white-space:nowrap;'
-        rows.append(
-            f'<tr>'
-            f'<td style="{cell}">{desc}</td>'
-            f'<td style="{right}">{qty}</td>'
-            f'<td style="{right}">{rate}</td>'
-            f'<td style="{right}">{amount}</td>'
-            f'</tr>'
-        )
-    return "".join(rows)
-
-
-def _render_quote_totals_html(subtotal, discount_amount, tax_amount, total_amount, currency: str = "USD") -> str:
-    """Render the quote totals block (subtotal / discount / tax / total) as
-    email-safe HTML — matches the blue invoice totals layout."""
-    money_cell = 'text-align:right;white-space:nowrap;'
-    row = (
-        '<td style="padding:4px 0;font-size:13px;color:#57606a;">{label}</td>'
-        '<td style="padding:4px 0;font-size:13px;color:#57606a;{money_cell}">{value}</td>'
-    )
-    rows = []
-    line_items = [("Subtotal", subtotal)]
-    if discount_amount:
-        line_items.append(("Discount", discount_amount))
-    line_items.append(("Tax", tax_amount))
-    for label, value in line_items:
-        rows.append(
-            "<tr>" + row.format(label=_html.escape(str(label)), value=_html.escape(str(value or "")), money_cell=money_cell) + "</tr>"
-        )
-    rows.append(
-        f"<tr>"
-        '<td style="border-top:1px solid #E2E8F0;margin-top:4px;padding:10px 0 0;'
-        'font-size:15px;font-weight:700;color:#2563EB;">'
-        f"Total ({_html.escape(str(currency or ''))})</td>"
-        '<td style="border-top:1px solid #E2E8F0;margin-top:4px;padding:10px 0 0;'
-        'font-size:15px;font-weight:700;color:#2563EB;' + money_cell + '">'
-        f"{_html.escape(str(total_amount or ''))}</td>"
-        f"</tr>"
-    )
-    return "".join(rows)
-
-
-def _render_invoice_totals_html(subtotal, tax_amount, amount_paid, balance_due, currency: str = "USD") -> str:
-    """Render the invoice totals block (subtotal / tax / amount paid / balance
-    due) as email-safe HTML — matches the ZB-INV-006 preview layout."""
-    money_cell = 'text-align:right;white-space:nowrap;'
-    row = (
-        '<td style="padding:4px 0;font-size:13px;color:#57606a;">{label}</td>'
-        '<td style="padding:4px 0;font-size:13px;color:#57606a;{money_cell}">{value}</td>'
-    )
-    rows = []
-    for label, value in (
-        ("Subtotal", subtotal),
-        ("Tax", tax_amount),
-        ("Amount paid", amount_paid),
-    ):
-        rows.append(
-            "<tr>" + row.format(label=_html.escape(str(label)), value=_html.escape(str(value or "")), money_cell=money_cell) + "</tr>"
-        )
-    rows.append(
-        f"<tr>"
-        '<td style="border-top:1px solid #E2E8F0;margin-top:4px;padding:10px 0 0;'
-        'font-size:15px;font-weight:700;color:#2563EB;">'
-        f"Balance due ({_html.escape(str(currency or ''))})</td>"
-        '<td style="border-top:1px solid #E2E8F0;margin-top:4px;padding:10px 0 0;'
-        'font-size:15px;font-weight:700;color:#2563EB;' + money_cell + '">'
-        f"{_html.escape(str(balance_due or ''))}</td>"
-        f"</tr>"
-    )
-    return "".join(rows)
-
-
-def send_quote_email(
-    email: str,
-    customer_name: str,
-    quote_number: str,
-    issue_date: str,
-    valid_until: str,
-    total_amount: str,
-    currency: str = "USD",
-    status: str = "Sent",
-    notes: str = "",
-    recipient_first_name: str = "",
-    line_items: list = None,
-    subtotal: str = "",
-    discount_amount: str = "",
-    tax_amount: str = "",
-    reference: str = "",
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    attachments = [(pdf_filename or f"{quote_number}.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "quote_sent.html", {
-        "subject": f"Estimate {quote_number} from {{{{company_name}}}}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "recipient_first_name": recipient_first_name or customer_name,
-        "quote_number": quote_number,
-        "issue_date": issue_date,
-        "valid_until": valid_until,
-        "total_amount": total_amount,
-        "subtotal": subtotal,
-        "discount_amount": discount_amount,
-        "tax_amount": tax_amount,
-        "currency": currency,
-        "status": status,
-        "reference": reference,
-        "notes": notes,
-        "line_items_html": _render_quote_items_html(line_items, currency),
-        "totals_html": _render_quote_totals_html(subtotal, discount_amount, tax_amount, total_amount, currency),
-    }, db=db, organization_id=organization_id, attachments=attachments)
-
-
-def send_dunning_reminder_email(
-    email: str,
-    customer_name: str,
-    invoice_number: str,
-    days_overdue: str,
-    overdue_amount: str,
-    currency: str = "USD",
-    late_fee: str = "0",
-    organization_id=None,
-    db=None,
-    template_name: str = "dunning_reminder.html",
-    custom_body: str = None,
-    subject_override: str = None,
-) -> bool:
-    return send_approval_email(email, template_name, {
-        "subject": subject_override or f"Collection workflow started for invoice {invoice_number}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "invoice_number": invoice_number,
-        "days_overdue": days_overdue,
-        "overdue_amount": overdue_amount,
-        "currency": currency,
-        "late_fee": late_fee,
-    }, db=db, organization_id=organization_id, template_body=custom_body)
-
-
-def send_contract_activated_email(
-    email: str,
-    customer_name: str,
-    contract_number: str,
-    start_date: str,
-    end_date: str,
-    total_amount: str,
-    currency: str = "USD",
-    organization_id=None,
-    db=None,
-) -> bool:
-    return send_approval_email(email, "contract_activated.html", {
-        "subject": f"Contract {contract_number} activated",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "contract_number": contract_number,
-        "start_date": start_date,
-        "end_date": end_date,
-        "total_amount": total_amount,
-        "currency": currency,
-    }, db=db, organization_id=organization_id)
-
-
-def send_contract_renewed_email(
-    email: str,
-    customer_name: str,
-    contract_number: str,
-    new_end_date: str,
-    total_amount: str,
-    currency: str = "USD",
-    organization_id=None,
-    db=None,
-) -> bool:
-    return send_approval_email(email, "contract_renewed.html", {
-        "subject": f"Contract {contract_number} renewed",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "contract_number": contract_number,
-        "new_end_date": new_end_date,
-        "total_amount": total_amount,
-        "currency": currency,
-    }, db=db, organization_id=organization_id)
 
 
 def send_subscription_renewed_email(
@@ -684,7 +1055,7 @@ def send_subscription_renewed_email(
 ) -> bool:
     return send_approval_email(email, "subscription_renewed.html", {
         "subject": f"Your {plan_name} subscription was renewed",
-        "login_url": LOGIN_URL,
+        "login_url": _login_url(),
         "customer_name": customer_name,
         "subscription_number": subscription_number,
         "plan_name": plan_name,
@@ -692,6 +1063,11 @@ def send_subscription_renewed_email(
         "term_end": term_end,
         "amount": amount,
         "currency": currency,
+        # subscription_renewed.html variables
+        "first_name": customer_name,
+        "organization_name": customer_name,
+        "effective_date_local": term_start,
+        "action_url": _login_url(),
     }, db=db, organization_id=organization_id)
 
 
@@ -708,42 +1084,18 @@ def send_past_due_notice_email(
 ) -> bool:
     return send_approval_email(email, "past_due_notice.html", {
         "subject": f"Invoice {subscription_number} is overdue",
-        "login_url": LOGIN_URL,
+        "login_url": _login_url(),
         "customer_name": customer_name,
         "subscription_number": subscription_number,
         "plan_name": plan_name,
         "days_overdue": days_overdue,
         "overdue_amount": overdue_amount,
         "currency": currency,
+        # past_due_notice.html variables
+        "first_name": customer_name,
+        "organization_name": customer_name,
+        "action_url": _login_url(),
     }, db=db, organization_id=organization_id)
-
-
-def send_collections_notice_email(
-    email: str,
-    customer_name: str,
-    invoice_number: str,
-    days_overdue: str,
-    overdue_amount: str,
-    currency: str = "USD",
-    late_fee: str = "0",
-    organization_id=None,
-    db=None,
-    custom_body: str = None,
-) -> bool:
-    """Final-stage notice used when a debt is escalated to collections. Uses
-    the same invoice-friendly reminder layout as dunning (optionally
-    overridden by BillingConfiguration.final_notice_template) but under a
-    clear 'collections' subject."""
-    return send_approval_email(email, "dunning_reminder.html", {
-        "subject": f"Collection workflow started for invoice {invoice_number}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "invoice_number": invoice_number,
-        "days_overdue": days_overdue,
-        "overdue_amount": overdue_amount,
-        "currency": currency,
-        "late_fee": late_fee,
-    }, db=db, organization_id=organization_id, template_body=custom_body)
 
 
 def send_payment_receipt_email(
@@ -758,14 +1110,53 @@ def send_payment_receipt_email(
     db=None,
 ) -> bool:
     return send_approval_email(email, "payment_received.html", {
-        "subject": f"Payment received by {{{{company_name}}}}",
-        "login_url": LOGIN_URL,
+        "subject": "We received your payment — thank you",
+        "login_url": _login_url(),
         "customer_name": customer_name,
         "payment_number": payment_number,
         "payment_date": payment_date,
         "amount": amount,
         "currency": currency,
         "payment_method": payment_method,
+        # payment_received.html variables
+        "first_name": customer_name,
+        "invoice_number": payment_number,
+        "payment_date_local": payment_date,
+        "action_url": _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_plan_upgraded_email(
+    email: str,
+    customer_name: str,
+    previous_plan_name: str,
+    new_plan_name: str,
+    billing_cycle: str = "",
+    effective_date: str = "",
+    amount: str = "",
+    currency: str = "USD",
+    organization_id=None,
+    db=None,
+) -> bool:
+    """Confirm to billing contacts that a plan change they paid for has been
+    applied. Sent once per completed Checkout Session / Stripe price change."""
+    amount_display = f"{currency} {amount}" if amount else ""
+    return send_approval_email(email, "plan_upgraded.html", {
+        "subject": f"Your Zoiko HR plan is now {new_plan_name}",
+        "login_url": _login_url(),
+        "customer_name": customer_name,
+        "previous_plan_name": previous_plan_name or "Your previous plan",
+        "new_plan_name": new_plan_name,
+        "billing_cycle": billing_cycle,
+        "amount": amount,
+        "currency": currency,
+        "amount_display": amount_display,
+        # plan_upgraded.html variables
+        "first_name": customer_name,
+        "organization_name": customer_name,
+        "plan_name": new_plan_name,
+        "effective_date_local": effective_date,
+        "action_url": _login_url(),
     }, db=db, organization_id=organization_id)
 
 
@@ -784,146 +1175,20 @@ def send_refund_email(
 ) -> bool:
     attachments = [(pdf_filename or f"{refund_number}.pdf", pdf_bytes)] if pdf_bytes else None
     return send_approval_email(email, "refund_processed.html", {
-        "subject": f"Your refund from {{{{company_name}}}} is complete",
-        "login_url": LOGIN_URL,
+        "subject": f"Your refund from Zoiko HR is complete",
+        "login_url": _login_url(),
         "customer_name": customer_name,
         "refund_number": refund_number,
         "refund_date": refund_date,
         "amount": amount,
         "currency": currency,
         "reason": reason,
+        # refund_processed.html variables
+        "first_name": customer_name,
+        "organization_name": customer_name,
+        "refund_id": refund_number,
+        "action_url": _login_url(),
     }, db=db, organization_id=organization_id, attachments=attachments)
-
-
-def send_write_off_email(
-    email: str,
-    customer_name: str,
-    write_off_number: str,
-    write_off_date: str,
-    amount: str,
-    currency: str = "USD",
-    reason: str = "",
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    attachments = [(pdf_filename or f"{write_off_number}.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "write_off_executed.html", {
-        "subject": f"Write-off decision recorded for {customer_name}",
-        "login_url": LOGIN_URL,
-        "customer_name": customer_name,
-        "write_off_number": write_off_number,
-        "write_off_date": write_off_date,
-        "amount": amount,
-        "currency": currency,
-        "reason": reason,
-    }, db=db, organization_id=organization_id, attachments=attachments)
-
-
-# ── Payroll Module Emails ────────────────────────────────────────────────
-
-
-def _resolve_payroll_send_identity(organization_id, db=None):
-    """Look up this org's PayrollEmailSettings from-identity override, if
-    any. Returns (from_email, from_display_name), both None when the org
-    hasn't configured one (i.e. keep using the platform default)."""
-    if not organization_id:
-        return None, None
-    try:
-        from app.modules.payroll.mail.service import resolve_send_identity
-
-        own_session = False
-        if db is None:
-            from app.database import SessionLocal
-            db = SessionLocal()
-            own_session = True
-        try:
-            return resolve_send_identity(db, organization_id)
-        finally:
-            if own_session:
-                db.close()
-    except Exception as e:
-        logger.warning(f"[email] Could not resolve payroll send identity for org={organization_id}: {e}")
-        return None, None
-
-
-def send_payslip_ready_email(
-    email: str,
-    employee_name: str,
-    pay_period: str,
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    attachments = [(pdf_filename or "payslip.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "payslip_ready.html", {
-        "subject": f"Your Payslip is Ready — {pay_period} | Zoiko One",
-        "employee_name": employee_name,
-        "pay_period": pay_period,
-    }, db=db, organization_id=organization_id, attachments=attachments,
-        from_email_override=from_email, from_display_name_override=from_display_name)
-
-
-def send_payroll_run_approved_email(
-    email: str,
-    employee_name: str,
-    pay_period: str,
-    organization_id=None,
-    db=None,
-) -> bool:
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    return send_approval_email(email, "payroll_run_approved.html", {
-        "subject": f"Payroll Approved — {pay_period} | Zoiko One",
-        "employee_name": employee_name,
-        "pay_period": pay_period,
-    }, db=db, organization_id=organization_id,
-        from_email_override=from_email, from_display_name_override=from_display_name)
-
-
-def send_update_form_invite_email(
-    email: str,
-    employee_name: str,
-    form_name: str,
-    form_link: str,
-    expires_at_display: str,
-    organization_id=None,
-    db=None,
-) -> bool:
-    """"Send Template" — email an employee a no-login link to fill in a
-    data-collection form. Reuses the same SMTP send path as every other
-    payroll email; only the template and context differ."""
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    return send_approval_email(email, "update_form_invite.html", {
-        "subject": f"{form_name} — Action Requested | Zoiko One",
-        "employee_name": employee_name,
-        "form_name": form_name,
-        "form_link": form_link,
-        "expires_at": expires_at_display,
-    }, db=db, organization_id=organization_id,
-        from_email_override=from_email, from_display_name_override=from_display_name)
-
-
-def send_leave_request_received_email(
-    email: str,
-    employee_name: str,
-    start_date: str,
-    end_date: str,
-    request_code: str,
-    organization_id=None,
-    db=None,
-) -> bool:
-    from_email, from_display_name = _resolve_payroll_send_identity(organization_id, db=db)
-    return send_approval_email(email, "leave_request_received.html", {
-        "subject": f"Leave Request Received — {request_code} | Zoiko One",
-        "employee_name": employee_name,
-        "start_date": start_date,
-        "end_date": end_date,
-        "request_code": request_code,
-    }, db=db, organization_id=organization_id,
-        from_email_override=from_email, from_display_name_override=from_display_name)
 
 
 # ── Employee / HR Module Emails ──────────────────────────────────────────────
@@ -940,15 +1205,13 @@ def send_employee_welcome_email(
 ) -> bool:
     if not workspace_name:
         workspace_name = _get_org_branding(organization_id, db=db).get("company_name") or ""
-    from app.config import settings
-    login_url = f"{settings.FRONTEND_URL.rstrip('/')}/login"
     return send_approval_email(email, "welcome.html", {
         "subject": f"Welcome to {{{{company_name}}}} — Your Account Is Ready",
         "employee_name": employee_name,
         "first_name": first_name or employee_name,
         "workspace_name": workspace_name,
         "temporary_password": temporary_password,
-        "login_url": login_url,
+        "login_url": _login_url(),
     }, db=db, organization_id=organization_id)
 
 
@@ -976,7 +1239,7 @@ def send_org_admin_invite_email(
         "workspace_name": workspace_name,
         "expires_at_local": expires_at_local,
         "timezone": timezone,
-        "action_url": action_url,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -985,7 +1248,7 @@ def send_org_admin_account_activated_email(
     email: str,
     first_name: str,
     workspace_name: str,
-    login_url: str = LOGIN_URL,
+    login_url: str = None,
     organization_id=None,
     db=None,
 ) -> bool:
@@ -993,7 +1256,26 @@ def send_org_admin_account_activated_email(
         "subject": "Your Zoiko HR account is ready",
         "first_name": first_name,
         "workspace_name": workspace_name,
-        "login_url": login_url,
+        "login_url": login_url or _login_url(),
+        "support_email": "",
+    }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
+
+
+def send_email_verification(
+    email: str,
+    first_name: str,
+    expires_at_local: str,
+    timezone: str,
+    action_url: str,
+    organization_id=None,
+    db=None,
+) -> bool:
+    return send_approval_email(email, "email_verification.html", {
+        "subject": "Confirm your email address for Zoiko HR",
+        "first_name": first_name,
+        "expires_at_local": expires_at_local,
+        "timezone": timezone,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -1012,7 +1294,7 @@ def send_org_admin_password_reset_email(
         "first_name": first_name,
         "expires_at_local": expires_at_local,
         "timezone": timezone,
-        "action_url": action_url,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -1022,7 +1304,7 @@ def send_org_admin_password_changed_email(
     first_name: str,
     event_time_local: str,
     timezone: str,
-    action_url: str = LOGIN_URL,
+    action_url: str = None,
     organization_id=None,
     db=None,
 ) -> bool:
@@ -1031,7 +1313,7 @@ def send_org_admin_password_changed_email(
         "first_name": first_name,
         "event_time_local": event_time_local,
         "timezone": timezone,
-        "action_url": action_url,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -1039,14 +1321,15 @@ def send_org_admin_password_changed_email(
 def send_org_admin_account_locked_email(
     email: str,
     first_name: str,
-    action_url: str = LOGIN_URL,
+    action_url: str = None,
     organization_id=None,
     db=None,
 ) -> bool:
     return send_approval_email(email, "org_admin_account_locked.html", {
         "subject": "Your Zoiko HR account has been locked",
         "first_name": first_name,
-        "action_url": action_url,
+        "email": email,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -1056,7 +1339,7 @@ def send_org_admin_access_removed_email(
     first_name: str,
     workspace_name: str,
     effective_date_local: str,
-    action_url: str = LOGIN_URL,
+    action_url: str = None,
     organization_id=None,
     db=None,
 ) -> bool:
@@ -1065,7 +1348,7 @@ def send_org_admin_access_removed_email(
         "first_name": first_name,
         "workspace_name": workspace_name,
         "effective_date_local": effective_date_local,
-        "action_url": action_url,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -1075,7 +1358,7 @@ def send_org_admin_access_changed_email(
     first_name: str,
     workspace_name: str,
     effective_date_local: str,
-    action_url: str = LOGIN_URL,
+    action_url: str = None,
     organization_id=None,
     db=None,
 ) -> bool:
@@ -1084,7 +1367,7 @@ def send_org_admin_access_changed_email(
         "first_name": first_name,
         "workspace_name": workspace_name,
         "effective_date_local": effective_date_local,
-        "action_url": action_url,
+        "action_url": action_url or _login_url(),
         "support_email": "",
     }, db=db, organization_id=organization_id, from_display_name_override=SECURITY_SENDER)
 
@@ -1113,13 +1396,14 @@ def send_employee_account_status_email(
     return send_approval_email(email, "account_status.html", {
         "subject": f"Your Account Has Been {status_label} — {{{{company_name}}}}",
         "employee_name": employee_name,
+        "first_name": employee_name,
         "status": status,
         "status_label": status_label,
         "message": _ACCOUNT_STATUS_MESSAGES.get(
             status,
             "Your account status has been updated by your organization administrator.",
         ),
-        "login_url": LOGIN_URL if status == "activated" else "",
+        "action_url": _login_url() if status == "activated" else "",
     }, db=db, organization_id=organization_id)
 
 
@@ -1152,30 +1436,443 @@ def send_employee_lifecycle_email(
         "message": message,
         "effective_date": effective_date or "",
         "details": details or "",
+        "first_name": employee_name,
+        "action_url": _login_url(),
     }, db=db, organization_id=organization_id)
 
 
-def send_credit_note_email(
-    email: str,
+# ── Delinquency Notices & Support Access (Section 10 G1–G5, Section 18 O3) ──
+
+# G4 recipient roles: Organization Owner + Billing Contact + Billing Admin
+# receive delinquency notices. Enterprise also routes to an assigned Customer
+# Success / Account Executive. Normal HR admins/employees are never sent
+# financial amounts or billing terms.
+_BILLING_RECIPIENT_ROLES = ("billing_admin",)
+_OWNER_ROLE = "super_admin"
+
+
+def _role_value(role) -> str:
+    return role.value if hasattr(role, "value") else str(role)
+
+
+def resolve_billing_recipients(db, organization_id: int) -> list[str]:
+    """G4: resolve the deduplicated authorized billing recipients for an org:
+    the Organization Owner (highest-privilege super_admin, else earliest active
+    admin) plus every active Billing Admin. Returns unique emails in stable
+    order. Never includes normal HR admins/employees."""
+    from app.modules.hr.models import Organization
+    from app.modules.employee.models import Employee, UserRole
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    if org is None:
+        return []
+
+    employees = (
+        db.query(Employee)
+        .filter(
+            Employee.organization_id == organization_id,
+            Employee.is_active == True,  # noqa: E712
+        )
+        .order_by(Employee.created_at.asc())
+        .all()
+    )
+
+    recipients: list[str] = []
+    seen: set[str] = set()
+
+    def _add(email):
+        if email and email not in seen:
+            seen.add(email)
+            recipients.append(email)
+
+    owner = next((e for e in employees if _role_value(e.role) == _OWNER_ROLE), None)
+    if owner is None:
+        owner = next((e for e in employees if _role_value(e.role) in ("admin", "hr_admin")), None)
+    if owner is not None:
+        _add(owner.email or owner.work_email)
+
+    for e in employees:
+        if _role_value(e.role) in _BILLING_RECIPIENT_ROLES:
+            _add(e.email or e.work_email)
+
+    return recipients
+
+
+def is_enterprise_org(db, organization_id: int) -> bool:
+    from app.modules.billing.models import BillingSubscription, PlanCode
+
+    sub = (
+        db.query(BillingSubscription)
+        .filter(BillingSubscription.organization_id == organization_id)
+        .first()
+    )
+    return bool(sub and sub.plan_code == PlanCode.ENTERPRISE)
+
+
+def _delinquency_billing_ops_email() -> str:
+    """Internal Zoiko HR Billing Operations mailbox for Enterprise CS/AE routing.
+    Falls back to the platform support/sender email; configurable via env."""
+    try:
+        from app.config import settings
+
+        return getattr(settings, "BILLING_OPS_EMAIL", None) or getattr(settings, "SMTP_FROM_EMAIL", "")
+    except Exception:
+        return ""
+
+
+DELINQUENCY_STAGE_TEMPLATES = {
+    "DAY_10_RESTRICT": ("delinquency_day10.html", "Payment Overdue — Action Required | {{company_name}}"),
+    "DAY_20_RESTRICT": ("delinquency_day20.html", "Controlled Service Restriction Applied | {{company_name}}"),
+    "DAY_45_TERMINATION": ("delinquency_day45.html", "Termination & Closure Notice | {{company_name}}"),
+    "RECOVERED": ("delinquency_recovered.html", "Payment Recovered — Service Restored | {{company_name}}"),
+}
+
+
+def build_delinquency_context(
+    stage: str,
     customer_name: str,
-    credit_note_number: str,
-    issue_date: str,
-    total_amount: str,
-    currency: str = "USD",
-    reason: str = "",
-    organization_id=None,
-    db=None,
-    pdf_bytes: bytes = None,
-    pdf_filename: str = None,
-) -> bool:
-    attachments = [(pdf_filename or f"{credit_note_number}.pdf", pdf_bytes)] if pdf_bytes else None
-    return send_approval_email(email, "credit_note_issued.html", {
-        "subject": f"Credit note {credit_note_number} from {{{{company_name}}}}",
-        "login_url": LOGIN_URL,
+    plan_name: str,
+    subscription_number: str,
+    days_overdue,
+    currency: str,
+    overdue_amount: str,
+    login_url: str = None,
+    export_url: str = "",
+) -> tuple[str, dict]:
+    """Return (template_name, context) for a delinquency stage notice."""
+    template, subject = DELINQUENCY_STAGE_TEMPLATES.get(
+        stage, ("delinquency_day10.html", "Payment Overdue | {{company_name}}")
+    )
+
+    retention_window_days = ""
+    if stage == "DAY_45_TERMINATION":
+        try:
+            from app.modules.billing.delinquency_service import DEFAULT_RETENTION_HOLD_DAYS
+
+            retention_window_days = str(DEFAULT_RETENTION_HOLD_DAYS)
+        except Exception:
+            retention_window_days = "90"
+
+    login_url = login_url or _login_url()
+    return template, {
+        "subject": subject,
         "customer_name": customer_name,
-        "credit_note_number": credit_note_number,
-        "issue_date": issue_date,
-        "total_amount": total_amount,
+        "plan_name": plan_name,
+        "subscription_number": subscription_number,
+        "days_overdue": str(days_overdue),
         "currency": currency,
-        "reason": reason,
-    }, db=db, organization_id=organization_id, attachments=attachments)
+        "overdue_amount": overdue_amount,
+        "login_url": login_url,
+        "export_url": export_url or login_url,
+        "retention_window_days": retention_window_days,
+    }
+
+
+def send_delinquency_notice(db, organization_id: int, stage: str, days_overdue: int, amounts: dict | None = None, login_url: str = None, export_url: str = ""):
+    """G4/O3: dispatch the correct delinquency notice to the authorized
+    billing recipients for the org. `amounts` holds financial detail that is
+    only ever rendered for authorized billing contacts (never HR admins)."""
+    from app.modules.hr.models import Organization
+
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    customer_name = org.organization_name or org.display_name or "Your organization" if org else "Your organization"
+
+    plan_name = ""
+    subscription_number = ""
+    currency = (amounts or {}).get("currency", "USD")
+    overdue_amount = (amounts or {}).get("overdue_amount", "0.00")
+    try:
+        from app.modules.billing.models import BillingSubscription, BillingPlan
+
+        sub = (
+            db.query(BillingSubscription)
+            .filter(BillingSubscription.organization_id == organization_id)
+            .first()
+        )
+        if sub:
+            subscription_number = f"SUB-{sub.id:05d}"
+            if sub.plan_code:
+                plan_name = str(sub.plan_code.value)
+    except Exception:
+        pass
+
+    recipients = resolve_billing_recipients(db, organization_id)
+    template, context = build_delinquency_context(
+        stage,
+        customer_name=customer_name,
+        plan_name=plan_name,
+        subscription_number=subscription_number,
+        days_overdue=days_overdue,
+        currency=currency,
+        overdue_amount=overdue_amount,
+        login_url=login_url,
+        export_url=export_url,
+    )
+
+    sent = 0
+    for email in recipients:
+        if send_approval_email(email, template, dict(context), db=db, organization_id=organization_id):
+            sent += 1
+
+    # Enterprise → also route to assigned Customer Success / Account Executive
+    # (fallback: internal Billing Operations mailbox).
+    if is_enterprise_org(db, organization_id):
+        cs_email = _delinquency_billing_ops_email()
+        if cs_email:
+            if send_approval_email(cs_email, template, dict(context), db=db, organization_id=organization_id):
+                sent += 1
+
+    return {"recipients": recipients, "sent": sent, "stage": stage}
+
+
+# ── Evaluation milestone reminders (ZHR-COM-ENT-001 Section 8.1) ─────────────
+# Sent once per evaluation to conversion_owner (single recipient, unlike the
+# resolved billing-recipients list delinquency notices use). Copy constraint:
+# none of these may state or imply an automatic charge — the evaluation
+# simply ends if no plan is activated first.
+
+def send_evaluation_7_days_remaining(
+    email: str, org_name: str, evaluation_ends_at_display: str,
+    login_url: str = None, db=None, organization_id=None,
+):
+    return send_approval_email(email, "evaluation_7_days_remaining.html", {
+        "subject": f"7 Days Left in Your Evaluation — {org_name} | Zoiko HR",
+        "organization_name": org_name,
+        "evaluation_ends_at": evaluation_ends_at_display,
+        "login_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_2_days_remaining(
+    email: str, org_name: str, evaluation_ends_at_display: str,
+    login_url: str = None, db=None, organization_id=None,
+):
+    return send_approval_email(email, "evaluation_2_days_remaining.html", {
+        "subject": f"Only 2 Days Left in Your Evaluation — {org_name} | Zoiko HR",
+        "organization_name": org_name,
+        "evaluation_ends_at": evaluation_ends_at_display,
+        "login_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_expired(
+    email: str, org_name: str, evaluation_ends_at_display: str,
+    login_url: str = None, db=None, organization_id=None,
+):
+    return send_approval_email(email, "evaluation_expired.html", {
+        "subject": f"Your Evaluation Has Ended — {org_name} | Zoiko HR",
+        "organization_name": org_name,
+        "evaluation_ends_at": evaluation_ends_at_display,
+        "login_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_support_access_granted_email(
+    organization_id: int,
+    recipient_email: str,
+    grant_duration_hours: int,
+    expires_at: str,
+    db=None,
+):
+    """Internal Billing Operations notice that a time-bounded support-access
+    grant was issued for an org. Kept minimal — no financial data."""
+    try:
+        from app.config import settings
+
+        login_url = f"{settings.FRONTEND_URL.rstrip('/')}/super-admin/organizations/{organization_id}" if getattr(settings, "FRONTEND_URL", None) else _login_url()
+    except Exception:
+        login_url = _login_url()
+    return send_approval_email(recipient_email, "support_access_granted.html", {
+        "subject": f"Support Access Granted — Org {organization_id} | Zoiko HR",
+        "organization_id": str(organization_id),
+        "grant_duration_hours": str(grant_duration_hours),
+        "expires_at": expires_at,
+        "support_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_started_email(
+    email: str, org_name: str, evaluation_end_date: str,
+    login_url: str = None, db=None, organization_id=None,
+):
+    """ZHR-COM-009 Evaluation workspace activated."""
+    return send_approval_email(email, "evaluation_started.html", {
+        "subject": f"Your Zoiko HR evaluation workspace is ready — {org_name}",
+        "organization_name": org_name,
+        "evaluation_end_date": evaluation_end_date,
+        "action_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_evaluation_halfway_email(
+    email: str, org_name: str, evaluation_end_date: str,
+    login_url: str = None, db=None, organization_id=None,
+):
+    """ZHR-COM-010 Evaluation midpoint review."""
+    return send_approval_email(email, "evaluation_halfway.html", {
+        "subject": f"Zoiko HR evaluation midpoint review — {org_name}",
+        "organization_name": org_name,
+        "evaluation_end_date": evaluation_end_date,
+        "action_url": login_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_assigned_email(
+    email: str, first_name: str, document_name: str, due_at_local: str,
+    action_url: str = None, db=None, organization_id=None,
+):
+    """ZHR-DOC-001 / ZHR-DOC-007 Document requested/available."""
+    return send_approval_email(email, "document_assigned.html", {
+        "subject": "A document is required in Zoiko HR",
+        "first_name": first_name,
+        "document_name": document_name,
+        "due_at_local": due_at_local,
+        "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_performance_review_assigned_email(
+    email: str, first_name: str, cycle_name: str, due_at_local: str,
+    action_url: str = None, db=None, organization_id=None,
+):
+    """ZHR-PER-001 / ZHR-PER-004 Performance review assigned."""
+    return send_approval_email(email, "performance_review_assigned.html", {
+        "subject": f"Performance review action required — {cycle_name}",
+        "first_name": first_name,
+        "cycle_name": cycle_name,
+        "due_at_local": due_at_local,
+        "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_performance_review_submitted_email(
+    email: str, first_name: str, cycle_name: str,
+    action_url: str = None, db=None, organization_id=None,
+):
+    """ZHR-PER-003 Performance review submitted."""
+    return send_approval_email(email, "performance_review_submitted.html", {
+        "subject": f"Your performance review was submitted — {cycle_name}",
+        "first_name": first_name,
+        "cycle_name": cycle_name,
+        "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+
+def send_plain_email(to_email: str, subject: str, body: str, db=None, organization_id=None):
+    """Send a workflow-step message (written as plain text by the workflow author). It goes out in the shared
+    Zoiko HR layout, so it carries the logo and footer like every other email; the text part stays plain.
+    Returns (ok, error_message); an EmailDeliveryLog row is recorded either way."""
+    smtp = _get_smtp_settings(db=db)
+    if not (smtp.get("host") and smtp.get("from_email")):
+        err = "SMTP is not configured."
+        _log_email_delivery(to_email, "workflow_message.html", subject, "failed", err, organization_id, db=db)
+        return False, err
+    lines = [ln.strip() for ln in str(body or "").replace("\r\n", "\n").split("\n")]
+    paragraphs = [ln for ln in lines if ln] or [""]
+    errors: list = []
+    ok = send_approval_email(
+        to_email, "workflow_message.html",
+        {"subject": subject, "preheader_text": paragraphs[0][:120], "paragraphs": paragraphs},
+        db=db, organization_id=organization_id, error_out=errors,
+    )
+    if ok:
+        return True, None
+    return False, (errors[0] if errors else "Email could not be rendered or sent.")[:300]
+
+
+def send_workflow_message(email: str, subject: str, body: str, db=None, organization_id=None):
+    """Branded send used by workflow steps (see send_plain_email, which returns the error text)."""
+    return send_plain_email(email, subject, body, db=db, organization_id=organization_id)[0]
+
+
+def send_pricing_request_received(
+    email: str,
+    first_name: str,
+    reference: str,
+    plan_label: str,
+    products: list,
+    db=None,
+) -> bool:
+    """Confirmation to the person who asked for pricing."""
+    return send_approval_email(email, "pricing_request_received.html", {
+        "subject": f"We received your pricing request ({reference}) | Zoiko HR",
+        "first_name": first_name,
+        "reference": reference,
+        "plan_label": plan_label,
+        "products": ", ".join(products) if products else "All HR products",
+        "support_email": "",
+        "login_url": _login_url(),
+    }, db=db)
+
+
+def send_pricing_request_to_sales(
+    email: str,
+    reference: str,
+    full_name: str,
+    work_email: str,
+    phone: str,
+    company: str,
+    job_title: str,
+    country: str,
+    company_size: str,
+    plan_label: str,
+    products: list,
+    billing_preference: str,
+    timeline: str,
+    message: str,
+    db=None,
+) -> bool:
+    """Tell the sales team about a new pricing request (one e-mail per recipient)."""
+    return send_approval_email(email, "pricing_request_sales.html", {
+        "subject": f"New pricing request {reference}: {company}",
+        "reference": reference,
+        "full_name": full_name,
+        "work_email": work_email,
+        "phone": phone or "Not given",
+        "company": company,
+        "job_title": job_title or "Not given",
+        "country": country,
+        "company_size": company_size,
+        "plan_label": plan_label,
+        "products": ", ".join(products) if products else "Not specified",
+        "billing_preference": billing_preference or "Not specified",
+        "timeline": timeline or "Not specified",
+        "message": message or "No message.",
+    }, db=db)
+
+
+def send_demo_request_received(email: str, first_name: str, reference: str, when: str, demo_format: str, interests: list, db=None) -> bool:
+    """Confirmation to the person who booked a demo."""
+    return send_approval_email(email, "demo_request_received.html", {
+        "subject": f"We received your demo request ({reference}) | Zoiko HR",
+        "first_name": first_name,
+        "reference": reference,
+        "when": when,
+        "demo_format": demo_format,
+        "interests": ", ".join(interests) if interests else "A general overview",
+        "login_url": _login_url(),
+    }, db=db)
+
+
+def send_demo_request_to_admins(
+    email: str, reference: str, full_name: str, work_email: str, phone: str, company: str, job_title: str, country: str,
+    company_size: str, interests: list, when: str, demo_format: str, message: str, db=None,
+) -> bool:
+    """Tell a super admin (or the sales inbox) about a new demo request."""
+    return send_approval_email(email, "demo_request_admin.html", {
+        "subject": f"New demo request {reference}: {company}",
+        "reference": reference,
+        "full_name": full_name,
+        "work_email": work_email,
+        "phone": phone or "Not given",
+        "company": company,
+        "job_title": job_title or "Not given",
+        "country": country,
+        "company_size": company_size,
+        "interests": ", ".join(interests) if interests else "A general overview",
+        "when": when,
+        "demo_format": demo_format,
+        "message": message or "No message.",
+        "requests_url": _login_url().rsplit("/login", 1)[0] + "/super-admin/demo-requests",
+    }, db=db)

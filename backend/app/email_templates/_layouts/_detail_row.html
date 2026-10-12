@@ -1,0 +1,29 @@
+{#-
+  Label/value detail card. Two columns on wide screens; the .stack media
+  query stacks label above value on phones. Without media-query support the
+  40/60 split still wraps legibly at 320px.
+
+    {% call ui.details() %}
+      {{ ui.detail_row("Reference", request_reference, first=True) }}
+      {{ ui.detail_row("Period", leave_period_display) }}
+    {% endcall %}
+-#}
+{% macro details() -%}
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" class="dm-bg-panel" style="width:100%;margin:0 0 24px 0;background-color:#f6f8fb;border:1px solid #dfe5ec;border-radius:10px;">
+<tr>
+<td style="padding:6px 20px;">
+<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;">
+{{ caller() }}
+</table>
+</td>
+</tr>
+</table>
+{%- endmacro %}
+
+{% macro detail_row(label, value, first=False, mono=False) -%}
+{%- set _border = "" if first else "border-top:1px solid #dfe5ec;" -%}
+<tr>
+<td class="stack detail-label dm-text-muted dm-border" width="40%" valign="top" style="vertical-align:top;padding:12px 12px 12px 0;{{ _border }}font-family:{{ FONT_STACK }};font-size:13px;line-height:20px;font-weight:700;color:#4b5563;">{{ label }}</td>
+<td class="stack detail-value dm-text-strong dm-border" valign="top" style="vertical-align:top;padding:12px 0;{{ _border }}font-family:{% if mono %}Consolas,Menlo,'Courier New',monospace{% else %}{{ FONT_STACK }}{% endif %};font-size:15px;line-height:22px;font-weight:600;color:#0f172a;word-break:break-word;">{{ value }}</td>
+</tr>
+{%- endmacro %}

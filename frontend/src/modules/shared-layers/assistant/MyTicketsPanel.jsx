@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { LifeBuoy, CheckCircle2, Clock, X } from "lucide-react";
 import { listMyHandoffs } from "../../../service/assistantService";
+import { formatDateTime } from "../../../utils/dateTime";
 
 export default function MyTicketsPanel({ onClose }) {
   const [tickets, setTickets] = useState([]);
@@ -51,11 +52,11 @@ export default function MyTicketsPanel({ onClose }) {
               </div>
               <p className="mt-1 text-xs text-[var(--zhr-text-primary)]">{t.issue_summary}</p>
               <p className="mt-1 text-[10px] text-[var(--zhr-text-muted)]">
-                Raised {new Date(t.created_at).toLocaleString()}
+                Raised {formatDateTime(t.created_at)}
               </p>
               {t.status === "resolved" && (
                 <p className="mt-1 text-[10px] text-[var(--zhr-text-muted)]">
-                  Resolved{t.resolved_at ? ` ${new Date(t.resolved_at).toLocaleString()}` : ""}
+                  Resolved{t.resolved_at ? ` ${formatDateTime(t.resolved_at)}` : ""}
                   {t.resolution_note ? `: "${t.resolution_note}"` : ""}
                 </p>
               )}

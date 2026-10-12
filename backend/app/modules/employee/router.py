@@ -6,12 +6,14 @@ import uuid
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
+from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.core.client_ip import get_client_ip
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.rate_limiter import limiter
 
@@ -19,13 +21,14 @@ logger = logging.getLogger("zoiko.employee.router")
 
 from app.modules.super_admin.models import AuditLog, AuditAction, LoginActivity
 
+from app.modules.employee import roles as roles_mod
 from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.employee.schema import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeListResponse,
     LoginRequest, RegisterRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
     UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
-    PasswordResetResponse, ChangePasswordRequest, TokenPasswordRequest,
+    PasswordResetResponse, PasswordResetRequest, ChangePasswordRequest, TokenPasswordRequest,
     ChangeManagerRequest, ConfirmProbationRequest,
     EmployeeCompensationCreate, EmployeeCompensationUpdate, EmployeeCompensationResponse,
     EmployeeBenefitCreate, EmployeeBenefitResponse,
@@ -41,6 +44,8 @@ from app.modules.employee.schema import (
     ImportResultResponse,
     BulkEmployeeDeleteRequest,
     BulkDeleteResultResponse,
+    EmployeeSelfUpdate,
+    ContactHRRequest,
 )
 from app.modules.hr.schemas import (
     LeaveRequestCreate, LeaveRequestResponse,
@@ -55,21 +60,39 @@ auth_router = APIRouter(prefix="/auth", tags=["Authentication"])
 employee_router = APIRouter(prefix="/hr", tags=["Employees"])
 
 
+def _is_super_admin(user) -> bool:
+    role = user.role.value if hasattr(user.role, "value") else str(user.role)
+    return role == UserRole.SUPER_ADMIN.value
+
+
+def _role_str(user) -> str:
+    return user.role.value if hasattr(user.role, "value") else str(user.role)
+
+
+def _may_use_profile(current_user, employee_id: int) -> bool:
+    """Bank and identity details belong to their owner; admins/HR may open any profile in the organization."""
+    if current_user.id == employee_id:
+        return True
+    return _role_str(current_user) in ("admin", "hr_admin", "super_admin")
+
+
+def _audit_user_action(db, actor, action, target, details: dict) -> None:
+    """Audit row for a sensitive user-management action. Never put passwords,
+    hashes or tokens in `details`."""
+    db.add(AuditLog(
+        action=action, entity_type="Employee", entity_id=target.id,
+        performed_by=actor.id, performed_by_email=actor.email, details=details,
+    ))
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUTH ENDPOINTS
 # ═══════════════════════════════════════════════════════════════════════════════
 
-@auth_router.post(
-    "/login",
-    response_model=TokenResponse,
-    summary="Login and get access token",
-)
-@limiter.limit("10/minute")
-def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
-    result = service.login_employee(db, data)
+def _record_sign_in(request: Request, db: Session, result: dict, method: str = "password") -> dict:
     employee = result.get("employee")
     if employee:
-        ip = request.client.host if request.client else None
+        ip = get_client_ip(request)
         ua = request.headers.get("user-agent")
         login_activity = LoginActivity(
             user_id=employee.id,
@@ -86,11 +109,120 @@ def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
             entity_id=employee.id,
             performed_by=employee.id,
             performed_by_email=employee.email,
-            details={"ip": ip, "user_agent": ua},
+            details={"ip": ip, "user_agent": ua, "method": method},
         )
         db.add(audit)
         db.commit()
     return result
+
+
+@auth_router.post(
+    "/login",
+    response_model=TokenResponse,
+    summary="Login and get access token",
+)
+@limiter.limit("10/minute")
+def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
+    return _record_sign_in(request, db, service.login_employee(db, data))
+
+
+# ── Confirming an e-mail address ─────────────────────────────────────────────
+
+class VerifyEmailRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: str
+
+
+@auth_router.post("/verify-email", response_model=dict, summary="Confirm an email address from the emailed link")
+@limiter.limit("20/minute")
+def verify_email(request: Request, data: VerifyEmailRequest, db: Session = Depends(get_db)):
+    return service.verify_email(db, data.token)
+
+
+@auth_router.post("/resend-verification", response_model=dict, summary="Send a new confirmation link")
+@limiter.limit("5/hour")
+def resend_verification(request: Request, data: ResendVerificationRequest, db: Session = Depends(get_db)):
+    return service.resend_email_verification(db, data.email)
+
+
+# ── Sign in with Google ───────────────────────────────────────────────────────
+
+class GoogleExchangeRequest(BaseModel):
+    ticket: str
+
+
+@auth_router.get("/google/status", response_model=dict, summary="Is Sign in with Google set up?")
+def google_status():
+    from app.modules.employee import google_auth
+    return {"enabled": google_auth.is_configured()}
+
+
+@auth_router.get("/google/login", summary="Start Sign in with Google", include_in_schema=True)
+@limiter.limit("20/minute")
+def google_login(request: Request):
+    from fastapi.responses import RedirectResponse
+    from app.modules.employee import google_auth
+
+    if not google_auth.is_configured():
+        return RedirectResponse(google_auth.frontend_login_url(google_error="not_configured"), status_code=302)
+    nonce = google_auth.new_nonce()
+    response = RedirectResponse(google_auth.authorize_url(nonce), status_code=302)
+    response.set_cookie(
+        google_auth.NONCE_COOKIE, nonce, max_age=google_auth.STATE_TTL_SECONDS, httponly=True,
+        secure=str(request.url.scheme) == "https", samesite="lax", path="/auth/google",
+    )
+    return response
+
+
+@auth_router.get("/google/callback", summary="Google sends the browser back here", include_in_schema=True)
+@limiter.limit("20/minute")
+def google_callback(request: Request, db: Session = Depends(get_db), code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
+    from fastapi.responses import RedirectResponse
+    from app.modules.employee import google_auth
+
+    def back(**params):
+        response = RedirectResponse(google_auth.frontend_login_url(**params), status_code=302)
+        response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
+        return response
+
+    if not google_auth.is_configured():
+        return back(google_error="not_configured")
+    if error:
+        return back(google_error="cancelled" if error == "access_denied" else "failed")
+    if not code or not google_auth.state_matches_browser(state or "", request.cookies.get(google_auth.NONCE_COOKIE)):
+        return back(google_error="expired")
+    profile = google_auth.verified_profile_for_code(code)
+    email, problem = profile["email"], profile["error"]
+    if problem:
+        return back(google_error=problem)
+    employee = db.query(Employee).filter(func.lower(Employee.email) == email).first()
+    if not employee:
+        # Google confirmed who they are, but they have no account yet: send them to Register with their address filled in.
+        response = RedirectResponse(google_auth.frontend_register_url(
+            google_email=email, google_name=profile.get("name") or "", google_proof=google_auth.make_signup_proof(email)), status_code=302)
+        response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
+        return response
+    if not employee.email_verified:       # Google has just confirmed this person controls the address
+        employee.email_verified = True
+        employee.email_verified_at = datetime.utcnow()
+        db.commit()
+    return back(google_ticket=google_auth.make_ticket(employee.id))
+
+
+@auth_router.post("/google/exchange", response_model=TokenResponse, summary="Trade the one-time Google ticket for tokens")
+@limiter.limit("20/minute")
+def google_exchange(request: Request, data: GoogleExchangeRequest, db: Session = Depends(get_db)):
+    from app.core.exceptions import UnauthorizedException
+    from app.modules.employee import google_auth
+
+    employee_id = google_auth.redeem_ticket(data.ticket)
+    employee = db.query(Employee).filter(Employee.id == employee_id).first() if employee_id else None
+    if not employee:
+        raise UnauthorizedException(google_auth.ERRORS["expired"])
+    return _record_sign_in(request, db, service.issue_login(db, employee), method="google")
 
 
 @auth_router.post(
@@ -139,7 +271,7 @@ def get_me(
     summary="Logout",
 )
 def logout(current_user=Depends(get_current_user), request: Request = None, db: Session = Depends(get_db)):
-    ip = request.client.host if request and request.client else None
+    ip = get_client_ip(request) if request else None
     audit = AuditLog(
         action=AuditAction.LOGOUT,
         entity_type="User",
@@ -168,8 +300,25 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         raise UnauthorizedException("Invalid or expired refresh token.")
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
+    if employee and employee.organization_id:
+        # before the is_active check: a deleted organization deactivates its users
+        from app.core import org_access
+        oa = org_access.get_org_access(db, employee.organization_id)
+        if oa.deleted:
+            from app.modules.super_admin import organization_service
+            raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
     if not employee or not employee.is_active:
         raise UnauthorizedException("Employee not found or inactive.")
+
+    if employee.organization_id:
+        from app.core import org_access
+        oa = org_access.get_org_access(db, employee.organization_id)
+        if oa.status in ("active", "approved") and oa.evaluation_block_reason:
+            raise UnauthorizedException(oa.evaluation_block_reason)
+
+    from app.core.security import token_predates_password_change
+    if token_predates_password_change(payload, employee):
+        raise UnauthorizedException("Your password was changed. Please log in again.")
 
     new_token = create_access_token(data={
         "sub": employee.email,
@@ -207,6 +356,16 @@ def change_password(
         current_password=data.current_password,
         new_password=data.new_password,
     )
+
+
+@auth_router.post(
+    "/me/forgot-password",
+    response_model=dict,
+    summary="Email yourself a password reset link (signed-in user)",
+)
+@limiter.limit("3/minute")
+def forgot_my_password(request: Request, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.request_own_password_reset(db, current_user)
 
 
 # ── Single-Use Action Links (invite / reset) ─────────────────────────────────
@@ -263,7 +422,7 @@ def _action_form_page(title: str, token: str, action_path: str) -> HTMLResponse:
             "'<div style=\"max-width:480px;margin:0 auto;background:#ffffff;border-radius:12px;padding:32px;text-align:center;\">"
             "<h1 style=\"color:#059669;\">All set</h1><p style=\"color:#374151;\">Your password has been set. "
             "<a href=\"" + LOGIN_URL + "\">Sign in to Zoiko HR</a>.</p></div>';}"
-            "else{busy=false;document.querySelector('button').disabled=false;document.querySelector('button').textContent='Continue';e.textContent=res.json.detail||'Something went wrong.';e.style.display='block';}"
+            "else{busy=false;document.querySelector('button').disabled=false;document.querySelector('button').textContent='Continue';e.textContent=(typeof res.json.message==='string'&&res.json.message)||(typeof res.json.detail==='string'&&res.json.detail)||(Array.isArray(res.json.detail)&&res.json.detail[0]&&res.json.detail[0].msg)||'Something went wrong.';e.style.display='block';}"
             "})"
             ".catch(function(){busy=false;document.querySelector('button').disabled=false;document.querySelector('button').textContent='Continue';e.textContent='Network error. Please try again.';e.style.display='block';});}"
             "</script>"
@@ -376,40 +535,28 @@ def create_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Validate role hierarchy: what roles can the current user create?
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
-    
-    if current_role == "admin":
-        # Organization Admin can create any role except SUPER_ADMIN
-        if data.role == UserRole.SUPER_ADMIN:
-            raise HTTPException(
-                status_code=403,
-                detail="Cannot create SUPER_ADMIN role. Only platform admins can create super admins."
-            )
-        allowed_create_roles = [UserRole.ADMIN, UserRole.HR_ADMIN, UserRole.BILLING_ADMIN, UserRole.EMPLOYEE]
-    elif current_role == "hr_admin":
-        # HR Admin can only create EMPLOYEE
-        allowed_create_roles = [UserRole.EMPLOYEE]
-    else:
-        # Other roles cannot create users (should not reach here due to dependency check)
-        raise HTTPException(
-            status_code=403,
-            detail=f"Role '{current_role}' does not have permission to create users."
-        )
-    
-    if data.role not in allowed_create_roles:
-        raise HTTPException(
-            status_code=422,
-            detail=f"Cannot create user with role '{data.role.value}'. Your role '{current_role}' can only create: {', '.join([r.value for r in allowed_create_roles])}."
-        )
+    # One rule set (employee/roles.py) decides who may assign which role and
+    # which organization the new user belongs to.
+    target_organization_id = roles_mod.resolve_target_organization(
+        db, current_user, data.role, data.organization_id, data.confirm_super_admin,
+    )
+    current_role = _role_str(current_user)
 
     employee, temp_password = service.create_organization_user(
         db, data,
-        organization_id=current_user.organization_id,
+        organization_id=target_organization_id,
         created_by_id=current_user.id,
+        actor=current_user,
     )
 
-    if data.role == UserRole.ADMIN:
+    _audit_user_action(
+        db, current_user, AuditAction.CREATE, employee,
+        {"event": "user.created", "role": data.role.value, "organization_id": target_organization_id,
+         "target_email": employee.email, "confirmed_super_admin": bool(data.confirm_super_admin) or None},
+    )
+    db.commit()
+
+    if data.role in (UserRole.ADMIN, UserRole.SUPER_ADMIN):
         return {
             "message": f"Invitation sent to {employee.email}. They will set up their own password via the secure link.",
             "user": UserResponse.model_validate(employee),
@@ -434,7 +581,10 @@ def get_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_organization_user(db, user_id, current_user.organization_id)
+    return service.get_organization_user(
+        db, user_id, current_user.organization_id,
+        skip_org_filter=_is_super_admin(current_user),
+    )
 
 
 @employee_router.put(
@@ -450,10 +600,13 @@ def update_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy: what roles can the current user edit?
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -464,11 +617,35 @@ def update_user(
                 detail=f"You do not have permission to edit users with role '{target_role}'. HR Admins can only edit HR staff and employees."
             )
     
-    return service.update_organization_user(
+    old_role = target_role
+    if data.role is not None and data.role.value != old_role:
+        if existing_user.id == current_user.id:
+            raise HTTPException(status_code=403, detail="You cannot change your own role.")
+        # Same rules as creation: the caller must be allowed to assign the new
+        # role, and the user must stay in a valid organization for it.
+        roles_mod.resolve_target_organization(
+            db, current_user, data.role,
+            None if roles_mod.is_platform_role(data.role) else existing_user.organization_id,
+            data.confirm_super_admin,
+        )
+        if roles_mod.is_platform_role(data.role):
+            raise HTTPException(status_code=400, detail="Convert an existing user to Super Admin by creating a new Super Admin account instead.")
+        if roles_mod.is_platform_role(old_role):
+            raise HTTPException(status_code=400, detail="A Super Admin's role cannot be changed here.")
+
+    updated = service.update_organization_user(
         db, user_id, data,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
+    if data.role is not None and data.role.value != old_role:
+        _audit_user_action(
+            db, current_user, AuditAction.UPDATE, updated,
+            {"event": "user.role_changed", "from": old_role, "to": data.role.value, "target_email": updated.email},
+        )
+        db.commit()
+    return updated
 
 
 @employee_router.delete(
@@ -483,10 +660,13 @@ def deactivate_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -501,6 +681,7 @@ def deactivate_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -516,10 +697,14 @@ def hard_delete_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+    target_name = existing_user.full_name
 
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
 
     if current_role == "hr_admin":
@@ -533,8 +718,16 @@ def hard_delete_user(
     if user_id == current_user.id:
         raise HTTPException(status_code=400, detail="You cannot delete your own account.")
 
-    service.hard_delete_employee(db, user_id, organization_id=current_user.organization_id)
-    return {"message": f"User {existing_user.full_name} has been permanently deleted."}
+    try:
+        service.hard_delete_employee(db, user_id, organization_id=current_user.organization_id)
+    except Exception as exc:
+        db.rollback()
+        logger.error("Hard-delete of user %s failed: %s", user_id, exc, exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to permanently delete user '{target_name}'. No changes were committed.",
+        ) from exc
+    return {"message": f"User {target_name} has been permanently deleted."}
 
 
 @employee_router.post(
@@ -549,10 +742,13 @@ def activate_user(
     current_user=Depends(get_current_user),
 ):
     # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
     
     # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     
     if current_role == "hr_admin":
@@ -567,6 +763,7 @@ def activate_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -581,8 +778,11 @@ def suspend_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     if current_role == "hr_admin":
         if target_role in [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.BILLING_ADMIN]:
@@ -591,6 +791,7 @@ def suspend_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
@@ -605,8 +806,11 @@ def archive_user(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
     if current_role == "hr_admin":
         if target_role in [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.BILLING_ADMIN]:
@@ -615,51 +819,74 @@ def archive_user(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
     )
 
 
 @employee_router.post(
     "/admin/users/{user_id}/reset-password",
     response_model=PasswordResetResponse,
-    summary="Reset user password",
+    summary="Reset user password (email link or temporary password)",
     dependencies=[Depends(get_current_admin)],
 )
+@limiter.limit("10/minute")
 def reset_user_password(
+    request: Request,
     user_id: int,
+    data: PasswordResetRequest = Body(default_factory=PasswordResetRequest),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Get the existing user to check their role
-    existing_user = service.get_organization_user(db, user_id, current_user.organization_id)
-    
-    # Validate role hierarchy
-    current_role = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
+    skip_org_filter = _is_super_admin(current_user)
+    existing_user = service.get_organization_user(
+        db, user_id, current_user.organization_id, skip_org_filter,
+    )
+
+    current_role = _role_str(current_user)
     target_role = existing_user.role.value if hasattr(existing_user.role, 'value') else str(existing_user.role)
-    
+
     if current_role == "hr_admin":
         # HR Admin cannot reset password for ADMIN or SUPER_ADMIN roles
-        if target_role in [UserRole.ADMIN, UserRole.SUPER_ADMIN, UserRole.BILLING_ADMIN]:
+        if target_role in [UserRole.ADMIN.value, UserRole.SUPER_ADMIN.value, UserRole.BILLING_ADMIN.value]:
             raise HTTPException(
                 status_code=403,
                 detail=f"You do not have permission to reset password for users with role '{target_role}'."
             )
-    
+    if current_role == "admin" and target_role == UserRole.SUPER_ADMIN.value:
+        raise HTTPException(status_code=403, detail="Only a Super Admin can reset a Super Admin's password.")
+
     user, temp_password = service.reset_user_password(
         db, user_id,
         organization_id=current_user.organization_id,
         updated_by_id=current_user.id,
+        skip_org_filter=skip_org_filter,
+        method=data.method,
     )
+    _audit_user_action(
+        db, current_user, AuditAction.PASSWORD_RESET, user,
+        {"event": "user.password_reset", "method": data.method, "target_email": user.email,
+         "target_role": target_role, "organization_id": user.organization_id},
+    )
+    db.commit()
 
     if temp_password is None:
         return PasswordResetResponse(
-            message=f"Password reset link sent to {user.email}.",
-            temporary_password=None,
+            message=f"Reset link sent to {user.email}. It expires in {service.RESET_TOKEN_TTL_MINUTES} minutes.",
+            temporary_password=None, method="link",
         )
-
     return PasswordResetResponse(
-        message=f"Password reset for {user.full_name}.",
-        temporary_password=temp_password,
+        message=f"Temporary password set for {user.full_name or user.email}. They must change it at next login.",
+        temporary_password=temp_password, method="temporary",
     )
+
+
+@employee_router.get(
+    "/admin/roles",
+    summary="Roles the current user may assign (single source of truth)",
+    dependencies=[Depends(get_current_admin)],
+)
+def list_assignable_roles(current_user=Depends(get_current_user)):
+    return {"roles": roles_mod.assignable_roles(current_user.role)}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -675,17 +902,35 @@ def get_my_profile(current_user=Depends(get_current_user)):
     return current_user
 
 
+@employee_router.post(
+    "/employees/me/contact-hr",
+    response_model=dict,
+    summary="Send a message to the HR team",
+)
+@limiter.limit("5/hour")
+def contact_hr(
+    request: Request,
+    data: ContactHRRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    return service.contact_hr(db, current_user, data.topic, data.message)
+
+
 @employee_router.put(
     "/employees/me",
     response_model=EmployeeResponse,
     summary="Update my own profile",
 )
 def update_my_profile(
-    data: EmployeeUpdate,
+    data: EmployeeSelfUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.update_employee(db, current_user.id, data, current_user.organization_id)
+    return service.update_employee(
+        db, current_user.id, EmployeeUpdate(**data.model_dump(exclude_unset=True)),
+        current_user.organization_id, actor=current_user,
+    )
 
 
 @employee_router.post(
@@ -696,7 +941,9 @@ def update_my_profile(
     dependencies=[Depends(get_current_admin)],
 )
 def create_employee(data: EmployeeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_employee(db, data, current_user.organization_id)
+    # the same rule set as "add user" decides who may assign which role (an organization admin cannot create a Super Admin)
+    organization_id = roles_mod.resolve_target_organization(db, current_user, data.role, None, False)
+    return service.create_employee(db, data, organization_id or current_user.organization_id, actor=current_user)
 
 
 @employee_router.get(
@@ -745,7 +992,7 @@ def update_employee(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.update_employee(db, employee_id, data, current_user.organization_id)
+    return service.update_employee(db, employee_id, data, current_user.organization_id, actor=current_user)
 
 
 @employee_router.delete(
@@ -759,7 +1006,7 @@ def deactivate_employee(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    service.deactivate_employee(db, employee_id, current_user.organization_id)
+    service.deactivate_employee(db, employee_id, current_user.organization_id, actor=current_user)
     return {"message": f"Employee {employee_id} has been deactivated successfully."}
 
 
@@ -778,9 +1025,10 @@ def create_leave(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None:
-        data.employee_id = current_user.id
-    return hr_service.create_leave_request(db, data, org_id=current_user.organization_id)
+    if data.employee_id is None or current_user.role == UserRole.EMPLOYEE:
+        data.employee_id = current_user.id          # an employee can only apply for themselves
+    hr_service.check_leave_application(db, data, current_user.organization_id)      # dates, reason, clashes and balance
+    return hr_service.create_leave_request(db, data, org_id=current_user.organization_id, actor=current_user)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -797,8 +1045,10 @@ def create_travel(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None:
-        data.employee_id = current_user.id
+    is_employee = current_user.role == UserRole.EMPLOYEE
+    if data.employee_id is None or is_employee:
+        data.employee_id = current_user.id          # an employee raises requests for themselves only
+    hr_service.check_travel_dates(data.start_date, data.end_date, allow_past=not is_employee)
     return hr_service.create_travel_request(db, data, organization_id=current_user.organization_id)
 
 
@@ -813,8 +1063,9 @@ def create_travel_expense(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None:
-        data.employee_id = current_user.id
+    if data.employee_id is None or current_user.role == UserRole.EMPLOYEE:
+        data.employee_id = current_user.id          # a claim is always raised for yourself
+    hr_service.check_expense_trip(db, data, current_user.organization_id)
     return hr_service.create_travel_expense(db, data, organization_id=current_user.organization_id)
 
 
@@ -895,7 +1146,9 @@ def get_employee_mgmt(
     dependencies=[Depends(get_current_admin)],
 )
 def create_employee_mgmt(data: EmployeeCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_employee(db, data, current_user.organization_id)
+    # the same rule set as "add user" decides who may assign which role (an organization admin cannot create a Super Admin)
+    organization_id = roles_mod.resolve_target_organization(db, current_user, data.role, None, False)
+    return service.create_employee(db, data, organization_id or current_user.organization_id, actor=current_user)
 
 
 @employee_router.post(
@@ -917,6 +1170,7 @@ async def import_employees_mgmt(
         filename=filename,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
     return ImportResultResponse(**result)
 
@@ -950,7 +1204,7 @@ def update_employee_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    return service.update_employee(db, employee_id, data, organization_id=current_user.organization_id)
+    return service.update_employee(db, employee_id, data, organization_id=current_user.organization_id, actor=current_user)
 
 
 @employee_router.delete(
@@ -968,6 +1222,7 @@ def delete_employee_mgmt(employee_id: int, db: Session = Depends(get_db), curren
         employee_id,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
     return {"message": result["message"]}
 
@@ -988,6 +1243,7 @@ def bulk_delete_employees_mgmt(
         data.ids,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
 
 
@@ -1002,6 +1258,7 @@ def delete_all_employees_mgmt(db: Session = Depends(get_db), current_user=Depend
         db,
         organization_id=current_user.organization_id,
         current_user_id=current_user.id,
+        actor=current_user,
     )
 
 
@@ -1015,7 +1272,7 @@ def hard_delete_employee(employee_id: int, db: Session = Depends(get_db), curren
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    service.hard_delete_employee(db, employee_id, organization_id=current_user.organization_id)
+    service.hard_delete_employee(db, employee_id, organization_id=current_user.organization_id)  # event recorded by bulk_hard_delete_employees
     return {"message": f"Employee {employee_id} has been permanently deleted."}
 
 
@@ -1037,6 +1294,7 @@ def bulk_hard_delete_employees(
     result = service.bulk_hard_delete_employees(
         db, body.employee_ids,
         organization_id=current_user.organization_id,
+        actor=current_user,
     )
     return {
         "message": f"{len(result['deleted'])} employee(s) deleted. {len(result['failed'])} failed.",
@@ -1057,6 +1315,8 @@ def get_employee_profile_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
+    if not _may_use_profile(current_user, employee_id):
+        raise HTTPException(status_code=403, detail="You can only open your own profile.")
     return service.get_employee_profile(db, employee_id, organization_id=current_user.organization_id)
 
 
@@ -1074,7 +1334,9 @@ def update_employee_profile_mgmt(
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
         raise HTTPException(status_code=403, detail="Access denied")
-    return service.update_employee_profile(db, employee_id, data, organization_id=current_user.organization_id)
+    if not _may_use_profile(current_user, employee_id):
+        raise HTTPException(status_code=403, detail="You can only change your own profile.")
+    return service.update_employee_profile(db, employee_id, data, organization_id=current_user.organization_id, actor=current_user)
 
 
 # ── ORGANIZATION STRUCTURE ────────────────────────────────────────────────────
@@ -1242,20 +1504,20 @@ def get_employee_compensations(db: Session = Depends(get_db), current_user=Depen
 
 @employee_router.post("/compensation/employee-compensation", response_model=EmployeeCompensationResponse, summary="Assign compensation", dependencies=[Depends(get_current_admin)])
 def create_employee_compensation(data: EmployeeCompensationCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_employee_compensation(db, data, current_user.organization_id)
+    return service.create_employee_compensation(db, data, current_user.organization_id, actor=current_user)
 
 @employee_router.put("/compensation/employee-compensation/{id}", response_model=EmployeeCompensationResponse, summary="Update employee compensation", dependencies=[Depends(get_current_admin)])
 def update_employee_compensation(id: int, data: EmployeeCompensationUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.update_employee_compensation(db, id, data, current_user.organization_id)
+    return service.update_employee_compensation(db, id, data, current_user.organization_id, actor=current_user)
 
 @employee_router.delete("/compensation/employee-compensation/{id}", summary="Delete employee compensation", dependencies=[Depends(get_current_admin)])
 def delete_employee_compensation(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    service.delete_employee_compensation(db, id, current_user.organization_id)
+    service.delete_employee_compensation(db, id, current_user.organization_id, actor=current_user)
     return {"message": "Employee compensation deleted successfully."}
 
 @employee_router.post("/compensation/employee-benefits", response_model=EmployeeBenefitResponse, summary="Enroll in benefit", dependencies=[Depends(get_current_admin)])
 def create_employee_benefit(data: EmployeeBenefitCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.create_employee_benefit(db, data, current_user.organization_id)
+    return service.create_employee_benefit(db, data, current_user.organization_id, actor=current_user)
 
 @employee_router.get("/compensation/employee-benefits", response_model=list[EmployeeBenefitResponse], summary="List employee benefits")
 def get_employee_benefits(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
@@ -1263,5 +1525,5 @@ def get_employee_benefits(db: Session = Depends(get_db), current_user=Depends(ge
 
 @employee_router.delete("/compensation/employee-benefits/{id}", summary="Remove benefit", dependencies=[Depends(get_current_admin)])
 def delete_employee_benefit(id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    service.delete_employee_benefit(db, id, current_user.organization_id)
+    service.delete_employee_benefit(db, id, current_user.organization_id, actor=current_user)
     return {"message": "Employee benefit removed successfully."}

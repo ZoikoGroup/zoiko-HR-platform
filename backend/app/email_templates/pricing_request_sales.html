@@ -1,0 +1,27 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "New pricing request" %}
+{% set preheader = full_name ~ " from " ~ company ~ " asked for pricing (" ~ reference ~ ")." %}
+{% set badge = "New pricing request" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because you are on the Zoiko HR sales notification list.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">New pricing request</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}"><strong class="dm-text-strong" style="{{ S.strong }}">{{ full_name }}</strong> from <strong class="dm-text-strong" style="{{ S.strong }}">{{ company }}</strong> asked for pricing. Reply to them at {{ work_email }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Reference", reference, first=True, mono=True) }}
+{{ ui.detail_row("Name", full_name) }}
+{{ ui.detail_row("Work email", work_email) }}
+{{ ui.detail_row("Phone", phone) }}
+{{ ui.detail_row("Company", company) }}
+{{ ui.detail_row("Job title", job_title) }}
+{{ ui.detail_row("Country", country) }}
+{{ ui.detail_row("Company size", company_size) }}
+{{ ui.detail_row("Plan of interest", plan_label) }}
+{{ ui.detail_row("Products", products) }}
+{{ ui.detail_row("Billing", billing_preference) }}
+{{ ui.detail_row("Timeline", timeline) }}
+{{ ui.detail_row("Message", message) }}
+{% endcall %}
+{{ ui.signoff() }}
+{% endblock %}

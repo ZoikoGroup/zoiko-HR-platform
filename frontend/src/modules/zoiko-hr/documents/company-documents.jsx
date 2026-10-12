@@ -6,6 +6,7 @@ import {
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
+import { useAuth } from "../../../context/AuthContext";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import { fileTypeIcon, fmtDate } from "../../../utils/documents";
 import {
@@ -15,22 +16,18 @@ import {
   deleteDocumentFolder, assignFolderToEmployees
 } from "../../../service/hrService";
 
-const STATUS_META = {
-  pending:  { label: "Pending",  bg: "bg-amber-50",   text: "text-amber-700",  border: "border-amber-200",  dot: "bg-amber-500"  },
-  approved: { label: "Approved", bg: "bg-emerald-50",  text: "text-emerald-700", border: "border-emerald-200", dot: "bg-emerald-500" },
-  rejected: { label: "Rejected", bg: "bg-rose-50",    text: "text-rose-700",   border: "border-rose-200",   dot: "bg-rose-500"   },
-  expired:  { label: "Expired",  bg: "bg-slate-100",  text: "text-slate-500",  border: "border-slate-200",  dot: "bg-slate-400"  },
-};
+// Only organization admins upload company documents, so there is nothing to approve or
+// reject: a document is simply available, or past its expiry date.
 const StatusBadge = ({ status }) => {
-  const m = STATUS_META[status] || STATUS_META.pending;
+  if (status !== "expired") return null;
   return (
-    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border ${m.bg} ${m.text} ${m.border}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${m.dot}`} />
-      {m.label}
+    <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border bg-slate-100 text-slate-500 border-slate-200">
+      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+      Expired
     </span>
   );
 };
-const STATUS_FILTERS = ["all", "pending", "approved", "rejected", "expired"];
+const STATUS_FILTERS = ["all", "expired"];
 
 const ACCESS_ROLE_LABELS = {
   all: "All Employees", employee: "All Employees", manager: "Managers+",
@@ -38,6 +35,9 @@ const ACCESS_ROLE_LABELS = {
 };
 
 export default function CompanyDocuments() {
+  const { role } = useAuth();
+  const isAdmin = role === "admin" || role === "hr_admin" || role === "super_admin";
+
   const [docs, setDocs]         = useState([]);
   const [loading, setLoading]   = useState(true);
   const [error, setError]       = useState(null);
@@ -283,14 +283,18 @@ export default function CompanyDocuments() {
             </div>
           </div>
           <div className="flex items-center gap-2">
-            <button onClick={() => setFolderModal(true)}
-              className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
-              <FolderPlus className="w-4 h-4" /> New Folder
-            </button>
-            <button onClick={() => setUploadModal(true)}
-              className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
-              <Upload className="w-4 h-4" /> Upload
-            </button>
+            {isAdmin && (
+              <>
+                <button onClick={() => setFolderModal(true)}
+                  className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
+                  <FolderPlus className="w-4 h-4" /> New Folder
+                </button>
+                <button onClick={() => setUploadModal(true)}
+                  className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
+                  <Upload className="w-4 h-4" /> Upload
+                </button>
+              </>
+            )}
             <button onClick={load} className="flex items-center gap-2 text-sm font-medium text-slate-600 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
               <RefreshCw className="w-4 h-4" /> Refresh
             </button>
@@ -332,14 +336,18 @@ export default function CompanyDocuments() {
                     <p className="text-xs text-slate-400">{f.document_count || 0} doc{(f.document_count || 0) !== 1 ? "s" : ""}</p>
                   </div>
                 </div>
-                <button onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f.id, f.name); }}
-                  className="absolute top-2 right-2 p-1 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete folder">
-                  <Trash2 className="w-3.5 h-3.5" />
-                </button>
-                <button onClick={(e) => { e.stopPropagation(); openFolderAssign(f); }}
-                  className="absolute bottom-2 right-2 p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-all" title="Assign folder to employees">
-                  <UserPlus className="w-3.5 h-3.5" />
-                </button>
+                {isAdmin && (
+                  <>
+                    <button onClick={(e) => { e.stopPropagation(); handleDeleteFolder(f.id, f.name); }}
+                      className="absolute top-2 right-2 p-1 rounded-lg text-slate-300 hover:text-rose-500 hover:bg-rose-50 opacity-0 group-hover:opacity-100 transition-all" title="Delete folder">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={(e) => { e.stopPropagation(); openFolderAssign(f); }}
+                      className="absolute bottom-2 right-2 p-1.5 rounded-lg text-slate-300 hover:text-blue-500 hover:bg-blue-50 opacity-0 group-hover:opacity-100 transition-all" title="Assign folder to employees">
+                      <UserPlus className="w-3.5 h-3.5" />
+                    </button>
+                  </>
+                )}
               </div>
             ))}
           </div>
@@ -395,6 +403,11 @@ export default function CompanyDocuments() {
                     <p className="font-semibold text-slate-800 leading-snug line-clamp-2 group-hover:text-blue-700 transition-colors">{d.title}</p>
                   </div>
                   {d.description && <p className="text-xs text-slate-400 line-clamp-2">{d.description}</p>}
+                  {d.file_missing && (
+                    <p role="alert" className="text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg px-2.5 py-1.5">
+                      The file is missing on the server{isAdmin ? ". Upload it again to restore the preview." : "."}
+                    </p>
+                  )}
                   <div className="flex items-center justify-between mt-auto pt-3 border-t border-gray-100">
                     <StatusBadge status={d.status} />
                     <span className="text-xs text-slate-400">{fmtDate(d.created_at)}</span>
@@ -409,21 +422,24 @@ export default function CompanyDocuments() {
                   </div>
                   {/* Action row */}
                   <div className="flex items-center gap-2 pt-1">
-                    <button onClick={() => view(d.id)} disabled={busyId === d.id}
+                    <button onClick={() => view(d.id)} disabled={busyId === d.id || d.file_missing}
+                      title={d.file_missing ? "The file is not on the server. Upload it again." : undefined}
                       className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                       {busyId === d.id && busyAction === "view" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Eye className="w-3.5 h-3.5" />} Preview
                     </button>
-                    <button onClick={() => download(d.id)} disabled={busyId === d.id}
+                    <button onClick={() => download(d.id)} disabled={busyId === d.id || d.file_missing}
                       aria-label={`Download ${d.title}`}
                       className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed">
                       {busyId === d.id && busyAction === "download" ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Download className="w-3.5 h-3.5" />}
                     </button>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => openAssignModal(d)}
-                      className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
-                      <UserPlus className="w-3.5 h-3.5" /> Assign
-                    </button>
+                    {isAdmin && (
+                      <button onClick={() => openAssignModal(d)}
+                        className="flex-1 flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-600 border border-blue-200 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors">
+                        <UserPlus className="w-3.5 h-3.5" /> Assign
+                      </button>
+                    )}
                     <button onClick={() => openViewAssignments(d)}
                       className="flex items-center justify-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-600 border border-slate-200 bg-white rounded-lg hover:bg-slate-50 transition-colors">
                       <Users className="w-3.5 h-3.5" /> Assignees
@@ -605,20 +621,24 @@ export default function CompanyDocuments() {
                           {a.acknowledged_at && <span className="text-xs text-slate-400 ml-2">{fmtDate(a.acknowledged_at)}</span>}
                         </div>
                       </div>
-                      <button onClick={() => handleRemoveAssignment(a.id)}
-                        className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0" title="Remove">
-                        <Trash2 className="w-3.5 h-3.5" />
-                      </button>
+                      {isAdmin && (
+                        <button onClick={() => handleRemoveAssignment(a.id)}
+                          className="p-1.5 rounded-lg text-rose-400 hover:text-rose-600 hover:bg-rose-50 transition-colors shrink-0" title="Remove">
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
                     </div>
                   ))}
                 </div>
               )}
             </div>
             <div className="p-6 pt-0 border-t border-slate-100 shrink-0">
-              <button onClick={() => { setViewAssignModal(null); setAssignments([]); openAssignModal(viewAssignModal); }}
-                className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2">
-                <UserPlus className="w-4 h-4" /> Assign More
-              </button>
+              {isAdmin && (
+                <button onClick={() => { setViewAssignModal(null); setAssignments([]); openAssignModal(viewAssignModal); }}
+                  className="w-full py-2.5 rounded-xl bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 transition flex items-center justify-center gap-2">
+                  <UserPlus className="w-4 h-4" /> Assign More
+                </button>
+              )}
             </div>
           </div>
         </div>

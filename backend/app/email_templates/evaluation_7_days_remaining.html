@@ -1,0 +1,16 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "7 days left in your evaluation" %}
+{% set preheader = "Your evaluation ends in 7 days. Activate a paid plan to keep full access." %}
+{% set badge = "7 days left" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">7 days left in your evaluation</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> team, your Zoiko HR evaluation is scheduled to end in <strong class="dm-text-strong" style="{{ S.strong }}">7 days</strong>, on <strong class="dm-text-strong" style="{{ S.strong }}">{{ evaluation_ends_at }}</strong>.</p>
+{% call ui.notice("What happens next", "info") %}
+Your evaluation will simply end on the date above unless you activate a paid plan first. No payment method is required to keep evaluating, and nothing will be charged automatically — ending is the default outcome, not a billing event.
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">To keep uninterrupted access to your data and every feature in your evaluation scope, activate a paid plan any time before your evaluation ends.</p>
+{{ ui.button(login_url, "Activate a paid plan") }}
+{{ ui.signoff() }}
+{% endblock %}

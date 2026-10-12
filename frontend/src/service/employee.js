@@ -4,7 +4,7 @@
 //
 // Shared HR functions are re-exported from hrService.js to avoid duplication.
 
-import { api, API_BASE_URL } from "./api";
+import { api, API_BASE_URL, getAccessToken } from "./api";
 
 // Re-export shared functions from hrService to eliminate duplication
 export {
@@ -31,6 +31,9 @@ export {
   getTrainingPrograms,
   getAssessments,
   getQuizAttempts,
+  getQuestions,
+  startQuiz,
+  submitQuiz,
 } from "./hrService";
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -39,7 +42,7 @@ export {
 
 export const getEmployeeDashboard = () => api.get("/hr/employee-management/dashboard");
 
-export const getEmployees = (params = {}) => api.get("/hr/employee-management/employees", { params });
+export const getEmployees = (params = {}, opts) => api.get("/hr/employee-management/employees", { params, ...opts });
 export const getEmployeeById = (id) => api.get(`/hr/employee-management/employees/${id}`);
 
 export const createEmployee = (payload) => api.post("/hr/employee-management/employees", payload);
@@ -48,7 +51,7 @@ export const deleteEmployee = (id) => api.delete(`/hr/employee-management/employ
 export const hardDeleteEmployee = (id) => api.delete(`/hr/employee-management/employees/${id}/hard-delete`);
 export const bulkHardDeleteEmployees = (ids) => api.post(`/hr/employee-management/employees/bulk-hard-delete`, { employee_ids: ids });
 
-export const getEmployeeProfile = (employeeId) => api.get(`/hr/employee-management/employees/${employeeId}/profile`);
+export const getEmployeeProfile = (employeeId, opts) => api.get(`/hr/employee-management/employees/${employeeId}/profile`, opts);
 export const updateEmployeeProfile = (employeeId, payload) => api.put(`/hr/employee-management/employees/${employeeId}/profile`, payload);
 
 // ── Organization Structure ───────────────────────────────────────────────
@@ -79,7 +82,6 @@ export const exportEmployeeReports = (payload) => api.post("/hr/employee-managem
 // ════════════════════════════════════════════════════════════════════════════
 
 export async function importEmployees(file) {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const formData = new FormData();
   formData.append("file", file);
@@ -98,7 +100,6 @@ export async function importEmployees(file) {
 }
 
 export async function downloadImportTemplate() {
-  const { getAccessToken, API_BASE_URL } = await import("./api");
   const token = getAccessToken();
   const res = await fetch(`${API_BASE_URL}/hr/employee-management/employees/import/template`, {
     headers: { Authorization: `Bearer ${token}` },
@@ -117,19 +118,20 @@ export async function downloadImportTemplate() {
 
 // ── Supporting Master Data ───────────────────────────────────────────────
 
-export const getDepartments = () => api.get("/hr/departments").then((data) => data);
-export const getDesignations = () => api.get("/hr/designations");
+export const getDepartments = (opts) => api.get("/hr/departments", opts);
+export const getDesignations = (opts) => api.get("/hr/designations", opts);
 
 // ════════════════════════════════════════════════════════════════════════════
 // EMPLOYEE SELF-SERVICE — TRAVEL
 // ════════════════════════════════════════════════════════════════════════════
 
-export const getTravel = (employeeId) => api.get(`/hr/travel${employeeId ? `?employee_id=${employeeId}` : ''}`);
+export const getTravel = (employeeId) => api.get(`/hr/travel?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
 export const getTravelById = (id) => api.get(`/hr/travel/${id}`);
 export const createTravel = (payload) => api.post("/hr/travel", payload);
 export const updateTravel = (id, payload) => api.put(`/hr/travel/${id}`, payload);
 export const deleteTravel = (id) => api.delete(`/hr/travel/${id}`);
 
+export const getTravelExpenses = (employeeId) => api.get(`/hr/travel-expenses?per_page=200${employeeId ? `&employee_id=${employeeId}` : ''}`);
 export const createTravelExpense = (payload) => api.post("/hr/travel/expenses", payload);
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -143,7 +145,7 @@ export const deleteEss = (id) => api.delete(`/hr/ess/${id}`);
 
 // ── My Profile ──────────────────────────────────────────────────────────
 
-export const getMyProfile = () => api.get("/hr/employees/me");
+export const getMyProfile = (opts) => api.get("/hr/employees/me", opts);
 export const updateMyProfile = (payload) => api.put("/hr/employees/me", payload);
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -153,6 +155,12 @@ export const updateMyProfile = (payload) => api.put("/hr/employees/me", payload)
 export const getMyAssets = (employeeId) => api.get(`/hr/assets${employeeId ? `?employee_id=${employeeId}` : ''}`);
 export const createAssetRequest = (payload) => api.post("/hr/assets/requests", payload);
 export const getAssetRequests = (params = {}) => api.get("/hr/assets/requests", { params });
+
+// ════════════════════════════════════════════════════════════════════════════
+// EMPLOYEE SELF-SERVICE — CONTACT HR
+// ════════════════════════════════════════════════════════════════════════════
+
+export const contactHR = (topic, message) => api.post("/hr/employees/me/contact-hr", { topic, message });
 
 // ════════════════════════════════════════════════════════════════════════════
 // HR EMPLOYEES LIST (for manager/employee lookups)

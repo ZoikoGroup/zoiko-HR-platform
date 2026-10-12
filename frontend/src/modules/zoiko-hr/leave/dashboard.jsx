@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Calendar, Clock, CheckCircle, XCircle, CalendarDays, TrendingUp, Users, Briefcase, Home, Minus, TrendingDown, BarChart3 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getLeaveDashboard, getLeaveBalances, getLeaveRequests } from "../../../service/hrService";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/leave" },
@@ -103,8 +104,7 @@ function InitialsAvatar({ name, size = "sm" }) {
 
 function formatDate(dateStr) {
   if (!dateStr) return "—";
-  const d = new Date(dateStr);
-  return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+  return formatDateUtil(dateStr);
 }
 
 const STATUS_BADGE = {
@@ -380,7 +380,7 @@ export default function LeaveDashboard() {
               {[
                 { label: "Working", value: teamOverview.working, color: "bg-emerald-500", textColor: "text-emerald-600" },
                 { label: "On Leave",        value: teamOverview.onLeave,  color: "bg-blue-500",   textColor: "text-blue-600"   },
-                { label: "WFH",             value: teamOverview.wfh,      color: "bg-blue-500", textColor: "text-blue-600" },
+                { label: "WFH",             value: teamOverview.wfh,      color: "bg-emerald-400", textColor: "text-emerald-600" },
                 { label: "Pending Requests",value: teamOverview.pending,  color: "bg-amber-500",  textColor: "text-amber-600"  },
               ].map(({ label, value, color, textColor }) => {
                 const pct = teamOverview.total > 0 ? (value / teamOverview.total) * 100 : 0;

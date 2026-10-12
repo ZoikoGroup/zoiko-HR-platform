@@ -93,7 +93,7 @@ export default function DashboardCharts({ stats, loading, totalEmployees, depart
         <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
           <div className="mb-[18px]">
             <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Headcount by Department</h3>
-            <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>{departments} departments \u00B7 {activeEmployees} active</p>
+            <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>{departments} departments, {activeEmployees} active</p>
           </div>
           {deptData.map((d, i) => {
             const deptColors = [BLUE, AMBER, EMERALD, BLUE, "#94A3B8", "#CBD5E1"];
@@ -112,7 +112,7 @@ export default function DashboardCharts({ stats, loading, totalEmployees, depart
 
       <div className="flex items-baseline justify-between mb-[14px] mt-[30px]">
         <h2 className="font-['Sora',system-ui,sans-serif] text-[15.5px] font-bold tracking-[-0.01em]" style={{ color: INK }}>Recently Added Employees</h2>
-        <button onClick={() => navigate("/organization-admin/users")} className="text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>View all {totalEmployees} \u2192</button>
+        <button onClick={() => navigate("/organization-admin/users")} className="text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>View all {totalEmployees}</button>
       </div>
         <div className="rounded-[20px] border overflow-hidden shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
         <div className="overflow-x-auto">

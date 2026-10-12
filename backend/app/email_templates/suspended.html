@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Service restricted" %}
+{% set preheader = "Zoiko HR service access has been restricted." %}
+{% set badge = "Restricted" %}
+{% set badge_tone = "danger" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Service restricted</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Access for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> has been restricted in accordance with applicable service policy and agreements.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Organization", organization_name, first=True) }}
+{{ ui.detail_row("Status", "Restricted") }}
+{% endcall %}
+{{ ui.button(action_url, "Review restoration steps") }}
+{{ ui.signoff() }}
+{% endblock %}

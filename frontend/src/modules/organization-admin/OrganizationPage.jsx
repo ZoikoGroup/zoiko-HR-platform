@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { getOrganizationDetails, updateOrganizationDetails } from "../../service/orgAdminService";
 import { X, CheckCircle, AlertTriangle } from "lucide-react";
+import { formatDate } from "../../utils/dateTime";
 
 const styles = `
   @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
@@ -459,7 +460,7 @@ export default function OrgAdminOrganizationPage() {
   const plan = org.subscription_plan || "FREE";
   const currency = org.currency || "USD";
   const seatsOver = maxUsers != null ? totalEmployees - maxUsers : 0;
-  const regDate = org.created_at ? new Date(org.created_at).toLocaleDateString() : "—";
+  const regDate = org.created_at ? formatDate(org.created_at) : "—";
 
   const EditField = ({ label, value, onChange, textarea, mono }) => {
     const Tag = textarea ? "textarea" : "input";

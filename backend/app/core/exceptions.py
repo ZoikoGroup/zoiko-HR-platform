@@ -34,7 +34,7 @@ def _cors_headers(request: Request) -> dict:
     origin = request.headers.get("origin", "")
     headers = {
         "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept",
+        "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, Idempotency-Key, X-Confirmation-Id, X-Confirmation-Token",
         "Access-Control-Expose-Headers": "Content-Disposition",
     }
     if origin in _ALLOWED_ORIGINS:
@@ -107,15 +107,28 @@ async def zoiko_exception_handler(request: Request, exc: ZoikoException):
 
 
 async def generic_exception_handler(request: Request, exc: Exception):
-    """Catches any unexpected server error and returns a clean message."""
+    """Catches any unexpected server error and returns a clean message.
+
+    The generic text exists so production users never see a stack trace, but it
+    also hid every real cause behind "Something went wrong on the server" during
+    development — a report of that shape is impossible to act on. So when DEBUG
+    is on, the exception class and message ride along in a separate field; the
+    user-facing `message` stays identical either way.
+    """
     import logging
     logging.getLogger("zoiko").error(f"Unhandled error on {request.method} {request.url.path}: {exc}", exc_info=True)
+
+    content = {
+        "success": False,
+        "error": "INTERNAL_SERVER_ERROR",
+        "message": "Something went wrong on the server. Please try again later.",
+    }
+    if settings.DEBUG:
+        content["detail"] = f"{type(exc).__name__}: {exc}"
+        content["path"] = f"{request.method} {request.url.path}"
+
     return JSONResponse(
         status_code=500,
-        content={
-            "success": False,
-            "error": "INTERNAL_SERVER_ERROR",
-            "message": "Something went wrong on the server. Please try again later.",
-        },
+        content=content,
         headers=_cors_headers(request),
     )

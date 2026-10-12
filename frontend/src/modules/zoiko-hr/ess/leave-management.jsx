@@ -45,6 +45,7 @@ const LEAVE_TYPES = [
   { value: "unpaid", label: "Unpaid Leave", color: "bg-gray-500 text-white" },
   { value: "maternity", label: "Maternity Leave", color: "bg-blue-500 text-white" },
   { value: "paternity", label: "Paternity Leave", color: "bg-blue-500 text-white" },
+  { value: "work_from_home", label: "Work From Home", color: "bg-emerald-500 text-white" },
 ];
 
 const STATUS_META = {

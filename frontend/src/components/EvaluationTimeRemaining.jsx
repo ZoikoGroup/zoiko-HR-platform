@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { Clock, AlertTriangle, CheckCircle } from "lucide-react";
+import { formatDate } from "../utils/dateTime";
 
 const DEFAULT_EVALUATION_DAYS = 14;
 
@@ -59,7 +60,7 @@ export default function EvaluationTimeRemaining({ evaluationEndsAt, compact = fa
             <p className="text-xs text-slate-500">
               {info.expired
                 ? "Contact sales to continue"
-                : `Ends ${new Date(evaluationEndsAt).toLocaleDateString()}`
+                : `Ends ${formatDate(evaluationEndsAt)}`
               }
             </p>
           </div>

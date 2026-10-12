@@ -135,6 +135,18 @@ class TestSignatureVerification:
             mock_settings.STRIPE_WEBHOOK_SECRET = secret
             assert verify_webhook_signature(payload, sig_header) is True
 
+    def test_either_signature_passes_while_the_secret_is_being_rotated(self):
+        """Stripe sends two v1 values during a secret rotation; the one made with our secret may come first or last."""
+        secret = "whsec_new"
+        payload = b'{"id":"evt_9"}'
+        timestamp = str(int(time.time()))
+        good = hmac.new(secret.encode(), f"{timestamp}.{payload.decode()}".encode(), hashlib.sha256).hexdigest()
+        with patch("app.modules.billing.stripe_client.settings") as mock_settings:
+            mock_settings.STRIPE_WEBHOOK_SECRET = secret
+            assert verify_webhook_signature(payload, f"t={timestamp},v1={good},v1={'0' * 64}") is True
+            assert verify_webhook_signature(payload, f"t={timestamp},v1={'0' * 64},v1={good}") is True
+            assert verify_webhook_signature(payload, f"t={timestamp},v1={'0' * 64},v1={'1' * 64}") is False
+
     def test_invalid_signature_rejects(self):
         payload = b'{"id":"evt_123"}'
         sig_header = "t=12345,v1=invalid_signature_here"

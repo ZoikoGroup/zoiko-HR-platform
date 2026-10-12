@@ -27,6 +27,8 @@ from app.modules.billing.models import (
     BillingPlan,
     BillingPlanChange,
     BillingSubscription,
+    DowngradeImpactItem,
+    DowngradeImpactSeverity,
     PlanChangeStatus,
     PlanChangeType,
     PlanCode,
@@ -139,8 +141,14 @@ def preview_plan_change(
         .all()
     )
     target_map_by_key = {m.feature_key: m.state for m in target_mappings}
+    from app.modules.billing.plan_baseline import baseline_included
+
     for fk in FEATURE_KEYS:
-        target_states[fk] = target_map_by_key.get(fk, "ENTITLED_NOT_CONFIGURED")
+        mapped = target_map_by_key.get(fk)
+        if mapped is None:
+            included = baseline_included(target_plan.code, fk)
+            mapped = "ENTITLED_NOT_CONFIGURED" if included is None else ("ENTITLED_AVAILABLE" if included else "NOT_ENTITLED")
+        target_states[fk] = mapped
 
     gained = [
         fk for fk in FEATURE_KEYS
@@ -225,8 +233,14 @@ def schedule_plan_change(
         .all()
     )
     target_map_by_key = {m.feature_key: m.state for m in target_mappings}
+    from app.modules.billing.plan_baseline import baseline_included
+
     for fk in FEATURE_KEYS:
-        target_states[fk] = target_map_by_key.get(fk, "ENTITLED_NOT_CONFIGURED")
+        mapped = target_map_by_key.get(fk)
+        if mapped is None:
+            included = baseline_included(target_plan.code, fk)
+            mapped = "ENTITLED_NOT_CONFIGURED" if included is None else ("ENTITLED_AVAILABLE" if included else "NOT_ENTITLED")
+        target_states[fk] = mapped
 
     gained = [
         fk for fk in FEATURE_KEYS
@@ -256,6 +270,9 @@ def schedule_plan_change(
     db.commit()
     db.refresh(change)
 
+    _sync_impact_items(db, change, blockers)
+    _invalidate_entitlement_cache(organization_id)
+
     if blockers_blocked:
         logger.warning(
             "[plan_change] Org %d downgrade BLOCKED — %d blocking blockers",
@@ -263,6 +280,55 @@ def schedule_plan_change(
         )
 
     return change
+
+
+# ── DowngradeImpactItem persistence (ZHR-COM-ENT-001 §14) ──────────────────
+
+def _impact_severity(blocker_severity: str) -> DowngradeImpactSeverity:
+    """Map a Blocker severity to the Section 14 vocabulary. Unknown/check-error
+    severities fail closed to BLOCKING so a broken check can never slip a
+    downgrade through silently."""
+    try:
+        return DowngradeImpactSeverity(blocker_severity)
+    except ValueError:
+        return DowngradeImpactSeverity.BLOCKING
+
+
+def _sync_impact_items(db: Session, change: BillingPlanChange, blockers) -> None:
+    """Replace the durable per-change impact rows with the current blocker
+    set. Called at schedule time and again at execution-time re-check so the
+    concrete downgrade_impact_item rows always mirror the resolved blockers
+    instead of only living in the JSON blockers_snapshot."""
+    db.query(DowngradeImpactItem).filter(
+        DowngradeImpactItem.plan_change_id == change.id
+    ).delete(synchronize_session=False)
+    for b in blockers:
+        db.add(DowngradeImpactItem(
+            plan_change_id=change.id,
+            feature_key=b.feature_key,
+            severity=_impact_severity(b.severity),
+            remediation=b.message,
+        ))
+    db.commit()
+
+
+def _resolve_impact_items(db: Session, change: BillingPlanChange) -> None:
+    """Mark every outstanding impact item for a change as resolved once the
+    change executes (the feared loss actually happened — the item is now a
+    historical auditable record, no longer an open concern)."""
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    rows = (
+        db.query(DowngradeImpactItem)
+        .filter(
+            DowngradeImpactItem.plan_change_id == change.id,
+            DowngradeImpactItem.resolved_at.is_(None),
+        )
+        .all()
+    )
+    for r in rows:
+        r.resolved_at = now
+    if rows:
+        db.commit()
 
 
 # ── Cancel scheduled change ───────────────────────────────────────────────
@@ -317,6 +383,27 @@ def get_pending_changes(
     )
 
 
+def get_all_plan_changes(
+    db: Session,
+    organization_id: Optional[int] = None,
+    page: Optional[int] = None,
+    limit: Optional[int] = None,
+):
+    """Plan changes across the platform or for one org, newest first.
+
+    Without page/limit: the plain list (capped at LEGACY_LIST_CAP). With them: (rows, total) for that page."""
+    from app.core.pagination import legacy_list, page_of, wants_page
+
+    q = db.query(BillingPlanChange)
+    if organization_id:
+        q = q.filter(BillingPlanChange.organization_id == organization_id)
+    q = q.order_by(BillingPlanChange.created_at.desc())
+    if not wants_page(page, limit):
+        return legacy_list(q, "/billing/plan-changes")
+    out = page_of(q.order_by(BillingPlanChange.id.desc()), page, limit)     # id breaks created_at ties for stable pages
+    return out["items"], out["total"]
+
+
 # ── Execute due changes (called by scheduler job) ─────────────────────────
 
 def execute_due_changes(db: Session) -> dict:
@@ -349,6 +436,7 @@ def execute_due_changes(db: Session) -> dict:
                 change.status = PlanChangeStatus.BLOCKED
                 change.blockers_snapshot = blockers_to_dict(blockers)
                 db.commit()
+                _sync_impact_items(db, change, blockers)
                 blocked += 1
                 results.append({
                     "change_id": change.id,
@@ -361,6 +449,9 @@ def execute_due_changes(db: Session) -> dict:
             db.commit()
 
             subscription = _get_subscription(db, change.organization_id)
+            # The customer is billed by Stripe, so the price there has to change too. If Stripe refuses, nothing
+            # changes locally and the change stays BLOCKED to be retried by the next run.
+            _reprice_in_stripe(db, change, subscription)
             subscription.plan_id = change.to_plan_id
             subscription.plan_code = change.to_plan.code
             subscription.billing_cycle = change.billing_cycle
@@ -372,6 +463,7 @@ def execute_due_changes(db: Session) -> dict:
             change.executed_at = now
             db.commit()
 
+            _resolve_impact_items(db, change)
             _invalidate_entitlement_cache(change.organization_id)
 
             _log_plan_change_audit(db, change, "executed")
@@ -408,6 +500,33 @@ def execute_due_changes(db: Session) -> dict:
         "failed": failed,
         "results": results,
     }
+
+
+def _reprice_in_stripe(db: Session, change: BillingPlanChange, subscription) -> None:
+    from app.modules.billing.models import ProviderRef
+    from app.modules.billing.stripe_client import modify_subscription_price, stripe_enabled
+
+    ref = db.query(ProviderRef).filter(ProviderRef.organization_id == change.organization_id).first()
+    stripe_subscription_id = ref.stripe_subscription_id if ref else None
+    if not stripe_subscription_id or not stripe_enabled():
+        return  # not billed through Stripe (manual/contract billing): the local change is the whole change
+    plan = change.to_plan
+    annual = (change.billing_cycle.value if hasattr(change.billing_cycle, "value") else str(change.billing_cycle)).lower() == "annual"
+    price_id = plan.stripe_annual_price_id if annual else plan.stripe_monthly_price_id
+    if not price_id:
+        from app.modules.billing.stripe_sync_service import sync_plan_to_stripe
+
+        sync_plan_to_stripe(db, plan)
+        db.refresh(plan)
+        price_id = plan.stripe_annual_price_id if annual else plan.stripe_monthly_price_id
+    if not price_id:
+        raise RuntimeError(f"No Stripe price for plan {plan.code} ({'annual' if annual else 'monthly'})")
+    modify_subscription_price(
+        subscription_id=stripe_subscription_id,
+        new_price_id=price_id,
+        quantity=subscription.quantity or 1,
+        idempotency_key=f"plan-change-exec:{change.id}",
+    )
 
 
 def _invalidate_entitlement_cache(organization_id: int):

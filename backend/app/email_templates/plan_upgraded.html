@@ -1,0 +1,21 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Plan change confirmed" %}
+{% set preheader = "Your Zoiko HR plan change has been applied." %}
+{% set badge = "Plan updated" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Plan change confirmed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Your plan for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> has been updated. Plan updated to <strong class="dm-text-strong" style="{{ S.strong }}">{{ new_plan_name }}</strong>, effective {{ effective_date_local }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Previous plan", previous_plan_name, first=True) }}
+{{ ui.detail_row("New plan", new_plan_name) }}
+{% if billing_cycle %}{{ ui.detail_row("Billing cycle", billing_cycle) }}{% endif %}
+{% if amount_display %}{{ ui.detail_row("Amount", amount_display) }}{% endif %}
+{{ ui.detail_row("Effective date", effective_date_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Review subscription") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

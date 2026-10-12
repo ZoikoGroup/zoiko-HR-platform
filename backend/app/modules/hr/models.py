@@ -11,10 +11,10 @@ from typing import Optional
 
 from sqlalchemy import (
     Column, Integer, String, Numeric, Boolean, Date, DateTime,
-    Text, Enum, ForeignKey, Float, JSON, Time, UniqueConstraint,
+    Text, Enum, ForeignKey, Float, JSON, Time, UniqueConstraint, Index,
 )
 from sqlalchemy.orm import Session, relationship
-from sqlalchemy.sql import func
+from sqlalchemy.sql import func, text
 
 from app.database import Base
 
@@ -154,6 +154,17 @@ class Organization(Base):
     currency          = Column(String(3), default="USD")
     industry          = Column(String(200), nullable=True)
     employee_id_prefix = Column(String(10), nullable=True)
+    org_type          = Column(String(100), nullable=True)
+    phone             = Column(String(50), nullable=True)
+    tax_number        = Column(String(100), nullable=True)
+    registered_email  = Column(String(255), nullable=True)
+
+    # Soft delete (ZHR-35). A row with deleted_at set is hidden from every query
+    # by the global filter in app/database.py unless include_deleted is requested.
+    deleted_at        = Column(DateTime, nullable=True, index=True)
+    deleted_by        = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    delete_reason     = Column(Text, nullable=True)
+    deletion_snapshot = Column(JSON, nullable=True)  # what the delete changed, so restore can undo it
 
     @property
     def name(self):
@@ -234,6 +245,11 @@ class AttendanceRecord(Base):
 
     employee    = relationship("Employee", back_populates="attendance_records")
     organization = relationship("Organization")
+
+    __table_args__ = (
+        Index("ix_attendance_org_date", "organization_id", "date"),
+        Index("ix_attendance_employee_date", "employee_id", "date"),
+    )
 
 
 class Shift(Base):
@@ -462,16 +478,28 @@ class AssetReport(Base):
     generated_by = Column(Integer, ForeignKey("employees.id"), nullable=True)
     parameters   = Column(JSON, nullable=True)
     file_url     = Column(String(500), nullable=True)
+    # NULL only for reports from before reports were org-scoped with no generator (platform super admins see those)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
     created_at   = Column(DateTime, server_default=func.now())
 
 
 class AssetSetting(Base):
+    """One value per (organization, key). Rows with organization_id NULL are platform defaults: an organization reads
+    its own value when it has one, otherwise the default (migration b3c4d5e6f7a8)."""
     __tablename__ = "asset_settings"
 
     id            = Column(Integer, primary_key=True, index=True)
-    setting_key   = Column(String(100), nullable=False, unique=True)
+    setting_key   = Column(String(100), nullable=False)
     setting_value = Column(Text, nullable=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    updated_by    = Column(Integer, ForeignKey("employees.id"), nullable=True)
     updated_at    = Column(DateTime, onupdate=func.now())
+
+    __table_args__ = (
+        Index("uq_asset_settings_org_key", "organization_id", "setting_key", unique=True),
+        Index("uq_asset_settings_default_key", "setting_key", unique=True,
+              postgresql_where=text("organization_id IS NULL"), sqlite_where=text("organization_id IS NULL")),
+    )
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -658,6 +686,8 @@ class Audit(Base):
     score       = Column(Float, nullable=True)
     status      = Column(String(50), default="pending", nullable=False)
     created_at  = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
 
 class RegulatoryRequirement(Base):
@@ -669,6 +699,8 @@ class RegulatoryRequirement(Base):
     category     = Column(String(100), nullable=True)
     status       = Column(String(50), default="active", nullable=False)
     created_at   = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
 
 class RiskAssessment(Base):
@@ -681,6 +713,8 @@ class RiskAssessment(Base):
     mitigation_strategy = Column(Text, nullable=True)
     status              = Column(String(50), default="open", nullable=False)
     created_at          = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
 
 class ComplianceViolation(Base):
@@ -696,6 +730,8 @@ class ComplianceViolation(Base):
     status      = Column(String(50), default="investigating", nullable=False)
     date        = Column(Date, nullable=True)
     created_at  = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
     corrective_actions = relationship(
         "CorrectiveAction", back_populates="violation_ref", cascade="all, delete-orphan"
@@ -712,6 +748,8 @@ class CorrectiveAction(Base):
     status       = Column(String(50), default="pending", nullable=False)
     deadline     = Column(Date, nullable=True)
     created_at   = Column(DateTime, server_default=func.now())
+    # NULL only for rows created before compliance data was org-scoped (visible to platform super admins only)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
 
     violation_ref = relationship("ComplianceViolation", back_populates="corrective_actions")
 
@@ -940,6 +978,8 @@ class PerformanceReview(Base):
     status         = Column(Enum(RequestStatus), default=RequestStatus.PENDING, nullable=False)
     created_at     = Column(DateTime, server_default=func.now())
     reviewed_at    = Column(DateTime, nullable=True)
+
+    __table_args__ = (Index("ix_perf_reviews_org_employee", "organization_id", "employee_id"),)
 
 
 class GoalStatus(str, enum.Enum):
@@ -1311,7 +1351,7 @@ class TravelSetting(Base):
 
     id                      = Column(Integer, primary_key=True, index=True)
     organization_id         = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    approval_workflow       = Column(String(20), default="manager")
+    approval_workflow       = Column(String(50), default="manager")   # "manager+director+finance" is 24 characters
     expense_limit_per_day   = Column(Numeric(12, 2), default=500.00)
     max_trip_duration       = Column(Integer, default=30)
     auto_approve_threshold  = Column(Integer, default=1000)
@@ -1433,6 +1473,8 @@ class LearningCourse(Base):
     course_type    = Column(String(50), nullable=True)
     category       = Column(String(100), nullable=True)
     provider       = Column(String(150), nullable=True)
+    department     = Column(String(100), nullable=True)
+    resource_link  = Column(String(500), nullable=True)
     duration_hours = Column(Integer, nullable=True)
     cost           = Column(Numeric(10, 2), nullable=True)
     status         = Column(String(20), default="active")
@@ -1526,7 +1568,8 @@ class LearningAssessment(Base):
     course_id       = Column(Integer, ForeignKey("learning_courses.id"), nullable=False)
     title           = Column(String(200), nullable=False)
     description     = Column(Text, nullable=True)
-    passing_score   = Column(Integer, default=70)
+    passing_score   = Column(Integer, nullable=True)   # a percentage; always entered by the person creating the assessment
+    resource_link   = Column(String(500), nullable=True)
     max_attempts    = Column(Integer, nullable=True)
     duration_minutes= Column(Integer, nullable=True)
     is_active       = Column(Boolean, default=True)
@@ -1578,12 +1621,15 @@ class LearningTrainingProgram(Base):
     end_date         = Column(Date, nullable=True)
     status           = Column(String(20), default="planned")
     max_participants = Column(Integer, nullable=True)
+    department       = Column(String(100), nullable=True)
+    resource_link    = Column(String(500), nullable=True)
     created_by       = Column(Integer, ForeignKey("employees.id"), nullable=True)
     organization_id  = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at       = Column(DateTime, server_default=func.now())
     updated_at       = Column(DateTime, onupdate=func.now())
 
     assignments      = relationship("LearningTrainingProgramAssignment", back_populates="program")
+    instructor       = relationship("Employee", foreign_keys=[instructor_id])
 
 
 class LearningTrainingProgramAssignment(Base):
@@ -1776,10 +1822,30 @@ class Designation(Base):
     max_salary      = Column(Float, nullable=True)
     employees_count = Column(Integer, nullable=False, default=0)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    # Provenance: "manual" (Add Designation), "import" (created from an employee Excel/CSV upload),
+    # "user_form" (typed into the Add User form). NULL = created before this was tracked.
+    source          = Column(String(20), nullable=True)
+    # Plain integer, no FK: employees already point at designations, and a second foreign key between
+    # the two tables makes Employee.designation ambiguous for SQLAlchemy.
+    created_by      = Column(Integer, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization    = relationship("Organization")
+
+
+class DesignationSettings(Base):
+    """Per-organization preferences of the Designations module (one row per organization). The values live
+    in one JSON document validated by schemas.DesignationSettingsData, so adding a preference needs no migration."""
+    __tablename__ = "designation_settings"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, unique=True, index=True)
+    settings        = Column(JSON, nullable=False, default=dict)
+    updated_by      = Column(Integer, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 
 # ════════════════════════════════════════════════════════════════════════════════
 # HR DOCUMENTS  (company-wide + employee documents)
@@ -1998,3 +2064,16 @@ class OrganizationConfig(Base):
     __table_args__ = (
         UniqueConstraint("organization_id", "key", name="uq_org_config_key"),
     )
+
+
+# ── Phase 2 hot-path indexes (migration a2b3c4d5e6f7) ─────────────────────────
+from sqlalchemy import Index as _Index  # noqa: E402
+
+_Index("ix_leave_requests_org_created", LeaveRequest.organization_id, LeaveRequest.created_at.desc(), LeaveRequest.id.desc())
+_Index("ix_compensation_bands_organization_id", CompensationBand.organization_id)
+_Index("ix_salary_revisions_organization_id", SalaryRevision.organization_id)
+_Index("ix_salary_structures_organization_id", SalaryStructure.organization_id)
+_Index("ix_employee_benefits_organization_id", EmployeeBenefit.organization_id)
+_Index("ix_asset_requests_employee_id", AssetRequest.employee_id)
+_Index("ix_onboarding_new_hires_employee_id", OnboardingNewHire.employee_id)
+_Index("ix_onboarding_preboarding_tasks_employee_id", OnboardingPreboardingTask.employee_id)

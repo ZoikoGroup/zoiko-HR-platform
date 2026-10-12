@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback } from "react";
 import PageHeader from "../../components/PageHeader";
+import OrgPicker from "../../components/OrgPicker";
 import {
   AlertTriangle, CreditCard, Plus, Save, X, Loader2, RefreshCw,
   CheckCircle, Building2, Search, Clock, ChevronDown,
 } from "lucide-react";
 import { billingService } from "../../service/billingService";
 import { superAdminService } from "../../service/superAdminService";
+import { formatDate } from "../../utils/dateTime";
 
 function FieldLabel({ children, required }) {
   return (
@@ -24,95 +26,6 @@ function InputField({ ...props }) {
   );
 }
 
-// Searchable org picker dropdown
-function OrgPicker({ value, orgs, loading: orgsLoading, error: orgsError, onChange }) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState("");
-  const containerRef = useRef(null);
-
-  const selected = orgs.find(o => o.id === value);
-  const filtered = orgs.filter(o =>
-    !query ||
-    o.name?.toLowerCase().includes(query.toLowerCase()) ||
-    String(o.id).includes(query)
-  );
-
-  useEffect(() => {
-    const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
-        setOpen(false);
-        setQuery("");
-      }
-    };
-    if (open) document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  return (
-    <div ref={containerRef} className="relative">
-      <button
-        type="button"
-        onClick={() => { setOpen(o => !o); setQuery(""); }}
-        className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#FF7A00] focus:ring-2 focus:ring-[#FF7A00]/20 transition flex items-center justify-between gap-2"
-      >
-        <span className={selected ? "text-slate-800" : "text-slate-400"}>
-          {selected
-            ? <span className="flex items-center gap-1.5"><Building2 className="h-3.5 w-3.5 text-slate-400" />{selected.name} <span className="text-slate-400">#{selected.id}</span></span>
-            : orgsLoading ? "Loading organizations…" : "Select organization…"
-          }
-        </span>
-        <ChevronDown className={`h-4 w-4 text-slate-400 shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
-      </button>
-
-      {open && (
-        <div className="absolute z-50 mt-1.5 w-full bg-white rounded-2xl border border-slate-200 shadow-xl overflow-hidden">
-          <div className="p-2 border-b border-slate-100">
-            <div className="flex items-center gap-2 px-3 py-2 rounded-xl bg-slate-50">
-              <Search className="h-3.5 w-3.5 text-slate-400 shrink-0" />
-              <input
-                autoFocus
-                type="text"
-                value={query}
-                onChange={e => setQuery(e.target.value)}
-                placeholder="Search organizations…"
-                className="flex-1 bg-transparent text-sm text-slate-800 outline-none"
-              />
-            </div>
-          </div>
-          <div className="max-h-52 overflow-y-auto">
-            {orgsLoading ? (
-              <div className="flex items-center justify-center py-6 text-slate-400 gap-2 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-              </div>
-            ) : orgsError ? (
-              <div className="px-4 py-3 text-sm text-red-500">{orgsError}</div>
-            ) : filtered.length === 0 ? (
-              <div className="px-4 py-3 text-sm text-slate-400">No organizations found.</div>
-            ) : (
-              filtered.map(org => (
-                <button
-                  key={org.id}
-                  type="button"
-                  onClick={() => { onChange(org.id); setOpen(false); setQuery(""); }}
-                  className={`w-full text-left px-4 py-3 hover:bg-slate-50 flex items-center gap-2.5 transition ${value === org.id ? "bg-orange-50/60" : ""}`}
-                >
-                  <div className="w-7 h-7 rounded-lg bg-slate-100 flex items-center justify-center shrink-0">
-                    <Building2 className="h-3.5 w-3.5 text-slate-500" />
-                  </div>
-                  <div>
-                    <p className="text-sm font-semibold text-slate-700">{org.name}</p>
-                    <p className="text-[11px] text-slate-400">ID: {org.id} · {org.status || "—"}</p>
-                  </div>
-                  {value === org.id && <CheckCircle className="h-4 w-4 text-[#FF7A00] ml-auto shrink-0" />}
-                </button>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
 
 const BLANK_FORM = {
   organization_id: null,
@@ -130,9 +43,9 @@ function isExpired(dateStr) {
   return new Date(dateStr) < new Date();
 }
 
-function formatDate(dateStr) {
+function formatLocalDate(dateStr) {
   if (!dateStr) return "—";
-  return new Date(dateStr).toLocaleDateString(undefined, { dateStyle: "medium" });
+  return formatDate(dateStr);
 }
 
 export default function BillingDiscountsPage() {
@@ -333,10 +246,10 @@ export default function BillingDiscountsPage() {
                       </td>
                       <td className="py-4 px-5 text-slate-500">{d.currency || "USD"}</td>
                       <td className="py-4 px-5">
-                        <span className="text-slate-600 text-[13px]">{formatDate(d.effective_start)}</span>
+                        <span className="text-slate-600 text-[13px]">{formatLocalDate(d.effective_start)}</span>
                         <span className="text-slate-400 mx-1">→</span>
                         <span className={`text-[13px] ${expired ? "text-red-400" : "text-slate-600"}`}>
-                          {d.effective_end ? formatDate(d.effective_end) : "Ongoing"}
+                          {d.effective_end ? formatLocalDate(d.effective_end) : "Ongoing"}
                         </span>
                       </td>
                       <td className="py-4 px-5">
@@ -396,11 +309,9 @@ export default function BillingDiscountsPage() {
               <div>
                 <FieldLabel required>Organization</FieldLabel>
                 <OrgPicker
-                  value={form.organization_id}
-                  orgs={orgs}
-                  loading={orgsLoading}
-                  error={orgsError}
-                  onChange={id => set("organization_id", id)}
+                  selectedOrg={orgs.find(o => o.id === form.organization_id) || (form.organization_id ? { id: form.organization_id, name: `Org #${form.organization_id}` } : null)}
+                  onSelect={(org) => set("organization_id", org ? org.id : null)}
+                  placeholder="Select or search organization..."
                 />
               </div>
 

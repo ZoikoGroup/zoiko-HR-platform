@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Refund processed" %}
+{% set preheader = "Your refund has been processed successfully." %}
+{% set badge = "Refund processed" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this email because you are a billing contact for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Refund processed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A refund of {{ currency }} {{ amount }} has been processed for <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong>. Please allow 3–5 business days for bank processing.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Refund reference", refund_id, first=True, mono=True) }}
+{{ ui.detail_row("Amount", currency ~ " " ~ amount) }}
+{% endcall %}
+{{ ui.button(action_url, "View billing account") }}
+{{ ui.signoff("Zoiko HR Billing") }}
+{% endblock %}

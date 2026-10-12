@@ -1,0 +1,15 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Your evaluation has ended" %}
+{% set preheader = "Your evaluation has ended. Activate a paid plan to restore full access." %}
+{% set badge = "Evaluation ended" %}
+{% set badge_tone = "neutral" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Your evaluation has ended</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> team, your Zoiko HR evaluation ended on <strong class="dm-text-strong" style="{{ S.strong }}">{{ evaluation_ends_at }}</strong>.</p>
+{% call ui.notice("What this means", "neutral") %}
+Advanced-only features are no longer available for your organization. Your core records and data are retained — nothing has been deleted, and no payment method has been charged. Activate a paid plan whenever you're ready to restore full access.
+{% endcall %}
+{{ ui.button(login_url, "Activate a plan") }}
+{{ ui.signoff() }}
+{% endblock %}

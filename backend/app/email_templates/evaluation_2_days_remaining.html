@@ -1,0 +1,15 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Only 2 days left in your evaluation" %}
+{% set preheader = "Your evaluation ends in 2 days. Activate a paid plan to avoid losing access." %}
+{% set badge = "2 days left" %}
+{% set badge_tone = "warning" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Only 2 days left in your evaluation</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ organization_name }}</strong> team, your Zoiko HR evaluation ends in <strong class="dm-text-strong" style="{{ S.strong }}">2 days</strong>, on <strong class="dm-text-strong" style="{{ S.strong }}">{{ evaluation_ends_at }}</strong>.</p>
+{% call ui.notice("Act soon", "warning") %}
+Without action, your evaluation will end automatically on the date above and you'll lose access to Advanced-only features. This is not a billing event — no payment method on file will be charged. Activating a paid plan is the only way to keep uninterrupted access.
+{% endcall %}
+{{ ui.button(login_url, "Activate a paid plan") }}
+{{ ui.signoff() }}
+{% endblock %}
