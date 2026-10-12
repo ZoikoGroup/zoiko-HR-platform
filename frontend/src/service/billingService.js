@@ -44,7 +44,7 @@ export const billingService = {
 
   // ── Invoices ─────────────────────────────────────────────────────────────
   getInvoices: (orgId) => api.get(`/billing/invoices/${orgId}`),
-  getPlatformInvoices: (params) => api.get("/billing/invoices", { params }),
+  getPlatformInvoices: (params, opts) => api.get("/billing/invoices", { params, ...opts }),
 
   // ── Provider refs (Stripe customer/subscription IDs) ─────────────────────
   getProviderRefs: (orgId) => api.get(`/billing/provider-refs/${orgId}`),
