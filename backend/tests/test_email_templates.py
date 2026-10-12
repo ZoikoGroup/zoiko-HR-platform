@@ -179,7 +179,7 @@ def test_no_zoiko_one_in_email_source():
 def test_footer_identity_and_no_do_not_reply(rendered):
     for label, _, _, out in rendered:
         assert "Zoiko Tech Inc., a Zoiko Group company" in out.html, label
-        assert 'href="https://zoikohr.com/contact"' in out.html, label
+        assert 'href="https://app.zoikohr.com/contact"' in out.html, label
         assert "You are receiving" in out.text, label
         assert "do not reply" not in out.html.lower(), label
         # class A–D mail never carries an unsubscribe link

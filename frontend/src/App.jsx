@@ -514,6 +514,7 @@ export default function App() {
         <Route path="/change-password" element={<ChangePasswordPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/register/success" element={<RegistrationSuccessPage />} />
+        <Route path="/contact" element={<ContactPage />} />
 
         {/* Every signed-in page lives under one layout route: the shell (sidebar + header) renders once and the page
             changes inside its <Outlet />. Each page keeps its own error boundary and its own role check. */}
