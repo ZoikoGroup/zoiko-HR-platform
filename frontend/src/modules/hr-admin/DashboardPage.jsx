@@ -18,6 +18,12 @@ const INK_SOFT = "#475569";
 const NAVY_100 = "#E0E7FF";
 const BLUE_100 = "#DBEAFE";
 const EMERALD_100 = "#D1FAE5";
+// Status dots in the "Recent employees" table: teal = active, amber = on leave. These were referenced but never
+// defined, so the whole dashboard crashed (ReferenceError) as soon as the organization had any employees.
+const TEAL = "#14B8A6";
+const TEAL_100 = "#CCFBF1";
+const AMBER = "#F59E0B";
+const AMBER_100 = "#FEF3C7";
 const RED_100 = "#FEE2E2";
 const LINE = "rgba(10,17,40,0.08)";
 const AVATAR_COLORS = [
