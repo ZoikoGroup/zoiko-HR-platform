@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useEffect, lazy, Suspense } from "react";
-const SuperAdminShell = lazy(() => import("./components/SuperAdminShell"));
+import AppLayout, { RouteBoundary } from "./components/AppLayout";
 import { flatRoutes } from "./navigation";
 import { AlertTriangle } from "lucide-react";
 import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES } from "./config/roles";
@@ -56,7 +56,6 @@ const ZoikoLocalPage = lazy(() => import("./pages/public/eco-system/ZoikoLocalPa
 const ZoikoDigitalPage = lazy(() => import("./pages/public/eco-system/ZoikoDigitalPage"));
 import PlanGate from "./components/PlanGate";
 import ProtectedRoute from "./components/ProtectedRoute";
-import ErrorBoundary from "./components/ErrorBoundary";
 
 // Target 'HrDashBoard.jsx' directly
 const ZoikoHRModule = lazy(() => import("./modules/zoiko-hr/HrDashBoard.jsx"));
@@ -511,32 +510,34 @@ export default function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/register/success" element={<RegistrationSuccessPage />} />
 
-        {allPaths.map((path) => {
-          let element = routeOverrides[path];
+        {/* Every signed-in page lives under one layout route: the shell (sidebar + header) renders once and the page
+            changes inside its <Outlet />. Each page keeps its own error boundary and its own role check. */}
+        <Route element={<AppLayout />}>
+          {allPaths.map((path) => {
+            let element = routeOverrides[path];
 
-          if (!element) {
-            // No page built for this route: send the user home instead of a placeholder (ZHR-21).
-            element = <Navigate to="/super-admin/dashboard" replace />;
-          }
+            if (!element) {
+              // No page built for this route: send the user home instead of a placeholder (ZHR-21).
+              element = <Navigate to="/super-admin/dashboard" replace />;
+            }
 
-          const allowedRoles = getAllowedRolesForPath(path);
+            const allowedRoles = getAllowedRolesForPath(path);
 
-          return (
-            <Route
-              key={path}
-              path={path}
-              element={
-                <ErrorBoundary>
-                  <ProtectedRoute allowedRoles={allowedRoles}>
-                    <SuperAdminShell>
+            return (
+              <Route
+                key={path}
+                path={path}
+                element={
+                  <RouteBoundary>
+                    <ProtectedRoute allowedRoles={allowedRoles}>
                       {element}
-                    </SuperAdminShell>
-                  </ProtectedRoute>
-                </ErrorBoundary>
-              }
-            />
-          );
-        })}
+                    </ProtectedRoute>
+                  </RouteBoundary>
+                }
+              />
+            );
+          })}
+        </Route>
 
         {/* Platform Settings page was removed (ZHR-18): keep old bookmarks working. */}
         <Route path="/super-admin/settings" element={<Navigate to="/super-admin/dashboard" replace />} />
