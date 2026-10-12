@@ -195,7 +195,7 @@ def _layout_context(branding: dict, context: dict) -> dict:
         "favicon_src": _logo(FAVICON_FILE),
         "cobrand_logo_url": _safe_https_url(branding.get("logo_url")),
         "tenant_name": branding.get("tenant_name", ""),
-        "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://zoikohr.com/contact",
+        "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://app.zoikohr.com/contact",
         "lang": locale,
         "dir": "rtl" if primary_lang in _RTL_LANGUAGES else "ltr",
         "delivery_class": str(context.get("delivery_class") or "A").upper(),

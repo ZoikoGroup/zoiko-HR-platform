@@ -1,7 +1,7 @@
 // Terms & Conditions of Zoiko HR: kept as data so the page, its table of contents and its tests all read the same text.
 export const TERMS_LAST_UPDATED = "8 October 2026";
 export const TERMS_CONTACT_EMAIL = "info@zoikohr.com";
-export const TERMS_CONTACT_URL = "https://zoikohr.com/contact";
+export const TERMS_CONTACT_URL = "https://app.zoikohr.com/contact";
 
 export const TERMS_SECTIONS = [
   {

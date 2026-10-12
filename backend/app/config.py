@@ -130,7 +130,7 @@ class Settings(BaseSettings):
     # Queue emails and send them from a background thread so a request never waits on SMTP (set false to send inline).
     EMAIL_SEND_ASYNC: bool = Field(default=True, validation_alias="HR_EMAIL_SEND_ASYNC")
     # Monitored support route linked from every email footer.
-    HR_EMAIL_SUPPORT_URL: str = "https://zoikohr.com/contact"
+    HR_EMAIL_SUPPORT_URL: str = "https://app.zoikohr.com/contact"
 
     # ── Assistant / LLM (app/modules/assistant) ─────────────────────────────
     # Groq is the chat-completion provider (llm_client.py); embeddings are a
