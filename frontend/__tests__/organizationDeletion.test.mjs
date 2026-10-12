@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import React from "react";
 import { render, screen, cleanup, act, fireEvent, waitFor, within } from "@testing-library/react";
+import { withQuery } from "./support/queryWrapper.mjs";
 
 const sa = {};
 const userSvc = {};
@@ -61,7 +62,7 @@ async function openOrganizations(t, over) {
   reset(over);
   register(t);
   const { default: Page } = await import("../src/modules/super-admin/OrganizationsPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
 }
 

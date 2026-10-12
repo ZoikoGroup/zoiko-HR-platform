@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useMemo, useCallback } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
 import { useNavigate } from "react-router-dom";
 import {
@@ -12,8 +14,6 @@ import { formatDate } from "../../utils/dateTime";
 
 export default function SuperAdminOrganizationsPage() {
   const navigate = useNavigate();
-  const [organizations, setOrganizations] = useState([]);
-  const [total, setTotal] = useState(0);
   const [page, setPage] = useState(1);
   const [pageSize] = useState(20);
   const [searchTerm, setSearchTerm] = useState("");
@@ -24,7 +24,6 @@ export default function SuperAdminOrganizationsPage() {
   const [createdTo, setCreatedTo] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [draftFilters, setDraftFilters] = useState({ plan: "all", createdFrom: "", createdTo: "" });
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [successMessage, setSuccessMessage] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
@@ -34,28 +33,33 @@ export default function SuperAdminOrganizationsPage() {
   const [deleteOrg, setDeleteOrg] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
 
-  const loadOrgs = useCallback(async () => {
-    setLoading(true);
-    try {
-      setError(null);
-      const params = { page, page_size: pageSize, deleted: lifecycle };
-      if (searchTerm) params.search = searchTerm;
-      if (statusFilter !== "All statuses") params.status = statusFilter.toLowerCase().replace(" ", "_");
-      if (planFilter !== "all") params.plan = planFilter;
-      if (createdFrom) params.created_from = createdFrom;
-      if (createdTo) params.created_to = createdTo;
-      const data = await superAdminService.getOrganizations(params);
-      setOrganizations(data.organizations || []);
-      setTotal(data.total || 0);
-    } catch (e) {
-      console.error("Failed to load organizations", e);
-      setError(e.message || "Failed to load organizations.");
-    } finally {
-      setLoading(false);
-    }
+  // The list is a cached query keyed by every filter. Changing a filter or page keeps the previous rows on screen until
+  // the new ones arrive, and coming back to a view shown in the last 30 s needs no request.
+  const qc = useQueryClient();
+  const params = useMemo(() => {
+    const p = { page, page_size: pageSize, deleted: lifecycle };
+    if (searchTerm) p.search = searchTerm;
+    if (statusFilter !== "All statuses") p.status = statusFilter.toLowerCase().replace(" ", "_");
+    if (planFilter !== "all") p.plan = planFilter;
+    if (createdFrom) p.created_from = createdFrom;
+    if (createdTo) p.created_to = createdTo;
+    return p;
   }, [page, pageSize, searchTerm, statusFilter, lifecycle, planFilter, createdFrom, createdTo]);
+  const orgsQuery = useQuery({
+    queryKey: keys.superAdmin.organizations.list(params),
+    queryFn: ({ signal }) => superAdminService.getOrganizations(params, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const organizations = orgsQuery.data?.organizations || [];
+  const total = orgsQuery.data?.total || 0;
+  const loading = orgsQuery.isPending;                                   // first load only; refreshes keep the rows
+  const loadError = orgsQuery.isError ? (orgsQuery.error?.message || "Failed to load organizations.") : null;
 
-  useEffect(() => { loadOrgs(); }, [loadOrgs]);
+  // After any change to an organization: every organization list/detail, and the dashboard figures built from them.
+  const loadOrgs = useCallback(() => {
+    qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all });
+    qc.invalidateQueries({ queryKey: keys.superAdmin.commandCenter.all });
+  }, [qc]);
 
   const handleApprove = async (org) => {
     setActionLoading(org.id);
@@ -231,11 +235,11 @@ export default function SuperAdminOrganizationsPage() {
           </button>
         </div>
 
-        {error && (
-          <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
+        {(error || loadError) && (
+          <div role="alert" className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
             <AlertTriangle className="h-5 w-5 flex-shrink-0" />
-            <span>{error}</span>
-            <button onClick={loadOrgs} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
+            <span>{error || loadError}</span>
+            <button onClick={() => (loadError ? orgsQuery.refetch() : loadOrgs())} className="ml-auto text-red-600 underline hover:text-red-800 text-xs font-semibold">Retry</button>
           </div>
         )}
 

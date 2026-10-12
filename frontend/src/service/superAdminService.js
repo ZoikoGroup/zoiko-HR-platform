@@ -9,10 +9,10 @@ export const superAdminService = {
   getDashboardStats: () => api.get("/super-admin/dashboard/stats"),
 
   // Organizations
-  getOrganizations: (params) => api.get("/super-admin/organizations", { params }),
+  getOrganizations: (params, opts) => api.get("/super-admin/organizations", { params, ...opts }),
   createOrganization: (data) => api.post("/super-admin/organizations", data),
-  getOrganization: (id) => api.get(`/super-admin/organizations/${id}`),
-  getOrganizationDetail: (id) => api.get(`/super-admin/organizations/${id}`),
+  getOrganization: (id, opts) => api.get(`/super-admin/organizations/${id}`, opts),
+  getOrganizationDetail: (id, opts) => api.get(`/super-admin/organizations/${id}`, opts),
   updateOrganizationStatus: (id, data) => api.post(`/super-admin/organizations/${id}/status`, data),
 
   // Two-step destructive action confirmation (Prompt 5): mint a one-time,
