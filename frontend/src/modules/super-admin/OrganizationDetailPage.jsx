@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DetailSkeleton, TableSkeleton } from "../../components/LoadingSkeletons";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import { useParams, useNavigate } from "react-router-dom";
@@ -219,9 +220,7 @@ export default function OrganizationDetailPage() {
     return (
       <div className="space-y-6 font-sans">
         <PageHeader title="Organization Details" description="Loading..." />
-        <div className="flex items-center justify-center py-20 text-slate-400">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-        </div>
+        <DetailSkeleton label="Loading organization" />
       </div>
     );
   }
@@ -373,7 +372,7 @@ export default function OrganizationDetailPage() {
               Billing & Subscription
             </h3>
             {billingLoading ? (
-              <div className="text-center py-6 text-slate-400 text-sm">Loading billing data...</div>
+              <div className="py-2"><TableSkeleton rows={2} label="Loading billing data" /></div>
             ) : !subscription ? (
               <div className="text-center py-6 text-slate-400 text-sm">
                 {org.evaluation_ends_at

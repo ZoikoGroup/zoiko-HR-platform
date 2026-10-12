@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from "react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { TableSkeleton } from "../../../../components/LoadingSkeletons";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
 import EmployeeDataTable from "../../../../components/employee/EmployeeDataTable";
-import { getLeaveRequests } from "../../../../service/employee";
-import { getStoredUser } from "../../../../service/api";
 import { formatDate } from "../../../../utils/dateTime";
-import { useAutoRefresh } from "../../../../utils/useAutoRefresh";
+import { useMyLeaveRequests } from "../../../../hooks/useMyLeave";
 import { formatLeaveType, leaveTypeColor } from "../../../../utils/leaveTypeUtils";
 
 /** Who decided the request: their name once decided, "Awaiting approval" while open, never a bare dash. */
@@ -24,58 +22,15 @@ function formatLeaveDate(dateStr) {
 }
 
 export default function LeaveHistory() {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const mounted = useRef(true);
-
-  const load = async ({ silent = false } = {}) => {
-    const employeeId = getStoredUser()?.id;
-    if (!employeeId) {
-      if (mounted.current) {
-        setError("User not found. Please log in again.");
-        setLoading(false);
-      }
-      return;
-    }
-    if (!silent) {
-      setLoading(true);
-      setError(null);
-    }
-    try {
-      const data = await getLeaveRequests(employeeId);
-      if (!mounted.current) return;
-      const list = Array.isArray(data) ? [...data] : [];
-      list.sort((a, b) => {
-        const da = a.created_at || a.appliedOn || a.start_date;
-        const db = b.created_at || b.appliedOn || b.start_date;
-        const diff = new Date(db || 0) - new Date(da || 0);
-        return diff || (Number(b.id) || 0) - (Number(a.id) || 0);
-      });
-      setRecords(list);
-      setError(null);
-    } catch (err) {
-      // a failed background refresh keeps what is on screen; only the first load shows the error
-      if (mounted.current && !silent) setError(err.message || "Failed to load leave history");
-    } finally {
-      if (mounted.current && !silent) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    mounted.current = true;
-    load();
-    return () => { mounted.current = false; };
-  }, []);
-
-  useAutoRefresh(load);
+  // cached and refreshed in the background (every 30 s while visible, and on focus): see useMyLeave
+  const { query, records, missingUser } = useMyLeaveRequests();
+  const loading = !missingUser && query.isPending;
+  const error = missingUser ? "User not found. Please log in again." : query.isError && !query.data ? (query.error?.message || "Failed to load leave history") : null;
 
   if (loading) {
     return (
       <EmployeePageShell title="Leave History" subtitle="Complete record of all your leave requests.">
-        <div className="flex justify-center items-center py-20">
-          <div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" />
-        </div>
+        <div className="rounded-2xl border border-slate-200 dark:border-slate-700"><TableSkeleton rows={6} label="Loading leave history" /></div>
       </EmployeePageShell>
     );
   }

@@ -3,6 +3,7 @@
  * the employee import takes, and reports real server errors.
  */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -38,7 +39,7 @@ async function open(t, over = {}) {
   register(t);
   Object.assign(userSvc, over);
   const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   fireEvent.click(screen.getAllByRole("button", { name: /Add User/ })[0]);
   await settle();
@@ -102,7 +103,7 @@ test("View shows the employee's complete details", async (t) => {
     pan_number: "ABCDE1234F", uan_number: "123456789012", bank_account: "000111222", bank_ifsc: "HDFC0001234", city: "Pune", ctc: "1200000",
   });
   const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   fireEvent.click(screen.getByTitle("View"));
   await settle();
@@ -124,7 +125,7 @@ test("Edit prefills and sends the complete employee details", async (t) => {
   });
   userSvc.updateUser = async (id, p) => { sent.push([id, p]); return {}; };
   const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   fireEvent.click(screen.getByTitle("Edit"));
   await settle();
@@ -153,7 +154,7 @@ test("import: an update-only file refreshes the list and says so", async (t) => 
   empSvc.getEmployees = async () => { loads += 1; return { items: [], total: 0 }; };
   empSvc.importEmployees = async () => ({ total_rows: 2, created: 0, updated: 2, skipped: 0, failed: 0, errors: [] });
   const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   const before = loads;
   fireEvent.click(screen.getAllByRole("button", { name: /Import/ })[0]);

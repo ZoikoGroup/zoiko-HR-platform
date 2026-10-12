@@ -1,4 +1,5 @@
 import { useState, useMemo, useRef } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import PageHeader from "../../components/PageHeader";
@@ -306,9 +307,7 @@ export default function NotificationCenter() {
 
       <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
         {loading ? (
-          <div className="flex items-center justify-center py-20 text-slate-400">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-          </div>
+          <TableSkeleton rows={6} label="Loading notifications" />
         ) : notifications.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-slate-400">
             <Bell className="mb-3 h-12 w-12" />

@@ -1,4 +1,5 @@
 import { useState, useMemo, useCallback } from "react";
+import { RefreshBar } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
@@ -325,6 +326,7 @@ export default function SuperAdminOrganizationsPage() {
           </div>
 
           {/* Table View */}
+          <RefreshBar active={orgsQuery.isFetching && !loading} />
           {loading ? (
             <div className="divide-y divide-slate-100">
               {Array.from({ length: 5 }).map((_, i) => (

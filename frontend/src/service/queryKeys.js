@@ -48,13 +48,16 @@ export const keys = {
   hr: {
     all: ["hr"],
     dashboard: () => ["hr", "dashboard"],
-    employees: { all: ["hr", "employees"], list: (p) => ["hr", "employees", params(p)], detail: (id) => ["hr", "employees", "detail", id] },
+    leave: { requests: (employeeId) => ["hr", "leave", "requests", employeeId], balances: (employeeId) => ["hr", "leave", "balances", employeeId] },
+    me: () => ["hr", "me"],                                  // the signed-in employee's own record
+    employees: { all: ["hr", "employees"], list: (p) => ["hr", "employees", params(p)], detail: (id) => ["hr", "employees", "detail", id], profile: (id) => ["hr", "employees", "detail", id, "profile"] },
     departments: () => ["hr", "departments"],
     designations: () => ["hr", "designations"],
   },
   orgAdmin: {
     all: ["orgAdmin"],
     users: { all: ["orgAdmin", "users"], list: (p) => ["orgAdmin", "users", params(p)] },
+    assignableRoles: () => ["orgAdmin", "assignableRoles"],
   },
   notifications: {
     all: ["notifications"],

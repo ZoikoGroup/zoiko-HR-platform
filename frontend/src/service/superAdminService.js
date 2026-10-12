@@ -53,7 +53,7 @@ export const superAdminService = {
   deleteNotification: (id) => api.delete(`/super-admin/notifications/${id}`),
 
   // Users
-  getUsers: (params) => api.get("/super-admin/users", { params }),
+  getUsers: (params, opts) => api.get("/super-admin/users", { params, ...opts }),
 
 
   // Platform Command Center

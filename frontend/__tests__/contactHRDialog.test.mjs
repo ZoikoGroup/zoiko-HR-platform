@@ -1,6 +1,7 @@
 /** ZHR-90: Contact HR dialog validation and submission. */
 import "./support/setup-jsdom.mjs";
-import { test, afterEach, describe } from "node:test";
+import { withQuery } from "./support/queryWrapper.mjs";
+import { test, afterEach, describe, mock } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { render, screen, cleanup, act, fireEvent, waitFor } from "@testing-library/react";
@@ -75,18 +76,20 @@ const svc = {
   },
 };
 
+// mocked once: the shared leave hook is cached across tests, so per-test mocks would not reach it
+mock.module("../src/service/employee.js", { exports: svc });
+mock.module("../src/service/api.js", { exports: { getStoredUser: () => ME, apiClient: {} } });
+mock.module("react-router-dom", { exports: { useNavigate: () => () => {} } });
+mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children, actions }) => React.createElement("div", null, actions, children) } });
+
 async function renderMyLeave(t, { balances = EMPTY_BALANCES, history = SOME_HISTORY, contactHRError } = {}) {
   delegate.balances = balances;
   delegate.history = history;
   delegate.contactHRCalls = [];
   delegate.contactHRError = contactHRError;
 
-  t.mock.module("../src/service/employee.js", { exports: svc });
-  t.mock.module("../src/service/api.js", { exports: { getStoredUser: () => ME, apiClient: {} } });
-  t.mock.module("react-router-dom", { exports: { useNavigate: () => () => {} } });
-  t.mock.module("../src/components/employee/EmployeePageShell.jsx", { exports: { default: ({ children, actions }) => React.createElement("div", null, actions, children) } });
   const { default: Page } = await import(`../src/pages/Peoples/Employees/Leaves/Employee_MyLeaveDashboard.jsx?t=${Math.random()}`);
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await act(async () => { await new Promise((r) => setTimeout(r, 60)); });
   return { contactHRCalls: delegate.contactHRCalls };
 }

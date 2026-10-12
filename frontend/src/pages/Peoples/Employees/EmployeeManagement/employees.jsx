@@ -1,5 +1,8 @@
 import { realEmailError } from "../../../../utils/realEmail";
+import { RefreshBar, TableSkeleton } from "../../../../components/LoadingSkeletons";
 import { useState, useEffect, useMemo } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../../../service/queryKeys";
 import { useNavigate, NavLink } from "react-router-dom";
 import HRPage from "../../../../components/HRPage";
 import EmployeeBulkActions from "../../../../components/EmployeeBulkActions";
@@ -95,10 +98,8 @@ const initialForm = {
 
 export default function Employees() {
   const navigate = useNavigate();
-  const [employees, setEmployees] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [actionError, setError] = useState(null);       // errors from actions (delete, import, export...)
+  const [hiddenListError, setHiddenListError] = useState(0);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [departmentFilter, setDepartmentFilter] = useState("");
@@ -111,9 +112,6 @@ export default function Employees() {
   const [formErrors, setFormErrors] = useState({});
   const [expandedId, setExpandedId] = useState(null);
   const [exporting, setExporting] = useState(false);
-  const [deptList, setDeptList] = useState([]);
-  const [desigList, setDesigList] = useState([]);
-  const [managerList, setManagerList] = useState([]);
   const [resetPwdResult, setResetPwdResult] = useState(null);
   const [newLogin, setNewLogin] = useState(null);      // the one-time login of the person just added
   const [showResetPwd, setShowResetPwd] = useState(false);
@@ -122,47 +120,27 @@ export default function Employees() {
   const [importing, setImporting] = useState(false);
   const [importResult, setImportResult] = useState(null);
 
-  const fetchEmployees = async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getEmployees({
-        page: currentPage,
-        per_page: ITEMS_PER_PAGE,
-        search: search,
-        status: statusFilter,
-        department_id: departmentFilter,
-        employment_type: employmentTypeFilter,
-      });
-      setEmployees(data.items || []);
-      setTotal(data.total || 0);
-    } catch (err) {
-      setError(err.message || "Failed to load employees");
-      setEmployees([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    fetchEmployees();
-  }, [currentPage, search, statusFilter, departmentFilter, employmentTypeFilter]);
-
-  const fetchDropdownData = async () => {
-    const [depts, desigs, managers] = await Promise.allSettled([
-      getDepartments(),
-      getDesignations(),
-      getEmployees({ per_page: 200 }),
-    ]);
-    if (depts.status === "fulfilled") setDeptList(Array.isArray(depts.value) ? depts.value : depts.value?.items || depts.value?.data || []);
-    if (desigs.status === "fulfilled") setDesigList(Array.isArray(desigs.value) ? desigs.value : desigs.value?.items || desigs.value?.data || []);
-    if (managers.status === "fulfilled") setManagerList(managers.value.items || []);
-  };
-
-  useEffect(() => {
-    fetchDropdownData();
-  }, []);
+  // The directory page is a cached query keyed by its filters: going back to a page already seen is instant, and while
+  // the next page or filter loads the current rows stay on screen. The lookup lists are cached on their own.
+  const qc = useQueryClient();
+  const listParams = { page: currentPage, per_page: ITEMS_PER_PAGE, search, status: statusFilter, department_id: departmentFilter, employment_type: employmentTypeFilter };
+  const listQuery = useQuery({
+    queryKey: keys.hr.employees.list(listParams),
+    queryFn: ({ signal }) => getEmployees(listParams, { signal }),
+    placeholderData: keepPreviousData,
+  });
+  const asList = (v) => (Array.isArray(v) ? v : v?.items || v?.data || []);
+  const deptList = asList(useQuery({ queryKey: keys.hr.departments(), queryFn: ({ signal }) => getDepartments({ signal }), staleTime: 5 * 60_000 }).data);
+  const desigList = asList(useQuery({ queryKey: keys.hr.designations(), queryFn: ({ signal }) => getDesignations({ signal }), staleTime: 5 * 60_000 }).data);
+  const managerList = useQuery({ queryKey: keys.hr.employees.list({ per_page: 200 }), queryFn: ({ signal }) => getEmployees({ per_page: 200 }, { signal }) }).data?.items || [];
+  const employees = listQuery.data?.items || [];
+  const total = listQuery.data?.total || 0;
+  const loading = listQuery.isPending;
+  const listError = listQuery.isError && listQuery.errorUpdatedAt !== hiddenListError ? (listQuery.error?.message || "Failed to load employees") : null;
+  const error = actionError || listError;
+  const dismissError = () => { setError(null); setHiddenListError(listQuery.errorUpdatedAt); };
+  // any change to the directory also changes the HR dashboard figures, so refresh the whole HR family
+  const fetchEmployees = () => qc.invalidateQueries({ queryKey: keys.hr.all });
 
   const departments = useMemo(() => {
     return deptList.map((d) => ({ id: d.id, name: d.name }));
@@ -417,10 +395,7 @@ export default function Employees() {
     return (
       <HRPage title="Employees" subtitle="Manage employee directory and records.">
         <SubNav />
-        <div className="flex justify-center items-center py-20">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-          <span className="ml-3 text-gray-500">Loading employees...</span>
-        </div>
+        <div className="rounded-2xl border border-slate-200"><TableSkeleton rows={8} label="Loading employees" /></div>
       </HRPage>
     );
   }
@@ -428,11 +403,12 @@ export default function Employees() {
   return (
     <HRPage title="Employees" subtitle="Manage employee directory and records.">
       <SubNav />
+      <RefreshBar active={listQuery.isFetching && !loading} />
 
       {error && (
         <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-center">
           <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
+          <button onClick={dismissError} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
       )}
 

@@ -1,5 +1,6 @@
 /** Add/Edit User: a phone number with more (or fewer) than 10 digits is rejected with a message. */
 import "./support/setup-jsdom.mjs";
+import { withQuery } from "./support/queryWrapper.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
@@ -32,7 +33,7 @@ const type = (label, value) => fireEvent.change(screen.getByLabelText(label), { 
 async function openAddUser(t) {
   register(t);
   const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");
-  render(React.createElement(Page));
+  render(withQuery(React.createElement(Page)));
   await settle();
   fireEvent.click(screen.getAllByRole("button", { name: /Add User/ })[0]);
   await settle();

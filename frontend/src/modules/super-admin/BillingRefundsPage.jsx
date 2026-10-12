@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import { useParams } from "react-router-dom";
@@ -325,9 +326,7 @@ export default function BillingRefundsPage() {
         {error ? (
           <WidgetError message={error} onRetry={loadTable} />
         ) : loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-          </div>
+          <TableSkeleton rows={6} label="Loading refunds" />
         ) : rows.length === 0 ? (
           <div className="py-12 text-center text-sm text-slate-400">
             {filtersActive

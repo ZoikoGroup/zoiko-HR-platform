@@ -1,4 +1,5 @@
 import { useState, useMemo } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import {
@@ -270,9 +271,7 @@ export default function BillingInvoicesPage() {
         </h3>
 
         {loading ? (
-          <div className="flex items-center justify-center py-16">
-            <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#3B82F6] border-t-transparent" />
-          </div>
+          <TableSkeleton rows={6} label="Loading invoices" />
         ) : filteredInvoices.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-slate-200 bg-slate-50/60 p-12 text-center">
             <Receipt className="mx-auto mb-3 h-10 w-10 text-slate-300" />

@@ -42,7 +42,7 @@ export {
 
 export const getEmployeeDashboard = () => api.get("/hr/employee-management/dashboard");
 
-export const getEmployees = (params = {}) => api.get("/hr/employee-management/employees", { params });
+export const getEmployees = (params = {}, opts) => api.get("/hr/employee-management/employees", { params, ...opts });
 export const getEmployeeById = (id) => api.get(`/hr/employee-management/employees/${id}`);
 
 export const createEmployee = (payload) => api.post("/hr/employee-management/employees", payload);
@@ -51,7 +51,7 @@ export const deleteEmployee = (id) => api.delete(`/hr/employee-management/employ
 export const hardDeleteEmployee = (id) => api.delete(`/hr/employee-management/employees/${id}/hard-delete`);
 export const bulkHardDeleteEmployees = (ids) => api.post(`/hr/employee-management/employees/bulk-hard-delete`, { employee_ids: ids });
 
-export const getEmployeeProfile = (employeeId) => api.get(`/hr/employee-management/employees/${employeeId}/profile`);
+export const getEmployeeProfile = (employeeId, opts) => api.get(`/hr/employee-management/employees/${employeeId}/profile`, opts);
 export const updateEmployeeProfile = (employeeId, payload) => api.put(`/hr/employee-management/employees/${employeeId}/profile`, payload);
 
 // ── Organization Structure ───────────────────────────────────────────────
@@ -118,8 +118,8 @@ export async function downloadImportTemplate() {
 
 // ── Supporting Master Data ───────────────────────────────────────────────
 
-export const getDepartments = () => api.get("/hr/departments").then((data) => data);
-export const getDesignations = () => api.get("/hr/designations");
+export const getDepartments = (opts) => api.get("/hr/departments", opts);
+export const getDesignations = (opts) => api.get("/hr/designations", opts);
 
 // ════════════════════════════════════════════════════════════════════════════
 // EMPLOYEE SELF-SERVICE — TRAVEL
@@ -145,7 +145,7 @@ export const deleteEss = (id) => api.delete(`/hr/ess/${id}`);
 
 // ── My Profile ──────────────────────────────────────────────────────────
 
-export const getMyProfile = () => api.get("/hr/employees/me");
+export const getMyProfile = (opts) => api.get("/hr/employees/me", opts);
 export const updateMyProfile = (payload) => api.put("/hr/employees/me", payload);
 
 // ════════════════════════════════════════════════════════════════════════════

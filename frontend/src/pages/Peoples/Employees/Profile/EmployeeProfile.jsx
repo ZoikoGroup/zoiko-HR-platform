@@ -1,4 +1,7 @@
 import { useState, useEffect, useRef } from "react";
+import { DetailSkeleton } from "../../../../components/LoadingSkeletons";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../../../service/queryKeys";
 import {
   User, Briefcase, MapPin, Calendar, Mail, Phone, Building2,
   Clock, Users, Shield, Loader2, AlertCircle, Pencil, X, Check,
@@ -109,10 +112,6 @@ const SectionTitle = ({ icon: Icon, children }) => (
 
 export default function EmployeeProfile() {
   const [activeTab, setActiveTab] = useState(0);
-  const [profile, setProfile] = useState(null);
-  const [extended, setExtended] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveMsg, setSaveMsg] = useState(null);
@@ -123,32 +122,24 @@ export default function EmployeeProfile() {
 
   useEffect(() => {
     mounted.current = true;
-    setLoading(true);
-    setError(null);
-
-    getMyProfile()
-      .then((res) => {
-        if (!mounted.current) return;
-        const emp = res.data || res;
-        setProfile(emp);
-        const empId = v(emp, "id");
-        if (empId) {
-          getEmployeeProfile(empId)
-            .then((profRes) => {
-              if (mounted.current) setExtended(profRes.data || profRes);
-            })
-            .catch(() => {});
-        }
-      })
-      .catch((err) => {
-        if (mounted.current) setError(err?.message || "Failed to load profile");
-      })
-      .finally(() => {
-        if (mounted.current) setLoading(false);
-      });
-
     return () => { mounted.current = false; };
   }, []);
+
+  // Two cached queries: the person's own record, then their extended profile (which waits for the id). Coming back to
+  // the page shows both at once; a failure of the extended part is not an error for the page.
+  const qc = useQueryClient();
+  const meQuery = useQuery({ queryKey: keys.hr.me(), queryFn: ({ signal }) => getMyProfile({ signal }).then((res) => res.data || res) });
+  const profile = meQuery.data ?? null;
+  const empId = profile ? v(profile, "id") : null;
+  const extQuery = useQuery({
+    queryKey: keys.hr.employees.profile(empId),
+    enabled: !!empId,
+    retry: false,
+    queryFn: ({ signal }) => getEmployeeProfile(empId, { signal }).then((r) => r.data || r).catch(() => null),
+  });
+  const extended = extQuery.data ?? null;
+  const loading = meQuery.isPending;
+  const error = meQuery.isError ? (meQuery.error?.message || "Failed to load profile") : null;
 
   function startEdit() {
     const p = profile || {};
@@ -244,15 +235,8 @@ export default function EmployeeProfile() {
         if (Object.keys(details).length > 0) await updateEmployeeProfile(empId, details);
       }
 
-      const fresh = await getMyProfile();
-      if (mounted.current) setProfile(fresh.data || fresh);
-      if (empId) {
-        getEmployeeProfile(empId)
-          .then((profRes) => {
-            if (mounted.current) setExtended(profRes.data || profRes);
-          })
-          .catch(() => {});
-      }
+      // the saved profile is what the HR side shows too, so refresh the whole HR family
+      await qc.invalidateQueries({ queryKey: keys.hr.all });
       setEditing(false);
       setSaveMsg("Profile updated successfully");
       setTimeout(() => { if (mounted.current) setSaveMsg(null); }, 3000);
@@ -271,10 +255,7 @@ export default function EmployeeProfile() {
   if (loading) {
     return (
       <EmployeePageShell title="Employee Profile" subtitle="Employees">
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-          <span className="ml-3 text-sm text-slate-500 dark:text-[#94a3b8] font-medium">Loading profile...</span>
-        </div>
+        <DetailSkeleton label="Loading profile" />
       </EmployeePageShell>
     );
   }

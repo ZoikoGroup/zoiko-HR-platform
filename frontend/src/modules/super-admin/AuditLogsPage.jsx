@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { RefreshBar, TableSkeleton } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import { useSearchParams } from "react-router-dom";
@@ -215,8 +216,9 @@ export default function AuditLogsPage() {
           </label>
         </div>
 
+        <RefreshBar active={logsQuery.isFetching && !loading} />
         {loading ? (
-          <div className="py-12 text-center text-slate-400">Loading...</div>
+          <TableSkeleton rows={8} label="Loading audit logs" />
         ) : logs.length === 0 ? (
           <div className="py-12 text-center text-slate-400">
             <FileText className="mx-auto mb-3 h-10 w-10 text-blue-300 opacity-40" />

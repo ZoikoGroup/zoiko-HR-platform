@@ -14,11 +14,19 @@ def _clear_caches():
     """Drop the in-process cache before and after every test. The cached org-access
     TTL (30s) would otherwise let an org status/evaluation change in one test
     leak a stale decision into the next."""
-    from app.core.cache import clear_caches
+    from app.core.cache import clear_caches, invalidate_cache
 
-    clear_caches()
+    def _clear():
+        clear_caches()
+        # With HR_REDIS_URL set (CI) the entitlement/org-access caches live in Redis, which clear_caches() leaves alone;
+        # entries would leak between tests. Flush it only when it is a local instance.
+        url = settings.REDIS_URL or ""
+        if url and any(h in url for h in ("localhost", "127.0.0.1", "redis://redis")):
+            invalidate_cache("")
+
+    _clear()
     yield
-    clear_caches()
+    _clear()
 
 
 @pytest.fixture(autouse=True)

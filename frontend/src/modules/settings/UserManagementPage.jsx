@@ -1,6 +1,8 @@
 import { realEmailError } from "../../utils/realEmail";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import { useState, useEffect, useCallback, useRef } from "react";
+import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useNavigate } from "react-router-dom";
 import {
   getUsers, createUser, updateUser, deactivateUser,
@@ -293,21 +295,23 @@ export default function UserManagementPage() {
   const navigate = useNavigate();
   const { user, role } = useAuth();
   const isSuperAdmin = role === "super_admin";
-  const [roleOptions, setRoleOptions] = useState([]);
+  const rolesQuery = useQuery({ queryKey: keys.orgAdmin.assignableRoles(), queryFn: ({ signal }) => getAssignableRoles({ signal }), staleTime: 5 * 60_000 });
+  const roleOptions = rolesQuery.data?.roles || [];
+  useEffect(() => {
+    if (rolesQuery.isError) setToast({ message: rolesQuery.error?.message || "Failed to load roles", type: "error" });
+  }, [rolesQuery.errorUpdatedAt]);
+
   const ROLE_OPTIONS = roleOptions;
   const canCreateUsers = roleOptions.length > 0;
   const roleInfo = (value) => roleOptions.find((r) => r.value === value);
   const roleLabel = (value) => roleInfo(value)?.label || ROLE_LABELS[value] || value;
 
-  const [users, setUsers] = useState([]);
-  const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [actionError, setError] = useState(null);
+  const [hiddenListError, setHiddenListError] = useState(0);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedOrg, setSelectedOrg] = useState(null); // super admin: users are listed one organization at a time
-  const [orgsLoading, setOrgsLoading] = useState(false);
   const [orgBusyId, setOrgBusyId] = useState(null);
   const [currentPage, setCurrentPage] = useState(1);
   const [showModal, setShowModal] = useState(false);
@@ -338,50 +342,38 @@ export default function UserManagementPage() {
     { value: "deactivated", label: "Deactivated" },
   ];
 
-  const fetchUsers = useCallback(async () => {
-    if (isSuperAdmin && !selectedOrg) {
-      setUsers([]);
-      setTotal(0);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
-    try {
+  // The user list is a cached query keyed by who is looking and the filters: revisiting a page is instant and the
+  // current rows stay on screen while the next page or filter loads. A super admin sees nothing until an
+  // organization is opened.
+  const qc = useQueryClient();
+  const usersEnabled = !(isSuperAdmin && !selectedOrg);
+  const usersParams = isSuperAdmin
+    ? { scope: "super-admin", organization_id: selectedOrg?.id, page: currentPage, page_size: ITEMS_PER_PAGE, search: search || undefined, role: roleFilter || undefined, status: statusFilter || undefined }
+    : { scope: "organization", page: currentPage, per_page: ITEMS_PER_PAGE, search, role: roleFilter, status: statusFilter };
+  const usersQuery = useQuery({
+    queryKey: keys.orgAdmin.users.list(usersParams),
+    enabled: usersEnabled,
+    placeholderData: keepPreviousData,
+    queryFn: async ({ signal }) => {
+      const { scope, ...query } = usersParams;
       if (isSuperAdmin) {
-        const data = await superAdminService.getUsers({
-          page: currentPage,
-          page_size: ITEMS_PER_PAGE,
-          search: search || undefined,
-          role: roleFilter || undefined,
-          status: statusFilter || undefined,
-          organization_id: selectedOrg.id,
-        });
+        const data = await superAdminService.getUsers(query, { signal });
         const filteredUsers = (data.users || []).filter((u) => u.id !== user?.id);
-        setUsers(filteredUsers);
         // Your own row is hidden here, so do not count it in the total either.
-        setTotal(Math.max(0, (data.total || 0) - ((data.users || []).length - filteredUsers.length)));
-      } else {
-        const data = await getUsers({
-          page: currentPage,
-          per_page: ITEMS_PER_PAGE,
-          search,
-          role: roleFilter,
-          status: statusFilter,
-        });
-        setUsers(data.items || []);
-        setTotal(data.total || 0);
+        return { users: filteredUsers, total: Math.max(0, (data.total || 0) - ((data.users || []).length - filteredUsers.length)) };
       }
-    } catch (err) {
-      setError(err.message || "Failed to load users");
-      setUsers([]);
-      setTotal(0);
-    } finally {
-      setLoading(false);
-    }
-  }, [currentPage, search, roleFilter, statusFilter, selectedOrg, isSuperAdmin]);
-
-  useEffect(() => { fetchUsers(); }, [fetchUsers]);
+      const data = await getUsers(query, { signal });
+      return { users: data.items || [], total: data.total || 0 };
+    },
+  });
+  const users = usersEnabled ? usersQuery.data?.users || [] : [];
+  const total = usersEnabled ? usersQuery.data?.total || 0 : 0;
+  const loading = usersEnabled && usersQuery.isPending;
+  const listError = usersEnabled && usersQuery.isError && usersQuery.errorUpdatedAt !== hiddenListError ? (usersQuery.error?.message || "Failed to load users") : null;
+  const error = actionError || listError;
+  const dismissError = () => { setError(null); setHiddenListError(usersQuery.errorUpdatedAt); };
+  // after any change to people: every user list is out of date
+  const fetchUsers = () => qc.invalidateQueries({ queryKey: keys.orgAdmin.users.all });
 
   const totalPages = Math.max(1, Math.ceil(total / ITEMS_PER_PAGE));
   const safePage = Math.min(currentPage, totalPages);
@@ -407,7 +399,7 @@ export default function UserManagementPage() {
   const closeOrganization = () => {
     setSelectedOrg(null);
     setError(null);
-    fetchOrganizations().then(setOrganizations); // counts may have changed
+    refreshOrganizations(); // counts may have changed
   };
 
   const openCreate = () => {
@@ -434,34 +426,16 @@ export default function UserManagementPage() {
     setShowModal(true);
   };
 
-  const fetchOrganizations = async () => {
-    try {
-      setOrgsLoading(true);
-      const data = await superAdminService.getOrganizations({ page_size: 200 });
-      return data.organizations || [];
-    } catch (err) {
-      setToast({ message: "Failed to fetch organizations", type: "error" });
-      return [];
-    } finally {
-      setOrgsLoading(false);
-    }
-  };
-
-  const [organizations, setOrganizations] = useState([]);
-
+  const orgsQuery = useQuery({
+    queryKey: keys.superAdmin.organizations.list({ page_size: 200 }),
+    enabled: isSuperAdmin,
+    queryFn: ({ signal }) => superAdminService.getOrganizations({ page_size: 200 }, { signal }),
+  });
+  const organizations = orgsQuery.data?.organizations || [];
+  const orgsLoading = orgsQuery.isPending && isSuperAdmin;
   useEffect(() => {
-    if (isSuperAdmin) {
-      fetchOrganizations().then(setOrganizations);
-    }
-  }, [isSuperAdmin]);
-
-  useEffect(() => {
-    let cancelled = false;
-    getAssignableRoles()
-      .then((res) => { if (!cancelled) setRoleOptions(res.roles || []); })
-      .catch((err) => { if (!cancelled) setToast({ message: err.message || "Failed to load roles", type: "error" }); });
-    return () => { cancelled = true; };
-  }, []);
+    if (orgsQuery.isError) setToast({ message: "Failed to fetch organizations", type: "error" });
+  }, [orgsQuery.errorUpdatedAt]);
 
   const getDefaultRole = () => {
     const preferred = roleOptions.find((r) => r.value === "employee") || roleOptions[0];
@@ -580,7 +554,7 @@ export default function UserManagementPage() {
     const name = deleteOrgTarget?.name;
     const deletedId = deleteOrgTarget?.id;
     setDeleteOrgTarget(null);
-    fetchOrganizations().then(setOrganizations);
+    refreshOrganizations();
     if (deletedId && selectedOrg?.id === deletedId) {
       setSelectedOrg(null); // the organization is gone; go back to the list
       setToast({ message: res?.message || `Organization "${name}" was deleted.`, type: "success" });
@@ -596,11 +570,12 @@ export default function UserManagementPage() {
     setCopied(false);
     setCreatedPassword(res.temporary_password || null);
     setToast({ message: res.message || `Organization "${res.organization_name}" was created.`, type: "success" });
-    fetchOrganizations().then(setOrganizations);
+    refreshOrganizations();
     await fetchUsers();
   };
 
-  const refreshOrganizations = () => fetchOrganizations().then(setOrganizations);
+  // organization counts and statuses changed: the organization lists and dashboard figures are out of date
+  const refreshOrganizations = () => qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all });
 
   const handleSuspendOrganization = (org) => setConfirmDialog({
     open: true, danger: true, title: "Suspend organization",
@@ -777,7 +752,7 @@ export default function UserManagementPage() {
                 <AlertTriangle className="w-4 h-4 shrink-0" />
                 <span>{error}</span>
               </div>
-              <button onClick={() => setError(null)} className="p-1 hover:bg-red-100 rounded-lg transition-colors ml-3">
+              <button onClick={dismissError} className="p-1 hover:bg-red-100 rounded-lg transition-colors ml-3">
                 <X className="w-4 h-4" />
               </button>
             </div>

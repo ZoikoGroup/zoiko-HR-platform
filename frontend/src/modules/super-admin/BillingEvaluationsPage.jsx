@@ -1,4 +1,5 @@
 import { useState, useRef } from "react";
+import { TableSkeleton } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import { Hourglass, AlertTriangle, PlayCircle, Square, ArrowUpRight, Clock, X } from "lucide-react";
@@ -185,9 +186,7 @@ export default function BillingEvaluationsPage() {
       )}
 
       {loading ? (
-        <div className="flex items-center justify-center py-16">
-          <div className="h-8 w-8 animate-spin rounded-full border-4 border-[#2563EB] border-t-transparent" />
-        </div>
+        <TableSkeleton rows={6} label="Loading evaluations" />
       ) : (
         <>
           <div className="rounded-2xl border border-[#E2E8F0] bg-white shadow-[0_1px_3px_rgba(15,23,42,0.04),0_4px_16px_rgba(15,23,42,0.06)] transition-all duration-200 ease-in-out">
