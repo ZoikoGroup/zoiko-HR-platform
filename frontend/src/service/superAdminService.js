@@ -36,7 +36,7 @@ export const superAdminService = {
   restoreOrganization: (id) => api.post(`/super-admin/organizations/${id}/restore`),
 
   // Organization audit logs (org-scoped)
-  getOrganizationAuditLogs: (orgId, params) => api.get(`/super-admin/organizations/${orgId}/audit-logs`, { params }),
+  getOrganizationAuditLogs: (orgId, params, opts) => api.get(`/super-admin/organizations/${orgId}/audit-logs`, { params, ...opts }),
 
   // Audit Logs
   getAuditLogs: (params, opts) => api.get("/super-admin/audit-logs", { params, ...opts }),

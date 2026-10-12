@@ -22,6 +22,9 @@ export const keys = {
       all: ["superAdmin", "organizations"],
       list: (p) => ["superAdmin", "organizations", params(p)],
       detail: (id) => ["superAdmin", "organizations", "detail", id],
+      // the parts of one organization's page (audit, billing, delinquency, support grants) share the detail prefix, so
+      // invalidating the organization (or the detail) refreshes all of them
+      detailPart: (id, part) => ["superAdmin", "organizations", "detail", id, part],
     },
     auditLogs: {
       all: ["superAdmin", "auditLogs"],

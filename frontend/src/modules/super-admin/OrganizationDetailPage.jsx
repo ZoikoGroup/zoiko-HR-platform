@@ -1,4 +1,6 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import { useParams, useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import {
@@ -85,70 +87,61 @@ export default function OrganizationDetailPage() {
   const navigate = useNavigate();
   const { role } = useAuth();
   const isSuperAdmin = role === ROLES.SUPER_ADMIN;
-  const [org, setOrg] = useState(null);
-  const [auditLogs, setAuditLogs] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionLoading, setActionLoading] = useState(null);
   const [statusModal, setStatusModal] = useState(null);
   const [statusReason, setStatusReason] = useState("");
-  const [subscription, setSubscription] = useState(null);
-  const [evaluations, setEvaluations] = useState([]);
-  const [conversions, setConversions] = useState([]);
-  const [billingLoading, setBillingLoading] = useState(true);
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
-  const [delinquency, setDelinquency] = useState(null);
-  const [supportGrants, setSupportGrants] = useState([]);
   const [supportModal, setSupportModal] = useState(false);
   const [supportResult, setSupportResult] = useState(null);
   const [supportBusy, setSupportBusy] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
 
-  const loadAll = useCallback(async () => {
-    setLoading(true);
-    try {
-      setError(null);
-      const orgData = await superAdminService.getOrganization(orgId);
-      setOrg(orgData);
+  // Each part of the page is its own cached query under this organization's detail key, so a recent visit shows
+  // everything at once, and the parts load independently.
+  const qc = useQueryClient();
+  const part = (name) => keys.superAdmin.organizations.detailPart(orgId, name);
+  const orgQuery = useQuery({ queryKey: keys.superAdmin.organizations.detail(orgId), queryFn: ({ signal }) => superAdminService.getOrganization(orgId, { signal }) });
+  const auditQuery = useQuery({
+    queryKey: part("audit"), retry: false,
+    queryFn: ({ signal }) => superAdminService.getOrganizationAuditLogs(orgId, { page_size: 20 }, { signal }).then((d) => d.logs || []).catch(() => []),
+  });
+  const billingQuery = useQuery({
+    queryKey: part("billing"), retry: false,
+    queryFn: async ({ signal }) => {
       try {
-        const auditData = await superAdminService.getOrganizationAuditLogs(orgId, { page_size: 20 });
-        setAuditLogs(auditData.logs || []);
-      } catch { setAuditLogs([]); }
-
-      setBillingLoading(true);
-      try {
-        const [subData, evalData, convData] = await Promise.all([
-          billingService.getSubscription(orgId),
-          billingService.getEvaluations(orgId).catch(() => ({ list: [] })),
-          billingService.getConversions(orgId).catch(() => ({ list: [] })),
+        const [subscription, evalData, convData] = await Promise.all([
+          billingService.getSubscription(orgId, { signal }),
+          billingService.getEvaluations(orgId, { signal }).catch(() => ({ list: [] })),
+          billingService.getConversions(orgId, { signal }).catch(() => ({ list: [] })),
         ]);
-        setSubscription(subData);
-        setEvaluations(evalData.list || []);
-        setConversions(convData.list || []);
-      } catch {
-        setSubscription(null);
-        setEvaluations([]);
-        setConversions([]);
-      } finally {
-        setBillingLoading(false);
-      }
+        return { subscription, evaluations: evalData.list || [], conversions: convData.list || [] };
+      } catch { return { subscription: null, evaluations: [], conversions: [] }; }
+    },
+  });
+  const delinquencyQuery = useQuery({ queryKey: part("delinquency"), retry: false, queryFn: ({ signal }) => billingService.getDelinquency(orgId, { signal }).catch(() => null) });
+  const supportQuery = useQuery({ queryKey: part("support"), retry: false, queryFn: ({ signal }) => billingService.listSupportAccess(orgId, { signal }).then((r) => r?.list || []).catch(() => []) });
 
-      billingService.getDelinquency(orgId)
-        .then(setDelinquency)
-        .catch(() => setDelinquency(null));
-      billingService.listSupportAccess(orgId)
-        .then((res) => setSupportGrants(res?.list || []))
-        .catch(() => setSupportGrants([]));
-    } catch (e) {
-      console.error("Failed to load org details", e);
-      setError(e.message || "Failed to load organization details.");
-    } finally {
-      setLoading(false);
-    }
-  }, [orgId]);
+  const org = orgQuery.data ?? null;
+  const auditLogs = auditQuery.data || [];
+  const subscription = billingQuery.data?.subscription ?? null;
+  const evaluations = billingQuery.data?.evaluations || [];
+  const conversions = billingQuery.data?.conversions || [];
+  const delinquency = delinquencyQuery.data ?? null;
+  const supportGrants = supportQuery.data || [];
+  const loading = orgQuery.isPending;                                     // the page shows once the organization is in
+  const billingLoading = billingQuery.isPending;
+  const loadError = orgQuery.isError ? (orgQuery.error?.message || "Failed to load organization details.") : null;
 
-  useEffect(() => { loadAll(); }, [loadAll]);
+  // After any change to this organization (status, approval, support access): its page, the organization lists, the
+  // dashboard figures and the audit trail it wrote to.
+  const loadAll = () => {
+    qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all });
+    qc.invalidateQueries({ queryKey: keys.superAdmin.commandCenter.all });
+    qc.invalidateQueries({ queryKey: keys.superAdmin.auditLogs.all });
+    qc.invalidateQueries({ queryKey: keys.billing.all });
+  };
 
   const handleStatusChange = async () => {
     if (!statusModal) return;
@@ -233,13 +226,13 @@ export default function OrganizationDetailPage() {
     );
   }
 
-  if (error && !org) {
+  if (loadError && !org) {
     return (
       <div className="space-y-6 font-sans">
         <PageHeader title="Organization Details" description="Error loading" />
         <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
-          <AlertTriangle className="h-5 w-5" /><span>{error}</span>
-          <button onClick={loadAll} className="ml-auto text-red-600 underline text-xs font-semibold">Retry</button>
+          <AlertTriangle className="h-5 w-5" /><span>{loadError}</span>
+          <button onClick={() => orgQuery.refetch()} className="ml-auto text-red-600 underline text-xs font-semibold">Retry</button>
         </div>
       </div>
     );

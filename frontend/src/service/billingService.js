@@ -18,7 +18,7 @@ export const billingService = {
   getConversions: (orgId, opts) => api.get(`/billing/evaluations/${orgId}/conversions`, opts),
 
   // ── Subscriptions ────────────────────────────────────────────────────────
-  getSubscription: (orgId) => api.get(`/billing/subscriptions/${orgId}`),
+  getSubscription: (orgId, opts) => api.get(`/billing/subscriptions/${orgId}`, opts),
   upgradeSubscription: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/upgrade`, data),
   downgradeDryRun: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/downgrade-dry-run`, data),
   downgradeSubscription: (orgId, data) => api.post(`/billing/subscriptions/${orgId}/downgrade`, data),
@@ -50,8 +50,8 @@ export const billingService = {
   getProviderRefs: (orgId) => api.get(`/billing/provider-refs/${orgId}`),
 
   // ── Delinquency & Support Access (Prompt 5, Section 10 G1-G5 / O3) ───────
-  getDelinquency: (orgId) =>
-    api.get(`/billing/organizations/${orgId}/delinquency`),
+  getDelinquency: (orgId, opts) =>
+    api.get(`/billing/organizations/${orgId}/delinquency`, opts),
 
   getDelinquencyStatus: (orgId) =>
     api.get(`/billing/organizations/${orgId}/delinquency`),
@@ -65,8 +65,8 @@ export const billingService = {
 
   // orgId is optional — omit it to list grants across every organization
   // (genuinely platform-wide, unlike evaluations/invoices/delinquency).
-  listSupportAccess: (orgId) =>
-    api.get("/billing/support-access", { params: orgId ? { organization_id: orgId } : {} }),
+  listSupportAccess: (orgId, opts) =>
+    api.get("/billing/support-access", { params: orgId ? { organization_id: orgId } : {}, ...opts }),
 
   revokeSupportAccess: (grantId) =>
     api.post(`/billing/support-access/${grantId}/revoke`),
