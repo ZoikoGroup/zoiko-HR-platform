@@ -116,9 +116,9 @@ export const billingService = {
 
   // Platform-wide, server-side filtered + paginated (status, organization_id,
   // request_type, created_from/created_before, min/max_amount_cents, page, page_size).
-  listRefunds: (params) => api.get("/billing/refunds", { params }),
+  listRefunds: (params, opts) => api.get("/billing/refunds", { params, ...opts }),
 
-  getRefundSummary: (params) => api.get("/billing/refunds/summary", { params }),
+  getRefundSummary: (params, opts) => api.get("/billing/refunds/summary", { params, ...opts }),
 
   // ── Customer Self-Serve Billing (/billing/me/* — Prompt 6) ───────────────
   // Scoped to the caller's own organization via their JWT; owner sees full
