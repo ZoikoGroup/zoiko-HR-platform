@@ -578,7 +578,7 @@ def get_assessment(
     current_user=Depends(get_current_user),
 ):
     assessment = learning_service.get_assessment_detail(db, id, organization_id=current_user.organization_id)
-    if _is_learner(current_user) and not assessment["is_active"]:
+    if _is_learner(current_user) and (not assessment["is_active"] or not assessment["questions_count"]):
         from app.core.exceptions import NotFoundException
         raise NotFoundException("LearningAssessment", id)
     return assessment

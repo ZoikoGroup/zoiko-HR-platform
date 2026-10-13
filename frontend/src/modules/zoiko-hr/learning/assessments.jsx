@@ -79,11 +79,6 @@ function AssessmentForm({ title, form, setForm, errors, setErrors, courses, edit
             </select>
             {err("course_id")}
           </div>
-          <div>
-            <label htmlFor="a-link" className="block text-sm font-medium text-gray-700 mb-1">Resource Link / PDF URL</label>
-            <input id="a-link" type="text" value={form.resource_link} maxLength={500} aria-invalid={!!errors.resource_link} onChange={set("resource_link")} placeholder="https://example.com/assessment-material.pdf" className={box("resource_link")} />
-            {err("resource_link")}
-          </div>
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label htmlFor="a-pass" className="block text-sm font-medium text-gray-700 mb-1">Passing Score (%){star}</label>
@@ -101,7 +96,7 @@ function AssessmentForm({ title, form, setForm, errors, setErrors, courses, edit
               {err("duration_minutes")}
             </div>
           </div>
-          <p className="text-[11px] text-gray-400 -mt-2">The passing score is the percentage of the total points a learner must earn. Leave Max Attempts or Duration empty for no limit.</p>
+          <p className="text-[11px] text-gray-400 -mt-2">The passing score is the percentage of the total points a learner must earn. Leave Max Attempts or Duration empty for no limit. You add the questions right after creating the quiz.</p>
           {editing && (
             <div>
               <label htmlFor="a-status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
@@ -122,7 +117,7 @@ function AssessmentForm({ title, form, setForm, errors, setErrors, courses, edit
   );
 }
 
-function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, onSubmit, onCancel }) {
+function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, onSubmit, onSubmitAnother, onCancel }) {
   const set = (key) => (e) => {
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
     setErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
@@ -197,7 +192,8 @@ function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, o
           )}
           {form.question_type === "essay" && <p className="text-xs text-gray-400">An essay has no answer key. A person marks it.</p>}
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">{editing ? "Cancel" : "Done"}</button>
+            {!editing && <button type="button" disabled={submitting} onClick={onSubmitAnother} className="px-4 py-2 text-sm border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-60 rounded-lg font-medium transition-colors">Save &amp; add another</button>}
             <button type="submit" disabled={submitting} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors">{submitting ? "Saving..." : editing ? "Update Question" : "Add Question"}</button>
           </div>
         </form>
@@ -299,10 +295,17 @@ export default function ZoikoHRAssessments({ isTab }) {
     setSubmitting(true);
     try {
       const payload = assessmentPayload(formData, !!existing);
+      let created = null;
       if (existing) await updateAssessment(existing.id, payload);
-      else await createAssessment(payload);
+      else created = await createAssessment(payload);
       closeForm();
       await fetchAssessments();
+      // a quiz is no use without questions: take the person straight to adding them
+      if (created?.id) {
+        setDetailItem(created);
+        await loadQuestions(created.id);
+        openQuestion(null);
+      }
     } catch (err) {
       const fields = serverFormErrors(err?.validation, ASSESSMENT_LABELS);
       setFormErrors(Object.keys(fields).length ? fields : { submit: err.message || (existing ? "The assessment could not be updated." : "The assessment could not be created.") });
@@ -344,7 +347,7 @@ export default function ZoikoHRAssessments({ isTab }) {
   };
   const closeQuestion = () => { setQuestionOpen(false); setEditQuestionId(null); setQuestionErrors({}); };
 
-  const saveQuestion = async (e) => {
+  const saveQuestion = async (e, { another = false } = {}) => {
     e.preventDefault();
     if (!detailItem) return;
     const errors = validateQuestionForm(questionData);
@@ -355,7 +358,7 @@ export default function ZoikoHRAssessments({ isTab }) {
       const payload = questionPayload(questionData);
       if (editQuestionId) await updateQuestion(detailItem.id, editQuestionId, payload);
       else await createQuestion(detailItem.id, payload);
-      closeQuestion();
+      if (another && !editQuestionId) { setQuestionData({ ...EMPTY_QUESTION }); setQuestionErrors({}); } else closeQuestion();
       await loadQuestions(detailItem.id);
       setDetailItem(await getAssessmentById(detailItem.id));
       fetchAssessments();
@@ -444,7 +447,6 @@ export default function ZoikoHRAssessments({ isTab }) {
                         <tr>
                           {["Title", "Course", "Passing Score", "Max Attempts", "Duration", "Status"].map((h) => <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600">{h}</th>)}
                           <th className="text-center px-4 py-3 font-semibold text-gray-600">Questions</th>
-                          <th className="text-left px-4 py-3 font-semibold text-gray-600">Resource</th>
                           <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
                         </tr>
                       </thead>
@@ -460,11 +462,9 @@ export default function ZoikoHRAssessments({ isTab }) {
                             <td className="px-4 py-3 text-gray-700">{a.duration_minutes ? `${a.duration_minutes} min` : <span className="text-gray-400">No limit</span>}</td>
                             <td className="px-4 py-3">
                               <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${a.is_active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>{a.is_active ? "Active" : "Inactive"}</span>
+                              {!a.questions_count && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800" title="Learners cannot see this quiz until it has a question">Needs questions</span>}
                             </td>
                             <td className="px-4 py-3 text-center text-gray-700">{a.questions_count ?? 0}</td>
-                            <td className="px-4 py-3">
-                              {a.resource_link ? <a href={a.resource_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:text-blue-800 text-xs font-medium hover:underline">View</a> : <span className="text-gray-300">-</span>}
-                            </td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button onClick={() => openEdit(a)} className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1">Edit</button>
@@ -563,10 +563,6 @@ export default function ZoikoHRAssessments({ isTab }) {
                   ["Max attempts", detailItem.max_attempts ?? "Unlimited"],
                   ["Duration", detailItem.duration_minutes ? `${detailItem.duration_minutes} min` : "No limit"],
                 ].map(([label, value]) => <div key={label}><dt className="text-xs text-gray-400">{label}</dt><dd className="font-medium text-gray-800">{value}</dd></div>)}
-                <div className="col-span-2">
-                  <dt className="text-xs text-gray-400">Resource</dt>
-                  <dd className="font-medium">{detailItem.resource_link ? <a href={detailItem.resource_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">{detailItem.resource_link}</a> : <span className="text-gray-800">Not provided</span>}</dd>
-                </div>
               </dl>
 
               <div className="pt-4 border-t border-gray-100">
@@ -575,7 +571,7 @@ export default function ZoikoHRAssessments({ isTab }) {
                   <button onClick={() => openQuestion(null)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg font-medium">+ Add Question</button>
                 </div>
                 {questions.length === 0 ? (
-                  <p className="text-sm text-gray-400">No questions added yet.</p>
+                  <p role="status" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">This quiz has no questions yet. Learners will not see it until you add at least one question.</p>
                 ) : (
                   <div className="space-y-2">
                     {questions.map((q, i) => (
@@ -617,7 +613,7 @@ export default function ZoikoHRAssessments({ isTab }) {
 
       {questionOpen && (
         <QuestionForm editing={!!editQuestionId} form={questionData} setForm={setQuestionData} errors={questionErrors} setErrors={setQuestionErrors}
-          submitting={submitting} onSubmit={saveQuestion} onCancel={closeQuestion} />
+          submitting={submitting} onSubmit={saveQuestion} onSubmitAnother={(e) => saveQuestion(e, { another: true })} onCancel={closeQuestion} />
       )}
     </>
   );

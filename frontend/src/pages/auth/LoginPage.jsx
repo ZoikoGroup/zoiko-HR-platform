@@ -4,6 +4,7 @@ import { useAuth } from "../../context/AuthContext";
 import { googleSignInEnabled, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
 import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
+import { realEmailError } from "../../utils/realEmail";
 import logo from "../../assets/zoikohr-logo-svg.svg";
 
 export default function LoginPage() {
@@ -12,15 +13,10 @@ export default function LoginPage() {
   const location = useLocation();
   const from = location.state?.from?.pathname || defaultRedirect;
 
-  // Demo credentials only ever prefill in a dev server build (`import.meta.env.DEV`);
-  // a production build ignores these vars even if a deploy platform sets them,
-  // so a default admin login can never ship in the bundle users download.
-  const [email, setEmail] = useState(
-    import.meta.env.DEV ? import.meta.env.VITE_DEFAULT_EMAIL || "" : ""
-  );
-  const [password, setPassword] = useState(
-    import.meta.env.DEV ? import.meta.env.VITE_DEFAULT_PASSWORD || "" : ""
-  );
+  // The form always starts empty: no address or password is ever filled in for the person (ZHR-103).
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [fieldErrors, setFieldErrors] = useState({});
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
@@ -79,9 +75,16 @@ export default function LoginPage() {
     setLocalError(null);
     setUnconfirmed(false);
     setResendNote("");
+    const address = email.trim();
+    const problems = {};
+    if (!address) problems.email = "Enter your email address.";
+    else if (realEmailError(address)) problems.email = realEmailError(address);       // placeholders and throwaway inboxes cannot sign in
+    if (!password) problems.password = "Enter your password.";
+    setFieldErrors(problems);
+    if (Object.keys(problems).length) return;
     setSubmitting(true);
     try {
-      await login({ email, password });
+      await login({ email: address, password });
       navigate(from, { replace: true });
     } catch (err) {
       setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
@@ -136,30 +139,38 @@ export default function LoginPage() {
               </div>
             )}
 
-            <form className="space-y-4" onSubmit={handleSubmit}>
+            <form className="space-y-4" onSubmit={handleSubmit} noValidate autoComplete="on">
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                <label htmlFor="login-email" className="block text-xs font-semibold text-slate-500 mb-1">
                   Email address
                 </label>
                 <input
+                  id="login-email"
+                  name="email"
                   type="email"
                   value={email}
-                  onChange={(e) => setEmail(e.target.value)}
+                  aria-invalid={fieldErrors.email ? "true" : undefined}
+                  aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
+                  onChange={(e) => { setEmail(e.target.value); if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined })); }}
                   placeholder="name@company.com"
                   autoComplete="email"
                   className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:bg-white transition-all"
                 />
+                {fieldErrors.email && <p id="login-email-error" role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.email}</p>}
               </div>
 
               <div>
-                <label className="block text-xs font-semibold text-slate-500 mb-1">
+                <label htmlFor="login-password" className="block text-xs font-semibold text-slate-500 mb-1">
                   Password
                 </label>
                 <div className="relative">
                   <input
+                    id="login-password"
+                    name="password"
                     type={showPassword ? "text" : "password"}
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    aria-invalid={fieldErrors.password ? "true" : undefined}
+                    onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
                     placeholder="••••••••"
                     autoComplete="current-password"
                     className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:bg-white transition-all"
@@ -172,6 +183,7 @@ export default function LoginPage() {
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
+                {fieldErrors.password && <p role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
               </div>
 
               <button
@@ -255,16 +267,6 @@ export default function LoginPage() {
             </Link>
 
             <div className="space-y-3 pt-2">
-              <div className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4">
-                <div className="p-2 bg-white/10 rounded-lg text-white">
-                  ▶
-                </div>
-                <div>
-                  <h4 className="text-sm font-bold text-white">Take the Product Tour</h4>
-                  <p className="text-xs text-slate-400">See it tailored to your organization</p>
-                </div>
-              </div>
-
               <Link to="/request-pricing" className="p-4 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors cursor-pointer flex items-center space-x-4 no-underline">
                 <div className="p-2 bg-white/10 rounded-lg text-white">
                   🎯

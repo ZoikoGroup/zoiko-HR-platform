@@ -66,13 +66,12 @@ export default function LearnerDashboard({ courses, programs, assessmentsByCours
           ) : (
             <div className="space-y-2">
               {inProgress.map((c) => {
-                const progress = courseProgress(assessmentsByCourse[c.id] || [], attemptsByAssessment);
                 const open = openQuizzes(assessmentsByCourse[c.id] || [], attemptsByAssessment);
                 return (
                   <div key={c.id} className="flex items-center justify-between bg-white dark:bg-[#1e293b] rounded-xl border border-gray-200 dark:border-[#334155] px-4 py-3">
                     <div className="min-w-0">
                       <p className="text-sm font-semibold text-gray-900 dark:text-[#f1f5f9] truncate">{c.course_name}</p>
-                      <p className="text-xs text-gray-400 dark:text-[#94a3b8]">{progress.passedCount} quiz{progress.passedCount === 1 ? "" : "zes"} passed</p>
+                      <p className="text-xs text-gray-400 dark:text-[#94a3b8]">{[c.category, c.duration_hours != null && c.duration_hours !== "" ? `${c.duration_hours}h` : null].filter(Boolean).join(" · ")}</p>
                     </div>
                     {open[0] ? (
                       <button onClick={() => onStartQuiz(c, open[0])} className="text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 shrink-0 ml-3">Continue</button>

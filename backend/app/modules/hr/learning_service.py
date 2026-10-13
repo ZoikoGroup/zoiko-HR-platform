@@ -457,7 +457,16 @@ def create_assessment(db: Session, data: AssessmentCreate, created_by: int, orga
     return _assessment_dict(db, assessment)
 
 
+NO_QUESTIONS_MESSAGE = "This quiz has no questions yet. Ask your administrator to add questions to it."
+
+
+def _has_questions(db: Session, assessment_id: int) -> bool:
+    return db.query(LearningAssessmentQuestion.id).filter(LearningAssessmentQuestion.assessment_id == assessment_id).first() is not None
+
+
 def get_assessments(db: Session, course_id: Optional[int] = None, organization_id: Optional[int] = None, active_only: bool = False) -> list[dict]:
+    """active_only is the learner's view: only quizzes that are switched on, belong to an active course and have at least
+    one question, so a learner is never offered a quiz they cannot take."""
     query = db.query(LearningAssessment)
     if organization_id is not None:
         query = query.join(LearningCourse, LearningCourse.id == LearningAssessment.course_id).filter(LearningCourse.organization_id == organization_id)
@@ -465,6 +474,10 @@ def get_assessments(db: Session, course_id: Optional[int] = None, organization_i
         query = query.filter(LearningAssessment.course_id == course_id)
     if active_only:
         query = query.filter(LearningAssessment.is_active == True)  # noqa: E712
+        if organization_id is None:
+            query = query.join(LearningCourse, LearningCourse.id == LearningAssessment.course_id)
+        query = query.filter(LearningCourse.status == "active")
+        query = query.filter(db.query(LearningAssessmentQuestion.id).filter(LearningAssessmentQuestion.assessment_id == LearningAssessment.id).exists())
     return [_assessment_dict(db, a) for a in query.order_by(LearningAssessment.created_at.desc()).all()]
 
 
@@ -566,6 +579,8 @@ def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[in
 
     if not assessment.is_active:
         raise BadRequestException("Assessment is not active.")
+    if not _has_questions(db, assessment.id):
+        raise BadRequestException(NO_QUESTIONS_MESSAGE)
 
     if assessment.max_attempts and assessment.max_attempts > 0:
         existing_count = db.query(LearningQuizAttempt).filter(
@@ -608,6 +623,8 @@ def submit_quiz(db: Session, attempt_id: int, data: QuizAttemptSubmit, organizat
 
     assessment = _assessment_row(db, attempt.assessment_id, organization_id)
     questions = get_questions(db, attempt.assessment_id)
+    if not questions:
+        raise BadRequestException(NO_QUESTIONS_MESSAGE)
 
     try:
         user_answers = json.loads(data.answers)

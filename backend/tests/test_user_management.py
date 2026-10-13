@@ -489,6 +489,46 @@ def test_reset_link_from_public_forgot_password_ends_to_end(world, monkeypatch):
     assert c.post("/auth/login", json={"email": u["emp1"].email, "password": "BrandNew123"}).status_code == 200
 
 
+def test_forgot_password_matches_the_address_ignoring_case_and_spaces(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    world["u"]["emp1"].email = "Emp1@Example.com"          # stored with capitals, as some accounts are
+    world["db"].commit()
+    r = world["c"].post("/auth/forgot-password", json={"email": "emp1@example.com"})
+    assert r.status_code == 200 and r.json()["message"] == GENERIC_FORGOT_MESSAGE
+    assert len(calls) == 1 and calls[0][1]["email"] == "Emp1@Example.com", "a typed address in other case still finds the account"
+
+
+def test_forgot_password_sends_one_email_a_minute_but_always_answers_the_same(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    c, email = world["c"], world["u"]["emp1"].email
+    first = c.post("/auth/forgot-password", json={"email": email})
+    second = c.post("/auth/forgot-password", json={"email": email})
+    assert first.json() == second.json() == {"message": GENERIC_FORGOT_MESSAGE}
+    assert len(calls) == 1, "a second request inside the minute does not mail again"
+    # the link sent first still works
+    raw = calls[0][1]["action_url"].split("token=")[1]
+    assert c.post("/auth/reset-password", json={"token": raw, "password": "BrandNew123"}).status_code == 200
+    # once the first link is used it no longer blocks a new request
+    row = world["db"].query(SecurityActionToken).filter(SecurityActionToken.email == email, SecurityActionToken.purpose == SecurityActionPurpose.RESET).first()
+    assert row is not None
+    again = c.post("/auth/forgot-password", json={"email": email})
+    resets = [kw for sender, kw in calls if sender == "send_org_admin_password_reset_email"]
+    assert again.status_code == 200 and len(resets) == 2, "after the link was used, a fresh request is allowed at once"
+
+
+def test_forgot_password_allows_a_new_link_once_the_minute_has_passed(world, monkeypatch):
+    calls = _capture_forgot_emails(world, monkeypatch)
+    c, email = world["c"], world["u"]["emp1"].email
+    c.post("/auth/forgot-password", json={"email": email})
+    tok = world["db"].query(SecurityActionToken).filter(SecurityActionToken.email == email, SecurityActionToken.used_at.is_(None)).one()
+    tok.expires_at = tok.expires_at - timedelta(seconds=120)      # issued two minutes ago
+    world["db"].commit()
+    c.post("/auth/forgot-password", json={"email": email})
+    assert len(calls) == 2
+    live = world["db"].query(SecurityActionToken).filter(SecurityActionToken.email == email, SecurityActionToken.used_at.is_(None)).all()
+    assert len(live) == 1, "the newest link replaces the older one"
+
+
 def test_a_reset_link_never_points_at_another_product_or_a_blank_address(monkeypatch):
     from app.config import settings
     from app.modules.employee import service
@@ -547,3 +587,31 @@ def test_admin_can_edit_the_complete_employee_details(world):
     # department/designation were created once, not duplicated per save
     assert db.query(Department).filter(Department.name == "Platform").count() == 1
     assert db.query(Designation).filter(Designation.title == "Senior Engineer").count() == 1
+
+
+# ═════════════════════════════ ZHR-103: only real email addresses can sign in ═════════════════════════════
+
+def test_a_placeholder_or_disposable_address_cannot_sign_in(world, strict_emails):
+    c = world["c"]
+    for email in ("admin@example.com", "someone@mailinator.com", "somebody@yourcompany.com"):
+        r = c.post("/auth/login", json={"email": email, "password": PW})
+        assert r.status_code == 400, (email, r.text)
+        assert "EMAIL_NOT_REAL" in r.text and "Only real email addresses can sign in" in r.text
+    for email in ("x@company.test", "y@localhost"):             # not even a valid address shape: refused earlier still
+        assert c.post("/auth/login", json={"email": email, "password": PW}).status_code in (400, 422)
+
+
+def test_an_older_account_saved_with_a_placeholder_address_is_refused_even_with_the_right_password(world, strict_emails):
+    emp = world["u"]["emp1"]                                    # stored as emp1@example.com
+    r = world["c"].post("/auth/login", json={"email": emp.email, "password": PW})
+    assert r.status_code == 400 and "real email" in r.text
+
+
+def test_a_real_address_still_signs_in(world, strict_emails):
+    emp = world["u"]["emp1"]
+    emp.email = "emp1.real@gmail.com"
+    emp.email_verified = True
+    world["db"].commit()
+    r = world["c"].post("/auth/login", json={"email": "Emp1.Real@Gmail.com", "password": PW})
+    assert r.status_code == 200, r.text
+    assert r.json()["access_token"]

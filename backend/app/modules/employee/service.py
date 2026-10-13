@@ -255,6 +255,7 @@ def _notify_email_async(sender_name: str, **kwargs) -> None:
 
 TOKEN_TTL_HOURS = 24            # invitations
 RESET_TOKEN_TTL_MINUTES = 60    # password-reset links (short-lived)
+RESET_RESEND_COOLDOWN_SECONDS = 60   # at most one reset email per account per minute from the public form
 RESET_RATE_LIMIT_PER_HOUR = 5   # admin-initiated resets per target user
 TOKEN_TIMEZONE = "UTC"
 
@@ -536,7 +537,22 @@ def resend_email_verification(db: Session, email: str) -> dict:
 # AUTH SERVICE
 # ═══════════════════════════════════════════════════════════════════════════════
 
+def _require_real_sign_in_address(email: str) -> None:
+    """Only real email addresses may sign in: a placeholder (name@example.com, *.test, localhost...) or a throwaway-inbox
+    address is refused with a plain reason. No network lookup here: it must not slow every sign-in. Switch off with
+    EMAIL_REAL_ONLY=false."""
+    from app.config import settings
+    from app.core.email_quality import problem_with_domain
+
+    if not getattr(settings, "EMAIL_REAL_ONLY", True):
+        return
+    problem = problem_with_domain((email or "").rsplit("@", 1)[-1])
+    if problem:
+        raise ZoikoException(400, "EMAIL_NOT_REAL", f"{problem} Only real email addresses can sign in.")
+
+
 def login_employee(db: Session, data: LoginRequest) -> dict:
+    _require_real_sign_in_address(str(data.email))
     employee = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).first()
     if not employee:
         raise UnauthorizedException("Invalid email or password.")
@@ -554,6 +570,8 @@ def issue_login(db: Session, employee: Employee) -> dict:
     Organization state comes from the cached org-access decision (app/core/org_access.py):
     one query for the employee, zero for the org on a cache hit."""
     from app.core import org_access
+
+    _require_real_sign_in_address(employee.email)       # an older account saved with a placeholder address can no longer sign in
 
     if employee.organization_id:
         oa = org_access.get_org_access(db, employee.organization_id)
@@ -1317,8 +1335,26 @@ def request_password_reset(db: Session, email: str) -> dict:
     generic_message = (
         "If an account exists for that email, a password reset link has been sent."
     )
-    employee = db.query(Employee).filter(Employee.email == email).first()
+    # Addresses are matched the way sign-in matches them: ignoring case and stray spaces.
+    typed = (email or "").strip().lower()
+    employee = db.query(Employee).filter(func.lower(Employee.email) == typed).first()
     if not employee or not employee.is_active:
+        return {"message": generic_message}
+
+    # A link was sent a moment ago (a double click, or an impatient second request): that link is still good, so do not
+    # send another. This also stops the form being used to flood someone's inbox. Same answer either way.
+    issued_after = datetime.utcnow() + timedelta(minutes=RESET_TOKEN_TTL_MINUTES) - timedelta(seconds=RESET_RESEND_COOLDOWN_SECONDS)
+    recent = (
+        db.query(SecurityActionToken.id)
+        .filter(
+            SecurityActionToken.email == employee.email,
+            SecurityActionToken.purpose == SecurityActionPurpose.RESET,
+            SecurityActionToken.used_at.is_(None),
+            SecurityActionToken.expires_at > issued_after,
+        )
+        .first()
+    )
+    if recent:
         return {"message": generic_message}
 
     raw_token, expires_at = _issue_action_token(

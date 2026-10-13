@@ -288,7 +288,9 @@ def test_the_audit_script_lists_old_accounts_with_unusable_addresses_and_can_req
         env.db.refresh(p)
     assert [p.email_verified for p in old] == [False, False, True]
     assert sorted(kw["email"] for kw in _verification_mails(env)) == ["burner@mailinator.com", "dummy@example.com"]
-    assert env.post("/auth/login", json={"email": "dummy@example.com", "password": "Passw0rd1"}).status_code == 403
+    # ZHR-103: an account with a placeholder address cannot sign in at all (no confirmation can ever reach it)
+    refused = env.post("/auth/login", json={"email": "dummy@example.com", "password": "Passw0rd1"})
+    assert refused.status_code == 400 and "EMAIL_NOT_REAL" in refused.text
     assert env.post("/auth/login", json={"email": "real@gmail.com", "password": "Passw0rd1"}).status_code == 200
 
 
