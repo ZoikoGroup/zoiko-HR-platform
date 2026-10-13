@@ -105,13 +105,22 @@ test("the dashboard opens, shows the tabs, and only shows my department's course
   assert.doesNotMatch(text, /Sales Pitch/);
 });
 
-test("the courses tab lists my courses and takes a quiz, sending answers the server scores", async () => {
-  const calls = await load("/employee/learning/courses");
-  assert.match(document.body.textContent, /Fire Safety/);
-  assert.match(document.body.textContent, /Code of Conduct/);
-  assert.doesNotMatch(document.body.textContent, /Sales Pitch/);
+test("the courses tab shows each course's details and no quizzes; quizzes are on the Assessments tab", async () => {
+  await load("/employee/learning/courses");
+  const text = document.body.textContent;
+  assert.match(text, /Fire Safety/);
+  assert.match(text, /Code of Conduct/);
+  assert.doesNotMatch(text, /Sales Pitch/);
+  assert.match(text, /2 hours/);
+  assert.match(text, /Everyone/, "a course for everybody says so");
+  assert.equal(document.querySelectorAll('[data-testid="course-card"]').length, 2);
+  assert.doesNotMatch(text, /Fire quiz|Take Quiz|quiz|Badge earned/i);
+  assert.equal(screen.queryByRole("button", { name: /quiz/i }), null);
+});
 
-  fireEvent.click(screen.getByRole("button", { name: /Fire quiz/ }));
+test("a quiz is taken from the Assessments tab, sending answers the server scores", async () => {
+  const calls = await load("/employee/learning/assessments");
+  fireEvent.click(screen.getByRole("button", { name: /Take quiz/ }));
   await settle();
   assert.deepEqual(calls.started, [[10, 7]]);
   fireEvent.click(screen.getByLabelText("Red"));
@@ -119,7 +128,6 @@ test("the courses tab lists my courses and takes a quiz, sending answers the ser
   await settle();
   assert.deepEqual(calls.submitted, [[10, 55, [{ question_id: 100, answer: "Red" }]]]);
   assert.match(document.body.textContent, /Congratulations! Quiz passed/);
-  assert.match(document.body.textContent, /Badge earned/);
 });
 
 test("the assessments tab lists quizzes to take", async () => {
@@ -132,4 +140,37 @@ test("a failed load shows a message instead of crashing", async () => {
   state.failCourses = true;
   await load();
   assert.match(document.body.textContent, /Could not load courses/);
+});
+
+test("a course type that has no fixed label is still shown readably", async () => {
+  COURSES.items.push({ id: 4, course_name: "Leadership", department: null, course_type: "on_the_job", duration_hours: 1 });
+  try {
+    await load("/employee/learning/courses");
+    assert.match(document.body.textContent, /On The Job/);
+    assert.match(document.body.textContent, /1 hour(?!s)/);
+  } finally { COURSES.items.pop(); }
+});
+
+
+test("short-answer questions get a text box and true/false get True and False, not a made-up True/False pair", async () => {
+  const saved = QUESTIONS.splice(0, QUESTIONS.length,
+    { id: 200, question_text: "Name the colour", question_type: "short_answer", options: null, correct_answer: null },
+    { id: 201, question_text: "Fire is hot", question_type: "true_false", options: null, correct_answer: null },
+    { id: 202, question_text: "Pick one", question_type: "multiple_choice", options: ["Red", "Blue"], correct_answer: null });
+  try {
+    const calls = await load("/employee/learning/assessments");
+    fireEvent.click(screen.getByRole("button", { name: /Take quiz/ }));
+    await settle();
+    fireEvent.change(screen.getByLabelText("Answer to question 1"), { target: { value: "Red" } });
+    assert.ok(screen.getByLabelText("True") && screen.getByLabelText("False"));
+    assert.equal(screen.getAllByLabelText("Red").length, 1, "options are only the ones the author wrote");
+    const submit = screen.getByRole("button", { name: "Submit Quiz" });
+    assert.equal(submit.disabled, true, "every question must be answered");
+    fireEvent.click(screen.getByLabelText("True"));
+    fireEvent.click(screen.getByLabelText("Blue"));
+    assert.equal(submit.disabled, false);
+    fireEvent.click(submit);
+    await settle();
+    assert.deepEqual(calls.submitted[0][2], [{ question_id: 200, answer: "Red" }, { question_id: 201, answer: "True" }, { question_id: 202, answer: "Blue" }]);
+  } finally { QUESTIONS.splice(0, QUESTIONS.length, ...saved); }
 });

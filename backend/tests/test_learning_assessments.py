@@ -220,3 +220,37 @@ def test_a_learner_takes_a_quiz_for_themselves_and_the_server_marks_it(env):
     env.box["user"] = other
     assert env.get(f"{URL}/attempts/{att['id']}").status_code == 404
     assert env.post(f"{URL}/{aid}/attempts/{att['id']}/submit", json={"answers": "[]"}).status_code == 404
+
+
+# ── a quiz with no questions is never offered to a learner
+def test_a_quiz_with_no_questions_is_hidden_from_learners_and_cannot_be_started(env):
+    empty = env.post(URL, json=good(env, title="No questions yet")).json()["id"]
+    ready = env.post(URL, json=good(env, title="Ready quiz")).json()["id"]
+    env.post(f"{URL}/{ready}/questions", json=_question())
+    assert {a["title"]: a["questions_count"] for a in env.get(URL).json()} == {"No questions yet": 0, "Ready quiz": 1}, "the admin sees both"
+    env.box["user"] = env.learner
+    assert [a["title"] for a in env.get(URL).json()] == ["Ready quiz"]
+    assert env.get(f"{URL}/{empty}").status_code == 404
+    refused = env.post(f"{URL}/start", json={"assessment_id": empty, "employee_id": env.learner.id})
+    assert refused.status_code == 400 and "no questions" in refused.text.lower()
+    assert env.post(f"{URL}/start", json={"assessment_id": ready, "employee_id": env.learner.id}).status_code == 201
+
+
+def test_a_quiz_of_an_inactive_course_is_hidden_from_learners(env):
+    aid = env.post(URL, json=good(env)).json()["id"]
+    env.post(f"{URL}/{aid}/questions", json=_question())
+    env.course.status = "inactive"
+    env.db.commit()
+    env.box["user"] = env.learner
+    assert env.get(URL).json() == []
+
+
+def test_a_quiz_whose_questions_were_all_removed_stops_being_offered(env):
+    aid = env.post(URL, json=good(env)).json()["id"]
+    qid = env.post(f"{URL}/{aid}/questions", json=_question()).json()["id"]
+    env.box["user"] = env.learner
+    assert len(env.get(URL).json()) == 1
+    env.box["user"] = env.admin
+    assert env.delete(f"{URL}/{aid}/questions/{qid}").status_code in (200, 204)
+    env.box["user"] = env.learner
+    assert env.get(URL).json() == []

@@ -1,71 +1,53 @@
 import { useMemo, useState } from "react";
-import { Award, BookOpen, ChevronRight, FileText } from "lucide-react";
-import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
-import { courseProgress, attemptsLeft, openQuizzes } from "../../../../utils/employeeLearning";
+import { BookOpen } from "lucide-react";
 
-function CourseCard({ course, assessments, attemptsByAssessment, onStartQuiz }) {
-  const progress = courseProgress(assessments, attemptsByAssessment);
-  const status = progress.status;
-  const open = openQuizzes(assessments, attemptsByAssessment);
+const TYPE_LABELS = { online: "Online", classroom: "Classroom", workshop: "Workshop", webinar: "Webinar", self_paced: "Self-paced", "self-paced": "Self-paced", blended: "Blended" };
+const typeLabel = (t) => TYPE_LABELS[String(t || "").toLowerCase()] || String(t || "").replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+/** A course as the organization set it up: its details and where to learn it. Quizzes are on the Assessments tab. */
+function CourseCard({ course }) {
+  const meta = [
+    course.duration_hours != null && course.duration_hours !== "" ? `${course.duration_hours} hour${Number(course.duration_hours) === 1 ? "" : "s"}` : null,
+    course.provider || null,
+  ].filter(Boolean);
 
   return (
-    <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-200 dark:border-[#334155] shadow-sm hover:shadow-md transition-all overflow-hidden">
-      <div className="p-5">
-        <div className="flex items-start justify-between mb-3">
-          <div className="flex items-center gap-3">
-            <div className={`p-2.5 rounded-lg ${status === "completed" ? "bg-emerald-50 dark:bg-emerald-900/30" : "bg-blue-50 dark:bg-blue-900/30"}`}>
-              <BookOpen className={`w-5 h-5 ${status === "completed" ? "text-emerald-600 dark:text-emerald-400" : "text-blue-600 dark:text-blue-400"}`} />
-            </div>
-            <div>
-              <h3 className="text-sm font-bold text-gray-900 dark:text-[#f1f5f9]">{course.course_name}</h3>
-              {course.category && <p className="text-xs text-gray-400 dark:text-[#94a3b8] mt-0.5 capitalize">{course.category}</p>}
-            </div>
+    <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-200 dark:border-[#334155] shadow-sm hover:shadow-md transition-all overflow-hidden flex flex-col" data-testid="course-card">
+      <div className="p-5 flex flex-col flex-1">
+        <div className="flex items-start gap-3 mb-3">
+          <div className="p-2.5 rounded-lg bg-blue-50 dark:bg-blue-900/30 shrink-0">
+            <BookOpen className="w-5 h-5 text-blue-600 dark:text-blue-400" />
           </div>
-          <EmployeeStatusBadge status={status} />
+          <div className="min-w-0">
+            <h3 className="text-sm font-bold text-gray-900 dark:text-[#f1f5f9]">{course.course_name}</h3>
+            {course.category && <p className="text-xs text-gray-400 dark:text-[#94a3b8] mt-0.5 capitalize">{course.category}</p>}
+          </div>
         </div>
 
-        {course.description && <p className="text-xs text-gray-500 dark:text-[#94a3b8] mb-3 line-clamp-2">{course.description}</p>}
-
-        <div className="flex items-center gap-3 text-xs text-gray-400 dark:text-[#94a3b8] mb-4">
-          {course.duration_hours != null && <span>{course.duration_hours}h</span>}
-          {course.provider && <span>{course.provider}</span>}
-          {assessments.length > 0 && <span>{assessments.length} quiz{assessments.length > 1 ? "zes" : ""}</span>}
+        <div className="flex flex-wrap gap-1.5 mb-3">
+          {course.course_type && <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-700/60 text-slate-600 dark:text-slate-300 text-[11px] font-semibold">{typeLabel(course.course_type)}</span>}
+          <span className="px-2 py-0.5 rounded-full bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 text-[11px] font-semibold capitalize">{course.department ? course.department : "Everyone"}</span>
         </div>
+
+        {course.description && <p className="text-xs text-gray-500 dark:text-[#94a3b8] mb-3 line-clamp-3">{course.description}</p>}
+
+        {meta.length > 0 && (
+          <div className="flex items-center gap-3 text-xs text-gray-400 dark:text-[#94a3b8] mb-4">
+            {meta.map((m) => <span key={m}>{m}</span>)}
+          </div>
+        )}
 
         {course.resource_link && (
-          <a href={course.resource_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 mb-3">
+          <a href={course.resource_link} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800">
             Open course material &rarr;
           </a>
-        )}
-
-        {progress.passedCount > 0 && (
-          <div className="mb-3 flex items-center gap-2 bg-emerald-50 dark:bg-emerald-900/30 border border-emerald-200 dark:border-emerald-800 rounded-lg px-3 py-2">
-            <Award size={14} className="text-emerald-600 dark:text-emerald-400 shrink-0" />
-            <span className="text-xs font-semibold text-emerald-700 dark:text-emerald-300">Badge earned — {progress.passedCount} quiz{progress.passedCount > 1 ? "zes" : ""} passed</span>
-          </div>
-        )}
-
-        {open.map((a) => {
-          const left = attemptsLeft(a, attemptsByAssessment[a.id]);
-          return (
-            <button
-              key={a.id}
-              onClick={() => onStartQuiz(course, a)}
-              className="w-full mb-2 flex items-center justify-center gap-1.5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold transition-colors"
-            >
-              <FileText size={13} /> {a.title || "Take Quiz"}{left !== null ? ` (${left} ${left === 1 ? "try" : "tries"} left)` : ""} <ChevronRight size={13} />
-            </button>
-          );
-        })}
-        {assessments.length > 0 && open.length === 0 && status !== "completed" && (
-          <p className="text-xs text-amber-600 dark:text-amber-400 font-medium">You have used all your tries for this course's quizzes.</p>
         )}
       </div>
     </div>
   );
 }
 
-export default function LearnerCourses({ courses, assessmentsByCourse, attemptsByAssessment, department, onStartQuiz }) {
+export default function LearnerCourses({ courses, department }) {
   const [search, setSearch] = useState("");
   const term = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -101,13 +83,7 @@ export default function LearnerCourses({ courses, assessmentsByCourse, attemptsB
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((course) => (
-            <CourseCard
-              key={course.id}
-              course={course}
-              assessments={assessmentsByCourse[course.id] || []}
-              attemptsByAssessment={attemptsByAssessment}
-              onStartQuiz={onStartQuiz}
-            />
+            <CourseCard key={course.id} course={course} />
           ))}
         </div>
       )}

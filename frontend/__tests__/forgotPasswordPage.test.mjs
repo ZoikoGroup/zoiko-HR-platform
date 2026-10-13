@@ -47,3 +47,37 @@ test("a server failure is shown and the person can try again", async (t) => {
   assert.match(document.body.textContent, /took too long/);
   assert.ok(screen.getByRole("button", { name: /Send reset link/ }));
 });
+
+test("a missing or malformed address is refused under the form and nothing is sent", async (t) => {
+  const calls = await open(t);
+  await submit();
+  assert.match(document.body.textContent, /Enter your email address/);
+  type("not-an-email");
+  await submit();
+  assert.match(document.body.textContent, /valid email address/);
+  assert.deepEqual(calls, []);
+});
+
+test("spaces around the address are removed before it is sent", async (t) => {
+  const calls = await open(t);
+  type("  person@company.com  ");
+  await submit();
+  assert.deepEqual(calls, [{ email: "person@company.com" }]);
+});
+
+test("too many requests gets a plain message, not the raw server text", async (t) => {
+  await open(t, async () => { throw Object.assign(new Error("Rate limit exceeded: 5 per 1 minute"), { status: 429 }); });
+  type("person@company.com");
+  await submit();
+  assert.match(document.body.textContent, /Too many requests\. Please wait a minute/);
+  assert.doesNotMatch(document.body.textContent, /Rate limit exceeded/);
+});
+
+test("after sending, 'Send it again' is held for a minute and then asks for another link", async (t) => {
+  const calls = await open(t);
+  type("person@company.com");
+  await submit();
+  const again = screen.getByRole("button", { name: /Send it again in \d+s/ });
+  assert.equal(again.disabled, true);
+  assert.equal(calls.length, 1);
+});

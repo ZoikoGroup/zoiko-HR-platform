@@ -52,11 +52,6 @@ export default function LearnerAssessments({ courses, assessmentsByCourse, attem
                 {assessment.duration_minutes ? ` · ${assessment.duration_minutes} min` : ""}
                 {` · ${left === null ? "Unlimited tries" : `${left} ${left === 1 ? "try" : "tries"} left`}`}
               </p>
-              {assessment.resource_link && (
-                <a href={assessment.resource_link} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800 mt-2">
-                  Open resource &rarr;
-                </a>
-              )}
             </div>
 
             <div className="shrink-0">

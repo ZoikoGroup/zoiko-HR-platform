@@ -7,10 +7,8 @@ export const QUESTION_TYPES = [
   { value: "essay", label: "Essay (marked by a person)" },
 ];
 
-export const EMPTY_ASSESSMENT = { title: "", description: "", course_id: "", passing_score: "", max_attempts: "", duration_minutes: "", resource_link: "", is_active: true };
+export const EMPTY_ASSESSMENT = { title: "", description: "", course_id: "", passing_score: "", max_attempts: "", duration_minutes: "", is_active: true };
 export const EMPTY_QUESTION = { question_text: "", question_type: "multiple_choice", options: "", correct_answer: "", points: "" };
-
-const LINK = /^https?:\/\/[^\s/]+\.[^\s/]+\S*$/i;
 
 const whole = (raw, label, low, high, { required = false, unit = "" } = {}) => {
   const v = String(raw ?? "").trim();
@@ -29,7 +27,6 @@ export function assessmentToForm(a) {
     passing_score: a.passing_score != null ? String(a.passing_score) : "",
     max_attempts: a.max_attempts != null ? String(a.max_attempts) : "",
     duration_minutes: a.duration_minutes != null ? String(a.duration_minutes) : "",
-    resource_link: a.resource_link || "",
     is_active: a.is_active !== false,
   };
 }
@@ -50,15 +47,11 @@ export function validateAssessmentForm(f) {
   if (attempts) errors.max_attempts = attempts;
   const minutes = whole(f.duration_minutes, "Duration", 1, 600, { unit: " minutes" });
   if (minutes) errors.duration_minutes = minutes;
-  const link = String(f.resource_link ?? "").trim();
-  if (link && !LINK.test(link)) errors.resource_link = "Enter a valid link starting with http:// or https://.";
-  else if (link.length > 500) errors.resource_link = "The resource link can be at most 500 characters.";
   return errors;
 }
 
 export function assessmentPayload(f, editing) {
   const num = (v) => (String(v ?? "").trim() === "" ? null : Number(String(v).trim()));
-  const text = (v) => { const t = String(v ?? "").trim(); return t === "" ? null : t; };
   const payload = {
     course_id: Number(f.course_id),
     title: String(f.title).trim().replace(/\s+/g, " "),
@@ -66,7 +59,6 @@ export function assessmentPayload(f, editing) {
     passing_score: Number(String(f.passing_score).trim()),
     max_attempts: num(f.max_attempts),
     duration_minutes: num(f.duration_minutes),
-    resource_link: text(f.resource_link),
   };
   if (editing) payload.is_active = !!f.is_active;
   return payload;
@@ -140,7 +132,7 @@ export function serverFormErrors(detail, labels = {}) {
   return out;
 }
 
-export const ASSESSMENT_LABELS = { title: "Title", description: "Description", course_id: "Course", passing_score: "Passing score", max_attempts: "Maximum attempts", duration_minutes: "Duration", resource_link: "Resource link" };
+export const ASSESSMENT_LABELS = { title: "Title", description: "Description", course_id: "Course", passing_score: "Passing score", max_attempts: "Maximum attempts", duration_minutes: "Duration" };
 export const QUESTION_LABELS = { question_text: "Question text", question_type: "Question type", options: "Options", correct_answer: "Correct answer", points: "Points" };
 
 export function resultOf(attempt) {

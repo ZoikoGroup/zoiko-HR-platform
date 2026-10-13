@@ -11,7 +11,7 @@ import {
 afterEach(() => cleanup());
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60)); });
 
-const FULL = { title: "Fire quiz", description: "Checks the basics.", course_id: "1", passing_score: "60", max_attempts: "", duration_minutes: "", resource_link: "", is_active: true };
+const FULL = { title: "Fire quiz", description: "Checks the basics.", course_id: "1", passing_score: "60", max_attempts: "", duration_minutes: "", is_active: true };
 
 test("the passing score must be typed: nothing is filled in, and it is a percentage from 1 to 100", () => {
   assert.equal(EMPTY_ASSESSMENT.passing_score, "", "the empty form starts with no passing score");
@@ -27,9 +27,8 @@ test("the other details are checked too", () => {
   assert.deepEqual(Object.keys(validateAssessmentForm({ ...EMPTY_ASSESSMENT })).sort(), ["course_id", "description", "passing_score", "title"]);
   assert.match(validateAssessmentForm({ ...FULL, max_attempts: "0" }).max_attempts, /between 1 and 100/);
   assert.match(validateAssessmentForm({ ...FULL, duration_minutes: "601" }).duration_minutes, /601|between 1 and 600/);
-  assert.match(validateAssessmentForm({ ...FULL, resource_link: "abc" }).resource_link, /http/);
-  assert.deepEqual(assessmentPayload({ ...FULL, max_attempts: "3", duration_minutes: "30", resource_link: " https://x.com/a.pdf " }, true), {
-    course_id: 1, title: "Fire quiz", description: "Checks the basics.", passing_score: 60, max_attempts: 3, duration_minutes: 30, resource_link: "https://x.com/a.pdf", is_active: true,
+  assert.deepEqual(assessmentPayload({ ...FULL, max_attempts: "3", duration_minutes: "30" }, true), {
+    course_id: 1, title: "Fire quiz", description: "Checks the basics.", passing_score: 60, max_attempts: 3, duration_minutes: 30, is_active: true,
   });
   assert.equal(assessmentPayload(FULL, false).max_attempts, null, "empty optional limits mean unlimited");
 });
@@ -59,17 +58,17 @@ test("attempt results and server messages read plainly", () => {
   assert.equal(serverFormErrors([{ loc: ["body", "passing_score"], msg: "Field required" }], { passing_score: "Passing score" }).passing_score, "Passing score is required.");
 });
 
-const A1 = { id: 1, course_id: 7, course_name: "Fire Safety", title: "Fire quiz", description: "d", passing_score: 60, max_attempts: null, duration_minutes: null, is_active: true, questions_count: 1, resource_link: null };
+const A1 = { id: 1, course_id: 7, course_name: "Fire Safety", title: "Fire quiz", description: "d", passing_score: 60, max_attempts: null, duration_minutes: null, is_active: true, questions_count: 1 };
 
 async function load(t, over = {}) {
   const calls = { create: [], update: [], question: [] };
   const svc = {
     getAssessments: async () => over.items ?? [A1],
     getAssessmentById: async (id) => (over.items ?? [A1]).find((a) => a.id === id),
-    createAssessment: async (p) => { calls.create.push(p); if (over.createError) throw over.createError; return {}; },
+    createAssessment: async (p) => { calls.create.push(p); if (over.createError) throw over.createError; const made = { id: 99, course_id: p.course_id, course_name: "Fire Safety", title: p.title, description: p.description, passing_score: p.passing_score, is_active: true, questions_count: 0 }; over.items = [...(over.items ?? [A1]), made]; return made; },
     updateAssessment: async (id, p) => { calls.update.push([id, p]); return {}; },
     deleteAssessment: async () => ({}),
-    getQuestions: async () => [{ id: 5, assessment_id: 1, question_text: "Colour?", question_type: "multiple_choice", options: ["Red", "Blue"], correct_answer: "Red", points: 2 }],
+    getQuestions: async () => over.questions ?? [{ id: 5, assessment_id: 1, question_text: "Colour?", question_type: "multiple_choice", options: ["Red", "Blue"], correct_answer: "Red", points: 2 }],
     createQuestion: async (id, p) => { calls.question.push(["create", id, p]); return {}; },
     updateQuestion: async (id, q, p) => { calls.question.push(["update", id, q, p]); return {}; },
     deleteQuestion: async () => ({}),
@@ -162,4 +161,42 @@ test("the attempts tab shows names, scores in percent and Passed / Failed", asyn
   const rows = [...document.querySelectorAll("tbody tr")].map((r) => r.textContent);
   assert.match(rows[0], /Sam Lee/); assert.match(rows[0], /80%/); assert.match(rows[0], /Passed/);
   assert.match(rows[1], /Ann Roy/); assert.match(rows[1], /Failed/);
+});
+
+
+test("the create form has no URL / resource link box", async (t) => {
+  await load(t, { items: [] });
+  fireEvent.click(screen.getByRole("button", { name: "+ Add Assessment" }));
+  assert.equal(document.getElementById("a-link"), null);
+  assert.doesNotMatch(document.querySelector(".fixed").textContent, /URL|Resource Link|https?:\/\//i);
+});
+
+test("after a quiz is created the question form opens at once, and the quiz is flagged until it has questions", async (t) => {
+  const calls = await load(t, { items: [], questions: [] });
+  fireEvent.click(screen.getByRole("button", { name: "+ Add Assessment" }));
+  set("a-title", "Safety quiz"); set("a-desc", "Checks the basics."); set("a-course", "7"); set("a-pass", "60");
+  fireEvent.click(screen.getByRole("button", { name: "Create Assessment" }));
+  await settle();
+  assert.equal(calls.create.length, 1);
+  assert.equal("resource_link" in calls.create[0], false);
+  assert.ok(document.getElementById("q-text"), "the Add Question form is open straight away");
+  assert.match(screen.getByRole("dialog", { name: "Assessment details" }).textContent, /Safety quiz/);
+  assert.match(screen.getByRole("dialog", { name: "Assessment details" }).textContent, /Learners will not see it until you add at least one question/);
+});
+
+test("'Save & add another' keeps the form open and empty for the next question", async (t) => {
+  const calls = await load(t);
+  fireEvent.click(screen.getByRole("button", { name: "Fire quiz" }));
+  await settle();
+  fireEvent.click(screen.getByRole("button", { name: "+ Add Question" }));
+  set("q-text", "Is water fine on a grease fire?"); set("q-type", "true_false"); set("q-points", "1"); set("q-answer", "False");
+  fireEvent.click(screen.getByRole("button", { name: /Save & add another/ }));
+  await settle();
+  assert.equal(calls.question.length, 1);
+  assert.equal(document.getElementById("q-text").value, "", "ready for the next question");
+});
+
+test("a quiz without questions shows 'Needs questions' in the list", async (t) => {
+  await load(t, { items: [{ ...A1, questions_count: 0 }] });
+  assert.match(document.querySelector("tbody tr").textContent, /Needs questions/);
 });

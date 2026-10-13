@@ -7,6 +7,8 @@ import React from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
 afterEach(() => cleanup());
+// dates are relative to today: a fixed date turns into a past date (which the form refuses) as time goes by
+const iso = (days) => { const d = new Date(); d.setDate(d.getDate() + days); return d.toISOString().slice(0, 10); };
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 40)); });
 
 test("an employee can pick Work From Home on the Apply Leave form and it is submitted", async (t) => {
@@ -20,8 +22,8 @@ test("an employee can pick Work From Home on the Apply Leave form and it is subm
   assert.ok(options.includes("Work From Home"), `Work From Home must be offered, got: ${options.join(", ")}`);
   fireEvent.change(select, { target: { name: "leave_type", value: "Work From Home" } });
   const dates = document.querySelectorAll('input[type="date"]');
-  fireEvent.change(dates[0], { target: { name: "start_date", value: "2026-10-12" } });
-  fireEvent.change(dates[1], { target: { name: "end_date", value: "2026-10-13" } });
+  fireEvent.change(dates[0], { target: { name: "start_date", value: iso(7) } });
+  fireEvent.change(dates[1], { target: { name: "end_date", value: iso(8) } });
   fireEvent.change(document.querySelector("textarea"), { target: { name: "reason", value: "Plumber visiting the house on Monday" } });
   fireEvent.submit(select.closest("form"));
   await settle();
