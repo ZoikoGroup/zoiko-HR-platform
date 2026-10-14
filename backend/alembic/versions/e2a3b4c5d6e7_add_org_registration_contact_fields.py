@@ -30,10 +30,14 @@ _COLUMNS = [
 
 
 def upgrade() -> None:
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("organizations")}
     for name, col_type in _COLUMNS:
-        op.add_column("organizations", sa.Column(name, col_type, nullable=True))
+        if name not in existing:
+            op.add_column("organizations", sa.Column(name, col_type, nullable=True))
 
 
 def downgrade() -> None:
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("organizations")}
     for name, _ in reversed(_COLUMNS):
-        op.drop_column("organizations", name)
+        if name in existing:
+            op.drop_column("organizations", name)
