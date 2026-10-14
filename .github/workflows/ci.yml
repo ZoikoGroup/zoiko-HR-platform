@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
     services:
       postgres:
-        image: postgres:15
+        image: pgvector/pgvector:pg15
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -82,6 +82,7 @@ jobs:
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO root;
             ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO root;
           SQL
+          psql -h localhost -U postgres -d zoiko_hr_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       - name: Run DB migrations
         working-directory: backend
