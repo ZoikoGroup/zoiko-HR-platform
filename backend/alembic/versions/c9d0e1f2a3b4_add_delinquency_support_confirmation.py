@@ -23,52 +23,56 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
-        'billing_delinquency_cases',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
-        sa.Column('status', sa.String(length=50), nullable=False),
-        sa.Column('stage', sa.String(length=50), nullable=False),
-        sa.Column('stripe_event_id', sa.String(length=255), nullable=True),
-        sa.Column('failed_at', sa.DateTime(), nullable=False),
-        sa.Column('recovered_at', sa.DateTime(), nullable=True),
-        sa.Column('terminated_at', sa.DateTime(), nullable=True),
-        sa.Column('retention_hold_until', sa.DateTime(), nullable=True),
-        sa.Column('notes', sa.Text(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
-        sa.Column('updated_at', sa.DateTime(), nullable=True),
-    )
-    op.create_index('ix_billing_delinquency_cases_organization_id', 'billing_delinquency_cases', ['organization_id'])
+    existing = set(sa.inspect(op.get_bind()).get_table_names())
+    if 'billing_delinquency_cases' not in existing:
+        op.create_table(
+            'billing_delinquency_cases',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
+            sa.Column('status', sa.String(length=50), nullable=False),
+            sa.Column('stage', sa.String(length=50), nullable=False),
+            sa.Column('stripe_event_id', sa.String(length=255), nullable=True),
+            sa.Column('failed_at', sa.DateTime(), nullable=False),
+            sa.Column('recovered_at', sa.DateTime(), nullable=True),
+            sa.Column('terminated_at', sa.DateTime(), nullable=True),
+            sa.Column('retention_hold_until', sa.DateTime(), nullable=True),
+            sa.Column('notes', sa.Text(), nullable=True),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+            sa.Column('updated_at', sa.DateTime(), nullable=True),
+        )
+        op.create_index('ix_billing_delinquency_cases_organization_id', 'billing_delinquency_cases', ['organization_id'])
 
-    op.create_table(
-        'billing_support_access_grants',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
-        sa.Column('token_hash', sa.String(length=128), nullable=False, unique=True),
-        sa.Column('granted_by', sa.String(length=255), nullable=False),
-        sa.Column('reason', sa.Text(), nullable=True),
-        sa.Column('expires_at', sa.DateTime(), nullable=False),
-        sa.Column('revoked_at', sa.DateTime(), nullable=True),
-        sa.Column('revoked_by', sa.String(length=255), nullable=True),
-        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
-    )
-    op.create_index('ix_billing_support_access_grants_organization_id', 'billing_support_access_grants', ['organization_id'])
+    if 'billing_support_access_grants' not in existing:
+        op.create_table(
+            'billing_support_access_grants',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
+            sa.Column('token_hash', sa.String(length=128), nullable=False, unique=True),
+            sa.Column('granted_by', sa.String(length=255), nullable=False),
+            sa.Column('reason', sa.Text(), nullable=True),
+            sa.Column('expires_at', sa.DateTime(), nullable=False),
+            sa.Column('revoked_at', sa.DateTime(), nullable=True),
+            sa.Column('revoked_by', sa.String(length=255), nullable=True),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        )
+        op.create_index('ix_billing_support_access_grants_organization_id', 'billing_support_access_grants', ['organization_id'])
 
-    op.create_table(
-        'billing_confirmation_tokens',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
-        sa.Column('purpose', sa.String(length=100), nullable=False),
-        sa.Column('token_hash', sa.String(length=128), nullable=False, unique=True),
-        sa.Column('expires_at', sa.DateTime(), nullable=False),
-        sa.Column('status', sa.String(length=50), nullable=False),
-        sa.Column('actor_id', sa.Integer(), sa.ForeignKey('employees.id'), nullable=True),
-        sa.Column('actor_email', sa.String(length=255), nullable=True),
-        sa.Column('consumed_at', sa.DateTime(), nullable=True),
-        sa.Column('token_metadata', sa.JSON(), nullable=True),
-        sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
-    )
-    op.create_index('ix_billing_confirmation_tokens_organization_id', 'billing_confirmation_tokens', ['organization_id'])
+    if 'billing_confirmation_tokens' not in existing:
+        op.create_table(
+            'billing_confirmation_tokens',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
+            sa.Column('purpose', sa.String(length=100), nullable=False),
+            sa.Column('token_hash', sa.String(length=128), nullable=False, unique=True),
+            sa.Column('expires_at', sa.DateTime(), nullable=False),
+            sa.Column('status', sa.String(length=50), nullable=False),
+            sa.Column('actor_id', sa.Integer(), sa.ForeignKey('employees.id'), nullable=True),
+            sa.Column('actor_email', sa.String(length=255), nullable=True),
+            sa.Column('consumed_at', sa.DateTime(), nullable=True),
+            sa.Column('token_metadata', sa.JSON(), nullable=True),
+            sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
+        )
+        op.create_index('ix_billing_confirmation_tokens_organization_id', 'billing_confirmation_tokens', ['organization_id'])
 
 
 def downgrade() -> None:

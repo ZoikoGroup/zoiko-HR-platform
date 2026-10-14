@@ -30,7 +30,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.create_table(
+    existing = set(sa.inspect(op.get_bind()).get_table_names())
+    if 'commercial_catalog_version' not in existing:
+        op.create_table(
         'commercial_catalog_version',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('version', sa.String(length=50), nullable=False),
@@ -42,11 +44,12 @@ def upgrade() -> None:
         sa.Column('checksum', sa.String(length=64), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
-    )
-    op.create_index('ix_commercial_catalog_version_id', 'commercial_catalog_version', ['id'])
-    op.create_index('ix_commercial_catalog_version_version', 'commercial_catalog_version', ['version'], unique=True)
+        )
+        op.create_index('ix_commercial_catalog_version_id', 'commercial_catalog_version', ['id'])
+        op.create_index('ix_commercial_catalog_version_version', 'commercial_catalog_version', ['version'], unique=True)
 
-    op.create_table(
+    if 'commercial_sku' not in existing:
+        op.create_table(
         'commercial_sku',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('catalog_version_id', sa.Integer(), sa.ForeignKey('commercial_catalog_version.id'), nullable=True),
@@ -61,12 +64,13 @@ def upgrade() -> None:
         sa.Column('is_active', sa.Boolean(), nullable=False),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
-    )
-    op.create_index('ix_commercial_sku_id', 'commercial_sku', ['id'])
-    op.create_index('ix_commercial_sku_catalog_version_id', 'commercial_sku', ['catalog_version_id'])
-    op.create_unique_constraint('uq_catalog_sku_code', 'commercial_sku', ['catalog_version_id', 'code'])
+        )
+        op.create_index('ix_commercial_sku_id', 'commercial_sku', ['id'])
+        op.create_index('ix_commercial_sku_catalog_version_id', 'commercial_sku', ['catalog_version_id'])
+        op.create_unique_constraint('uq_catalog_sku_code', 'commercial_sku', ['catalog_version_id', 'code'])
 
-    op.create_table(
+    if 'feature_definition' not in existing:
+        op.create_table(
         'feature_definition',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('key', sa.String(length=150), nullable=False),
@@ -77,11 +81,12 @@ def upgrade() -> None:
         sa.Column('status', sa.String(length=30), nullable=False),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
-    )
-    op.create_index('ix_feature_definition_id', 'feature_definition', ['id'])
-    op.create_index('ix_feature_definition_key', 'feature_definition', ['key'], unique=True)
+        )
+        op.create_index('ix_feature_definition_id', 'feature_definition', ['id'])
+        op.create_index('ix_feature_definition_key', 'feature_definition', ['key'], unique=True)
 
-    op.create_table(
+    if 'downgrade_impact_item' not in existing:
+        op.create_table(
         'downgrade_impact_item',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('plan_change_id', sa.Integer(), sa.ForeignKey('billing_plan_changes.id'), nullable=True),
@@ -92,11 +97,12 @@ def upgrade() -> None:
         sa.Column('remediation', sa.Text(), nullable=True),
         sa.Column('resolved_at', sa.DateTime(), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
-    )
-    op.create_index('ix_downgrade_impact_item_id', 'downgrade_impact_item', ['id'])
-    op.create_index('ix_downgrade_impact_item_plan_change_id', 'downgrade_impact_item', ['plan_change_id'])
+        )
+        op.create_index('ix_downgrade_impact_item_id', 'downgrade_impact_item', ['id'])
+        op.create_index('ix_downgrade_impact_item_plan_change_id', 'downgrade_impact_item', ['plan_change_id'])
 
-    op.create_table(
+    if 'commercial_exception_entitlement' not in existing:
+        op.create_table(
         'commercial_exception_entitlement',
         sa.Column('id', sa.Integer(), primary_key=True),
         sa.Column('organization_id', sa.Integer(), sa.ForeignKey('organizations.id'), nullable=False),
@@ -115,15 +121,15 @@ def upgrade() -> None:
         sa.Column('approved_at', sa.DateTime(), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.func.now()),
         sa.Column('updated_at', sa.DateTime(), nullable=True),
-    )
-    op.create_index('ix_commercial_exception_entitlement_id', 'commercial_exception_entitlement', ['id'])
-    op.create_index('ix_commercial_exception_entitlement_organization_id', 'commercial_exception_entitlement', ['organization_id'])
-    op.create_index('ix_commercial_exception_entitlement_feature_key', 'commercial_exception_entitlement', ['feature_key'])
-    op.create_unique_constraint(
-        'uq_exception_org_feature_window',
-        'commercial_exception_entitlement',
-        ['organization_id', 'feature_key', 'starts_at', 'expires_at'],
-    )
+        )
+        op.create_index('ix_commercial_exception_entitlement_id', 'commercial_exception_entitlement', ['id'])
+        op.create_index('ix_commercial_exception_entitlement_organization_id', 'commercial_exception_entitlement', ['organization_id'])
+        op.create_index('ix_commercial_exception_entitlement_feature_key', 'commercial_exception_entitlement', ['feature_key'])
+        op.create_unique_constraint(
+            'uq_exception_org_feature_window',
+            'commercial_exception_entitlement',
+            ['organization_id', 'feature_key', 'starts_at', 'expires_at'],
+        )
 
 
 def downgrade() -> None:
