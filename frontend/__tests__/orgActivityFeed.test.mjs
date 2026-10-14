@@ -14,13 +14,13 @@ const calls = [];
 const mocked = new WeakSet();
 const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 100)); });
 
+// What the platform gets (ZHR-PRIV-001 E01): a role + pseudonymous reference, never a name, target, diff or free-text reason.
 const EVENT = {
-  id: 1, sentence: "Priya Shah (Org Admin) added employee Rahul Mehta (EMP-1042) to Acme Ltd", organization_id: 1,
-  organization_name: "Acme Ltd", actor_name: "Priya Shah", actor_role_label: "Org Admin", actor_email: "priya@acme.com",
-  target_label: "Rahul Mehta (EMP-1042)", status: "success", created_at: new Date(Date.now() - 5 * 60000).toISOString(),
-  changes: [{ field: "job_title", label: "Job title", before: null, after: "Engineer" }, { field: "bank_account", label: "Bank account", before: null, after: "••••9012" }],
+  id: 1, sentence: "Org Admin #a3f9 added 1 employee record in Acme Ltd", organization_id: 1,
+  organization_name: "Acme Ltd", actor_ref: "Org Admin #a3f9", actor_role_label: "Org Admin", action_group: "Employee", entity_type: "Employee",
+  status: "success", created_at: new Date(Date.now() - 5 * 60000).toISOString(), counts: null, failure_code: null,
 };
-const FAILED = { ...EVENT, id: 2, status: "failed", sentence: "Gina Lopez (Org Admin) tried to add employee Bob", organization_name: "Globex Inc", error_message: "Employee with this email already exists", changes: [] };
+const FAILED = { ...EVENT, id: 2, status: "failed", sentence: "Org Admin #b7c1 imported 50 employee records into Globex Inc (48 succeeded, 2 failed) - failed", organization_name: "Globex Inc", failure_code: "DUPLICATE", counts: { total: 50, succeeded: 48, failed: 2 } };
 
 function register(t) {
   if (mocked.has(t)) return;
@@ -49,15 +49,25 @@ test("events read as sentences with organization, time and status", async (t) =>
   cleanup();
 });
 
-test("clicking an event opens the detail panel with masked changes and errors", async (t) => {
+test("clicking an event shows who KIND of person, what kind of action and a generic failure code, and no record detail", async (t) => {
   await open(t);
   fireEvent.click(screen.getByText(EVENT.sentence));
-  const changes = within(screen.getByLabelText("Changes"));
-  assert.ok(changes.getByText("Job title") && changes.getByText("Engineer") && changes.getByText("••••9012"));
+  const text = document.body.textContent;
+  assert.match(text, /Org Admin #a3f9/);
+  assert.match(text, /not available to the platform/);
+  assert.equal(screen.queryByLabelText("Changes"), null, "no before/after table");
+  assert.doesNotMatch(text, /IP address|Target|@/);
   const closers = screen.getAllByRole("button", { name: "Close" });
   fireEvent.click(closers[closers.length - 1]);
   fireEvent.click(screen.getByText(FAILED.sentence));
-  assert.ok(screen.getByText("Employee with this email already exists"));
+  assert.ok(screen.getByText("Failed: DUPLICATE"));
+  cleanup();
+});
+
+test("there is no way to search or filter by a person", async (t) => {
+  await open(t);
+  assert.equal(screen.queryByLabelText("Actor"), null);
+  assert.ok(screen.getByLabelText("Search").placeholder.match(/organization/i));
   cleanup();
 });
 
@@ -77,7 +87,7 @@ test("filters are sent to the server", async (t) => {
 test("empty state, with and without filters", async (t) => {
   await open(t, { list: async () => ({ total: 0, events: [] }) });
   assert.ok(screen.getByText(/No organization activity yet/));
-  fireEvent.change(screen.getByLabelText("Actor"), { target: { value: "zed" } });
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "failed" } });
   fireEvent.click(screen.getByRole("button", { name: "Apply" }));
   await settle();
   assert.ok(screen.getByText("No activity matches these filters."));

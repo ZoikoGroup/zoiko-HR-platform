@@ -78,6 +78,7 @@ async function openLogin(t, { login, resend } = {}) {
   t.mock.module("../src/service/authService.js", { exports: {
     googleSignInEnabled: async () => true,
     resendVerification: resend || (async (email) => { calls.resend.push(email); return { message: "A new confirmation link has been sent." }; }),
+    mfaEnrollStart: async () => ({}),
   } });
   t.mock.module("../src/service/api.js", { exports: { API_BASE_URL: "https://api.example.com" } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ login, loginWithGoogle: async () => ({}), error: null, defaultRedirect: "/home" }) } });

@@ -9,23 +9,25 @@ import { filterSectionsForRole } from "../src/hooks/useFilteredNavigation.js";
 import { ROLES } from "../src/config/roles.js";
 
 const entries = [
-  { label: "Ungated", href: "/gated/always", icon: () => null },
-  { label: "Workflow", href: "/gated/workflow", icon: () => null, featureKey: "hr.documents.workflow" },
-  { label: "SSO", href: "/gated/sso", icon: () => null, featureKey: "hr.identity.sso" },
+  { label: "Ungated", href: "/super-admin/dashboard", icon: () => null },
+  { label: "Workflow", href: "/super-admin/audit-logs", icon: () => null, featureKey: "hr.documents.workflow" },
+  { label: "SSO", href: "/super-admin/organizations", icon: () => null, featureKey: "hr.identity.sso" },
   {
     label: "Group",
     icon: () => null,
     featureKey: "hr.documents.core",
-    children: [{ label: "Child Ungated", href: "/gated/group/child", icon: () => null }],
+    children: [{ label: "Child Ungated", href: "/settings/user-management", icon: () => null }],
   },
 ];
 
+// Paths are reachable by a SUPER_ADMIN so this file keeps testing the
+// ENTITLEMENT filter only; role-based path filtering has its own tests.
 const sections = [{ title: "GATED", items: entries }];
 
 test("no entitlements map leaves every item visible (backward compatible)", () => {
   const filtered = filterSectionsForRole(sections, ROLES.SUPER_ADMIN, []);
   const hrefs = filtered[0].items.map((i) => i.href);
-  assert.deepEqual(hrefs, ["/gated/always", "/gated/workflow", "/gated/sso", undefined]);
+  assert.deepEqual(hrefs, ["/super-admin/dashboard", "/super-admin/audit-logs", "/super-admin/organizations", undefined]);
 });
 
 test("granted keys keep their items", () => {
@@ -35,7 +37,7 @@ test("granted keys keep their items", () => {
     "hr.documents.core": "READ_ONLY",
   });
   const hrefs = filtered[0].items.map((i) => i.href);
-  assert.deepEqual(hrefs, ["/gated/always", "/gated/workflow", "/gated/sso", undefined]);
+  assert.deepEqual(hrefs, ["/super-admin/dashboard", "/super-admin/audit-logs", "/super-admin/organizations", undefined]);
 });
 
 test("ungranted keys drop their items but keep ungated ones", () => {
@@ -45,7 +47,7 @@ test("ungranted keys drop their items but keep ungated ones", () => {
     "hr.documents.core": "ENTITLED_NOT_CONFIGURED",
   });
   const hrefs = filtered[0].items.map((i) => i.href);
-  assert.deepEqual(hrefs, ["/gated/always"]);
+  assert.deepEqual(hrefs, ["/super-admin/dashboard"]);
 });
 
 test("string-state comparison treats READ_ONLY as granted", () => {

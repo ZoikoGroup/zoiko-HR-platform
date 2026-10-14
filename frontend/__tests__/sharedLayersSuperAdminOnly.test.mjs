@@ -10,9 +10,8 @@ const SHARED_LAYER_PATHS = [
   "/shared/workflow",
   "/shared/hub",
   "/shared/connect",
-  "/shared/documents",
-  "/shared/expenses",
 ];
+// Documents and Expenses are gone for everyone: they were cross-tenant views of tenant files and claims (ZHR-PRIV-001 A01).
 
 const ORG_ROLES = [ROLES.ADMIN, ROLES.HR_ADMIN, ROLES.MANAGER, ROLES.EMPLOYEE];
 
