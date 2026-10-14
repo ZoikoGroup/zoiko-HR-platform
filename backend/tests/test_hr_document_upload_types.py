@@ -131,7 +131,8 @@ def test_a_new_version_keeps_its_file_contents(upload_client):
     doc_id = _post(upload_client).json()["id"]
     r = upload_client.post(f"/hr/documents/{doc_id}/versions", files={"file": ("v2.pdf", b"version two bytes", "application/pdf")})
     assert r.status_code == 201, r.text
-    saved = [p for p in pathlib.Path(upload_client.dir).iterdir() if p.read_bytes() == b"version two bytes"]
+    # Files are stored under a per-tenant sub-folder (ZHR-PRIV-001 C05), so walk the tree.
+    saved = [p for p in pathlib.Path(upload_client.dir).rglob("*") if p.is_file() and p.read_bytes() == b"version two bytes"]
     assert saved, "the version file was saved empty (the upload stream was read twice)"
 
 

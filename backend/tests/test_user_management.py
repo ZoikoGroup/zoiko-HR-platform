@@ -103,29 +103,29 @@ def _audit(db, event):
 
 def test_roles_endpoint_is_role_aware_and_described(world):
     c, u = world["c"], world["u"]
-    sa = c.get("/hr/admin/roles", headers=_token(u["sa"])).json()["roles"]
-    assert [r["value"] for r in sa] == ["super_admin", "admin", "hr_admin", "billing_admin", "manager", "employee"]
-    assert all(r["label"] and r["description"] and r["scope"] in ("platform", "organization") for r in sa)
-    assert {r["value"]: r["scope"] for r in sa}["super_admin"] == "platform"
-    assert {r["value"]: r["label"] for r in sa}["admin"] == "Organization Admin"
-    org = [r["value"] for r in c.get("/hr/admin/roles", headers=_token(u["admin1"])).json()["roles"]]
+    org_roles = c.get("/hr/admin/roles", headers=_token(u["admin1"])).json()["roles"]
+    assert all(r["label"] and r["description"] and r["scope"] in ("platform", "organization") for r in org_roles)
+    assert {r["value"]: r["label"] for r in org_roles}["admin"] == "Organization Admin"
+    org = [r["value"] for r in org_roles]
     assert "super_admin" not in org and set(org) == {"admin", "hr_admin", "billing_admin", "manager", "employee"}
     assert [r["value"] for r in c.get("/hr/admin/roles", headers=_token(u["hr1"])).json()["roles"]] == ["employee"]
     assert c.get("/hr/admin/roles", headers=_token(u["emp1"])).status_code == 403
     assert c.get("/hr/admin/roles").status_code == 401
+    # a platform identity has no standing access to tenant user management (ZHR-PRIV-001 A01): same answer as an unknown URL
+    assert c.get("/hr/admin/roles", headers=_token(u["sa"])).status_code == 404
 
 
 ORG_ROLES = ["admin", "hr_admin", "billing_admin", "manager", "employee"]
 
 
 @pytest.mark.parametrize("role", ORG_ROLES)
-def test_super_admin_creates_user_with_each_org_role(world, role):
+def test_org_admin_creates_user_with_each_org_role(world, role):
     c, db, u = world["c"], world["db"], world["u"]
-    r = c.post("/hr/admin/users", headers=_token(u["sa"]), json={
-        "first_name": "New", "last_name": "User", "email": f"new-{role}@example.com", "role": role, "organization_id": 2})
+    r = c.post("/hr/admin/users", headers=_token(u["admin1"]), json={
+        "first_name": "New", "last_name": "User", "email": f"new-{role}@example.com", "role": role})
     assert r.status_code == 201, r.text
     created = db.query(Employee).filter(Employee.email == f"new-{role}@example.com").one()
-    assert created.role.value == role and created.organization_id == 2
+    assert created.role.value == role and created.organization_id == 1
     body = r.json()
     if role == "admin":
         assert body["temporary_password"] is None  # invited via secure link
@@ -135,37 +135,29 @@ def test_super_admin_creates_user_with_each_org_role(world, role):
         login = c.post("/auth/login", json={"email": created.email, "password": body["temporary_password"]})
         assert login.status_code == 200 and login.json()["employee"]["role"] == role
     log = _audit(db, "user.created")[-1]
-    assert log.details["role"] == role and log.details["organization_id"] == 2 and log.performed_by == u["sa"].id
+    assert log.details["role"] == role and log.details["organization_id"] == 1 and log.performed_by == u["admin1"].id
     assert "password" not in str(log.details).lower().replace("target_email", "")
 
 
-def test_super_admin_can_create_super_admin_only_with_confirmation_and_no_org(world):
+def test_a_platform_identity_cannot_create_users_in_a_tenant_at_all(world):
+    """ZHR-PRIV-001 A01: no standing access. The platform adds an organization's FIRST administrator through organization creation
+    and further administrators through /super-admin/users; it never creates tenant people."""
     c, db, u = world["c"], world["db"], world["u"]
-    base = {"first_name": "Sue", "last_name": "Super", "email": "sue@example.com", "role": "super_admin"}
-    r = c.post("/hr/admin/users", headers=_token(u["sa"]), json=base)
-    assert r.status_code == 400 and "Confirm explicitly" in r.json()["message"]
-    r = c.post("/hr/admin/users", headers=_token(u["sa"]), json={**base, "confirm_super_admin": True, "organization_id": 1})
-    assert r.status_code == 400 and "cannot belong to an organization" in r.json()["message"]
-    assert db.query(Employee).filter(Employee.email == "sue@example.com").count() == 0
-    r = c.post("/hr/admin/users", headers=_token(u["sa"]), json={**base, "confirm_super_admin": True})
-    assert r.status_code == 201, r.text
-    sue = db.query(Employee).filter(Employee.email == "sue@example.com").one()
-    assert sue.role == UserRole.SUPER_ADMIN and sue.organization_id is None
-    assert r.json()["temporary_password"] is None
-    assert _audit(db, "user.created")[-1].details["confirmed_super_admin"] is True
+    for role in ORG_ROLES + ["super_admin"]:
+        r = c.post("/hr/admin/users", headers=_token(u["sa"]), json={
+            "first_name": "New", "last_name": "User", "email": f"nope-{role}@example.com", "role": role, "organization_id": 2,
+            "confirm_super_admin": True})
+        assert r.status_code == 404 and r.json() == {"detail": "Not Found"}, role
+    assert db.query(Employee).filter(Employee.email.like("nope-%")).count() == 0
 
 
-def test_invalid_role_and_organization_combinations(world):
+def test_invalid_role_and_duplicate_combinations(world):
     c, db, u = world["c"], world["db"], world["u"]
-    sa = _token(u["sa"])
-    mk = lambda **k: c.post("/hr/admin/users", headers=sa, json={
+    org_admin = _token(u["admin1"])
+    mk = lambda **k: c.post("/hr/admin/users", headers=org_admin, json={
         "first_name": "A", "last_name": "B", "email": k.pop("email", "x@example.com"), **k})
-    r = mk(role="employee")
-    assert r.status_code == 400 and "Select an organization" in r.json()["message"]
-    r = mk(role="employee", organization_id=999)
-    assert r.status_code == 400 and "does not exist" in r.json()["message"]
-    assert mk(role="wizard", organization_id=1).status_code == 422
-    r = mk(role="employee", organization_id=1, email="root@example.com")
+    assert mk(role="wizard").status_code == 422
+    r = mk(role="employee", email="emp1@example.com")
     assert r.status_code == 409 or "already" in r.text.lower()
     assert db.query(Employee).filter(Employee.email == "x@example.com").count() == 0
 
@@ -184,13 +176,13 @@ def test_role_creation_authorization(world):
 
 def test_role_change_uses_same_rules_and_is_audited(world):
     c, db, u = world["c"], world["db"], world["u"]
-    r = c.put(f"/hr/admin/users/{u['emp1'].id}", headers=_token(u["sa"]), json={"role": "manager"})
+    r = c.put(f"/hr/admin/users/{u['emp1'].id}", headers=_token(u["admin1"]), json={"role": "manager"})
     assert r.status_code == 200 and r.json()["role"] == "manager"
     ev = _audit(db, "user.role_changed")[-1]
     assert (ev.details["from"], ev.details["to"]) == ("employee", "manager")
-    assert c.put(f"/hr/admin/users/{u['emp1'].id}", headers=_token(u["sa"]), json={"role": "super_admin", "confirm_super_admin": True}).status_code == 400
     assert c.put(f"/hr/admin/users/{u['emp1'].id}", headers=_token(u["admin1"]), json={"role": "super_admin"}).status_code == 403
-    assert c.put(f"/hr/admin/users/{u['sa'].id}", headers=_token(u["sa"]), json={"role": "employee"}).status_code == 403  # self
+    assert c.put(f"/hr/admin/users/{u['emp1'].id}", headers=_token(u["sa"]), json={"role": "manager"}).status_code == 404, "platform: no standing access"
+    assert c.put(f"/hr/admin/users/{u['admin1'].id}", headers=_token(u["admin1"]), json={"role": "employee"}).status_code == 403  # self
     assert c.put(f"/hr/admin/users/{u['hr1'].id}", headers=_token(u["hr1"]), json={"first_name": "Renamed"}).status_code == 200  # non-role edit still fine
     assert c.put(f"/hr/admin/users/{u['emp2'].id}", headers=_token(u["admin1"]), json={"role": "manager"}).status_code == 404  # other org
 
@@ -203,6 +195,7 @@ def test_role_catalog_matches_backend_enum():
 # ═════════════════════════════ ZHR-31: password reset ═════════════════════════════
 
 def _reset(world, who, target, method=None):
+    who = "admin1" if who == "sa" else who          # the platform no longer resets tenant users: the organization admin does
     body = {"method": method} if method else None
     return world["c"].post(f"/hr/admin/users/{world['u'][target].id}/reset-password",
                            headers=_token(world["u"][who]), json=body)
@@ -214,16 +207,16 @@ def _raw_token(world):
 
 def test_link_reset_sends_email_stores_only_hash_and_audits(world):
     db = world["db"]
-    r = _reset(world, "sa", "admin1")
+    r = _reset(world, "admin1", "hr1")
     assert r.status_code == 200 and r.json()["method"] == "link" and r.json()["temporary_password"] is None
-    assert "admin1@example.com" in r.json()["message"]
+    assert "hr1@example.com" in r.json()["message"]
     raw = _raw_token(world)
     row = db.query(SecurityActionToken).one()
     assert row.token_hash != raw and raw not in row.token_hash and len(row.token_hash) == 64
     ttl = row.expires_at - datetime.utcnow()
     assert timedelta(minutes=55) < ttl <= timedelta(minutes=60)
     log = _audit(db, "user.password_reset")[0]
-    assert log.details["method"] == "link" and log.performed_by == world["u"]["sa"].id
+    assert log.details["method"] == "link" and log.performed_by == world["u"]["admin1"].id
     assert raw not in str(log.details) and "password" not in str([k for k in log.details])
 
 
@@ -282,14 +275,14 @@ def test_reset_invalidates_existing_sessions_and_refresh_tokens(world):
 def test_email_failure_returns_clear_error_and_leaves_no_valid_token(world):
     c, db, u = world["c"], world["db"], world["u"]
     world["sent"]["fail"] = "SMTP authentication rejected"
-    r = _reset(world, "sa", "admin1")
+    r = _reset(world, "admin1", "hr1")
     assert r.status_code == 502
     assert r.json()["message"] == "Email could not be sent: SMTP authentication rejected"
     assert db.query(SecurityActionToken).filter(SecurityActionToken.used_at.is_(None)).count() == 0
-    db.refresh(u["admin1"])
-    assert u["admin1"].password_changed_at is None  # sessions untouched: nothing was reset
+    db.refresh(u["hr1"])
+    assert u["hr1"].password_changed_at is None  # sessions untouched: nothing was reset
     assert _audit(db, "user.password_reset") == []
-    assert c.get("/auth/me", headers=_token(u["admin1"])).status_code == 200
+    assert c.get("/auth/me", headers=_token(u["hr1"])).status_code == 200
 
 
 def test_temporary_password_shown_once_and_forces_change(world):
@@ -328,18 +321,17 @@ def test_temporary_reset_invalidates_old_sessions_and_revokes_links(world):
 
 
 def test_cannot_reset_own_password(world):
-    r = _reset(world, "sa", "sa")
+    r = _reset(world, "admin1", "admin1")
     assert r.status_code == 400 and "your own password" in r.json()["message"]
     assert world["sent"]["emails"] == []
-    assert _reset(world, "admin1", "admin1").status_code == 400
 
 
 def test_reset_is_rate_limited_per_user(world):
     for _ in range(emp_service.RESET_RATE_LIMIT_PER_HOUR):
-        assert _reset(world, "sa", "emp1", "temporary").status_code == 200
-    r = _reset(world, "sa", "emp1", "temporary")
+        assert _reset(world, "admin1", "emp1", "temporary").status_code == 200
+    r = _reset(world, "admin1", "emp1", "temporary")
     assert r.status_code == 429 and "Too many" in r.json()["message"]
-    assert _reset(world, "sa", "emp2", "temporary").status_code == 200  # other users unaffected
+    assert _reset(world, "admin1", "hr1", "temporary").status_code == 200  # other users unaffected
 
 
 def test_reset_authorization_and_tenancy(world):
@@ -348,10 +340,12 @@ def test_reset_authorization_and_tenancy(world):
     assert _reset(world, "admin1", "sa").status_code in (403, 404)  # a super admin is out of an org admin's reach
     assert _reset(world, "admin1", "emp2").status_code == 404 # other organization
     assert _reset(world, "admin1", "emp1").status_code == 200 # own organization
-    assert _reset(world, "sa", "emp2").status_code == 200     # super admin: any organization
+    # the platform has no standing access to tenant users: same answer as an unknown URL (ZHR-PRIV-001 A01)
+    r = world["c"].post(f"/hr/admin/users/{world['u']['emp2'].id}/reset-password", headers=_token(world["u"]["sa"]))
+    assert r.status_code == 404 and r.json() == {"detail": "Not Found"}
     r = world["c"].post(f"/hr/admin/users/{world['u']['emp1'].id}/reset-password")
     assert r.status_code == 401
-    r = _reset(world, "sa", "emp1", "bogus")
+    r = _reset(world, "admin1", "emp1", "bogus")
     assert r.status_code == 422
 
 

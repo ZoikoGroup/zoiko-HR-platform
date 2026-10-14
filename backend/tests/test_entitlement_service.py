@@ -457,8 +457,14 @@ class TestComputeEntitlementSnapshot:
 # otherwise every feature key resolves to ENTITLED_NOT_CONFIGURED for the
 # entire trial, which contradicts ZHR-COM-ENT-001 §7.1.
 
-_TRIAL_KEY = next(iter(TRIAL_PROFILE_FEATURE_KEYS))
-_NON_TRIAL_KEY = next(iter(FEATURE_KEYS - TRIAL_PROFILE_FEATURE_KEYS - {"hr.ai.autonomous_action"}))
+_TRIAL_KEY = next(iter(sorted(TRIAL_PROFILE_FEATURE_KEYS)))
+# Deterministic (sorted): set iteration order varies with PYTHONHASHSEED, and the
+# non-trial set includes the hard-blocked autonomous AI keys, which resolve to
+# NOT_ENTITLED rather than TRIAL_RESTRICTED. Exclude both spellings.
+_NON_TRIAL_KEY = next(
+    key for key in sorted(FEATURE_KEYS - TRIAL_PROFILE_FEATURE_KEYS)
+    if key not in {"hr.ai.autonomous_action", "hr.ai.autonomous_decision"}
+)
 
 
 class TestEvaluationTrialProfile:

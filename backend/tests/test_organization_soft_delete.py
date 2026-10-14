@@ -192,7 +192,8 @@ def test_deleted_org_disappears_from_lists_lookups_stats_and_user_lists(world):
     assert stats["total_organizations"] == stats_before["total_organizations"] - 1
     assert stats["total_employees"] == stats_before["total_employees"] - 3
     users = c.get("/super-admin/users", headers=sa).json()
-    assert users["total"] == users_before - 3 and all(u["email"] != "admin1@example.com" for u in users["users"])
+    # the platform's user list is organization administrators only (ZHR-PRIV-001 E01): Acme had exactly one
+    assert users["total"] == users_before - 1 and all(u["organization_id"] != 1 for u in users["users"])
     assert c.get("/super-admin/organizations/1", headers=sa).status_code == 404  # detail hidden too
     assert db.query(Organization).filter_by(id=1).first() is None  # global default filter
     assert db.query(Organization).count() == 1
