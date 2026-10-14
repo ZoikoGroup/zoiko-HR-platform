@@ -28,7 +28,7 @@ How it works:
        fresh.
 
 TTLs are configured per path prefix — dashboards get 60s, list views 45s,
-reference data 120s. Unconfigured paths default to 30s.
+reference data 120s. Unconfigured paths are never cached.
 
 Fail-closed: any Redis error degrades to serving uncached responses. Never
 crashes, never serves stale data that can't be verified.
@@ -191,11 +191,13 @@ def _get_ttl(path: str) -> Optional[int]:
 
 
 def _should_cache_path(path: str) -> bool:
-    """Check if a path should be cached (not in the exclusion list)."""
+    """Check if a path should be cached: it must have an explicit TTL in _PATH_TTL and not be excluded.
+    Unlisted paths (e.g. /auth/me, /support/*) are never cached — a cached copy would outlive a suspended
+    session or a revoked grant, because a cache hit skips the route's own authorization checks."""
     for pattern in _NO_CACHE_PATHS:
         if re.match(pattern, path):
             return False
-    return True
+    return _get_ttl(path) is not None
 
 
 def _extract_identity(request: Request) -> Optional[tuple]:
@@ -284,31 +286,27 @@ class CacheMiddleware(BaseHTTPMiddleware):
             # Cache miss — run the request
             response = await call_next(request)
 
-            # Only cache successful JSON responses
-            if response.status_code == 200:
-                try:
-                    body = b""
-                    async for chunk in response.body_iterator:
-                        body += chunk if isinstance(chunk, bytes) else chunk.encode()
-                    # Verify it's valid JSON
-                    data = json.loads(body)
-                    ttl = _get_ttl(path) or 30
-                    # Store in Redis (fire and forget)
-                    try:
-                        await run_in_threadpool(redis_client.set, cache_key, body.decode(), ex=ttl)
-                    except Exception:
-                        pass
-                    # Rebuild response (we consumed the iterator)
-                    return Response(
-                        content=body,
-                        status_code=response.status_code,
-                        headers=dict(response.headers),
-                        media_type="application/json",
-                    )
-                except (json.JSONDecodeError, UnicodeDecodeError):
-                    pass
+            # Only cache successful JSON responses. Anything else (file downloads, streams) is passed through
+            # untouched: reading its body here would drain it and send the client an empty response.
+            content_type = response.headers.get("content-type", "")
+            if response.status_code != 200 or not content_type.startswith("application/json"):
+                return response
 
-            return response
+            body = b""
+            async for chunk in response.body_iterator:
+                body += chunk if isinstance(chunk, bytes) else chunk.encode()
+            try:
+                json.loads(body)  # verify it's valid JSON
+                await run_in_threadpool(redis_client.set, cache_key, body.decode(), ex=_get_ttl(path))
+            except Exception:
+                pass
+            # Rebuild the response (we consumed the iterator)
+            return Response(
+                content=body,
+                status_code=response.status_code,
+                headers=dict(response.headers),
+                media_type=content_type,
+            )
 
         # ── WRITE (POST/PUT/PATCH/DELETE) — run then invalidate ─────────
         response = await call_next(request)

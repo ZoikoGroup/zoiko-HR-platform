@@ -154,3 +154,36 @@ def test_lifecycle_write_flushes_that_orgs_cache_only(world):
     assert c.delete("/super-admin/organizations/1").status_code == 200
     assert c.get("/hr/employees", headers=org1).headers.get("x-cache") != "HIT"  # org 1 flushed
     assert c.get("/hr/employees", headers=org2).headers.get("x-cache") == "HIT"  # org 2 untouched
+
+
+def test_paths_without_a_ttl_are_never_cached(world):
+    """/auth/me and the support-access routes have no TTL: a cached copy would keep answering after the session or
+    grant behind it was revoked, since a cache hit skips the route's own checks."""
+    from fastapi import FastAPI
+    from fastapi.responses import PlainTextResponse
+
+    app = FastAPI()
+    app.add_middleware(CacheMiddleware)
+    hits = {"n": 0}
+
+    @app.get("/auth/me")
+    def me(authorization: str = Header(None)):
+        hits["n"] += 1
+        return {"n": hits["n"]}
+
+    @app.get("/hr/documents/{doc_id}/file")
+    def file(doc_id: int):
+        return PlainTextResponse("file-body")
+
+    c = TestClient(app)
+    h = _token("amy@example.com")
+    c.get("/auth/me", headers=h)
+    second = c.get("/auth/me", headers=h)
+    assert second.headers.get("x-cache") != "HIT" and second.json()["n"] == 2
+    assert _should_cache_path("/auth/me") is False and _should_cache_path("/support/tenants/1/employees/2") is False
+
+    # a non-JSON response on a cached prefix keeps its body and is not stored
+    for _ in range(2):
+        r = c.get("/hr/documents/1/file", headers=h)
+        assert r.status_code == 200 and r.text == "file-body"
+    assert not any("/file" in k for k in world["redis"].store)

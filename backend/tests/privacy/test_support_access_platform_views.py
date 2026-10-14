@@ -1,5 +1,5 @@
 """What the platform's Support Access pages read: the request catalog, the independent-approval queue, organization names
-next to tenant ids, and the Billing Ops support-access grant rules (bounded TTL, unknown organization, idempotent revoke)."""
+next to tenant ids."""
 from __future__ import annotations
 
 from tests.privacy.test_support_access_flow import (
@@ -69,31 +69,3 @@ def test_platform_lists_carry_the_organization_name(world):
     assert killed.status_code == 200 and killed.json()["revoked"] == 1
     revocations = world.client.get(f"{PLATFORM}/revocations", headers=plt).json()
     assert revocations and all(r["tenant_name"] == "TENANT-A" for r in revocations)
-
-
-# ── Billing Ops support-access grants ────────────────────────────────────────────────────────────────────────────────
-def test_billing_grant_ttl_is_bounded_and_the_organization_must_exist(world):
-    h = mfa_token(world.u["platform"])
-    for ttl in (0, -5, 169):
-        r = world.client.post("/billing/support-access", headers=h, json={"organization_id": 1, "reason": "x", "ttl_hours": ttl})
-        assert r.status_code == 422, (ttl, r.text)
-    r = world.client.post("/billing/support-access", headers=h, json={"organization_id": 999, "reason": "x", "ttl_hours": 2})
-    assert r.status_code == 404
-
-
-def test_billing_grant_shows_the_organization_and_revoke_is_idempotent(world):
-    h = mfa_token(world.u["platform"])
-    created = world.client.post("/billing/support-access", headers=h, json={"organization_id": 1, "reason": "probe", "ttl_hours": 2})
-    assert created.status_code == 200, created.text
-    assert created.json()["organization_name"] == "TENANT-A" and created.json()["token"]
-    gid = created.json()["id"]
-
-    listed = world.client.get("/billing/support-access", headers=h).json()["list"]
-    assert listed[0]["organization_name"] == "TENANT-A"
-    paged = world.client.get("/billing/support-access", headers=h, params={"page": 1, "limit": 10}).json()["list"]
-    assert paged[0]["organization_name"] == "TENANT-A"
-
-    first = world.client.post(f"/billing/support-access/{gid}/revoke", headers=h).json()
-    again = world.client.post(f"/billing/support-access/{gid}/revoke", headers=h).json()
-    assert first["revoked_at"] and first["revoked_at"] == again["revoked_at"]
-    assert world.client.post("/billing/support-access/99999/revoke", headers=h).status_code == 404

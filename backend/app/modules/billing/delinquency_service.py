@@ -21,7 +21,9 @@ frontend banners are informational, not authoritative (Section 10 G2).
 Timing is clock-injectable via `now_utc()` so tests can freeze the clock.
 """
 
+import hashlib
 import logging
+import secrets
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session

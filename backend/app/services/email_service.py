@@ -1667,6 +1667,30 @@ def send_evaluation_expired(
     }, db=db, organization_id=organization_id)
 
 
+def send_support_access_granted_email(
+    organization_id: int,
+    recipient_email: str,
+    grant_duration_hours: int,
+    expires_at: str,
+    db=None,
+):
+    """Internal Billing Operations notice that a time-bounded support-access
+    grant was issued for an org. Kept minimal — no financial data."""
+    try:
+        from app.config import settings
+
+        login_url = f"{settings.FRONTEND_URL.rstrip('/')}/super-admin/organizations/{organization_id}" if getattr(settings, "FRONTEND_URL", None) else _login_url()
+    except Exception:
+        login_url = _login_url()
+    return send_approval_email(recipient_email, "support_access_granted.html", {
+        "subject": f"Support Access Granted — Org {organization_id} | Zoiko HR",
+        "organization_id": str(organization_id),
+        "grant_duration_hours": str(grant_duration_hours),
+        "expires_at": expires_at,
+        "support_url": login_url,
+    }, db=db, organization_id=organization_id)
+
+
 def send_evaluation_started_email(
     email: str, org_name: str, evaluation_end_date: str,
     login_url: str = None, db=None, organization_id=None,
