@@ -38,6 +38,7 @@ jobs:
       HR_DEBUG: "true"
       SUPER_ADMIN_SETUP_KEY: ci-test-setup-key
       HR_REDIS_URL: redis://localhost:6379/0
+      HR_PRIVACY_PG_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
     steps:
       - uses: actions/checkout@v4
 
@@ -55,6 +56,58 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         run: python -m pytest -q
+
+  # Tenant privacy boundary (ZHR-PRIV-001). Required: a failure here blocks the merge. It re-runs the privacy suite on its own, against a
+  # real PostgreSQL (row-level security, roles, composite keys), and fails when the generated privacy documents are out of date.
+  privacy-boundary:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      HR_DATABASE_URL: sqlite:///:memory:
+      HR_SECRET_KEY: ci-test-secret-key-not-for-production
+      HR_DEBUG: "true"
+      ENVIRONMENT: testing
+      HR_PRIVACY_PG_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install backend dependencies
+        working-directory: backend
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Generated privacy documents are up to date
+        working-directory: backend
+        run: |
+          python scripts/privacy_endpoint_inventory.py --check
+          python scripts/privacy_classification_doc.py --check
+
+      - name: Every data classification is complete (python manage.py check equivalent)
+        working-directory: backend
+        run: python -m pytest tests/privacy/test_policy.py -q -k "classified or doc_is_in_sync"
+
+      - name: Privacy boundary suite
+        working-directory: backend
+        run: python -m pytest tests/privacy -q
 
   frontend:
     runs-on: ubuntu-latest
