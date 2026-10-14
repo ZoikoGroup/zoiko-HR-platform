@@ -676,6 +676,31 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_CONFIDENTIAL**: `raised_by`, `subject`, `description`, `category`, `priority`, `status`, `assigned_to`, `resolution_notes`
 
+## `support_access_requests` (default PLATFORM_META; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `reference`, `tenant_id`, `requester_person_id`, `requester_account_id`, `ticket_reference`, `purpose`, `purpose_category`, `risk_level`, `status`, `requested_scope`, `requested_duration_minutes`, `legal_basis_reference`, `created_at`, `updated_at`, `submitted_at`, `closed_at`, `approval_expires_at`, `request_seq`
+- **SPECIAL_CATEGORY**: `close_reason`
+
+## `support_approvals` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `request_id`, `approval_type`, `approver_person_id`, `approver_account_id`, `decision`, `approved_scope`, `comment`, `mfa_verified_at`, `decided_at`
+
+## `support_breakglass_sessions` (default PLATFORM_META; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `incident_reference`, `tenant_id`, `initiator_person_id`, `second_responder_person_id`, `scope`, `status`, `started_at`, `confirm_deadline`, `expires_at`, `ended_at`, `ended_by`, `grant_id`, `review_status`, `reviewed_by`, `reviewed_at`, `customer_notice_status`, `created_at`
+- **PERSONAL_CONFIDENTIAL**: `review_note`
+- **SPECIAL_CATEGORY**: `reason`
+
+## `support_grants` (default PLATFORM_META; most sensitive column rank 6)
+- **PLATFORM_META**: `id`, `request_id`, `tenant_id`, `grantee_person_id`, `grantee_account_id`, `kind`, `effective_scope`, `issued_at`, `expires_at`, `revoked_at`, `revoked_by`, `revocation_version`, `session_id`, `device_fingerprint`, `policy_version`, `last_access_at`
+- **SPECIAL_CATEGORY**: `revoke_reason`
+- **SECRET**: `token_jti`
+
+## `support_revocation_events` (default PLATFORM_META; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `target_type`, `target_ref`, `tenant_id`, `actor_person_id`, `requested_at`, `propagated_at`, `propagation_confirmed`, `detail`
+- **SPECIAL_CATEGORY**: `reason`
+
+## `support_tenant_authorisers` (default PLATFORM_META; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `tenant_id`, `user_id`, `designated_by`, `designated_at`, `revoked_at`, `revoked_by`, `scope_limits`
+- **PERSONAL_CONFIDENTIAL**: `note`
+
 ## `travel_approvals` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`
 - **PERSONAL_BASIC**: `request_id`, `approver_id`

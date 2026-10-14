@@ -119,6 +119,9 @@ PREFIX_DEFAULTS: list[tuple[str, Level]] = [
     ("wf_", L.PERSONAL_BASIC),                # workforce planning
     ("workforce_", L.PERSONAL_BASIC),
     ("super_admin_", L.PLATFORM_META),
+    # Zoiko's own record of a tenant's support access (grants, approvals, break-glass, revocations). Control-plane
+    # metadata about the tenant, not the tenant's own data: the same level as billing_ and super_admin_.
+    ("support_", L.PLATFORM_META),
 ]
 
 # ── column level ────────────────────────────────────────────────────────────────────────────────────────────────────
