@@ -52,8 +52,6 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/super-admin/organizations",
     "/super-admin/access",
     "/super-admin/support-access",
-    "/super-admin/support-tickets",
-    "/super-admin/assistant-knowledge",
     "/super-admin/audit-logs",
     "/super-admin/demo-requests",
     "/super-admin/pricing-requests",
@@ -65,16 +63,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/shared/",
     "/admin-profile",
     "/settings/",
-    // ── Read-only product paths (view-only; no HR/IT/Security admin writes) ──
-    "/zoiko-hr",
-    "/zoikotime",
-    "/payroll",
+    // The tenant products (/zoiko-hr, /payroll, ...) are NOT here: a platform account has no standing access to what a tenant
+    // keeps in them (ZHR-PRIV-001 A01). Only Zoiko's own subscription billing path stays.
     "/billing",
-    "/projects",
-    "/comply",
-    "/insights",
-    "/spend",
-    "/inventory",
   ],
 
   // Organization Admin – sees ALL product navigation the org has subscribed to

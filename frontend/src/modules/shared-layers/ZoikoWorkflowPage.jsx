@@ -3,7 +3,7 @@ import PageHeader from "../../components/PageHeader";
 import { Activity, Building2, Globe2, Workflow as WorkflowIcon } from "lucide-react";
 import { integrationsService } from "../../service/integrationsService";
 import OrgActivityFeed from "./OrgActivityFeed";
-import { getOrganizations } from "../../service/documentsService";
+import { superAdminService } from "../../service/superAdminService";
 import {
   Btn, Card, ErrorNote, Field, Modal, Spinner, StatusPill, SuperAdminOnly, fmt, inputCls, useAction,
 } from "./integrationsUi";
@@ -399,7 +399,7 @@ export default function ZoikoWorkflowPage() {
   const act = useAction();
 
   useEffect(() => {
-    getOrganizations().then((r) => setOrgs(r.organizations || [])).catch(() => setOrgs([]));
+    superAdminService.getOrganizations({ page_size: 200 }).then((r) => setOrgs((r.organizations || []).map((o) => ({ id: o.id, name: o.name })))).catch(() => setOrgs([]));
   }, []);
 
   const load = useCallback(async () => {

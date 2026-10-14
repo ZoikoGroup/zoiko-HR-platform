@@ -54,6 +54,11 @@ export const superAdminService = {
 
   // Users
   getUsers: (params, opts) => api.get("/super-admin/users", { params, ...opts }),
+  // Organization ADMINISTRATOR accounts only: the platform does not manage anyone else in a tenant (ZHR-PRIV-001 A01).
+  createTenantAdmin: (payload) => api.post("/super-admin/users", payload),
+  resetTenantAdminPassword: (id, method = "link") => api.post(`/super-admin/users/${id}/reset-password`, { method }),
+  suspendTenantAdmin: (id) => api.post(`/super-admin/users/${id}/suspend`),
+  activateTenantAdmin: (id) => api.post(`/super-admin/users/${id}/activate`),
 
 
   // Platform Command Center

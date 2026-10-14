@@ -295,8 +295,11 @@ export default function UserManagementPage() {
   const navigate = useNavigate();
   const { user, role } = useAuth();
   const isSuperAdmin = role === "super_admin";
-  const rolesQuery = useQuery({ queryKey: keys.orgAdmin.assignableRoles(), queryFn: ({ signal }) => getAssignableRoles({ signal }), staleTime: 5 * 60_000 });
-  const roleOptions = rolesQuery.data?.roles || [];
+  // The platform can only add organization ADMINISTRATORS; everyone else in a tenant is managed by that tenant (ZHR-PRIV-001 A01).
+  const rolesQuery = useQuery({ queryKey: keys.orgAdmin.assignableRoles(), enabled: !isSuperAdmin, queryFn: ({ signal }) => getAssignableRoles({ signal }), staleTime: 5 * 60_000 });
+  const roleOptions = isSuperAdmin
+    ? [{ value: "admin", label: "Organization Admin", scope: "organization", description: "Runs one organization: its people, settings and billing." }]
+    : rolesQuery.data?.roles || [];
   useEffect(() => {
     if (rolesQuery.isError) setToast({ message: rolesQuery.error?.message || "Failed to load roles", type: "error" });
   }, [rolesQuery.errorUpdatedAt]);
@@ -481,7 +484,9 @@ export default function UserManagementPage() {
       } else {
         if (needsOrganization) payload.organization_id = parseInt(formData.organization_id);
         if (isPlatformRole) payload.confirm_super_admin = true;
-        const res = await createUser(payload);
+        const res = isSuperAdmin
+          ? await superAdminService.createTenantAdmin({ organization_id: payload.organization_id, first_name: payload.first_name, last_name: payload.last_name, email: payload.email, phone: payload.phone })
+          : await createUser(payload);
         setShowModal(false);
         setCreatedPassword(res.temporary_password || null);
         setToast({ message: res.message || "User created successfully.", type: "success" });
@@ -513,21 +518,21 @@ export default function UserManagementPage() {
     });
   };
 
-  const handleDeactivate = (user) => confirmAction(deactivateUser, user, {
+  const handleDeactivate = (user) => confirmAction(isSuperAdmin ? superAdminService.suspendTenantAdmin : deactivateUser, user, {
     title: "Deactivate User", danger: true,
     message: `Are you sure you want to deactivate ${user.first_name} ${user.last_name}? They will not be able to log in.`,
     confirmLabel: "Deactivate",
     successMsg: "User deactivated.",
   });
 
-  const handleActivate = (user) => confirmAction(activateUser, user, {
+  const handleActivate = (user) => confirmAction(isSuperAdmin ? superAdminService.activateTenantAdmin : activateUser, user, {
     title: "Activate User",
     message: `Activate ${user.first_name} ${user.last_name}? They will regain access.`,
     confirmLabel: "Activate",
     successMsg: "User activated.",
   });
 
-  const handleSuspend = (user) => confirmAction(suspendUser, user, {
+  const handleSuspend = (user) => confirmAction(isSuperAdmin ? superAdminService.suspendTenantAdmin : suspendUser, user, {
     title: "Suspend User", danger: true,
     message: `Suspend ${user.first_name} ${user.last_name}? They will be blocked from logging in.`,
     confirmLabel: "Suspend",
@@ -649,7 +654,7 @@ export default function UserManagementPage() {
     setResetPending(true);
     setResetError("");
     try {
-      const res = await resetPassword(resetTarget.id, resetMethod);
+      const res = isSuperAdmin ? await superAdminService.resetTenantAdminPassword(resetTarget.id, resetMethod) : await resetPassword(resetTarget.id, resetMethod);
       const target = resetTarget;
       setResetTarget(null);
       if (res.temporary_password) {
@@ -910,9 +915,11 @@ export default function UserManagementPage() {
                         </td>
                         <td className="px-3 py-2">
                           <div className="flex items-center justify-end gap-0.5">
-                            <button onClick={() => openEdit(u)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Edit user" aria-label={`Edit ${u.first_name} ${u.last_name}`}>
-                              <Edit className="w-4 h-4" />
-                            </button>
+                            {!isSuperAdmin && (
+                              <button onClick={() => openEdit(u)} className="p-1.5 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all" title="Edit user" aria-label={`Edit ${u.first_name} ${u.last_name}`}>
+                                <Edit className="w-4 h-4" />
+                              </button>
+                            )}
                             <button onClick={() => handleResetPassword(u)} disabled={isSelf}
                               className="p-1.5 text-gray-400 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-all disabled:opacity-30 disabled:cursor-not-allowed"
                               title={isSelf ? "Use account settings to change your own password" : "Reset password"}
@@ -928,8 +935,8 @@ export default function UserManagementPage() {
                               ) : (
                                 <MenuItem icon={RefreshCw} onClick={() => handleActivate(u)}>Activate</MenuItem>
                               )}
-                              <MenuItem icon={Archive} onClick={() => handleArchive(u)}>Archive</MenuItem>
-                              <MenuItem icon={Trash2} danger onClick={() => handleDelete(u)}>Delete user</MenuItem>
+                              {!isSuperAdmin && <MenuItem icon={Archive} onClick={() => handleArchive(u)}>Archive</MenuItem>}
+                              {!isSuperAdmin && <MenuItem icon={Trash2} danger onClick={() => handleDelete(u)}>Delete user</MenuItem>}
                               {isSuperAdmin && u.organization_id && (
                                 <MenuItem icon={Building2} danger onClick={() => setDeleteOrgTarget({ id: u.organization_id, name: u.organization_name })}>Delete organization</MenuItem>
                               )}

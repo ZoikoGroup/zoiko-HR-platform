@@ -198,12 +198,8 @@ const ZoikoIdPage = lazyRoute(() => import("./modules/shared-layers/ZoikoIdPage"
 const ZoikoWorkflowPage = lazyRoute(() => import("./modules/shared-layers/ZoikoWorkflowPage"));
 const ZoikoHubPage = lazyRoute(() => import("./modules/shared-layers/ZoikoHubPage"));
 const ZoikoConnectPageModule = lazyRoute(() => import("./modules/shared-layers/ZoikoConnectPage"));
-const DocumentsPage = lazyRoute(() => import("./modules/shared-layers/DocumentsPage"));
-const ExpensesPage = lazyRoute(() => import("./modules/shared-layers/ExpensesPage"));
 const AdminKnowledgePage = lazyRoute(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
 const AdminHandoffsPage = lazyRoute(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
-const SuperAdminKnowledgePage = lazyRoute(() => import("./modules/shared-layers/assistant/SuperAdminKnowledgePage"));
-const SuperAdminSupportTicketsPage = lazyRoute(() => import("./modules/shared-layers/assistant/SuperAdminSupportTicketsPage"));
 const AssistantLauncher = lazyRoute(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
 const UserManagementPage = lazyRoute(() => import("./modules/settings/UserManagementPage"));
 
@@ -254,8 +250,6 @@ const routeOverrides = {
   "/shared/workflow": <ZoikoWorkflowPage />,
   "/shared/hub": <ZoikoHubPage />,
   "/shared/connect": <ZoikoConnectPageModule />,
-  "/shared/documents": <DocumentsPage />,
-  "/shared/expenses": <ExpensesPage />,
   "/zoiko-hr": <ZoikoHRModule />,
   // Departments
   "/zoiko-hr/departments": <ZoikoHRDepartmentsDashboard />,
@@ -413,8 +407,6 @@ const routeOverrides = {
   "/super-admin/billing/reconciliation": <SuperAdminBillingReconciliationPage />,
 
   // Super Admin — Access & Security
-  "/super-admin/assistant-knowledge": <SuperAdminKnowledgePage />,
-  "/super-admin/support-tickets": <SuperAdminSupportTicketsPage />,
   "/super-admin/support-access": <SuperAdminSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────

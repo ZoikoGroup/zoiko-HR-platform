@@ -316,15 +316,15 @@ export default function OrganizationDetailPage() {
               </div>
               <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">Active Employees</p>
-                <p className="text-2xl font-bold text-blue-600 mt-1">{org.active_employees || 0}</p>
+                <p className="text-2xl font-bold text-blue-600 mt-1">{org.active_employees ?? org.active_employees_label ?? "—"}</p>
               </div>
               <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">HR Admins</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{org.hr_admins || 0}</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">{org.hr_admins ?? org.hr_admins_label ?? "—"}</p>
               </div>
               <div className="rounded-xl bg-slate-50 border border-slate-100 p-4">
                 <p className="text-xs text-slate-400">Managers</p>
-                <p className="text-2xl font-bold text-slate-900 mt-1">{org.managers || 0}</p>
+                <p className="text-2xl font-bold text-slate-900 mt-1">{org.managers ?? org.managers_label ?? "—"}</p>
               </div>
             </div>
           </div>
@@ -336,8 +336,8 @@ export default function OrganizationDetailPage() {
               <div><span className="text-slate-400 block text-xs">Organization Code</span><span className="font-mono text-xs font-semibold text-blue-600">{org.organization_code || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Status</span><StatusBadge status={org.status} /></div>
               <div><span className="text-slate-400 block text-xs">Plan</span><span className="font-semibold text-slate-700">{org.subscription_plan || "—"}</span></div>
-              <div><span className="text-slate-400 block text-xs">Admin Contact</span><span className="font-semibold text-slate-700">{org.admin_name || "—"}</span></div>
-              <div><span className="text-slate-400 block text-xs">Admin Email</span><span className="font-semibold text-slate-700">{org.admin_email || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs" title="The platform sees a reference, not the person">Admin Contact (reference)</span><span className="font-semibold text-slate-700">{org.admin_name || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Admin Email (masked)</span><span className="font-semibold text-slate-700">{org.admin_email || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Country</span><span className="font-semibold text-slate-700">{org.country || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">State</span><span className="font-semibold text-slate-700">{org.state || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">City</span><span className="font-semibold text-slate-700">{org.city || "—"}</span></div>
@@ -347,8 +347,7 @@ export default function OrganizationDetailPage() {
               <div><span className="text-slate-400 block text-xs">Domain</span><span className="font-semibold text-slate-700">{org.domain || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Organization Type</span><span className="font-semibold text-slate-700 capitalize">{org.org_type || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Phone</span><span className="font-semibold text-slate-700">{org.phone || "—"}</span></div>
-              <div><span className="text-slate-400 block text-xs">Tax / Registration No.</span><span className="font-semibold text-slate-700">{org.tax_number || "—"}</span></div>
-              <div><span className="text-slate-400 block text-xs">Registered Email</span><span className="font-semibold text-slate-700">{org.registered_email || "—"}</span></div>
+              <div><span className="text-slate-400 block text-xs">Registered Email (masked)</span><span className="font-semibold text-slate-700">{org.registered_email || "—"}</span></div>
               <div><span className="text-slate-400 block text-xs">Created At</span><span className="font-semibold text-slate-700">{org.created_at ? formatDateTime(org.created_at) : "—"}</span></div>
               {org.approved_at && (
                 <div><span className="text-slate-400 block text-xs">Approved At</span><span className="font-semibold text-slate-700">{formatDateTime(org.approved_at)}</span></div>

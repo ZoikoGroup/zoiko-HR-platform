@@ -409,8 +409,6 @@ const sharedLayersSection = {
         { label: "Zoiko Workflow", href: "/shared/workflow", icon: Workflow },
         { label: "Zoiko Hub", href: "/shared/hub", icon: Layers },
         { label: "Zoiko Connect", href: "/shared/connect", icon: Globe },
-        { label: "Documents", href: "/shared/documents", icon: FileText },
-        { label: "Expenses", href: "/shared/expenses", icon: WalletCards },
       ],
     },
   ],

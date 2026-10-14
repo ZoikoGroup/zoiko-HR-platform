@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
-import { googleSignInEnabled, resendVerification } from "../../service/authService";
+import { googleSignInEnabled, mfaEnrollStart, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
 import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
 import { realEmailError } from "../../utils/realEmail";
 import logo from "../../assets/zoikohr-logo-svg.svg";
 
 export default function LoginPage() {
-  const { login, loginWithGoogle, error: authError, defaultRedirect } = useAuth();
+  const { login, loginWithGoogle, confirmMfaEnrollment, error: authError, defaultRedirect } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || defaultRedirect;
@@ -17,6 +17,10 @@ export default function LoginPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
+  // Platform accounts sign in with a second factor (ZHR-PRIV-001 B02): "code" = enter the authenticator code, "enroll" = set the app up first.
+  const [mfaStep, setMfaStep] = useState(null);
+  const [mfaCode, setMfaCode] = useState("");
+  const [enrollment, setEnrollment] = useState(null);       // { secret, otpauth_uri } while setting up
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
@@ -82,13 +86,31 @@ export default function LoginPage() {
     if (!password) problems.password = "Enter your password.";
     setFieldErrors(problems);
     if (Object.keys(problems).length) return;
+    if (mfaStep && !/^\d{6}$/.test(mfaCode.trim())) { setFieldErrors({ mfa: "Enter the 6-digit code from your authenticator app." }); return; }
     setSubmitting(true);
     try {
-      await login({ email: address, password });
+      if (mfaStep === "enroll") await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() });
+      else await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
       navigate(from, { replace: true });
     } catch (err) {
-      setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
-      setLocalError(err.message || "Unable to sign in. Please check your credentials.");
+      if (err?.code === "MFA_REQUIRED") {
+        setMfaStep("code");
+        setMfaCode("");
+        setLocalError(null);
+      } else if (err?.code === "MFA_ENROLLMENT_REQUIRED") {
+        try {
+          setEnrollment(await mfaEnrollStart({ email: address, password }));
+          setMfaStep("enroll");
+          setMfaCode("");
+          setLocalError(null);
+        } catch (startErr) {
+          setLocalError(startErr.message || "The authenticator could not be set up. Please try again.");
+        }
+      } else {
+        if (err?.code === "MFA_INVALID") setMfaCode("");
+        setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
+        setLocalError(err.message || "Unable to sign in. Please check your credentials.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -186,12 +208,41 @@ export default function LoginPage() {
                 {fieldErrors.password && <p role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.password}</p>}
               </div>
 
+              {mfaStep === "enroll" && enrollment && (
+                <div className="rounded-lg border border-blue-100 bg-blue-50 px-4 py-3 text-xs text-slate-700 space-y-2" data-testid="mfa-enroll">
+                  <p className="font-semibold text-slate-800">Set up your authenticator app</p>
+                  <p>Platform accounts need a second step. In your authenticator app, add an account with this key, then enter the 6-digit code it shows.</p>
+                  <p className="font-mono text-sm tracking-wider break-all select-all" aria-label="Authenticator key">{enrollment.secret}</p>
+                  <a className="text-[#3B82F6] underline" href={enrollment.otpauth_uri}>Open in my authenticator app</a>
+                </div>
+              )}
+
+              {mfaStep && (
+                <div>
+                  <label htmlFor="login-mfa" className="block text-xs font-semibold text-slate-500 mb-1">Authenticator code</label>
+                  <input
+                    id="login-mfa"
+                    name="one-time-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    autoFocus
+                    value={mfaCode}
+                    aria-invalid={fieldErrors.mfa ? "true" : undefined}
+                    onChange={(e) => { setMfaCode(e.target.value.replace(/\D/g, "")); if (fieldErrors.mfa) setFieldErrors((f) => ({ ...f, mfa: undefined })); }}
+                    placeholder="123456"
+                    className="w-full px-4 py-3 rounded-lg border border-slate-200 bg-slate-50 text-slate-800 text-sm tracking-[0.4em] focus:outline-none focus:ring-2 focus:ring-[#3B82F6] focus:bg-white transition-all"
+                  />
+                  {fieldErrors.mfa && <p role="alert" className="mt-1 text-xs text-red-600">{fieldErrors.mfa}</p>}
+                </div>
+              )}
+
               <button
                 type="submit"
                 disabled={submitting}
                 className="w-full bg-[#3B82F6] hover:bg-[#2563EB] disabled:opacity-60 text-white font-bold py-3.5 rounded-xl shadow-md transition-all flex items-center justify-center space-x-2"
               >
-                <span>{submitting ? "Signing in…" : "Sign In"}</span>
+                <span>{submitting ? "Signing in…" : mfaStep === "enroll" ? "Confirm and sign in" : "Sign In"}</span>
                 <span>→</span>
               </button>
             </form>
