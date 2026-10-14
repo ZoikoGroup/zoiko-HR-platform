@@ -83,8 +83,19 @@ jobs:
       - name: Generated privacy documents are up to date
         working-directory: backend
         run: |
-          python scripts/privacy_endpoint_inventory.py --check
-          python scripts/privacy_classification_doc.py --check
+          set -eo pipefail
+          # run endpoint inventory check; if stale, print diff and instruction then exit non-zero
+          python scripts/privacy_endpoint_inventory.py --check || {
+            echo "privacy_endpoint_inventory out of date — run: python scripts/privacy_endpoint_inventory.py"
+            git --no-pager diff || true
+            exit 1
+          }
+          # run classification doc check; if stale, print diff and instruction then exit non-zero
+          python scripts/privacy_classification_doc.py --check || {
+            echo "privacy_classification_doc out of date — run: python scripts/privacy_classification_doc.py"
+            git --no-pager diff || true
+            exit 1
+          }
 
       - name: Every data classification is complete (python manage.py check equivalent)
         working-directory: backend
