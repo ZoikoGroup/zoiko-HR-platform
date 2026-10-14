@@ -21,7 +21,7 @@ const ROLE_OPTIONS = [
 
 const EMPTY_FORM = {
   title: "", message: "", notification_type: "info", priority: "normal",
-  target_type: "all", audience: "org_admins", user_ids: "", roles: [],
+  target_type: "all", audience: "org_admins", plan: "core", roles: [],
 };
 
 const fieldCls = "w-full rounded-xl border border-slate-200 px-4 py-2.5 text-sm focus:border-[#3B82F6] focus:outline-none";
@@ -92,8 +92,11 @@ export default function NotificationCenter() {
       payload.target_org_ids = orgs.map((o) => o.id);
       payload.audience = form.audience;
     }
-    if (form.target_type === "user") {
-      payload.target_user_ids = form.user_ids.split(/[\s,]+/).filter(Boolean).map(Number).filter((n) => Number.isInteger(n) && n > 0);
+    if (form.target_type === "plan") {
+      // organizations on a plan: the server works out who receives it; the platform never gets or sends a list of people
+      payload.target_type = "organization";
+      payload.target_plans = [form.plan];
+      payload.audience = form.audience;
     }
     if (form.target_type === "role") payload.target_roles = form.roles;
     return payload;
@@ -104,7 +107,6 @@ export default function NotificationCenter() {
     if (sendInFlight.current) return;
     setFormError(null);
     if (form.target_type === "organization" && orgs.length === 0) { setFormError("Select at least one organization."); return; }
-    if (form.target_type === "user" && buildPayload().target_user_ids.length === 0) { setFormError("Enter at least one valid user ID."); return; }
     if (form.target_type === "role" && form.roles.length === 0) { setFormError("Select at least one role."); return; }
     sendInFlight.current = true;
     setSending(true);
@@ -229,7 +231,7 @@ export default function NotificationCenter() {
                 onChange={(e) => setForm({ ...form, target_type: e.target.value })} className={fieldCls}>
                 <option value="all">Everyone (all organizations and users)</option>
                 <option value="organization">Specific organizations</option>
-                <option value="user">Specific users</option>
+                <option value="plan">All organizations on a plan</option>
                 <option value="role">A role across all organizations</option>
               </select>
             </div>
@@ -271,13 +273,25 @@ export default function NotificationCenter() {
               </>
             )}
 
-            {form.target_type === "user" && (
-              <div className="md:col-span-2">
-                <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="nc-users">User IDs * <span className="font-normal text-slate-400">(comma separated)</span></label>
-                <input id="nc-users" value={form.user_ids}
-                  onChange={(e) => setForm({ ...form, user_ids: e.target.value })}
-                  className={fieldCls} placeholder="e.g. 42, 57" />
-              </div>
+            {form.target_type === "plan" && (
+              <>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="nc-plan">Plan *</label>
+                  <select id="nc-plan" value={form.plan} onChange={(e) => setForm({ ...form, plan: e.target.value })} className={fieldCls}>
+                    <option value="core">Core</option>
+                    <option value="advanced">Advanced</option>
+                    <option value="enterprise">Enterprise</option>
+                    <option value="evaluation">Free evaluation</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="mb-1 block text-sm font-medium text-slate-700" htmlFor="nc-plan-audience">Who in those organizations</label>
+                  <select id="nc-plan-audience" value={form.audience} onChange={(e) => setForm({ ...form, audience: e.target.value })} className={fieldCls}>
+                    <option value="org_admins">Organization admins only</option>
+                    <option value="all_members">All members</option>
+                  </select>
+                </div>
+              </>
             )}
 
             {form.target_type === "role" && (

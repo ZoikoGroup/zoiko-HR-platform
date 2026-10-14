@@ -139,7 +139,7 @@ const superAdminAccessSecurity = {
   title: "ACCESS & SECURITY",
   items: [
     { label: "Access & Role Management", href: "/super-admin/access", icon: Shield },
-    { label: "Support Access Grants", href: "/super-admin/support-access", icon: KeyRound },
+    { label: "Just-in-time Support Access", href: "/super-admin/jit-support-access", icon: Lock },
     { label: "Audit Logs", href: "/super-admin/audit-logs", icon: FileTextIcon },
   ],
 };
@@ -409,8 +409,6 @@ const sharedLayersSection = {
         { label: "Zoiko Workflow", href: "/shared/workflow", icon: Workflow },
         { label: "Zoiko Hub", href: "/shared/hub", icon: Layers },
         { label: "Zoiko Connect", href: "/shared/connect", icon: Globe },
-        { label: "Documents", href: "/shared/documents", icon: FileText },
-        { label: "Expenses", href: "/shared/expenses", icon: WalletCards },
       ],
     },
   ],
@@ -434,6 +432,7 @@ const organizationAdminDashboard = {
     { label: "My Organization", href: "/organization-admin/organization", icon: Building2 },
     { label: "Payroll Guidance", href: "/organization-admin/payroll-guidance", icon: BookOpen, badge: "Payroll" },
     { label: "Billing & Plan", href: "/organization-admin/billing-and-plan", icon: CreditCard },
+    { label: "Support Access", href: "/organization-admin/support-access", icon: KeyRound },
   ],
 };
 

@@ -4,7 +4,7 @@ import { activityService } from "../../service/activityService";
 import { Btn, Card, ErrorNote, Modal, Spinner, fmt, inputCls } from "./integrationsUi";
 
 const PAGE_SIZE = 20;
-const EMPTY = { organization_id: "", action_group: "", status: "", actor: "", q: "", date_from: "", date_to: "" };
+const EMPTY = { organization_id: "", action_group: "", status: "", q: "", date_from: "", date_to: "" };
 
 function relative(iso) {
   const t = Date.parse(iso);
@@ -37,31 +37,17 @@ function EventDetail({ event, onClose }) {
         <p className="font-semibold text-slate-800">{event.sentence}</p>
         <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-xs">
           <dt className="text-slate-400">Organization</dt><dd>{show(event.organization_name)}</dd>
-          <dt className="text-slate-400">Actor</dt>
-          <dd>{show(event.actor_name)}{event.actor_role_label ? ` (${event.actor_role_label})` : ""}{event.actor_email ? ` · ${event.actor_email}` : ""}</dd>
-          <dt className="text-slate-400">Target</dt><dd>{show(event.target_label)}</dd>
+          <dt className="text-slate-400">Who</dt>
+          <dd>{show(event.actor_ref)}</dd>
+          <dt className="text-slate-400">What</dt><dd>{show(event.action_group)} · {show(event.entity_type)}</dd>
           <dt className="text-slate-400">Status</dt><dd><Badge status={event.status} /></dd>
           <dt className="text-slate-400">When</dt><dd>{fmt(event.created_at)}</dd>
-          {event.ip_address ? (<><dt className="text-slate-400">IP address</dt><dd>{event.ip_address}</dd></>) : null}
         </dl>
-        {event.error_message ? <ErrorNote message={event.error_message} /> : null}
+        {event.failure_code ? <ErrorNote message={`Failed: ${event.failure_code}`} /> : null}
         {event.counts ? (
           <p className="text-xs text-slate-600">{Object.entries(event.counts).map(([k, v]) => `${k}: ${v}`).join(" · ")}</p>
         ) : null}
-        {event.changes?.length ? (
-          <table className="w-full text-left text-xs" aria-label="Changes">
-            <thead><tr className="text-slate-400"><th className="py-1 pr-2">Field</th><th className="pr-2">Before</th><th>After</th></tr></thead>
-            <tbody>
-              {event.changes.map((c, i) => (
-                <tr key={`${c.field}-${i}`} className="border-t border-slate-100">
-                  <td className="py-1 pr-2 font-medium text-slate-700">{c.label || c.field}</td>
-                  <td className="pr-2 text-slate-500">{show(c.before)}</td>
-                  <td className="text-slate-800">{show(c.after)}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : <p className="text-xs text-slate-400">No field changes recorded.</p>}
+        <p className="text-xs text-slate-400">Record-level detail (who exactly, which record, what changed) is not available to the platform. It is only visible to the organization itself, or to support under a grant the organization approved.</p>
       </div>
       <div className="mt-4 flex justify-end"><Btn onClick={onClose}>Close</Btn></div>
     </Modal>
@@ -129,10 +115,9 @@ export default function OrgActivityFeed() {
           <option value="success">Success</option>
           <option value="failed">Failed</option>
         </select>
-        <input aria-label="Actor" className={inputCls} placeholder="Actor name or email" value={draft.actor} onChange={set("actor")} />
         <input aria-label="From date" type="date" className={inputCls} value={draft.date_from} onChange={set("date_from")} />
         <input aria-label="To date" type="date" className={inputCls} value={draft.date_to} onChange={set("date_to")} />
-        <input aria-label="Search" className={inputCls} placeholder="Search target, actor, organization" value={draft.q} onChange={set("q")} />
+        <input aria-label="Search" className={inputCls} placeholder="Search organization" value={draft.q} onChange={set("q")} />
         <div className="flex gap-2"><Btn tone="primary" type="submit">Apply</Btn><Btn onClick={clear}>Clear</Btn><Btn onClick={() => setNonce((n) => n + 1)}>Refresh</Btn></div>
       </form>
 

@@ -606,3 +606,72 @@ def event_view(db: Session, row: AuditLog, org_names: Optional[dict] = None) -> 
         "ip_address": row.ip_address,
         "created_at": row.created_at.isoformat() + "Z" if row.created_at else None,
     }
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PLATFORM VIEW (ZHR-PRIV-001 E01, D03): the minimised form a super admin may see
+# ═══════════════════════════════════════════════════════════════════════════════
+
+_NOUN_BY_GROUP = {"Employee": "employee record", "Leave": "leave record", "Payroll": "compensation record",
+                  "Settings": "setting", "User": "user account", "Other": "record"}
+
+
+def _past_verb(verb: str) -> str:
+    """'added employee' -> 'added', 'requested leave for' -> 'requested' (the verb only; the person is never named)."""
+    return (verb or "performed").split(" ")[0]
+
+
+def platform_sentence(*, action_type, actor_ref, org_name, counts, status) -> str:
+    """'Org Admin #a3f9 added 1 employee record in Acme Ltd' / '... imported 50 employee records into Acme Ltd (48 succeeded, 2 failed)'.
+    No person, id, label or field value appears in it."""
+    verb, group, placement = action_meta(action_type)
+    noun = _NOUN_BY_GROUP.get(group, "record")
+    org = org_name or "the platform"
+    counts = counts or {}
+    total = counts.get("total")
+    if placement == "into":
+        n = total if total not in (None, "") else ""
+        sentence = f"{actor_ref} {_past_verb(verb)} {n} {noun}{'s' if str(n) != '1' else ''} into {org}".replace("  ", " ")
+        bits = [f"{counts[k]} {k}" for k in ("succeeded", "failed") if counts.get(k)]
+        if bits:
+            sentence += f" ({', '.join(bits)})"
+    else:
+        sentence = f"{actor_ref} {_past_verb(verb)} 1 {noun} in {org}" if placement == "target" else f"{actor_ref} {_past_verb(verb)} {noun}s in {org}"
+        if action_type and action_type.endswith("_removed"):
+            sentence = f"{actor_ref} removed {total or 'all'} {noun}s from {org}"
+    if status == "failed":
+        sentence += " - failed"
+    return sentence
+
+
+def platform_event_view(db: Session, row: AuditLog, org_names: Optional[dict] = None) -> dict:
+    """What the platform sees of a tenant's activity: who KIND of person (role + pseudonym), what KIND of action, how many,
+    where, when and whether it worked. Never names, ids, target labels, field changes or free-text failure reasons."""
+    from app.core.privacy.minimise import failure_code, pseudonym
+    details = row.details if isinstance(row.details, dict) else {}
+    org_name = details.get("organization_name") or (org_names or {}).get(row.organization_id) or _org_name(db, row.organization_id)
+    counts = details.get("counts") or None
+    if counts:
+        counts = {k: v for k, v in counts.items() if k in ("total", "created", "updated", "succeeded", "failed", "deactivated", "deleted") and isinstance(v, (int, float))}
+    action_type = row.action_type or details.get("action_type")
+    _verb, group, _placement = action_meta(action_type)
+    label = role_label(row.actor_role) if row.actor_role else "User"
+    ref = pseudonym(row.performed_by, label)
+    status = row.status or "success"
+    return {
+        "id": row.id,
+        "sentence": platform_sentence(action_type=action_type, actor_ref=ref, org_name=org_name, counts=counts, status=status),
+        "action": row.action.value if hasattr(row.action, "value") else row.action,
+        "action_type": action_type,
+        "action_group": group,
+        "entity_type": row.entity_type,
+        "organization_id": row.organization_id,
+        "organization_name": org_name,
+        "actor_ref": ref,
+        "actor_role": row.actor_role,
+        "actor_role_label": label if row.actor_role else None,
+        "status": status,
+        "counts": counts,
+        "failure_code": failure_code(row.error_message) if status == "failed" else None,
+        "created_at": row.created_at.isoformat() + "Z" if row.created_at else None,
+    }

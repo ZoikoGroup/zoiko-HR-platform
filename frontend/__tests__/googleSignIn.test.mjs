@@ -30,6 +30,7 @@ async function open(t, { url = "/login", enabled = true, exchange } = {}) {
   t.mock.module("../src/service/authService.js", { exports: {
     googleSignInEnabled: async () => enabled,
     resendVerification: async () => ({}),
+    mfaEnrollStart: async () => ({}),
     login: async () => ({}), loginWithGoogleTicket: async () => ({}),
   } });
   t.mock.module("../src/service/api.js", { exports: { API_BASE_URL: "https://api.example.com" } });

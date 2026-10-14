@@ -13,7 +13,7 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60
 async function open(t, login) {
   const calls = [];
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ login: login || (async (c) => { calls.push(c); }), loginWithGoogle: async () => {}, error: null, defaultRedirect: "/dashboard" }) } });
-  t.mock.module("../src/service/authService.js", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}) } });
+  t.mock.module("../src/service/authService.js", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}), mfaEnrollStart: async () => ({}) } });
   t.mock.module("../src/service/api.js", { exports: { API_BASE_URL: "http://api" } });
   const { default: Page } = await import(`../src/pages/auth/LoginPage.jsx?t=${Math.random()}`);
   render(React.createElement(MemoryRouter, { initialEntries: ["/login"] }, React.createElement(Page)));

@@ -1737,7 +1737,8 @@ async def upload_onboarding_document(
     os.makedirs(_ONBOARDING_DOC_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    file_path = os.path.join(_ONBOARDING_DOC_UPLOAD_DIR, unique_name)
+    from app.core.privacy.files import tenant_upload_path
+    file_path = tenant_upload_path(_ONBOARDING_DOC_UPLOAD_DIR, current_user.organization_id, unique_name)   # filed under the tenant (C05)
     with open(file_path, "wb") as fh:
         fh.write(contents)
     doc = service.create_onboarding_document(
@@ -1761,7 +1762,8 @@ def get_onboarding_document_file(
     current_user=Depends(get_current_admin),
 ):
     doc = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
-    resolved = file_storage.resolve_stored_file(doc.get("file_path"))
+    from app.core.privacy.files import belongs_to_tenant
+    resolved = file_storage.resolve_stored_file(doc.get("file_path")) if belongs_to_tenant(doc.get("file_path"), current_user.organization_id) else None
     if not resolved:
         raise HTTPException(status_code=410, detail="The file for this document is not available on the server. Upload it again.")
     name = _os.path.basename(resolved)
@@ -2727,7 +2729,8 @@ async def upload_hr_document_route(
     os.makedirs(_DOCUMENT_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    file_path = os.path.join(_DOCUMENT_UPLOAD_DIR, unique_name)
+    from app.core.privacy.files import tenant_upload_path
+    file_path = tenant_upload_path(_DOCUMENT_UPLOAD_DIR, current_user.organization_id, unique_name)   # filed under the tenant (C05)
     with open(file_path, "wb") as fh:
         fh.write(contents)
 
@@ -2799,7 +2802,8 @@ def get_hr_document_file(
 ):
     doc_data = service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)
     file_path = doc_data.get("file_path")
-    resolved = file_storage.resolve_stored_file(file_path)
+    from app.core.privacy.files import belongs_to_tenant
+    resolved = file_storage.resolve_stored_file(file_path) if belongs_to_tenant(file_path, current_user.organization_id) else None
     if not resolved:
         # 410: the document record exists, the bytes are not on this host.
         # A plain 404 read as "no such document" in the UI and hid the fact
@@ -2819,6 +2823,39 @@ def get_hr_document_file(
         filename=file_name,
         headers={"Content-Disposition": f'inline; filename="{file_name}"'},
     )
+
+
+@hr_router.post(
+    "/documents/{document_id}/download-link",
+    summary="A short-lived link to a document's file (5 minutes, one document, one organization)",
+    tags=["📄 HR Documents"],
+)
+def create_document_download_link(document_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    from app.core.privacy.files import MAX_TTL_SECONDS, sign_download
+    service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)       # the normal authorization: org-scoped lookup
+    token = sign_download("hr_document", document_id, current_user.organization_id)
+    return {"url": f"/hr/files/signed/{token}", "expires_in": MAX_TTL_SECONDS}
+
+
+@hr_router.get("/files/signed/{token}", summary="Open a file through a short-lived signed link", tags=["📄 HR Documents"])
+def open_signed_file(token: str, db: Session = Depends(get_db)):
+    from app.core.privacy.files import belongs_to_tenant, verify_download
+    try:
+        claims = verify_download(token)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Not Found")                  # a bad, expired or tampered link looks like no link
+    if claims["kind"] != "hr_document":
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        doc = service.get_hr_document_by_id(db, claims["object_id"], organization_id=claims["organization_id"])
+    except Exception:
+        raise HTTPException(status_code=404, detail="Not Found")
+    resolved = file_storage.resolve_stored_file(doc.get("file_path")) if belongs_to_tenant(doc.get("file_path"), claims["organization_id"]) else None
+    if not resolved:
+        raise HTTPException(status_code=404, detail="Not Found")
+    name = doc.get("file_name") or _os.path.basename(resolved)
+    return FileResponse(path=resolved, media_type=file_storage.effective_media_type(name, doc.get("mime_type")), filename=name,
+                        headers={"Content-Disposition": f'inline; filename="{name}"', "Cache-Control": "private, no-store"})
 
 
 @hr_router.put(
@@ -2923,7 +2960,8 @@ async def upload_document_version(
     os.makedirs(_DOCUMENT_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1]
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    file_path = os.path.join(_DOCUMENT_UPLOAD_DIR, unique_name)
+    from app.core.privacy.files import tenant_upload_path
+    file_path = tenant_upload_path(_DOCUMENT_UPLOAD_DIR, current_user.organization_id, unique_name)   # filed under the tenant (C05)
     # (the upload was already read above; reading it again returned empty bytes and saved empty files)
     with open(file_path, "wb") as fh:
         fh.write(contents)
@@ -2957,7 +2995,8 @@ def get_document_version_file(
         db, document_id, version_id, organization_id=current_user.organization_id
     )
     file_path = version_data.get("file_path")
-    resolved = file_storage.resolve_stored_file(file_path)
+    from app.core.privacy.files import belongs_to_tenant
+    resolved = file_storage.resolve_stored_file(file_path) if belongs_to_tenant(file_path, current_user.organization_id) else None
     if not resolved:
         raise HTTPException(
             status_code=410,

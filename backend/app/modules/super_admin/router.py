@@ -16,7 +16,7 @@ from typing import Optional
 
 from pydantic import BaseModel, Field
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
-from sqlalchemy import Text, case, cast, func, or_, text
+from sqlalchemy import Text, and_, case, cast, func, or_, text
 from sqlalchemy.orm import Session
 
 from app.modules.integrations.events import emit_event
@@ -104,6 +104,10 @@ def bootstrap_super_admin(data: SuperAdminBootstrapRequest, db: Session = Depend
     if existing:
         return {"message": "Super Admin already exists for this email.", "created": False}
 
+    from app.core.privacy import accounts
+    if accounts.is_generic_account(data.email):                      # ZHR-PRIV-001 B01: a platform account is one named person
+        raise HTTPException(status_code=400, detail=accounts.GENERIC_MESSAGE)
+
     employee_code = generate_employee_code(db, None)
 
     super_admin = Employee(
@@ -167,6 +171,8 @@ def dashboard_stats(db: Session = Depends(get_db), _=Depends(get_current_super_a
 
     recent = sorted(orgs, key=lambda o: o.created_at or __import__("datetime").datetime.min, reverse=True)[:5]
 
+    from app.core.privacy.minimise import suppress
+
     def _summary(o):
         org_emps = [e for e in employees if e.organization_id == o.id]
         return OrganizationSummary(
@@ -176,20 +182,20 @@ def dashboard_stats(db: Session = Depends(get_db), _=Depends(get_current_super_a
             status=o.status.value if o.status else None,
             is_active=bool(o.is_active),
             total_employees=len(org_emps),
-            active_employees=sum(
-                1 for e in org_emps if e.status and e.status.value == EmployeeStatus.ACTIVE.value
-            ),
+            active_employees=suppress(sum(1 for e in org_emps if e.status and e.status.value == EmployeeStatus.ACTIVE.value)),
             created_at=o.created_at,
         )
 
+    from app.core.privacy.minimise import suppress
     return DashboardStats(
         total_organizations=len(orgs),
         active_organizations=_count_org(OrganizationStatus.ACTIVE),
         suspended_organizations=_count_org(OrganizationStatus.SUSPENDED),
         total_employees=total_employees,
-        active_employees=active_employees,
-        total_admins=_count_emp_role(UserRole.ADMIN),
-        total_hr_admins=_count_emp_role(UserRole.HR_ADMIN),
+        # groups smaller than PRIVACY_MIN_COHORT are never shown as numbers (A08); no complement is exposed either
+        active_employees=suppress(active_employees),
+        total_admins=suppress(_count_emp_role(UserRole.ADMIN)),
+        total_hr_admins=suppress(_count_emp_role(UserRole.HR_ADMIN)),
         recent_organizations=[_summary(o) for o in recent],
     )
 
@@ -326,6 +332,7 @@ def list_organizations(
     _=Depends(get_current_super_admin),
 ):
     from datetime import datetime, timedelta
+    from app.core.privacy.minimise import count_view, suppress
     import sqlalchemy as sa
     from app.modules.hr.models import Organization, OrganizationStatus
     from app.modules.employee.models import Employee, EmployeeStatus, UserRole
@@ -390,12 +397,15 @@ def list_organizations(
             sa.func.coalesce(sa.func.sum(sa.case((Employee.status == EmployeeStatus.ACTIVE, 1), else_=0)), 0),
         ).filter(Employee.organization_id.in_(page_org_ids)).group_by(Employee.organization_id):
             counts_by_org[oid] = (int(total_n), int(active_n))
-        for oid, first, last, email in (
-            db.query(Employee.organization_id, Employee.first_name, Employee.last_name, Employee.email)
+        # The platform sees WHICH kind of person administers a tenant, not who they are: a pseudonymous reference and a
+        # masked address (docs/privacy/platform_contact_decision.md).
+        from app.core.privacy.minimise import mask_email, pseudonym
+        for oid, admin_id, email in (
+            db.query(Employee.organization_id, Employee.id, Employee.email)
             .filter(Employee.organization_id.in_(page_org_ids), Employee.role == UserRole.ADMIN)
             .order_by(Employee.id)
         ):
-            admin_by_org.setdefault(oid, (" ".join(p for p in (first, last) if p and str(p).strip()).strip(), email))
+            admin_by_org.setdefault(oid, (pseudonym(admin_id, "Org Admin"), mask_email(email)))
 
     plan_display = {
         BillingPlanCode.CORE: "Core",
@@ -456,7 +466,8 @@ def list_organizations(
             is_active=bool(o.is_active),
             total_employees=n_total,
             user_count=n_total,
-            active_employees=n_active,
+            active_employees=suppress(n_active),
+            active_employees_label=count_view(n_active)["label"],
             subscription_plan=sub_plan,
             evaluation_ends_at=eval_end,
             admin_name=admin[0] if admin else None,
@@ -479,6 +490,7 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
     from app.modules.employee.models import Employee, UserRole, EmployeeStatus
     from app.modules.billing.models import BillingSubscription, OrganizationEvaluation
     from app.modules.billing.models import PlanCode as BillingPlanCode
+    from app.core.privacy.minimise import count_view, mask_email, pseudonym, suppress
 
     org = db.query(Organization).filter(Organization.id == org_id).first()
     if not org:
@@ -520,12 +532,11 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
         is_active=bool(org.is_active),
         total_employees=len(employees),
         user_count=len(employees),
-        active_employees=sum(
-            1 for e in employees if e.status and e.status.value == EmployeeStatus.ACTIVE.value
-        ),
+        active_employees=suppress(sum(1 for e in employees if e.status and e.status.value == EmployeeStatus.ACTIVE.value)),
+        active_employees_label=count_view(sum(1 for e in employees if e.status and e.status.value == EmployeeStatus.ACTIVE.value))["label"],
         subscription_plan=sub_plan,
-        admin_name=admin.full_name if admin else None,
-        admin_email=admin.email if admin else None,
+        admin_name=pseudonym(admin.id, "Org Admin") if admin else None,
+        admin_email=mask_email(admin.email) if admin else None,
         approved_by_name=approver.full_name if approver else None,
         approved_at=org.approved_at,
         suspended_at=org.suspended_at,
@@ -541,10 +552,12 @@ def get_organization(org_id: int, db: Session = Depends(get_db), _=Depends(get_c
         industry=org.industry,
         org_type=org.org_type,
         phone=org.phone,
-        tax_number=org.tax_number,
-        registered_email=org.registered_email,
-        hr_admins=hr_admins,
-        managers=managers,
+        tax_number=None,                                   # the tenant's tax id is not control-plane data
+        registered_email=mask_email(org.registered_email),
+        hr_admins=suppress(hr_admins),
+        managers=suppress(managers),
+        hr_admins_label=count_view(hr_admins)["label"],
+        managers_label=count_view(managers)["label"],
         evaluation_ends_at=evaluation.evaluation_ends_at if evaluation else None,
     )
 
@@ -817,7 +830,7 @@ def get_organization_audit_logs(
     )
     total = q.count()
     rows = q.order_by(AuditLog.created_at.desc()).limit(min(limit, 200)).all()
-    return {"logs": rows, "total": total}
+    return {"logs": [_platform_audit_item(r) for r in rows], "total": total}
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -837,22 +850,15 @@ def list_users(
 ):
     from app.modules.employee.models import Employee, EmployeeStatus, UserRole
 
-    q = organization_service.visible_employees(db)
+    # The platform manages TENANT ADMIN ACCOUNTS (create, reset, suspend), not tenant people. This list is therefore limited to
+    # organization admins, shown as a pseudonymous reference with a masked address, and it cannot be searched by a person's
+    # name, e-mail, phone or code (ZHR-PRIV-001 E01, D03; docs/privacy/platform_contact_decision.md).
+    q = organization_service.visible_employees(db).filter(Employee.role == UserRole.ADMIN)
 
     if search:
+        from app.modules.hr.models import Organization
         term = f"%{search}%"
-        q = q.filter(
-            Employee.first_name.ilike(term)
-            | Employee.last_name.ilike(term)
-            | Employee.email.ilike(term)
-            | Employee.employee_code.ilike(term)
-        )
-    if role:
-        try:
-            role_enum = UserRole(role)
-            q = q.filter(Employee.role == role_enum)
-        except ValueError:
-            pass
+        q = q.filter(Employee.organization_id.in_(db.query(Organization.id).filter(Organization.organization_name.ilike(term))))
     if status:
         try:
             status_enum = EmployeeStatus(status)
@@ -879,18 +885,20 @@ def list_users(
 
     users = []
     for e in rows:
+        from app.core.privacy.minimise import mask_email, pseudonym
+        ref = pseudonym(e.id, "Org Admin")
         users.append({
             "id": e.id,
-            "email": e.email,
+            "email": mask_email(e.email),
             "role": e.role.value if e.role else None,
             "is_active": bool(e.is_active),
-            "first_name": e.first_name or "",
-            "last_name": e.last_name or "",
-            "full_name": e.full_name,
-            "phone": e.phone,
-            "employee_code": e.employee_code,
+            "first_name": ref,
+            "last_name": "",
+            "full_name": ref,
+            "phone": None,
+            "employee_code": None,
             "status": e.status.value if e.status else None,
-            "job_title": e.job_title,
+            "job_title": None,
             "organization_id": e.organization_id,
             "organization_name": org_names.get(e.organization_id),
             "created_at": str(e.created_at) if e.created_at else None,
@@ -902,6 +910,26 @@ def list_users(
 # ═══════════════════════════════════════════════════════════════════════════════
 # AUDIT / ACTIVITY / NOTIFICATIONS
 # ═══════════════════════════════════════════════════════════════════════════════
+
+def _platform_audit_item(r) -> dict:
+    """An audit row as the platform may see it. Platform-plane rows (no action_type) keep their actor and IP but their details are
+    scrubbed of personal values. Tenant activity rows are reduced to role + pseudonym, action, organization and time: no
+    name, e-mail, id, IP, target label or before/after values."""
+    from app.core.privacy.minimise import failure_code, pseudonym, role_label, sanitize_details
+    item = AuditLogItem.model_validate(r).model_dump()
+    item["action"] = _enum_value(r.action)
+    if r.action_type is None:
+        item["details"] = sanitize_details(item.get("details"))
+        return item
+    ref = pseudonym(r.performed_by, role_label(r.actor_role))
+    item.update({
+        "performed_by": None, "performed_by_email": ref, "entity_id": None, "ip_address": None,
+        "details": {"organization_id": r.organization_id, "action_type": r.action_type, "status": r.status or "success",
+                    **({"failure_code": failure_code(r.error_message)} if (r.status == "failed" and r.error_message) else {})},
+        "minimised": True,
+    })
+    return item
+
 
 def _enum_value(action) -> str:
     return action.value if hasattr(action, "value") else str(action)
@@ -951,19 +979,24 @@ def list_audit_logs(
             raise HTTPException(status_code=400, detail=f"Invalid action: {action}")
     if entity_type:
         q = q.filter(func.lower(AuditLog.entity_type) == entity_type.strip().lower())
+    # Person-level filters (entity id, actor e-mail, IP, free text over details) only ever match PLATFORM rows (no action_type).
+    # A tenant's activity rows cannot be probed by an id, an e-mail or a word (E01, T02).
+    platform_row = AuditLog.action_type.is_(None)
     if entity_id is not None:
-        q = q.filter(AuditLog.entity_id == entity_id)
+        q = q.filter(AuditLog.entity_id == entity_id, platform_row)
     if actor and actor.strip():
-        q = q.filter(AuditLog.performed_by_email.ilike(f"%{actor.strip()}%"))
+        q = q.filter(AuditLog.performed_by_email.ilike(f"%{actor.strip()}%"), platform_row)
     if ip and ip.strip():
-        q = q.filter(AuditLog.ip_address.ilike(f"%{ip.strip()}%"))
+        q = q.filter(AuditLog.ip_address.ilike(f"%{ip.strip()}%"), platform_row)
     if search and search.strip():
         term = f"%{search.strip()}%"
         q = q.filter(or_(
-            AuditLog.performed_by_email.ilike(term),
             AuditLog.entity_type.ilike(term),
-            AuditLog.ip_address.ilike(term),
-            cast(AuditLog.details, Text).ilike(term),
+            and_(platform_row, or_(
+                AuditLog.performed_by_email.ilike(term),
+                AuditLog.ip_address.ilike(term),
+                cast(AuditLog.details, Text).ilike(term),
+            )),
         ))
     lower, upper = to_naive_utc(created_from), to_naive_utc(created_before)
     if lower is not None:
@@ -978,11 +1011,7 @@ def list_audit_logs(
         .limit(size)
         .all()
     )
-    logs = []
-    for r in rows:
-        item = AuditLogItem.model_validate(r).model_dump()
-        item["action"] = _enum_value(r.action)
-        logs.append(item)
+    logs = [_platform_audit_item(r) for r in rows]
     return {"logs": logs, "total": total, "page": page, "page_size": size}
 
 
@@ -992,10 +1021,21 @@ def list_login_activity(
     db: Session = Depends(get_db),
     _=Depends(get_current_super_admin),
 ):
+    from app.core.privacy.minimise import mask_email
+    from app.modules.employee.models import Employee, UserRole
     q = db.query(LoginActivity)
     total = q.count()
     rows = q.order_by(LoginActivity.created_at.desc()).limit(min(limit, 200)).all()
-    return {"activities": rows, "total": total}
+    platform_ids = {uid for (uid,) in db.query(Employee.id).filter(Employee.role == UserRole.SUPER_ADMIN).all()}
+    out = []
+    for r in rows:
+        item = {c.name: getattr(r, c.name) for c in LoginActivity.__table__.c}
+        if r.user_id not in platform_ids:                 # a tenant person's sign-in: where and when, not who
+            item["email"] = mask_email(r.email)
+            item["user_agent"] = None
+            item["failure_reason"] = None if not r.failure_reason else "FAILED"
+        out.append(item)
+    return {"activities": out, "total": total}
 
 
 def _admin_notification_item(n, described: dict) -> dict:
@@ -1074,7 +1114,24 @@ def create_notification(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_super_admin),
 ):
-    return notification_service.create_notification(db, data.model_dump(), current_user)
+    payload = data.model_dump()
+    # The platform addresses organizations, tenant-admin roles, plans or everyone: never an individual person. Who exactly receives
+    # it is worked out on the server and the platform never gets the list (ZHR-PRIV-001 D03, E01). Internal notifications the
+    # system itself sends to a person (a reply to their ticket) go through the service directly, not through this endpoint.
+    if payload.get("target_user_ids") or payload.get("target_user_id"):
+        raise HTTPException(status_code=400, detail="Notifications cannot be addressed to individual people. Choose organizations, a role, a plan or everyone.")
+    plans = [p for p in (payload.get("target_plans") or []) if p and str(p).strip()]
+    if plans:
+        org_ids = set(payload.get("target_org_ids") or [])
+        for plan in plans:
+            matched = _org_ids_by_plan(db, str(plan))
+            if matched is None:
+                raise HTTPException(status_code=400, detail=f"Unknown plan: {plan}.")
+            org_ids |= set(matched)
+        if not org_ids:
+            raise HTTPException(status_code=400, detail="No organization is on the selected plan(s).")
+        payload["target_org_ids"] = sorted(org_ids)
+    return notification_service.create_notification(db, payload, current_user)
 
 
 @router.put("/notifications/{notification_id}/read", summary="Mark a notification as read")
@@ -1158,8 +1215,7 @@ def list_email_logs(
     query = db.query(EmailDeliveryLog)
     if status:
         query = query.filter(EmailDeliveryLog.status == status)
-    if recipient_email:
-        query = query.filter(EmailDeliveryLog.recipient_email.ilike(f"%{recipient_email}%"))
+    # no search by recipient address: the platform cannot check whether a person is a tenant's user (E01)
     if organization_id:
         query = query.filter(EmailDeliveryLog.organization_id == organization_id)
 
@@ -1167,8 +1223,17 @@ def list_email_logs(
     offset = (page - 1) * limit
     logs = query.order_by(EmailDeliveryLog.sent_at.desc()).offset(offset).limit(limit).all()
 
+    from app.core.privacy.minimise import failure_code, mask_email
+    items = []
+    for l in logs:
+        item = EmailDeliveryLogItem.model_validate(l)
+        item.recipient_email = mask_email(l.recipient_email) or "••••"
+        item.subject = None                                # subjects can name people
+        item.context_data = None                           # template variables hold names, links and tokens
+        item.error_message = failure_code(l.error_message)
+        items.append(item)
     return EmailDeliveryLogResponse(
-        list=[EmailDeliveryLogItem.model_validate(l) for l in logs],
+        list=items,
         total=total,
         page=page,
         limit=limit,

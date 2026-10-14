@@ -159,6 +159,8 @@ import app.modules.assistant.models  # noqa: F401,E402
 import app.modules.billing.models  # noqa: F401,E402
 import app.modules.billing.feature_keys  # noqa: F401,E402
 import app.modules.sales_leads.models  # noqa: F401,E402
+import app.modules.support_access.models  # noqa: F401,E402
+import app.modules.support_access.audit  # noqa: F401,E402
 
 
 # -- 4. Soft-deleted organizations are invisible by default (ZHR-35) ----------

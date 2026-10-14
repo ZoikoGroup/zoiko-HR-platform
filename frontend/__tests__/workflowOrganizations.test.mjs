@@ -65,7 +65,7 @@ function register(t) {
   if (mocked.has(t)) return;
   mocked.add(t);
   t.mock.module("../src/service/integrationsService.js", { exports: { integrationsService: new Proxy({}, { get: (_, n) => (...a) => svc[n](...a) }) } });
-  t.mock.module("../src/service/documentsService.js", { exports: { getOrganizations: async () => ({ organizations: [{ id: 1, name: "Acme Ltd" }, { id: 2, name: "Globex Inc" }] }) } });
+  t.mock.module("../src/service/superAdminService.js", { exports: { superAdminService: { getOrganizations: async () => ({ organizations: [{ id: 1, name: "Acme Ltd" }, { id: 2, name: "Globex Inc" }] }) } } });
   t.mock.module("../src/service/activityService.js", { exports: { activityService: { list: async () => ({ total: 0, events: [] }), filters: async () => ({ organizations: [], action_groups: [] }), get: async () => ({}) } } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
 }

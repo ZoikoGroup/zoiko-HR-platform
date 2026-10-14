@@ -96,7 +96,7 @@ test("server errors are shown and the form stays", async (t) => {
 
 test("the login page card links to the page", async (t) => {
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ login: async () => {}, loginWithGoogle: async () => {}, error: null }) } });
-  t.mock.module("../src/service/authService", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}) } });
+  t.mock.module("../src/service/authService", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}), mfaEnrollStart: async () => ({}) } });
   const { default: Login } = await import(`../src/pages/auth/LoginPage.jsx?t=${Math.random()}`);
   render(React.createElement(MemoryRouter, { initialEntries: ["/login"] }, React.createElement(Login)));
   assert.equal(screen.getByText("Request Pricing").closest("a").getAttribute("href"), "/request-pricing");

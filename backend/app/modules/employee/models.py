@@ -182,6 +182,11 @@ class Employee(Base):
     # this was introduced are treated as confirmed (the column defaults to true); every NEW account starts unconfirmed.
     email_verified       = Column(Boolean, default=True, nullable=False, server_default=true())
     email_verified_at    = Column(DateTime, nullable=True)
+    # Second factor for PLATFORM accounts (ZHR-PRIV-001 B02). The secret is stored encrypted (core.crypto), never in clear.
+    mfa_enabled          = Column(Boolean, default=False, nullable=False, server_default=false())
+    mfa_secret           = Column(String(255), nullable=True)
+    mfa_enrolled_at      = Column(DateTime, nullable=True)
+    mfa_last_step        = Column(Integer, nullable=True)     # the last accepted time step: a code can be used once
 
     department     = relationship("Department", back_populates="employees")
     designation    = relationship("Designation", backref="employees")

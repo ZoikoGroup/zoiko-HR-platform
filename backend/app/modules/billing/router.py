@@ -100,6 +100,7 @@ from app.modules.billing.schemas import (
     PlatformDelinquencyItem,
     PlatformDelinquencyListResponse,
     PlanChangeCancelRequest,
+    MeSubscriptionResponse,
     PlanChangeListResponse,
     QuotationDecisionRequest,
     QuotationInvoiceResponse,
@@ -128,11 +129,11 @@ from app.modules.billing.schemas import (
     WebhookReplayResponse,
     WorkforceSnapshotResponse,
     DelinquencyStatusResponse,
-    SupportAccessRequest,
-    SupportAccessCreatedResponse,
-    SupportAccessListResponse,
-    SupportAccessResponse,
-    SupportAccessValidateRequest,
+    
+    
+    
+    
+    
     MeSubscriptionResponse,
     MeEntitlementsResponse,
     MeCancelRequest,
@@ -2326,138 +2327,7 @@ def get_delinquency_status(
     )
 
 
-@billing_router.post(
-    "/support-access",
-    response_model=SupportAccessCreatedResponse,
-    summary="Mint a time-bounded support-access grant (Billing Ops)",
-)
-def create_support_access(
-    data: SupportAccessRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_super_admin),
-):
-    from app.modules.billing import delinquency_service
-
-    grant, raw = delinquency_service.mint_support_access(
-        db,
-        data.organization_id,
-        granted_by=current_user.email or f"user-{current_user.id}",
-        reason=data.reason,
-        ttl_hours=data.ttl_hours,
-    )
-
-    # Internal Billing Operations notice (Section 18 O3) — never blocks the
-    # API response over an SMTP failure.
-    try:
-        from app.config import settings
-        from app.services.email_service import send_support_access_granted_email
-
-        ops_email = getattr(settings, "BILLING_OPS_EMAIL", None) or getattr(
-            settings, "SMTP_FROM_EMAIL", ""
-        )
-        if ops_email:
-            send_support_access_granted_email(
-                organization_id=grant.organization_id,
-                recipient_email=ops_email,
-                grant_duration_hours=data.ttl_hours,
-                expires_at=grant.expires_at.isoformat() if grant.expires_at else "",
-                db=db,
-            )
-    except Exception as exc:
-        logger.error(
-            "[billing] Support-access notification email failed for org %d: %s",
-            data.organization_id, exc,
-        )
-
-    return SupportAccessCreatedResponse(
-        **{
-            "id": grant.id,
-            "organization_id": grant.organization_id,
-            "granted_by": grant.granted_by,
-            "reason": grant.reason,
-            "expires_at": grant.expires_at,
-            "revoked_at": grant.revoked_at,
-            "revoked_by": grant.revoked_by,
-            "created_at": grant.created_at,
-            "token": raw,
-        }
-    )
-
-
-@billing_router.get(
-    "/support-access",
-    response_model=SupportAccessListResponse,
-    summary="List active support-access grants (Billing Ops)",
-)
-def list_support_access(
-    organization_id: Optional[int] = Query(None),
-    page: Optional[int] = Query(None, ge=1, description="Page number (omit for the full list)"),
-    limit: Optional[int] = Query(None, ge=1, le=200, description="Rows per page"),
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_super_admin),
-):
-    from app.core.pagination import legacy_list, page_of, wants_page
-    from app.modules.billing.models import SupportAccessGrant
-
-    q = db.query(SupportAccessGrant)
-    if organization_id is not None:
-        q = q.filter(SupportAccessGrant.organization_id == organization_id)
-    q = q.order_by(SupportAccessGrant.created_at.desc())
-    if not wants_page(page, limit):
-        grants = legacy_list(q, "/billing/support-access")
-        return SupportAccessListResponse(list=grants, total=len(grants))
-    out = page_of(q.order_by(SupportAccessGrant.id.desc()), page, limit)     # id breaks ties for stable pages
-    return SupportAccessListResponse(list=out["items"], total=out["total"])
-
-
-@billing_router.post(
-    "/support-access/{grant_id}/revoke",
-    response_model=SupportAccessResponse,
-    summary="Revoke a support-access grant (Billing Ops)",
-)
-def revoke_support_access_endpoint(
-    grant_id: int,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_super_admin),
-):
-    from app.modules.billing import delinquency_service
-
-    try:
-        grant = delinquency_service.revoke_support_access(
-            db, grant_id, revoked_by=current_user.email or f"user-{current_user.id}"
-        )
-    except ValueError as e:
-        raise BadRequestException(str(e))
-    return grant
-
-
-@billing_router.post(
-    "/support-access/validate",
-    summary="Validate a support-access token for an organization",
-)
-def validate_support_access_endpoint(
-    data: SupportAccessValidateRequest,
-    db: Session = Depends(get_db),
-):
-    # This endpoint authenticates the grant token itself; no higher-privilege
-    # dependency is required beyond an authenticated session so support tooling
-    # and backend guards can confirm a grant before elevated access.
-    from fastapi import HTTPException
-    from app.modules.billing import delinquency_service
-
-    try:
-        grant = delinquency_service.validate_support_access(db, data.organization_id, data.token)
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail=str(e))
-    return {
-        "valid": True,
-        "grant_id": grant.id,
-        "organization_id": grant.organization_id,
-        "expires_at": grant.expires_at.isoformat(),
-    }
-
-
-# ═══════════════════════════════════════════════════════════════════════════
+# ══════════════════════════════════════════════════════════════════════════
 # Customer Self-Serve Billing — /billing/me/* (Prompt 6)
 # ═══════════════════════════════════════════════════════════════════════════
 # Every /me route is scoped strictly to the caller's OWN organization. The org

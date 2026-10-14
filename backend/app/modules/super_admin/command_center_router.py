@@ -229,21 +229,6 @@ def _compute_attention(db: Session) -> list[AttentionItem]:
             action_href=f"/super-admin/organizations/{case.organization_id}",
         ))
 
-    # Active Billing Operations support-access grants — surface for review so
-    # time-bounded access is visible and auditable.
-    from app.modules.billing.models import SupportAccessGrant
-
-    for g in db.query(SupportAccessGrant).filter(SupportAccessGrant.revoked_at.is_(None)).all():
-        items.append(AttentionItem(
-            severity="low",
-            issue="Active support-access grant (expires)",
-            organization_id=g.organization_id,
-            organization_name=org_names.get(g.organization_id),
-            detected_at=g.expires_at,
-            action_label="Review",
-            action_href=f"/super-admin/organizations/{g.organization_id}",
-        ))
-
     # Pending commercial exception approvals (ZHR-COM-ENT-001 §19.1) — the
     # two-step workflow's operator queue. Keeping the list here forces every
     # request into a visible review path before it can grant anything.

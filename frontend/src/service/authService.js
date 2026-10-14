@@ -12,9 +12,11 @@ import { api, setSession, clearSession, getStoredUser, getAccessToken } from "./
  * this file is the single integration point for authentication.
  */
 
-export async function login({ email, password }) {
+export async function login({ email, password, mfaCode }) {
   try {
-    const data = await api.post("/auth/login", { email, password }, { auth: false });
+    const body = { email, password };
+    if (mfaCode) body.mfa_code = mfaCode;                       // platform accounts: the 6-digit authenticator code
+    const data = await api.post("/auth/login", body, { auth: false });
     const user = data.employee || data.user;
     setSession({
       accessToken: data.access_token,
@@ -26,6 +28,29 @@ export async function login({ email, password }) {
     console.error("Login request failed:", err);
     throw err;
   }
+}
+
+/** Platform accounts: the secret for the authenticator app (shown once; it is not active until confirmed). */
+export async function mfaEnrollStart({ email, password }) {
+  return await api.post("/auth/mfa/enroll/start", { email, password }, { auth: false });
+}
+
+/** Platform accounts: proves the app has the secret, turns the second factor on, and signs the person in. */
+export async function mfaEnrollConfirm({ email, password, code }) {
+  const data = await api.post("/auth/mfa/enroll/confirm", { email, password, code }, { auth: false });
+  const user = data.employee || data.user;
+  setSession({ accessToken: data.access_token, refreshToken: data.refresh_token, user });
+  return user;
+}
+
+/**
+ * Platform accounts: a fresh authenticator check for a sensitive action. The server answers with a short-lived access token
+ * that carries the check (`mfa_at`); it replaces the current one, and the refresh token is kept.
+ */
+export async function mfaStepUp(code) {
+  const data = await api.post("/auth/mfa/step-up", { code });
+  setSession({ accessToken: data.access_token });
+  return data;
 }
 
 /** Confirms an e-mail address from the link that was e-mailed. */

@@ -3,6 +3,7 @@ import { createContext, useCallback, useContext, useEffect, useState } from "rea
 import {
   login as loginRequest,
   loginWithGoogleTicket as googleTicketRequest,
+  mfaEnrollConfirm as mfaEnrollConfirmRequest,
   register as registerRequest,
   logout as logoutRequest,
   fetchCurrentUser,
@@ -70,6 +71,15 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // Platform accounts: confirming the authenticator app also signs the person in.
+  const confirmMfaEnrollment = useCallback(async (credentials) => {
+    setError(null);
+    const signedIn = await mfaEnrollConfirmRequest(credentials);
+    setUser(signedIn);
+    prefetchAfterLogin(signedIn?.role);
+    return signedIn;
   }, []);
 
   const loginWithGoogle = useCallback(async (ticket) => {
@@ -201,6 +211,7 @@ export function AuthProvider({ children }) {
     error,
     login,
     loginWithGoogle,
+    confirmMfaEnrollment,
     register,
     logout,
     hasRole,

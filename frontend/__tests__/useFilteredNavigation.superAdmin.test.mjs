@@ -61,7 +61,7 @@ test("every new billing/payments/access item survives filtering for super_admin"
     "/super-admin/billing/webhook-events",
     "/super-admin/billing/reconciliation",
     "/super-admin/access",
-    "/super-admin/support-access",
+    "/super-admin/jit-support-access",
     "/super-admin/audit-logs",
     "/super-admin/notifications",
   ];

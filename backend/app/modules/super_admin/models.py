@@ -301,3 +301,22 @@ from sqlalchemy import Index as _Index  # noqa: E402
 _Index("ix_super_admin_support_tickets_organization_id", SupportTicket.organization_id)
 _Index("ix_super_admin_security_events_organization_id", SecurityEvent.organization_id)
 _Index("ix_super_admin_login_activities_org_created", LoginActivity.organization_id, LoginActivity.created_at)
+
+
+class ApprovalRequest(Base):
+    """Dual control (ZHR-PRIV-001 B06, D09): something consequential that one person asks for and a DIFFERENT authorised person must
+    approve before it runs. `payload` holds only what is needed to run it (ids, counts, a role name): never personal data."""
+    __tablename__ = "privacy_approval_requests"
+
+    id = Column(Integer, primary_key=True, index=True)
+    kind = Column(String(60), nullable=False, index=True)                    # platform_role_change | platform_account_create | bulk_delete | ...
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)
+    requested_by = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    approver_plane = Column(String(20), nullable=False, default="PLATFORM")  # PLATFORM or TENANT: who may approve
+    payload = Column(JSON, nullable=True)
+    status = Column(String(20), nullable=False, default="pending", index=True)
+    decided_by = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    expires_at = Column(DateTime, nullable=False)
+    created_at = Column(DateTime, server_default=func.now())

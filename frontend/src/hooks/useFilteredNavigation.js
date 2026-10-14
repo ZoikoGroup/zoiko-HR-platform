@@ -61,11 +61,8 @@ function isAllowedPathForProducts(pathname, products) {
 // component and already branches on isSuperAdmin internally.
 const SUPER_ADMIN_HREF_OVERRIDES = {
   "/hr-admin/settings": "/settings/user-management",
-  // Assistant Knowledge and Support Tickets live under /hr-admin/ for org admins,
-  // which ProtectedRoute hard-blocks for super_admin (the click just bounced back
-  // to the dashboard). Super admin has its own cross-organization pages (ZHR-33/34).
-  "/hr-admin/assistant-knowledge": "/super-admin/assistant-knowledge",
-  "/hr-admin/assistant-handoffs": "/super-admin/support-tickets",
+  // Assistant Knowledge and Support Tickets hold a tenant's own content and people's questions, so the platform has no
+  // page for them (ZHR-PRIV-001 A01): there is deliberately no override here, the items simply are not offered.
 };
 
 // Entitlement-aware item filtering. When an item carries `featureKey` and an
@@ -92,7 +89,15 @@ function filterNavItem(item, role, products, calcMode, entitlements) {
   if (item.href === "/payroll/compliances" && calcMode === "simple") return null;
 
   if (role === ROLES.SUPER_ADMIN) {
+    // The platform sidebar offers only what a platform account may open: no tenant people, finance or customer pages
+    // (ZHR-PRIV-001 A01). Items outside the allow-list are not offered, whatever section they sit in.
     const override = item.href && SUPER_ADMIN_HREF_OVERRIDES[item.href];
+    const href = override || item.href;
+    if (href && !isAllowedPathForRole(href, role)) return null;
+    if (item.children) {
+      const kept = item.children.map((child) => filterNavItem(child, role, products, calcMode, entitlements)).filter(Boolean);
+      return kept.length ? { ...item, children: kept } : null;
+    }
     return override ? { ...item, href: override } : item;
   }
 

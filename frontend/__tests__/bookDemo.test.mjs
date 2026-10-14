@@ -86,7 +86,7 @@ test("a server field error is shown on its field", async (t) => {
 
 test("both Book a Demo buttons on the login page go to the page", async (t) => {
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ login: async () => {}, loginWithGoogle: async () => {}, error: null }) } });
-  t.mock.module("../src/service/authService", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}) } });
+  t.mock.module("../src/service/authService", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}), mfaEnrollStart: async () => ({}) } });
   const { default: Login } = await import(`../src/pages/auth/LoginPage.jsx?t=${Math.random()}`);
   render(React.createElement(MemoryRouter, { initialEntries: ["/login"] }, React.createElement(Login)));
   const links = screen.getAllByText("Book a Demo").map((el) => el.closest("a")?.getAttribute("href"));

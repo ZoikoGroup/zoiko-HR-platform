@@ -82,6 +82,13 @@ def derive_employee_id_prefix(org_name: str) -> str:
         return (alpha_only + "X").upper()
     return "OR"
 
+def _identity_query(db):
+    """An e-mail address is ONE identity across every organization (sign-in finds a person by it), so uniqueness is checked across
+    all of them, not just the caller's. The only intentionally cross-tenant read in the tenant plane."""
+    from app.core.privacy.tenant_scope import unscoped_for_system
+    return unscoped_for_system(db.query(Employee), reason="e-mail is one identity across organizations")
+
+
 
 def _generate_employee_id(db: Session, organization_id: int) -> str:
     """Generate an org-scoped employee_id like ZO0001, AC0002, etc.
@@ -246,7 +253,8 @@ def _notify_email_async(sender_name: str, **kwargs) -> None:
         except Exception:
             logger.exception("Failed to send async email via %s", sender_name)
 
-    threading.Thread(target=_run, daemon=True).start()
+    from app.core.privacy.jobs import run_in_thread          # the thread carries the caller's tenant context and correlation id
+    run_in_thread(_run)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -560,10 +568,10 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
 
-    return issue_login(db, employee)
+    return issue_login(db, employee, mfa_code=getattr(data, "mfa_code", None))
 
 
-def issue_login(db: Session, employee: Employee) -> dict:
+def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None, mfa_verified_at: Optional[int] = None) -> dict:
     """Everything that must be true before someone may sign in (their organization, its evaluation, their account), then
     the tokens. Shared by the password sign-in and Sign in with Google, so both obey the same rules.
 
@@ -625,17 +633,32 @@ def issue_login(db: Session, employee: Employee) -> dict:
         oa_code = org_access.get_org_access(db, employee.organization_id)
         org_code = oa_code.organization_code
 
-    token = create_access_token(data={
+    claims = {
         "sub":  employee.email,
         "role": employee.role.value,
         "id":   employee.id,
         "organization_id": employee.organization_id,
         "organization_code": org_code,
-    })
+        "aud": "zoiko-hr",
+    }
+    access_ttl, refresh_ttl = None, timedelta(days=7)
+    if employee.role == UserRole.SUPER_ADMIN:
+        # A platform session (ZHR-PRIV-001 B02, B04): a second factor at sign-in, a short access token (the idle timeout: the client
+        # must refresh to keep going), and a refresh token that cannot outlive the maximum session length.
+        from app.config import settings as _s
+        from app.core.privacy import mfa
+        mfa_at = mfa_verified_at or mfa.gate_platform_sign_in(employee, mfa_code)
+        if mfa_at:
+            claims["mfa_at"] = mfa_at
+            db.commit()                                              # the used time step is recorded before any token is handed out
+        access_ttl = timedelta(minutes=max(int(_s.PLATFORM_IDLE_TIMEOUT_MINUTES), 1))
+        refresh_ttl = timedelta(hours=max(int(_s.PLATFORM_SESSION_MAX_HOURS), 1))
+
+    token = create_access_token(data=claims, expires_delta=access_ttl)
 
     refresh_token = create_access_token(
-        data={"sub": employee.email, "id": employee.id, "organization_id": employee.organization_id},
-        expires_delta=timedelta(days=7),
+        data={"sub": employee.email, "id": employee.id, "organization_id": employee.organization_id, "aud": "zoiko-hr", "typ": "refresh"},
+        expires_delta=refresh_ttl,
     )
 
     # Serialize employee object using Pydantic schema
@@ -659,7 +682,7 @@ DEFAULT_EVALUATION_DAYS = 14
 
 
 def register_enterprise(db: Session, data: RegisterRequest) -> dict:
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
+    existing = _identity_query(db).filter(Employee.email == data.email).first()
     if existing:
         raise AlreadyExistsException("Employee", "email")
 
@@ -968,7 +991,7 @@ def create_organization_user(
 ) -> Employee:
     """Invite a user into an organization and record the invite for the feed."""
     try:
-        existing = db.query(Employee).filter(Employee.email == data.email).first()
+        existing = _identity_query(db).filter(Employee.email == data.email).first()
         if existing:
             raise AlreadyExistsException("User", "email")
 
@@ -1163,6 +1186,9 @@ def update_organization_user(
                 setattr(profile, field, value)
 
     user.updated_by = updated_by_id
+    if "role" in update_data and user.role != old_role:
+        from app.core.privacy.sessions import revoke_all_sessions
+        revoke_all_sessions(user)            # ZHR-PRIV-001 B04: a changed role is a new session: tokens carrying the old role stop working
     db.commit()
     db.refresh(user)
     user._profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
@@ -1193,6 +1219,8 @@ def deactivate_organization_user(
     user.is_active = False
     user.status = EmployeeStatus.INACTIVE
     user.updated_by = updated_by_id
+    from app.core.privacy.sessions import revoke_all_sessions
+    revoke_all_sessions(user)            # ZHR-PRIV-001 B04: leaving or being locked out ends every session at once
     db.commit()
     db.refresh(user)
 
@@ -1266,6 +1294,8 @@ def suspend_organization_user(
     user.is_active = False
     user.status = EmployeeStatus.SUSPENDED
     user.updated_by = updated_by_id
+    from app.core.privacy.sessions import revoke_all_sessions
+    revoke_all_sessions(user)            # ZHR-PRIV-001 B04: leaving or being locked out ends every session at once
     db.commit()
     db.refresh(user)
 
@@ -1301,6 +1331,8 @@ def archive_organization_user(
     user.is_active = False
     user.status = EmployeeStatus.ARCHIVED
     user.updated_by = updated_by_id
+    from app.core.privacy.sessions import revoke_all_sessions
+    revoke_all_sessions(user)            # ZHR-PRIV-001 B04: leaving or being locked out ends every session at once
     db.commit()
     db.refresh(user)
 
@@ -1519,7 +1551,7 @@ def create_employee(
     """
     resolved_org_id = organization_id or (data.organization_id if hasattr(data, "organization_id") else None)
     try:
-        existing = db.query(Employee).filter(Employee.email == data.email).first()
+        existing = _identity_query(db).filter(Employee.email == data.email).first()
         if existing:
             raise AlreadyExistsException("Employee", "email")
 

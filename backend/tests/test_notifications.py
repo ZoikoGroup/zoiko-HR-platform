@@ -98,6 +98,11 @@ def world():
         box["user"] = users["sa"]
         payload.setdefault("title", "Hello")
         payload.setdefault("message", "Body text")
+        if payload.get("target_user_ids") or payload.get("target_user_id"):
+            # The platform endpoint refuses to address a person (ZHR-PRIV-001 D03). A notification the SYSTEM sends to one person
+            # (e.g. a reply to their ticket) still goes through the service: that is the path these scoping tests exercise.
+            from app.modules.super_admin import notification_service
+            return notification_service.create_notification(s, payload, users["sa"]).id
         r = client.post("/super-admin/notifications", json=payload)
         assert r.status_code == 200, r.text
         return r.json()["id"]
@@ -453,10 +458,11 @@ class TestCreateValidation:
         assert log.entity_id == nid and log.action == AuditAction.CREATE
         assert log.performed_by_email == "root@z.test" and log.details["orgs"] == [1]
 
-    def test_legacy_single_target_fields_still_work(self, world):
-        r = self._post(world, target_user_id=world.users["emp1a"].id)
-        nid = r.json()["id"]
+    def test_legacy_single_target_fields_still_work_for_the_system_but_not_for_the_platform_endpoint(self, world):
+        nid = world.send(target_user_id=world.users["emp1a"].id)                      # the service path
         assert nid in world.visible("emp1a") and nid not in world.visible("emp1b")
+        refused = self._post(world, target_user_id=world.users["emp1a"].id)            # the platform endpoint
+        assert refused.status_code == 400 and "individual" in refused.text
 
     def test_deleting_a_notification_removes_targets_and_reads(self, world):
         nid = world.send(target_org_ids=[1])

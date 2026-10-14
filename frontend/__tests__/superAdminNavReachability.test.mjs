@@ -50,12 +50,18 @@ test("every link a super admin sees has a registered route and passes the guard"
   assert.deepEqual(broken, []);
 });
 
-test("Assistant Knowledge and Support Tickets open super-admin pages", () => {
-  const byLabel = Object.fromEntries(superAdminNav.map((i) => [i.label, i.path]));
-  assert.equal(byLabel["Assistant Knowledge"], "/super-admin/assistant-knowledge");
-  assert.equal(byLabel["Support Tickets"], "/super-admin/support-tickets");
-  assert.match(appSource, /"\/super-admin\/assistant-knowledge": <SuperAdminKnowledgePage \/>/);
-  assert.match(appSource, /"\/super-admin\/support-tickets": <SuperAdminSupportTicketsPage \/>/);
+test("the platform has no Assistant Knowledge or Support Tickets page (tenant content and people's questions, ZHR-PRIV-001 A01)", () => {
+  const labels = superAdminNav.map((i) => i.label);
+  assert.ok(!labels.includes("Assistant Knowledge") && !labels.includes("Support Tickets"));
+  assert.doesNotMatch(appSource, /SuperAdminKnowledgePage|SuperAdminSupportTicketsPage/);
+  assert.ok(!allowed("/super-admin/support-tickets") && !allowed("/super-admin/assistant-knowledge"));
+});
+
+test("the platform sidebar offers no tenant product page (/zoiko-hr, /payroll, /shared/documents, ...)", () => {
+  for (const { path } of superAdminNav) {
+    assert.ok(!/^\/(zoiko-hr|zoikotime|payroll|projects|comply|insights|spend|inventory|hr-admin|organization-admin|employee)(\/|$)/.test(path), path);
+    assert.ok(!path.startsWith("/shared/documents") && !path.startsWith("/shared/expenses"), path);
+  }
 });
 
 test("organization admins keep their original /hr-admin/ links", () => {
@@ -67,9 +73,8 @@ test("organization admins keep their original /hr-admin/ links", () => {
 
 test("super admin routes are guarded by role at the router level", () => {
   assert.match(appSource, /getAllowedRolesForPath\(path\)/);
-  assert.ok(allowed("/super-admin/support-tickets") && allowed("/super-admin/assistant-knowledge"));
   for (const role of [ROLES.ADMIN, ROLES.HR_ADMIN, ROLES.EMPLOYEE]) {
     const prefixes = ROLE_ALLOWED_PREFIXES[role] || [];
-    assert.equal(prefixes.some((p) => "/super-admin/support-tickets".startsWith(p) && p !== "/"), false, role);
+    assert.equal(prefixes.some((p) => "/super-admin/dashboard".startsWith(p) && p !== "/"), false, role);
   }
 });

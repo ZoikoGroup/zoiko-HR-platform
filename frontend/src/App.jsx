@@ -167,6 +167,7 @@ const OrgAdminMetricsPage = lazyRoute(() => import("./modules/organization-admin
 const OrgAdminPayrollGuidancePage = lazyRoute(() => import("./modules/organization-admin/PayrollGuidancePage"));
 const OrgAdminBillingPlanPage = lazyRoute(() => import("./modules/organization-admin/BillingPlanPage"));
 const OrgAdminPayInvoicePage = lazyRoute(() => import("./modules/organization-admin/PayInvoicePage"));
+const OrgAdminSupportAccessPage = lazyRoute(() => import("./modules/organization-admin/SupportAccessPage"));
 
 const HrAdminDashboardPage = lazyRoute(() => import("./modules/hr-admin/DashboardPage"));
 const HrAdminOrganizationPage = lazyRoute(() => import("./modules/hr-admin/OrganizationPage"));
@@ -188,7 +189,7 @@ const SuperAdminBillingInvoicesPage = lazyRoute(() => import("./modules/super-ad
 const SuperAdminBillingDelinquencyPage = lazyRoute(() => import("./modules/super-admin/BillingDelinquencyPage"));
 const SuperAdminBillingWebhookEventsPage = lazyRoute(() => import("./modules/super-admin/BillingWebhookEventsPage"));
 const SuperAdminBillingReconciliationPage = lazyRoute(() => import("./modules/super-admin/BillingReconciliationPage"));
-const SuperAdminSupportAccessPage = lazyRoute(() => import("./modules/super-admin/SupportAccessPage"));
+const SuperAdminJitSupportAccessPage = lazyRoute(() => import("./modules/super-admin/JitSupportAccessPage"));
 
 const DashboardPage = lazyRoute(() => import("./modules/platform/DashboardPage"));
 const OrganizationsPage = lazyRoute(() => import("./modules/platform/OrganizationsPage"));
@@ -198,12 +199,8 @@ const ZoikoIdPage = lazyRoute(() => import("./modules/shared-layers/ZoikoIdPage"
 const ZoikoWorkflowPage = lazyRoute(() => import("./modules/shared-layers/ZoikoWorkflowPage"));
 const ZoikoHubPage = lazyRoute(() => import("./modules/shared-layers/ZoikoHubPage"));
 const ZoikoConnectPageModule = lazyRoute(() => import("./modules/shared-layers/ZoikoConnectPage"));
-const DocumentsPage = lazyRoute(() => import("./modules/shared-layers/DocumentsPage"));
-const ExpensesPage = lazyRoute(() => import("./modules/shared-layers/ExpensesPage"));
 const AdminKnowledgePage = lazyRoute(() => import("./modules/shared-layers/assistant/AdminKnowledgePage"));
 const AdminHandoffsPage = lazyRoute(() => import("./modules/shared-layers/assistant/AdminHandoffsPage"));
-const SuperAdminKnowledgePage = lazyRoute(() => import("./modules/shared-layers/assistant/SuperAdminKnowledgePage"));
-const SuperAdminSupportTicketsPage = lazyRoute(() => import("./modules/shared-layers/assistant/SuperAdminSupportTicketsPage"));
 const AssistantLauncher = lazyRoute(() => import("./modules/shared-layers/assistant/AssistantLauncher"));
 const UserManagementPage = lazyRoute(() => import("./modules/settings/UserManagementPage"));
 
@@ -254,8 +251,6 @@ const routeOverrides = {
   "/shared/workflow": <ZoikoWorkflowPage />,
   "/shared/hub": <ZoikoHubPage />,
   "/shared/connect": <ZoikoConnectPageModule />,
-  "/shared/documents": <DocumentsPage />,
-  "/shared/expenses": <ExpensesPage />,
   "/zoiko-hr": <ZoikoHRModule />,
   // Departments
   "/zoiko-hr/departments": <ZoikoHRDepartmentsDashboard />,
@@ -369,6 +364,7 @@ const routeOverrides = {
   "/organization-admin/payroll-guidance": <OrgAdminPayrollGuidancePage />,
   "/organization-admin/billing-and-plan": <OrgAdminBillingPlanPage />,
   "/organization-admin/pay-invoice": <OrgAdminPayInvoicePage />,
+  "/organization-admin/support-access": <OrgAdminSupportAccessPage />,
   // HR Admin
   "/hr-admin/dashboard": <HrAdminDashboardPage />,
   "/hr-admin/my-organization": <HrAdminOrganizationPage />,
@@ -413,9 +409,9 @@ const routeOverrides = {
   "/super-admin/billing/reconciliation": <SuperAdminBillingReconciliationPage />,
 
   // Super Admin — Access & Security
-  "/super-admin/assistant-knowledge": <SuperAdminKnowledgePage />,
-  "/super-admin/support-tickets": <SuperAdminSupportTicketsPage />,
-  "/super-admin/support-access": <SuperAdminSupportAccessPage />,
+  // Billing Ops support-access tokens were retired: platform access to a tenant goes through just-in-time grants.
+  "/super-admin/support-access": <Navigate to="/super-admin/jit-support-access" replace />,
+  "/super-admin/jit-support-access": <SuperAdminJitSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMPLOYEE WORKSPACE — /employee/* routes (role: employee only)

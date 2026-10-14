@@ -20,6 +20,7 @@ test("a cached user renders the app while /auth/me is still in flight", async (t
     exports: {
       login: async () => ({}),
       loginWithGoogleTicket: async () => ({}),
+      mfaEnrollConfirm: async () => ({}),
       resendVerification: async () => ({}),
       verifyEmail: async () => ({}),
       register: async () => ({}),

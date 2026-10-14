@@ -96,6 +96,20 @@ def _feed(client, **params):
     return r.json()
 
 
+def _ledger(client, **filters):
+    """What was RECORDED (the full ledger row, as the organization side and audits keep it). The platform feed shows a minimised view of
+    these rows (ZHR-PRIV-001 E01): the recording tests read the ledger itself, the feed tests read the platform view."""
+    q = client.db.query(AuditLog).filter(AuditLog.action_type.isnot(None))
+    if "organization_id" in filters:
+        q = q.filter(AuditLog.organization_id == filters["organization_id"])
+    if "status" in filters:
+        q = q.filter(AuditLog.status == filters["status"])
+    if "action_type" in filters:
+        q = q.filter(AuditLog.action_type == filters["action_type"])
+    rows = q.order_by(AuditLog.created_at.desc(), AuditLog.id.desc()).all()
+    return {"total": len(rows), "events": [activity_service.event_view(client.db, r) for r in rows]}
+
+
 @pytest.fixture
 def world(client):
     db = client.db
@@ -116,7 +130,7 @@ class TestRecording:
         r = client.post("/hr/employee-management/employees", json=_new_emp())
         assert r.status_code == 201, r.text
         _as(client, world["root"])
-        events = _feed(client)["events"]
+        events = _ledger(client)["events"]
         assert len(events) == 1
         e = events[0]
         assert e["action_type"] == "employee.added"
@@ -140,18 +154,18 @@ class TestRecording:
         _as(client, world["gina"])
         client.post("/hr/employee-management/employees", json=_new_emp("b@example.com", "Bob", "Two"))
         _as(client, world["root"])
-        acme = _feed(client, organization_id=world["acme"].id)["events"]
-        globex = _feed(client, organization_id=world["globex"].id)["events"]
+        acme = _ledger(client, organization_id=world["acme"].id)["events"]
+        globex = _ledger(client, organization_id=world["globex"].id)["events"]
         assert [e["actor_name"] for e in acme] == ["Priya Shah"] and "Amy" in acme[0]["target_label"]
         assert [e["actor_name"] for e in globex] == ["Gina Lopez"] and "Bob" in globex[0]["target_label"]
-        assert _feed(client)["total"] == 2
+        assert _ledger(client)["total"] == 2
 
     def test_duplicate_email_is_recorded_as_failed(self, client, world):
         _as(client, world["priya"])
         assert client.post("/hr/employee-management/employees", json=_new_emp()).status_code == 201
         assert client.post("/hr/employee-management/employees", json=_new_emp()).status_code >= 400
         _as(client, world["root"])
-        failed = _feed(client, status="failed")["events"]
+        failed = _ledger(client, status="failed")["events"]
         assert len(failed) == 1 and failed[0]["action_type"] == "employee.added"
         assert failed[0]["error_message"]
         assert failed[0]["organization_id"] == world["acme"].id
@@ -162,7 +176,7 @@ class TestRecording:
         r = client.put(f"/hr/employee-management/employees/{emp_id}", json={"job_title": "Lead"})
         assert r.status_code == 200, r.text
         _as(client, world["root"])
-        ev = _feed(client, action_type="employee.updated")["events"][0]
+        ev = _ledger(client, action_type="employee.updated")["events"][0]
         change = next(c for c in ev["changes"] if c["field"] == "job_title")
         assert change["before"] == "Engineer" and change["after"] == "Lead"
 
@@ -172,7 +186,7 @@ class TestRecording:
         assert client.delete(f"/hr/employee-management/employees/{emp_id}").status_code == 200
         assert client.delete(f"/hr/employee-management/employees/{emp_id}").status_code == 200
         _as(client, world["root"])
-        types = {e["action_type"] for e in _feed(client)["events"]}
+        types = {e["action_type"] for e in _ledger(client)["events"]}
         assert {"employee.added", "employee.deactivated", "employee.deleted"} <= types
 
     def test_bulk_delete_is_one_grouped_event(self, client, world):
@@ -182,7 +196,7 @@ class TestRecording:
         r = client.post("/hr/employee-management/employees/bulk-delete", json={"ids": ids})
         assert r.status_code == 200, r.text
         _as(client, world["root"])
-        grouped = _feed(client, action_type="employee.bulk_removed")["events"]
+        grouped = _ledger(client, action_type="employee.bulk_removed")["events"]
         assert len(grouped) == 1
         assert grouped[0]["counts"]
 
@@ -206,13 +220,13 @@ class TestRecording:
         )
         assert r.status_code == 200, r.text
         _as(client, world["root"])
-        grouped = _feed(client, action_type="employee.bulk_imported")["events"]
+        grouped = _ledger(client, action_type="employee.bulk_imported")["events"]
         assert len(grouped) == 1
         counts = grouped[0]["counts"]
         assert counts and counts["succeeded"] == 2
         assert counts["failed"] + counts["skipped"] == 1
         # One event for the batch, not one per row.
-        assert _feed(client, action_type="employee.added")["total"] == 0
+        assert _ledger(client, action_type="employee.added")["total"] == 0
 
     def test_sensitive_fields_are_masked(self):
         changes = activity_service.diff(
@@ -259,10 +273,12 @@ class TestFeed:
         assert _feed(client, organization_id=a)["total"] == 2
         assert _feed(client, action_type="leave.approved")["total"] == 1
         assert _feed(client, action_group="Settings")["total"] == 1
-        assert _feed(client, actor_id=world["priya"].id)["total"] == 1
-        assert _feed(client, actor="gina")["total"] == 1
+        # the platform cannot filter by person: these parameters are not part of the feed any more (ZHR-PRIV-001 E01)
+        assert _feed(client, actor_id=world["priya"].id)["total"] == 3
+        assert _feed(client, actor="gina")["total"] == 3
         assert _feed(client, status="failed")["total"] == 1
-        assert _feed(client, q="globex")["total"] == 1
+        assert _feed(client, q="globex")["total"] == 1                       # a search term matches ORGANIZATION names only
+        assert _feed(client, q="Rahul")["total"] == 0                        # never a person or a record
         since = (now - timedelta(days=3)).isoformat() + "Z"
         assert _feed(client, date_from=since)["total"] == 2
         assert _feed(client, date_to=since)["total"] == 1
@@ -280,8 +296,10 @@ class TestFeed:
         _as(client, world["root"])
         p1 = _feed(client, page=1, page_size=2)
         p3 = _feed(client, page=3, page_size=2)
-        assert p1["total"] == 5 and [e["target_label"] for e in p1["events"]] == ["T4", "T3"]
-        assert [e["target_label"] for e in p3["events"]] == ["T0"]
+        ids = lambda page: [e["id"] for e in page["events"]]
+        assert p1["total"] == 5 and ids(p1) == sorted(ids(p1), reverse=True) and len(p1["events"]) == 2
+        assert len(p3["events"]) == 1 and ids(p3)[0] < min(ids(p1))        # newest first across pages
+        assert not any("target_label" in e for e in p1["events"] + p3["events"])
         assert client.get("/super-admin/activity", params={"page_size": 101}).status_code == 422
 
     def test_platform_rows_are_not_activity(self, client, world):
@@ -306,7 +324,8 @@ class TestFeed:
                     changes=[{"field": "job_title", "label": "Job title", "before": "A", "after": "B"}])
         _as(client, world["root"])
         r = client.get(f"/super-admin/activity/{row.id}")
-        assert r.status_code == 200 and r.json()["changes"][0]["after"] == "B"
+        assert r.status_code == 200 and "changes" not in r.json() and "target_label" not in r.json(), "no before/after values for the platform"
+        assert r.json()["actor_ref"].startswith("Org Admin")
         assert client.get("/super-admin/activity/99999").status_code == 404
 
 
@@ -407,6 +426,6 @@ def test_add_user_takes_all_import_fields(client, world):
                                              "department_name": "platform"})
     assert client.db.query(Department).filter(Department.organization_id == world["acme"].id).count() == 1
     _as(client, world["root"])
-    ev = _feed(client, action_type="employee.invited")["events"][0]
+    ev = _ledger(client, action_type="employee.invited")["events"][0]
     dump = str(ev["changes"]) + str(ev["details"])
     assert "123456789012" not in dump and "ABCDE1234F" not in dump  # bank / PAN never reach the feed

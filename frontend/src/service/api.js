@@ -70,7 +70,7 @@ function createApiError(message, status, extra = {}) {
  * Automatically attaches the bearer token (if present) and JSON headers,
  * and attempts a single silent refresh on a 401 response.
  */
-export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params, signal } = {}) {
+export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params, signal, credentials } = {}) {
   let url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   if (params) {
     const query = Object.entries(params)
@@ -102,6 +102,8 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     headers: finalHeaders,
     body: body === undefined ? undefined : body instanceof FormData ? body : JSON.stringify(body),
     signal: finalSignal,
+    // "include" only where a route needs its own cookie (the support-grant capability); everything else stays bearer-only
+    ...(credentials ? { credentials } : {}),
   }).catch((e) => {
     if (e?.name === "TimeoutError") throw createApiError("The server took too long to respond. Please try again.", 0);
     throw e;
@@ -110,7 +112,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
   if (res.status === 401 && auth && retry) {
     const refreshResult = await tryRefreshToken();
     if (refreshResult.ok) {
-      return apiRequest(path, { method, body, headers, auth, retry: false, signal });
+      return apiRequest(path, { method, body, headers, auth, retry: false, params, signal, credentials });
     }
     if (refreshResult.invalidSession) {
       clearSession();

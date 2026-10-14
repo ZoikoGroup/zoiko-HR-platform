@@ -23,7 +23,8 @@ class OrganizationSummary(BaseModel):
     is_active: bool = True
     total_employees: int = 0
     user_count: int = 0
-    active_employees: int = 0
+    active_employees: Optional[int] = None            # None = fewer than PRIVACY_MIN_COHORT: see active_employees_label ("<10")
+    active_employees_label: Optional[str] = None
     subscription_plan: Optional[str] = None
     evaluation_ends_at: Optional[datetime] = None
     admin_name: Optional[str] = None
@@ -53,8 +54,10 @@ class OrganizationDetail(OrganizationSummary):
     phone: Optional[str] = None
     tax_number: Optional[str] = None
     registered_email: Optional[str] = None
-    hr_admins: int = 0
-    managers: int = 0
+    hr_admins: Optional[int] = None
+    managers: Optional[int] = None
+    hr_admins_label: Optional[str] = None
+    managers_label: Optional[str] = None
     evaluation_ends_at: Optional[datetime] = None
 
 
@@ -74,9 +77,9 @@ class DashboardStats(BaseModel):
     active_organizations: int
     suspended_organizations: int
     total_employees: int
-    active_employees: int
-    total_admins: int
-    total_hr_admins: int
+    active_employees: Optional[int] = None
+    total_admins: Optional[int] = None
+    total_hr_admins: Optional[int] = None
     recent_organizations: List[OrganizationSummary]
 
 
@@ -140,7 +143,8 @@ class NotificationCreate(BaseModel):
     # all | organization | user | role. Omitted = inferred from the ids/roles below.
     target_type: Optional[str] = None
     target_org_ids: List[int] = Field(default_factory=list)
-    target_user_ids: List[int] = Field(default_factory=list)
+    target_user_ids: List[int] = Field(default_factory=list)      # refused: the platform does not address individual people
+    target_plans: List[str] = Field(default_factory=list)         # core | advanced | enterprise | evaluation | not_assigned
     target_roles: List[str] = Field(default_factory=list)
     # org_admins (default) | all_members - who in a targeted organization receives it
     audience: str = "org_admins"

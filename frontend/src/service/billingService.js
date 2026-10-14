@@ -60,17 +60,6 @@ export const billingService = {
     api.get("/billing/delinquency", opts),
 
 
-  createSupportAccess: (data) =>
-    api.post("/billing/support-access", data),
-
-  // orgId is optional — omit it to list grants across every organization
-  // (genuinely platform-wide, unlike evaluations/invoices/delinquency).
-  listSupportAccess: (orgId, opts) =>
-    api.get("/billing/support-access", { params: orgId ? { organization_id: orgId } : {}, ...opts }),
-
-  revokeSupportAccess: (grantId) =>
-    api.post(`/billing/support-access/${grantId}/revoke`),
-
   // ── Webhook Events — platform-wide list & manual replay ─────────────────
   listWebhookEvents: (limit = 50) =>
     api.get("/billing/webhook-events", { params: { limit } }),

@@ -45,7 +45,7 @@ function setup(t, overrides = {}, role = "super_admin") {
   t.mock.module("../src/service/integrationsService.js", { exports: { integrationsService: service } });
   t.mock.module("../src/service/activityService.js", { exports: { activityService: { list: async () => ({ total: 0, events: [] }), filters: async () => ({ organizations: [], action_groups: [] }), get: async () => ({}) } } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
-  t.mock.module("../src/service/documentsService.js", { exports: { getOrganizations: async () => ({ organizations: [] }) } });
+  t.mock.module("../src/service/superAdminService.js", { exports: { superAdminService: { getOrganizations: async () => ({ organizations: [] }) } } });
   t.mock.module("react-router-dom", {
     exports: { Link: ({ to, children }) => React.createElement("a", { href: to }, children) },
   });

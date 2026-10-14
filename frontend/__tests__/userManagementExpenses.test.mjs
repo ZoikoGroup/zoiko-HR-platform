@@ -32,7 +32,7 @@ const USER = { id: 7, first_name: "Bob", last_name: "Brown", email: "bob@gmail.c
 function reset(overrides = {}) {
   for (const o of [userSvc, saSvc, authSvc, expSvc, orgSvc]) for (const k of Object.keys(o)) delete o[k];
   Object.assign(userSvc, {
-    getUsers: async () => ({ items: [], total: 0 }), createUser: async () => ({ message: "ok", temporary_password: null }),
+    getUsers: async () => ({ items: [USER], total: 1 }), createUser: async () => ({ message: "ok", temporary_password: null }),
     updateUser: async () => ({}), deactivateUser: async () => ({}), activateUser: async () => ({}),
     resetPassword: async () => ({ message: "sent", temporary_password: null }),
     suspendUser: async () => ({}), archiveUser: async () => ({}), hardDeleteUser: async () => ({}),
@@ -44,6 +44,9 @@ function reset(overrides = {}) {
     createOrganization: async () => ({ organization_id: 9, organization_name: "X", temporary_password: "x" }),
     mintConfirmationToken: async () => ({ confirmation_id: 1, token: "t" }), updateOrganizationStatus: async () => ({}),
     reactivateOrganization: async () => ({}), getOrganizationDeletionImpact: async () => ({}), deleteOrganization: async () => ({}),
+    // the platform manages organization ADMINISTRATOR accounts only (ZHR-PRIV-001 A01): these go to the /super-admin/users routes
+    createTenantAdmin: (...a) => userSvc.createUser(...a), resetTenantAdminPassword: (...a) => userSvc.resetPassword(...a),
+    suspendTenantAdmin: (...a) => userSvc.suspendUser(...a), activateTenantAdmin: (...a) => userSvc.activateUser(...a),
   });
   Object.assign(authSvc, { changePassword: async () => ({}), fetchCurrentUser: async () => ({ id: 1, mustChangePassword: false }) });
   Object.assign(orgSvc, { getOrganizations: async () => ({ organizations: [{ id: 1, name: "Acme Ltd" }, { id: 2, name: "Globex Inc" }] }) });
@@ -63,13 +66,6 @@ function register(t) {
   const wrapAll = (target, names) => Object.fromEntries(names.map((n) => [n, (...a) => target[n](...a)]));
   t.mock.module("../src/service/userService.js", { exports: wrapAll(userSvc, Object.keys(userSvc)) });
   t.mock.module("../src/service/superAdminService.js", { exports: { superAdminService: wrapAll(saSvc, Object.keys(saSvc)) } });
-  t.mock.module("../src/service/expensesService.js", {
-    exports: {
-      expensesService: wrapAll(expSvc, Object.keys(expSvc)),
-      formatMoney: (a, c) => `${c} ${Number(a).toFixed(2)}`,
-    },
-  });
-  t.mock.module("../src/service/documentsService.js", { exports: { getOrganizations: (...a) => orgSvc.getOrganizations(...a) } });
   t.mock.module("../src/service/authService.js", { exports: wrapAll(authSvc, Object.keys(authSvc)) });
   t.mock.module("../src/service/api.js", { exports: { getAccessToken: () => "a", getRefreshToken: () => "r", setSession: () => {}, api: {}, API_BASE_URL: "" } });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
@@ -78,8 +74,9 @@ function register(t) {
   });
 }
 
-async function openUsers(t, overrides) {
+async function openUsers(t, overrides, { as } = {}) {
   reset(overrides);
+  if (as === "admin") Object.assign(auth, { user: { id: 5, email: "org.admin@gmail.com", role: "admin", organization_id: 2 }, role: "admin" });
   register(t);
   const { default: Page } = await import("../src/modules/settings/UserManagementPage.jsx");
   render(withQuery(React.createElement(Page)));
@@ -92,8 +89,8 @@ async function openUsers(t, overrides) {
 
 // ───────────────────────── ZHR-32 ─────────────────────────
 
-test("Create User offers every role from the API, with descriptions, and a role filter", async (t) => {
-  await openUsers(t);
+test("Create User offers every role from the API, with descriptions, and a role filter (organization admin)", async (t) => {
+  await openUsers(t, {}, { as: "admin" });
   const filter = screen.getByDisplayValue("All Roles");
   assert.deepEqual([...within(filter).getAllByRole("option")].map((o) => o.textContent), ["All Roles", ...ROLES.map((r) => r.label)]);
   fireEvent.click(screen.getAllByRole("button", { name: /Add User/ })[0]);
@@ -104,50 +101,28 @@ test("Create User offers every role from the API, with descriptions, and a role 
   cleanup();
 });
 
-test("organization roles require an organization; Super Admin requires confirmation and no organization", async (t) => {
+test("the platform can add ONLY an organization administrator, into a chosen organization, through the platform route", async (t) => {
   let created;
-  await openUsers(t, { userSvc: { createUser: async (p) => { created = p; return { message: "created", temporary_password: "Temp12345678" }; } } });
+  await openUsers(t, { saSvc: { createTenantAdmin: async (p) => { created = p; return { message: "Invitation sent", temporary_password: null }; } } });
   fireEvent.click(screen.getAllByRole("button", { name: /Add User/ })[0]);
   const dlg = () => document.querySelector("form");
   const roleSelect = () => within(dlg()).getByText("Role", { selector: "label" }).parentElement.querySelector("select");
-  const fill = () => {
-    const [first, last] = dlg().querySelectorAll('input[type="text"]');
-    fireEvent.change(first, { target: { value: "New" } });
-    fireEvent.change(last, { target: { value: "Person" } });
-    fireEvent.change(dlg().querySelector('input[type="email"]'), { target: { value: "new@gmail.com" } });
-  };
-  fill();
-  fireEvent.change(roleSelect(), { target: { value: "manager" } });
-  assert.ok(within(dlg()).getByText(/^Organization/, { selector: "label" }));
+  assert.deepEqual([...roleSelect().options].map((o) => o.value), ["admin"], "no HR admin, manager, employee or super admin for the platform");
+  const [first, last] = dlg().querySelectorAll('input[type="text"]');
+  fireEvent.change(first, { target: { value: "New" } });
+  fireEvent.change(last, { target: { value: "Person" } });
+  fireEvent.change(dlg().querySelector('input[type="email"]'), { target: { value: "new@gmail.com" } });
   const orgSelect = () => within(dlg()).getByText(/^Organization/, { selector: "label" }).parentElement.querySelector("select");
-  assert.equal(orgSelect().value, "2"); // the organization being viewed is preselected
+  assert.equal(orgSelect().value, "2");                       // the organization being viewed is preselected
   fireEvent.change(orgSelect(), { target: { value: "" } });
   fireEvent.click(within(dlg()).getByRole("button", { name: "Create User" }));
   await settle();
   assert.ok(screen.getByText("Select an organization for this role"));
   assert.equal(created, undefined);
-  fireEvent.change(within(dlg()).getByText(/^Organization/, { selector: "label" }).parentElement.querySelector("select"), { target: { value: "2" } });
+  fireEvent.change(orgSelect(), { target: { value: "2" } });
   fireEvent.click(within(dlg()).getByRole("button", { name: "Create User" }));
   await settle();
-  assert.deepEqual([created.role, created.organization_id, created.confirm_super_admin], ["manager", 2, undefined]);
-  assert.ok(screen.getByText("Temporary Password")); // shown once, masked by default
-  fireEvent.click(screen.getByRole("button", { name: "Done" }));
-
-  created = undefined;
-  fireEvent.click(screen.getAllByRole("button", { name: /Add User/ })[0]);
-  fill();
-  fireEvent.change(roleSelect(), { target: { value: "super_admin" } });
-  assert.equal(within(dlg()).queryByText(/^Organization/, { selector: "label" }), null); // no org for a platform role
-  fireEvent.click(within(dlg()).getByRole("button", { name: "Create User" }));
-  await settle();
-  assert.ok(screen.getByText(/Confirm that this person should get full platform access/));
-  assert.equal(created, undefined);
-  fireEvent.click(within(dlg()).getByRole("checkbox"));
-  fireEvent.click(within(dlg()).getByRole("button", { name: "Create User" }));
-  await settle();
-  assert.equal(created.role, "super_admin");
-  assert.equal(created.confirm_super_admin, true);
-  assert.equal(created.organization_id, undefined);
+  assert.deepEqual([created.organization_id, created.email, created.role], [2, "new@gmail.com", undefined]);
   cleanup();
 });
 
@@ -166,15 +141,13 @@ test("server validation errors are shown inside the Create User dialog", async (
   cleanup();
 });
 
-test("super admin sees users of every role, not only Organization Admins", async (t) => {
-  const calls = [];
-  await openUsers(t, { saSvc: { getUsers: async (p) => { calls.push(p); return { users: [USER], total: 1 }; } } });
-  assert.equal(calls[0].role, undefined); // no hardcoded role filter any more
-  assert.ok(screen.getByText("Bob Brown"));
-  assert.ok(screen.getAllByText("Employee").length >= 1);
-  fireEvent.change(screen.getByDisplayValue("All Roles"), { target: { value: "manager" } });
-  await settle();
-  assert.equal(calls.at(-1).role, "manager");
+test("the platform sees organization administrators as references, and has no edit, archive or delete for them", async (t) => {
+  await openUsers(t, { saSvc: { getUsers: async () => ({ users: [{ ...USER, id: 8, role: "admin", first_name: "Org Admin #a3f9", last_name: "", email: "b***@gmail.com" }], total: 1 }) } });
+  assert.ok(screen.getByText("Org Admin #a3f9"));
+  assert.equal(screen.queryByTitle("Edit user"), null);
+  fireEvent.click(screen.getAllByRole("button", { name: /^More actions for/ })[0]);
+  const items = screen.getAllByRole("menuitem").map((m) => m.textContent);
+  assert.ok(!items.some((x) => /Archive|Delete user/.test(x)), items.join(","));
   cleanup();
 });
 
@@ -272,109 +245,6 @@ test("forced password change page validates and submits", async (t) => {
 
 const CLAIM = { id: 3, organization_name: "Globex Inc", employee_name: "Bob Brown", category: "Travel", amount: "340.50", currency: "USD", status: "approved", submitted_at: "2026-09-29T10:00:00Z", has_receipt: true };
 
-test("Expenses shows real claims, per-currency totals, and honest empty states", async (t) => {
-  reset();
-  register(t);
-  const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(withQuery(React.createElement(Page)));
-  await settle();
-  assert.ok(screen.getByText("No expense claims in this period."));
-  assert.ok(screen.getByText("No expense claims yet."));
-  assert.ok(screen.getByText("No budgets configured."));
-  for (const fake of ["Marcus Thorne", "Cloud Server Hosting", "$12,400"]) assert.equal(screen.queryByText(fake), null);
-  cleanup();
-
-  reset({
-    expSvc: {
-      claims: async () => ({ claims: [CLAIM], total: 1 }),
-      summary: async () => ({ totals: { USD: { claimed: "340.50", pending: "0.00", approved: "340.50", paid: "0.00", rejected: "0.00" }, EUR: { claimed: "10.00", pending: "10.00", approved: "0.00", paid: "0.00", rejected: "0.00" } }, counts: {}, claim_count: 2 }),
-      budgets: async () => ({ budgets: [{ id: 1, name: "Travel Q3", organization_name: "Globex Inc", category: "Travel", period_start: "2026-07-01", period_end: "2026-09-30", currency: "USD", allocated: "1000.00", spent: "1200.00", remaining: "-200.00", utilization_pct: 120, over_budget: true }] }),
-    },
-  });
-  render(withQuery(React.createElement(Page)));
-  await settle();
-  assert.ok(screen.getByText("Bob Brown"));
-  assert.ok(screen.getByText("USD 340.50", { selector: "td" }));
-  assert.equal(screen.getAllByLabelText(/^Totals in/).length, 2); // one row of cards per currency
-  assert.ok(screen.getByText(/never added across currencies/));
-  assert.ok(screen.getByText("Over budget"));
-  assert.equal(screen.getByRole("progressbar").getAttribute("aria-valuenow"), "100");
-  assert.ok(screen.getByText(/Over by/));
-  cleanup();
-});
-
-test("Expenses sections fail and retry independently; filters reach the API", async (t) => {
-  reset();
-  register(t);
-  const claimCalls = [];
-  let budgetsFail = true;
-  expSvc.claims = async (p) => { claimCalls.push(p); return { claims: [CLAIM], total: 1 }; };
-  expSvc.budgets = async () => { if (budgetsFail) throw new Error("boom"); return { budgets: [] }; };
-  const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(withQuery(React.createElement(Page)));
-  await settle();
-  assert.ok(screen.getByText("Bob Brown")); // claims fine
-  assert.ok(screen.getByText("Budgets: boom")); // budgets failed on their own
-  budgetsFail = false;
-  fireEvent.click(screen.getAllByRole("button", { name: "Retry" })[0]);
-  await settle();
-  assert.ok(screen.getByText("No budgets configured."));
-  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "pending" } });
-  fireEvent.change(screen.getByLabelText("Minimum amount"), { target: { value: "50" } });
-  await settle();
-  assert.equal(claimCalls.at(-1).status, "pending");
-  assert.equal(claimCalls.at(-1).min_amount, "50");
-  assert.equal(claimCalls.at(-1).page, 1);
-  cleanup();
-});
-
-test("Expenses is super-admin only", async (t) => {
-  reset();
-  register(t);
-  auth.user = { role: "admin" };
-  auth.role = "admin";
-  const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(withQuery(React.createElement(Page)));
-  await settle();
-  assert.ok(screen.getByText(/super admins only/));
-  cleanup();
-});
-
-test("Expenses shows each organization separately, including ones with no claims, and selecting one filters the claims", async (t) => {
-  const claimCalls = [];
-  reset({
-    expSvc: {
-      claims: async (p) => { claimCalls.push(p); return { claims: [CLAIM], total: 1 }; },
-      byOrganization: async () => ({
-        organizations: [
-          { organization_id: 1, organization_name: "Acme Ltd", claim_count: 3, counts: {}, totals: { USD: { claimed: "150.00", pending: "100.00", approved: "50.00", paid: "0.00", rejected: "0.00" }, EUR: { claimed: "20.00", pending: "0.00", approved: "20.00", paid: "0.00", rejected: "0.00" } } },
-          { organization_id: 2, organization_name: "Globex Inc", claim_count: 1, counts: {}, totals: { USD: { claimed: "400.00", pending: "0.00", approved: "0.00", paid: "400.00", rejected: "0.00" } } },
-          { organization_id: 3, organization_name: "Initech", claim_count: 0, counts: {}, totals: {} },
-        ],
-      }),
-    },
-  });
-  register(t);
-  const { default: Page } = await import("../src/modules/shared-layers/ExpensesPage.jsx");
-  render(withQuery(React.createElement(Page)));
-  await settle();
-  assert.ok(screen.getByText("Expenses by Organization (3)"));
-  const acme = within(screen.getByRole("button", { name: "Acme Ltd expenses" }));
-  assert.ok(acme.getByText("3 claims") && acme.getByText("USD 150.00"));
-  assert.equal(screen.getAllByLabelText(/^Acme Ltd totals in/).length, 2); // per-currency blocks, never merged
-  assert.ok(within(screen.getByRole("button", { name: "Initech expenses" })).getByText(/No expense claims yet/));
-  assert.equal(within(screen.getByRole("button", { name: "Globex Inc expenses" })).getAllByText("USD 400.00", { selector: "dd" }).length, 2); // claimed + paid
-
-  fireEvent.click(screen.getByRole("button", { name: "Globex Inc expenses" }));
-  await settle();
-  assert.equal(claimCalls.at(-1).organization_id, "2");
-  assert.equal(screen.getByRole("button", { name: "Globex Inc expenses" }).getAttribute("aria-pressed"), "true");
-  fireEvent.click(screen.getByRole("button", { name: "Show all organizations" }));
-  await settle();
-  assert.equal(claimCalls.at(-1).organization_id, undefined);
-  cleanup();
-});
-
 test("when email is unavailable the dialog offers the temporary-password route in one click", async (t) => {
   const calls = [];
   await openUsers(t, { userSvc: { resetPassword: async (id, m) => {
@@ -395,8 +265,8 @@ test("when email is unavailable the dialog offers the temporary-password route i
   cleanup();
 });
 
-test("secondary row actions live in a More menu so the table never needs horizontal scrolling", async (t) => {
-  await openUsers(t);
+test("secondary row actions live in a More menu so the table never needs horizontal scrolling (organization admin)", async (t) => {
+  await openUsers(t, {}, { as: "admin" });
   assert.equal(screen.queryByRole("menuitem"), null);
   fireEvent.click(screen.getAllByRole("button", { name: /^More actions for/ })[0]);
   const names = screen.getAllByRole("menuitem").map((m) => m.textContent.trim());

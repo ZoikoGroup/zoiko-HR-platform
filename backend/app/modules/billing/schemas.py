@@ -697,37 +697,14 @@ class PlatformDelinquencyListResponse(BaseModel):
 
 
 
-class SupportAccessRequest(BaseModel):
-    organization_id: int
-    reason: Optional[str] = None
-    ttl_hours: int = 24
+SUPPORT_ACCESS_MAX_TTL_HOURS = 168  # a support grant is time-bounded: at most one week
 
 
-class SupportAccessResponse(BaseModel):
-    id: int
-    organization_id: int
-    granted_by: str
-    reason: Optional[str] = None
-    expires_at: datetime
-    revoked_at: Optional[datetime] = None
-    revoked_by: Optional[str] = None
-    created_at: Optional[datetime] = None
-
-    model_config = {"from_attributes": True}
+# Support access schemas have been retired in favor of just-in-time grants.
+# The following models are kept for database history but no longer exposed via API.
 
 
-class SupportAccessCreatedResponse(SupportAccessResponse):
-    token: str  # raw token, returned exactly once on creation
-
-
-class SupportAccessValidateRequest(BaseModel):
-    organization_id: int
-    token: str
-
-
-class SupportAccessListResponse(BaseModel):
-    list: List[SupportAccessResponse]
-    total: int
+# ── Existing foundation schemas ──────────────────────────────────────────────
 
 
 # ── Commercial exception entitlements (ZHR-COM-ENT-001 §19.1) ──────────────

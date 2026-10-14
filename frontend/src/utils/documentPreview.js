@@ -3,7 +3,7 @@
 // Why this exists (ZHR 44): DocumentPreviewModal only knew about PDF and
 // images, so every other format an organization can actually upload —
 // docx, xls/xlsx, csv, txt, rtf, odt — rendered "Preview not available for
-// this file type". The upload allow-list in service/documentsService.js is
+// this file type". The upload allow-list in the documents upload code is
 // the source of truth for what users may store, so every one of those
 // formats gets a real preview here.
 //

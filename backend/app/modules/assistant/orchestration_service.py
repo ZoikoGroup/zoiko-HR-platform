@@ -266,6 +266,17 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
     turn.intent = intent
     db.flush()
 
+    # Every tool the assistant runs is authorized for the CALLING PERSON before it runs (ZHR-PRIV-001 D06): the assistant has no rights
+    # of its own, and what was typed (or written inside an attached document) never changes the answer.
+    from app.modules.assistant import tool_registry
+    decision = tool_registry.authorize_intent(
+        employee, intent, organization_id=turn.organization_id,
+        target_employee_id=getattr(subject, "id", None),
+        scope_employee_ids=[subject.id] if subject is not employee and getattr(subject, "id", None) else (),
+    )
+    if not decision.allow:
+        return _finalize(db, turn, tool_registry.REFUSAL, AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+
     if intent.startswith("chitchat:"):
         return _answer_chitchat(db, turn, intent.split(":", 1)[1])
     if intent == "leave_balance":

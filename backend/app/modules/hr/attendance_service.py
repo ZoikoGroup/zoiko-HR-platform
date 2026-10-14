@@ -817,7 +817,7 @@ def get_leave_dashboard(db: Session, organization_id: Optional[int] = None) -> d
     rejected_requests = db.query(func.count(LeaveRequest.id)).filter(
         LeaveRequest.status == RequestStatus.REJECTED, *base_filter
     ).scalar() or 0
-    total_days_taken = db.query(func.coalesce(func.sum(LeaveRequest.total_days), 0)).filter(
+    total_days_taken = db.query(func.coalesce(func.sum(LeaveRequest.days), 0)).filter(
         LeaveRequest.status == RequestStatus.APPROVED, *base_filter
     ).scalar() or 0
     on_leave_today = db.query(func.count(LeaveRequest.id)).filter(
@@ -835,7 +835,7 @@ def get_leave_dashboard(db: Session, organization_id: Optional[int] = None) -> d
     ).scalar() or 0
     emp_filter = [Employee.organization_id == organization_id] if organization_id else []
     employee_count = db.query(func.count(Employee.id)).filter(
-        Employee.is_deleted == False, *emp_filter
+        Employee.is_active == True, *emp_filter
     ).scalar() or 0
     return {
         "employee_count": employee_count,
