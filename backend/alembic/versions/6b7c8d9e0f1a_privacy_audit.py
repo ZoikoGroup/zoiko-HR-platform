@@ -45,28 +45,30 @@ def _is_postgres() -> bool:
 
 
 def upgrade() -> None:
-    op.create_table(
-        TABLE,
-        sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
-        sa.Column("event_type", sa.String(length=64), nullable=False),
-        sa.Column("occurred_at", sa.DateTime(), nullable=False),
-        sa.Column("actor_person_id", sa.Integer(), nullable=True),
-        sa.Column("tenant_id", sa.Integer(), nullable=True),
-        sa.Column("grant_id", sa.String(length=64), nullable=True),
-        sa.Column("request_id", sa.Integer(), nullable=True),
-        sa.Column("action", sa.String(length=32), nullable=True),
-        sa.Column("reason", sa.String(length=64), nullable=True),
-        sa.Column("payload", sa.JSON(), nullable=True),
-        sa.Column("prev_hash", sa.String(length=64), nullable=False),
-        sa.Column("hash", sa.String(length=64), nullable=False),
-    )
-    op.create_index("ix_privacy_audit_events_event_type", TABLE, ["event_type"])
-    op.create_index("ix_privacy_audit_events_tenant_id", TABLE, ["tenant_id"])
-    op.create_index("ix_privacy_audit_events_grant_id", TABLE, ["grant_id"])
-    op.create_index("ix_privacy_audit_events_hash", TABLE, ["hash"])
+    if not sa.inspect(op.get_bind()).has_table(TABLE):
+        op.create_table(
+            TABLE,
+            sa.Column("id", sa.Integer(), primary_key=True, autoincrement=True),
+            sa.Column("event_type", sa.String(length=64), nullable=False),
+            sa.Column("occurred_at", sa.DateTime(), nullable=False),
+            sa.Column("actor_person_id", sa.Integer(), nullable=True),
+            sa.Column("tenant_id", sa.Integer(), nullable=True),
+            sa.Column("grant_id", sa.String(length=64), nullable=True),
+            sa.Column("request_id", sa.Integer(), nullable=True),
+            sa.Column("action", sa.String(length=32), nullable=True),
+            sa.Column("reason", sa.String(length=64), nullable=True),
+            sa.Column("payload", sa.JSON(), nullable=True),
+            sa.Column("prev_hash", sa.String(length=64), nullable=False),
+            sa.Column("hash", sa.String(length=64), nullable=False),
+        )
+        op.create_index("ix_privacy_audit_events_event_type", TABLE, ["event_type"])
+        op.create_index("ix_privacy_audit_events_tenant_id", TABLE, ["tenant_id"])
+        op.create_index("ix_privacy_audit_events_grant_id", TABLE, ["grant_id"])
+        op.create_index("ix_privacy_audit_events_hash", TABLE, ["hash"])
 
     if _is_postgres():
         op.execute(APPEND_ONLY_FUNCTION)
+        op.execute("DROP TRIGGER IF EXISTS zhr_privacy_audit_no_change ON privacy_audit_events;")
         op.execute(APPEND_ONLY_TRIGGER)
 
 

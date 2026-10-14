@@ -21,8 +21,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('billing_audit_logs', sa.Column('source', sa.String(length=50), nullable=True))
-    op.add_column('billing_audit_logs', sa.Column('stripe_event_id', sa.String(length=255), nullable=True))
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("billing_audit_logs")}
+    if "source" not in existing:
+        op.add_column('billing_audit_logs', sa.Column('source', sa.String(length=50), nullable=True))
+    if "stripe_event_id" not in existing:
+        op.add_column('billing_audit_logs', sa.Column('stripe_event_id', sa.String(length=255), nullable=True))
 
 
 def downgrade() -> None:

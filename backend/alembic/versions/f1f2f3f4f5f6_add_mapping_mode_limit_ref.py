@@ -26,8 +26,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('plan_entitlement_mappings', sa.Column('mode', sa.String(length=30), nullable=True))
-    op.add_column('plan_entitlement_mappings', sa.Column('limit_ref', sa.String(length=100), nullable=True))
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("plan_entitlement_mappings")}
+    if "mode" not in existing:
+        op.add_column('plan_entitlement_mappings', sa.Column('mode', sa.String(length=30), nullable=True))
+    if "limit_ref" not in existing:
+        op.add_column('plan_entitlement_mappings', sa.Column('limit_ref', sa.String(length=100), nullable=True))
 
 
 def downgrade() -> None:
