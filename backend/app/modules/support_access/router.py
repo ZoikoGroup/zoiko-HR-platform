@@ -38,6 +38,8 @@ from app.modules.support_access.dependencies import (
 )
 from app.modules.support_access.models import (
     ApprovalDecision,
+    BreakGlassSession,
+    BreakGlassStatus,
     RequestStatus,
     SupportAccessRequest,
     SupportGrant,
@@ -90,6 +92,13 @@ class AuthoriserBody(BaseModel):
     note: Optional[str] = None
 
 
+class StartBreakGlassBody(BaseModel):
+    tenant_id: int
+    incident_reference: str
+    reason: str
+    scope: ScopeBody
+
+
 # ── views (names and shapes only; never a field value) ─────────────────────────────────────────────────────────────
 def _scope_out(scope: Optional[dict]) -> Optional[dict]:
     return sc.summary(scope) if scope else None
@@ -122,6 +131,23 @@ def _grant_out(grant: SupportGrant) -> dict:
         "expires_at": grant.expires_at.isoformat() if grant.expires_at else None,
         "revocation_version": grant.revocation_version,
         "scope": _scope_out(grant.effective_scope),
+    }
+
+
+def _breakglass_out(session: BreakGlassSession) -> dict:
+    return {
+        "id": session.id,
+        "tenant_id": session.tenant_id,
+        "incident_reference": session.incident_reference,
+        "status": session.status,
+        "initiator_person_id": session.initiator_person_id,
+        "second_responder_person_id": session.second_responder_person_id,
+        "confirm_deadline": session.confirm_deadline.isoformat() if session.confirm_deadline else None,
+        "started_at": session.started_at.isoformat() if session.started_at else None,
+        "expires_at": session.expires_at.isoformat() if session.expires_at else None,
+        "ended_at": session.ended_at.isoformat() if session.ended_at else None,
+        "review_status": session.review_status,
+        "scope": _scope_out(session.scope),
     }
 
 
@@ -252,6 +278,70 @@ def audit_verify(db: Session = Depends(get_db), user=Depends(get_current_super_a
     }
 
 
+# ══ platform: break-glass (Phase 8) - two-person, read-only, ≤60 min, reviewed ══════════════════════════════════════
+@platform_router.post("/breakglass", status_code=201)
+def start_breakglass(
+    payload: StartBreakGlassBody,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_super_admin),
+    _mfa=Depends(require_fresh_mfa(300)),
+):
+    """Open an emergency session. It grants nothing until a DIFFERENT platform engineer confirms it."""
+    session = service.start_breakglass(
+        db,
+        initiator=user,
+        tenant_id=payload.tenant_id,
+        incident_reference=payload.incident_reference,
+        reason=payload.reason,
+        scope=payload.scope.model_dump(),
+    )
+    db.commit()
+    return _breakglass_out(session)
+
+
+@platform_router.get("/breakglass")
+def list_breakglass(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    return [_breakglass_out(s) for s in service.active_breakglass(db)]
+
+
+@platform_router.post("/breakglass/{session_id}/confirm")
+def confirm_breakglass(
+    session_id: str,
+    response: Response,
+    request: Request,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_super_admin),
+    _mfa=Depends(require_fresh_mfa(300)),
+):
+    """The second person confirms. Issues a read-only, ≤60-minute capability and hands it back as a cookie."""
+    session = service.get_breakglass(db, session_id)
+    payload = access_payload(request)
+    session, token = service.confirm_breakglass(
+        db, session, responder=user, session_id=session_fingerprint(payload, user),
+        device_fingerprint=device_fingerprint(request),
+    )
+    db.commit()
+    ttl = max(0, int((session.expires_at - datetime.utcnow()).total_seconds()))
+    response.set_cookie(
+        SUPPORT_COOKIE, token, max_age=ttl, path=SUPPORT_COOKIE_PATH, httponly=True, samesite="strict",
+        secure=_COOKIE_SECURE,
+    )
+    return {"session": _breakglass_out(session), "grant": _grant_out(db.get(SupportGrant, session.grant_id))}
+
+
+@platform_router.post("/breakglass/{session_id}/end")
+def end_breakglass(
+    session_id: str,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_super_admin),
+    _mfa=Depends(require_fresh_mfa(300)),
+):
+    session = service.get_breakglass(db, session_id)
+    service.end_breakglass(db, session, actor=user)
+    db.commit()
+    return _breakglass_out(session)
+
+
 # ══ tenant: authorise, revoke, view ═════════════════════════════════════════════════════════════════════════════════
 @tenant_router.get("/requests")
 def tenant_requests(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -353,6 +443,14 @@ def tenant_revoke(
     service.revoke_grant(db, grant, actor_id=user.id, reason=reason)
     db.commit()
     return _grant_out(grant)
+
+
+@tenant_router.get("/breakglass")
+def tenant_breakglass(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """The tenant sees every emergency session on their own data, active or past."""
+    if getattr(user, "organization_id", None) is None:
+        raise HTTPException(403, "Tenant scope required")
+    return [_breakglass_out(s) for s in service.breakglass_for_tenant(db, user.organization_id)]
 
 
 # ══ the enforced data path ══════════════════════════════════════════════════════════════════════════════════════════

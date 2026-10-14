@@ -236,7 +236,7 @@ class SupportGrant(Base):
     __tablename__ = "support_grants"
 
     id = Column(String(36), primary_key=True, default=new_uuid)
-    request_id = Column(Integer, ForeignKey("support_access_requests.id"), nullable=False, index=True)
+    request_id = Column(Integer, ForeignKey("support_access_requests.id"), nullable=True, index=True)
     tenant_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     grantee_person_id = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
     grantee_account_id = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)

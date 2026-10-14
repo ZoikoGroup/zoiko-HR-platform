@@ -15,8 +15,10 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.privacy import policy
+from app.core.privacy.classification import Level
 from app.modules.support_access import events, granttokens, scopes as sc, state as st
 from app.modules.support_access.models import (
     APPROVAL_WINDOW_HOURS,
@@ -25,6 +27,8 @@ from app.modules.support_access.models import (
     Approval,
     ApprovalDecision,
     ApprovalType,
+    BreakGlassSession,
+    BreakGlassStatus,
     GrantKind,
     PurposeCategory,
     RequestStatus,
@@ -555,3 +559,174 @@ def revoke_authoriser(db: Session, row: TenantAuthoriser, *, actor, now: Optiona
     row.revoked_by = getattr(actor, "id", None)
     events.emit("AUTHORISER_REVOKED", db=db, tenant_id=row.tenant_id, actor_person_id=getattr(actor, "id", None), user_id=row.user_id)
     return row
+
+
+# ── break-glass (Phase 8) ───────────────────────────────────────────────────────────────────────────────────────────
+# Emergency access for a live incident. Two platform people, a fresh MFA check on both, read-only, no special-category
+# data, capped well below a normal grant, and reviewed afterwards. It cannot be renewed: when it ends, it is over.
+BREAKGLASS_CONFIRM_WINDOW_MINUTES = 15
+
+
+def _breakglass_scope(scope) -> dict:
+    """Validate and then TIGHTEN a break-glass scope: read verbs only, never special-category or secret data."""
+    try:
+        canonical = sc.validate_scope(scope)
+    except sc.ScopeError as exc:
+        raise BadRequestException(str(exc))
+    for action in canonical["actions"]:
+        if action not in policy.READ_ACTIONS:
+            raise BadRequestException("break-glass is read-only; the requested scope asks for a write action")
+    touched = sc.levels_touched(canonical)
+    if Level.SPECIAL_CATEGORY in touched or Level.SECRET in touched:
+        raise BadRequestException("break-glass may never touch special-category or secret data")
+    return canonical
+
+
+def start_breakglass(
+    db: Session,
+    *,
+    initiator,
+    tenant_id: int,
+    incident_reference: str,
+    reason: str,
+    scope,
+    now: Optional[datetime] = None,
+) -> BreakGlassSession:
+    """Open an emergency session. It grants nothing until a SECOND platform person confirms it."""
+    if not is_platform_account(initiator):
+        raise ForbiddenException("only a platform engineer can start break-glass")
+    if not (incident_reference or "").strip():
+        raise BadRequestException("an incident reference is required")
+    if len((reason or "").strip()) < 10:
+        raise BadRequestException("a reason of at least 10 characters is required")
+    canonical = _breakglass_scope(scope)
+    now = _now(now)
+    session = BreakGlassSession(
+        incident_reference=incident_reference,
+        reason=reason,
+        tenant_id=tenant_id,
+        initiator_person_id=getattr(initiator, "id", None),
+        scope=canonical,
+        status=BreakGlassStatus.PENDING_CONFIRMATION.value,
+        confirm_deadline=now + timedelta(minutes=BREAKGLASS_CONFIRM_WINDOW_MINUTES),
+    )
+    db.add(session)
+    db.flush()
+    events.emit("BREAK_GLASS_STARTED", db=db, tenant_id=tenant_id, actor_person_id=getattr(initiator, "id", None),
+                payload_summary=sc.summary(canonical))
+    events.emit("TENANT_NOTIFIED", db=db, tenant_id=tenant_id, trigger="BREAK_GLASS_STARTED", summary=sc.summary(canonical))
+    return session
+
+
+def confirm_breakglass(
+    db: Session,
+    session: BreakGlassSession,
+    *,
+    responder,
+    session_id: str,
+    device_fingerprint: str,
+    now: Optional[datetime] = None,
+) -> tuple[BreakGlassSession, str]:
+    """The SECOND person confirms. Issues the read-only capability. Returns (session, token)."""
+    if not is_platform_account(responder):
+        raise ForbiddenException("only a platform engineer can confirm break-glass")
+    if getattr(responder, "id", None) == session.initiator_person_id:
+        raise ForbiddenException("break-glass needs two different people: the initiator cannot confirm their own session")
+    if session.status != BreakGlassStatus.PENDING_CONFIRMATION.value:
+        raise BadRequestException("this break-glass session is not awaiting confirmation")
+    now = _now(now)
+    if session.confirm_deadline is not None and now > session.confirm_deadline:
+        st.transition_breakglass(session, BreakGlassStatus.LAPSED.value, now=now)
+        raise BadRequestException("the confirmation window for this break-glass session has closed")
+
+    effective = _breakglass_scope(session.scope)
+    ttl = min(int(settings.SUPPORT_BREAKGLASS_MAX_MINUTES), 60)
+    jti = uuid.uuid4().hex
+    grant = SupportGrant(
+        request_id=None,
+        tenant_id=session.tenant_id,
+        grantee_person_id=getattr(responder, "id", None),
+        grantee_account_id=getattr(responder, "id", None),
+        kind=GrantKind.BREAK_GLASS.value,
+        effective_scope=effective,
+        issued_at=now,
+        expires_at=now + timedelta(minutes=ttl),
+        revocation_version=1,
+        session_id=session_id,
+        device_fingerprint=device_fingerprint,
+        policy_version=policy.POLICY_VERSION,
+        token_jti=jti,
+    )
+    db.add(grant)
+    db.flush()
+    token = granttokens.issue(
+        grant_id=grant.id, grantee_account_id=responder.id, person_id=responder.id, tenant_id=session.tenant_id,
+        scope_hash=sc.scope_hash(effective), revocation_version=grant.revocation_version, session_id=session_id,
+        device_fingerprint=device_fingerprint, policy_version=policy.POLICY_VERSION, ttl_seconds=ttl * 60, jti=jti,
+        now=_epoch(now),
+    )
+    session.second_responder_person_id = getattr(responder, "id", None)
+    session.grant_id = grant.id
+    session.expires_at = grant.expires_at
+    st.transition_breakglass(session, BreakGlassStatus.ACTIVE.value, now=now)
+    events.emit("BREAK_GLASS_CONFIRMED", db=db, tenant_id=session.tenant_id, grant_id=grant.id,
+                actor_person_id=getattr(responder, "id", None), expires_at=grant.expires_at.isoformat())
+    events.emit("TENANT_NOTIFIED", db=db, tenant_id=session.tenant_id, trigger="BREAK_GLASS_CONFIRMED",
+                summary=sc.summary(effective))
+    return session, token
+
+
+def end_breakglass(db: Session, session: BreakGlassSession, *, actor, now: Optional[datetime] = None) -> BreakGlassSession:
+    """End an active session: the capability dies with it."""
+    if session.status != BreakGlassStatus.ACTIVE.value:
+        raise BadRequestException("this break-glass session is not active")
+    now = _now(now)
+    st.transition_breakglass(session, BreakGlassStatus.ENDED.value, now=now)
+    session.ended_by = getattr(actor, "id", None)
+    if session.grant_id:
+        grant = db.get(SupportGrant, session.grant_id)
+        if grant is not None and grant.revoked_at is None:
+            revoke_grant(db, grant, actor_id=getattr(actor, "id", None), reason="break-glass ended", now=now)
+    events.emit("BREAK_GLASS_ENDED", db=db, tenant_id=session.tenant_id, actor_person_id=getattr(actor, "id", None))
+    return session
+
+
+def expire_breakglass(db: Session, *, now: Optional[datetime] = None, limit: int = 200) -> int:
+    """Lapse break-glass sessions a second person never confirmed."""
+    now = _now(now)
+    rows = (
+        db.query(BreakGlassSession)
+        .filter(
+            BreakGlassSession.status == BreakGlassStatus.PENDING_CONFIRMATION.value,
+            BreakGlassSession.confirm_deadline.isnot(None),
+            BreakGlassSession.confirm_deadline <= now,
+        )
+        .limit(limit)
+        .all()
+    )
+    for s in rows:
+        st.transition_breakglass(s, BreakGlassStatus.LAPSED.value, now=now)
+    return len(rows)
+
+
+def get_breakglass(db: Session, session_id: str) -> BreakGlassSession:
+    row = db.get(BreakGlassSession, session_id)
+    if row is None:
+        raise NotFoundException("break-glass session not found")
+    return row
+
+
+def breakglass_for_tenant(db: Session, tenant_id: int) -> list[BreakGlassSession]:
+    return (
+        db.query(BreakGlassSession)
+        .filter(BreakGlassSession.tenant_id == tenant_id)
+        .order_by(BreakGlassSession.created_at.desc())
+        .all()
+    )
+
+
+def active_breakglass(db: Session, *, tenant_id: Optional[int] = None) -> list[BreakGlassSession]:
+    q = db.query(BreakGlassSession).filter(BreakGlassSession.status == BreakGlassStatus.ACTIVE.value)
+    if tenant_id is not None:
+        q = q.filter(BreakGlassSession.tenant_id == tenant_id)
+    return q.all()

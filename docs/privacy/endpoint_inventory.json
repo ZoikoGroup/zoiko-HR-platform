@@ -9913,6 +9913,21 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_breakglass",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/breakglass",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.tenant_grants",
   "methods": [
    "GET"
@@ -11867,6 +11882,74 @@
   "module": "app.modules.support_access.router",
   "org_scoped_dependency": [],
   "path": "/super-admin/support-access/audit/verify",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.list_breakglass",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/breakglass",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.start_breakglass",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/breakglass",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.confirm_breakglass",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/breakglass/{session_id}/confirm",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.end_breakglass",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/breakglass/{session_id}/end",
   "privacy_class": "CONTROL_PLANE",
   "role_guards": [
    "get_current_super_admin"

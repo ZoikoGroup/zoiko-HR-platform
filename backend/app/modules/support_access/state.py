@@ -66,6 +66,25 @@ def can_transition_breakglass(current: str, target: str) -> bool:
     return target in BREAKGLASS_ALLOWED.get(current, frozenset())
 
 
+def transition_breakglass(session, target: str, *, now: Optional[datetime] = None):
+    """Move a break-glass session to `target`, refusing an illegal jump. The caller commits.
+
+    Like `transition`, this is the only place a break-glass status is written; the codebase scan excludes this module.
+    """
+    current = session.status
+    if current == target:
+        return session
+    if not can_transition_breakglass(current, target):
+        raise TransitionError(f"break-glass {current} -> {target} is not allowed")
+    now = now or datetime.utcnow()
+    if target == BreakGlassStatus.ACTIVE.value and session.started_at is None:
+        session.started_at = now
+    if target in (BreakGlassStatus.ENDED.value, BreakGlassStatus.LAPSED.value):
+        session.ended_at = now
+    session.status = target                                       # the one authorised break-glass write
+    return session
+
+
 def _stamp(request: SupportAccessRequest, target: str, now: datetime) -> None:
     request.updated_at = now
     if target == S.PENDING_TENANT.value and request.submitted_at is None:
