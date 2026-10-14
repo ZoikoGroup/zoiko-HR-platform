@@ -34,6 +34,12 @@ CONTROL_PLANE_PREFIXES = (
     "/super-admin/demo-requests",
     "/super-admin/pricing-requests",
     "/super-admin/bootstrap",
+    # Support access. The platform request/approval API (control plane) only touches grant metadata. The /support data
+    # path is control-plane REACHABLE so a platform bearer is not refused before the grant is examined, but every
+    # handler depends on `grant_context`: without a live, validated, scope-checked grant the answer is 403 and no row
+    # is ever read. This is the only path by which tenant data reaches a platform identity (ZHR-PRIV-001 B06/B07).
+    "/super-admin/support-access",
+    "/support",
     "/billing",
 )
 

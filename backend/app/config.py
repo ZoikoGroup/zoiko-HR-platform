@@ -47,6 +47,20 @@ class Settings(BaseSettings):
         default=1440, validation_alias="HR_ACCESS_TOKEN_EXPIRE_MINUTES"
     )  # default = 1 day
 
+    # ── Support-grant capability signing (ZHR-PRIV-001 B06) ────────────────
+    # The signing key for signed support capabilities. Empty -> a key derived from SECRET_KEY (fine for dev/test).
+    # In production set a dedicated, rotated key (an asymmetric PEM here would let verify happen without the private key).
+    SUPPORT_GRANT_SIGNING_KEY: str = Field(default="", validation_alias="HR_SUPPORT_GRANT_SIGNING_KEY")
+
+    # How long an MFA check stays "fresh enough" to keep using a support capability (ZHR-PRIV-001 B06, Phase 6).
+    SUPPORT_GRANT_MFA_MAX_AGE_SECONDS: int = Field(
+        default=3600, validation_alias="HR_SUPPORT_GRANT_MFA_MAX_AGE_SECONDS"
+    )
+    # A capability can never be issued longer than this, whatever the request asked for.
+    SUPPORT_GRANT_MAX_TTL_MINUTES: int = Field(default=120, validation_alias="HR_SUPPORT_GRANT_MAX_TTL_MINUTES")
+    # Break-glass is shorter and read-only.
+    SUPPORT_BREAKGLASS_MAX_MINUTES: int = Field(default=60, validation_alias="HR_SUPPORT_BREAKGLASS_MAX_MINUTES")
+
     # ── App Info ──────────────────────────────────────────────────────────
     APP_NAME: str = Field(default="Zoiko HR Platform Backend", validation_alias="HR_APP_NAME")
     APP_VERSION: str = Field(default="1.0.0", validation_alias="HR_APP_VERSION")

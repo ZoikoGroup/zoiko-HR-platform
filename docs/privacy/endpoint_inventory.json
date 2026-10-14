@@ -9883,6 +9883,111 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.designate_authoriser",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/authorisers",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.revoke_authoriser",
+  "methods": [
+   "DELETE"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/authorisers/{authoriser_id}",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_grants",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/grants",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_revoke",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/grants/{grant_id}/revoke",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_requests",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/requests",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_approve",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/requests/{request_id}/approve",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_reject",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/requests/{request_id}/reject",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.hr.router.list_travel_requests",
   "methods": [
    "GET"
@@ -11755,6 +11860,125 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_grants",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/grants",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_revoke",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/grants/{grant_id}/revoke",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.my_requests",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/requests",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.create_request",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/requests",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.activate_request",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/requests/{request_id}/activate",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.cancel_request",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/requests/{request_id}/cancel",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.independent_approve",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/requests/{request_id}/independent-approve",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.super_admin.router.list_users",
   "methods": [
    "GET"
@@ -12103,6 +12327,51 @@
   ],
   "roles": [
    "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.list_employees",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/support/tenants/{tenant_id}/employees",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.read_employee",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/support/tenants/{tenant_id}/employees/{employee_id}",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.export_employee",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/support/tenants/{tenant_id}/employees/{employee_id}/export",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
   ]
  }
 ]

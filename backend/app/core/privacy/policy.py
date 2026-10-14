@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import logging
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import Enum
 from typing import Callable, Iterable, Optional
 
@@ -27,7 +27,7 @@ from app.core.privacy import classification as cls
 from app.core.privacy.classification import Level
 from app.core.privacy.context import PLATFORM, SERVICE, TENANT, correlation_id
 
-POLICY_VERSION = "2026-10-14.1"
+POLICY_VERSION = "2026-10-14.2"
 AI = "AI"
 
 logger = logging.getLogger("zoiko.privacy")
@@ -52,6 +52,18 @@ BAD_SUBJECT = "BAD_SUBJECT"
 AUDIENCE_DENIED = "AUDIENCE_DENIED"
 AI_NO_CALLER = "AI_NO_CALLER"
 ALLOWED = "ALLOWED"
+# support-grant reason codes (Prompt 2): the grant did not cover this operation, or the grant itself is no longer usable
+GRANT_EXPIRED = "GRANT_EXPIRED"
+GRANT_REVOKED = "GRANT_REVOKED"
+GRANT_INACTIVE = "GRANT_INACTIVE"
+GRANT_TENANT_MISMATCH = "GRANT_TENANT_MISMATCH"
+RESOURCE_NOT_GRANTED = "RESOURCE_NOT_GRANTED"
+ACTION_NOT_GRANTED = "ACTION_NOT_GRANTED"
+OBJECT_SCOPE_MISMATCH = "OBJECT_SCOPE_MISMATCH"
+ENTITY_SCOPE_MISMATCH = "ENTITY_SCOPE_MISMATCH"
+DEPARTMENT_SCOPE_MISMATCH = "DEPARTMENT_SCOPE_MISMATCH"
+JURISDICTION_SCOPE_MISMATCH = "JURISDICTION_SCOPE_MISMATCH"
+FIELD_NOT_GRANTED = "FIELD_NOT_GRANTED"
 
 
 class Role(str, Enum):
@@ -129,6 +141,7 @@ class Resource:
     jurisdiction: Optional[str] = None
     owner_id: Optional[int] = None                  # the employee the record is about
     classification: Optional[Level] = None          # overrides the table default when set
+    record_id: Optional[int] = None                 # the row's own id, checked against a grant's explicit record list
 
 
 @dataclass(frozen=True)
@@ -137,6 +150,31 @@ class Context:
     token_audience: Optional[str] = None
     now: Optional[float] = None
     region: Optional[str] = None
+    explicit_fields: bool = False                   # True when the caller named the exact fields (see authorize)
+
+
+@dataclass(frozen=True)
+class GrantCapability:
+    """A validated, in-force support grant, attached to a PLATFORM subject (Prompt 2, Phase 5).
+
+    It is built by the support-access dependency only AFTER the signed token, the live grant row, the session/device
+    binding and the fresh MFA have all been checked. This object is the scope the policy hook reasons about.
+    """
+    grant_id: str
+    tenant_id: int
+    kind: str
+    resources: frozenset = frozenset()
+    record_ids: frozenset = frozenset()
+    entity_ids: frozenset = frozenset()
+    department_ids: frozenset = frozenset()
+    jurisdictions: frozenset = frozenset()
+    fields: dict = field(default_factory=dict)      # {resource: frozenset(field names)}
+    actions: frozenset = frozenset()
+    expires_at: Optional[float] = None              # epoch seconds
+    policy_version: Optional[str] = None
+
+    def allowed_fields(self, resource_type: str) -> frozenset:
+        return frozenset(self.fields.get(resource_type, ()))
 
 
 @dataclass(frozen=True)
@@ -214,12 +252,61 @@ def _emit(subject: Optional[Subject], action: str, resource: Optional[Resource],
 
 # ── support grants (Prompt 2) ───────────────────────────────────────────────────────────────────────────────────────
 def _evaluate_support_grant(subject: Subject, action: str, resource: Resource, fields: Iterable[str], context: Context) -> Optional[Decision]:
-    """THE hook for time-limited, tenant-approved support grants. Returns None (no grant applies) today.
+    """The hook for time-limited, tenant-approved support grants (Prompt 2, Phase 6).
 
-    Prompt 2 implements it: it must return an allow Decision only for a grant that is active, approved by the tenant,
-    bound to this actor and this resource scope, within its action and field limits, and with fresh MFA. Anything else
-    returns None and the platform denial below stands."""
-    return None
+    `subject.grant` is present only when the support-access dependency has already verified the signed token, the live
+    grant row, the session/device binding and the MFA freshness. This function then checks the SCOPE only: the grant
+    must cover this tenant, this resource, this record/entity/department/jurisdiction, this action and these fields.
+
+    Returns None when no grant is attached (the ordinary platform denial then stands); otherwise an ALLOW with the
+    granted fields and the rest masked, or a DENY with a specific reason code.
+    """
+    grant = getattr(subject, "grant", None)
+    if grant is None:
+        return None
+
+    now = context.now if context.now is not None else time.time()
+    if grant.expires_at is not None and now >= grant.expires_at:
+        return deny(GRANT_EXPIRED)
+    if grant.policy_version is not None and grant.policy_version != POLICY_VERSION:
+        return deny(GRANT_REVOKED)                                  # a policy change invalidates the capability
+
+    if resource.tenant_id is None or resource.tenant_id != grant.tenant_id:
+        return deny(GRANT_TENANT_MISMATCH)
+    if resource.type not in grant.resources:
+        return deny(RESOURCE_NOT_GRANTED)
+    if action not in grant.actions:
+        return deny(ACTION_NOT_GRANTED)
+
+    # object scope: an explicit record list must contain the row. A row without a record id can never satisfy a
+    # record-limited grant, so it is refused rather than allowed.
+    if grant.record_ids:
+        rid = resource.record_id if resource.record_id is not None else resource.owner_id
+        if rid is None or rid not in grant.record_ids:
+            return deny(OBJECT_SCOPE_MISMATCH)
+    if grant.entity_ids and (resource.entity_id is None or resource.entity_id not in grant.entity_ids):
+        return deny(ENTITY_SCOPE_MISMATCH)
+    if grant.department_ids and (resource.department_id is None or resource.department_id not in grant.department_ids):
+        return deny(DEPARTMENT_SCOPE_MISMATCH)
+    if grant.jurisdictions and (not resource.jurisdiction or resource.jurisdiction not in grant.jurisdictions):
+        return deny(JURISDICTION_SCOPE_MISMATCH)
+
+    granted = grant.allowed_fields(resource.type)
+    requested = tuple(fields or ())
+    allowed = tuple(f for f in requested if f in granted)
+    masked = tuple(f for f in requested if f not in granted)
+
+    if requested and not allowed:
+        return deny(FIELD_NOT_GRANTED)
+    # An EXPLICIT request for a field the grant does not cover, where that field is above PLATFORM_META/TENANT_AGGREGATE,
+    # denies the whole request (T05): the client asked for something it was never given.
+    if context.explicit_fields and masked:
+        for name in masked:
+            level = cls.classify(resource.type, name)
+            if level != cls.UNCLASSIFIED and cls.rank(level) > cls.rank(Level.TENANT_AGGREGATE):
+                return deny(FIELD_NOT_GRANTED)
+
+    return Decision(True, ALLOWED, allowed, masked)
 
 
 # ── helpers ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -275,8 +362,11 @@ def _in_scope(grant: RoleGrant, subject: Subject, resource: Resource) -> bool:
 # ── the entry point ─────────────────────────────────────────────────────────────────────────────────────────────────
 def authorize(subject: Subject, action: str, resource: Resource, fields: Optional[Iterable[str]] = None, context: Optional[Context] = None) -> Decision:
     """The one question every data-plane access asks. Never raises: an error is a DENY."""
+    ctx = context or Context()
+    if fields is not None and not ctx.explicit_fields:
+        ctx = replace(ctx, explicit_fields=True)      # the caller named the exact fields (matters for grant masking)
     try:
-        decision = _authorize(subject, action, resource, fields, context or Context())
+        decision = _authorize(subject, action, resource, fields, ctx)
     except Exception:
         logger.error("ALERT privacy policy raised; denying (fail closed)", exc_info=True)
         decision = deny(POLICY_ERROR)
