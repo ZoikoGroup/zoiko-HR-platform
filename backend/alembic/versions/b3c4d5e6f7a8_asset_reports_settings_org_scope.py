@@ -39,11 +39,21 @@ def _setting_key_uniques():
     return [u["name"] for u in insp.get_unique_constraints("asset_settings") if u["column_names"] == ["setting_key"] and u["name"]]
 
 
+def _create_index_if_missing(name, table, columns, unique=False, **kwargs):
+    indexes = {index["name"]: index for index in sa.inspect(op.get_bind()).get_indexes(table) if index.get("name")}
+    existing = indexes.get(name)
+    if existing:
+        if existing["column_names"] != columns or existing["unique"] != unique:
+            raise RuntimeError(f"{name} exists with an unexpected definition")
+        return
+    op.create_index(name, table, columns, unique=unique, **kwargs)
+
+
 def upgrade() -> None:
     reports = _cols("asset_reports")
     if reports is not None and "organization_id" not in reports:
         op.add_column("asset_reports", sa.Column("organization_id", sa.Integer(), sa.ForeignKey("organizations.id"), nullable=True))
-        op.create_index("ix_asset_reports_organization_id", "asset_reports", ["organization_id"])
+        _create_index_if_missing("ix_asset_reports_organization_id", "asset_reports", ["organization_id"])
         op.execute(
             "UPDATE asset_reports SET organization_id = "
             "(SELECT employees.organization_id FROM employees WHERE employees.id = asset_reports.generated_by) "
@@ -60,24 +70,47 @@ def upgrade() -> None:
             batch.add_column(sa.Column("updated_by", sa.Integer(), sa.ForeignKey("employees.id"), nullable=True))
         for name in _setting_key_uniques():
             batch.drop_constraint(name, type_="unique")
-    op.create_index("ix_asset_settings_organization_id", "asset_settings", ["organization_id"])
-    op.create_index("uq_asset_settings_org_key", "asset_settings", ["organization_id", "setting_key"], unique=True)
-    op.create_index("uq_asset_settings_default_key", "asset_settings", ["setting_key"], unique=True,
-                    postgresql_where=sa.text("organization_id IS NULL"), sqlite_where=sa.text("organization_id IS NULL"))
+    _create_index_if_missing("ix_asset_settings_organization_id", "asset_settings", ["organization_id"])
+    _create_index_if_missing(
+        "uq_asset_settings_org_key",
+        "asset_settings",
+        ["organization_id", "setting_key"],
+        unique=True,
+    )
+    _create_index_if_missing(
+        "uq_asset_settings_default_key",
+        "asset_settings",
+        ["setting_key"],
+        unique=True,
+        postgresql_where=sa.text("organization_id IS NULL"),
+        sqlite_where=sa.text("organization_id IS NULL"),
+    )
 
 
 def downgrade() -> None:
     settings = _cols("asset_settings")
     if settings is not None and "organization_id" in settings:
         op.execute("DELETE FROM asset_settings WHERE organization_id IS NOT NULL")
+        existing_indexes = {
+            index["name"]
+            for index in sa.inspect(op.get_bind()).get_indexes("asset_settings")
+            if index.get("name")
+        }
         for name in ("uq_asset_settings_default_key", "uq_asset_settings_org_key", "ix_asset_settings_organization_id"):
-            op.drop_index(name, table_name="asset_settings")
+            if name in existing_indexes:
+                op.drop_index(name, table_name="asset_settings")
         with op.batch_alter_table("asset_settings") as batch:
             batch.drop_column("updated_by")
             batch.drop_column("organization_id")
             batch.create_unique_constraint("asset_settings_setting_key_key", ["setting_key"])
     reports = _cols("asset_reports")
     if reports is not None and "organization_id" in reports:
-        op.drop_index("ix_asset_reports_organization_id", table_name="asset_reports")
+        index_names = {
+            index["name"]
+            for index in sa.inspect(op.get_bind()).get_indexes("asset_reports")
+            if index.get("name")
+        }
+        if "ix_asset_reports_organization_id" in index_names:
+            op.drop_index("ix_asset_reports_organization_id", table_name="asset_reports")
         with op.batch_alter_table("asset_reports") as batch:
             batch.drop_column("organization_id")
