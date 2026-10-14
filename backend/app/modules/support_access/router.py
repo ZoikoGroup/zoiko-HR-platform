@@ -26,6 +26,7 @@ from app.core.privacy import policy
 from app.core.privacy.mfa import require_fresh_mfa
 from app.database import get_db
 from app.modules.support_access import events, scopes as sc, service
+from app.modules.support_access import assurance
 from app.modules.support_access import audit as audit_store
 from app.modules.support_access.dependencies import (
     SUPPORT_COOKIE,
@@ -382,6 +383,25 @@ def platform_revocations(db: Session = Depends(get_db), user=Depends(get_current
     return [_revocation_out(r) for r in service.recent_revocations(db)]
 
 
+# ══ platform: detection, reconciliation, recertification (Phases 10-12) ═════════════════════════════════════════════
+@platform_router.get("/detections")
+def platform_detections(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    """Things a human should look at now: live emergency access, sensitive live grants, probing, unpropagated kills."""
+    return assurance.detect(db)
+
+
+@platform_router.get("/reconciliation")
+def platform_reconciliation(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    """Does the record agree with itself? A daily job pages when `ok` is false."""
+    return assurance.reconcile(db)
+
+
+@platform_router.get("/recertification")
+def platform_recertification(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    """What a person must re-affirm on a schedule: standing authorisers, long-lived and emergency grants."""
+    return assurance.recertification(db)
+
+
 # ══ tenant: authorise, revoke, view ═════════════════════════════════════════════════════════════════════════════════
 @tenant_router.get("/requests")
 def tenant_requests(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -515,6 +535,14 @@ def tenant_revocations(db: Session = Depends(get_db), user=Depends(get_current_u
     if getattr(user, "organization_id", None) is None:
         raise HTTPException(403, "Tenant scope required")
     return [_revocation_out(r) for r in service.revocations_for_tenant(db, user.organization_id)]
+
+
+@tenant_router.get("/activity")
+def tenant_activity(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """The tenant's transparency page: every request, grant, emergency session and revocation on their own data."""
+    if getattr(user, "organization_id", None) is None:
+        raise HTTPException(403, "Tenant scope required")
+    return assurance.tenant_activity(db, user.organization_id)
 
 
 # ══ the enforced data path ══════════════════════════════════════════════════════════════════════════════════════════

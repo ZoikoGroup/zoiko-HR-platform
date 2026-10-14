@@ -116,6 +116,14 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.warning("[startup] Support-access revocation subscriber could not start: %s", e)
 
+    try:
+        if _leader:
+            from app.modules.support_access.scheduler import start_support_scheduler
+
+            start_support_scheduler()
+    except Exception as e:
+        logger.warning("[startup] Support-access maintenance could not start: %s", e)
+
     # Route→feature sweep (Prompt 6): report FEATURE_KEYS with zero mapped
     # routes and flag any mapped route that no longer exists (drift). Report-only
     # by design; enable hard enforcement via HR_ENFORCE_ENTITLEMENTS.
@@ -148,6 +156,12 @@ async def lifespan(application: FastAPI):
         from app.modules.support_access import cache as _support_cache
 
         _support_cache.stop_subscriber()
+    except Exception:
+        pass
+    try:
+        from app.modules.support_access.scheduler import stop_support_scheduler
+
+        stop_support_scheduler()
     except Exception:
         pass
     # Dispose all pooled connections before shutdown so Neon's SSL teardown

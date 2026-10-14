@@ -9883,6 +9883,21 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_activity",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/activity",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.designate_authoriser",
   "methods": [
    "POST"
@@ -11990,6 +12005,23 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_detections",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/detections",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.platform_grants",
   "methods": [
    "GET"
@@ -12031,6 +12063,40 @@
   "module": "app.modules.support_access.router",
   "org_scoped_dependency": [],
   "path": "/super-admin/support-access/kill-switch",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_recertification",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/recertification",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_reconciliation",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/reconciliation",
   "privacy_class": "CONTROL_PLANE",
   "role_guards": [
    "get_current_super_admin"

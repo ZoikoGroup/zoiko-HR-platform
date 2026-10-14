@@ -491,6 +491,15 @@ def _expire_if_window_closed(db: Session, request: SupportAccessRequest, *, now:
         st.transition(request, RequestStatus.EXPIRED.value, reason="approval window closed", now=now)
 
 
+def run_maintenance(db: Session, *, now: Optional[datetime] = None) -> dict:
+    """One pass of the periodic upkeep (Phase 10/12): expire stale grants and requests, lapse unconfirmed
+    break-glass sessions. Returns counts. Safe to run on many nodes - each step is idempotent."""
+    result = expire_stale(db, now=now)
+    result["breakglass_lapsed"] = expire_breakglass(db, now=now)
+    db.commit()
+    return result
+
+
 def _invalidate_cache(grant: SupportGrant) -> None:
     """Best-effort: drop any cached live-grant decision. Phase 7 adds the Redis pub/sub fan-out."""
     try:
