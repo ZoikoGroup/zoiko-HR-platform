@@ -75,3 +75,112 @@ Platform: no tenant people pages, minimised activity / audit / user views, no wa
 
 ## Handed to Prompt 2
 Support grants (`policy._evaluate_support_grant` is the one hook), break-glass, immutable audit store (replace `AuditSink`; today decisions go to the log and an in-memory tail), alerts, grant revocation (extend `core/privacy/sessions.revoke_all_sessions`), the remaining T-series tests, the evidence bundle.
+
+---
+
+# ZHR-PRIV-001 control status (Prompt 2 — just-in-time support access)
+
+Prompt 2 is self-contained in `backend/app/modules/support_access/`, with one hook in the central PDP
+(`policy._evaluate_support_grant`). Nothing here touches the AI assistant (Mira). Migration head is `7c8d9e0f1a2b`.
+
+The rule, in one line: **a Super Admin's only route to tenant data is a just-in-time grant — requested by a named engineer,
+approved by the tenant, co-approved by Security/Privacy when the risk is HIGH, issued as a signed single-tenant capability,
+checked on every operation, revocable within seconds, and on a tamper-evident record the tenant can see.**
+
+| Control | Status | Where | Proof / notes |
+|---|---|---|---|
+| A01 JIT only — no standing platform data access | P | `dependencies.grant_context`, `routes.py` (`/support` is CONTROL_PLANE, the grant is the access control) | `test_support_access_flow.py` T02, T05 |
+| A02 named engineer requests, named approvers decide | P | `service.create_request`, `models.SupportAccessRequest` | T01, `test_support_access_model.py` |
+| A03 ticket / purpose / category required | P | `service.create_request` validation, `scopes.validate_scope` | `test_support_access_model.py` |
+| A04 one open request per engineer per tenant | P | `state.OPEN_STATUSES`, `create_request` | `test_support_access_model.py` |
+| A05 the request grants nothing until activated | P | `create_request` writes DRAFT; only `activate_grant` issues a capability | T19 (break-glass analogue), T02 |
+| A06 risk computed, not asserted | P | `scopes.compute_risk` (sensitive field, export/bulk/update, large record set) | `test_support_access_model.py` |
+| A07 HIGH risk needs independent Security/Privacy | P | `service.independent_decide`, `_advance` refuses to issue on one approval | T10 |
+| A08 nobody approves their own request | P | `service` self-approval refusal | T08 |
+| B01 tenant-designated authorisers only | P | `service.designate_authoriser`, `TenantAuthoriser` | `test_support_access_flow.py`, `/hr/support-access/authorisers` |
+| B02 a platform account can never be a tenant authoriser | P | `designate_authoriser` | `test_support_access_model.py` |
+| B03 approval window auto-expires | P | `APPROVAL_WINDOW_HOURS`, `expire_stale` | `test_support_access_model.py` |
+| B04 an approval may narrow, never widen | P | `scopes.narrower_or_equal` / `assert_narrowing` | `test_support_access_model.py` T-narrowing |
+| B05 effective scope = request ∩ every approval | P | `service.effective_scope` | `test_support_access_model.py` |
+| B06 fresh MFA at request, approve, activate, revoke, break-glass | P | `core/privacy/mfa.require_fresh_mfa` on every state-changing support route | route tests; `HR_SUPPORT_GRANT_MFA_MAX_AGE_SECONDS` |
+| B07 capability is signed and verified on every call | P | `granttokens.issue/verify` (HS256, auto-RS256 if a PEM is set), `grant_context` | T02, `test_support_access_flow.py` |
+| B08 status only moves through the state machine | P | `state.py`; a scan test refuses any `.status =` elsewhere | `test_support_access_model.py::test_status_is_only_written_by_the_state_module` |
+| B09 scope schema is closed (unknown key/resource/field refused) | P | `scopes.validate_scope` | `test_support_access_model.py` T-scope |
+| B10 `impersonate` can never be granted | P | `GRANTABLE_ACTIONS` excludes it; `validate_scope` refuses it | `test_support_access_model.py` |
+| B11 secret values can never be in scope | P | `validate_scope` refuses SECRET classification | `test_support_access_model.py` |
+| B12 tenant notified; tenant can revoke now | P | `service.notify_tenant`, `/hr/support-access/grants/{id}/revoke` | T07 |
+| C01 single-tenant capability | P | grant carries `tenant_id`; `grant_context` + policy refuse another tenant | T05 |
+| C02 bound to session and device | P | `session_fingerprint`, `device_fingerprint`, claims `sid`/`dev` | `grant_context`; T-flow |
+| C03 short-lived, ≤120 min, no renewal | P | `HR_SUPPORT_GRANT_MAX_TTL_MINUTES`; there is no renew path | issuance tests |
+| C04 action- and field-limited | P | capability carries actions + fields; policy enforces | T01, T04, T06 |
+| C05 object-limited | P | `record_ids` / `entity_ids` / `department_ids` | T03 |
+| C06 revocation version bound into the token | P | `revocation_version` vs claim `rv` | T30 |
+| C07 superseded on policy change | P | `policy_version` vs claim `pv` | `grant_context` |
+| D01 enforcement on every support operation | P | every `/support` handler depends on `grant_context` + `_authorize` | whole flow suite |
+| D02 fail closed — any missing check denies | P | `grant_context` refuses in order; `policy` default-deny | T02, T04, T05, T06 |
+| D03 default view IS the grant (mask the rest) | P | `router._fields_param` passes `fields=None` → policy returns exactly granted fields | T01 |
+| D04 an explicitly named non-granted field refuses the whole request | P | `Context.explicit_fields` | T04 |
+| D05 no cross-product propagation | P | capability is scoped to the support module; other routes ignore the cookie | `test_platform_boundary.py` unchanged |
+| D06 platform refused on tenant routes even with a grant | P | route classification + middleware | `test_platform_boundary.py` |
+| D07 export/download are separate verbs | P | action check | T06 |
+| D08 jobs / downloads scoped to and cancelled with the grant | P | `jobs.register/cancel_for_grant` | T31 |
+| E01 field sensitivity enforced | P | `policy` classification levels | T04 |
+| E02 special-category data needs Privacy + legal basis | P | `scopes.requires_privacy_approval`, `legal_basis_reference` | model + flow tests |
+| E03 financial data needs Security | P | `scopes.requires_security_approval` | model tests |
+| E04 masking is real (values absent, not blanked) | P | policy returns field names; handler selects them | T01 (canary absent) |
+| E05 exports are grant-scoped | P | export action + object scope | T06 |
+| E06 no sensitive values in logs | P | `events.emit` filters; audit stores names only | `audit.record` payload review |
+| E07 residency / jurisdiction (when a scope carries it) | F | `jurisdictions` in scope; no per-region store yet | note only |
+| E08 usable only by the platform account it was issued to | P | `grantee_person_id` / `sub` checks | `grant_context` |
+| F01 revocation is immediate | P | `revoke_grant` bumps version, tombstones cache | T30 |
+| F02 tenant "Revoke now" | P | `/hr/support-access/grants/{id}/revoke` | T07 |
+| F03 expiry enforced per request | P | `grant_context` checks `expires_at` | `test_support_access_flow.py` |
+| F04 kill switch by person / session / tenant / global | P | `service.kill_switch`, `/super-admin/support-access/kill-switch` | T27, T28, T29 |
+| F05 a tenant's kill switch reaches only itself | P | forced TENANT scope | T29 |
+| F06 queued work cancelled on revocation | P | `jobs.cancel_for_grant` | T31 |
+| F07 ≤60 s propagation across nodes | F | Redis pub/sub `cache.subscribe` + 5 s TTL fallback | T30 proves single-node immediacy; cross-node needs a Redis deployment to prove end-to-end |
+| F08 revocation recorded and visible | P | `RevocationEvent`, `/revocations` | T32 |
+| G01 append-only audit table | P | `audit.PrivacyAuditEvent`, `privacy_audit_events` | `test_support_access_audit.py` T13 |
+| G02 SHA-256 hash chain over the record | P | `audit.record`, `verify_chain` | T13 |
+| G03 an edit or delete breaks the chain and is named | P | `verify_chain` returns first bad id | T14, T15 |
+| G04 PostgreSQL append-only trigger; external anchoring seam | F | migration `6b7c8d9e0f1a` trigger; `audit.anchor(sink=...)` is a seam with no sink configured | note; external anchoring needs a destination |
+| H01 break-glass is two-person | P | `start_breakglass` + `confirm_breakglass`; initiator cannot confirm | T19, T20 |
+| H02 fresh MFA on both people | P | `require_fresh_mfa(300)` on start and confirm | route |
+| H03 read-only | P | `_breakglass_scope` refuses write verbs | T21 |
+| H04 never special-category or secret | P | `_breakglass_scope` refuses those levels | T22 |
+| H05 ≤60 min, non-renewable | P | `HR_SUPPORT_BREAKGLASS_MAX_MINUTES`, capped at 60 | T25 |
+| H06 tenant sees it; ends by clock or explicit end | P | `/hr/support-access/breakglass`, `end_breakglass`, `expire_breakglass` | T23, T24, T26 |
+| I01 active emergency access is surfaced | P | `assurance.detect` `BREAK_GLASS_ACTIVE` | T34 |
+| I02 sensitive live grants are surfaced | P | `SENSITIVE_GRANT_LIVE` | T33 |
+| I03 a live grant with no approval is critical | P | `GRANT_WITHOUT_APPROVAL` | `detect` |
+| I04 a grant live after its request closed is critical | P | `GRANT_LIVE_AFTER_CLOSE` | `detect` |
+| I05 probing (a burst of refusals) is flagged | P | `DENIAL_BURST` | T38 |
+| I06 unpropagated revocations are flagged; alerts log | P | `REVOCATION_NOT_PROPAGATED`, `scheduler._maintenance_job` | T39, scheduler |
+| J01 tenant transparency page (read model) | P | `assurance.tenant_activity`, `/hr/support-access/activity` | T37 |
+| J02 tenant sees requests, grants, emergency sessions, revocations | P | `tenant_activity` | T37 |
+| J03 tenant sees only its own | P | tenant-scoped query | T37 |
+| J04 shape not values | P | `scopes.summary` in every row | T37 |
+| J05 notification seam on each transition | F | `service.notify_tenant` emits `TENANT_NOTIFIED`; delivery is a seam | real e-mail/portal delivery is `human_actions_required.md` #3 |
+| K01 daily reconciliation with pass/fail | P | `assurance.reconcile`, `/reconciliation` | T35, T39 |
+| K02 recertification queue | P | `assurance.recertification`, `/recertification` | T36 |
+| K03 periodic maintenance (expiry, lapse) | P | `service.run_maintenance`, `support_access/scheduler.py` | runs every 5 min under the leader lock |
+| K04 reconciliation failure pages | P | `_maintenance_job` logs `ALERT` per failed check | scheduler |
+| L01 platform UI: request / approve / revoke / switch | N | API only; no React screen built in this work | see Phase 13 note |
+| L02 tenant UI: approve / revoke now / transparency | N | API only | see Phase 13 note |
+
+## Prompt 2 verification
+- Run: `cd backend && python -m pytest tests/privacy -q` — **298 passed, 11 skipped** (T01–T39 + Phase 1 model tests + Prompt 1 suites).
+- Migrations `5a6b7c8d9e0f` (models + PG maker-checker trigger), `6b7c8d9e0f1a` (audit + append-only trigger),
+  `7c8d9e0f1a2b` (break-glass grant has no request). All upgrade and downgrade cleanly; single head `7c8d9e0f1a2b`.
+- `docs/privacy/endpoint_inventory.md` and `data_classification.md` are generated and checked in CI.
+
+## Prompt 2 deviations and gaps (deliberate)
+1. **Grant signing key**: HS256 with a dedicated key (`HR_SUPPORT_GRANT_SIGNING_KEY`, else derived from `SECRET_KEY`);
+   auto-switches to RS256 when a PEM is configured. Asymmetric keys require key management, which is a deployment decision.
+2. **External audit anchoring**: `audit.anchor(sink=...)` exists with no sink; the chain is tamper-evident within the DB,
+   not yet anchored outside it (G04).
+3. **Redis**: the pub/sub fan-out and cross-node ≤60 s proof need a Redis deployment; without it a single node is still
+   bounded by the 5 s cache TTL and the per-request version check (F07).
+4. **Notifications**: emitted as events; e-mail/portal delivery is a seam (J05).
+5. **Phase 13 UI** is not built; every control is reachable by API and tested there.
+
