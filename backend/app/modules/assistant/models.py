@@ -554,3 +554,20 @@ class ChatPrivacyRequest(Base):
     status          = Column(Enum(PrivacyRequestStatus), default=PrivacyRequestStatus.PENDING, nullable=False)
     created_at      = Column(DateTime, server_default=func.now())
     completed_at    = Column(DateTime, nullable=True)
+
+
+class PublicRateLimit(Base):
+    """Shared rate-limit counter for the unauthenticated public assistant
+    endpoint, backed by Postgres rather than in-memory. The in-process
+    slowapi limiter on that route is per-worker-process — production runs
+    this app under multiple gunicorn workers, so an in-memory-only limit
+    would let a single visitor get up to (worker_count x limit) requests
+    through. One row per (ip_hash, window) minute; ip_hash never stores a
+    raw IP, matching this module's existing logging-privacy convention."""
+    __tablename__ = "public_rate_limits"
+    __table_args__ = (UniqueConstraint("ip_hash", "window_start", name="uq_public_rate_limit_window"),)
+
+    id             = Column(Integer, primary_key=True, index=True)
+    ip_hash        = Column(String(64), nullable=False, index=True)
+    window_start   = Column(DateTime, nullable=False)
+    request_count  = Column(Integer, nullable=False, default=0)

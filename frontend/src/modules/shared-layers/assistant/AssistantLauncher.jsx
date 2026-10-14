@@ -67,7 +67,7 @@ export default function AssistantLauncher() {
         ref={launcherRef}
         type="button"
         onClick={() => (open ? close() : setOpen(true))}
-        aria-label={open ? "Close HR Assistant" : "Open HR Assistant"}
+        aria-label={open ? "Close Zoiko HR Assistant" : "Open Zoiko HR Assistant"}
         aria-expanded={open}
         className={`zhr-orb-btn fixed bottom-5 right-5 z-50 flex h-14 w-14 items-center justify-center
           rounded-2xl
@@ -81,7 +81,7 @@ export default function AssistantLauncher() {
       {open && (
         <div
           role="dialog"
-          aria-label="HR Assistant"
+          aria-label="Zoiko HR Assistant"
           className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--zhr-surface-overlay)]
             sm:inset-auto sm:bottom-24 sm:right-5 sm:rounded-3xl sm:border sm:border-[var(--zhr-border-default)] sm:shadow-[var(--zhr-elevation-modal)]"
           style={{
@@ -109,3 +109,4 @@ export default function AssistantLauncher() {
     document.body
   );
 }
+
