@@ -47,9 +47,29 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Create 'root' DB role and grant privileges
+      - name: Install backend dependencies
+        working-directory: backend
         run: |
-          until psql -h localhost -U postgres -d zoiko_hr_test -c '\q' 2>/dev/null; do sleep 1; done
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Create 'root' DB role and grant privileges
+        env:
+          PGPASSWORD: postgres
+        run: |
+          ready=false
+          for attempt in $(seq 1 30); do
+            if psql -w -h localhost -U postgres -d zoiko_hr_test -c '\q'; then
+              ready=true
+              break
+            fi
+            echo "PostgreSQL is not accepting connections yet (attempt $attempt/30)." >&2
+            sleep 2
+          done
+          if [ "$ready" != true ]; then
+            echo "PostgreSQL did not become ready within 60 seconds." >&2
+            exit 1
+          fi
           psql -h localhost -U postgres -d zoiko_hr_test <<'SQL'
             DO $$
             BEGIN
@@ -64,16 +84,8 @@ jobs:
           SQL
 
       - name: Run DB migrations
-        run: |
-          cd backend
-          pip install -r requirements.txt
-          python -m alembic upgrade head
-
-      - name: Install backend dependencies
         working-directory: backend
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
+        run: python -m alembic upgrade head
 
       - name: Run backend tests
         working-directory: backend
