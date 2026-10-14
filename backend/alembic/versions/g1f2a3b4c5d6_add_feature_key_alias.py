@@ -44,16 +44,18 @@ _CANONICAL_ALIASES = [
 
 
 def upgrade() -> None:
-    op.create_table(
-        'feature_key_alias',
-        sa.Column('id', sa.Integer(), primary_key=True),
-        sa.Column('alias_key', sa.String(length=150), nullable=False),
-        sa.Column('canonical_key', sa.String(length=150), nullable=False),
-        sa.Column('note', sa.String(length=255), nullable=True),
-        sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.UniqueConstraint('alias_key', name='uq_feature_key_alias_alias_key'),
-    )
-    op.create_index('ix_feature_key_alias_alias_key', 'feature_key_alias', ['alias_key'])
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+    if 'feature_key_alias' not in inspector.get_table_names():
+        op.create_table(
+            'feature_key_alias',
+            sa.Column('id', sa.Integer(), primary_key=True),
+            sa.Column('alias_key', sa.String(length=150), nullable=False),
+            sa.Column('canonical_key', sa.String(length=150), nullable=False),
+            sa.Column('note', sa.String(length=255), nullable=True),
+            sa.Column('created_at', sa.DateTime(), nullable=False, server_default=sa.func.now()),
+            sa.UniqueConstraint('alias_key', name='uq_feature_key_alias_alias_key'),
+        )
 
     aliases = sa.table(
         'feature_key_alias',
@@ -61,10 +63,18 @@ def upgrade() -> None:
         sa.column('canonical_key', sa.String(150)),
         sa.column('note', sa.String(255)),
     )
-    op.bulk_insert(aliases, [
+    existing_aliases = set(bind.execute(sa.select(aliases.c.alias_key)).scalars())
+    missing_aliases = [
         {"alias_key": alias, "canonical_key": canonical, "note": note}
         for alias, canonical, note in _CANONICAL_ALIASES
-    ])
+        if alias not in existing_aliases
+    ]
+    if missing_aliases:
+        op.bulk_insert(aliases, missing_aliases)
+
+    index_names = {index['name'] for index in inspector.get_indexes('feature_key_alias')}
+    if 'ix_feature_key_alias_alias_key' not in index_names:
+        op.create_index('ix_feature_key_alias_alias_key', 'feature_key_alias', ['alias_key'])
 
 
 def downgrade() -> None:

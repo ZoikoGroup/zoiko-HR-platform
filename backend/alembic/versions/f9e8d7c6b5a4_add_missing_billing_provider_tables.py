@@ -27,6 +27,21 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    # The baseline migration uses current ORM metadata, so fresh databases
+    # already have this complete group of tables before this historical
+    # migration runs. Existing databases predating these models have none.
+    existing = set(sa.inspect(op.get_bind()).get_table_names())
+    if {
+        'billing_provider_refs',
+        'billing_invoices',
+        'billing_webhook_events',
+        'billing_idempotency_keys',
+        'billing_reconciliation_cases',
+        'billing_plan_changes',
+        'billing_refund_requests',
+    }.issubset(existing):
+        return
+
     op.create_table(
         'billing_provider_refs',
         sa.Column('id', sa.Integer(), primary_key=True),

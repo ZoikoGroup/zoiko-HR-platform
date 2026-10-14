@@ -22,7 +22,9 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column('organization_evaluations', sa.Column('reminder_halfway_sent_at', sa.DateTime(), nullable=True))
+    existing = {column["name"] for column in sa.inspect(op.get_bind()).get_columns("organization_evaluations")}
+    if "reminder_halfway_sent_at" not in existing:
+        op.add_column('organization_evaluations', sa.Column('reminder_halfway_sent_at', sa.DateTime(), nullable=True))
 
 
 def downgrade() -> None:

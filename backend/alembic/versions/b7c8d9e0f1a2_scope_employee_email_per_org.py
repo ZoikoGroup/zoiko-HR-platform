@@ -29,25 +29,65 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     bind = op.get_bind()
     inspector = sa.inspect(bind)
+    unique_constraints = inspector.get_unique_constraints("employees")
 
     # The old column-level UNIQUE was unnamed in the model, so its DDL name is
     # dialect-generated (PostgreSQL autogenerates employees_email_key). Find and
     # drop whatever unique constraint or unique index sits on email alone.
-    for constraint in inspector.get_unique_constraints("employees"):
+    dropped_constraints = set()
+    for constraint in unique_constraints:
         if constraint["column_names"] == ["email"]:
             op.drop_constraint(constraint["name"], "employees", type_="unique")
+            dropped_constraints.add(constraint["name"])
 
     for index in inspector.get_indexes("employees"):
-        if index.get("unique") and index["column_names"] == ["email"] and index.get("name"):
+        if (
+            index.get("unique")
+            and index["column_names"] == ["email"]
+            and index.get("name")
+            and index["name"] not in dropped_constraints
+        ):
             op.drop_index(index["name"], table_name="employees")
 
-    op.create_unique_constraint(
-        "uq_employees_organization_email",
-        "employees",
-        ["organization_id", "email"],
+    target_columns = ["organization_id", "email"]
+    target_constraint = next(
+        (constraint for constraint in unique_constraints if constraint["name"] == "uq_employees_organization_email"),
+        None,
     )
+    target_index = next(
+        (index for index in inspector.get_indexes("employees") if index.get("name") == "uq_employees_organization_email"),
+        None,
+    )
+    if target_constraint and target_constraint["column_names"] != target_columns:
+        raise RuntimeError("uq_employees_organization_email exists with unexpected columns")
+    if target_index and (
+        not target_index.get("unique") or target_index["column_names"] != target_columns
+    ):
+        raise RuntimeError("uq_employees_organization_email index exists with unexpected definition")
+    if not target_constraint and not target_index:
+        op.create_unique_constraint(
+            "uq_employees_organization_email",
+            "employees",
+            target_columns,
+        )
 
 
 def downgrade() -> None:
-    op.drop_constraint("uq_employees_organization_email", "employees", type_="unique")
-    op.create_unique_constraint("uq_employees_email", "employees", ["email"])
+    inspector = sa.inspect(op.get_bind())
+    constraints = inspector.get_unique_constraints("employees")
+    target = next(
+        (constraint for constraint in constraints if constraint["name"] == "uq_employees_organization_email"),
+        None,
+    )
+    if target:
+        op.drop_constraint("uq_employees_organization_email", "employees", type_="unique")
+    elif any(index.get("name") == "uq_employees_organization_email" for index in inspector.get_indexes("employees")):
+        op.drop_index("uq_employees_organization_email", table_name="employees")
+
+    has_email_constraint = any(constraint["column_names"] == ["email"] for constraint in constraints)
+    has_email_index = any(
+        index.get("unique") and index["column_names"] == ["email"]
+        for index in inspector.get_indexes("employees")
+    )
+    if not has_email_constraint and not has_email_index:
+        op.create_unique_constraint("uq_employees_email", "employees", ["email"])
