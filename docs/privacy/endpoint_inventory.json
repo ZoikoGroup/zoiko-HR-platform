@@ -9958,6 +9958,21 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_kill_switch",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/kill-switch",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.tenant_requests",
   "methods": [
    "GET"
@@ -9995,6 +10010,21 @@
   "module": "app.modules.support_access.router",
   "org_scoped_dependency": [],
   "path": "/hr/support-access/requests/{request_id}/reject",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.tenant_revocations",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/support-access/revocations",
   "privacy_class": "DATA_PLANE",
   "role_guards": [],
   "roles": [
@@ -11994,6 +12024,23 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_kill_switch",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/kill-switch",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.my_requests",
   "methods": [
    "GET"
@@ -12069,6 +12116,23 @@
   "module": "app.modules.support_access.router",
   "org_scoped_dependency": [],
   "path": "/super-admin/support-access/requests/{request_id}/independent-approve",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_revocations",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/revocations",
   "privacy_class": "CONTROL_PLANE",
   "role_guards": [
    "get_current_super_admin"

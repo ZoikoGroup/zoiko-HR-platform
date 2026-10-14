@@ -107,6 +107,15 @@ async def lifespan(application: FastAPI):
     except Exception as e:
         logger.warning("[startup] Integrations worker could not be started: %s", e)
 
+    # Support-access revocation fan-out (ZHR-PRIV-001 Phase 7): a revocation on one node must be known to the others
+    # within the cache TTL. Best effort - without Redis each node still bounds staleness by its own TTL.
+    try:
+        from app.modules.support_access import cache as _support_cache
+
+        _support_cache.start_subscriber()
+    except Exception as e:
+        logger.warning("[startup] Support-access revocation subscriber could not start: %s", e)
+
     # Route→feature sweep (Prompt 6): report FEATURE_KEYS with zero mapped
     # routes and flag any mapped route that no longer exists (drift). Report-only
     # by design; enable hard enforcement via HR_ENFORCE_ENTITLEMENTS.
@@ -133,6 +142,12 @@ async def lifespan(application: FastAPI):
         from app.modules.integrations.worker import stop_worker
 
         stop_worker()
+    except Exception:
+        pass
+    try:
+        from app.modules.support_access import cache as _support_cache
+
+        _support_cache.stop_subscriber()
     except Exception:
         pass
     # Dispose all pooled connections before shutdown so Neon's SSL teardown

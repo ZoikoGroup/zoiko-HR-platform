@@ -99,6 +99,12 @@ class StartBreakGlassBody(BaseModel):
     scope: ScopeBody
 
 
+class KillSwitchBody(BaseModel):
+    scope: str                       # PERSON | SESSION | TENANT | GLOBAL
+    target: Optional[str] = None
+    reason: str
+
+
 # ── views (names and shapes only; never a field value) ─────────────────────────────────────────────────────────────
 def _scope_out(scope: Optional[dict]) -> Optional[dict]:
     return sc.summary(scope) if scope else None
@@ -148,6 +154,19 @@ def _breakglass_out(session: BreakGlassSession) -> dict:
         "ended_at": session.ended_at.isoformat() if session.ended_at else None,
         "review_status": session.review_status,
         "scope": _scope_out(session.scope),
+    }
+
+
+def _revocation_out(row) -> dict:
+    return {
+        "id": row.id,
+        "target_type": row.target_type,
+        "target_ref": row.target_ref,
+        "tenant_id": row.tenant_id,
+        "reason": row.reason,
+        "requested_at": row.requested_at.isoformat() if row.requested_at else None,
+        "propagated_at": row.propagated_at.isoformat() if row.propagated_at else None,
+        "propagation_confirmed": row.propagation_confirmed,
     }
 
 
@@ -342,6 +361,27 @@ def end_breakglass(
     return _breakglass_out(session)
 
 
+# ══ platform: kill switch and revocation record (Phase 7) ═══════════════════════════════════════════════════════════
+@platform_router.post("/kill-switch")
+def platform_kill_switch(
+    payload: KillSwitchBody,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_super_admin),
+    _mfa=Depends(require_fresh_mfa(300)),
+):
+    """Revoke every live grant a person, a session, a tenant or the whole platform is holding. One call, immediate."""
+    result = service.kill_switch(
+        db, scope=payload.scope, target=payload.target, actor_id=user.id, reason=payload.reason,
+    )
+    db.commit()
+    return result
+
+
+@platform_router.get("/revocations")
+def platform_revocations(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    return [_revocation_out(r) for r in service.recent_revocations(db)]
+
+
 # ══ tenant: authorise, revoke, view ═════════════════════════════════════════════════════════════════════════════════
 @tenant_router.get("/requests")
 def tenant_requests(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -451,6 +491,30 @@ def tenant_breakglass(db: Session = Depends(get_db), user=Depends(get_current_us
     if getattr(user, "organization_id", None) is None:
         raise HTTPException(403, "Tenant scope required")
     return [_breakglass_out(s) for s in service.breakglass_for_tenant(db, user.organization_id)]
+
+
+@tenant_router.post("/kill-switch")
+def tenant_kill_switch(
+    payload: KillSwitchBody,
+    db: Session = Depends(get_db),
+    user=Depends(get_current_user),
+    _mfa=Depends(require_fresh_mfa(300)),
+):
+    """The tenant's own emergency stop. It may only ever reach its own tenant - the scope is forced, not trusted."""
+    if getattr(user, "organization_id", None) is None:
+        raise HTTPException(403, "Tenant scope required")
+    result = service.kill_switch(
+        db, scope="TENANT", target=str(user.organization_id), actor_id=user.id, reason=payload.reason,
+    )
+    db.commit()
+    return result
+
+
+@tenant_router.get("/revocations")
+def tenant_revocations(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    if getattr(user, "organization_id", None) is None:
+        raise HTTPException(403, "Tenant scope required")
+    return [_revocation_out(r) for r in service.revocations_for_tenant(db, user.organization_id)]
 
 
 # ══ the enforced data path ══════════════════════════════════════════════════════════════════════════════════════════

@@ -19,7 +19,7 @@ from app.config import settings
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.privacy import policy
 from app.core.privacy.classification import Level
-from app.modules.support_access import events, granttokens, scopes as sc, state as st
+from app.modules.support_access import events, granttokens, jobs, scopes as sc, state as st
 from app.modules.support_access.models import (
     APPROVAL_WINDOW_HOURS,
     DEFAULT_DURATION_MINUTES,
@@ -33,6 +33,7 @@ from app.modules.support_access.models import (
     PurposeCategory,
     RequestStatus,
     RevocationEvent,
+    RevocationTarget,
     SupportAccessRequest,
     SupportGrant,
     TenantAuthoriser,
@@ -444,6 +445,7 @@ def revoke_grant(db: Session, grant: SupportGrant, *, actor_id: Optional[int], r
     events.emit("GRANT_REVOKED", db=db, grant_id=grant.id, request_id=grant.request_id, tenant_id=grant.tenant_id,
                 actor_person_id=actor_id, reason=reason)
     _invalidate_cache(grant)
+    jobs.cancel_for_grant(grant.id, reason=reason)
     return grant
 
 
@@ -505,6 +507,71 @@ def notify_tenant(db: Session, request: SupportAccessRequest, event_type: str) -
     summary = sc.summary(effective_scope(request))
     events.emit("TENANT_NOTIFIED", db=db, request_id=request.id, tenant_id=request.tenant_id, trigger=event_type, summary=summary)
     logger.info("tenant %s notified: %s for %s", request.tenant_id, event_type, request.reference)
+
+
+# ── kill switch: revoke by person, session, tenant or globally (Phase 7) ───────────────────────────────────────────
+def _live_grants_query(db: Session):
+    return db.query(SupportGrant).filter(SupportGrant.revoked_at.is_(None), SupportGrant.expires_at > datetime.utcnow())
+
+
+def kill_switch(
+    db: Session,
+    *,
+    scope: str,
+    target,
+    actor_id: Optional[int],
+    reason: str,
+    now: Optional[datetime] = None,
+) -> dict:
+    """The emergency stop. Revokes every live grant the scope names and records one KILL_SWITCH event.
+
+    scope: PERSON (target = person id) | SESSION (target = session id) | TENANT (target = tenant id) | GLOBAL (no target).
+    """
+    scope = (scope or "").upper()
+    target_map = {"PERSON": RevocationTarget.PERSON, "SESSION": RevocationTarget.SESSION,
+                  "TENANT": RevocationTarget.TENANT, "GLOBAL": RevocationTarget.GLOBAL}
+    if scope not in target_map:
+        raise BadRequestException("scope must be one of PERSON, SESSION, TENANT, GLOBAL")
+    if scope != "GLOBAL" and target in (None, ""):
+        raise BadRequestException(f"a {scope} kill switch needs a target")
+    now = _now(now)
+
+    q = _live_grants_query(db)
+    if scope == "PERSON":
+        q = q.filter(SupportGrant.grantee_person_id == int(target))
+    elif scope == "SESSION":
+        q = q.filter(SupportGrant.session_id == str(target))
+    elif scope == "TENANT":
+        q = q.filter(SupportGrant.tenant_id == int(target))
+    grants = q.all()
+
+    tenant_id = int(target) if scope == "TENANT" else None
+    for grant in grants:
+        revoke_grant(db, grant, actor_id=actor_id, reason=f"kill switch ({scope})", now=now)
+
+    # one record for the switch itself, on top of the per-grant GRANT_REVOKED rows
+    db.add(RevocationEvent(
+        target_type=scope, target_ref=None if scope == "GLOBAL" else str(target),
+        tenant_id=tenant_id, actor_person_id=actor_id, reason=reason,
+        requested_at=now, propagated_at=now, propagation_confirmed=True,
+    ))
+    events.emit("KILL_SWITCH", db=db, tenant_id=tenant_id, actor_person_id=actor_id,
+                scope=scope, revoked=len(grants), reason=reason)
+    return {"scope": scope, "target": None if scope == "GLOBAL" else str(target), "revoked": len(grants)}
+
+
+def revocations_for_tenant(db: Session, tenant_id: int, limit: int = 200) -> list[RevocationEvent]:
+    return (
+        db.query(RevocationEvent)
+        .filter(RevocationEvent.tenant_id == tenant_id)
+        .order_by(RevocationEvent.requested_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
+def recent_revocations(db: Session, limit: int = 200) -> list[RevocationEvent]:
+    return db.query(RevocationEvent).order_by(RevocationEvent.requested_at.desc()).limit(limit).all()
 
 
 # ── read helpers ────────────────────────────────────────────────────────────────────────────────────────────────────

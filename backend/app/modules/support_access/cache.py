@@ -81,3 +81,65 @@ def apply_revocation(grant_id: str) -> None:
     with _LOCK:
         _STORE.pop(grant_id, None)
         _TOMBSTONES[grant_id] = time.time() + TOMBSTONE_TTL
+
+
+CHANNEL = "zhr:support:revocation"
+_subscriber_thread: Optional[threading.Thread] = None
+_subscriber_stop: Optional[threading.Event] = None
+
+
+def subscribe(stop_event: Optional[threading.Event] = None, poll_timeout: float = 1.0) -> None:
+    """Blocking pub/sub loop: apply every revocation another node published. Returns when stop_event is set (or at once if
+    there is no Redis, so a caller without Redis is never blocked)."""
+    client = None
+    try:
+        from app.core.redis_client import get_redis
+
+        client = get_redis()
+    except Exception:
+        client = None
+    if client is None:
+        logger.debug("revocation subscriber not started (no redis)")
+        return
+    pubsub = client.pubsub(ignore_subscribe_messages=True)
+    pubsub.subscribe(CHANNEL)
+    try:
+        while not (stop_event is not None and stop_event.is_set()):
+            message = pubsub.get_message(timeout=poll_timeout)
+            if message and message.get("type") == "message":
+                apply_revocation(message.get("data"))
+    except Exception:
+        logger.warning("revocation subscriber stopped after an error", exc_info=True)
+    finally:
+        try:
+            pubsub.close()
+        except Exception:  # pragma: no cover
+            pass
+
+
+def start_subscriber() -> Optional[threading.Thread]:
+    """Start the revocation subscriber on a daemon thread. Idempotent; returns None when there is no Redis."""
+    global _subscriber_thread, _subscriber_stop
+    if _subscriber_thread is not None and _subscriber_thread.is_alive():
+        return _subscriber_thread
+    if _subscriber_stop is None:
+        _subscriber_stop = threading.Event()
+    try:
+        from app.core.redis_client import get_redis
+
+        if get_redis() is None:
+            return None
+    except Exception:
+        return None
+    _subscriber_thread = threading.Thread(
+        target=subscribe, args=(_subscriber_stop,), daemon=True, name="support-revocation-subscriber"
+    )
+    _subscriber_thread.start()
+    return _subscriber_thread
+
+
+def stop_subscriber() -> None:
+    global _subscriber_thread, _subscriber_stop
+    if _subscriber_stop is not None:
+        _subscriber_stop.set()
+    _subscriber_thread = None
