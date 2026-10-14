@@ -1054,9 +1054,15 @@ def get_learning_dashboard(db: Session, organization_id: Optional[int] = None) -
         LearningCalendarEvent.event_date >= today, *event_org_filter
     ).count()
 
+    # strftime is the portable month bucket; to_char is PostgreSQL-only and crashes other dialects (SQLite in tests).
+    enrolled_at = LearningEnrollment.enrolled_at
+    if db.get_bind().dialect.name == "postgresql":
+        month_expr = func.to_char(enrolled_at, "YYYY-MM")
+    else:
+        month_expr = func.strftime("%Y-%m", enrolled_at)
     enrollment_trend = (
         db.query(
-            func.to_char(LearningEnrollment.enrolled_at, "YYYY-MM").label("month"),
+            month_expr.label("month"),
             func.count(LearningEnrollment.id).label("count"),
         )
         .filter(*enroll_org_filter)

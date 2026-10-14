@@ -146,6 +146,8 @@ def get_current_user(
     if payload is None:
         raise UnauthorizedException("Invalid or expired token. Please log in again.")
 
+    if payload.get("typ") == "refresh":
+        raise UnauthorizedException("Invalid or expired token. Please log in again.")      # a refresh token is not an access token
     email: str = payload.get("sub")
     if email is None:
         raise UnauthorizedException("Token is missing user information.")
@@ -185,9 +187,23 @@ def get_current_user(
             from app.modules.super_admin import organization_service
             raise UnauthorizedException(organization_service.DELETED_ORG_MESSAGE)
 
+    # Trust boundary (ZHR-PRIV-001 A01/D02): a platform (super admin) identity never reaches a tenant data-plane route, whatever
+    # the token claims. The middleware refuses this earlier from the token's role; this is the same rule from the account's
+    # real role, so a token that carries no role (a refresh token) cannot slip past. Same answer as an unknown URL.
+    if request is not None and _role_value(user.role) == "super_admin":
+        from app.core.privacy.routes import classify_route
+        if classify_route(request.url.path) == "DATA_PLANE":
+            from fastapi import HTTPException
+            from app.core.privacy import policy
+            policy.record_platform_route_denial(user.id, request.url.path)
+            raise HTTPException(status_code=404, detail="Not Found")
+
     from app.core.security import token_predates_password_change
     if token_predates_password_change(payload, user):
         raise UnauthorizedException("Your password was changed. Please log in again.")
+
+    if not getattr(user, "is_active", True):
+        raise UnauthorizedException("Your account has been deactivated.")             # a leaver's token stops working now, not at expiry
 
     if getattr(user, "must_change_password", False) and request is not None:
         if request.url.path.rstrip("/") not in _PASSWORD_CHANGE_ALLOWED_PATHS:

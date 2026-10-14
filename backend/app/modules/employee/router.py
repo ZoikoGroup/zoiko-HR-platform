@@ -10,12 +10,14 @@ from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, sta
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 from sqlalchemy import func
+from app.core.security import verify_password
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.client_ip import get_client_ip
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.rate_limiter import limiter
+from app.core.exceptions import NotFoundException
 
 logger = logging.getLogger("zoiko.employee.router")
 
@@ -26,7 +28,7 @@ from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.employee.schema import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeListResponse,
-    LoginRequest, RegisterRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
+    LoginRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
     UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
     PasswordResetResponse, PasswordResetRequest, ChangePasswordRequest, TokenPasswordRequest,
     ChangeManagerRequest, ConfirmProbationRequest,
@@ -285,6 +287,72 @@ def logout(current_user=Depends(get_current_user), request: Request = None, db: 
     return {"message": "Logged out successfully."}
 
 
+# ── Second factor for platform accounts (ZHR-PRIV-001 B02) ─────────────────────────────────────────────────────────
+
+def _platform_account(db: Session, email: str, password: str) -> Employee:
+    """The platform account for these credentials, or the same generic refusal a wrong password gets (no enumeration)."""
+    from app.core.exceptions import UnauthorizedException
+    from app.core.privacy import mfa
+    employee = db.query(Employee).filter(func.lower(Employee.email) == str(email).strip().lower()).first()
+    if not employee or not verify_password(password, employee.hashed_password) or not mfa.is_platform(employee) or not employee.is_active:
+        raise UnauthorizedException("Invalid email or password.")
+    return employee
+
+
+@auth_router.post("/mfa/enroll/start", summary="Begin setting up the authenticator app (platform accounts)")
+@limiter.limit("5/minute")
+def mfa_enroll_start(request: Request, data: MfaEnrollRequest, db: Session = Depends(get_db)):
+    """Needs the account's password (a platform account without a factor cannot sign in yet). Returns the secret ONCE; it is not
+    active until /confirm proves the app has it. A second start replaces an unconfirmed secret, never an active one."""
+    from app.core.exceptions import BadRequestException
+    from app.core.privacy import mfa
+    employee = _platform_account(db, data.email, data.password)
+    if employee.mfa_enabled:
+        raise BadRequestException("A second factor is already set up for this account. Ask another platform administrator to reset it.")
+    info = mfa.begin_enrollment(employee)
+    db.commit()
+    return info
+
+
+@auth_router.post("/mfa/enroll/confirm", response_model=TokenResponse, summary="Confirm the authenticator app and sign in")
+@limiter.limit("10/minute")
+def mfa_enroll_confirm(request: Request, data: MfaEnrollRequest, db: Session = Depends(get_db)):
+    from app.core.exceptions import BadRequestException, ZoikoException
+    from app.core.privacy import mfa
+    employee = _platform_account(db, data.email, data.password)
+    if employee.mfa_enabled or not employee.mfa_secret:
+        raise BadRequestException("Start the setup first.")
+    if not mfa.verify_code(employee, data.code):
+        raise ZoikoException(401, mfa.MFA_INVALID_CODE, "That code is not valid. Check the code and try again.")
+    from datetime import datetime as _dt
+    employee.mfa_enabled, employee.mfa_enrolled_at = True, _dt.utcnow()
+    db.add(AuditLog(action=AuditAction.CONFIG_CHANGE, entity_type="User", entity_id=employee.id, performed_by=employee.id,
+                    performed_by_email=employee.email, details={"event": "mfa.enrolled"}))
+    db.commit()
+    import time as _time
+    return _record_sign_in(request, db, service.issue_login(db, employee, mfa_verified_at=int(_time.time())), method="password+mfa")
+
+
+@auth_router.post("/mfa/step-up", summary="Confirm it is you: a fresh access token carrying a fresh second-factor check")
+@limiter.limit("10/minute")
+def mfa_step_up(request: Request, data: StepUpRequest, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    from app.core.exceptions import ZoikoException
+    from app.core.privacy import mfa
+    from app.core.security import create_access_token
+    import time as _time
+    if not mfa.is_platform(current_user) or not current_user.mfa_enabled:
+        raise ZoikoException(400, "MFA_NOT_ENROLLED", "No second factor is set up for this account.")
+    if not mfa.verify_code(current_user, data.code):
+        raise ZoikoException(401, mfa.MFA_INVALID_CODE, "That code is not valid. Check the code and try again.")
+    db.commit()
+    from datetime import timedelta
+    from app.config import settings as _settings
+    token = create_access_token(data={"sub": current_user.email, "role": "super_admin", "id": current_user.id, "organization_id": None,
+                                      "aud": "zoiko-hr", "mfa_at": int(_time.time())},
+                                expires_delta=timedelta(minutes=max(int(_settings.PLATFORM_IDLE_TIMEOUT_MINUTES), 1)))
+    return {"access_token": token, "token_type": "bearer"}
+
+
 @auth_router.post(
     "/refresh",
     response_model=TokenResponse,
@@ -297,6 +365,8 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
 
     payload = decode_access_token(data.refresh_token)
     if not payload or "id" not in payload:
+        raise UnauthorizedException("Invalid or expired refresh token.")
+    if "role" in payload:                         # an access token is not a refresh token
         raise UnauthorizedException("Invalid or expired refresh token.")
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
@@ -320,12 +390,19 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
     if token_predates_password_change(payload, employee):
         raise UnauthorizedException("Your password was changed. Please log in again.")
 
+    role_value = employee.role.value if hasattr(employee.role, "value") else employee.role
+    ttl = None
+    if role_value == "super_admin":
+        from datetime import timedelta
+        from app.config import settings as _settings
+        ttl = timedelta(minutes=max(int(_settings.PLATFORM_IDLE_TIMEOUT_MINUTES), 1))      # the platform's short access token
     new_token = create_access_token(data={
         "sub": employee.email,
-        "role": employee.role.value if hasattr(employee.role, "value") else employee.role,
+        "role": role_value,
         "id": employee.id,
         "organization_id": employee.organization_id,
-    })
+        "aud": "zoiko-hr",
+    }, expires_delta=ttl)
     from app.modules.employee.schema import EmployeeResponse as EmpResp
     emp_data = EmpResp.model_validate(employee).model_dump()
     if employee.organization_id:
@@ -972,7 +1049,9 @@ def list_employees(
     response_model=EmployeeResponse,
     summary="Get a single employee by ID",
 )
+@limiter.limit("120/minute")          # ID lookups are rate limited: walking IDs is how another tenant's records get probed (ZHR-PRIV-001 C07)
 def get_employee(
+    request: Request,
     employee_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
@@ -1127,14 +1206,16 @@ def list_employees_mgmt(
     response_model=EmployeeResponse,
     summary="Get a single employee by ID",
 )
+@limiter.limit("120/minute")
 def get_employee_mgmt(
+    request: Request,
     employee_id: int,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
     emp = service.get_employee_by_id(db, employee_id, organization_id=current_user.organization_id)
     if current_user.organization_id and emp.organization_id != current_user.organization_id:
-        raise HTTPException(status_code=403, detail="Access denied")
+        raise NotFoundException("Employee", employee_id)          # another organization's employee looks exactly like a missing one
     return emp
 
 
@@ -1238,6 +1319,12 @@ def bulk_delete_employees_mgmt(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from app.config import settings as _settings
+    from app.core.privacy import approvals
+    if len(data.ids) >= _settings.DUAL_CONTROL_BULK_THRESHOLD:
+        held = approvals.gate_high_impact(db, current_user, "bulk_delete", {"ids": sorted(set(data.ids))}, data.approval_id)
+        if held is not None:
+            return held
     return service.bulk_delete_employees(
         db,
         data.ids,
@@ -1253,7 +1340,11 @@ def bulk_delete_employees_mgmt(
     summary="Delete all employees in the organization (active ones are deactivated; inactive ones are permanently deleted)",
     dependencies=[Depends(get_current_admin)],
 )
-def delete_all_employees_mgmt(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def delete_all_employees_mgmt(approval_id: Optional[int] = Query(None), db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    from app.core.privacy import approvals
+    held = approvals.gate_high_impact(db, current_user, "delete_all_employees", {"scope": "organization"}, approval_id)
+    if held is not None:
+        return held
     return service.delete_all_employees(
         db,
         organization_id=current_user.organization_id,
@@ -1278,6 +1369,7 @@ def hard_delete_employee(employee_id: int, db: Session = Depends(get_db), curren
 
 class BulkHardDeleteRequest(BaseModel):
     employee_ids: List[int]
+    approval_id: Optional[int] = None
 
 
 @employee_router.post(
@@ -1291,6 +1383,10 @@ def bulk_hard_delete_employees(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from app.core.privacy import approvals
+    held = approvals.gate_high_impact(db, current_user, "bulk_hard_delete", {"ids": sorted(set(body.employee_ids))}, body.approval_id)
+    if held is not None:
+        return held
     result = service.bulk_hard_delete_employees(
         db, body.employee_ids,
         organization_id=current_user.organization_id,
@@ -1464,6 +1560,7 @@ def exit_employee_mgmt(
 @employee_router.get(
     "/employee-management/reports",
     summary="Get employee reports",
+    dependencies=[Depends(get_current_admin)],
 )
 def get_employee_reports_mgmt(
     db: Session = Depends(get_db),
@@ -1485,6 +1582,7 @@ def get_employee_reports_mgmt(
     "/employee-management/export",
     response_model=list[EmployeeResponse],
     summary="Export employee reports",
+    dependencies=[Depends(get_current_admin)],
 )
 def export_employee_reports_mgmt(
     data: EmployeeExportRequest,

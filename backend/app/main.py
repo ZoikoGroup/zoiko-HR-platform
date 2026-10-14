@@ -34,6 +34,8 @@ from app.core.rate_limiter import limiter
 from app.core import query_stats as _query_stats
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+from app.core.privacy import redact as _privacy_redact  # noqa: E402
+_privacy_redact.install()      # ZHR-PRIV-001 C10: a slip that logs an e-mail, token or national id logs a placeholder instead
 logger = logging.getLogger("zoiko.hr")
 
 
@@ -317,6 +319,11 @@ if settings.ENFORCE_ENTITLEMENTS:
         allow_read_in_read_only=settings.ENTITLEMENTS_ALLOW_READ_IN_READ_ONLY,
         routes_provider=lambda: app.routes,
     )
+# Trust boundary (ZHR-PRIV-001): added after every other middleware so it runs first, before the response cache can answer.
+from app.core.privacy.middleware import PrivacyContextMiddleware  # noqa: E402
+app.add_middleware(PrivacyContextMiddleware)
+from app.core.privacy import tenant_scope as _tenant_scope  # noqa: E402
+_tenant_scope.install()          # every tenant-plane query is limited to the caller's organization by the session itself
 if _QUERY_STATS:
     # Outermost layer, so every query of the request (entitlement checks included) is counted. Dev only.
     app.add_middleware(_query_stats.QueryStatsMiddleware)
@@ -363,11 +370,10 @@ notification_recipient_router = _safe_import(lambda: __import__("app.modules.sup
 integrations_connect_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["connect_router"]).connect_router, "integrations.connect_router")
 integrations_hub_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["hub_router"]).hub_router, "integrations.hub_router")
 integrations_workflow_router = _safe_import(lambda: __import__("app.modules.integrations.router", fromlist=["workflow_router"]).workflow_router, "integrations.workflow_router")
-sa_documents_router = _safe_import(lambda: __import__("app.modules.super_admin.documents_router", fromlist=["router"]).router, "super_admin.documents_router")
-sa_expenses_router = _safe_import(lambda: __import__("app.modules.super_admin.expenses_router", fromlist=["router"]).router, "super_admin.expenses_router")
+tenant_approval_router = _safe_import(lambda: __import__("app.modules.employee.approval_router", fromlist=["router"]).router, "employee.approval_router")
+sa_tenant_admin_router = _safe_import(lambda: __import__("app.modules.super_admin.tenant_admin_router", fromlist=["router"]).router, "super_admin.tenant_admin_router")
+sa_platform_accounts_router = _safe_import(lambda: __import__("app.modules.super_admin.platform_accounts_router", fromlist=["router"]).router, "super_admin.platform_accounts_router")
 sa_activity_router = _safe_import(lambda: __import__("app.modules.super_admin.activity_router", fromlist=["router"]).router, "super_admin.activity_router")
-sa_support_router = _safe_import(lambda: __import__("app.modules.super_admin.support_router", fromlist=["router"]).router, "super_admin.support_router")
-sa_approvals_router = _safe_import(lambda: __import__("app.modules.super_admin.approvals_router", fromlist=["router"]).router, "super_admin.approvals_router")
 assistant_router   = _safe_import(lambda: __import__("app.modules.assistant.router", fromlist=["assistant_router"]).assistant_router, "assistant.assistant_router")
 billing_router     = _safe_import(lambda: __import__("app.modules.billing.router", fromlist=["billing_router"]).billing_router, "billing.billing_router")
 sales_public_router = _safe_import(lambda: __import__("app.modules.sales_leads.router", fromlist=["public_router"]).public_router, "sales_leads.public_router")
@@ -393,11 +399,10 @@ app.include_router(command_center_router)
 app.include_router(integrations_connect_router)
 app.include_router(integrations_hub_router)
 app.include_router(integrations_workflow_router)
-app.include_router(sa_documents_router)
-app.include_router(sa_approvals_router)
-app.include_router(sa_support_router)
 app.include_router(sa_activity_router)
-app.include_router(sa_expenses_router)
+app.include_router(sa_tenant_admin_router)
+app.include_router(tenant_approval_router)
+app.include_router(sa_platform_accounts_router)
 app.include_router(assistant_router)
 app.include_router(billing_router)
 app.include_router(billing_public_router)

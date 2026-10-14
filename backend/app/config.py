@@ -151,6 +151,21 @@ class Settings(BaseSettings):
     REQUIRE_EMAIL_VERIFICATION: bool = True
     EMAIL_VERIFY_TTL_HOURS: int = 48
 
+    # ── Tenant privacy (docs/privacy, ZHR-PRIV-001) ─────────────────────────────────────────────────────
+    # A platform (super admin) view never shows a group smaller than this as a number: it shows "<N" instead.
+    PRIVACY_MIN_COHORT: int = Field(default=10, validation_alias="HR_PRIVACY_MIN_COHORT")
+    # Platform sessions end after this many idle minutes (the access token of a super admin is capped to it).
+    PLATFORM_IDLE_TIMEOUT_MINUTES: int = Field(default=15, validation_alias="HR_PLATFORM_IDLE_TIMEOUT_MINUTES")
+    # A platform session cannot be refreshed past this many hours; after that the person signs in (and passes MFA) again.
+    PLATFORM_SESSION_MAX_HOURS: int = Field(default=8, validation_alias="HR_PLATFORM_SESSION_MAX_HOURS")
+    # Every platform sign-in needs a second factor. Turn this on once the platform accounts have enrolled (an account without an
+    # enrolled factor is then asked to enrol at its next sign-in). An account that HAS enrolled is always asked, on or off.
+    # High-impact bulk actions in a tenant (delete-all, large bulk deletes) need a SECOND organization admin to approve before they run
+    # (ZHR-PRIV-001 D09). Off by default so existing single-admin organizations keep working; turn on per deployment.
+    DUAL_CONTROL_HIGH_IMPACT: bool = Field(default=False, validation_alias="HR_DUAL_CONTROL_HIGH_IMPACT")
+    DUAL_CONTROL_BULK_THRESHOLD: int = Field(default=5, validation_alias="HR_DUAL_CONTROL_BULK_THRESHOLD")
+    PLATFORM_MFA_REQUIRED: bool = Field(default=False, validation_alias="HR_PLATFORM_MFA_REQUIRED")
+
     # ── Sign in with Google (app/modules/employee/google_auth.py) ───────────────
     # Blank = the "Continue with Google" button says it is not set up. Register {API_BASE_URL}/auth/google/callback as an
     # authorized redirect URI in the Google Cloud console (or set GOOGLE_REDIRECT_URI to the exact address registered there).

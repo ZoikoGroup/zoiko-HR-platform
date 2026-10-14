@@ -411,12 +411,24 @@ class EmployeeResponse(BaseModel):
     travel_preferences: Optional[dict] = None
     language: Optional[str] = None
     timezone: Optional[str] = None
+    redacted: Optional[list[str]] = None                 # fields hidden from this viewer (ZHR-PRIV-001 E02)
 
     model_config = {
         "from_attributes": True,
         "alias_generator": _to_camel,
         "populate_by_name": True,
     }
+
+    @model_validator(mode="after")
+    def _hide_what_this_viewer_may_not_see(self):
+        from app.core.privacy.employee_view import fields_to_mask
+        hidden = fields_to_mask(self.id, self.reporting_manager_id, [n for n in self.model_fields if n != "redacted"])
+        if hidden:
+            for name in hidden:
+                object.__setattr__(self, name, "••••" if name in ("email", "employee_code") else None)    # these two are required text in the shape
+            keyname = lambda n: self.model_fields[n].serialization_alias or self.model_fields[n].alias or n      # the name the client sees
+            self.redacted = sorted(keyname(n) for n in hidden if getattr(self, n, None) in (None, "••••"))
+        return self
 
     @model_validator(mode="before")
     @classmethod
@@ -458,6 +470,7 @@ class SuccessResponse(BaseModel):
 
 class BulkEmployeeDeleteRequest(BaseModel):
     ids: List[int] = Field(..., description="Employee IDs to delete")
+    approval_id: Optional[int] = Field(None, description="Second administrator's approval, when the organization requires one")
 
 
 class BulkDeleteResultResponse(BaseModel):
@@ -471,6 +484,17 @@ class BulkDeleteResultResponse(BaseModel):
 class LoginRequest(BaseModel):
     email: EmailStr = Field(..., example="admin@zoiko.com")
     password: str = Field(..., example="SecurePassword123")
+    mfa_code: Optional[str] = Field(None, max_length=12, description="6-digit authenticator code (platform accounts)")
+
+
+class MfaEnrollRequest(BaseModel):
+    email: EmailStr
+    password: str
+    code: Optional[str] = Field(None, max_length=12)
+
+
+class StepUpRequest(BaseModel):
+    code: str = Field(..., max_length=12)
 
 
 class ForgotPasswordRequest(BaseModel):

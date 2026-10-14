@@ -29,6 +29,8 @@ certifi>=2024.2.2
 alembic==1.19.1
 apscheduler>=3.10.4,<4.0.0
 redis==8.1.0
+pyotp==2.10.0          # platform-account second factor (TOTP), app/core/privacy/mfa.py
+hypothesis>=6.100,<7   # property-based tests of the tenant boundary, tests/privacy
 
 # ── Assistant (HR chatbot) ────────────────────────────────────────────────
 groq==1.6.0

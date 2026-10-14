@@ -15,6 +15,7 @@ import time
 from groq import Groq
 
 from app.config import settings
+from app.core.privacy.redact import scrub_messages
 
 logger = logging.getLogger("zoiko.assistant")
 
@@ -49,7 +50,7 @@ def generate(messages: list[dict], json_mode: bool = False, temperature: float =
     start = time.monotonic()
     kwargs = {
         "model": settings.GROQ_MODEL,
-        "messages": messages,
+        "messages": scrub_messages(messages),          # ZHR-PRIV-001 D07: tokens, e-mail and bank / tax / national ids never reach the provider
         "temperature": temperature,
     }
     if json_mode:
@@ -96,7 +97,7 @@ def stream(messages: list[dict], temperature: float = 0.2):
     client = _get_client()
     completion = client.chat.completions.create(
         model=settings.GROQ_MODEL,
-        messages=messages,
+        messages=scrub_messages(messages),
         temperature=temperature,
         stream=True,
     )
@@ -134,7 +135,7 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
     start = time.monotonic()
     kwargs = {
         "model": settings.GROQ_MODEL,
-        "messages": messages,
+        "messages": scrub_messages(messages),
         "temperature": temperature,
         "stream": True,
     }

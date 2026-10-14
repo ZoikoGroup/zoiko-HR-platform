@@ -50,7 +50,8 @@ async def upload_attachment(db: Session, conversation_id: int, organization_id: 
 
     os.makedirs(UPLOAD_DIR, exist_ok=True)
     unique_name = f"{uuid.uuid4().hex}{ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_name)
+    from app.core.privacy.files import tenant_upload_path
+    file_path = tenant_upload_path(UPLOAD_DIR, organization_id, unique_name)       # filed under the tenant (C05)
     with open(file_path, "wb") as fh:
         fh.write(contents)
 

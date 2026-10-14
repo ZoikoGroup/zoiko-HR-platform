@@ -159,7 +159,7 @@ ROLE_PERMISSIONS = {
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
     # STEP 1: Find user by email (User exists check)
-    employee = db.query(Employee).filter(Employee.email == data.email).first()
+    employee = _identity_query(db).filter(Employee.email == data.email).first()
     if not employee:
         logger.warning(f"[AUTH] User not found: email={data.email}")
         raise UnauthorizedException("Invalid email or password.")
@@ -254,6 +254,13 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
         "employee": employee,
     }
 
+def _identity_query(db):
+    """An e-mail address is ONE identity across every organization (sign-in finds a person by it), so uniqueness is checked across
+    all of them, not just the caller's. The only intentionally cross-tenant read in the tenant plane."""
+    from app.core.privacy.tenant_scope import unscoped_for_system
+    return unscoped_for_system(db.query(Employee), reason="e-mail is one identity across organizations")
+
+
 
 def refresh_access_token(db: Session, refresh_token_str: str) -> dict:
     from app.modules.hr.schemas import TokenResponse
@@ -346,7 +353,7 @@ def create_organization_user(
     Super Admin can specify target_org_id to create user in a different organization.
     """
     target_org = target_org_id or organization_id
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
+    existing = _identity_query(db).filter(Employee.email == data.email).first()
     if existing:
         raise AlreadyExistsException("User", "email")
 
@@ -749,7 +756,7 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
 # ════════════════════════════════════════════════════════════════════════════
 
 def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional[int] = None) -> Employee:
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
+    existing = _identity_query(db).filter(Employee.email == data.email).first()
     if existing:
         raise AlreadyExistsException("Employee", "email")
 

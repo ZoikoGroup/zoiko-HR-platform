@@ -61,12 +61,10 @@ def list_events(
     organization_id: Optional[int] = Query(None, description="0 = events with no organization"),
     action_type: Optional[str] = Query(None, description="One or more action types, comma-separated"),
     action_group: Optional[str] = Query(None, description="Employee | Leave | Payroll | Settings | User"),
-    actor_id: Optional[int] = None,
-    actor: Optional[str] = Query(None, max_length=200, description="Actor name or email contains"),
     status: Optional[str] = None,
     date_from: Optional[datetime] = None,
     date_to: Optional[datetime] = None,
-    q: Optional[str] = Query(None, max_length=200, description="Search target, actor or organization"),
+    q: Optional[str] = Query(None, max_length=200, description="Search by organization name"),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=MAX_PAGE_SIZE),
     db: Session = Depends(get_db),
@@ -87,12 +85,7 @@ def list_events(
             query = query.filter(AuditLog.id == -1)
     if types:
         query = query.filter(AuditLog.action_type.in_(types))
-    if actor_id:
-        query = query.filter(AuditLog.performed_by == actor_id)
-    if actor and actor.strip():
-        like = f"%{actor.strip().lower()}%"
-        query = query.filter(or_(func.lower(func.coalesce(AuditLog.actor_name, "")).like(like),
-                                 func.lower(func.coalesce(AuditLog.performed_by_email, "")).like(like)))
+    # No actor / person filters: the platform cannot ask "what did <this person> do", by id, name or e-mail (E01, T02).
     if status:
         query = query.filter(AuditLog.status == status)
     start, end = _utc_naive(date_from), _utc_naive(date_to)
@@ -109,19 +102,15 @@ def list_events(
                     func.lower(func.coalesce(Organization.display_name, "")).like(like))
             ).execution_options(include_deleted=True).all()
         ]
-        conds = [func.lower(func.coalesce(AuditLog.target_label, "")).like(like),
-                 func.lower(func.coalesce(AuditLog.actor_name, "")).like(like),
-                 func.lower(func.coalesce(AuditLog.performed_by_email, "")).like(like)]
-        if matching_orgs:
-            conds.append(AuditLog.organization_id.in_(matching_orgs))
-        query = query.filter(or_(*conds))
+        # the search term only ever matches ORGANIZATION names, never a person or a record the tenant holds
+        query = query.filter(AuditLog.organization_id.in_(matching_orgs)) if matching_orgs else query.filter(AuditLog.id == -1)
 
     total = query.count()
     rows = (query.order_by(AuditLog.created_at.desc(), AuditLog.id.desc())
             .offset((page - 1) * page_size).limit(page_size).all())
     names = _org_names(db, [r.organization_id for r in rows])
     return {"total": total, "page": page, "page_size": page_size,
-            "events": [activity_service.event_view(db, r, names) for r in rows]}
+            "events": [activity_service.platform_event_view(db, r, names) for r in rows]}
 
 
 @router.get("/filters")
@@ -134,24 +123,10 @@ def filter_options(db: Session = Depends(get_db)):
         AuditLog.action_type.isnot(None), AuditLog.organization_id.isnot(None)).distinct().all()]
     for oid, name in _org_names(db, [i for i in seen if i not in orgs]).items():
         orgs[oid] = f"{name} (deleted)"
-    actors = (
-        db.query(AuditLog.performed_by, AuditLog.actor_name, AuditLog.actor_role)
-        .filter(AuditLog.action_type.isnot(None), AuditLog.performed_by.isnot(None))
-        .distinct().limit(500).all()
-    )
-    seen_actor, actor_list = set(), []
-    for pid, name, role in actors:
-        if pid in seen_actor:
-            continue
-        seen_actor.add(pid)
-        actor_list.append({"id": pid, "name": name or f"User {pid}", "role": role,
-                           "role_label": activity_service.role_label(role) if role else None})
-    actor_list.sort(key=lambda a: a["name"].lower())
     return {
         "organizations": [{"id": i, "name": n} for i, n in sorted(orgs.items(), key=lambda kv: kv[1].lower())],
         "action_types": [{"key": k, "label": v[0], "group": v[1]} for k, v in activity_service.ACTION_CATALOG.items()],
         "action_groups": activity_service.action_groups(),
-        "actors": actor_list,
         "statuses": list(STATUSES),
     }
 
@@ -161,4 +136,4 @@ def get_event(event_id: int, db: Session = Depends(get_db)):
     row = _activity_rows(db).filter(AuditLog.id == event_id).first()
     if row is None:
         raise NotFoundException("Activity event", event_id)
-    return activity_service.event_view(db, row, _org_names(db, [row.organization_id]))
+    return activity_service.platform_event_view(db, row, _org_names(db, [row.organization_id]))

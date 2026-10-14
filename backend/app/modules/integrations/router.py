@@ -162,12 +162,16 @@ def _webhook_view(w: Webhook) -> dict:
     }
 
 
+from app.core.privacy.minimise import sanitize_details  # noqa: E402
+
+
 def _delivery_view(d: WebhookDelivery) -> dict:
     return {
         "id": d.id, "webhook_id": d.webhook_id, "event_type": d.event_type, "event_id": d.event_id,
         "status": d.status, "attempt": d.attempt, "response_status": d.response_status,
-        "response_body": d.response_body, "error": d.error, "duration_ms": d.duration_ms,
-        "payload": d.payload, "next_attempt_at": _iso(d.next_attempt_at),
+        "response_body": None if d.response_body else d.response_body, "error": d.error, "duration_ms": d.duration_ms,
+        # event payloads can carry tenant people data: the platform sees the event's shape with personal values scrubbed
+        "payload": sanitize_details(d.payload), "next_attempt_at": _iso(d.next_attempt_at),
         "last_attempt_at": _iso(d.last_attempt_at), "created_at": _iso(d.created_at),
     }
 
@@ -519,7 +523,7 @@ def _execution_view(e: WorkflowExecution, detail: bool = False, names=None) -> d
            "created_at": _iso(e.created_at), "started_at": _iso(e.started_at), "finished_at": _iso(e.finished_at)}
     if detail:
         out.update(step_results=e.step_results or [], steps=e.steps_snapshot or [],
-                   trigger_payload=e.trigger_payload, resume_at=_iso(e.resume_at))
+                   trigger_payload=sanitize_details(e.trigger_payload), resume_at=_iso(e.resume_at))
     return out
 
 

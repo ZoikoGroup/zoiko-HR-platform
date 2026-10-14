@@ -114,8 +114,13 @@ def decode_access_token(token: str) -> Optional[dict]:
             token,
             settings.SECRET_KEY,
             algorithms=[settings.ALGORITHM],
+            options={"verify_aud": False},          # the audience is checked below, with a clearer rule than the library's
         )
-        return payload
+        # ZHR-PRIV-001 D05: a token minted for another Zoiko product, or a service token, is not a signed-in person's token.
+        if payload.get("typ") == "service":
+            return None
+        from app.core.privacy.tokens import reject_foreign_audience
+        return reject_foreign_audience(payload)
     except JWTError:
         # Token is invalid, tampered, or expired
         return None

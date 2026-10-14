@@ -390,12 +390,7 @@ def describe_targets(db: Session, notifications: Iterable[Notification]) -> dict
     if org_ids:
         org_names = {str(o.id): (o.name or f"Organization #{o.id}")
                      for o in db.query(Organization).filter(Organization.id.in_([int(i) for i in org_ids])).all()}
-    user_names = {}
-    if user_ids:
-        user_names = {
-            str(e.id): (f"{e.first_name or ''} {e.last_name or ''}".strip() or e.email)
-            for e in db.query(Employee).filter(Employee.id.in_([int(i) for i in user_ids])).all()
-        }
+    user_names = {}        # individual recipients (notifications sent before this rule) are never named to the platform
 
     result = {}
     for n in notifications:
@@ -404,7 +399,7 @@ def describe_targets(db: Session, notifications: Iterable[Notification]) -> dict
             if t.kind == "org":
                 label = org_names.get(t.ref, f"Deleted organization #{t.ref}")
             elif t.kind == "user":
-                label = user_names.get(t.ref, f"Deleted user #{t.ref}")
+                label = "An individual recipient"
             else:
                 label = f"Role: {ROLE_LABELS.get(t.ref, t.ref)}"
             targets.append({"kind": t.kind, "ref": t.ref, "label": label})
