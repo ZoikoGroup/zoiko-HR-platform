@@ -27,7 +27,6 @@ from sqlalchemy.orm import sessionmaker
 
 from app.database import Base
 from app.modules.billing.models import (
-    BillingAuditAction,
     BillingSubscription,
     ConfirmationTokenPurpose,
     DelinquencyCase,
@@ -35,7 +34,6 @@ from app.modules.billing.models import (
     DelinquencyStage,
     ProviderRef,
     SubscriptionStatus,
-    SupportAccessGrant,
 )
 from app.modules.billing import delinquency_service as ds
 from app.modules.billing.entitlement_service import _delinquency_gate
@@ -209,40 +207,6 @@ class TestConfirmationToken:
 
 
 # ═════════════════════════════════════════════════════════════════════════════
-# Support access grants (time-bounded, tenant-scoped)
-# ═════════════════════════════════════════════════════════════════════════════
-
-class TestSupportAccess:
-    def test_validate_valid_token(self, db):
-        _make_org(db, org_id=1)
-        grant, raw = ds.mint_support_access(db, 1, "ops@z", ttl_hours=24)
-        ok = ds.validate_support_access(db, 1, raw)
-        assert ok.id == grant.id
-
-    def test_validate_expired_token(self, db):
-        _make_org(db, org_id=1)
-        grant, raw = ds.mint_support_access(db, 1, "ops@z", ttl_hours=1)
-        with freeze_time(datetime.utcnow() + timedelta(hours=2)):
-            with pytest.raises(ValueError) as exc:
-                ds.validate_support_access(db, 1, raw)
-            assert "expired" in str(exc.value)
-
-    def test_revoked_token_rejected(self, db):
-        _make_org(db, org_id=1)
-        grant, raw = ds.mint_support_access(db, 1, "ops@z", ttl_hours=24)
-        ds.revoke_support_access(db, grant.id, "ops2@z")
-        with pytest.raises(ValueError) as exc:
-            ds.validate_support_access(db, 1, raw)
-        assert "invalid" in str(exc.value)
-
-    def test_grant_tenant_scoped(self, db):
-        _make_org(db, org_id=1)
-        _make_org(db, org_id=2)
-        _grant, raw = ds.mint_support_access(db, 1, "ops@z", ttl_hours=24)
-        # Token minted for org 1 cannot be used against org 2.
-        with pytest.raises(ValueError):
-            ds.validate_support_access(db, 2, raw)
-
 
 # ═════════════════════════════════════════════════════════════════════════════
 # Webhook integration

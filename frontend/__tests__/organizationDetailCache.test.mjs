@@ -17,7 +17,10 @@ mock.module("../src/service/superAdminService.js", { exports: { superAdminServic
 mock.module("../src/service/billingService.js", { exports: { billingService: {
   getSubscription: async () => { state.sub += 1; return null; },
   getEvaluations: async () => ({ list: [] }), getConversions: async () => ({ list: [] }),
-  getDelinquency: async () => null, listSupportAccess: async () => ({ list: [] }),
+  getDelinquency: async () => null,
+} } });
+mock.module("../src/service/supportAccessService.js", { exports: { supportAccessService: {
+  grants: async () => [], revokeGrant: async () => ({}),
 } } });
 mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ user: { role: "super_admin" } }) } });
 mock.module("react-router-dom", { exports: { useNavigate: () => () => {}, useParams: () => ({ orgId: "4" }), Link: ({ to, children }) => h("a", { href: to }, children) } });

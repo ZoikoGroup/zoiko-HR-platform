@@ -27,6 +27,12 @@ const ACTION_COLORS = {
   login: "bg-blue-50 text-blue-600 border border-blue-100",
   logout: "bg-slate-50 text-slate-600 border border-slate-100",
   config_change: "bg-blue-50 text-blue-600 border border-blue-100",
+  deactivate: "bg-slate-50 text-slate-600 border border-slate-200",
+  enable: "bg-emerald-50 text-emerald-600 border border-emerald-100",
+  disable: "bg-slate-50 text-slate-600 border border-slate-200",
+  lock: "bg-red-50 text-red-600 border border-red-100",
+  unlock: "bg-emerald-50 text-emerald-600 border border-emerald-100",
+  password_reset: "bg-amber-50 text-amber-600 border border-amber-100",
 };
 
 const PAGE_SIZE = 50;
@@ -91,6 +97,11 @@ function LogDetailsDialog({ log, onClose }) {
             ) : "—"}
           </DetailRow>
         </dl>
+        {log.minimised && (
+          <p className="mt-3 rounded-lg bg-slate-50 px-3 py-2 text-xs text-slate-500">
+            Organization activity: the platform sees the actor's role and the kind of action, never the person or the values changed.
+          </p>
+        )}
         <div className="mt-4">
           <div className="mb-1 flex items-center justify-between">
             <span className="text-sm font-semibold text-slate-500">Details</span>
@@ -133,6 +144,19 @@ export default function AuditLogsPage() {
   useEffect(() => {
     setSearchParams(filtersToSearchParams(applied, page), { replace: true });
   }, [applied, page, setSearchParams]);
+
+  // A link that lands here while the page is already open (e.g. "audit trail" from an organization) changes only the
+  // URL: take its filters. Our own write above produces the same string, so it does not loop.
+  const urlKey = searchParams.toString();
+  useEffect(() => {
+    const current = filtersToSearchParams(applied, page).toString();
+    if (urlKey === current) return;
+    const next = filtersFromSearchParams(new URLSearchParams(urlKey));
+    setFilters(next);
+    setApplied(next);
+    setPage(Math.max(1, Number(new URLSearchParams(urlKey).get("page")) || 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [urlKey]);
 
   // The log list is a query keyed by the applied filters and the page; changing either keeps the previous rows on
   // screen until the new ones arrive.

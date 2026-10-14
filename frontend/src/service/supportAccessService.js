@@ -5,12 +5,17 @@ import { api } from "./api";
 // Every mutating call needs a fresh-MFA token; the API layer attaches the bearer.
 export const supportAccessService = {
   // ── platform: requests and approvals ───────────────────────────────────
+  // what may be asked for (purpose categories, actions, requestable fields and their classification)
+  catalog: (opts) => api.get("/super-admin/support-access/catalog", opts),
   createRequest: (data) => api.post("/super-admin/support-access/requests", data),
   myRequests: (opts) => api.get("/super-admin/support-access/requests", opts),
+  // high-risk requests from OTHER platform people that need a Security / Privacy co-approval
+  awaitingIndependent: (opts) => api.get("/super-admin/support-access/requests/awaiting-independent", opts),
   cancelRequest: (id) => api.post(`/super-admin/support-access/requests/${id}/cancel`),
   independentApprove: (id, data) =>
     api.post(`/super-admin/support-access/requests/${id}/independent-approve`, data),
-  activate: (id) => api.post(`/super-admin/support-access/requests/${id}/activate`),
+  // the capability comes back as an httpOnly cookie scoped to /support, so the browser must accept (and later send) it
+  activate: (id) => api.post(`/super-admin/support-access/requests/${id}/activate`, undefined, { credentials: "include" }),
 
   // ── platform: grants and revocations ───────────────────────────────────
   grants: (opts) => api.get("/super-admin/support-access/grants", opts),
@@ -22,7 +27,7 @@ export const supportAccessService = {
   // ── platform: break-glass ──────────────────────────────────────────────
   startBreakGlass: (data) => api.post("/super-admin/support-access/breakglass", data),
   activeBreakGlass: (opts) => api.get("/super-admin/support-access/breakglass", opts),
-  confirmBreakGlass: (id) => api.post(`/super-admin/support-access/breakglass/${id}/confirm`),
+  confirmBreakGlass: (id) => api.post(`/super-admin/support-access/breakglass/${id}/confirm`, undefined, { credentials: "include" }),
   endBreakGlass: (id) => api.post(`/super-admin/support-access/breakglass/${id}/end`),
 
   // ── platform: assurance ────────────────────────────────────────────────
@@ -30,6 +35,10 @@ export const supportAccessService = {
   reconciliation: (opts) => api.get("/super-admin/support-access/reconciliation", opts),
   recertification: (opts) => api.get("/super-admin/support-access/recertification", opts),
   verifyAudit: (opts) => api.get("/super-admin/support-access/audit/verify", opts),
+
+  // ── platform: the enforced data path (only fields the live grant allows; the grant cookie is required) ──
+  supportEmployees: (tenantId, opts) =>
+    api.get(`/support/tenants/${tenantId}/employees`, { ...opts, credentials: "include" }),
 
   // ── tenant ─────────────────────────────────────────────────────────────
   tenantRequests: (opts) => api.get("/hr/support-access/requests", opts),

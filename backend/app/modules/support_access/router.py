@@ -119,6 +119,8 @@ def _request_out(req: SupportAccessRequest) -> dict:
         "status": req.status,
         "risk_level": req.risk_level,
         "purpose_category": req.purpose_category,
+        "purpose": req.purpose,
+        "legal_basis_reference": req.legal_basis_reference,
         "ticket_reference": req.ticket_reference,
         "requested_duration_minutes": req.requested_duration_minutes,
         "requested_scope": _scope_out(req.requested_scope),
@@ -171,6 +173,81 @@ def _revocation_out(row) -> dict:
     }
 
 
+def _with_tenant_names(db: Session, items: list[dict]) -> list[dict]:
+    """Adds the organization's name next to `tenant_id` (platform metadata the platform already lists), one lookup per page."""
+    from app.modules.hr.models import Organization
+
+    ids = {i["tenant_id"] for i in items if i.get("tenant_id") is not None}
+    names = {}
+    if ids:
+        names = {o.id: o.name for o in db.query(Organization).execution_options(include_deleted=True).filter(Organization.id.in_(ids)).all()}
+    for i in items:
+        i["tenant_name"] = names.get(i.get("tenant_id"))
+    return items
+
+
+# ══ platform: what may be asked for ═════════════════════════════════════════════════════════════════════════════════
+# Only resources the enforced /support data path can actually serve are offered; validate_scope stays the authority.
+SERVED_RESOURCES = ("employees",)
+
+
+@platform_router.get("/catalog")
+def platform_catalog(user=Depends(get_current_super_admin)):
+    """The vocabulary of a request: purpose categories, actions, duration bounds, and every requestable field with its data
+    classification (names and levels only). The request form is built from this so it cannot drift from the server rules."""
+    from app.core.privacy import classification as cls
+    from app.database import Base
+    from app.modules.support_access.models import (
+        DEFAULT_DURATION_MINUTES, GRANTABLE_ACTIONS, HIGH_RISK_ACTIONS, MAX_DURATION_MINUTES, PurposeCategory,
+    )
+
+    resources = []
+    for name in SERVED_RESOURCES:
+        table = Base.metadata.tables.get(name)
+        if table is None:
+            continue
+        fields = []
+        for col in table.c:
+            level = cls.classify(name, col.name)
+            if level == cls.UNCLASSIFIED or cls.Level(level) == cls.Level.SECRET:
+                continue
+            fields.append({"name": col.name, "level": cls.Level(level).value})
+        resources.append({"name": name, "fields": fields})
+    return {
+        "purpose_categories": [c.value for c in PurposeCategory],
+        "actions": sorted(GRANTABLE_ACTIONS),
+        "high_risk_actions": sorted(HIGH_RISK_ACTIONS),
+        "update_requires_purpose": PurposeCategory.DATA_CORRECTION_ASSIST.value,
+        "high_risk_levels": sorted(level.value for level in sc.HIGH_RISK_FIELD_LEVELS),
+        "legal_basis_levels": [cls.Level.SPECIAL_CATEGORY.value],
+        "record_threshold": sc.DEFAULT_RECORD_THRESHOLD,
+        "duration": {"default": DEFAULT_DURATION_MINUTES, "min": 1, "max": MAX_DURATION_MINUTES},
+        "resources": resources,
+    }
+
+
+@platform_router.get("/requests/awaiting-independent")
+def awaiting_independent(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    """High-risk requests the tenant has approved that now need a Security / Privacy co-approval from ANOTHER platform person.
+    The caller's own requests are left out: a requester can never approve their own (maker-checker)."""
+    rows = (
+        db.query(SupportAccessRequest)
+        .filter(
+            SupportAccessRequest.status == RequestStatus.PENDING_INDEPENDENT.value,
+            SupportAccessRequest.requester_person_id != user.id,
+        )
+        .order_by(SupportAccessRequest.created_at.asc())
+        .all()
+    )
+    out = []
+    for r in rows:
+        item = _request_out(r)
+        item["required_approvals"] = sorted(service.required_approval_types(service.effective_scope(r)))
+        item["approved_types"] = sorted(service._approved_types(db, r))
+        out.append(item)
+    return _with_tenant_names(db, out)
+
+
 # ══ platform: request and approve ══════════════════════════════════════════════════════════════════════════════════
 @platform_router.post("/requests", status_code=201)
 def create_request(
@@ -204,7 +281,7 @@ def my_requests(db: Session = Depends(get_db), user=Depends(get_current_super_ad
         .order_by(SupportAccessRequest.created_at.desc())
         .all()
     )
-    return [_request_out(r) for r in rows]
+    return _with_tenant_names(db, [_request_out(r) for r in rows])
 
 
 @platform_router.post("/requests/{request_id}/cancel")
@@ -266,7 +343,7 @@ def activate_request(
 
 @platform_router.get("/grants")
 def platform_grants(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
-    return [_grant_out(g) for g in service.active_grants(db)]
+    return _with_tenant_names(db, [_grant_out(g) for g in service.active_grants(db)])
 
 
 @platform_router.post("/grants/{grant_id}/revoke")
@@ -321,7 +398,7 @@ def start_breakglass(
 
 @platform_router.get("/breakglass")
 def list_breakglass(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
-    return [_breakglass_out(s) for s in service.active_breakglass(db)]
+    return _with_tenant_names(db, [_breakglass_out(s) for s in service.active_breakglass(db)])
 
 
 @platform_router.post("/breakglass/{session_id}/confirm")
@@ -380,7 +457,7 @@ def platform_kill_switch(
 
 @platform_router.get("/revocations")
 def platform_revocations(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
-    return [_revocation_out(r) for r in service.recent_revocations(db)]
+    return _with_tenant_names(db, [_revocation_out(r) for r in service.recent_revocations(db)])
 
 
 # ══ platform: detection, reconciliation, recertification (Phases 10-12) ═════════════════════════════════════════════

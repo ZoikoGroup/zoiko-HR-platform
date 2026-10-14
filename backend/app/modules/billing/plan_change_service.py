@@ -196,8 +196,15 @@ def schedule_plan_change(
     """Schedule a plan change. For downgrades, effective_at defaults to
     renewal_anchor_date per Section 13/J3. Blockers checked; if any
     blocking, change status = BLOCKED for ops review."""
-    subscription = _get_subscription(db, organization_id)
-    target_plan = _get_plan_by_id(db, plan_id)
+    try:
+        subscription = _get_subscription(db, organization_id)
+    except Exception as e:
+        raise BadRequestException(f"Could not retrieve subscription: {e}")
+
+    try:
+        target_plan = _get_plan_by_id(db, plan_id)
+    except Exception as e:
+        raise BadRequestException(f"Target plan not found: {e}")
 
     if subscription.plan_id == plan_id:
         raise BadRequestException("Target plan is the same as current plan")
@@ -207,6 +214,8 @@ def schedule_plan_change(
         target_plan.code.value,
     )
 
+    # Resolve effective_at: downgrades take effect at renewal anchor,
+    # otherwise use now (for upgrades or when renewal anchor is absent).
     if is_downgrade_change and not effective_at:
         effective_at = subscription.renewal_anchor_date
     if not effective_at:
@@ -221,8 +230,11 @@ def schedule_plan_change(
     current_states = {}
     target_states = {}
     for fk in FEATURE_KEYS:
-        current = check_entitlement(db, organization_id, fk)
-        current_states[fk] = current["state"]
+        try:
+            current = check_entitlement(db, organization_id, fk)
+            current_states[fk] = current["state"]
+        except Exception:
+            current_states[fk] = "UNKNOWN"
 
     from app.modules.billing.models import PlanEntitlementMapping
     target_mappings = (
@@ -236,11 +248,14 @@ def schedule_plan_change(
     from app.modules.billing.plan_baseline import baseline_included
 
     for fk in FEATURE_KEYS:
-        mapped = target_map_by_key.get(fk)
-        if mapped is None:
-            included = baseline_included(target_plan.code, fk)
-            mapped = "ENTITLED_NOT_CONFIGURED" if included is None else ("ENTITLED_AVAILABLE" if included else "NOT_ENTITLED")
-        target_states[fk] = mapped
+        try:
+            mapped = target_map_by_key.get(fk)
+            if mapped is None:
+                included = baseline_included(target_plan.code, fk)
+                mapped = "ENTITLED_NOT_CONFIGURED" if included is None else ("ENTITLED_AVAILABLE" if included else "NOT_ENTITLED")
+            target_states[fk] = mapped
+        except Exception:
+            target_states[fk] = "UNKNOWN"
 
     gained = [
         fk for fk in FEATURE_KEYS
@@ -253,6 +268,16 @@ def schedule_plan_change(
         and target_states.get(fk) != "ENTITLED_AVAILABLE"
     ]
 
+    # Normalise requested_by to a plain string (email or identifier)
+    if isinstance(requested_by, str):
+        normalised_requested_by = requested_by
+    else:
+        # If a user/object was passed, try to extract an identifier
+        try:
+            normalised_requested_by = str(requested_by.email) if hasattr(requested_by, "email") else str(requested_by)
+        except Exception:
+            normalised_requested_by = None
+
     change = BillingPlanChange(
         organization_id=organization_id,
         change_type=PlanChangeType.DOWNGRADE if is_downgrade_change else PlanChangeType.UPGRADE,
@@ -264,14 +289,27 @@ def schedule_plan_change(
         blockers_snapshot=blockers_to_dict(blockers),
         proration_preview=None,
         entitlement_delta={"gained": gained, "lost": lost},
-        requested_by=requested_by,
+        requested_by=normalised_requested_by,
     )
     db.add(change)
-    db.commit()
+    try:
+        db.commit()
+    except Exception as e:
+        db.rollback()
+        raise BadRequestException(f"Database error while scheduling plan change: {e}")
+
     db.refresh(change)
 
-    _sync_impact_items(db, change, blockers)
-    _invalidate_entitlement_cache(organization_id)
+    try:
+        _sync_impact_items(db, change, blockers)
+    except Exception as e:
+        # Non-fatal: impact items are a best-effort mirror; continue if possible.
+        logger.warning("[plan_change] Impact sync failed: %s", e)
+
+    try:
+        _invalidate_entitlement_cache(organization_id)
+    except Exception as e:
+        logger.warning("[plan_change] Cache invalidation failed: %s", e)
 
     if blockers_blocked:
         logger.warning(

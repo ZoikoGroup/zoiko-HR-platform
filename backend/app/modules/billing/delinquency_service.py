@@ -21,9 +21,7 @@ frontend banners are informational, not authoritative (Section 10 G2).
 Timing is clock-injectable via `now_utc()` so tests can freeze the clock.
 """
 
-import hashlib
 import logging
-import secrets
 from datetime import datetime, timedelta
 
 from sqlalchemy.orm import Session
@@ -37,7 +35,6 @@ from app.modules.billing.models import (
     DelinquencyCaseStatus,
     DelinquencyStage,
     SubscriptionStatus,
-    SupportAccessGrant,
 )
 
 logger = logging.getLogger("zoiko.billing.delinquency")
@@ -377,70 +374,10 @@ def add_retention_hold(
     return case
 
 
-# ── Support Access Grant (Section 18 O3 / G4 Billing Ops escalation) ───────
-
-def mint_support_access(db: Session, organization_id: int, granted_by: str, reason: str | None = None, ttl_hours: int = 24) -> tuple[SupportAccessGrant, str]:
-    """Mint a time-bounded support-access grant. Returns (grant, raw_token).
-    Only the SHA-256 hash of the token is stored — the raw value is returned
-    once to the caller and cannot be recovered afterward."""
-    raw = secrets.token_urlsafe(32)
-    grant = SupportAccessGrant(
-        organization_id=organization_id,
-        token_hash=_hash_token(raw),
-        granted_by=granted_by,
-        reason=reason,
-        expires_at=now_utc() + timedelta(hours=ttl_hours),
-    )
-    db.add(grant)
-    db.commit()
-    db.refresh(grant)
-    _log_billing_audit(
-        db,
-        organization_id,
-        BillingAuditAction.SUPPORT_ACCESS_GRANTED,
-        "SupportAccessGrant",
-        grant.id,
-        after={"expires_at": grant.expires_at.isoformat(), "granted_by": granted_by},
-    )
-    return grant, raw
-
-
-def validate_support_access(db: Session, organization_id: int, raw_token: str) -> SupportAccessGrant:
-    """Validate a support-access token for an org. Raises ValueError if the
-    token is unknown, already revoked or expired."""
-    granted = (
-        db.query(SupportAccessGrant)
-        .filter(
-            SupportAccessGrant.organization_id == organization_id,
-            SupportAccessGrant.token_hash == _hash_token(raw_token),
-            SupportAccessGrant.revoked_at.is_(None),
-        )
-        .first()
-    )
-    if granted is None:
-        raise ValueError("support_access_token_invalid")
-    if granted.expires_at < now_utc():
-        raise ValueError("support_access_token_expired")
-    return granted
-
-
-def revoke_support_access(db: Session, grant_id: int, revoked_by: str) -> SupportAccessGrant:
-    grant = db.query(SupportAccessGrant).filter(SupportAccessGrant.id == grant_id).first()
-    if grant is None:
-        raise ValueError("support_access_grant_not_found")
-    grant.revoked_at = now_utc()
-    grant.revoked_by = revoked_by
-    db.commit()
-    db.refresh(grant)
-    _log_billing_audit(
-        db,
-        grant.organization_id,
-        BillingAuditAction.SUPPORT_ACCESS_REVOKED,
-        "SupportAccessGrant",
-        grant.id,
-        after={"revoked_by": revoked_by},
-    )
-    return grant
+# Support Access Grant (Section 18 O3 / G4 Billing Ops escalation) — RETIRED
+# Mint/validate/revoke of time-bounded grants is now handled exclusively by
+# just-in-time Support Access (JIT). The following functions are kept for
+# database history but no longer exposed via API or called by any endpoint.
 
 
 # ── Confirmation Tokens (two-step destructive / state-changing actions) ────

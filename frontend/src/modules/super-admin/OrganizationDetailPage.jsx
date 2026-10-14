@@ -7,11 +7,12 @@ import PageHeader from "../../components/PageHeader";
 import {
   AlertTriangle, Building, Calendar, ChevronLeft, FileText, ShieldAlert,
   Activity, Users, CheckCircle, XCircle, CreditCard, ArrowUpRight, ArrowDownRight, X,
-  ThumbsUp, ThumbsDown, RotateCcw, Pause, Clock, Trash2, KeyRound,
+  ThumbsUp, ThumbsDown, RotateCcw, Pause, Clock, Trash2,
 } from "lucide-react";
 import { superAdminService } from "../../service/superAdminService";
 import DeleteOrganizationDialog from "../../components/DeleteOrganizationDialog";
 import { billingService } from "../../service/billingService";
+import { supportAccessService } from "../../service/supportAccessService";
 import { useAuth } from "../../context/AuthContext";
 import { ROLES } from "../../config/roles";
 import EvaluationTimeRemaining from "../../components/EvaluationTimeRemaining";
@@ -94,9 +95,6 @@ export default function OrganizationDetailPage() {
   const [statusReason, setStatusReason] = useState("");
   const [rejectModal, setRejectModal] = useState(false);
   const [rejectReason, setRejectReason] = useState("");
-  const [supportModal, setSupportModal] = useState(false);
-  const [supportResult, setSupportResult] = useState(null);
-  const [supportBusy, setSupportBusy] = useState(false);
   const [deleteModal, setDeleteModal] = useState(false);
 
   // Each part of the page is its own cached query under this organization's detail key, so a recent visit shows
@@ -122,7 +120,13 @@ export default function OrganizationDetailPage() {
     },
   });
   const delinquencyQuery = useQuery({ queryKey: part("delinquency"), retry: false, queryFn: ({ signal }) => billingService.getDelinquency(orgId, { signal }).catch(() => null) });
-  const supportQuery = useQuery({ queryKey: part("support"), retry: false, queryFn: ({ signal }) => billingService.listSupportAccess(orgId, { signal }).then((r) => r?.list || []).catch(() => []) });
+  // Live just-in-time grants on THIS organization (the platform list, narrowed to it).
+  const supportQuery = useQuery({
+    queryKey: part("support"), retry: false,
+    queryFn: ({ signal }) => supportAccessService.grants({ signal })
+      .then((rows) => (Array.isArray(rows) ? rows : []).filter((g) => String(g.tenant_id) === String(orgId)))
+      .catch(() => []),
+  });
 
   const org = orgQuery.data ?? null;
   const auditLogs = auditQuery.data || [];
@@ -187,24 +191,9 @@ export default function OrganizationDetailPage() {
     finally { setActionLoading(null); }
   };
 
-  const handleMintSupport = async () => {
-    setSupportBusy(true);
-    try {
-      const res = await billingService.createSupportAccess({
-        organization_id: Number(orgId),
-        reason: "Manual time-bounded support access",
-        ttl_hours: 24,
-      });
-      setSupportResult(res);
-      setSupportModal(false);
-      loadAll();
-    } catch (e) { setError(e.message); }
-    finally { setSupportBusy(false); }
-  };
-
   const handleRevokeSupport = async (grantId) => {
     try {
-      await billingService.revokeSupportAccess(grantId);
+      await supportAccessService.revokeGrant(grantId, "revoked from the organization page");
       loadAll();
     } catch (e) { setError(e.message); }
   };
@@ -473,40 +462,33 @@ export default function OrganizationDetailPage() {
               </div>
             )}
 
-            {/* Support Access Grants (Section 18 O3) */}
+            {/* Live just-in-time support access on this organization */}
             <div className="mt-4 pt-4 border-t border-slate-100">
               <div className="flex items-center justify-between mb-2">
-                <h4 className="text-sm font-bold text-slate-700">Support Access Grants</h4>
-                <button onClick={() => setSupportModal(true)}
+                <h4 className="text-sm font-bold text-slate-700">Support access</h4>
+                <button onClick={() => navigate("/super-admin/jit-support-access")}
                   className="text-xs font-semibold text-blue-600 hover:underline">
-                  + Grant Billing Ops access
+                  Request or manage access
                 </button>
               </div>
               {supportGrants.length === 0 ? (
-                <p className="text-xs text-slate-400">No active support-access grants.</p>
+                <p className="text-xs text-slate-400">No live support grants. Nobody on the platform can see this organization's data.</p>
               ) : (
                 <div className="space-y-2">
-                  {supportGrants.map((g) => {
-                    const active = !g.revoked_at && (g.expires_at ? new Date(g.expires_at).getTime() > Date.now() : true);
-                    return (
-                      <div key={g.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 text-sm">
-                        <div>
-                          <span className="font-semibold text-slate-700">{g.granted_by || "Billing Ops"}</span>
-                          <span className={`ml-2 text-xs font-semibold ${active ? "text-emerald-600" : "text-slate-400"}`}>
-                            {active ? "Active" : "Expired/Revoked"}
-                          </span>
-                          <div className="text-xs text-slate-400 mt-0.5">
-                            Expires {g.expires_at ? formatDateTime(g.expires_at) : "—"}
-                            {g.revoked_by && <> · revoked by {g.revoked_by}</>}
-                          </div>
+                  {supportGrants.map((g) => (
+                    <div key={g.id} className="flex items-center justify-between p-3 rounded-xl bg-slate-50 border border-slate-100 text-sm">
+                      <div>
+                        <span className="font-semibold text-slate-700">{g.kind === "BREAK_GLASS" ? "Break-glass" : "Just-in-time grant"}</span>
+                        <span className="ml-2 text-xs font-semibold text-emerald-600">Live</span>
+                        <div className="text-xs text-slate-400 mt-0.5">
+                          {(g.scope?.resources || []).join(", ")} · {g.scope?.record_count ?? 0} records · {(g.scope?.actions || []).join("/")}
+                          {" · "}expires {g.expires_at ? formatDateTime(g.expires_at) : "—"}
                         </div>
-                        {active && (
-                          <button onClick={() => handleRevokeSupport(g.id)}
-                            className="text-xs font-semibold text-red-600 hover:underline">Revoke</button>
-                        )}
                       </div>
-                    );
-                  })}
+                      <button onClick={() => handleRevokeSupport(g.id)}
+                        className="text-xs font-semibold text-red-600 hover:underline">Revoke</button>
+                    </div>
+                  ))}
                 </div>
               )}
             </div>
@@ -619,51 +601,6 @@ export default function OrganizationDetailPage() {
         <DeleteOrganizationDialog org={{ id: org.id ?? Number(orgId), name: org.name }} onClose={() => setDeleteModal(false)} onDeleted={handleOrgDeleted} />
       )}
 
-      {/* Grant Support Access */}
-      {supportModal && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-md shadow-xl border border-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-blue-50 flex items-center justify-center">
-                <KeyRound className="h-5 w-5 text-blue-600" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Grant Billing Ops Access</h3>
-            </div>
-            <p className="text-sm text-slate-600 mb-4">
-              Mint a time-bounded (24h) support-access token for <strong>{org?.name}</strong>.
-              The raw token is displayed once after minting.
-            </p>
-            <div className="flex gap-3 mt-6 justify-end">
-              <button onClick={() => setSupportModal(false)}
-                className="px-4 py-2 rounded-lg border border-slate-200 text-sm text-slate-600 hover:bg-blue-50 hover:text-blue-700 hover:border-blue-200">Cancel</button>
-              <button onClick={handleMintSupport} disabled={supportBusy}
-                className="flex items-center gap-2 px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700 disabled:opacity-50">
-                {supportBusy ? "Minting..." : "Mint Token"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Support token result (shown once) */}
-      {supportResult && (
-        <div className="fixed inset-0 z-[70] flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-2xl p-6 w-full max-w-lg shadow-xl border border-slate-200">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="h-10 w-10 rounded-xl bg-emerald-50 flex items-center justify-center">
-                <KeyRound className="h-5 w-5 text-emerald-600" />
-              </div>
-              <h3 className="text-lg font-bold text-slate-900">Support Access Token</h3>
-            </div>
-            <p className="text-xs text-slate-500 mb-2">Copy this now — the raw token is shown once and cannot be retrieved again.</p>
-            <pre className="bg-slate-900 text-emerald-300 rounded-xl p-4 text-xs whitespace-pre-wrap break-all font-mono select-all">{supportResult.token}</pre>
-            <div className="flex gap-3 mt-6 justify-end">
-              <button onClick={() => { setSupportResult(null); loadAll(); }}
-                className="px-4 py-2 rounded-lg bg-blue-600 text-white text-sm font-semibold hover:bg-blue-700">Done</button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

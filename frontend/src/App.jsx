@@ -189,7 +189,6 @@ const SuperAdminBillingInvoicesPage = lazyRoute(() => import("./modules/super-ad
 const SuperAdminBillingDelinquencyPage = lazyRoute(() => import("./modules/super-admin/BillingDelinquencyPage"));
 const SuperAdminBillingWebhookEventsPage = lazyRoute(() => import("./modules/super-admin/BillingWebhookEventsPage"));
 const SuperAdminBillingReconciliationPage = lazyRoute(() => import("./modules/super-admin/BillingReconciliationPage"));
-const SuperAdminSupportAccessPage = lazyRoute(() => import("./modules/super-admin/SupportAccessPage"));
 const SuperAdminJitSupportAccessPage = lazyRoute(() => import("./modules/super-admin/JitSupportAccessPage"));
 
 const DashboardPage = lazyRoute(() => import("./modules/platform/DashboardPage"));
@@ -410,7 +409,8 @@ const routeOverrides = {
   "/super-admin/billing/reconciliation": <SuperAdminBillingReconciliationPage />,
 
   // Super Admin — Access & Security
-  "/super-admin/support-access": <SuperAdminSupportAccessPage />,
+  // Billing Ops support-access tokens were retired: platform access to a tenant goes through just-in-time grants.
+  "/super-admin/support-access": <Navigate to="/super-admin/jit-support-access" replace />,
   "/super-admin/jit-support-access": <SuperAdminJitSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────

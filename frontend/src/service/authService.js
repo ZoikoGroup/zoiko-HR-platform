@@ -43,6 +43,16 @@ export async function mfaEnrollConfirm({ email, password, code }) {
   return user;
 }
 
+/**
+ * Platform accounts: a fresh authenticator check for a sensitive action. The server answers with a short-lived access token
+ * that carries the check (`mfa_at`); it replaces the current one, and the refresh token is kept.
+ */
+export async function mfaStepUp(code) {
+  const data = await api.post("/auth/mfa/step-up", { code });
+  setSession({ accessToken: data.access_token });
+  return data;
+}
+
 /** Confirms an e-mail address from the link that was e-mailed. */
 export async function verifyEmail(token) {
   return await api.post("/auth/verify-email", { token }, { auth: false });
