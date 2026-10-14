@@ -51,6 +51,7 @@ const EXPECTED_GROUPS = [
     items: [
       { label: "Access & Role Management", href: "/super-admin/access" },
       { label: "Support Access Grants", href: "/super-admin/support-access" },
+      { label: "Just-in-time Support Access", href: "/super-admin/jit-support-access" },
       { label: "Audit Logs", href: "/super-admin/audit-logs" },
     ],
   },

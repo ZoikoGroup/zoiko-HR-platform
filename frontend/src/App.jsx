@@ -167,6 +167,7 @@ const OrgAdminMetricsPage = lazyRoute(() => import("./modules/organization-admin
 const OrgAdminPayrollGuidancePage = lazyRoute(() => import("./modules/organization-admin/PayrollGuidancePage"));
 const OrgAdminBillingPlanPage = lazyRoute(() => import("./modules/organization-admin/BillingPlanPage"));
 const OrgAdminPayInvoicePage = lazyRoute(() => import("./modules/organization-admin/PayInvoicePage"));
+const OrgAdminSupportAccessPage = lazyRoute(() => import("./modules/organization-admin/SupportAccessPage"));
 
 const HrAdminDashboardPage = lazyRoute(() => import("./modules/hr-admin/DashboardPage"));
 const HrAdminOrganizationPage = lazyRoute(() => import("./modules/hr-admin/OrganizationPage"));
@@ -189,6 +190,7 @@ const SuperAdminBillingDelinquencyPage = lazyRoute(() => import("./modules/super
 const SuperAdminBillingWebhookEventsPage = lazyRoute(() => import("./modules/super-admin/BillingWebhookEventsPage"));
 const SuperAdminBillingReconciliationPage = lazyRoute(() => import("./modules/super-admin/BillingReconciliationPage"));
 const SuperAdminSupportAccessPage = lazyRoute(() => import("./modules/super-admin/SupportAccessPage"));
+const SuperAdminJitSupportAccessPage = lazyRoute(() => import("./modules/super-admin/JitSupportAccessPage"));
 
 const DashboardPage = lazyRoute(() => import("./modules/platform/DashboardPage"));
 const OrganizationsPage = lazyRoute(() => import("./modules/platform/OrganizationsPage"));
@@ -363,6 +365,7 @@ const routeOverrides = {
   "/organization-admin/payroll-guidance": <OrgAdminPayrollGuidancePage />,
   "/organization-admin/billing-and-plan": <OrgAdminBillingPlanPage />,
   "/organization-admin/pay-invoice": <OrgAdminPayInvoicePage />,
+  "/organization-admin/support-access": <OrgAdminSupportAccessPage />,
   // HR Admin
   "/hr-admin/dashboard": <HrAdminDashboardPage />,
   "/hr-admin/my-organization": <HrAdminOrganizationPage />,
@@ -408,6 +411,7 @@ const routeOverrides = {
 
   // Super Admin — Access & Security
   "/super-admin/support-access": <SuperAdminSupportAccessPage />,
+  "/super-admin/jit-support-access": <SuperAdminJitSupportAccessPage />,
 
   // ─────────────────────────────────────────────────────────────────────────
   // EMPLOYEE WORKSPACE — /employee/* routes (role: employee only)
