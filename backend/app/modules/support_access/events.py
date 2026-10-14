@@ -24,11 +24,33 @@ EVENT_TYPES = frozenset({
 
 
 def emit(event_type: str, **fields) -> dict:
-    """Record one event. The caller (Phase 9 store) is responsible for persistence; this keeps an in-memory tail."""
+    """Record one event. With `db=` present it is appended to the immutable chain (Phase 9); the in-memory tail is kept
+    either way so tests and the audit view can read the recent stream.
+
+    The audit write is part of the caller's transaction: if it fails, `record` raises and the action does not proceed
+    (fail closed - no unaudited access)."""
+    db = fields.pop("db", None)
     event = {"event_type": event_type, **fields}
     RECENT.append(event)
     del RECENT[: max(0, len(RECENT) - RECENT_MAX)]
     logger.info("support-access %s %s", event_type, {k: v for k, v in fields.items() if k != "detail"})
+    if db is not None:
+        from app.modules.support_access import audit
+
+        audit.record(
+            db,
+            event_type,
+            actor_person_id=fields.get("actor_person_id"),
+            tenant_id=fields.get("tenant_id"),
+            grant_id=fields.get("grant_id"),
+            request_id=fields.get("request_id"),
+            action=fields.get("action") or fields.get("decision"),
+            reason=fields.get("reason") or fields.get("detail"),
+            payload={
+                k: v for k, v in fields.items()
+                if k not in ("actor_person_id", "tenant_id", "grant_id", "request_id")
+            },
+        )
     return event
 
 

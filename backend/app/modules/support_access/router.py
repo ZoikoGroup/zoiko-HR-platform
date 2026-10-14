@@ -26,6 +26,7 @@ from app.core.privacy import policy
 from app.core.privacy.mfa import require_fresh_mfa
 from app.database import get_db
 from app.modules.support_access import events, scopes as sc, service
+from app.modules.support_access import audit as audit_store
 from app.modules.support_access.dependencies import (
     SUPPORT_COOKIE,
     SUPPORT_COOKIE_PATH,
@@ -237,6 +238,20 @@ def platform_revoke(
     return _grant_out(grant)
 
 
+# ══ audit chain: integrity of the whole record (Phase 9) ═════════════════════════════════════════════════════════════
+@platform_router.get("/audit/verify")
+def audit_verify(db: Session = Depends(get_db), user=Depends(get_current_super_admin)):
+    """Recompute the hash chain. `ok=False` names the first row that no longer matches: an edit or a deletion here."""
+    ok, first_bad = audit_store.verify_chain(db)
+    return {
+        "ok": ok,
+        "first_bad_id": first_bad,
+        "head_hash": audit_store.head_hash(db),
+        "count": db.query(audit_store.PrivacyAuditEvent).count(),
+        "genesis": audit_store.GENESIS,
+    }
+
+
 # ══ tenant: authorise, revoke, view ═════════════════════════════════════════════════════════════════════════════════
 @tenant_router.get("/requests")
 def tenant_requests(db: Session = Depends(get_db), user=Depends(get_current_user)):
@@ -351,12 +366,14 @@ def _fields_param(fields: Optional[str]) -> Optional[tuple[str, ...]]:
     return tuple(f.strip() for f in fields.split(",") if f.strip())
 
 
-def _authorize(g: GrantContext, action: str, tenant_id: int, requested: tuple[str, ...], *, record_id: Optional[int]):
+def _authorize(g: GrantContext, db: Session, action: str, tenant_id: int, requested: Optional[tuple[str, ...]], *, record_id: Optional[int]):
     resource = policy.Resource(type="employees", tenant_id=tenant_id, record_id=record_id, owner_id=record_id)
     decision = policy.authorize(g.subject(), action, resource, fields=requested)
     if not decision.allow:
-        events.emit("ACCESS_DENIED", tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id,
+        # A denial is itself an auditable event, and it must survive the 403 that follows: its own commit.
+        events.emit("ACCESS_DENIED", db=db, tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id,
                     action=action, reason=decision.reason_code)
+        db.commit()
         raise HTTPException(403, decision.reason_code)
     return decision
 
@@ -380,8 +397,8 @@ def list_employees(
         out.append({"id": emp.id, **{f: getattr(emp, f, None) for f in decision.allowed_fields}})
     if not rows:
         # still check the grant covers this tenant/resource at all, so an empty tenant is not a silent allow
-        _authorize(g, "list", tenant_id, requested, record_id=None)
-    events.emit("ACCESS_ALLOWED", tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id, action="list", count=len(out))
+        _authorize(g, db, "list", tenant_id, requested, record_id=None)
+    events.emit("ACCESS_ALLOWED", db=db, tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id, action="list", count=len(out))
     db.commit()
     return out
 
@@ -397,11 +414,11 @@ def read_employee(
     from app.modules.employee.models import Employee
 
     requested = _fields_param(fields)
-    decision = _authorize(g, "read", tenant_id, requested, record_id=employee_id)
+    decision = _authorize(g, db, "read", tenant_id, requested, record_id=employee_id)
     emp = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == tenant_id).first()
     if emp is None:
         raise HTTPException(404, "Not Found")
-    events.emit("ACCESS_ALLOWED", tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id, action="read")
+    events.emit("ACCESS_ALLOWED", db=db, tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id, action="read")
     db.commit()
     return {"id": emp.id, **{f: getattr(emp, f, None) for f in decision.allowed_fields}}
 
@@ -418,8 +435,8 @@ def export_employee(
     from app.modules.employee.models import Employee
 
     requested = _fields_param(fields)
-    events.emit("EXPORT_REQUESTED", tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id)
-    decision = _authorize(g, "export", tenant_id, requested, record_id=employee_id)
+    events.emit("EXPORT_REQUESTED", db=db, tenant_id=tenant_id, grant_id=g.grant.id, actor_person_id=g.user.id)
+    decision = _authorize(g, db, "export", tenant_id, requested, record_id=employee_id)
     emp = db.query(Employee).filter(Employee.id == employee_id, Employee.organization_id == tenant_id).first()
     if emp is None:
         raise HTTPException(404, "Not Found")

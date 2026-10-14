@@ -185,7 +185,7 @@ def create_request(
     )
     db.add(request)
     db.flush()
-    events.emit("GRANT_REQUESTED", request_id=request.id, tenant_id=tenant_id, actor_person_id=requester.id,
+    events.emit("GRANT_REQUESTED", db=db, request_id=request.id, tenant_id=tenant_id, actor_person_id=requester.id,
                 risk_level=risk.value, purpose_category=purpose_category, ticket_reference=request.ticket_reference)
     return request
 
@@ -198,7 +198,7 @@ def submit_request(db: Session, request: SupportAccessRequest, *, actor, now: Op
     now = _now(now)
     request.approval_expires_at = now + timedelta(hours=APPROVAL_WINDOW_HOURS)
     st.transition(request, RequestStatus.PENDING_TENANT.value, now=now)
-    events.emit("GRANT_SUBMITTED", request_id=request.id, tenant_id=request.tenant_id, actor_person_id=actor.id)
+    events.emit("GRANT_SUBMITTED", db=db, request_id=request.id, tenant_id=request.tenant_id, actor_person_id=actor.id)
     notify_tenant(db, request, "REQUEST_SUBMITTED")
     return request
 
@@ -210,7 +210,7 @@ def cancel_request(db: Session, request: SupportAccessRequest, *, actor, reason:
         return request
     now = _now(now)
     st.transition(request, RequestStatus.CANCELLED.value, reason=reason or "cancelled by requester", now=now)
-    events.emit("GRANT_REVOKED", request_id=request.id, tenant_id=request.tenant_id, actor_person_id=actor.id, detail="cancelled")
+    events.emit("GRANT_REVOKED", db=db, request_id=request.id, tenant_id=request.tenant_id, actor_person_id=actor.id, detail="cancelled")
     return request
 
 
@@ -242,7 +242,7 @@ def tenant_decide(
     if decision == ApprovalDecision.REJECTED.value:
         db.add(_approval(request, TENANT, approver, ApprovalDecision.REJECTED.value, None, comment, now))
         st.transition(request, RequestStatus.REJECTED.value, reason=comment or "rejected by tenant", now=now)
-        events.emit("APPROVAL_DECIDED", request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision="REJECTED", approval_type=TENANT)
+        events.emit("APPROVAL_DECIDED", db=db, request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision="REJECTED", approval_type=TENANT)
         return request
 
     if decision not in APPROVED_DECISIONS:
@@ -252,7 +252,7 @@ def tenant_decide(
         raise ForbiddenException("your authoriser scope does not cover every requested data category")
     decided = ApprovalDecision.APPROVED_NARROWED.value if narrowed != request.requested_scope else ApprovalDecision.APPROVED.value
     db.add(_approval(request, TENANT, approver, decided, narrowed, comment, now))
-    events.emit("APPROVAL_DECIDED", request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision=decided, approval_type=TENANT)
+    events.emit("APPROVAL_DECIDED", db=db, request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision=decided, approval_type=TENANT)
     db.flush()
     _advance(db, request, now=now)
     return request
@@ -305,7 +305,7 @@ def independent_decide(
     if decision == ApprovalDecision.REJECTED.value:
         db.add(_approval(request, approval_type, approver, ApprovalDecision.REJECTED.value, None, comment, now))
         st.transition(request, RequestStatus.REJECTED.value, reason=comment or f"rejected by {approval_type.lower()}", now=now)
-        events.emit("APPROVAL_DECIDED", request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision="REJECTED", approval_type=approval_type)
+        events.emit("APPROVAL_DECIDED", db=db, request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision="REJECTED", approval_type=approval_type)
         return request
 
     if approval_type == PRIVACY and sc.requires_privacy_approval(scope_now):
@@ -315,7 +315,7 @@ def independent_decide(
     narrowed = _narrow(request.requested_scope, approved_scope)
     decided = ApprovalDecision.APPROVED_NARROWED.value if narrowed != request.requested_scope else ApprovalDecision.APPROVED.value
     db.add(_approval(request, approval_type, approver, decided, narrowed, comment, now))
-    events.emit("APPROVAL_DECIDED", request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision=decided, approval_type=approval_type)
+    events.emit("APPROVAL_DECIDED", db=db, request_id=request.id, tenant_id=request.tenant_id, actor_person_id=approver.id, decision=decided, approval_type=approval_type)
     db.flush()
     _advance(db, request, now=now)
     return request
@@ -409,7 +409,7 @@ def activate_grant(
         now=_epoch(now),
     )
     st.transition(request, RequestStatus.ACTIVE.value, now=now)
-    events.emit("GRANT_ISSUED", request_id=request.id, grant_id=grant.id, tenant_id=request.tenant_id,
+    events.emit("GRANT_ISSUED", db=db, request_id=request.id, grant_id=grant.id, tenant_id=request.tenant_id,
                 actor_person_id=grant.grantee_person_id, expires_at=grant.expires_at.isoformat())
     notify_tenant(db, request, "ACCESS_STARTED")
     return grant, token
@@ -437,7 +437,7 @@ def revoke_grant(db: Session, grant: SupportGrant, *, actor_id: Optional[int], r
     request = grant.request
     if request is not None and not st.is_terminal(request.status):
         st.transition(request, RequestStatus.REVOKED.value, reason=reason, now=now)
-    events.emit("GRANT_REVOKED", grant_id=grant.id, request_id=grant.request_id, tenant_id=grant.tenant_id,
+    events.emit("GRANT_REVOKED", db=db, grant_id=grant.id, request_id=grant.request_id, tenant_id=grant.tenant_id,
                 actor_person_id=actor_id, reason=reason)
     _invalidate_cache(grant)
     return grant
@@ -460,7 +460,7 @@ def expire_stale(db: Session, *, now: Optional[datetime] = None, limit: int = 50
                                requested_at=now, propagated_at=now, propagation_confirmed=True))
         if g.request is not None and g.request.status == RequestStatus.ACTIVE.value:
             st.transition(g.request, RequestStatus.EXPIRED.value, reason="expired", now=now)
-        events.emit("GRANT_EXPIRED", grant_id=g.id, tenant_id=g.tenant_id)
+        events.emit("GRANT_EXPIRED", db=db, grant_id=g.id, tenant_id=g.tenant_id)
         _invalidate_cache(g)
 
     stale_requests = (
@@ -499,7 +499,7 @@ def _invalidate_cache(grant: SupportGrant) -> None:
 def notify_tenant(db: Session, request: SupportAccessRequest, event_type: str) -> None:
     """Tell the tenant's authorisers something happened. Content is the reference and the SHAPE of the scope, no values."""
     summary = sc.summary(effective_scope(request))
-    events.emit("TENANT_NOTIFIED", request_id=request.id, tenant_id=request.tenant_id, trigger=event_type, summary=summary)
+    events.emit("TENANT_NOTIFIED", db=db, request_id=request.id, tenant_id=request.tenant_id, trigger=event_type, summary=summary)
     logger.info("tenant %s notified: %s for %s", request.tenant_id, event_type, request.reference)
 
 
@@ -544,7 +544,7 @@ def designate_authoriser(db: Session, *, tenant_id: int, user, designated_by, sc
                            designated_at=now, scope_limits=list(scope_limits))
     db.add(row)
     db.flush()
-    events.emit("AUTHORISER_DESIGNATED", tenant_id=tenant_id, actor_person_id=getattr(designated_by, "id", None), user_id=user.id)
+    events.emit("AUTHORISER_DESIGNATED", db=db, tenant_id=tenant_id, actor_person_id=getattr(designated_by, "id", None), user_id=user.id)
     return row
 
 
@@ -553,5 +553,5 @@ def revoke_authoriser(db: Session, row: TenantAuthoriser, *, actor, now: Optiona
         raise ForbiddenException("only a tenant administrator of this tenant can revoke an authoriser")
     row.revoked_at = _now(now)
     row.revoked_by = getattr(actor, "id", None)
-    events.emit("AUTHORISER_REVOKED", tenant_id=row.tenant_id, actor_person_id=getattr(actor, "id", None), user_id=row.user_id)
+    events.emit("AUTHORISER_REVOKED", db=db, tenant_id=row.tenant_id, actor_person_id=getattr(actor, "id", None), user_id=row.user_id)
     return row

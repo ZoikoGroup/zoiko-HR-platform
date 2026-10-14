@@ -122,6 +122,8 @@ PREFIX_DEFAULTS: list[tuple[str, Level]] = [
     # Zoiko's own record of a tenant's support access (grants, approvals, break-glass, revocations). Control-plane
     # metadata about the tenant, not the tenant's own data: the same level as billing_ and super_admin_.
     ("support_", L.PLATFORM_META),
+    # The tamper-evident audit chain for that access (Phase 9). Metadata about what Zoiko did, not tenant data.
+    ("privacy_", L.PLATFORM_META),
 ]
 
 # ── column level ────────────────────────────────────────────────────────────────────────────────────────────────────

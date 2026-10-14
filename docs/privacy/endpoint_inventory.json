@@ -11860,6 +11860,23 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.audit_verify",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/audit/verify",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.platform_grants",
   "methods": [
    "GET"
