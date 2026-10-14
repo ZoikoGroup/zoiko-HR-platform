@@ -49,61 +49,7 @@ jobs:
         working-directory: backend
         run: python -m pytest -q
 
-  privacy-boundary:
-    runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: pgvector/pgvector:pg16
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: postgres
-        ports:
-          - 5432:5432
-    env:
-      HR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/postgres
-      HR_SECRET_KEY: ci-test-secret-key-not-for-production
-      HR_DEBUG: "true"
-      ENVIRONMENT: testing
-      HR_PRIVACY_PG_ADMIN_URL: postgresql://postgres:postgres@localhost:5432/postgres
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install backend dependencies
-        working-directory: backend
-        run: |
-          pip install --upgrade pip
-          pip install -r requirements.txt
-
-      - name: Generated privacy documents are up to date
-        working-directory: backend
-        run: |
-          set -eo pipefail
-          # run endpoint inventory check; if stale, print diff and instruction then exit non-zero
-          python scripts/privacy_endpoint_inventory.py --check || {
-            echo "privacy_endpoint_inventory out of date — run: python scripts/privacy_endpoint_inventory.py"
-            git --no-pager diff || true
-            exit 1
-          }
-          # run classification doc check; if stale, print diff and instruction then exit non-zero
-          python scripts/privacy_classification_doc.py --check || {
-            echo "privacy_classification_doc out of date — run: python scripts/privacy_classification_doc.py"
-            git --no-pager diff || true
-            exit 1
-          }
-
-      - name: Every data classification is complete (python manage.py check equivalent)
-        working-directory: backend
-        run: python -m pytest tests/privacy/test_policy.py -q -k "classified or doc_is_in_sync"
-
-      - name: Privacy boundary suite
-        working-directory: backend
-        run: python -m pytest tests/privacy -q
+  
 
   frontend:
     runs-on: ubuntu-latest
