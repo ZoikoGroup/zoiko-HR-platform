@@ -46,3 +46,13 @@ def _relaxed_email_rules(request, monkeypatch):
 def strict_emails():
     """Marker fixture: the test runs with the real-email and confirmation rules on."""
     return True
+
+
+@pytest.fixture(autouse=True)
+def _support_access_mfa_on(monkeypatch):
+    """The ZHR-PRIV-001 second factor on the support-access surface is pinned ON for every test.
+
+    The dev escape hatch (HR_SUPPORT_ACCESS_MFA_REQUIRED=false) lives in a developer's local .env, which the settings
+    loader reads here too. Without this, a local .env would silently disable the control the B06/B07 tests assert."""
+    monkeypatch.setattr(settings, "SUPPORT_ACCESS_MFA_REQUIRED", True)
+    yield

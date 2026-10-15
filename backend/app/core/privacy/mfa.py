@@ -102,6 +102,8 @@ def require_fresh_mfa(max_age_seconds: int = 300):
     from app.core.security import decode_access_token
 
     def _dep(request: Request):
+        if not settings.SUPPORT_ACCESS_MFA_REQUIRED:
+            return 0                                                     # dev escape hatch: no fresh factor demanded
         header = request.headers.get("authorization", "")
         payload = decode_access_token(header[7:].strip()) if header.lower().startswith("bearer ") else None
         at = int((payload or {}).get("mfa_at") or 0)

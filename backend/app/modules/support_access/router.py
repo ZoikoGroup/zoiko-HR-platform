@@ -21,6 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.config import settings
 from app.core.dependencies import get_current_super_admin, get_current_user
 from app.core.privacy import policy
 from app.core.privacy.mfa import require_fresh_mfa
@@ -223,6 +224,8 @@ def platform_catalog(user=Depends(get_current_super_admin)):
         "record_threshold": sc.DEFAULT_RECORD_THRESHOLD,
         "duration": {"default": DEFAULT_DURATION_MINUTES, "min": 1, "max": MAX_DURATION_MINUTES},
         "resources": resources,
+        # Whether the server will demand a fresh second factor on this surface (dev escape hatch turns it off).
+        "mfa_required": settings.SUPPORT_ACCESS_MFA_REQUIRED,
     }
 
 

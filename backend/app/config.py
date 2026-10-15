@@ -56,6 +56,11 @@ class Settings(BaseSettings):
     SUPPORT_GRANT_MFA_MAX_AGE_SECONDS: int = Field(
         default=3600, validation_alias="HR_SUPPORT_GRANT_MFA_MAX_AGE_SECONDS"
     )
+    # DEV/TEST ESCAPE HATCH. When false, the JIT support-access surface stops demanding a fresh second factor:
+    # `require_fresh_mfa` becomes a no-op and `grant_context` skips the `mfa_at` freshness check. The page also
+    # stops opening the step-up dialog because /catalog publishes this flag. KEEP TRUE IN PRODUCTION - it is the
+    # ZHR-PRIV-001 B06/B07 control on break-glass, the kill switch, and reads of customer tenant data.
+    SUPPORT_ACCESS_MFA_REQUIRED: bool = Field(default=True, validation_alias="HR_SUPPORT_ACCESS_MFA_REQUIRED")
     # A capability can never be issued longer than this, whatever the request asked for.
     SUPPORT_GRANT_MAX_TTL_MINUTES: int = Field(default=120, validation_alias="HR_SUPPORT_GRANT_MAX_TTL_MINUTES")
     # Break-glass is shorter and read-only.
