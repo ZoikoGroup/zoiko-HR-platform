@@ -118,7 +118,7 @@ def grant_context(
 
     payload = access_payload(request)
     at = int((payload or {}).get("mfa_at") or 0)
-    if not at or time.time() - at > settings.SUPPORT_GRANT_MFA_MAX_AGE_SECONDS:
+    if settings.SUPPORT_ACCESS_MFA_REQUIRED and (not at or time.time() - at > settings.SUPPORT_GRANT_MFA_MAX_AGE_SECONDS):
         raise SupportAccessRefused("Confirm it is you: your sign-in check is no longer fresh enough")
 
     grant.last_access_at = datetime.utcnow()

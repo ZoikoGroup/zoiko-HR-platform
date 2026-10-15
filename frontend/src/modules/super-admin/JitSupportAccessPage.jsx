@@ -227,11 +227,13 @@ function riskOf(form, catalog) {
 // ── page ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export default function JitSupportAccessPage() {
   const me = getStoredUser();
-  const { run, dialog: stepUpDialog } = useStepUp();
+  const [catalog, setCatalog] = useState(null);
+  // The server publishes whether it will demand a fresh factor (HR_SUPPORT_ACCESS_MFA_REQUIRED). Until the catalog
+  // lands, assume it will, so a real step-up is never silently skipped.
+  const { run, dialog: stepUpDialog } = useStepUp({ required: catalog?.mfa_required !== false });
   const [tab, setTab] = useState("live");
   const [data, setData] = useState({ grants: [], detections: [], revocations: [], requests: [], queue: [], breakglass: [] });
   const [assurance, setAssurance] = useState(null);
-  const [catalog, setCatalog] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadErrors, setLoadErrors] = useState([]);
   const [error, setError] = useState(null);

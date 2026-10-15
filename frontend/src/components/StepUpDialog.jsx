@@ -7,6 +7,10 @@
  *
  * A platform account without an authenticator cannot step up (MFA_NOT_ENROLLED); the dialog then sets one up in place
  * (password -> secret -> first code), which signs the person in again with a fresh check, and the action is retried.
+ *
+ * `useStepUp({ required: false })` skips all of that and just runs the action. The JIT support-access page passes the
+ * server's `catalog.mfa_required` here so the dialog cannot appear when the backend has the dev escape hatch
+ * (HR_SUPPORT_ACCESS_MFA_REQUIRED=false) switched off.
  */
 import { useCallback, useRef, useState } from "react";
 import { ShieldCheck, X, Loader2 } from "lucide-react";
@@ -18,7 +22,7 @@ export const STEP_UP_CODE = "MFA_STEP_UP_REQUIRED";
 const inputCls =
   "w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-700 outline-none focus:border-[#3B82F6]";
 
-export function useStepUp() {
+export function useStepUp({ required = true } = {}) {
   const [state, setState] = useState(null); // { step: "code" | "password" | "enroll", enrollment? }
   const pending = useRef(null);             // { resolve, reject } of the step-up the dialog is answering
 
@@ -29,6 +33,7 @@ export function useStepUp() {
 
   /** Run `fn`; if the server asks for a fresh check, get one and run it once more. */
   const run = useCallback(async (fn) => {
+    if (!required) return fn();
     try {
       return await fn();
     } catch (err) {
@@ -36,7 +41,7 @@ export function useStepUp() {
       await ask();
       return fn();
     }
-  }, [ask]);
+  }, [ask, required]);
 
   const close = (error) => {
     const p = pending.current;
