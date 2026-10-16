@@ -105,6 +105,23 @@ jobs:
         working-directory: backend
         run: python -m alembic upgrade head
 
+      - name: Reapply DB grants for root (ensure permissions after migrations)
+        # GRANT ... ON ALL TABLES/SEQUENCES only touches objects that exist
+        # at that moment, so the pre-migration grants above are no-ops on a
+        # fresh DB. Re-issue them here, after alembic created the tables.
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d zoiko_hr_test <<'SQL'
+            GRANT USAGE ON SCHEMA public TO root;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO root;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO postgres;
+            ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO postgres;
+          SQL
+
       - name: Verify migrated schema (fail fast)
         env:
           PGPASSWORD: postgres
