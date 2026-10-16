@@ -274,6 +274,10 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `connect_channels` (default PLATFORM_META; most sensitive column rank 0)
 - **PLATFORM_META**: `id`, `channel`, `config_encrypted`, `last_tested_at`, `last_test_result`, `last_error`, `updated_by`, `created_at`, `updated_at`
 
+## `department_settings` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `settings`, `updated_by`
+
 ## `departments` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `created_at`, `organization_id`
 - **PERSONAL_BASIC**: `name`, `code`, `department_code`, `description`, `is_active`, `head`, `budget`, `spent_budget`, `establishment_year`, `parent_id`
@@ -483,7 +487,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `onboarding_checklist_items` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `checklist_id`, `created_by`
-- **PERSONAL_CONFIDENTIAL**: `title`, `description`, `completed`, `completed_at`, `due_date`
+- **PERSONAL_CONFIDENTIAL**: `title`, `description`, `completed`, `completed_at`, `due_date`, `due_offset_days`, `assignee_employee_id`
 
 ## `onboarding_checklists` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
@@ -496,10 +500,11 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **TENANT_FILE**: `title`, `category`, `file_path`, `status`
 - **SPECIAL_CATEGORY**: `rejection_reason`
 
-## `onboarding_new_hires` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+## `onboarding_new_hires` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 6)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `manager_id`, `created_by`
-- **PERSONAL_CONFIDENTIAL**: `employee_id`, `candidate_name`, `email`, `phone`, `position`, `department_id`, `joining_date`, `status`, `joining_status`, `notes`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `candidate_name`, `email`, `phone`, `position`, `department_id`, `joining_date`, `status`, `joining_status`, `notes`, `employment_type`, `completed_at`, `portal_expires_at`, `portal_invited_at`, `profile_details`
+- **SECRET**: `portal_token_hash`, `portal_token_enc`
 
 ## `onboarding_orientation_attendees` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
@@ -515,6 +520,10 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`, `created_by`
 - **PERSONAL_CONFIDENTIAL**: `employee_id`, `title`, `description`, `due_date`, `completed`, `completed_at`
+
+## `onboarding_settings` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`, `updated_at`
+- **PERSONAL_CONFIDENTIAL**: `auto_template_ids`, `required_document_categories`, `auto_send_portal_invite`, `portal_link_days`, `reminder_days`, `require_checklists_complete`, `require_documents_approved`, `welcome_message`, `last_reminder_run`
 
 ## `organization_configs` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
@@ -588,7 +597,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_offers` (default TENANT_CUSTOMER; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `candidate_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `work_country`, `entity_name`, `entity_country`, `entity_address`, `equity`, `joining_date`, `status`, `notes`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `work_country`, `entity_name`, `entity_id_type`, `entity_country`, `entity_address`, `entity_city`, `entity_region`, `entity_postal_code`, `equity`, `joining_date`, `status`, `notes`
 - **FINANCIAL**: `salary`, `entity_tax_id`
 
 ## `recruitment_requisitions` (default TENANT_CUSTOMER; most sensitive column rank 3)

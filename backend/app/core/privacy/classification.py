@@ -68,7 +68,8 @@ TABLES: dict[str, Level] = {
     "attendance_records": L.PERSONAL_CONFIDENTIAL, "leave_requests": L.PERSONAL_CONFIDENTIAL, "leave_balances": L.PERSONAL_CONFIDENTIAL,
     "shifts": L.PERSONAL_BASIC, "holidays": L.PERSONAL_BASIC, "leave_settings": L.PERSONAL_BASIC, "leave_type_configs": L.PERSONAL_BASIC,
     # organisation structure and tenant configuration
-    "departments": L.PERSONAL_BASIC, "designations": L.PERSONAL_BASIC, "designation_settings": L.PERSONAL_BASIC,
+    "departments": L.PERSONAL_BASIC, "department_settings": L.PERSONAL_BASIC,
+    "designations": L.PERSONAL_BASIC, "designation_settings": L.PERSONAL_BASIC,
     "organization_configs": L.PERSONAL_BASIC, "organization_evaluations": L.PLATFORM_META,
     "asset_categories": L.PERSONAL_BASIC, "asset_settings": L.PERSONAL_BASIC, "assets": L.PERSONAL_BASIC,
     "asset_maintenance_requests": L.PERSONAL_BASIC, "asset_reports": L.PERSONAL_BASIC, "asset_requests": L.PERSONAL_BASIC,
