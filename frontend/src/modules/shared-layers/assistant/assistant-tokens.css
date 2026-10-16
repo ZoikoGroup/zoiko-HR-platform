@@ -69,8 +69,18 @@
   --zhr-radius-card: 1rem;
   --zhr-radius-panel: 1.5rem;
 
-  /* Size */
-  --zhr-panel-width: 420px;
+  /* Chatbot wireframe v1.0 (§3.3) brand tokens — shared with the public
+     zoikohr.com widget so both assistants read as one product. */
+  --zhr-chat-navy: #101B3C;
+  --zhr-chat-blue: #09549B;
+  --zhr-chat-blue-hover: #07457F;
+  --zhr-chat-border: #D9E4F2;
+  --zhr-chat-surface-alt: #F5F8FC;
+  --zhr-chat-bubble: #F1F4F9;
+
+  /* Size — wireframe §3.1: 480px wide, height capped at 780px */
+  --zhr-panel-width: 480px;
+  --zhr-panel-max-height: 780px;
   --zhr-control-min-target: 44px;
 
   /* Launcher orb — lighter/darker stops around the platform's primary blue.
@@ -130,68 +140,30 @@
 
 .zhr-orb-halo {
   position: fixed;
-  bottom: 1.25rem;   /* matches the button's bottom-5 */
-  right: 1.25rem;    /* matches the button's right-5 */
+  bottom: 1.5rem;    /* matches the button's bottom-6 */
+  right: 1.5rem;     /* matches the button's right-6 */
   z-index: 40;       /* behind the button's z-50 */
   height: 3.5rem;    /* matches h-14 */
   width: 3.5rem;     /* matches w-14 */
   border-radius: 1rem;
   background: var(--zhr-action-primary);
   filter: blur(20px);
-  animation: zhr-orb-halo-pulse 2.8s ease-in-out infinite;
+  /* Static glow only — chatbot wireframe §8.1 (Motion) rules out an
+     animated, attention-grabbing launcher loop. Hover/open just brighten. */
+  opacity: 0.55;
+  transition: opacity 0.2s ease, transform 0.2s ease;
   pointer-events: none;
 }
 
-.zhr-orb-halo.is-open {
-  animation-name: zhr-orb-halo-pulse-open;
-}
-
-/* Hover-intensified variants — a plain opacity/transform override on
-   .zhr-orb-halo wouldn't win against its own running keyframe animation
-   (the animation continuously drives both properties), so hover swaps to
-   a boosted keyframe set instead of fighting the cascade. */
+.zhr-orb-halo.is-open,
 .zhr-orb-btn:hover + .zhr-orb-halo {
-  animation-name: zhr-orb-halo-pulse-hover;
-}
-
-.zhr-orb-btn:hover + .zhr-orb-halo.is-open {
-  animation-name: zhr-orb-halo-pulse-open-hover;
-}
-
-@keyframes zhr-orb-halo-pulse {
-  0%, 100% { transform: scale(1);    opacity: 0.55; }
-  50%      { transform: scale(1.12); opacity: 0.9; }
-}
-
-@keyframes zhr-orb-halo-pulse-hover {
-  0%, 100% { transform: scale(1.02); opacity: 0.7; }
-  50%      { transform: scale(1.14); opacity: 0.95; }
-}
-
-@keyframes zhr-orb-halo-pulse-open {
-  0%, 100% { transform: scale(1);    opacity: 0.8; }
-  50%      { transform: scale(1.12); opacity: 1; }
-}
-
-@keyframes zhr-orb-halo-pulse-open-hover {
-  0%, 100% { transform: scale(1.02); opacity: 0.9; }
-  50%      { transform: scale(1.14); opacity: 1; }
+  opacity: 0.85;
+  transform: scale(1.08);
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .zhr-orb-halo,
-  .zhr-orb-btn:hover + .zhr-orb-halo {
-    animation: none;
-    transform: scale(1);
-    opacity: 0.6;
-  }
-  .zhr-orb-halo.is-open,
-  .zhr-orb-btn:hover + .zhr-orb-halo.is-open {
-    animation: none;
-    transform: scale(1);
-    opacity: 0.8;
-  }
-  .zhr-orb-btn {
+  .zhr-orb-btn,
+  .zhr-orb-halo {
     transition-duration: 0.01ms;
   }
 }

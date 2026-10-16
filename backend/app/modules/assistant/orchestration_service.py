@@ -51,14 +51,31 @@ _LEAVE_POLICY_QUESTION_RE = re.compile(
 )
 
 
+# Time-off phrasing that never says "leave" ("book a day off tomorrow",
+# "I need time off next week"). An explicit booking verb is required so an
+# entitlement question ("how many days off do I get?") is not misread as a
+# booking request.
+_LEAVE_TIME_OFF_RE = re.compile(
+    r"\b(book|request|apply for|take|need|want|plan|schedule)\b.{0,25}\b(day|days|time)\s+off\b",
+    re.IGNORECASE,
+)
+
+
 def _is_leave_booking(text: str) -> bool:
     if _LEAVE_BOOKING_ACTION_RE.search(text):
+        return True
+    if _LEAVE_TIME_OFF_RE.search(text) and not _LEAVE_POLICY_QUESTION_RE.search(text):
         return True
     return bool(_LEAVE_TAKE_RE.search(text) and not _LEAVE_POLICY_QUESTION_RE.search(text))
 
 
 _LEAVE_BALANCE_RE = re.compile(
-    r"\bleave\b.*\b(balance|left|remaining|days)\b|\bhow many.*leave\b"
+    # "leave"/"leaves" before a balance word ("leave balance", "sick leaves
+    # remaining") ...
+    r"\bleaves?\b.*\b(balance|left|remaining|days)\b"
+    # ... or the balance word before the plural ("my remaining leaves") ...
+    r"|\b(balance|remaining|left)\b.*\bleaves?\b"
+    r"|\bhow many.*\bleaves?\b"
     r"|\bentitle\w*\b.*\bleave\b|\bleave\b.*\bentitle\w*\b"
     r"|\bentitle\w*\b.{0,20}\bdays?\b|\bdays?\b.{0,20}\bentitle\w*\b"
     # Named leave-type phrasing with no literal "leave"/"entitle" at all, e.g.
@@ -81,17 +98,25 @@ _LEAVE_POLICY_OVERRIDE_RE = re.compile(
     re.IGNORECASE,
 )
 _ATTENDANCE_RE = re.compile(
-    r"\battendance\b|\bclock(ed)? (in|out)\b|\bcheck(ed)? (in|out)\b",
+    r"\battendance\b|\bclock(ed)? (in|out)\b|\bcheck(ed)? (in|out)\b"
+    r"|\blate\s+marks?\b|\blate\s+comings?\b|\btardiness\b|\bam i late\b|\bwas i late\b",
     re.IGNORECASE,
 )
-_HANDOFF_RE = re.compile(r"\bspeak (to|with)\b.*\bhr\b|\btalk to a human\b|\bcontact hr\b", re.IGNORECASE)
+_HANDOFF_RE = re.compile(
+    r"\bspeak (to|with)\b.*\bhr\b|\btalk to a human\b|\bcontact hr\b"
+    r"|\b(connect|transfer|put)\s+me\s+(to|with|through to)\b.*\bhr\b"
+    r"|\btalk to (a|someone|somebody) (from|in|at) hr\b|\breach (out to )?hr\b|\bescalate\b.*\bhr\b",
+    re.IGNORECASE,
+)
 _HEADCOUNT_RE = re.compile(
     r"\bhow many (emplo\w*|people|staff|workers)\b|\b(emplo\w*|staff) (count|headcount)\b|\bheadcount\b"
     r"|\btotal (number of )?emplo\w*\b|\b(count|number) of (emplo\w*|people|staff|workers)\b",
     re.IGNORECASE,
 )
 _DEPT_DIRECTORY_RE = re.compile(
-    r"\bwho(?:'s)?\s+(is|are|works?)\b|\bwho(?:'s)\b|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b",
+    r"\bwho(?:'s)?\s+(is|are|works?)\b|\bwho(?:'s)\b|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b"
+    r"|\blist\s+(?:of\s+)?(?:employees?|people|staff|members?|managers?|team)\b"
+    r"|\bshow\s+me\s+the\s+(?:list\s+of\s+)?(?:employees?|people|staff|members?|managers?|team)\b",
     re.IGNORECASE,
 )
 _DEPT_CANDIDATE_STRIP_RES = [
@@ -99,6 +124,8 @@ _DEPT_CANDIDATE_STRIP_RES = [
     re.compile(r"^members?\s+of\s+(?:the\s+)?", re.IGNORECASE),
     re.compile(r"^list\s+employees?\s+in\s+(?:the\s+)?", re.IGNORECASE),
     re.compile(r"^people\s+in\s+(?:the\s+)?", re.IGNORECASE),
+    re.compile(r"^show\s+me\s+(?:the\s+)?", re.IGNORECASE),
+    re.compile(r"^list\s+(?:of\s+)?(?:the\s+)?", re.IGNORECASE),
 ]
 _DEPT_CANDIDATE_TRAILING_RE = re.compile(r"\s*(department|team)$", re.IGNORECASE)
 
@@ -110,11 +137,11 @@ def _extract_department_candidate(text: str) -> str:
     to look up. If nothing meaningful remains, the caller treats it as no
     match rather than guessing."""
     candidate = text.strip().rstrip("?.! ")
+    # Strip every recognized leading trigger phrase (not just the first) so
+    # layered phrasings ("Show me the list of managers") fully reduce to the
+    # department/role noun the handler will look up.
     for pattern in _DEPT_CANDIDATE_STRIP_RES:
-        stripped = pattern.sub("", candidate)
-        if stripped != candidate:
-            candidate = stripped
-            break
+        candidate = pattern.sub("", candidate)
     candidate = _DEPT_CANDIDATE_TRAILING_RE.sub("", candidate)
     return candidate.strip()
 

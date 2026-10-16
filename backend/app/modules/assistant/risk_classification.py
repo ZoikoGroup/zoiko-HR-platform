@@ -73,6 +73,35 @@ SENSITIVE_CASE_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Questions about the Zoiko HR product/platform itself are not about an
+# individual employee, so employee-data risk categories (peer compensation,
+# medical inference) and individualized-advice categories (legal/tax/
+# immigration, sensitive grievances) must not fire on them. A product
+# question names the platform AND a capability verb ("does Zoiko HR support
+# ...", "what does Zoiko HR make possible?").
+_PRODUCT_SUBJECT_RE = re.compile(
+    r"\b(zoiko\s*(hr)?|the\s+(platform|system|software|product|app|tool|site|service|website))\b",
+    re.IGNORECASE,
+)
+_PRODUCT_CAPABILITY_RE = re.compile(
+    r"\b(support\w*|track\w*|manage\w*|integrat\w*|offer\w*|handle\w*|allow\w*|provide\w*|"
+    r"feature\w*|capabilit\w*|module\w*|pricing|price\w*|cost\w*|make\w*|have|has|include\w*|"
+    r"help\w*|work\s+with)\b",
+    re.IGNORECASE,
+)
+# Categories that describe an individual employee's private situation and are
+# therefore suppressed for product-feature questions. Self-harm and adverse-
+# employment recommendations are deliberately NOT in this set — they always
+# fire regardless of subject.
+_EMPLOYEE_SPECIFIC_CATEGORIES = frozenset(
+    {"compensation_comparison", "medical_inference", "professional_advice", "sensitive_case"}
+)
+
+
+def _is_product_question(text: str) -> bool:
+    return bool(_PRODUCT_SUBJECT_RE.search(text) and _PRODUCT_CAPABILITY_RE.search(text))
+
+
 SAFE_MESSAGES = {
     "self_harm": (
         "I'm really sorry you're going through this. If you or someone else may be in immediate danger, "
@@ -114,10 +143,15 @@ class RiskClassification:
 
 
 def classify(text: str) -> RiskClassification | None:
+    product_question = _is_product_question(text)
     for category, pattern in CATEGORY_HARD_BLOCK_PATTERNS:
+        if product_question and category in _EMPLOYEE_SPECIFIC_CATEGORIES:
+            continue
         if pattern.search(text):
             return RiskClassification(category, HARD_BLOCK, SAFE_MESSAGES[category])
     for category, pattern in CATEGORY_SOFT_FLAG_PATTERNS:
+        if product_question and category in _EMPLOYEE_SPECIFIC_CATEGORIES:
+            continue
         if pattern.search(text):
             return RiskClassification(category, SOFT_FLAG)
     return None
