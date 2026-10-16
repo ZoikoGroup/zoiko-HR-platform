@@ -6,22 +6,34 @@ import DocumentEmptyState from "../../../../components/documents/DocumentEmptySt
 import DocumentErrorState from "../../../../components/documents/DocumentErrorState";
 import { useDocumentFile } from "../../../../hooks/useDocumentFile";
 import { getMyAssignedDocuments } from "../../../../service/hrService";
-import { Search, FileText, ShieldCheck, BookOpen, RefreshCw } from "lucide-react";
+import { Search, FileText, ShieldCheck, BookOpen, RefreshCw, MessageSquareText, ListChecks, Compass, ClipboardList } from "lucide-react";
 import { formatDate as formatDateUtil } from "../../../../utils/dateTime";
 
+// Mirrors the seven assistant knowledge categories (Policy, FAQs, SOPs,
+// Compliance, Handbook, Guide, Forms) so the people who only have the
+// employee portal — testers on an employee login — see the same vocabulary
+// the admin authors and the assistant retrieve under.
 const CATEGORY_STYLES = {
   Policy: { icon: FileText, color: "#1D4ED8", bg: "#EFF6FF" },
+  FAQs: { icon: MessageSquareText, color: "#7C3AED", bg: "#F5F3FF" },
+  SOPs: { icon: ListChecks, color: "#0E7490", bg: "#ECFEFF" },
   Compliance: { icon: ShieldCheck, color: "#D97706", bg: "#FFFBEB" },
   Handbook: { icon: BookOpen, color: "#059669", bg: "#ECFDF5" },
+  Guide: { icon: Compass, color: "#DB2777", bg: "#FDF2F8" },
+  Forms: { icon: ClipboardList, color: "#475569", bg: "#F1F5F9" },
 };
 
-const CATEGORIES = ["All categories", "Policy", "Compliance", "Handbook"];
+const CATEGORIES = ["All categories", "Policy", "FAQs", "SOPs", "Compliance", "Handbook", "Guide", "Forms"];
 
 function normalizeCategory(doc) {
   const raw = String(doc.document_type || doc.type || doc.category || "").toLowerCase();
-  if (raw.includes("policy")) return "Policy";
+  if (raw.includes("faq") || raw.includes("question")) return "FAQs";
+  if (raw.includes("sop") || raw.includes("procedure")) return "SOPs";
   if (raw.includes("compliance") || raw.includes("regulation")) return "Compliance";
-  if (raw.includes("handbook") || raw.includes("guide") || raw.includes("manual")) return "Handbook";
+  if (raw.includes("handbook")) return "Handbook";
+  if (raw.includes("guide") || raw.includes("manual")) return "Guide";
+  if (raw.includes("form") || raw.includes("template")) return "Forms";
+  if (raw.includes("policy")) return "Policy";
   return "Policy";
 }
 
