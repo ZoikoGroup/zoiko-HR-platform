@@ -188,3 +188,37 @@ def test_new_intents_are_registered_with_the_tool_registry():
     assert reg.tool_for("employee_roster") is not None, "roster reads employees, must be authorized"
     assert "navigation_help" in reg.NO_DATA_INTENTS, "navigation reads no tenant data"
 
+
+def test_tenant_retrieval_also_includes_platform_public_content():
+    # Production report: a signed-in employee asking "what does Zoiko HR do?"
+    # dead-ended with "I don't have approved policy content" — the product /
+    # company FAQ lives in the platform-public KB (KnowledgeSource.is_public)
+    # which only retrieve_public() used to reach. Tenant retrieval must now
+    # span the caller's own tenant PLUS that public content, while still never
+    # reaching any other tenant's private content.
+    import inspect
+    from app.modules.assistant import retrieval_service
+
+    src = inspect.getsource(retrieval_service.retrieve)
+    assert "KnowledgeSource.organization_id == organization_id" in src, "still tenant-scoped"
+    assert "KnowledgeSource.is_public.is_(True)" in src, "plus platform-public content"
+    assert "or_" in src, "the two are combined, not narrowed"
+
+    # source titles are resolved across both sets, or a public hit would be
+    # labelled "Unknown source" in the citation.
+    titles_src = src.split("source_titles", 1)[1]
+    assert "KnowledgeSource.is_public.is_(True)" in titles_src
+
+
+def test_product_questions_route_to_retrieval_not_a_special_intent():
+    # "what does zoiko hr do" and friends must stay on the RAG path so they are
+    # answered from the public KB — no bespoke intent that could bypass it.
+    for text in [
+        "what does zoiko hr do",
+        "what is zoiko hr",
+        "who is zoiko hr built for",
+        "how much does zoiko hr cost",
+    ]:
+        assert orch.classify_intent(text) == "policy_qa", text
+
+

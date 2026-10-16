@@ -114,7 +114,13 @@ _HEADCOUNT_RE = re.compile(
     re.IGNORECASE,
 )
 _DEPT_DIRECTORY_RE = re.compile(
-    r"\bwho(?:'s)?\s+(is|are|works?)\b|\bwho(?:'s)\b|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b"
+    # "who is/are" only counts as a directory lookup with a department
+    # preposition ("who is in Sales"); bare "who is X" / "who's X" must NOT be
+    # captured, or product questions ("who is zoiko hr built for") get read as
+    # a department literally named "zoiko hr built for".
+    r"\bwho(?:'s| is| are)\s+(?:in|on|from|part\s+of|a\s+part\s+of)\b"
+    r"|\bwho\s+works?\s+(?:in|on|for|at)\b"
+    r"|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b"
     r"|\blist\s+(?:of\s+)?(?:employees?|people|staff|members?|managers?|team)\b"
     r"|\bshow\s+me\s+the\s+(?:list\s+of\s+)?(?:employees?|people|staff|members?|managers?|team)\b",
     re.IGNORECASE,
