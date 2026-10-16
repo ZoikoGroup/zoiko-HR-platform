@@ -1,9 +1,12 @@
 import { realEmailError } from "../../utils/realEmail";
+import { formatSalary, salaryCurrencyCode, salaryCurrencyName } from "../../utils/employeeCurrency";
+import { statutoryField } from "../../utils/employeeStatutory";
+import { REGISTRATION_COUNTRIES } from "../../utils/registrationRegions";
 import { useState, useMemo, useRef, useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
 import { useAuth } from "../../context/AuthContext";
-import { importEmployees, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
+import { importEmployees, downloadImportTemplate, getImportTemplateCountries, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
 import { phoneError, PHONE_MAX_LENGTH } from "../../utils/phone";
 import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser, getAssignableRoles, getUser } from "../../service/userService";
@@ -68,10 +71,10 @@ const REQUIRED_COLUMNS = COLUMNS.filter((c) => c.required)
   .map((c) => c.label)
   .join(", ");
 
-function toCSV(rows) {
-  const header = COLUMNS.map((c) => c.label).join(",");
+function toCSV(rows, columns = COLUMNS) {
+  const header = columns.map((c) => c.label).join(",");
   const lines = rows.map((row) =>
-    COLUMNS.map((c) => {
+    columns.map((c) => {
       const val = String(row[c.key] ?? "");
       return val.includes(",") || val.includes('"')
         ? `"${val.replace(/"/g, '""')}"`
@@ -80,6 +83,8 @@ function toCSV(rows) {
   );
   return [header, ...lines].join("\n");
 }
+
+const EXPORT_COLUMNS = [...COLUMNS, { key: "currency", label: "Currency", required: false }];
 
 function downloadFile(content, filename, mime = "text/csv;charset=utf-8;") {
   const blob = new Blob([content], { type: mime });
@@ -110,6 +115,11 @@ function initials(name) {
     .slice(0, 2)
     .toUpperCase();
 }
+
+// Statutory/bank labels follow the employee's country (PAN for India, SSN for the US, ...);
+// anything else keeps its fixed label.
+const statutoryLabel = (f, country) => statutoryField(f.name, country)?.label || f.label;
+const statutoryPlaceholder = (f, country) => statutoryField(f.name, country)?.placeholder || f.placeholder;
 
 const EMPLOYMENT_TYPES = [["full_time", "Full time"], ["part_time", "Part time"], ["contract", "Contract"], ["intern", "Intern"], ["probation", "Probation"]];
 const GENDERS = [["male", "Male"], ["female", "Female"], ["other", "Other"]];
@@ -222,6 +232,8 @@ function importSummary(result) {
   const parts = [];
   if (result.created) parts.push(`${result.created} created`);
   if (result.updated) parts.push(`${result.updated} updated`);
+  // people already being onboarded (hired through Recruitment) are linked, not duplicated
+  if (result.linked_onboarding) parts.push(`${result.linked_onboarding} linked to onboarding`);
   return parts.length ? `${parts.join(", ")}` : "No changes";
 }
 
@@ -282,6 +294,8 @@ export default function OrgAdminUserManagementPage() {
       : "Employee",
     roleValue: e.role || "employee",
     title: e.jobTitle || e.job_title || "",
+    ctc: e.ctc ?? "",
+    country: e.country || "",
     // the same resolver the ZoikoHR dashboard uses, so both screens always say the same thing
     status: (() => { const label = resolveEmployeeDisplayStatus(e).label; return label === "Working" ? "Active" : label; })(),
   })), [rawEmployees]);
@@ -345,13 +359,35 @@ export default function OrgAdminUserManagementPage() {
     });
   };
 
-  function handleDownloadTemplate() {
-    const link = document.createElement("a");
-    link.href = "/templates/employee-import-template.xlsx";
-    link.download = "employee-import-template.xlsx";
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const [templateQuery, setTemplateQuery] = useState("");
+  const [templateBusy, setTemplateBusy] = useState("");
+  // The 20 countries with their own template come first (with the IDs their columns use); any other country can still be
+  // searched and gets the international template (Tax ID / SWIFT...), never the Indian one.
+  const [templateCountries, setTemplateCountries] = useState([]);
+  useEffect(() => {
+    let alive = true;
+    getImportTemplateCountries().then((rows) => { if (alive && Array.isArray(rows)) setTemplateCountries(rows); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const templateMatches = useMemo(() => {
+    const q = templateQuery.trim().toLowerCase();
+    const own = templateCountries.filter((c) => !q || c.name.toLowerCase().includes(q)).map((c) => ({ ...c, own: true }));
+    if (!q) return own;
+    const ownNames = new Set(templateCountries.map((c) => c.name.toLowerCase()));
+    const others = REGISTRATION_COUNTRIES.filter((c) => c.toLowerCase().includes(q) && !ownNames.has(c.toLowerCase()))
+      .slice(0, 30).map((name) => ({ name, own: false }));
+    return [...own, ...others];
+  }, [templateQuery, templateCountries]);
+
+  async function downloadCountryTemplate(country) {
+    setTemplateBusy(country || "default");
+    try {
+      await downloadImportTemplate(country || undefined);
+    } catch (err) {
+      setNotice({ message: err.message || "Failed to download template.", type: "error" });
+    } finally {
+      setTemplateBusy("");
+    }
   }
 
   function handleExport() {
@@ -387,8 +423,9 @@ export default function OrgAdminUserManagementPage() {
       country: e.country || "",
       pincode: e.pincode || "",
       address: e.address || "",
+      currency: salaryCurrencyCode(e.country) || "",
     }));
-    downloadFile(toCSV(exportRows), `users_export_${Date.now()}.csv`);
+    downloadFile(toCSV(exportRows, EXPORT_COLUMNS), `users_export_${Date.now()}.csv`);
   }
 
   function handleFileSelected(e) {
@@ -699,7 +736,7 @@ export default function OrgAdminUserManagementPage() {
 
       {/* Toolbar */}
       <div style={{ display:'flex', gap:12, marginBottom:20 }}>
-        <button onClick={handleDownloadTemplate} className="tool-btn" style={{
+        <button onClick={() => setModalOpen(true)} title="Pick a country template in the import dialog" className="tool-btn" style={{
           display:'flex', alignItems:'center', gap:9, padding:'11px 18px', borderRadius:12,
           background:'#fff', border:'1px solid rgba(10,17,40,0.08)', fontSize:13.5, fontWeight:600,
           color:'#0A1128', cursor:'pointer', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)'
@@ -830,7 +867,7 @@ export default function OrgAdminUserManagementPage() {
                   style={{ accentColor:'#3B82F6', cursor:'pointer', width:15, height:15 }}
                 />
               </th>
-              {['User','Email','Role','Job Title','Status','Actions'].map((h) => (
+              {['User','Email','Role','Job Title','CTC','Status','Actions'].map((h) => (
                 <th key={h} style={{
                   textAlign:h==='Actions'?'right':'left', fontSize:10.5, textTransform:'uppercase',
                   letterSpacing:'0.07em', color:'#475569', fontWeight:700, padding:'15px 18px',
@@ -886,6 +923,9 @@ export default function OrgAdminUserManagementPage() {
                     </span>
                   </td>
                   <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)', color:'#475569' }}>{u.title}</td>
+                  <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)', color:'#0A1128', fontWeight:600, whiteSpace:'nowrap' }} title={salaryCurrencyCode(u.country) ? `CTC in ${salaryCurrencyCode(u.country)}` : undefined}>
+                    {u.ctc === "" || u.ctc == null ? <span style={{ color:'#94A3B8', fontWeight:400 }}>—</span> : formatSalary(u.ctc, u.country)}
+                  </td>
                   <td style={{ padding:'15px 18px', borderBottom:'1px solid rgba(10,17,40,0.08)' }}>
                     <span style={{
                       display:'inline-flex', alignItems:'center', gap:6, padding:'5px 12px', borderRadius:100,
@@ -941,7 +981,7 @@ export default function OrgAdminUserManagementPage() {
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} style={{ padding:'15px 18px', textAlign:'center', fontSize:13.5, color:'#94A3B8' }}>
+                <td colSpan={8} style={{ padding:'15px 18px', textAlign:'center', fontSize:13.5, color:'#94A3B8' }}>
                   No users match your filters.
                 </td>
               </tr>
@@ -979,17 +1019,61 @@ export default function OrgAdminUserManagementPage() {
             </div>
 
             <div className="px-5 py-5">
-              <p className="mb-4 text-sm text-gray-500">
-                Upload an Excel or CSV file matching the{" "}
-                <button
-                  onClick={handleDownloadTemplate}
-                  className="font-medium text-[#3B82F6] hover:underline"
-                >
-                  import template
-                </button>
-                . Required columns: {REQUIRED_COLUMNS}. If Password is left blank, a
+              <p className="mb-3 text-sm text-gray-500">
+                Upload an Excel or CSV file with the required columns: {REQUIRED_COLUMNS}. If Password is left blank, a
                 temporary password is auto-generated.
               </p>
+
+              <div className="mb-4 rounded-lg border border-gray-200">
+                <div className="border-b border-gray-100 px-3 pt-3">
+                  <div className="text-xs font-bold uppercase tracking-wider text-gray-400">Download template</div>
+                  <input
+                    type="text"
+                    value={templateQuery}
+                    onChange={(e) => setTemplateQuery(e.target.value)}
+                    placeholder="Search country…"
+                    aria-label="Search country for template"
+                    className="mt-2 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE]"
+                  />
+                  <p className="mt-1 pb-1 text-xs text-gray-400">20 countries have their own template: identifier columns, address labels, examples and currency follow the country. Each file has a "How to fill" sheet.</p>
+                </div>
+                <ul className="max-h-44 overflow-y-auto py-1" role="listbox" aria-label="Template countries">
+                  <li>
+                    <button
+                      type="button"
+                      onClick={() => downloadCountryTemplate("")}
+                      disabled={!!templateBusy}
+                      className="flex w-full items-center justify-between px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50"
+                    >
+                      <span><span className="font-medium text-gray-800">Default template</span> <span className="text-xs text-gray-400">— India (INR)</span></span>
+                      <span className="text-xs font-semibold text-[#3B82F6]">{templateBusy === "default" ? "Downloading…" : "XLSX"}</span>
+                    </button>
+                  </li>
+                  {templateMatches.map((c) => (
+                    <li key={c.name}>
+                      <button
+                        type="button"
+                        onClick={() => downloadCountryTemplate(c.name)}
+                        disabled={!!templateBusy}
+                        className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-sm hover:bg-gray-50 disabled:opacity-50"
+                      >
+                        <span className="min-w-0">
+                          <span className="font-medium text-gray-800">{c.name}</span>
+                          <span className="block truncate text-xs text-gray-400">
+                            {c.own ? c.identifiers.join(" · ") : "International template (Tax ID, IBAN / account, SWIFT)"}
+                          </span>
+                        </span>
+                        <span className="shrink-0 text-xs font-semibold text-[#3B82F6]">
+                          {templateBusy === c.name ? "Downloading…" : (c.currency || salaryCurrencyCode(c.name) || "XLSX")}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                  {templateMatches.length === 0 && (
+                    <li className="px-3 py-2 text-sm text-gray-400">No countries match “{templateQuery}”.</li>
+                  )}
+                </ul>
+              </div>
 
               <input
                 ref={fileInputRef}
@@ -1109,7 +1193,7 @@ export default function OrgAdminUserManagementPage() {
                       return (
                         <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
                           <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
-                            {f.label}{f.required ? <span className="text-red-500"> *</span> : null}
+                            {statutoryLabel(f, formData.country)}{f.required ? <span className="text-red-500"> *</span> : null}
                           </label>
                           {f.name === "role" ? (
                             <div className="relative">
@@ -1131,9 +1215,12 @@ export default function OrgAdminUserManagementPage() {
                               maxLength={f.name === "phone" ? PHONE_MAX_LENGTH : undefined} inputMode={f.name === "phone" ? "tel" : undefined}
                               onBlur={f.name === "phone" ? () => setFormErrors((prev) => ({ ...prev, phone: phoneError(formData.phone) || undefined })) : undefined}
                               aria-invalid={formErrors[f.name] ? "true" : undefined}
-                              placeholder={f.placeholder} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
+                              placeholder={statutoryPlaceholder(f, formData.country)} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
                           )}
                           {formErrors[f.name] && <p className="mt-1 text-xs text-red-500">{formErrors[f.name]}</p>}
+                          {(f.name === "basic_salary" || f.name === "ctc") && salaryCurrencyName(formData.country) ? (
+                            <p className="mt-1 text-xs text-gray-500">Amounts in {salaryCurrencyName(formData.country)}</p>
+                          ) : null}
                           {f.name === "role" && roleOptions.find((r) => r.value === formData.role)?.description ? (
                             <p className="mt-1 text-xs text-gray-500">{roleOptions.find((r) => r.value === formData.role).description}</p>
                           ) : null}
@@ -1282,7 +1369,7 @@ export default function OrgAdminUserManagementPage() {
                     <dl className="grid grid-cols-1 gap-x-6 gap-y-3 sm:grid-cols-2">
                       {section.fields.map((f) => (
                         <div key={f.name} className={`min-w-0 ${f.wide ? "sm:col-span-2" : ""}`}>
-                          <dt className="text-xs font-medium text-gray-500">{f.label}</dt>
+                          <dt className="text-xs font-medium text-gray-500">{statutoryLabel(f, viewModal.record.country)}</dt>
                           <dd className="text-sm text-gray-900 break-words">
                             {(() => {
                               const r = viewModal.record;
@@ -1292,6 +1379,11 @@ export default function OrgAdminUserManagementPage() {
                               else if (f.name === "designation_name") value = r.designation;
                               else value = r[f.name];
                               if (value === null || value === undefined || value === "") return <span className="text-gray-400">—</span>;
+                              // Money is shown in the employee's own currency (from their registered country).
+                              if (f.name === "basic_salary" || f.name === "ctc") {
+                                const code = salaryCurrencyCode(r.country);
+                                return <span>{formatSalary(value, r.country)}{code ? <span className="text-gray-400"> ({code})</span> : null}</span>;
+                              }
                               return String(value).replace(/_/g, " ");
                             })()}
                           </dd>
@@ -1350,7 +1442,7 @@ export default function OrgAdminUserManagementPage() {
                       return (
                         <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
                           <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
-                            {f.label}{f.required && !disabled ? <span className="text-red-500"> *</span> : null}
+                            {statutoryLabel(f, editForm.country)}{f.required && !disabled ? <span className="text-red-500"> *</span> : null}
                           </label>
                           {f.name === "role" ? (
                             <div className="relative">
@@ -1372,9 +1464,12 @@ export default function OrgAdminUserManagementPage() {
                               maxLength={f.name === "phone" ? PHONE_MAX_LENGTH : undefined} inputMode={f.name === "phone" ? "tel" : undefined}
                               onBlur={f.name === "phone" ? () => { if (editForm.phone.trim() !== (editModal?.phone || "").trim()) setEditErrors((prev) => ({ ...prev, phone: phoneError(editForm.phone) || undefined })); } : undefined}
                               aria-invalid={editErrors[f.name] ? "true" : undefined}
-                              placeholder={f.placeholder} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
+                              placeholder={statutoryPlaceholder(f, editForm.country)} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
                           )}
                           {editErrors[f.name] && <p className="mt-1 text-xs text-red-500">{editErrors[f.name]}</p>}
+                          {(f.name === "basic_salary" || f.name === "ctc") && salaryCurrencyName(editForm.country) ? (
+                            <p className="mt-1 text-xs text-gray-500">Amounts in {salaryCurrencyName(editForm.country)}</p>
+                          ) : null}
                         </div>
                       );
                     })}

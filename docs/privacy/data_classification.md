@@ -563,7 +563,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_candidates` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`, `requisition_id`
-- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`
+- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`, `hired_at`
 
 ## `recruitment_documents` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
@@ -578,7 +578,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_interviews` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `candidate_id`, `interviewer_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `interview_type`, `interview_date`, `start_time`, `end_time`, `interviewer`, `status`, `feedback`, `rating`, `notes`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `interview_type`, `interview_date`, `start_time`, `end_time`, `interviewer`, `timezone`, `meeting_link`, `location`, `status`, `feedback`, `rating`, `notes`
 
 ## `recruitment_offer_approvals` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
@@ -588,12 +588,13 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_offers` (default TENANT_CUSTOMER; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `candidate_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `equity`, `joining_date`, `status`, `notes`
-- **FINANCIAL**: `salary`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `work_country`, `entity_name`, `entity_country`, `entity_address`, `equity`, `joining_date`, `status`, `notes`
+- **FINANCIAL**: `salary`, `entity_tax_id`
 
 ## `recruitment_requisitions` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
-- **TENANT_CUSTOMER**: `title`, `department`, `location`, `openings`, `filled`, `priority`, `status`, `description`
+- **PERSONAL_BASIC**: `created_by`
+- **TENANT_CUSTOMER**: `title`, `department`, `location`, `openings`, `filled`, `priority`, `status`, `description`, `requirements`
 
 ## `salary_components` (default FINANCIAL; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
@@ -692,6 +693,19 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `request_id`, `tenant_id`, `grantee_person_id`, `grantee_account_id`, `kind`, `effective_scope`, `issued_at`, `expires_at`, `revoked_at`, `revoked_by`, `revocation_version`, `session_id`, `device_fingerprint`, `policy_version`, `last_access_at`
 - **SPECIAL_CATEGORY**: `revoke_reason`
 - **SECRET**: `token_jti`
+
+## `support_login_access_log` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `session_id`, `organization_id`, `method`, `path`, `outcome`, `at`
+
+## `support_login_requests` (default PLATFORM_META; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `reference`, `organization_id`, `requested_by`, `justification`, `ticket_reference`, `duration_minutes`, `status`, `decided_by`, `decided_at`, `pending_expires_at`, `approval_expires_at`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `requested_by_email`, `decided_by_email`
+- **PERSONAL_CONFIDENTIAL**: `decision_note`
+
+## `support_login_sessions` (default PLATFORM_META; most sensitive column rank 6)
+- **PLATFORM_META**: `id`, `request_id`, `organization_id`, `acting_user_id`, `username`, `issued_at`, `expires_at`, `first_login_at`, `last_seen_at`, `ended_at`, `end_cause`, `request_count`
+- **PERSONAL_BASIC**: `ended_by_email`
+- **SECRET**: `password_hash`
 
 ## `support_revocation_events` (default PLATFORM_META; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `target_type`, `target_ref`, `tenant_id`, `actor_person_id`, `requested_at`, `propagated_at`, `propagation_confirmed`, `detail`

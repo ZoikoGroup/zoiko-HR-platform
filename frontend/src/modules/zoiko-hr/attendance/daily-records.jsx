@@ -3,7 +3,7 @@ import { NavLink } from "react-router-dom";
 import { Search, Download, Plus, Pencil, Trash2, Calendar, Filter, Loader2, UserX } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getAttendanceRecords, createAttendanceRecord, updateAttendanceRecord, deleteAttendanceRecord, exportAttendanceCsv, exportAttendanceExcel, getHrEmployees } from "../../../service/hrService";
-import { formatDate as formatDateUtil, formatTime as formatTimeUtil } from "../../../utils/dateTime";
+import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
@@ -42,6 +42,9 @@ const STATUS_COLORS = {
 
 const STATUS_OPTIONS = ["present", "absent", "late", "on_leave", "remote", "half_day"];
 
+// No time is worked on these days: switching to one clears the times, and the table never shows them.
+const NO_TIME_STATUSES = ["absent", "on_leave", "holiday"];
+
 const initialForm = {
   employee_id: "", date: "", status: "present", check_in: "", check_out: "", notes: "",
 };
@@ -60,9 +63,26 @@ function formatDate(dateStr) {
   return formatDateUtil(dateStr);
 }
 
+// Check-in/out are wall-clock times with no timezone: read the components straight out of the
+// string so the browser never shifts them ("2026-10-16T00:00:00" stays 12:00 AM, never 5:30 AM).
+function wallParts(value) {
+  const m = typeof value === "string" && /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/.exec(value.trim());
+  return m ? { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}` } : null;
+}
+
 function formatTime(timeStr) {
   if (!timeStr) return "-";
-  return formatTimeUtil(timeStr);
+  const w = wallParts(timeStr);
+  if (!w) return timeStr;
+  let h = Number(w.time.slice(0, 2));
+  const suffix = h >= 12 ? "PM" : "AM";
+  h = h % 12 || 12;
+  return `${h}:${w.time.slice(3)} ${suffix}`;
+}
+
+function wallInput(value) {
+  const w = wallParts(value);
+  return w ? `${w.date}T${w.time}` : "";
 }
 
 export default function DailyRecords() {
@@ -144,12 +164,17 @@ export default function DailyRecords() {
       employee_id: record.employee_id || "",
       date: record.date || "",
       status: record.status || "present",
-      check_in: record.check_in ? new Date(record.check_in).toISOString().slice(0, 16) : "",
-      check_out: record.check_out ? new Date(record.check_out).toISOString().slice(0, 16) : "",
+      check_in: wallInput(record.check_in),
+      check_out: wallInput(record.check_out),
       notes: record.notes || "",
     });
     setFormErrors({});
     setShowModal(true);
+  };
+
+  const handleStatusChange = (e) => {
+    const status = e.target.value;
+    setForm((prev) => (NO_TIME_STATUSES.includes(status) ? { ...prev, status, check_in: "", check_out: "" } : { ...prev, status }));
   };
 
   const validate = (d) => {
@@ -166,12 +191,13 @@ export default function DailyRecords() {
     if (Object.keys(errors).length > 0) return;
     setSubmitting(true);
     try {
+      const noTime = NO_TIME_STATUSES.includes(form.status);
       const payload = {
         employee_id: Number(form.employee_id),
         date: form.date,
         status: form.status,
-        check_in: form.check_in || null,
-        check_out: form.check_out || null,
+        check_in: noTime ? null : form.check_in || null,
+        check_out: noTime ? null : form.check_out || null,
         notes: form.notes || null,
       };
       if (editRecord) {
@@ -299,8 +325,8 @@ export default function DailyRecords() {
                       </td>
                       <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{r.department || r.department_name || "—"}</td>
                       <td className="py-3.5 px-5 text-sm font-semibold text-gray-700">{formatDate(r.date)}</td>
-                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{formatTime(r.check_in)}</td>
-                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{formatTime(r.check_out)}</td>
+                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{NO_TIME_STATUSES.includes(r.status) ? "-" : formatTime(r.check_in)}</td>
+                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{NO_TIME_STATUSES.includes(r.status) ? "-" : formatTime(r.check_out)}</td>
                       <td className="py-3.5 px-5"><StatusBadge status={r.status} /></td>
                       <td className="py-3.5 px-5 text-right">
                         <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -386,23 +412,26 @@ export default function DailyRecords() {
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Status</label>
-                      <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
+                      <select value={form.status} onChange={handleStatusChange}
                         className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors">
                         {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
                       </select>
+                      {NO_TIME_STATUSES.includes(form.status) && (
+                        <p className="text-xs text-gray-400 font-medium mt-1.5">No check-in / check-out for {form.status.replace(/_/g, " ")} days.</p>
+                      )}
                     </div>
                   </div>
                   
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Check In</label>
-                      <input type="datetime-local" value={form.check_in} onChange={(e) => setForm({ ...form, check_in: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors" />
+                      <input type="datetime-local" value={form.check_in} disabled={NO_TIME_STATUSES.includes(form.status)} onChange={(e) => setForm({ ...form, check_in: e.target.value })}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors disabled:opacity-40" />
                     </div>
                     <div>
                       <label className="block text-sm font-bold text-gray-700 mb-1.5">Check Out</label>
-                      <input type="datetime-local" value={form.check_out} onChange={(e) => setForm({ ...form, check_out: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors" />
+                      <input type="datetime-local" value={form.check_out} disabled={NO_TIME_STATUSES.includes(form.status)} onChange={(e) => setForm({ ...form, check_out: e.target.value })}
+                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors disabled:opacity-40" />
                     </div>
                   </div>
                   

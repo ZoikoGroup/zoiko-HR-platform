@@ -101,6 +101,20 @@ test("Discard puts back what was saved", async (t) => {
   assert.equal(sw("Auto-generate Designation Codes").getAttribute("aria-checked"), "false");
 });
 
+test("the unique-codes switch is live: it shows what is saved, toggles, and saves", async (t) => {
+  const sent = await openSettings(t, { ...SAVED, enforce_unique_codes: true });
+  const unique = sw("Enforce Unique Designation Codes");
+  assert.equal(unique.disabled, false, "the switch can be enabled and disabled");
+  assert.equal(unique.getAttribute("aria-checked"), "true");
+  fireEvent.click(unique);
+  assert.equal(unique.getAttribute("aria-checked"), "false");
+  fireEvent.click(screen.getByRole("button", { name: /Save Changes/ }));
+  await settle();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].enforce_unique_codes, false);
+  assert.ok(screen.getByText("Settings saved"));
+});
+
 test("when the settings cannot be loaded the page says so instead of showing defaults as if saved", async (t) => {
   register(t);
   svc.get = async () => { throw new Error("Network down"); };

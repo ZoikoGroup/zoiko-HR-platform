@@ -4,7 +4,7 @@ import { Plus, Upload, Download, Trash2, CalendarDays, List, ChevronLeft, Chevro
 import HRPage from "../../../components/HRPage";
 import { getHolidays, createHoliday, updateHoliday, deleteHoliday, importHolidays } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
-import { parseHolidayFile, parseHolidayText, validateRows, TEMPLATE_CSV, MAX_ROWS } from "../../../utils/holidayImport";
+import { parseHolidayFile, parseHolidayText, validateRows, downloadHolidayTemplate, MAX_ROWS } from "../../../utils/holidayImport";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/attendance" },
@@ -217,12 +217,12 @@ export default function Holidays() {
     }
   };
 
-  const downloadTemplate = () => {
-    const url = URL.createObjectURL(new Blob([TEMPLATE_CSV], { type: "text/csv" }));
-    const a = document.createElement("a");
-    a.href = url; a.download = "holiday_import_template.csv";
-    document.body.appendChild(a); a.click(); a.remove();
-    URL.revokeObjectURL(url);
+  const downloadTemplate = async () => {
+    try {
+      await downloadHolidayTemplate();
+    } catch {
+      setImportError("The template could not be downloaded. Try again.");
+    }
   };
 
   const calendarData = useMemo(() => {

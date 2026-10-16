@@ -205,7 +205,7 @@ def get_current_user(
     if not getattr(user, "is_active", True):
         raise UnauthorizedException("Your account has been deactivated.")             # a leaver's token stops working now, not at expiry
 
-    if getattr(user, "must_change_password", False) and request is not None:
+    if getattr(user, "must_change_password", False) and request is not None and not payload.get("sls"):
         if request.url.path.rstrip("/") not in _PASSWORD_CHANGE_ALLOWED_PATHS:
             raise ZoikoException(
                 403, "PASSWORD_CHANGE_REQUIRED",

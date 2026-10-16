@@ -22,7 +22,7 @@ function register(t) {
   if (mocked.has(t)) return;
   mocked.add(t);
   const wrap = (o) => Object.fromEntries(Object.keys(o).map((k) => [k, (...a) => o[k](...a)]));
-  t.mock.module("../src/service/employee.js", { exports: { importEmployees: async () => ({}), getEmployees: async () => ({ items: [], total: 0 }), hardDeleteEmployee: async () => ({}), bulkHardDeleteEmployees: async () => ({}) } });
+  t.mock.module("../src/service/employee.js", { exports: { importEmployees: async () => ({}), downloadImportTemplate: async () => ({}), getImportTemplateCountries: async () => [{ name: "United States", currency: "USD", identifiers: ["SSN", "State payroll ID (optional)", "Routing number"] }, { name: "Germany", currency: "EUR", identifiers: ["Tax ID (Steuer-ID)", "Social insurance number (SV-Nummer)", "BIC (optional)"] }], getEmployees: async () => ({ items: [], total: 0 }), hardDeleteEmployee: async () => ({}), bulkHardDeleteEmployees: async () => ({}) } });
   t.mock.module("../src/service/userService.js", { exports: wrap(userSvc) });
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => auth } });
   t.mock.module("react-router-dom", { exports: { useNavigate: () => () => {}, Link: ({ children }) => children } });

@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Job requisition " ~ decision_label|lower %}
+{% set preheader = "Your requisition for " ~ title_text ~ " was " ~ decision_label|lower ~ "." %}
+{% set badge = decision_label %}
+{% set badge_tone = "success" if approved else "neutral" %}
+{% set footer_reason %}You are receiving this because you submitted a job requisition on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Job requisition {{ decision_label|lower }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ requester_name }}</strong>, your requisition for <strong class="dm-text-strong" style="{{ S.strong }}">{{ title_text }}</strong> was {{ decision_label|lower }} by {{ decider_name }}.{% if approved %} It is now open for candidates.{% endif %}</p>
+{% call ui.details() %}
+{{ ui.detail_row("Role", title_text, first=True) }}
+{{ ui.detail_row("Department", department) }}
+{{ ui.detail_row("Decision", decision_label) }}
+{% endcall %}
+{{ ui.button(requisitions_url, "View requisitions") }}
+{{ ui.signoff() }}
+{% endblock %}

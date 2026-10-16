@@ -40,6 +40,9 @@ CONTROL_PLANE_PREFIXES = (
     # is ever read. This is the only path by which tenant data reaches a platform identity (ZHR-PRIV-001 B06/B07).
     "/super-admin/support-access",
     "/support",
+    # Temporary read-only sign-ins: the operator's requests and their status only. The tenant's data is reached by signing in
+    # with the issued credentials as a tenant session, never through these routes.
+    "/support-access",
     "/billing",
 )
 

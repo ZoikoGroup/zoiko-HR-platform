@@ -29,9 +29,23 @@ from app.core.sanitize import sanitize_dict
 
 STANDARD_WORKDAY_HOURS = 8.0
 ATTENDED_STATUSES = (AttendanceStatus.PRESENT, AttendanceStatus.LATE, AttendanceStatus.REMOTE, AttendanceStatus.HALF_DAY)
+# No time is ever worked on these days, so no check-in / check-out / hours may be kept or shown.
+NO_TIME_STATUSES = (AttendanceStatus.ABSENT, AttendanceStatus.ON_LEAVE, AttendanceStatus.HOLIDAY)
+
+
+def _strip_times_for_non_working_day(values: dict, status) -> dict:
+    """An absent / on-leave / holiday record keeps no times: stale check-in/out (e.g. left over
+    from when the record said present) are dropped so exports and analytics never show them."""
+    if status in NO_TIME_STATUSES:
+        values["check_in"] = None
+        values["check_out"] = None
+        values["total_hours"] = None
+    return values
 
 
 def _record_hours(rec) -> Optional[float]:
+    if rec.status in NO_TIME_STATUSES:
+        return None
     if rec.total_hours is not None:
         return float(rec.total_hours)
     if rec.check_in and rec.check_out and rec.check_out > rec.check_in:
@@ -313,6 +327,7 @@ def get_attendance_record_by_id(db: Session, record_id: int, organization_id: Op
 def create_attendance_record(db: Session, data: AttendanceCreate, created_by: int = None, organization_id: int = None) -> AttendanceRecord:
     raw = data.model_dump()
     safe = sanitize_dict(raw)
+    _strip_times_for_non_working_day(safe, safe.get("status"))
     record = AttendanceRecord(**safe)
     if organization_id:
         record.organization_id = organization_id
@@ -325,8 +340,15 @@ def create_attendance_record(db: Session, data: AttendanceCreate, created_by: in
 def update_attendance_record(db: Session, record_id: int, data: AttendanceUpdate, organization_id: Optional[int] = None) -> AttendanceRecord:
     record = get_attendance_record_by_id(db, record_id, organization_id)
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    effective_status = update_data.get("status", record.status)
+    _strip_times_for_non_working_day(update_data, effective_status)
     for field, value in update_data.items():
         setattr(record, field, value)
+    if effective_status in NO_TIME_STATUSES:
+        # A status-only change (times not sent) must still drop the stored times.
+        record.check_in = None
+        record.check_out = None
+        record.total_hours = None
     db.commit()
     db.refresh(record)
     return record
@@ -709,7 +731,7 @@ def _period_kpis(db: Session, date_from: date, date_to: date, organization_id: O
     records = _range_records(db, date_from, date_to, organization_id)
     attended = sum(1 for r in records if r.status in ATTENDED_STATUSES)
     absent = sum(1 for r in records if r.status == AttendanceStatus.ABSENT)
-    hours = [h for h in (_record_hours(r) for r in records if r.check_out) if h is not None]
+    hours = [h for h in (_record_hours(r) for r in records if r.check_out and r.status in ATTENDED_STATUSES) if h is not None]
     outcomes = _roster_outcomes(db, date_from, date_to, organization_id)
     return {
         "attendance_rate": round(attended / (attended + absent) * 100, 1) if attended + absent else None,
@@ -782,6 +804,7 @@ def get_attendance_analytics(db: Session, date_from: Optional[date] = None, date
         )
     ).filter(
         AttendanceRecord.date == today,
+        AttendanceRecord.status.in_(ATTENDED_STATUSES),
         AttendanceRecord.check_in.isnot(None),
         AttendanceRecord.check_out.isnot(None),
         *org_filter,
@@ -1089,7 +1112,10 @@ EXPORT_COLUMNS = ["Employee Code", "Employee Name", "Department", "Date", "Check
 
 
 def _hours_worked(rec) -> Optional[float]:
-    """The stored total, or check-out minus check-in when the record has no stored total."""
+    """The stored total, or check-out minus check-in when the record has no stored total.
+    Absent / on-leave / holiday days never show hours, even for legacy rows that still store times."""
+    if rec.status in NO_TIME_STATUSES:
+        return None
     if rec.total_hours is not None:
         return float(rec.total_hours)
     if rec.check_in and rec.check_out and rec.check_out >= rec.check_in:
@@ -1116,13 +1142,14 @@ def _export_rows(db: Session, organization_id: Optional[int], date_from, date_to
         query = query.filter(AttendanceRecord.employee_id == employee_id)
     rows = []
     for rec, emp, dept in query.order_by(AttendanceRecord.date.desc(), Employee.first_name, Employee.last_name).all():
+        no_time = rec.status in NO_TIME_STATUSES  # legacy absent rows may still store times: never export them
         rows.append({
             "code": emp.employee_code or "",
             "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip(),
             "department": (dept.name if dept else "") or "",
             "date": rec.date,
-            "check_in": rec.check_in,
-            "check_out": rec.check_out,
+            "check_in": None if no_time else rec.check_in,
+            "check_out": None if no_time else rec.check_out,
             "status": rec.status.value if rec.status else "",
             "hours": _hours_worked(rec),
             "notes": rec.notes or "",

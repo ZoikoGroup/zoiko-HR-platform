@@ -2,10 +2,9 @@ import { useState, useEffect, useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import { Plus, X, Building2, Search, AlertCircle, Pencil, ArrowUpDown, ArrowUp, ArrowDown, Power, Loader2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getDepartments, createDepartment, updateDepartment } from "../../../service/hrService";
+import { getDepartments, createDepartment, updateDepartment, getDepartmentSettings } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
-
-const ITEMS_PER_PAGE = 10;
+import { DEFAULT_DEPARTMENT_SETTINGS, normalizeDepartmentSettings } from "../../../utils/departmentSettings";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/departments" },
@@ -55,9 +54,13 @@ export default function DepartmentList() {
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("all");
-  const [sortColumn, setSortColumn] = useState("name");
-  const [sortDirection, setSortDirection] = useState("asc");
+  const [sortColumn, setSortColumn] = useState(DEFAULT_DEPARTMENT_SETTINGS.default_sort_field);
+  const [sortDirection, setSortDirection] = useState(DEFAULT_DEPARTMENT_SETTINGS.default_sort_direction);
   const [currentPage, setCurrentPage] = useState(1);
+  const [itemsPerPage, setItemsPerPage] = useState(DEFAULT_DEPARTMENT_SETTINGS.items_per_page);
+  const [showBudget, setShowBudget] = useState(DEFAULT_DEPARTMENT_SETTINGS.show_budget);
+  const [showEmployeeCount, setShowEmployeeCount] = useState(DEFAULT_DEPARTMENT_SETTINGS.show_employee_count);
+  const [compact, setCompact] = useState(DEFAULT_DEPARTMENT_SETTINGS.compact_mode);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
   const [editingDept, setEditingDept] = useState(null);
@@ -92,6 +95,21 @@ export default function DepartmentList() {
 
   useEffect(() => {
     fetchRecords();
+    // The Display tab of Department Settings shapes this list for everyone: sort, page size,
+    // and which columns appear. A failure (or an older mock without the function) keeps defaults.
+    if (typeof getDepartmentSettings !== "function") return;
+    getDepartmentSettings({ _: Date.now() })
+      .then((data) => {
+        const s = normalizeDepartmentSettings(data);
+        setSortColumn(s.default_sort_field);
+        setSortDirection(s.default_sort_direction);
+        setItemsPerPage(s.items_per_page);
+        setShowBudget(s.show_budget);
+        setShowEmployeeCount(s.show_employee_count);
+        setCompact(s.compact_mode);
+        setCurrentPage(1);
+      })
+      .catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -227,12 +245,12 @@ export default function DepartmentList() {
     return result;
   }, [records, search, statusFilter, sortColumn, sortDirection]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
+  const totalPages = Math.max(1, Math.ceil(filtered.length / itemsPerPage));
   const safePage = Math.min(currentPage, totalPages);
   const paginated = useMemo(() => {
-    const start = (safePage - 1) * ITEMS_PER_PAGE;
-    return filtered.slice(start, start + ITEMS_PER_PAGE);
-  }, [filtered, safePage]);
+    const start = (safePage - 1) * itemsPerPage;
+    return filtered.slice(start, start + itemsPerPage);
+  }, [filtered, safePage, itemsPerPage]);
 
   useEffect(() => {
     if (currentPage > totalPages) setCurrentPage(totalPages);
@@ -242,6 +260,9 @@ export default function DepartmentList() {
     if (!dateStr) return "—";
     return formatDateUtil(dateStr);
   };
+
+  const colCount = 7 + (showEmployeeCount ? 1 : 0) + (showBudget ? 1 : 0);
+  const rowCls = compact ? "[&_td]:py-1.5 hover:bg-gray-50/80 transition-colors" : "hover:bg-gray-50/80 transition-colors";
 
   return (
     <HRPage title="Departments" subtitle="Manage organizational entities">
@@ -285,29 +306,33 @@ export default function DepartmentList() {
                 <th className="px-4 py-3">Dept Code</th>
                 <th className="px-4 py-3">Legacy Code</th>
                 <th className="px-4 py-3">Head</th>
+                {showEmployeeCount && (
                 <th className="px-4 py-3 cursor-pointer select-none hover:text-rose-600" onClick={() => handleSort("employee_count")}>
                   Employees <SortIcon column="employee_count" current={sortColumn} direction={sortDirection} />
                 </th>
+                )}
                 <th className="px-4 py-3 text-center">Status</th>
                 <th className="px-4 py-3 cursor-pointer select-none hover:text-rose-600" onClick={() => handleSort("created_at")}>
                   Created <SortIcon column="created_at" current={sortColumn} direction={sortDirection} />
                 </th>
+                {showBudget && (
                 <th className="px-4 py-3 cursor-pointer select-none hover:text-rose-600 text-right" onClick={() => handleSort("budget")}>
                   Budget <SortIcon column="budget" current={sortColumn} direction={sortDirection} />
                 </th>
+                )}
                 <th className="px-4 py-3 text-right">Actions</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-100 text-sm text-gray-700">
               {isLoading ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">
+                <tr><td colSpan={colCount} className="text-center py-12 text-gray-400">
                   <div className="flex flex-col items-center gap-2">
                     <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-rose-600" />
                     <span>Loading departments...</span>
                   </div>
                 </td></tr>
               ) : paginated.length === 0 ? (
-                <tr><td colSpan={9} className="text-center py-12 text-gray-400">
+                <tr><td colSpan={colCount} className="text-center py-12 text-gray-400">
                   <div className="flex flex-col items-center gap-2">
                     <Building2 className="w-8 h-8 text-gray-300" />
                     <span className="text-sm font-medium">{search || statusFilter !== "all" ? "No matching entries found." : "No departments yet. Click \"Add Department\" to create one."}</span>
@@ -315,18 +340,20 @@ export default function DepartmentList() {
                 </td></tr>
               ) : (
                 paginated.map((r, i) => (
-                  <tr key={r.id ?? i} className="hover:bg-gray-50/80 transition-colors">
+                  <tr key={r.id ?? i} className={rowCls}>
                     <td className="px-4 py-3">
                       <p className="font-medium text-gray-900">{r.name}</p>
                     </td>
                     <td className="px-4 py-3 font-mono text-xs font-bold text-[#3B82F6]">{r.department_code || "—"}</td>
                     <td className="px-4 py-3 font-mono text-xs font-semibold text-rose-600">{r.code}</td>
                     <td className="px-4 py-3">{r.head || "—"}</td>
+                    {showEmployeeCount && (
                     <td className="px-4 py-3">
                       <span className="inline-flex items-center gap-1 font-medium">
                         <span className="text-gray-900">{r.employee_count || 0}</span>
                       </span>
                     </td>
+                    )}
                     <td className="px-4 py-3 text-center">
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${
                         r.is_active ? "bg-green-100 text-green-700" : "bg-gray-100 text-gray-500"
@@ -335,7 +362,7 @@ export default function DepartmentList() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{formatDate(r.created_at)}</td>
-                    <td className="px-4 py-3 text-right text-sm">${(Number(r.budget) || 0).toLocaleString()}</td>
+                    {showBudget && <td className="px-4 py-3 text-right text-sm">${(Number(r.budget) || 0).toLocaleString()}</td>}
                     <td className="px-4 py-3 text-right">
                       <div className="inline-flex items-center gap-1">
                         <button onClick={() => handleEditClick(r)} className="inline-flex items-center gap-1 text-xs font-semibold text-gray-500 hover:text-rose-600 px-2 py-1 rounded-lg hover:bg-rose-50 transition-colors">
@@ -362,7 +389,7 @@ export default function DepartmentList() {
         {totalPages > 1 && (
           <div className="px-4 py-3 border-t border-gray-100 flex flex-col sm:flex-row justify-between items-center gap-2">
             <span className="text-xs text-gray-400">
-              Showing {(safePage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(safePage * ITEMS_PER_PAGE, filtered.length)} of {filtered.length}
+              Showing {(safePage - 1) * itemsPerPage + 1}-{Math.min(safePage * itemsPerPage, filtered.length)} of {filtered.length}
             </span>
             <div className="flex gap-1">
               <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1}

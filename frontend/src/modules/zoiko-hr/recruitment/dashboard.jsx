@@ -32,9 +32,9 @@ function SubNav() {
 function StatsCard({ title, value, icon: Icon, subtitle, color }) {
   return (
     <div className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
-      <div className="flex items-start justify-between">
-        <p className="text-sm text-gray-500 font-medium">{title}</p>
-        {Icon && <div className={`p-2 ${color} rounded-lg`}><Icon className="w-5 h-5 text-white" /></div>}
+      <div className="flex items-start justify-between gap-2">
+        <p className="min-w-0 break-words text-sm text-gray-500 font-medium">{title}</p>
+        {Icon && <div className={`shrink-0 p-2 ${color} rounded-lg`}><Icon className="w-5 h-5 text-white" /></div>}
       </div>
       <p className="text-2xl font-bold text-gray-900 mt-1">{value}</p>
       {subtitle && <p className="text-xs text-gray-400 mt-1">{subtitle}</p>}
@@ -45,14 +45,14 @@ function StatsCard({ title, value, icon: Icon, subtitle, color }) {
 function PipelineStage({ label, count, total, color }) {
   const pct = total > 0 ? Math.round((count / total) * 100) : 0;
   return (
-    <div className="flex items-center justify-between py-2 border-b border-gray-50 last:border-0">
-      <div className="flex items-center gap-2">
-        <div className={`w-2 h-2 rounded-full ${color}`} />
-        <span className="text-sm text-gray-600">{label}</span>
+    <div className="flex items-center justify-between gap-2 py-2 border-b border-gray-50 last:border-0">
+      <div className="flex min-w-0 items-center gap-2">
+        <div className={`w-2 h-2 shrink-0 rounded-full ${color}`} />
+        <span className="truncate text-sm text-gray-600">{label}</span>
       </div>
-      <div className="flex items-center gap-3">
+      <div className="flex shrink-0 items-center gap-2 sm:gap-3">
         <span className="text-sm font-medium text-gray-900">{count}</span>
-        <div className="w-24 bg-gray-100 rounded-full h-2">
+        <div className="w-16 sm:w-24 bg-gray-100 rounded-full h-2">
           <div className={`h-2 rounded-full ${color}`} style={{ width: `${pct}%` }} />
         </div>
         <span className="text-xs text-gray-400 w-8 text-right">{pct}%</span>
@@ -79,7 +79,7 @@ export default function RecruitmentDashboard() {
       .then((d) => setDash(d))
       .catch((err) => {
         console.error("Dashboard load error:", err);
-        setError("Failed to load dashboard data. Please try again later.");
+        setError(err.message || "Failed to load dashboard data. Please try again later.");
       })
       .finally(() => setLoading(false));
   }, []);
@@ -127,11 +127,11 @@ export default function RecruitmentDashboard() {
 
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <StatsCard title="Active Candidates" value={d.active_candidates ?? 0} icon={Users} subtitle="In the pipeline" color="bg-blue-500" />
-          <StatsCard title="Open Positions" value={d.total_open_positions ?? 0} icon={Briefcase} subtitle="Active requisitions" color="bg-blue-500" />
-          <StatsCard title="Scheduled Interviews" value={d.scheduled_interviews ?? 0} icon={Calendar} subtitle="Upcoming" color="bg-blue-500" />
-          <StatsCard title="Offers Extended" value={d.offers_extended ?? 0} icon={FileCheck2} subtitle="Pending or approved" color="bg-green-500" />
+          <StatsCard title="Open Positions" value={d.total_open_positions ?? 0} icon={Briefcase} subtitle={`Seats to fill across ${d.open_requisitions ?? 0} open requisition(s)`} color="bg-blue-500" />
+          <StatsCard title="Scheduled Interviews" value={d.scheduled_interviews ?? 0} icon={Calendar} subtitle="Upcoming (today onward)" color="bg-blue-500" />
+          <StatsCard title="Offers Extended" value={d.offers_extended ?? 0} icon={FileCheck2} subtitle="Awaiting the candidate's answer" color="bg-green-500" />
           <StatsCard title="Offers Accepted" value={d.offers_accepted ?? 0} icon={CheckCircle} subtitle="Candidates accepted" color="bg-yellow-500" />
-          <StatsCard title="Avg. Time to Hire" value={d.time_to_hire ? `${d.time_to_hire} days` : "-"} icon={UserPlus} subtitle="From application to hire" color="bg-teal-500" />
+          <StatsCard title="Avg. Time to Hire" value={d.time_to_hire != null ? `${d.time_to_hire} days` : "-"} icon={UserPlus} subtitle={d.hires_measured ? `From application to hire · ${d.hires_measured} hire(s)` : "From application to hire"} color="bg-teal-500" />
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -160,12 +160,12 @@ export default function RecruitmentDashboard() {
               <div className="space-y-3">
                 {activity.slice(0, 10).map((act) => (
                   <div key={act.id} className="flex items-start gap-3 pb-3 border-b border-gray-50 last:border-0">
-                    <div className={`p-1.5 rounded-full ${activityIconBg(act.status)}`}>
+                    <div className={`shrink-0 p-1.5 rounded-full ${activityIconBg(act.status)}`}>
                       {activityIcon(act.status)}
                     </div>
                     <div className="flex-1 min-w-0">
-                      <p className="text-sm text-gray-900">{act.name} — {act.position}</p>
-                      <p className="text-xs text-gray-400 mt-0.5">{act.status} • {formatDate(act.applied_at)}</p>
+                      <p className="break-words text-sm text-gray-900">{act.name} — {act.position}</p>
+                      <p className="break-words text-xs text-gray-400 mt-0.5"><span className="capitalize">{act.status}</span> • updated {formatDate(act.updated_at || act.applied_at)} • applied {formatDate(act.applied_at)}</p>
                     </div>
                   </div>
                 ))}

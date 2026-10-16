@@ -53,13 +53,26 @@ export default function AssistantLauncher() {
     }
   }, [open]);
 
+  // A page dialog (any full-screen overlay) owns the screen: the floating button would sit on its footer buttons on a
+  // phone, so it steps aside until the dialog closes.
+  const [pageDialogOpen, setPageDialogOpen] = useState(false);
+  useEffect(() => {
+    const check = () => setPageDialogOpen(!!document.querySelector(".fixed.inset-0:not([data-assistant-panel]), [aria-modal='true']:not([data-assistant-panel])"));
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, []);
+
   const close = () => {
     setOpen(false);
     setHistoryOpen(false);
     launcherRef.current?.focus();
   };
 
-  if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname)) return null;
+  // the new hire's pre-onboarding page is public (reached from an email link) even if this browser holds a sign-in
+  if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname) || location.pathname.startsWith("/onboarding-portal/")) return null;
+  if (pageDialogOpen && !open) return null;
 
   return createPortal(
     <>
@@ -82,6 +95,7 @@ export default function AssistantLauncher() {
         <div
           role="dialog"
           aria-label="Zoiko HR Assistant"
+          data-assistant-panel=""
           className="fixed inset-0 z-40 flex flex-col overflow-hidden bg-[var(--zhr-surface-overlay)]
             sm:inset-auto sm:bottom-24 sm:right-5 sm:rounded-3xl sm:border sm:border-[var(--zhr-border-default)] sm:shadow-[var(--zhr-elevation-modal)]"
           style={{

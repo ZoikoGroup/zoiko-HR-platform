@@ -50,7 +50,7 @@ from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASH
 
 from app.modules.hr import service
 from app.modules.hr import file_storage
-from app.modules.hr.models import LeaveType, RequestStatus, HrDocument, OnboardingNewHire
+from app.modules.hr.models import LeaveType, RequestStatus, HrDocument, OnboardingNewHire, OnboardingDocument
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.schemas import (
     DepartmentCreate, DepartmentUpdate, DepartmentResponse,
@@ -102,6 +102,7 @@ from app.modules.hr.schemas import (
     WorkforceSummaryResponse,
     DesignationCreate,
     DesignationSettingsData,
+    DepartmentSettingsData,
     DesignationUpdate,
     DesignationResponse,
     HrDocumentUpdate,
@@ -110,6 +111,7 @@ from app.modules.hr.schemas import (
     ApprovalAction,
     DocumentAssignRequest,
     EmployeeDocumentResponse,
+    OnboardingSettingsUpdate, OnboardingSettingsResponse, OnboardingDocumentRequest,
 )
 
 auth_router = APIRouter(prefix="/auth", tags=["🔐 Authentication"])
@@ -230,6 +232,26 @@ def list_departments(
     return service.get_all_departments(db, current_user.organization_id, include_inactive)
 
 
+@hr_router.get(
+    "/departments/settings",
+    response_model=DepartmentSettingsData,
+    summary="Department module preferences of the caller's organization",
+)
+def get_department_settings_endpoint(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    return service.get_department_settings(db, current_user.organization_id)
+
+
+@hr_router.put(
+    "/departments/settings",
+    response_model=DepartmentSettingsData,
+    summary="Save the department module preferences (replaces the whole set)",
+    dependencies=[Depends(get_current_admin)],
+)
+def save_department_settings_endpoint(data: DepartmentSettingsData, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return service.save_department_settings(db, current_user.organization_id, data, updated_by=current_user.id)
+
+
+# These two routes must stay above /departments/{dept_id}, or "settings" would be read as an id.
 @hr_router.get(
     "/departments/{dept_id}",
     response_model=DepartmentResponse,
@@ -1318,10 +1340,7 @@ def get_new_hire(new_hire_id: int, db: Session = Depends(get_db), current_user=D
     summary="Update a new hire record",
 )
 def update_new_hire(new_hire_id: int, data: OnboardingNewHireUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    result = service.update_new_hire(db, new_hire_id, data, organization_id=current_user.organization_id)
-    new_hire = result["new_hire"]
-    new_hire.temp_password = result["temp_password"]
-    return new_hire
+    return service.update_new_hire(db, new_hire_id, data, organization_id=current_user.organization_id)["new_hire"]
 
 
 @hr_router.delete(
@@ -1378,10 +1397,7 @@ def get_onboarding_record(record_id: int, db: Session = Depends(get_db), current
     summary="Update onboarding record (alias)",
 )
 def update_onboarding_record(record_id: int, data: OnboardingNewHireUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    result = service.update_new_hire(db, record_id, data, organization_id=current_user.organization_id)
-    new_hire = result["new_hire"]
-    new_hire.temp_password = result["temp_password"]
-    return new_hire
+    return service.update_new_hire(db, record_id, data, organization_id=current_user.organization_id)["new_hire"]
 
 
 @hr_router.delete(
@@ -1405,7 +1421,7 @@ def list_preboarding_tasks(
     page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
     per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     new_hire_id: Optional[int] = Query(None),
     employee_id: Optional[int] = Query(None),
 ):
@@ -1427,8 +1443,7 @@ def create_preboarding_task(data: OnboardingPreboardingTaskCreate, db: Session =
     response_model=OnboardingPreboardingTaskResponse,
     summary="Update a pre-boarding task",
 )
-def update_preboarding_task(task_id: int, data: OnboardingPreboardingTaskUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    # Self-service: employees can update their own tasks (e.g., mark complete)
+def update_preboarding_task(task_id: int, data: OnboardingPreboardingTaskUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     return service.update_preboarding_task(db, task_id, data, organization_id=current_user.organization_id)
 
 
@@ -1450,7 +1465,7 @@ def delete_preboarding_task(task_id: int, db: Session = Depends(get_db), current
 )
 def list_checklist_templates(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     category: Optional[str] = Query(None),
 ):
     return service.get_checklists(db, is_template=True, category=category, organization_id=current_user.organization_id)
@@ -1471,7 +1486,7 @@ def create_checklist_template(data: OnboardingChecklistCreate, db: Session = Dep
     response_model=OnboardingChecklistResponse,
     summary="Get a checklist template by ID",
 )
-def get_checklist_template(checklist_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_checklist_template(checklist_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     checklists = service.get_checklists(db, is_template=True, organization_id=current_user.organization_id)
     checklist = next((c for c in checklists if c.id == checklist_id), None)
     if not checklist:
@@ -1486,7 +1501,10 @@ def get_checklist_template(checklist_id: int, db: Session = Depends(get_db), cur
     summary="Update a checklist template",
 )
 def update_checklist_template(checklist_id: int, data: OnboardingChecklistUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.update_checklist(db, checklist_id, data, organization_id=current_user.organization_id)
+    checklist = service.update_checklist(db, checklist_id, data, organization_id=current_user.organization_id, template=True)
+    if data.items is not None:
+        checklist = service.update_checklist_items(db, checklist_id, [item.model_dump() for item in data.items], organization_id=current_user.organization_id)
+    return checklist
 
 
 @hr_router.delete(
@@ -1510,7 +1528,7 @@ def list_checklist_assignments(
     page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
     per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     onboarding_record_id: Optional[int] = Query(None),
 ):
     return service.get_checklists(db, is_template=False, new_hire_id=onboarding_record_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
@@ -1531,11 +1549,11 @@ def assign_checklist(data: OnboardingChecklistAssignmentCreate, db: Session = De
     response_model=OnboardingChecklistResponse,
     summary="Update a checklist assignment (mark items complete etc.)",
 )
-def update_checklist_assignment(checklist_id: int, data: OnboardingChecklistUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    # Self-service: employees can mark checklist items complete
+def update_checklist_assignment(checklist_id: int, data: OnboardingChecklistUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    checklist = service.update_checklist(db, checklist_id, data, organization_id=current_user.organization_id, template=False)
     if data.items is not None:
-        service.update_checklist_items(db, checklist_id, [item.model_dump() for item in data.items], organization_id=current_user.organization_id)
-    return service.update_checklist(db, checklist_id, data, organization_id=current_user.organization_id)
+        checklist = service.update_checklist_items(db, checklist_id, [item.model_dump() for item in data.items], organization_id=current_user.organization_id)
+    return checklist
 
 
 @hr_router.delete(
@@ -1557,7 +1575,7 @@ def delete_checklist_assignment(checklist_id: int, db: Session = Depends(get_db)
 )
 def list_orientation_sessions(
     page: Optional[int] = Query(None, ge=1, description='Page number (omit for the full list)'),
-    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+    per_page: Optional[int] = Query(None, ge=1, le=200, description='Rows per page'),db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     return service.get_orientations(db, organization_id=current_user.organization_id, page=page, per_page=per_page)
 
 
@@ -1576,7 +1594,7 @@ def create_orientation_session(data: OnboardingOrientationCreate, db: Session = 
     response_model=OnboardingOrientationResponse,
     summary="Get an orientation session by ID",
 )
-def get_orientation_session(session_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def get_orientation_session(session_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     sessions = service.get_orientations(db, organization_id=current_user.organization_id)
     session = next((s for s in sessions if s.id == session_id), None)
     if not session:
@@ -1613,7 +1631,7 @@ def delete_orientation_session(session_id: int, db: Session = Depends(get_db), c
 )
 def list_orientation_attendees(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     session_id: Optional[int] = Query(None),
     onboarding_record_id: Optional[int] = Query(None),
 ):
@@ -1635,7 +1653,7 @@ def add_orientation_attendee(data: OnboardingOrientationAttendeeCreate, db: Sess
     response_model=OnboardingOrientationAttendeeResponse,
     summary="Update orientation attendee status",
 )
-def update_orientation_attendee(attendee_id: int, data: OnboardingOrientationAttendeeUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def update_orientation_attendee(attendee_id: int, data: OnboardingOrientationAttendeeUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     return service.update_orientation_attendee(db, attendee_id, data, organization_id=current_user.organization_id)
 
 
@@ -1741,6 +1759,15 @@ async def upload_onboarding_document(
     file_path = tenant_upload_path(_ONBOARDING_DOC_UPLOAD_DIR, current_user.organization_id, unique_name)   # filed under the tenant (C05)
     with open(file_path, "wb") as fh:
         fh.write(contents)
+    if record_id is not None:
+        waiting = db.query(OnboardingDocument).filter(
+            OnboardingDocument.onboarding_new_hire_id == record_id, OnboardingDocument.category == category,
+            OnboardingDocument.status.in_(["requested", "rejected"]), OnboardingDocument.is_deleted == False,
+            OnboardingDocument.organization_id == current_user.organization_id).first()
+        if waiting is not None:
+            waiting.file_path, waiting.status, waiting.rejection_reason, waiting.title = file_path, "pending", None, title
+            db.commit()
+            return service.get_onboarding_document_by_id(db, waiting.id, organization_id=current_user.organization_id)
     doc = service.create_onboarding_document(
         db=db,
         title=title,
@@ -1772,8 +1799,7 @@ def get_onboarding_document_file(
     return FileResponse(
         path=resolved,
         media_type=file_storage.effective_media_type(download_name, None),
-        filename=download_name,
-        headers={"Content-Disposition": f'attachment; filename="{download_name}"'},
+        filename=download_name.replace("/", "-").replace("\\", "-"),
     )
 
 
@@ -1855,36 +1881,70 @@ def onboarding_analytics(db: Session = Depends(get_db), current_user=Depends(get
 
 @hr_router.get("/onboarding/reports/joining", summary="Joining report")
 def onboarding_joining_report(db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    new_hires = service.get_new_hires(db, organization_id=current_user.organization_id)
     from datetime import date as ddate
-    today = ddate.today()
-    this_month = [r for r in new_hires if r.joining_date and r.joining_date.month == today.month and r.joining_date.year == today.year]
-    this_quarter_months = {1,2,3} if today.month <= 3 else ({4,5,6} if today.month <= 6 else ({7,8,9} if today.month <= 9 else {10,11,12}))
-    this_quarter = [r for r in new_hires if r.joining_date and r.joining_date.month in this_quarter_months and r.joining_date.year == today.year]
-    # Monthly trend grouping
     from collections import defaultdict
-    monthly_counts: dict = defaultdict(int)
-    for r in new_hires:
+    hires = [r for r in service.get_new_hires(db, organization_id=current_user.organization_id) if r.status != "cancelled"]
+    today = ddate.today()
+    quarter = (today.month - 1) // 3
+    this_month = [r for r in hires if r.joining_date and (r.joining_date.year, r.joining_date.month) == (today.year, today.month)]
+    this_quarter = [r for r in hires if r.joining_date and r.joining_date.year == today.year and (r.joining_date.month - 1) // 3 == quarter]
+    monthly: dict = defaultdict(int)
+    for r in hires:
         if r.joining_date:
-            key = r.joining_date.strftime("%b %Y")
-            monthly_counts[key] += 1
-    monthly_trend = [{"month": k, "count": v} for k, v in sorted(monthly_counts.items())]
-    time_to_onboard = [
-        (r.joining_date - r.created_at.date()).days
-        for r in new_hires
-        if r.joining_date and r.created_at
-    ]
-    avg_days_to_onboard = round(sum(time_to_onboard) / len(time_to_onboard), 1) if time_to_onboard else 0
+            monthly[(r.joining_date.year, r.joining_date.month)] += 1
+    monthly_trend = [{"month": ddate(y, m, 1).strftime("%b %Y"), "count": monthly[(y, m)]} for (y, m) in sorted(monthly)]
+    spans = [max((r.completed_at.date() - r.joining_date).days, 0) for r in hires if r.joining_date and r.completed_at]
     return {
-        "totalJoiners": len(new_hires),
+        "totalJoiners": len(hires),
         "thisMonth": len(this_month),
         "thisQuarter": len(this_quarter),
-        "avgDaysToOnboard": avg_days_to_onboard,
+        "completed": sum(r.status == "completed" for r in hires),
+        "avgDaysToOnboard": round(sum(spans) / len(spans), 1) if spans else 0,
+        "avgDaysMeasured": len(spans),
         "monthlyTrend": monthly_trend,
     }
 
 
+# ── Settings, pre-onboarding link, document requests, progress ────────────
 
+@hr_router.get("/onboarding/settings", response_model=OnboardingSettingsResponse, summary="Onboarding settings")
+def get_onboarding_settings(db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_flow
+    return onboarding_flow.get_settings(db, current_user.organization_id)
+
+
+@hr_router.put("/onboarding/settings", response_model=OnboardingSettingsResponse, summary="Save onboarding settings")
+def save_onboarding_settings(data: OnboardingSettingsUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_flow
+    return onboarding_flow.update_settings(db, current_user.organization_id, data.model_dump(exclude_unset=True))
+
+
+@hr_router.post("/onboarding/new-hires/{new_hire_id}/portal-invite", summary="Email the new hire their pre-onboarding link (a new link replaces the old one)")
+def send_portal_invite(new_hire_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_flow
+    hire = service.get_new_hire_by_id(db, new_hire_id, organization_id=current_user.organization_id)
+    out = onboarding_flow.issue_portal_link(db, hire, send=True)
+    return {"email_sent": out["email_sent"], "expires_at": out["expires_at"], "url": out["url"]}
+
+
+@hr_router.post("/onboarding/new-hires/{new_hire_id}/document-requests", response_model=list[OnboardingDocumentResponse],
+                summary="Ask the new hire for documents (they upload them on their pre-onboarding page)")
+def request_onboarding_documents(new_hire_id: int, data: OnboardingDocumentRequest, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_flow
+    hire = service.get_new_hire_by_id(db, new_hire_id, organization_id=current_user.organization_id)
+    if hire.status not in onboarding_flow.ACTIVE_STATUSES:
+        raise HTTPException(status_code=400, detail="Documents can only be requested while onboarding is active.")
+    created = onboarding_flow.request_documents(db, hire, data.categories, notify=False)
+    if created:
+        onboarding_flow.notify_document_request(db, hire, [{"title": d.title, "note": "Requested"} for d in created])
+    return [service.get_onboarding_document_by_id(db, d.id, organization_id=current_user.organization_id) for d in created]
+
+
+@hr_router.get("/onboarding/new-hires/{new_hire_id}/progress", summary="Checklist, document and orientation progress, and what blocks completion")
+def new_hire_progress(new_hire_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_flow
+    hire = service.get_new_hire_by_id(db, new_hire_id, organization_id=current_user.organization_id)
+    return onboarding_flow.progress(db, hire)
 
 
 @hr_router.post(

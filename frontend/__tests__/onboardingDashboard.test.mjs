@@ -83,3 +83,9 @@ test("with no new hires the charts say so instead of drawing empty shapes", asyn
   assert.ok(screen.getByText("No new hires yet"));
   assert.equal(screen.getAllByText("No data available").length, 2);
 });
+
+test("Upcoming Joiners counts every upcoming hire, not just the 10 listed", async (t) => {
+  await load(t, { data: { upcomingJoinersTotal: 14 } });
+  assert.match(screen.getByText("Upcoming Joiners", { selector: "p" }).parentElement.textContent, /14/);
+  assert.match(document.body.textContent, /Showing next 1 of 14 upcoming/);
+});

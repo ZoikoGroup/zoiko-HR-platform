@@ -99,17 +99,22 @@ export async function importEmployees(file) {
   return res.json();
 }
 
-export async function downloadImportTemplate() {
+/** The countries with their own import template: [{ name, currency, identifiers: [tax ID, payroll ref, bank code] }]. */
+export const getImportTemplateCountries = () => api.get("/hr/employee-management/employees/import/template-countries");
+
+export async function downloadImportTemplate(country) {
   const token = getAccessToken();
-  const res = await fetch(`${API_BASE_URL}/hr/employee-management/employees/import/template`, {
+  const query = country ? `?country=${encodeURIComponent(country)}` : "";
+  const res = await fetch(`${API_BASE_URL}/hr/employee-management/employees/import/template${query}`, {
     headers: { Authorization: `Bearer ${token}` },
   });
   if (!res.ok) throw new Error("Failed to download template");
+  const slug = (country || "default").trim().toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "default";
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = "employee-import-template.xlsx";
+  a.download = `employee-import-template-${slug}.xlsx`;
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);

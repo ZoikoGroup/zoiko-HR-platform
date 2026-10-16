@@ -14,6 +14,7 @@ import { Outlet, useLocation } from "react-router-dom";
 import ErrorBoundary from "./ErrorBoundary";
 import ProtectedRoute from "./ProtectedRoute";
 import PageFallback from "./PageFallback";
+import SupportSessionBanner from "./SupportSessionBanner";
 
 // Loaded once: the layout stays mounted across navigations, so this never suspends again after the first time.
 const SuperAdminShell = lazy(() => import("./SuperAdminShell"));
@@ -32,6 +33,7 @@ export default function AppLayout() {
           <Suspense fallback={<PageFallback />}>
             <Outlet />
           </Suspense>
+          <SupportSessionBanner />
         </SuperAdminShell>
       </Suspense>
     </ProtectedRoute>

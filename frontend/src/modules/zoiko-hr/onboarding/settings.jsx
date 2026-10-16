@@ -1,6 +1,8 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
+import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates } from "../../../service/hrService";
+import { humanizeValidationError } from "../../../utils/validationMessage";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -36,538 +38,321 @@ function OnboardingSubNav() {
   );
 }
 
-const STAGES = [
-  { value: "offer_sent", label: "Offer Sent" },
-  { value: "offer_accepted", label: "Offer Accepted" },
-  { value: "pre_joining", label: "Pre-Joining" },
-  { value: "in_progress", label: "In Progress" },
-  { value: "completed", label: "Completed" },
+const DOCUMENT_CATEGORIES = [
+  { value: "id_proof", label: "ID proof" },
+  { value: "offer_letter", label: "Signed offer letter" },
+  { value: "nda", label: "Signed NDA" },
+  { value: "education_certificates", label: "Education certificates" },
+  { value: "experience_letters", label: "Experience letters" },
+  { value: "bank_details", label: "Bank details" },
+  { value: "other", label: "Other" },
 ];
 
-const DEFAULT_CHECKLIST_TEMPLATES = [
-  { id: 1, name: "HR Onboarding Checklist" },
-  { id: 2, name: "IT Setup Checklist" },
-  { id: 3, name: "Manager Onboarding Checklist" },
-  { id: 4, name: "Facilities & Security Checklist" },
-];
+const WELCOME_MAX = 2000;
 
-const DEFAULT_ORIENTATION_SESSIONS = [
-  { id: 1, name: "Company Overview" },
-  { id: 2, name: "HR Policies & Benefits" },
-  { id: 3, name: "IT Systems Orientation" },
-  { id: 4, name: "Team Welcome Session" },
-];
+const EMPTY = {
+  auto_template_ids: [],
+  required_document_categories: [],
+  auto_send_portal_invite: false,
+  portal_link_days: 30,
+  reminder_days: 0,
+  require_checklists_complete: false,
+  require_documents_approved: false,
+  welcome_message: "",
+};
 
-const MANDATORY_TRAINING_PATHS = [
-  { id: 1, name: "Security Awareness Training" },
-  { id: 2, name: "Code of Conduct" },
-  { id: 3, name: "Data Privacy & GDPR" },
-  { id: 4, name: "Workplace Safety" },
-];
+function fromServer(s) {
+  const d = s || {};
+  return {
+    auto_template_ids: Array.isArray(d.auto_template_ids) ? d.auto_template_ids.map(Number) : [],
+    required_document_categories: Array.isArray(d.required_document_categories) ? d.required_document_categories : [],
+    auto_send_portal_invite: !!d.auto_send_portal_invite,
+    portal_link_days: d.portal_link_days ?? EMPTY.portal_link_days,
+    reminder_days: d.reminder_days ?? EMPTY.reminder_days,
+    require_checklists_complete: !!d.require_checklists_complete,
+    require_documents_approved: !!d.require_documents_approved,
+    welcome_message: d.welcome_message || "",
+  };
+}
+
+const isWhole = (v) => /^\d+$/.test(String(v ?? "").trim());
+
+/** { field: message } for everything the server would refuse. */
+function validateOnboardingSettings(f) {
+  const errors = {};
+  if (!isWhole(f.portal_link_days) || Number(f.portal_link_days) < 1 || Number(f.portal_link_days) > 180) {
+    errors.portal_link_days = "Enter a whole number of days from 1 to 180.";
+  }
+  if (!isWhole(f.reminder_days) || Number(f.reminder_days) > 30) {
+    errors.reminder_days = "Enter a whole number of days from 0 to 30 (0 turns reminders off).";
+  }
+  if (String(f.welcome_message || "").length > WELCOME_MAX) {
+    errors.welcome_message = `The welcome message can be at most ${WELCOME_MAX} characters.`;
+  }
+  return errors;
+}
+
+function Toggle({ id, checked, onChange, label }) {
+  return (
+    <label htmlFor={id} className="relative inline-flex items-center cursor-pointer shrink-0">
+      <input id={id} type="checkbox" checked={checked} onChange={(e) => onChange(e.target.checked)} className="sr-only peer" aria-label={label} />
+      <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+    </label>
+  );
+}
+
+function Section({ step, title, help, children }) {
+  return (
+    <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5">
+      <div className="flex items-start gap-3 mb-4">
+        {step ? <span className="w-6 h-6 rounded-full bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{step}</span> : null}
+        <div className="min-w-0">
+          <h3 className="text-base font-bold text-gray-800">{title}</h3>
+          {help ? <p className="text-xs text-gray-500 mt-0.5">{help}</p> : null}
+        </div>
+      </div>
+      <div className="space-y-4">{children}</div>
+    </section>
+  );
+}
+
+const FieldError = ({ msg }) => (msg ? <p role="alert" className="text-xs text-red-600 mt-1">{msg}</p> : null);
 
 export default function OnboardingSettings() {
-  const [activeSection, setActiveSection] = useState("general");
+  const [form, setForm] = useState(EMPTY);
+  const [templates, setTemplates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [saving, setSaving] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [banner, setBanner] = useState({ type: "", text: "" });
 
-  const [autoSendOfferLetter, setAutoSendOfferLetter] = useState(true);
-  const [defaultDuration, setDefaultDuration] = useState(30);
-  const [requireDocSubmission, setRequireDocSubmission] = useState(true);
-  const [sendReminders, setSendReminders] = useState(true);
-  const [reminderDays, setReminderDays] = useState(3);
-  const [allowSelfOnboarding, setAllowSelfOnboarding] = useState(false);
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      setLoadError(null);
+      try {
+        const [settings, tpl] = await Promise.all([getOnboardingSettings(), getOnboardingChecklistTemplates()]);
+        if (!mounted) return;
+        setForm(fromServer(settings));
+        const list = Array.isArray(tpl) ? tpl : Array.isArray(tpl?.items) ? tpl.items : [];
+        setTemplates(list);
+      } catch (err) {
+        if (mounted) setLoadError(err?.message || "Onboarding settings could not be loaded.");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => { mounted = false; };
+  }, [reloadKey]);
 
-  const [enabledStages, setEnabledStages] = useState(
-    STAGES.map((s) => s.value)
+  const set = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+  const toggleIn = (key, value) => {
+    setForm((prev) => {
+      const list = prev[key];
+      return { ...prev, [key]: list.includes(value) ? list.filter((v) => v !== value) : [...list, value] };
+    });
+    setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
+  const handleSave = async () => {
+    const found = validateOnboardingSettings(form);
+    setErrors(found);
+    if (Object.keys(found).length) {
+      setBanner({ type: "error", text: "Please fix the highlighted fields." });
+      return;
+    }
+    setSaving(true);
+    setBanner({ type: "", text: "" });
+    try {
+      const payload = {
+        auto_template_ids: form.auto_template_ids,
+        required_document_categories: form.required_document_categories,
+        auto_send_portal_invite: form.auto_send_portal_invite,
+        portal_link_days: Number(form.portal_link_days),
+        reminder_days: Number(form.reminder_days),
+        require_checklists_complete: form.require_checklists_complete,
+        require_documents_approved: form.require_documents_approved,
+        welcome_message: form.welcome_message.trim() === "" ? null : form.welcome_message,
+      };
+      const saved = await saveOnboardingSettings(payload);
+      if (saved) setForm(fromServer(saved));
+      setBanner({ type: "success", text: "Onboarding settings saved. They apply to new hires created from now on." });
+    } catch (err) {
+      const fields = {};
+      if (Array.isArray(err?.validation)) {
+        for (const item of err.validation) {
+          const field = Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : null;
+          if (typeof field === "string" && !fields[field]) fields[field] = humanizeValidationError(item);
+        }
+      }
+      setErrors(fields);
+      setBanner({ type: "error", text: err?.message || "The settings could not be saved. Please try again." });
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const numberBox = (name) =>
+    `w-24 border ${errors[name] ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`;
+
+  const page = (body) => (
+    <HRPage title="Onboarding Settings" subtitle="Decide what happens automatically when a new hire is created.">
+      <OnboardingSubNav />
+      {body}
+    </HRPage>
   );
 
-  const [selectedTemplates, setSelectedTemplates] = useState([1, 2]);
-  const [selectedSessions, setSelectedSessions] = useState([1, 2, 3]);
-  const [selectedTraining, setSelectedTraining] = useState([1, 2]);
-
-  const [saved, setSaved] = useState(false);
-
-  const toggleStage = (value) => {
-    setEnabledStages((prev) =>
-      prev.includes(value)
-        ? prev.filter((v) => v !== value)
-        : [...prev, value]
+  if (loading) {
+    return page(
+      <div className="flex justify-center items-center py-20">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+        <span className="ml-3 text-gray-500">Loading settings...</span>
+      </div>
     );
-  };
+  }
 
-  const toggleArrayItem = (arr, setter, id) => {
-    setter((prev) =>
-      prev.includes(id) ? prev.filter((v) => v !== id) : [...prev, id]
+  if (loadError) {
+    return page(
+      <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-6 text-center">
+        <p className="text-sm font-medium break-words">{loadError}</p>
+        <button onClick={() => setReloadKey((k) => k + 1)} className="mt-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg">
+          Retry
+        </button>
+      </div>
     );
-  };
+  }
 
-  const handleSave = () => {
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
+  const reminders = Number(form.reminder_days) || 0;
+  const welcomeLen = form.welcome_message.length;
 
-  const sectionClass = (section) =>
-    `px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
-      activeSection === section
-        ? "bg-blue-600 text-white"
-        : "bg-gray-100 text-gray-600 hover:bg-gray-200"
-    }`;
-
-  return (
-    <HRPage
-      title="Onboarding Settings"
-      subtitle="Configure onboarding stages, defaults, templates, and general preferences."
-    >
-      <OnboardingSubNav />
-
-      {saved && (
-        <div className="mb-4 px-4 py-3 bg-green-50 border border-green-200 text-green-700 rounded-lg flex justify-between items-center">
-          <span>Settings saved successfully.</span>
-          <button onClick={() => setSaved(false)} className="font-bold">
-            &times;
-          </button>
+  return page(
+    <div className="space-y-5 max-w-3xl">
+      {banner.text && (
+        <div role={banner.type === "error" ? "alert" : "status"} className={`px-4 py-3 rounded-lg flex justify-between items-start sm:items-center gap-3 ${
+          banner.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"
+        }`}>
+          <span className="text-sm min-w-0 break-words">{banner.text}</span>
+          <button onClick={() => setBanner({ type: "", text: "" })} className="font-bold shrink-0 p-1.5 -m-1.5 leading-none" aria-label="Dismiss">&times;</button>
         </div>
       )}
 
-      <div className="flex gap-6">
-        {/* Sidebar */}
-        <div className="w-48 shrink-0 space-y-1">
-          <button
-            onClick={() => setActiveSection("general")}
-            className={`w-full text-left ${sectionClass("general")}`}
-          >
-            General
-          </button>
-          <button
-            onClick={() => setActiveSection("stages")}
-            className={`w-full text-left ${sectionClass("stages")}`}
-          >
-            Onboarding Stages
-          </button>
-          <button
-            onClick={() => setActiveSection("checklists")}
-            className={`w-full text-left ${sectionClass("checklists")}`}
-          >
-            Default Checklists
-          </button>
-          <button
-            onClick={() => setActiveSection("orientation")}
-            className={`w-full text-left ${sectionClass("orientation")}`}
-          >
-            Orientation Sessions
-          </button>
-          <button
-            onClick={() => setActiveSection("training")}
-            className={`w-full text-left ${sectionClass("training")}`}
-          >
-            Training Paths
-          </button>
+      <div className="bg-blue-50/60 border border-blue-100 rounded-xl px-4 py-3 text-sm text-gray-600">
+        <p className="font-medium text-gray-700 mb-1">How onboarding runs</p>
+        <p>
+          When a candidate accepts an offer, a new hire is created. The checklist templates below are assigned, the
+          required documents are requested, and (if turned on) the new hire is emailed a pre-onboarding link. Reminders go
+          out for anything still missing, and the completion rules decide when onboarding can be marked complete.
+        </p>
+      </div>
+
+      <Section step={1} title="Checklists assigned automatically" help="Every new hire gets a copy of these templates as soon as they are created.">
+        {templates.length === 0 ? (
+          <p className="text-sm text-gray-400">
+            No checklist templates yet. Create one on the <NavLink to="/zoiko-hr/onboarding/checklists" className="text-blue-600 hover:underline">Checklists</NavLink> page.
+          </p>
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {templates.map((t) => (
+              <label key={t.id} className="flex items-center gap-2 text-sm text-gray-700 border border-gray-100 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer">
+                <input type="checkbox" checked={form.auto_template_ids.includes(Number(t.id))} onChange={() => toggleIn("auto_template_ids", Number(t.id))}
+                  className="shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                <span className="min-w-0 truncate" title={t.name}>{t.name}</span>
+                {t.category ? <span className="ml-auto text-xs text-gray-400 capitalize shrink-0">{String(t.category).replace(/_/g, " ")}</span> : null}
+              </label>
+            ))}
+          </div>
+        )}
+        <FieldError msg={errors.auto_template_ids} />
+      </Section>
+
+      <Section step={2} title="Documents requested from new hires" help="These are requested from every new hire; they upload them through their pre-onboarding link.">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {DOCUMENT_CATEGORIES.map((c) => (
+            <label key={c.value} className="flex items-center gap-2 text-sm text-gray-700 border border-gray-100 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer">
+              <input type="checkbox" checked={form.required_document_categories.includes(c.value)} onChange={() => toggleIn("required_document_categories", c.value)}
+                className="shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+              <span className="min-w-0 break-words">{c.label}</span>
+            </label>
+          ))}
         </div>
+        <FieldError msg={errors.required_document_categories} />
+      </Section>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-6 space-y-6">
-            {/* ========== GENERAL ========== */}
-            {activeSection === "general" && (
-              <div className="space-y-5">
-                <h3 className="text-lg font-bold text-gray-800">
-                  General Settings
-                </h3>
-
-                <div className="flex items-center justify-between py-3 border-b border-gray-50">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">
-                      Auto-Send Offer Letter
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Automatically send offer letter when status changes to
-                      "Offer Sent"
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={autoSendOfferLetter}
-                      onChange={(e) => setAutoSendOfferLetter(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-between py-3 border-b border-gray-50">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">
-                      Require Document Submission
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      New hires must submit required documents before onboarding
-                      can proceed
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={requireDocSubmission}
-                      onChange={(e) =>
-                        setRequireDocSubmission(e.target.checked)
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-
-                <div className="flex items-center justify-between py-3 border-b border-gray-50">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">
-                      Send Reminder Notifications
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Automated reminders for pending onboarding tasks
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={sendReminders}
-                      onChange={(e) => setSendReminders(e.target.checked)}
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-
-                {sendReminders && (
-                  <div className="flex items-center justify-between py-3 border-b border-gray-50 pl-6">
-                    <div>
-                      <p className="text-sm font-medium text-gray-700">
-                        Reminder Days Before
-                      </p>
-                      <p className="text-xs text-gray-400">
-                        Number of days before due date to send reminders
-                      </p>
-                    </div>
-                    <input
-                      type="number"
-                      min={1}
-                      max={30}
-                      value={reminderDays}
-                      onChange={(e) =>
-                        setReminderDays(Number(e.target.value))
-                      }
-                      className="w-20 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
-                )}
-
-                <div className="flex items-center justify-between py-3 border-b border-gray-50">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">
-                      Default Onboarding Duration
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      Standard number of days for the full onboarding process
-                    </p>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      min={1}
-                      max={365}
-                      value={defaultDuration}
-                      onChange={(e) =>
-                        setDefaultDuration(Number(e.target.value))
-                      }
-                      className="w-20 border border-gray-200 rounded-lg px-3 py-1.5 text-sm text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                    <span className="text-sm text-gray-400">days</span>
-                  </div>
-                </div>
-
-                <div className="flex items-center justify-between py-3 border-b border-gray-50">
-                  <div>
-                    <p className="text-sm font-medium text-gray-700">
-                      Allow Self-Onboarding
-                    </p>
-                    <p className="text-xs text-gray-400">
-                      New hires can complete pre-boarding tasks on their own
-                      before start date
-                    </p>
-                  </div>
-                  <label className="relative inline-flex items-center cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={allowSelfOnboarding}
-                      onChange={(e) =>
-                        setAllowSelfOnboarding(e.target.checked)
-                      }
-                      className="sr-only peer"
-                    />
-                    <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {/* ========== STAGES ========== */}
-            {activeSection === "stages" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800">
-                    Onboarding Stages / Flow
-                  </h3>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Enable or disable onboarding stages. Disabled stages will
-                    be skipped in the workflow.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {STAGES.map((stage, idx) => (
-                    <div
-                      key={stage.value}
-                      className="flex items-center justify-between py-3 px-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex items-center justify-center w-6 h-6 rounded-full bg-gray-100 text-xs font-bold text-gray-500">
-                          {idx + 1}
-                        </span>
-                        <div>
-                          <p className="text-sm font-medium text-gray-700">
-                            {stage.label}
-                          </p>
-                          <p className="text-xs text-gray-400">
-                            {stage.value === "offer_sent" &&
-                              "Initial offer letter stage"}
-                            {stage.value === "offer_accepted" &&
-                              "Candidate accepts the offer"}
-                            {stage.value === "pre_joining" &&
-                              "Pre-boarding tasks before start date"}
-                            {stage.value === "in_progress" &&
-                              "Active onboarding after start date"}
-                            {stage.value === "completed" &&
-                              "Onboarding process finalized"}
-                          </p>
-                        </div>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={enabledStages.includes(stage.value)}
-                          onChange={() => toggleStage(stage.value)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-9 h-5 bg-gray-200 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="bg-blue-50 border border-blue-100 rounded-lg px-4 py-3">
-                  <p className="text-sm text-blue-700">
-                    <span className="font-medium">Flow order: </span>
-                    {STAGES.filter((s) => enabledStages.includes(s.value))
-                      .map((s) => s.label)
-                      .join(" \u2192 ")}
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* ========== CHECKLISTS ========== */}
-            {activeSection === "checklists" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800">
-                    Default Checklist Templates
-                  </h3>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Select checklist templates that are automatically assigned
-                    to all new hires.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {DEFAULT_CHECKLIST_TEMPLATES.map((tpl) => (
-                    <div
-                      key={tpl.id}
-                      className="flex items-center justify-between py-3 px-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedTemplates.includes(tpl.id)}
-                          onChange={() =>
-                            toggleArrayItem(
-                              selectedTemplates,
-                              setSelectedTemplates,
-                              tpl.id
-                            )
-                          }
-                          className="rounded border-gray-300 focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                          {tpl.name}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          selectedTemplates.includes(tpl.id)
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-400"
-                        }`}
-                      >
-                        {selectedTemplates.includes(tpl.id)
-                          ? "Active"
-                          : "Inactive"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {selectedTemplates.length === 0 && (
-                  <div className="text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-400">
-                      No checklist templates selected.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ========== ORIENTATION ========== */}
-            {activeSection === "orientation" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800">
-                    Default Orientation Sessions
-                  </h3>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Choose default orientation sessions that are auto-assigned
-                    to new onboarding records.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {DEFAULT_ORIENTATION_SESSIONS.map((sess) => (
-                    <div
-                      key={sess.id}
-                      className="flex items-center justify-between py-3 px-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedSessions.includes(sess.id)}
-                          onChange={() =>
-                            toggleArrayItem(
-                              selectedSessions,
-                              setSelectedSessions,
-                              sess.id
-                            )
-                          }
-                          className="rounded border-gray-300 focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                          {sess.name}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          selectedSessions.includes(sess.id)
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-400"
-                        }`}
-                      >
-                        {selectedSessions.includes(sess.id)
-                          ? "Active"
-                          : "Inactive"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                {selectedSessions.length === 0 && (
-                  <div className="text-center py-6 bg-gray-50 rounded-lg border border-dashed border-gray-200">
-                    <p className="text-sm text-gray-400">
-                      No orientation sessions selected.
-                    </p>
-                  </div>
-                )}
-              </div>
-            )}
-
-            {/* ========== TRAINING ========== */}
-            {activeSection === "training" && (
-              <div className="space-y-5">
-                <div>
-                  <h3 className="text-lg font-bold text-gray-800">
-                    Mandatory Training Paths
-                  </h3>
-                  <p className="text-sm text-gray-400 mt-1">
-                    Configure training paths that are mandatory for all new
-                    hires to complete.
-                  </p>
-                </div>
-
-                <div className="space-y-2">
-                  {MANDATORY_TRAINING_PATHS.map((path) => (
-                    <div
-                      key={path.id}
-                      className="flex items-center justify-between py-3 px-4 rounded-lg border border-gray-100 hover:border-gray-200 transition-colors"
-                    >
-                      <div className="flex items-center gap-3">
-                        <input
-                          type="checkbox"
-                          checked={selectedTraining.includes(path.id)}
-                          onChange={() =>
-                            toggleArrayItem(
-                              selectedTraining,
-                              setSelectedTraining,
-                              path.id
-                            )
-                          }
-                          className="rounded border-gray-300 focus:ring-blue-500"
-                        />
-                        <span className="text-sm font-medium text-gray-700">
-                          {path.name}
-                        </span>
-                      </div>
-                      <span
-                        className={`text-xs font-medium px-2 py-0.5 rounded-full ${
-                          selectedTraining.includes(path.id)
-                            ? "bg-green-100 text-green-700"
-                            : "bg-gray-100 text-gray-400"
-                        }`}
-                      >
-                        {selectedTraining.includes(path.id)
-                          ? "Mandatory"
-                          : "Optional"}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="bg-amber-50 border border-amber-100 rounded-lg px-4 py-3">
-                  <p className="text-sm text-amber-700">
-                    <span className="font-medium">Note: </span>
-                    Mandatory training paths must be completed before the
-                    onboarding status can be set to "Completed".
-                  </p>
-                </div>
-              </div>
-            )}
-
-            {/* Save Button */}
-            <div className="pt-4 border-t border-gray-100 flex justify-end">
-              <button
-                onClick={handleSave}
-                className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-6 py-2 rounded-lg transition-colors"
-              >
-                Save Settings
-              </button>
-            </div>
+      <Section step={3} title="Pre-onboarding link" help="The new hire's personal page where they fill in their details, read the welcome message and upload documents.">
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-700">Email new hires their pre-onboarding link automatically</p>
+            <p className="text-xs text-gray-400">When off, send the link yourself from the New Hires page.</p>
+          </div>
+          <Toggle id="os-auto-invite" checked={form.auto_send_portal_invite} onChange={(v) => set("auto_send_portal_invite", v)} label="Email new hires their pre-onboarding link automatically" />
+        </div>
+        <div>
+          <label htmlFor="os-link-days" className="block text-sm font-medium text-gray-700">Link valid for</label>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <input id="os-link-days" type="number" min={1} max={180} step={1} value={form.portal_link_days} aria-invalid={!!errors.portal_link_days}
+              onChange={(e) => set("portal_link_days", e.target.value)} className={numberBox("portal_link_days")} />
+            <span className="text-sm text-gray-500">days (1 to 180)</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">After this the link stops working; sending a new link replaces the old one.</p>
+          <FieldError msg={errors.portal_link_days} />
+        </div>
+        <div>
+          <label htmlFor="os-welcome" className="block text-sm font-medium text-gray-700">Welcome message</label>
+          <p className="text-xs text-gray-400 mb-1">Shown in the welcome email and on the new hire's pre-onboarding page.</p>
+          <textarea id="os-welcome" rows={4} value={form.welcome_message} maxLength={WELCOME_MAX} aria-invalid={!!errors.welcome_message}
+            onChange={(e) => set("welcome_message", e.target.value)} placeholder="e.g. We're excited to have you join us! Please complete the steps below before your first day."
+            className={`w-full border ${errors.welcome_message ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
+          <div className="flex flex-wrap justify-between gap-x-3">
+            <FieldError msg={errors.welcome_message} />
+            <span className={`text-xs ml-auto ${welcomeLen > WELCOME_MAX ? "text-red-600" : "text-gray-400"}`}>{welcomeLen}/{WELCOME_MAX}</span>
           </div>
         </div>
+      </Section>
+
+      <Section step={4} title="Reminders" help="Nudges new hires who still have documents to upload.">
+        <div>
+          <label htmlFor="os-reminder-days" className="block text-sm font-medium text-gray-700">Remind new hires about missing documents every</label>
+          <div className="flex flex-wrap items-center gap-2 mt-1">
+            <input id="os-reminder-days" type="number" min={0} max={30} step={1} value={form.reminder_days} aria-invalid={!!errors.reminder_days}
+              onChange={(e) => set("reminder_days", e.target.value)} className={numberBox("reminder_days")} />
+            <span className="text-sm text-gray-500">days</span>
+          </div>
+          <p className="text-xs text-gray-400 mt-1">
+            {reminders === 0 ? "0 means no reminders are sent." : `A reminder is emailed every ${reminders} day${reminders === 1 ? "" : "s"} until all requested documents are uploaded. Set 0 to turn reminders off.`}
+          </p>
+          <FieldError msg={errors.reminder_days} />
+        </div>
+      </Section>
+
+      <Section step={5} title="Before onboarding can be completed" help="HR cannot mark a new hire's onboarding complete until these are met.">
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-700">All checklist items are done</p>
+            <p className="text-xs text-gray-400">Every item on the new hire's assigned checklists must be completed.</p>
+          </div>
+          <Toggle id="os-req-checklists" checked={form.require_checklists_complete} onChange={(v) => set("require_checklists_complete", v)} label="Require all checklist items to be done" />
+        </div>
+        <div className="flex items-center justify-between gap-3 sm:gap-4">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-700">All requested documents are approved</p>
+            <p className="text-xs text-gray-400">Every requested document must be uploaded and approved by HR.</p>
+          </div>
+          <Toggle id="os-req-documents" checked={form.require_documents_approved} onChange={(v) => set("require_documents_approved", v)} label="Require all documents to be approved" />
+        </div>
+      </Section>
+
+      <div className="flex flex-wrap justify-end gap-2">
+        <button onClick={handleSave} disabled={saving}
+          className="w-full sm:w-auto min-h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm px-5 py-2 rounded-lg font-medium transition-colors">
+          {saving ? "Saving..." : "Save Settings"}
+        </button>
       </div>
-    </HRPage>
+    </div>
   );
 }
