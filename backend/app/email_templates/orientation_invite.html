@@ -1,0 +1,20 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = heading %}
+{% set preheader = session_title ~ " on " ~ date_display ~ (" at " ~ time_display if time_display else "") ~ "." %}
+{% set badge = kind_label %}
+{% set badge_tone = "neutral" if cancelled else "info" %}
+{% set footer_reason %}You are receiving this because you are joining {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">{{ heading }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ first_name }}</strong>, {% if cancelled %}the orientation session below has been cancelled ({{ kind_label|lower }}). We will let you know about a new session.{% elif kind_label == "Updated" %}the details of your orientation session have been updated. Please note the new details below.{% else %}this is your invitation to the orientation session below. It will introduce you to {{ organization_name }}, our people and how we work.{% endif %}</p>
+{% call ui.details() %}
+{{ ui.detail_row("Session", session_title, first=True) }}
+{{ ui.detail_row("Date", date_display) }}
+{{ ui.detail_row("Time", time_display or "To be confirmed") }}
+{% if location %}{{ ui.detail_row("Location", location) }}{% endif %}
+{% if presenter %}{{ ui.detail_row("Presenter", presenter) }}{% endif %}
+{% endcall %}
+{% if meeting_link and not cancelled %}{{ ui.button(meeting_link, "Join the session") }}{% endif %}
+{{ ui.signoff(organization_name) }}
+{% endblock %}

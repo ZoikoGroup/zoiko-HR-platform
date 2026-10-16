@@ -33,12 +33,14 @@ async function load(t, over = {}) {
   const calls = { update: [] };
   const svc = {
     getInterviews: async () => ({ items: over.items ?? [IV(1, "completed", "Done Dan"), IV(2, "cancelled", "Gone Gus"), IV(3, "scheduled", "Soon Sue")] }),
-    createInterview: async () => ({}), updateInterviewFeedback: async () => ({}),
+    createInterview: async () => ({}), updateInterviewFeedback: async () => ({}), deleteInterview: async () => ({}),
+    getCandidates: async () => ({ items: [] }),
     updateInterview: async (id, p) => { calls.update.push([id, p]); if (over.updateError) throw new Error(over.updateError); return {}; },
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
+  t.mock.module("../src/service/employee.js", { exports: { getEmployees: async () => ({ items: [] }) } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/recruitment/interviews.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
   await settle();
@@ -56,7 +58,9 @@ test("a completed card has no actions, a cancelled card can only be rescheduled,
   assert.deepEqual(gone, ["Reschedule"]);
   fireEvent.click(within(card("Gone Gus")).getByRole("button", { name: "Reschedule" }));
   await settle();
-  assert.deepEqual(calls.update, [[2, { status: "scheduled" }]]);
+  // rescheduling opens the dialog so a new date and time can be chosen; nothing is sent until it is saved
+  assert.deepEqual(calls.update, []);
+  assert.ok(screen.getByText("Edit Interview"));
 });
 
 test("cancelling asks first, and a refusal from the server is shown without wiping the page", async (t) => {
@@ -83,7 +87,8 @@ test("editing a completed interview offers no way to change its status and does 
   const status = document.getElementById("iv-status");
   assert.equal(status.disabled, true);
   assert.deepEqual([...status.options].map((o) => o.value), ["completed"]);
-  fireEvent.change(document.getElementById("iv-interviewer"), { target: { value: "Bob" } });
+  // no employee record picked: the free-text interviewer name is used
+  fireEvent.change(screen.getByLabelText("Interviewer name"), { target: { value: "Bob" } });
   fireEvent.click(screen.getByRole("button", { name: "Update" }));
   await settle();
   assert.equal(calls.update.length, 1);

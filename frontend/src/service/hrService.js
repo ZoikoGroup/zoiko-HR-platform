@@ -85,6 +85,10 @@ export const updateRequisition = (id, payload) => api.put(`/hr/recruitment/requi
 export const deleteRequisition = (id) => api.delete(`/hr/recruitment/requisitions/${id}`);
 export const approveRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/approve`);
 export const rejectRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/reject`);
+export const submitRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/submit`);
+export const holdRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/hold`);
+export const resumeRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/resume`);
+export const closeRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/close`);
 
 export const getCandidates = (params = {}) => api.get("/hr/recruitment/candidates", { params });
 export const getCandidateById = (id) => api.get(`/hr/recruitment/candidates/${id}`);
@@ -108,6 +112,21 @@ export const deleteOffer = (id) => api.delete(`/hr/recruitment/offers/${id}`);
 export const acceptOffer = (id) => api.put(`/hr/recruitment/offers/${id}/accept`);
 export const rejectOffer = (id) => api.put(`/hr/recruitment/offers/${id}/reject`);
 export const withdrawOffer = (id) => api.put(`/hr/recruitment/offers/${id}/withdraw`);
+export const sendOffer = (id) => api.put(`/hr/recruitment/offers/${id}/send`);
+
+// Reference data for pay and addresses: countries with their currency, and register lookups by tax / VAT number.
+let regionsPromise = null;
+export const getRegions = () => {
+  if (!regionsPromise) regionsPromise = api.get("/hr/reference/regions").catch((e) => { regionsPromise = null; throw e; });
+  return regionsPromise;
+};
+export const lookupBusiness = (country, number, idType) => api.get("/hr/reference/business-lookup", { params: { country, number, id_type: idType } });
+let businessFormatsPromise = null;
+/** Per country: which business IDs exist (GSTIN, EIN, ABN, VAT...), their format, and how an address is written there. */
+export const getBusinessFormats = () => {
+  if (!businessFormatsPromise) businessFormatsPromise = api.get("/hr/reference/business-formats").catch((e) => { businessFormatsPromise = null; throw e; });
+  return businessFormatsPromise;
+};
 
 // ════════════════════════════════════════════════════════════════════════════
 // TRAVEL MODULE
@@ -143,7 +162,8 @@ export const createEss = (payload) => api.post("/hr/ess", payload);
 export const updateEss = (id, payload) => api.put(`/hr/ess/${id}`, payload);
 export const deleteEss = (id) => api.delete(`/hr/ess/${id}`);
 
-export const getOnboardingTasks = (employeeId) => api.get(`/hr/onboarding/preboarding-tasks${employeeId ? `?employee_id=${employeeId}` : ''}`);
+// Tasks belong to a new hire (onboarding record), not to an employee account.
+export const getOnboardingTasks = (newHireId) => api.get(`/hr/onboarding/preboarding-tasks${newHireId ? `?new_hire_id=${newHireId}` : ''}`);
 export const createOnboardingTask = (payload) => api.post("/hr/onboarding/preboarding-tasks", payload);
 export const updateOnboardingTask = (id, payload) => api.put(`/hr/onboarding/preboarding-tasks/${id}`, payload);
 export const deleteOnboardingTask = (id) => api.delete(`/hr/onboarding/preboarding-tasks/${id}`);
@@ -192,6 +212,22 @@ export const getOnboardingActivities = (limit = 50) => api.get(`/hr/onboarding/a
 // ── ONBOARDING DASHBOARD & REPORTS ───────────────────────────────────────
 export const getOnboardingDashboard = () => api.get("/hr/onboarding/dashboard");
 export const getOnboardingJoiningReport = () => api.get("/hr/onboarding/reports/joining");
+
+// ── ONBOARDING FLOW: settings, pre-onboarding link, document requests, progress ──
+export const getOnboardingSettings = () => api.get("/hr/onboarding/settings");
+export const saveOnboardingSettings = (payload) => api.put("/hr/onboarding/settings", payload);
+export const sendOnboardingPortalInvite = (newHireId) => api.post(`/hr/onboarding/new-hires/${newHireId}/portal-invite`);
+export const requestOnboardingDocuments = (newHireId, categories) => api.post(`/hr/onboarding/new-hires/${newHireId}/document-requests`, { categories });
+export const getOnboardingProgress = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/progress`);
+
+// ── The new hire's own pre-onboarding page (public: the link token is the credential) ──
+export const getPortal = (token) => api.get(`/public/onboarding/${encodeURIComponent(token)}`, { auth: false });
+export const savePortalDetails = (token, payload) => api.put(`/public/onboarding/${encodeURIComponent(token)}/details`, payload, { auth: false });
+export const uploadPortalDocument = (token, docId, file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post(`/public/onboarding/${encodeURIComponent(token)}/documents/${docId}`, fd, { auth: false });
+};
 
 
 // ════════════════════════════════════════════════════════════════════════════
@@ -788,6 +824,8 @@ export const deleteDepartment = (deptId) =>
 
 
 export const getDepartments = (params = {}) => api.get("/hr/departments", { params }).then(data => ({ data }));
+export const getDepartmentSettings = (params = {}) => api.get("/hr/departments/settings", { params });
+export const saveDepartmentSettings = (payload) => api.put("/hr/departments/settings", payload);
 export const getDesignations = (params) => api.get("/hr/designations", { params });
 // Server-computed report for the Designation Reports page (totals, per-department table, trends).
 export const getDesignationSettings = (params = {}) => api.get("/hr/designations/settings", { params });

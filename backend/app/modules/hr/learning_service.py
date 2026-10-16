@@ -732,6 +732,12 @@ def check_program_transition(current: str, new: Optional[str]) -> None:
         raise BadRequestException(f"A program that is {current} cannot be changed to {new}.")
 
 
+def _reject_future_completion(status: Optional[str], end_date) -> None:
+    # A program that has not ended yet cannot be marked completed.
+    if status == "completed" and end_date is not None and end_date > date.today():
+        raise BadRequestException("A program cannot be marked completed before its end date.")
+
+
 def _program_row(db: Session, program_id: int, organization_id: Optional[int] = None) -> LearningTrainingProgram:
     query = db.query(LearningTrainingProgram).filter(LearningTrainingProgram.id == program_id)
     if organization_id is not None:
@@ -788,6 +794,7 @@ def _check_program(db: Session, organization_id, name=None, instructor_id=None, 
 
 def create_training_program(db: Session, data: TrainingProgramCreate, created_by: int, organization_id: Optional[int] = None) -> dict:
     _check_program(db, organization_id, data.name, data.instructor_id, data.start_date, data.end_date)
+    _reject_future_completion(data.status, data.end_date)
     program = LearningTrainingProgram(**data.model_dump(), created_by=created_by)
     if organization_id is not None:
         program.organization_id = organization_id
@@ -828,6 +835,9 @@ def update_training_program(db: Session, program_id: int, data: TrainingProgramU
     program = _program_row(db, program_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
     check_program_transition(program.status, update_data.get("status"))
+    effective_status = update_data.get("status", program.status)
+    effective_end = update_data.get("end_date", program.end_date)
+    _reject_future_completion(effective_status, effective_end)
     new_name = update_data.get("name")
     _check_program(
         db, organization_id,

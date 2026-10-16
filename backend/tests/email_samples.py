@@ -19,6 +19,63 @@ SENDER_SAMPLES = [
         email="hr@acme.test", employee_name="Sam Rivera", ticket_reference="HRT-2026-0042",
         issue_summary="I need help updating my details.", organization_name="Acme Corp",
         tickets_url=f"{APP}/hr-admin/assistant-handoffs", organization_id=42)),
+    ("send_support_login_requested", dict(
+        email="admin@acme.test", admin_name="Alex", organization_name="Acme Corp", operator_email="support@zoikohr.com",
+        reference="SLR-2026-000042", duration_minutes=15, justification="Customer reports a payroll page error",
+        ticket_reference="ZHR-1234", review_url=f"{APP}/organization-admin/support-access", organization_id=42)),
+    ("send_interview_scheduled", dict(
+        email="sam@acme.test", recipient_name="Sam Rivera", is_candidate=True, candidate_name="Sam Rivera",
+        position="Backend Engineer", organization_name="Acme Corp", date_display="Thu, Oct 22, 2026",
+        time_display="10:00 - 11:00 (Asia/Kolkata)", interview_type_label="Video call", location=None,
+        meeting_link="https://meet.example.com/abc", interviewer_name="Jordan Lee", organization_id=42)),
+    ("send_interview_rescheduled", dict(
+        email="jordan@acme.test", recipient_name="Jordan Lee", is_candidate=False, candidate_name="Sam Rivera",
+        position="Backend Engineer", organization_name="Acme Corp", date_display="Fri, Oct 23, 2026",
+        time_display="14:00 - 15:00 (Asia/Kolkata)", interview_type_label="In person",
+        previous_display="Thu, Oct 22, 2026 10:00", location="Acme HQ, Floor 3", organization_id=42)),
+    ("send_interview_cancelled", dict(
+        email="sam@acme.test", recipient_name="Sam Rivera", is_candidate=True, candidate_name="Sam Rivera",
+        position="Backend Engineer", organization_name="Acme Corp", date_display="Thu, Oct 22, 2026",
+        time_display="10:00", organization_id=42)),
+    ("send_candidate_status_update", dict(
+        email="sam@acme.test", candidate_name="Sam Rivera", position="Backend Engineer", organization_name="Acme Corp",
+        status_label="Under review", is_rejection=False, organization_id=42)),
+    ("send_offer_letter", dict(
+        email="sam@acme.test", candidate_name="Sam Rivera", position="Design Intern", organization_name="Acme Corp",
+        employment_type_label="Internship", remuneration_label="Stipend", remuneration_display="₹25,000 per month",
+        start_date_display="Nov 02, 2026", entity_name="Acme Corp Private Limited", organization_id=42)),
+    ("send_offer_outcome", dict(
+        email="hr@acme.test", admin_name="Alex", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", accepted=True, offers_url=f"{APP}/zoiko-hr/recruitment/offers",
+        start_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_requisition_approval_request", dict(
+        email="admin@acme.test", admin_name="Alex", requester_name="Jordan Lee", title_text="Backend Engineer",
+        department="Engineering", openings=2, priority="High", organization_name="Acme Corp",
+        requisitions_url=f"{APP}/zoiko-hr/recruitment/job-requisitions", location="Pune, India", organization_id=42)),
+    ("send_requisition_decision", dict(
+        email="jordan@acme.test", requester_name="Jordan Lee", title_text="Backend Engineer", department="Engineering",
+        approved=True, decider_name="Alex Morgan", requisitions_url=f"{APP}/zoiko-hr/recruitment/job-requisitions",
+        organization_id=42)),
+    ("send_onboarding_invite", dict(
+        email="sam@mail.com", first_name="Sam", organization_name="Acme Corp", position="Backend Engineer",
+        portal_url=f"{APP}/onboarding-portal/abc123", expires_display="Nov 15, 2026", joining_date_display="Nov 02, 2026",
+        manager_name="Jordan Lee", documents_requested=3, welcome_message="We can't wait to meet you.", organization_id=42)),
+    ("send_onboarding_document_request", dict(
+        email="sam@mail.com", first_name="Sam", organization_name="Acme Corp",
+        documents=[{"title": "ID proof", "note": "Requested"}, {"title": "Bank details", "note": "Rejected: image is blurry"}],
+        portal_url=f"{APP}/onboarding-portal/abc123", joining_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_onboarding_task_assigned", dict(
+        email="it@acme.test", assignee_name="Robin", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", tasks=[{"title": "Set up laptop", "due": "Oct 30, 2026"}],
+        checklists_url=f"{APP}/zoiko-hr/onboarding/checklists", joining_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_orientation_invite", dict(
+        email="sam@mail.com", first_name="Sam", organization_name="Acme Corp", session_title="Company orientation",
+        date_display="Mon, Nov 02, 2026", time_display="10:00", location="HQ, Floor 3", meeting_link="https://meet.example.com/o",
+        presenter="Hana (HR)", organization_id=42)),
+    ("send_onboarding_completed", dict(
+        email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", employee_code="ACM-0042",
+        position="Backend Engineer", organization_name="Acme Corp", employees_url=f"{APP}/zoiko-hr/employees",
+        joining_date_display="Nov 02, 2026", organization_id=42)),
     ("send_leave_request_submitted", dict(
         email="sam@acme.test", first_name="Sam", request_reference="LV-42-0007",
         leave_period_display="Oct 01, 2026 – Oct 03, 2026", leave_request_url=f"{APP}/employee/leaves")),

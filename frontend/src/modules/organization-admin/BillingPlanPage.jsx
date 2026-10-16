@@ -6,11 +6,14 @@ import { billingService } from "../../service/billingService";
 import {
   ArrowLeft, CreditCard, ShieldCheck, ShieldX, Package, Users,
   Loader2, CheckCircle2, XCircle, AlertTriangle, Clock, RotateCcw,
-  BadgeCheck, Ban, Info, Zap, ExternalLink, Check,
+  BadgeCheck, Ban, Info, Zap, ExternalLink, Check, X,
 } from "lucide-react";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 import PlanComparison from "../../components/PlanComparison";
 import { formatDate } from "../../utils/dateTime";
+import { requestPricing } from "../../service/pricingService";
+import { COMPANY_SIZES, EMPTY_FORM, TIMELINES, validatePricingForm, buildPricingPayload, serverFieldErrors } from "../../utils/pricingRequestForm";
+import { REGISTRATION_COUNTRIES } from "../../utils/registrationRegions";
 
 const BLUE = "#3B82F6";
 const EMERALD = "#10B981";
@@ -86,6 +89,147 @@ export function offeredPlans(list) {
   return OFFERED_PLAN_CODES.map((c) => byCode.get(c)).filter(Boolean);
 }
 
+// The catalog codes are the product names (CORE / ADVANCED / ENTERPRISE). The free-text `name`
+// column once carried a "Core plam" typo in live data, so the page never trusts it for these
+// codes: the label always comes from the code, and `name` is only a fallback for unknown plans.
+const CODE_LABELS = { core: "Core", advanced: "Advanced", enterprise: "Enterprise" };
+export function planDisplayName(plan) {
+  const code = String(plan?.code || "").toLowerCase();
+  if (CODE_LABELS[code]) return CODE_LABELS[code];
+  if (plan?.name) return plan.name;
+  return fmtPlanLabel(code);
+}
+
+// Contact Sales: a real request, not a dead-end message. It posts an Enterprise pricing
+// request (stored, confirmed by email, visible to sales in super-admin Pricing Requests),
+// prefilled with the signed-in org admin's details.
+const salesInput = "w-full px-3.5 py-2.5 rounded-xl border bg-white text-slate-800 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500 transition";
+
+function SalesField({ id, label, required, error, children }) {
+  return (
+    <div>
+      <label htmlFor={id} className="block text-[11.5px] font-semibold text-slate-600 mb-1">
+        {label}{required ? <span className="text-red-500"> *</span> : null}
+      </label>
+      {children}
+      {error ? <p id={`${id}-error`} role="alert" className="text-xs text-red-600 mt-1">{error}</p> : null}
+    </div>
+  );
+}
+
+function ContactSalesDialog({ user, planName, onClose, notify }) {
+  const prefill = () => ({
+    ...EMPTY_FORM,
+    fullName: user?.full_name || [user?.first_name, user?.last_name].filter(Boolean).join(" ") || "",
+    workEmail: user?.email || "",
+    planInterest: "enterprise",
+  });
+  const [form, setForm] = useState(prefill);
+  const [errors, setErrors] = useState({});
+  const [formError, setFormError] = useState("");
+  const [sending, setSending] = useState(false);
+  const [done, setDone] = useState(null);
+
+  const set = (name, value) => {
+    setForm((f) => ({ ...f, [name]: value }));
+    if (errors[name]) setErrors((e) => ({ ...e, [name]: undefined }));
+  };
+  const props = (id, name) => ({
+    id, value: form[name], "aria-invalid": errors[name] ? "true" : undefined, "aria-describedby": errors[name] ? `${id}-error` : undefined,
+    className: `${salesInput} ${errors[name] ? "border-red-400" : "border-slate-200"}`,
+    onChange: (e) => set(name, e.target.value),
+  });
+
+  async function submit(e) {
+    e.preventDefault();
+    setFormError("");
+    const found = validatePricingForm({ ...form, planInterest: "enterprise" });
+    setErrors(found);
+    if (Object.keys(found).length) return;
+    setSending(true);
+    try {
+      const res = await requestPricing(buildPricingPayload({ ...form, planInterest: "enterprise" }));
+      setDone({ reference: res.reference, emailed: res.confirmation_email_sent, email: form.workEmail.trim().toLowerCase() });
+      notify("Your sales request was sent. Our team will reply within one business day.", "success");
+    } catch (err) {
+      const fields = serverFieldErrors(err?.validation);
+      if (Object.keys(fields).length) setErrors(fields);
+      else setFormError(err?.status === 429 ? "You have sent several requests in a short time. Please try again in a little while." : err?.message || "We could not send your request. Please try again.");
+    } finally {
+      setSending(false);
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" role="dialog" aria-modal="true" aria-label="Contact sales">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-start justify-between px-6 py-4 border-b border-slate-100">
+          <div>
+            <h2 className="text-[15px] font-bold" style={{ color: INK }}>Contact sales</h2>
+            <p className="text-[12px]" style={{ color: INK_SOFT }}>{planName || "Enterprise"} is priced by contract — tell us where to reach you.</p>
+          </div>
+          <button type="button" onClick={onClose} aria-label="Close" className="text-slate-400 hover:text-slate-700 text-xl leading-none">&times;</button>
+        </div>
+        {done ? (
+          <div className="p-6 text-center" role="status">
+            <div className="w-14 h-14 rounded-full bg-emerald-50 text-emerald-600 flex items-center justify-center mx-auto"><CheckCircle2 className="w-8 h-8" /></div>
+            <h3 className="mt-4 text-[15px] font-bold" style={{ color: INK }}>Thank you, we have your request</h3>
+            <p className="mt-1.5 text-[13px]" style={{ color: INK_SOFT }}>Your reference is <span className="font-mono font-bold" style={{ color: INK }}>{done.reference}</span>. Our team will reply within one business day.</p>
+            <p className="mt-2 text-[12px]" style={{ color: INK_SOFT }}>
+              {done.emailed ? <>A confirmation is on its way to <b>{done.email}</b>.</> : <>We saved your request but could not send the confirmation email right now. Our team will still contact you.</>}
+            </p>
+            <button type="button" onClick={onClose} className="mt-5 px-5 py-2.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-bold">Done</button>
+          </div>
+        ) : (
+          <form onSubmit={submit} noValidate className="p-6 space-y-4">
+            {formError ? <div role="alert" className="rounded-xl bg-red-50 border border-red-200 text-red-700 text-[13px] px-4 py-3">{formError}</div> : null}
+            <div className="grid sm:grid-cols-2 gap-4">
+              <SalesField id="sales-fullName" label="Full name" required error={errors.fullName}><input {...props("sales-fullName", "fullName")} autoComplete="name" /></SalesField>
+              <SalesField id="sales-workEmail" label="Work email" required error={errors.workEmail}><input {...props("sales-workEmail", "workEmail")} type="email" autoComplete="email" /></SalesField>
+              <SalesField id="sales-phone" label="Phone" error={errors.phone}><input {...props("sales-phone", "phone")} type="tel" autoComplete="tel" /></SalesField>
+              <SalesField id="sales-company" label="Company" required error={errors.company}><input {...props("sales-company", "company")} autoComplete="organization" /></SalesField>
+              <SalesField id="sales-country" label="Country" required error={errors.country}>
+                <select {...props("sales-country", "country")}>
+                  <option value="">Select country</option>
+                  {REGISTRATION_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                </select>
+              </SalesField>
+              <SalesField id="sales-companySize" label="Company size (employees)" required error={errors.companySize}>
+                <select {...props("sales-companySize", "companySize")}>
+                  <option value="">Select size</option>
+                  {COMPANY_SIZES.map((s) => <option key={s} value={s}>{s}</option>)}
+                </select>
+              </SalesField>
+            </div>
+            <SalesField id="sales-timeline" label="When do you want to start?" error={errors.timeline}>
+              <select {...props("sales-timeline", "timeline")}>
+                <option value="">Select</option>
+                {TIMELINES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+              </select>
+            </SalesField>
+            <SalesField id="sales-message" label="Anything we should know?" error={errors.message}>
+              <textarea {...props("sales-message", "message")} rows={3} maxLength={2000} placeholder="For example: number of entities, countries, or must-have terms." />
+            </SalesField>
+            <div>
+              <label className="flex items-start gap-2 text-[13px] cursor-pointer" style={{ color: INK_SOFT }}>
+                <input type="checkbox" checked={form.consent} onChange={(e) => set("consent", e.target.checked)} className="mt-0.5 w-4 h-4 rounded border-slate-300" />
+                <span>I agree that Zoiko HR may contact me about this request.</span>
+              </label>
+              {errors.consent ? <p role="alert" className="text-xs text-red-600 mt-1">{errors.consent}</p> : null}
+            </div>
+            <div className="flex justify-end gap-3 pt-1">
+              <button type="button" onClick={onClose} className="px-4 py-2.5 rounded-xl border border-slate-200 text-[13px] font-bold text-slate-600 hover:bg-slate-50">Cancel</button>
+              <button type="submit" disabled={sending} className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white text-[13px] font-bold flex items-center gap-2">
+                {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />} {sending ? "Sending..." : "Send request"}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function OrgAdminBillingPlanPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -103,6 +247,7 @@ export default function OrgAdminBillingPlanPage() {
   const [pending, setPending] = useState(null); // a downgrade already scheduled for the end of the period
   const [toast, setToast] = useState(null);
   const [confirming, setConfirming] = useState(false);
+  const [salesOpen, setSalesOpen] = useState(false); // contract-priced plan: a real sales request dialog
   const [unconfirmed, setUnconfirmed] = useState(null); // a paid Stripe session we could not confirm yet: the id, so it can be retried
   const confirmingRef = React.useRef(null);
   const loadSeq = React.useRef(0);        // only the newest load may write to the page
@@ -376,7 +521,7 @@ export default function OrgAdminBillingPlanPage() {
   const status = sub.status || "—";
   const planCode = sub.plan_code;
   const onEvaluation = String(sub.status || "").toLowerCase() === "evaluation";
-  const planName = sub.plan_name || (onEvaluation ? "Free evaluation" : fmtPlanLabel(planCode));
+  const planName = onEvaluation ? "Free evaluation" : planDisplayName({ code: planCode, name: sub.plan_name });
   const states = ent?.states || {};
   const stateList = Object.entries(states).sort(([a], [b]) => a.localeCompare(b));
   const statusKey = String(status).toLowerCase();
@@ -398,6 +543,8 @@ export default function OrgAdminBillingPlanPage() {
           {toast.message}
         </div>
       ) : null}
+
+      {salesOpen ? <ContactSalesDialog user={user} planName="Enterprise" onClose={() => setSalesOpen(false)} notify={notify} /> : null}
 
       {confirming ? (
         <div role="status" className="fixed top-4 left-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg flex items-center gap-2"
@@ -502,6 +649,9 @@ export default function OrgAdminBillingPlanPage() {
                 const hasPrice = !p.is_contract_priced && price !== null && price !== undefined;
                 const popular = code === "advanced";
                 const checkoutBusy = busy === `checkout-${p.id}`;
+                // The server refuses checkout for unpublished plans, so never offer the
+                // redirect for one: the button stays disabled with the reason attached.
+                const unpublished = p.is_published === false;
 
                 return (
                   <div
@@ -515,7 +665,7 @@ export default function OrgAdminBillingPlanPage() {
                       <span className="absolute -top-3 left-6 bg-indigo-600 text-white text-[10.5px] font-extrabold px-3 py-1 rounded-full tracking-wide">MOST POPULAR</span>
                     ) : null}
                     <div className="flex items-center justify-between mb-2">
-                      <h3 className="font-['Sora',system-ui,sans-serif] text-lg font-bold capitalize" style={{ color: INK }}>{p.name}</h3>
+                      <h3 className="font-['Sora',system-ui,sans-serif] text-lg font-bold capitalize" style={{ color: INK }}>{planDisplayName(p)}</h3>
                       {isCurrent ? (
                         <span className="bg-blue-100 text-blue-700 text-[10.5px] font-extrabold px-2.5 py-0.5 rounded-full flex items-center gap-1">
                           <Check className="w-3 h-3" /> Your plan
@@ -543,10 +693,10 @@ export default function OrgAdminBillingPlanPage() {
                       {!p.is_contract_priced ? (
                         <button
                           onClick={() => (rel === "downgrade" ? openDowngrade(p) : handleStripeCheckout(p))}
-                          disabled={!canAct || currentIsLive || scheduledHere || confirming || checkoutBusy || busy === "impact"}
-                          title={currentIsLive ? "Your subscription already includes this plan." : undefined}
+                          disabled={!canAct || currentIsLive || scheduledHere || confirming || checkoutBusy || busy === "impact" || unpublished}
+                          title={unpublished ? "This plan is not published for purchase yet. Please contact support." : currentIsLive ? "Your subscription already includes this plan." : undefined}
                           className={`w-full py-3 px-4 rounded-xl text-[13px] font-bold flex items-center justify-center gap-2 transition-all ${
-                            !canAct || currentIsLive || scheduledHere
+                            !canAct || currentIsLive || scheduledHere || unpublished
                               ? "bg-slate-100 text-slate-500 cursor-not-allowed border border-slate-200"
                               : rel === "downgrade"
                               ? "bg-white text-slate-700 border border-slate-300 hover:bg-slate-50 cursor-pointer"
@@ -554,21 +704,23 @@ export default function OrgAdminBillingPlanPage() {
                           }`}
                         >
                           {checkoutBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : currentIsLive ? <Check className="w-4 h-4" /> : <CreditCard className="w-4 h-4" />}
-                          {currentIsLive
+                          {unpublished
+                            ? `${planDisplayName(p)} unavailable`
+                            : currentIsLive
                             ? "Currently Subscribed"
                             : scheduledHere
                             ? `Switching on ${fmtDate(pending.effective_at)}`
                             : rel === "downgrade"
-                            ? `Downgrade to ${p.name}`
+                            ? `Downgrade to ${planDisplayName(p)}`
                             : rel === "upgrade"
-                            ? `Upgrade to ${p.name} via Stripe`
+                            ? `Upgrade to ${planDisplayName(p)} via Stripe`
                             : isCurrent
                             ? "Pay & Renew Active Plan"
-                            : `Subscribe to ${p.name} via Stripe`}
+                            : `Subscribe to ${planDisplayName(p)} via Stripe`}
                         </button>
                       ) : (
                         <button
-                          onClick={() => notify("Enterprise plans require sales contract activation. Please contact sales.", "info")}
+                          onClick={() => setSalesOpen(true)}
                           className="w-full py-3 px-4 rounded-xl text-[13px] font-bold bg-slate-900 hover:bg-slate-800 text-white flex items-center justify-center gap-2 cursor-pointer"
                         >
                           <ExternalLink className="w-4 h-4" /> Contact sales

@@ -49,6 +49,24 @@ async def _not_found(send, correlation_id: str):
     await send({"type": "http.response.body", "body": _NOT_FOUND})
 
 
+def _cors(scope) -> list:
+    """This answer is sent before CORSMiddleware runs: add its headers for an allowed origin so the browser can read it."""
+    import re
+    from app.core.exceptions import _ALLOWED_ORIGINS
+    origin = _header(scope, b"origin") or ""
+    if origin and (origin in _ALLOWED_ORIGINS or re.fullmatch(r"https?://(localhost|127\.0\.0\.1)(:\d+)?", origin)):
+        return [(b"access-control-allow-origin", origin.encode()), (b"access-control-allow-credentials", b"true"), (b"vary", b"Origin")]
+    return []
+
+
+async def _json(send, scope, status: int, body: dict, correlation_id: str):
+    raw = json.dumps(body).encode()
+    await send({"type": "http.response.start", "status": status,
+                "headers": [(b"content-type", b"application/json"), (b"content-length", str(len(raw)).encode()),
+                            (b"x-request-id", correlation_id.encode())] + _cors(scope)})
+    await send({"type": "http.response.body", "body": raw})
+
+
 class PrivacyContextMiddleware:
     def __init__(self, app):
         self.app = app
@@ -64,6 +82,7 @@ class PrivacyContextMiddleware:
         scope.setdefault("state", {})["correlation_id"] = cid
 
         plane, tenant, actor, role = None, None, None, None
+        support_session = None
         token = _bearer(scope)
         if token:
             from app.core.security import decode_access_token
@@ -71,6 +90,7 @@ class PrivacyContextMiddleware:
             if payload and payload.get("typ") != "refresh":
                 role = payload.get("role")
                 actor = payload.get("id")
+                support_session = payload.get("sls")
                 if role == "super_admin":
                     plane = ctx.PLATFORM
                 elif role:
@@ -88,6 +108,16 @@ class PrivacyContextMiddleware:
                     if str(raw).strip() not in ("", str(tenant)):
                         self._record(plane, actor, path, policy.NO_TENANT_MEMBERSHIP, cid)
                         return await _not_found(send, cid)
+
+        # Temporary support sign-in: refused once it has ended, read-only always, every request logged for the tenant.
+        if support_session is not None:
+            import anyio
+            from app.modules.support_login import gate
+            verdict = await anyio.to_thread.run_sync(gate.check, support_session, tenant, scope.get("method", "GET"), path)
+            if verdict is not None:
+                status, code, message = verdict
+                body = {"message": message} if status == 200 else {"detail": message, "error_code": code, "message": message}
+                return await _json(send, scope, status, body, cid)
 
         reset = ctx.set_context(plane or "ANONYMOUS", tenant, actor, cid, role=role)
 

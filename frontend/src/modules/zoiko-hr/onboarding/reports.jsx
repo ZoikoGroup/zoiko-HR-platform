@@ -9,6 +9,7 @@ import {
   TrendingUp,
   Clock,
   Download,
+  CheckCircle2,
 } from "lucide-react";
 
 const NAV_ITEMS = [
@@ -46,16 +47,16 @@ function SubNav() {
   );
 }
 
-function StatCard({ title, value, icon: Icon, color, suffix }) {
+function StatCard({ title, value, icon: Icon, color, suffix, className = "" }) {
   return (
-    <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between">
-      <div>
-        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider">{title}</p>
+    <div className={`bg-white rounded-xl border border-gray-100 shadow-sm p-4 flex items-center justify-between gap-3 min-w-0 ${className}`}>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-400 font-medium uppercase tracking-wider break-words">{title}</p>
         <p className="text-2xl font-bold text-gray-800 mt-1">
           {value}{suffix && <span className="text-sm font-normal text-gray-400 ml-1">{suffix}</span>}
         </p>
       </div>
-      <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${color || "bg-blue-50"}`}>
+      <div className={`w-10 h-10 shrink-0 rounded-lg flex items-center justify-center ${color || "bg-blue-50"}`}>
         <Icon size={20} className={color ? "text-white" : "text-blue-600"} />
       </div>
     </div>
@@ -66,11 +67,11 @@ function SimpleBar({ label, value, max, color }) {
   const pct = max > 0 ? Math.round((value / max) * 100) : 0;
   return (
     <div className="flex items-center gap-3">
-      <span className="text-xs text-gray-500 w-16 shrink-0 truncate">{label}</span>
-      <div className="flex-1 h-5 bg-gray-100 rounded-full overflow-hidden">
+      <span className="text-xs text-gray-500 w-20 shrink-0 truncate" title={label}>{label}</span>
+      <div className="flex-1 min-w-0 h-5 bg-gray-100 rounded-full overflow-hidden">
         <div className={`h-full rounded-full transition-all duration-500 ${color}`} style={{ width: `${pct}%` }} />
       </div>
-      <span className="text-xs font-medium text-gray-600 w-8 text-right">{value}</span>
+      <span className="text-xs font-medium text-gray-600 w-8 shrink-0 text-right">{value}</span>
     </div>
   );
 }
@@ -91,7 +92,7 @@ function downloadCSV(headers, rows, filename) {
 
 function SectionHeader({ title, icon: Icon, onDownload }) {
   return (
-    <div className="flex items-center justify-between mb-4">
+    <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
       <h3 className="text-sm font-semibold text-gray-700 flex items-center gap-2">
         <Icon size={16} className="text-blue-600" />
         {title}
@@ -113,32 +114,48 @@ export default function OnboardingReports() {
   const [joining, setJoining] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     let mounted = true;
     const fetchAll = async () => {
       setLoading(true);
+      setError(null);
       try {
         const j = await getOnboardingJoiningReport();
         if (!mounted) return;
-        setJoining(j);
+        setJoining(j || {});
       } catch (err) {
-        // silently degrade — data just won't display
+        if (mounted) { setJoining(null); setError(err?.message || "The joining report could not be loaded."); }
       } finally {
         if (mounted) setLoading(false);
       }
     };
     fetchAll();
     return () => { mounted = false; };
-  }, []);
+  }, [reloadKey]);
 
-  const monthlyTrend = joining?.monthlyTrend || [];
-  const maxMonthly = Math.max(...monthlyTrend.map((m) => m.count), 1);
+  const monthlyTrend = Array.isArray(joining?.monthlyTrend) ? joining.monthlyTrend : [];
+  const maxMonthly = Math.max(...monthlyTrend.map((m) => Number(m.count) || 0), 1);
+  const measured = Number(joining?.avgDaysMeasured) || 0;
+  const avgValue = measured > 0 && joining?.avgDaysToOnboard != null ? joining.avgDaysToOnboard : "-";
+  const avgLabel = measured > 0
+    ? `Avg days from joining to completion (based on ${measured} hire${measured === 1 ? "" : "s"})`
+    : "Avg days from joining to completion";
 
   const handleDownload = () => {
-    const headers = ["Month", "Count"];
-    const rows = monthlyTrend.map((m) => [m.month, m.count]);
-    downloadCSV(headers, rows, "joining-report.csv");
+    const summary = [
+      ["Total joiners (cancelled excluded)", joining?.totalJoiners ?? 0],
+      ["This month", joining?.thisMonth ?? 0],
+      ["This quarter", joining?.thisQuarter ?? 0],
+      ["Completed", joining?.completed ?? 0],
+      ["Avg days from joining to completion", measured > 0 ? joining?.avgDaysToOnboard ?? "" : ""],
+      ["Hires measured for average", measured],
+      ["", ""],
+      ["Month", "Joiners"],
+      ...monthlyTrend.map((m) => [m.month, m.count]),
+    ];
+    downloadCSV(["Metric", "Value"], summary, "joining-report.csv");
   };
 
   if (loading) {
@@ -153,6 +170,20 @@ export default function OnboardingReports() {
     );
   }
 
+  if (error) {
+    return (
+      <HRPage title="Onboarding Reports" subtitle="Analyse onboarding metrics and generate reports.">
+        <SubNav />
+        <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-6 text-center">
+          <p className="text-sm font-medium break-words">{error}</p>
+          <button onClick={() => setReloadKey((k) => k + 1)} className="mt-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg">
+            Retry
+          </button>
+        </div>
+      </HRPage>
+    );
+  }
+
   return (
     <HRPage title="Onboarding Reports" subtitle="Analyse onboarding metrics and generate reports.">
       <SubNav />
@@ -161,19 +192,21 @@ export default function OnboardingReports() {
           <h2 className="text-sm font-semibold text-gray-700">Joining Report</h2>
           <button
             onClick={handleDownload}
-            className="flex items-center gap-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors shadow-sm"
+            className="flex items-center justify-center gap-1.5 min-h-10 w-full sm:w-auto text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors shadow-sm"
           >
             <Download size={16} />
             Download CSV
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
           <StatCard title="Total Joiners" value={joining?.totalJoiners ?? 0} icon={Users} color="bg-blue-500" />
           <StatCard title="This Month" value={joining?.thisMonth ?? 0} icon={UserPlus} color="bg-emerald-500" />
           <StatCard title="This Quarter" value={joining?.thisQuarter ?? 0} icon={CalendarDays} color="bg-[#0A1128]" />
-          <StatCard title="Avg Days to Onboard" value={joining?.avgDaysToOnboard ?? 0} icon={Clock} color="bg-amber-500" suffix="days" />
+          <StatCard title="Completed" value={joining?.completed ?? 0} icon={CheckCircle2} color="bg-green-600" />
+          <StatCard title={avgLabel} value={avgValue} icon={Clock} color="bg-amber-500" suffix={avgValue === "-" ? "" : "days"} className="col-span-2 md:col-span-1" />
         </div>
+        <p className="text-xs text-gray-400">Cancelled new hires are not counted in these figures.</p>
 
         <SectionHeader title="Monthly Joining Trend" icon={TrendingUp} />
         <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4">

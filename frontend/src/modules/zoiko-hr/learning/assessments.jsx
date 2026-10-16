@@ -82,18 +82,21 @@ function AssessmentForm({ title, form, setForm, errors, setErrors, courses, edit
           <div className="grid grid-cols-3 gap-4">
             <div>
               <label htmlFor="a-pass" className="block text-sm font-medium text-gray-700 mb-1">Passing Score (%){star}</label>
-              <input id="a-pass" type="number" min={1} max={100} step={1} value={form.passing_score} aria-invalid={!!errors.passing_score} onChange={set("passing_score")} placeholder="e.g. 70" className={box("passing_score")} />
+              <input id="a-pass" type="text" inputMode="numeric" pattern="[0-9]*" value={form.passing_score} aria-invalid={!!errors.passing_score} onChange={set("passing_score")} placeholder="e.g. 70" className={box("passing_score")} />
               {err("passing_score")}
+              <p className="text-[11px] text-gray-400 mt-1">Whole number from 1 to 100.</p>
             </div>
             <div>
               <label htmlFor="a-attempts" className="block text-sm font-medium text-gray-700 mb-1">Max Attempts</label>
-              <input id="a-attempts" type="number" min={1} max={100} step={1} value={form.max_attempts} aria-invalid={!!errors.max_attempts} onChange={set("max_attempts")} placeholder="Unlimited" className={box("max_attempts")} />
+              <input id="a-attempts" type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_attempts} aria-invalid={!!errors.max_attempts} onChange={set("max_attempts")} placeholder="e.g. 3" className={box("max_attempts")} />
               {err("max_attempts")}
+              <p className="text-[11px] text-gray-400 mt-1">Leave empty for unlimited. If set, whole number from 1 to 100.</p>
             </div>
             <div>
               <label htmlFor="a-duration" className="block text-sm font-medium text-gray-700 mb-1">Duration (min)</label>
-              <input id="a-duration" type="number" min={1} max={600} step={1} value={form.duration_minutes} aria-invalid={!!errors.duration_minutes} onChange={set("duration_minutes")} placeholder="No limit" className={box("duration_minutes")} />
+              <input id="a-duration" type="text" inputMode="numeric" pattern="[0-9]*" value={form.duration_minutes} aria-invalid={!!errors.duration_minutes} onChange={set("duration_minutes")} placeholder="e.g. 60" className={box("duration_minutes")} />
               {err("duration_minutes")}
+              <p className="text-[11px] text-gray-400 mt-1">Leave empty for no limit. If set, whole number from 1 to 600.</p>
             </div>
           </div>
           <p className="text-[11px] text-gray-400 -mt-2">The passing score is the percentage of the total points a learner must earn. Leave Max Attempts or Duration empty for no limit. You add the questions right after creating the quiz.</p>
@@ -150,7 +153,7 @@ function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, o
             </div>
             <div>
               <label htmlFor="q-points" className="block text-sm font-medium text-gray-700 mb-1">Points{star}</label>
-              <input id="q-points" type="number" min={1} max={100} step={1} value={form.points} aria-invalid={!!errors.points} onChange={set("points")} placeholder="e.g. 1" className={box("points")} />
+              <input id="q-points" type="text" inputMode="numeric" pattern="[0-9]*" value={form.points} aria-invalid={!!errors.points} onChange={set("points")} placeholder="e.g. 1" className={box("points")} />
               {err("points")}
             </div>
           </div>

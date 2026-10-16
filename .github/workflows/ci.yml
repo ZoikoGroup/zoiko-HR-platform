@@ -54,6 +54,14 @@ jobs:
           pip install -r requirements.txt
 
       - name: Create 'root' DB role and grant privileges
+        # Single-user rule: migrations AND tests both run as `postgres` via
+        # HR_DATABASE_URL (see env above and backend/alembic/env.py, which
+        # resolves the same URL). Do NOT point HR_DATABASE_URL at `root`:
+        # tables/sequences created by alembic are owned by `postgres`, and a
+        # second user is exactly what causes permission-denied mismatches.
+        # The `root` role exists only as a convenience login; grants below
+        # (tables AND sequences, present AND future, for objects created by
+        # either role) keep it usable without making it the runtime user.
         env:
           PGPASSWORD: postgres
         run: |
@@ -79,14 +87,49 @@ jobs:
             END $$;
             GRANT ALL PRIVILEGES ON DATABASE zoiko_hr_test TO root;
             GRANT USAGE ON SCHEMA public TO root;
+            -- Existing objects (migrations may already have run in a retried job).
             GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO root;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO root;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO root;
+            -- Future objects, whoever creates them (alembic runs as postgres;
+            -- ad-hoc DDL in a debug session may run as root). The bare
+            -- `ALTER DEFAULT PRIVILEGES IN SCHEMA public ...` form only covers
+            -- the current role, so both creators are listed explicitly.
+            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO postgres;
+            ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO postgres;
           SQL
           psql -h localhost -U postgres -d zoiko_hr_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       - name: Run DB migrations
         working-directory: backend
         run: python -m alembic upgrade head
+
+      - name: Reapply DB grants for root (ensure permissions after migrations)
+        # GRANT ... ON ALL TABLES/SEQUENCES only touches objects that exist
+        # at that moment, so the pre-migration grants above are no-ops on a
+        # fresh DB. Re-issue them here, after alembic created the tables.
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d zoiko_hr_test <<'SQL'
+            GRANT USAGE ON SCHEMA public TO root;
+            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO root;
+            GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO root;
+            ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO postgres;
+            ALTER DEFAULT PRIVILEGES FOR ROLE root IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO postgres;
+          SQL
+
+      - name: Verify migrated schema (fail fast)
+        env:
+          PGPASSWORD: postgres
+        run: |
+          psql -h localhost -U postgres -d zoiko_hr_test -c "SELECT count(*) AS alembic_versions FROM alembic_version;"
+          psql -h localhost -U postgres -d zoiko_hr_test -c "SELECT tablename, tableowner FROM pg_tables WHERE schemaname='public' AND tablename IN ('employees','organizations','leave_requests') ORDER BY tablename;"
+          # Postgres logs during pytest are EXPECTED: backend/tests/privacy/test_rls_postgres.py deliberately provokes
+          # them (platform-role denial, garbage-tenant fail-closed check, cross-tenant FK check) and asserts on them.
 
       - name: Run backend tests
         working-directory: backend

@@ -37,12 +37,15 @@ export function statusOptions(current) {
 /** Messages for the schedule / edit form, by field. */
 export function validateInterviewForm(f) {
   const errors = {};
-  if (!String(f.candidate_name ?? "").trim()) errors.candidate_name = "Candidate name is required.";
+  if (!f.candidate_id && !String(f.candidate_name ?? "").trim()) errors.candidate_name = "Candidate name is required.";
   else if (String(f.candidate_name).trim().length > 150) errors.candidate_name = "Candidate name can be at most 150 characters.";
-  if (!String(f.position ?? "").trim()) errors.position = "Position is required.";
+  if (!f.candidate_id && !String(f.position ?? "").trim()) errors.position = "Position is required.";
   else if (String(f.position).trim().length > 150) errors.position = "Position can be at most 150 characters.";
   if (!f.interview_date) errors.interview_date = "Interview date is required.";
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(f.interview_date) || Number.isNaN(Date.parse(f.interview_date))) errors.interview_date = "Enter a valid date.";
   if (String(f.interviewer ?? "").trim().length > 150) errors.interviewer = "Interviewer can be at most 150 characters.";
+  if (f.start_time && f.end_time && f.end_time <= f.start_time) errors.end_time = "The end time must be after the start time.";
+  const link = String(f.meeting_link ?? "").trim();
+  if (link && !/^https:\/\/\S+$/i.test(link)) errors.meeting_link = "Use a full https:// meeting link.";
   return errors;
 }

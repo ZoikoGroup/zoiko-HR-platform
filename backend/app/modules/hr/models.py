@@ -221,6 +221,19 @@ class Department(Base):
     organization       = relationship("Organization")
 
 
+class DepartmentSettings(Base):
+    """Per-organization preferences of the Departments module (one row per organization). The values live
+    in one JSON document validated by schemas.DepartmentSettingsData, so adding a preference needs no migration."""
+    __tablename__ = "department_settings"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, unique=True, index=True)
+    settings        = Column(JSON, nullable=False, default=dict)
+    updated_by      = Column(Integer, nullable=True)
+    created_at      = Column(DateTime, default=datetime.utcnow)
+    updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
 # ═══════════════════════════════════════════════════════════════════════════════
 # ATTENDANCE
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -808,6 +821,14 @@ class OnboardingNewHire(Base):
     status          = Column(String(50), default="offer_sent", nullable=False)
     joining_status  = Column(String(50), default="not_joined", nullable=False)
     notes           = Column(Text, nullable=True)
+    employment_type = Column(String(30), nullable=True)          # from the accepted offer: full_time, internship, ...
+    completed_at    = Column(DateTime, nullable=True)            # onboarding finished (the employee account exists)
+    # Pre-onboarding link: the new hire uploads requested documents and their details before they have an account.
+    portal_token_hash = Column(String(64), nullable=True, index=True)   # looked up by hash
+    portal_token_enc  = Column(Text, nullable=True)                     # the same token, encrypted, so emails can repeat the link
+    portal_expires_at = Column(DateTime, nullable=True)
+    portal_invited_at = Column(DateTime, nullable=True)
+    profile_details = Column(JSON, nullable=True)                # address + emergency contact the new hire entered
     is_deleted      = Column(Boolean, default=False, nullable=False)
     created_by      = Column(String(100), nullable=True)
     created_at      = Column(DateTime, server_default=func.now(), nullable=False)
@@ -902,12 +923,19 @@ class OnboardingChecklistItem(Base):
     completed             = Column(Boolean, default=False, nullable=False)
     completed_at          = Column(DateTime, nullable=True)
     due_date              = Column(Date, nullable=True)
+    due_offset_days       = Column(Integer, nullable=True)       # templates: days from the joining date (negative = before)
+    assignee_employee_id  = Column(Integer, ForeignKey("employees.id"), nullable=True)   # who does it (IT, manager, HR...)
     is_deleted            = Column(Boolean, default=False, nullable=False)
     created_by            = Column(String(100), nullable=True)
     created_at            = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at            = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
     checklist = relationship("OnboardingChecklist", back_populates="items")
+    assignee  = relationship("Employee", foreign_keys=[assignee_employee_id])
+
+    @property
+    def assignee_name(self) -> Optional[str]:
+        return f"{self.assignee.first_name} {self.assignee.last_name}".strip() if self.assignee else None
 
 
 class OnboardingOrientation(Base):
@@ -944,6 +972,24 @@ class OnboardingOrientationAttendee(Base):
 
     session  = relationship("OnboardingOrientation", back_populates="attendees")
     new_hire = relationship("OnboardingNewHire", back_populates="orientation_attendees")
+
+
+class OnboardingSettings(Base):
+    """One row per organization: what happens automatically when someone starts onboarding."""
+    __tablename__ = "onboarding_settings"
+
+    id                         = Column(Integer, primary_key=True, index=True)
+    organization_id            = Column(Integer, ForeignKey("organizations.id"), nullable=False, unique=True, index=True)
+    auto_template_ids          = Column(JSON, nullable=True)       # checklist templates assigned to every new hire
+    required_document_categories = Column(JSON, nullable=True)     # documents requested from every new hire
+    auto_send_portal_invite    = Column(Boolean, default=True, nullable=False)
+    portal_link_days           = Column(Integer, default=30, nullable=False)
+    reminder_days              = Column(Integer, default=3, nullable=False)   # remind about outstanding documents every N days (0 = never)
+    require_checklists_complete = Column(Boolean, default=True, nullable=False)
+    require_documents_approved = Column(Boolean, default=True, nullable=False)
+    welcome_message            = Column(Text, nullable=True)
+    last_reminder_run          = Column(Date, nullable=True)
+    updated_at                 = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
 
 
 class OnboardingActivity(Base):
@@ -1125,6 +1171,7 @@ class RecruitmentCandidate(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     onboarding_new_hire_id = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True)
     requisition_id = Column(Integer, ForeignKey("recruitment_requisitions.id"), nullable=True, index=True)
+    hired_at       = Column(DateTime, nullable=True)          # when the candidate became HIRED (time-to-hire)
     created_at     = Column(DateTime, server_default=func.now())
     updated_at     = Column(DateTime, onupdate=func.now())
 
@@ -1141,6 +1188,8 @@ class RecruitmentRequisition(Base):
     priority       = Column(String(20), default="medium")
     status         = Column(Enum(RequisitionStatus), default=RequisitionStatus.DRAFT, nullable=False)
     description    = Column(Text, nullable=True)
+    requirements   = Column(Text, nullable=True)
+    created_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)   # who raised it (told about the decision)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at     = Column(DateTime, server_default=func.now())
     updated_at     = Column(DateTime, onupdate=func.now())
@@ -1159,6 +1208,9 @@ class RecruitmentInterview(Base):
     end_time       = Column(String(10), nullable=True)
     interviewer    = Column(String(150), nullable=True)
     interviewer_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    timezone       = Column(String(64), nullable=True)        # IANA zone the start/end times are in
+    meeting_link   = Column(String(500), nullable=True)       # https only
+    location       = Column(String(255), nullable=True)
     status         = Column(Enum(InterviewStatus), default=InterviewStatus.SCHEDULED, nullable=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     feedback       = Column(Text, nullable=True)
@@ -1175,7 +1227,20 @@ class RecruitmentOffer(Base):
     candidate_id   = Column(Integer, ForeignKey("recruitment_candidates.id"), nullable=True)
     candidate_name = Column(String(150), nullable=False)
     position       = Column(String(150), nullable=False)
-    salary         = Column(Numeric(12, 2), nullable=True)
+    salary         = Column(Numeric(12, 2), nullable=True)      # the remuneration amount (salary, stipend or fee)
+    remuneration_type = Column(String(20), nullable=False, default="salary", server_default="salary")   # salary | stipend | fee
+    currency       = Column(String(3), nullable=True)               # ISO 4217; defaults from the work country
+    pay_period     = Column(String(20), nullable=True)              # annual | monthly | weekly | hourly | one_time
+    employment_type = Column(String(30), nullable=True)             # full_time | part_time | contract | internship | freelance
+    work_country   = Column(String(2), nullable=True)               # ISO 3166-1 alpha-2
+    entity_name    = Column(String(200), nullable=True)             # employing / contracting business (from its registration number)
+    entity_tax_id  = Column(String(40), nullable=True)
+    entity_id_type = Column(String(30), nullable=True)               # gstin, ein, abn, vat... (app/core/business_ids.py)
+    entity_country = Column(String(2), nullable=True)
+    entity_address = Column(Text, nullable=True)                     # street lines
+    entity_city    = Column(String(120), nullable=True)
+    entity_region  = Column(String(120), nullable=True)              # state / province / emirate
+    entity_postal_code = Column(String(20), nullable=True)
     equity         = Column(String(50), nullable=True)
     joining_date   = Column(Date, nullable=True)
     status         = Column(Enum(OfferStatus), default=OfferStatus.DRAFT, nullable=False)
@@ -1813,7 +1878,9 @@ class Designation(Base):
 
     id              = Column(Integer, primary_key=True, index=True)
     title           = Column(String(150), nullable=False)
-    designation_code = Column(String(20), nullable=True, unique=True)
+    # No database-level unique constraint on purpose: whether duplicate codes are refused is a
+    # per-organization preference ("Enforce Unique Designation Codes"), enforced in create_designation.
+    designation_code = Column(String(20), nullable=True)
     department_name = Column(String(150), nullable=True)
     level           = Column(String(10), nullable=True)   # L1 … L10
     description     = Column(Text, nullable=True)

@@ -1,0 +1,16 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Interview cancelled" %}
+{% set preheader = "The interview for " ~ position ~ " on " ~ date_display ~ " has been cancelled." %}
+{% set badge = "Cancelled" %}
+{% set badge_tone = "neutral" %}
+{% set footer_reason %}You are receiving this because an interview with {{ organization_name }} changed on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Interview cancelled</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, the interview {% if is_candidate %}for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role{% else %}with <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong>{% endif %} on {{ date_display }} has been cancelled. Please remove it from your calendar.{% if is_candidate %} The hiring team will be in touch if a new time is arranged.{% endif %}</p>
+{% call ui.details() %}
+{{ ui.detail_row("Position", position, first=True) }}
+{{ ui.detail_row("Was scheduled for", date_display ~ (" " ~ time_display if time_display else "")) }}
+{% endcall %}
+{{ ui.signoff(organization_name) }}
+{% endblock %}

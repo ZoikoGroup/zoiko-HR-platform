@@ -558,7 +558,14 @@ def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
     mixed = MIMEMultipart("mixed")
     mixed.attach(alternative)
     for filename, data in attachments:
-        part = MIMEApplication(data, _subtype="pdf")
+        if filename.lower().endswith(".ics"):
+            # a calendar invitation: mail clients offer "add to calendar" for text/calendar parts
+            text = data.decode("utf-8") if isinstance(data, bytes) else data
+            method = "CANCEL" if "METHOD:CANCEL" in text else "REQUEST"
+            part = MIMEText(text, "calendar", "utf-8")
+            part.set_param("method", method)
+        else:
+            part = MIMEApplication(data, _subtype="pdf")
         part.add_header("Content-Disposition", "attachment", filename=filename)
         mixed.attach(part)
     return mixed
@@ -780,6 +787,190 @@ def send_hr_ticket_created(
         "issue_summary": issue_summary,
         "organization_name": organization_name,
         "tickets_url": tickets_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_support_login_requested(
+    email: str,
+    admin_name: str,
+    organization_name: str,
+    operator_email: str,
+    reference: str,
+    duration_minutes: int,
+    justification: str,
+    ticket_reference: str,
+    review_url: str,
+    db=None,
+    organization_id=None,
+):
+    """Ask one org admin to approve or reject a temporary read-only support sign-in."""
+    return send_approval_email(email, "support_login_requested.html", {
+        "subject": f"Support access request {reference} | Zoiko HR",
+        "admin_name": admin_name,
+        "organization_name": organization_name,
+        "operator_email": operator_email,
+        "reference": reference,
+        "duration_minutes": duration_minutes,
+        "justification": justification,
+        "ticket_reference": ticket_reference,
+        "review_url": review_url,
+    }, db=db, organization_id=organization_id)
+
+
+def _send_interview_email(template, subject_prefix, email, recipient_name, is_candidate, candidate_name, position,
+                          organization_name, date_display, time_display, interview_type_label, location, meeting_link,
+                          interviewer_name, previous_display=None, ics=None, db=None, organization_id=None):
+    return send_approval_email(email, template, {
+        "subject": f"{subject_prefix}: {position} | {organization_name}",
+        "recipient_name": recipient_name, "is_candidate": is_candidate, "candidate_name": candidate_name,
+        "position": position, "organization_name": organization_name, "date_display": date_display,
+        "time_display": time_display, "interview_type_label": interview_type_label, "location": location,
+        "meeting_link": _safe_https_url(meeting_link), "interviewer_name": interviewer_name,
+        "previous_display": previous_display,
+    }, db=db, organization_id=organization_id, attachments=[("interview.ics", ics)] if ics else None)
+
+
+def send_interview_scheduled(email, recipient_name, is_candidate, candidate_name, position, organization_name, date_display,
+                             time_display, interview_type_label, location=None, meeting_link=None, interviewer_name=None,
+                             ics=None, db=None, organization_id=None):
+    """Tell the candidate or the interviewer that an interview was booked (with a calendar invitation)."""
+    return _send_interview_email("interview_scheduled.html", "Interview scheduled", email, recipient_name, is_candidate,
+                                 candidate_name, position, organization_name, date_display, time_display,
+                                 interview_type_label, location, meeting_link, interviewer_name, ics=ics, db=db,
+                                 organization_id=organization_id)
+
+
+def send_interview_rescheduled(email, recipient_name, is_candidate, candidate_name, position, organization_name, date_display,
+                               time_display, interview_type_label, previous_display=None, location=None, meeting_link=None,
+                               interviewer_name=None, ics=None, db=None, organization_id=None):
+    """Tell the candidate or the interviewer that an interview moved (with the updated calendar invitation)."""
+    return _send_interview_email("interview_rescheduled.html", "Interview rescheduled", email, recipient_name, is_candidate,
+                                 candidate_name, position, organization_name, date_display, time_display,
+                                 interview_type_label, location, meeting_link, interviewer_name,
+                                 previous_display=previous_display, ics=ics, db=db, organization_id=organization_id)
+
+
+def send_interview_cancelled(email, recipient_name, is_candidate, candidate_name, position, organization_name, date_display,
+                             time_display=None, ics=None, db=None, organization_id=None):
+    """Tell the candidate or the interviewer that an interview was cancelled (the invitation is withdrawn)."""
+    return _send_interview_email("interview_cancelled.html", "Interview cancelled", email, recipient_name, is_candidate,
+                                 candidate_name, position, organization_name, date_display, time_display, None, None,
+                                 None, None, ics=ics, db=db, organization_id=organization_id)
+
+
+def send_candidate_status_update(email, candidate_name, position, organization_name, status_label, is_rejection=False,
+                                 db=None, organization_id=None):
+    """Tell a candidate their application moved to review, or was not taken forward."""
+    return send_approval_email(email, "candidate_status_update.html", {
+        "subject": f"Your application for {position} | {organization_name}",
+        "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
+        "status_label": status_label, "is_rejection": is_rejection,
+    }, db=db, organization_id=organization_id)
+
+
+def send_offer_letter(email, candidate_name, position, organization_name, employment_type_label, remuneration_label,
+                      remuneration_display, start_date_display=None, equity=None, entity_name=None, db=None,
+                      organization_id=None):
+    """Send a candidate the key terms of their offer."""
+    return send_approval_email(email, "offer_letter.html", {
+        "subject": f"Your offer for {position} | {organization_name}",
+        "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
+        "employment_type_label": employment_type_label, "remuneration_label": remuneration_label,
+        "remuneration_display": remuneration_display, "start_date_display": start_date_display, "equity": equity,
+        "entity_name": entity_name,
+    }, db=db, organization_id=organization_id)
+
+
+def send_offer_outcome(email, admin_name, candidate_name, position, organization_name, accepted, offers_url,
+                       start_date_display=None, db=None, organization_id=None):
+    """Tell the organization's admins that a candidate accepted or declined an offer."""
+    outcome = "Accepted" if accepted else "Declined"
+    return send_approval_email(email, "offer_outcome.html", {
+        "subject": f"Offer {outcome.lower()}: {candidate_name} ({position}) | Zoiko HR",
+        "admin_name": admin_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "accepted": accepted, "outcome_label": outcome,
+        "offers_url": offers_url, "start_date_display": start_date_display,
+    }, db=db, organization_id=organization_id)
+
+
+def send_requisition_approval_request(email, admin_name, requester_name, title_text, department, openings, priority,
+                                      organization_name, requisitions_url, location=None, db=None, organization_id=None):
+    """Ask an organization admin to approve a submitted job requisition."""
+    return send_approval_email(email, "requisition_approval_request.html", {
+        "subject": f"Requisition awaiting approval: {title_text} | Zoiko HR",
+        "admin_name": admin_name, "requester_name": requester_name, "title_text": title_text, "department": department,
+        "openings": openings, "priority": priority, "location": location, "organization_name": organization_name,
+        "requisitions_url": requisitions_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_requisition_decision(email, requester_name, title_text, department, approved, decider_name, requisitions_url,
+                              db=None, organization_id=None):
+    """Tell whoever submitted a job requisition that it was approved or rejected."""
+    decision = "Approved" if approved else "Rejected"
+    return send_approval_email(email, "requisition_decision.html", {
+        "subject": f"Requisition {decision.lower()}: {title_text} | Zoiko HR",
+        "requester_name": requester_name, "title_text": title_text, "department": department, "approved": approved,
+        "decision_label": decision, "decider_name": decider_name, "requisitions_url": requisitions_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_invite(email, first_name, organization_name, position, portal_url, expires_display,
+                           joining_date_display=None, manager_name=None, documents_requested=0, welcome_message=None,
+                           db=None, organization_id=None):
+    """Welcome a new hire and send their pre-onboarding link (no account needed)."""
+    return send_approval_email(email, "onboarding_invite.html", {
+        "subject": f"Welcome to {organization_name}: complete your pre-onboarding",
+        "first_name": first_name, "organization_name": organization_name, "position": position,
+        "portal_url": portal_url, "expires_display": expires_display, "joining_date_display": joining_date_display,
+        "manager_name": manager_name, "documents_requested": documents_requested, "welcome_message": welcome_message,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_document_request(email, first_name, organization_name, documents, portal_url, joining_date_display=None,
+                                     is_reminder=False, db=None, organization_id=None):
+    """Ask a new hire for documents (new requests, rejected uploads to redo, or a reminder). documents: [{title, note}]."""
+    return send_approval_email(email, "onboarding_document_request.html", {
+        "subject": f"{'Reminder: ' if is_reminder else ''}Documents needed for your onboarding | {organization_name}",
+        "first_name": first_name, "organization_name": organization_name, "documents": documents,
+        "portal_url": portal_url, "joining_date_display": joining_date_display, "is_reminder": is_reminder,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_task_assigned(email, assignee_name, candidate_name, position, organization_name, tasks, checklists_url,
+                                  joining_date_display=None, db=None, organization_id=None):
+    """Tell a colleague which onboarding tasks for a new hire are theirs. tasks: [{title, due}]."""
+    return send_approval_email(email, "onboarding_task_assigned.html", {
+        "subject": f"Onboarding tasks for {candidate_name} | Zoiko HR",
+        "assignee_name": assignee_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "tasks": tasks, "checklists_url": checklists_url,
+        "joining_date_display": joining_date_display,
+    }, db=db, organization_id=organization_id)
+
+
+def send_orientation_invite(email, first_name, organization_name, session_title, date_display, time_display=None,
+                            location=None, meeting_link=None, presenter=None, kind="invite", db=None, organization_id=None):
+    """Invite a new hire to an orientation session, or tell them it changed (kind=updated) or was cancelled."""
+    labels = {"invite": ("Invitation", "You're invited to orientation"), "updated": ("Updated", "Orientation session updated"),
+              "cancelled": ("Cancelled", "Orientation session cancelled")}
+    label, heading = labels.get(kind, labels["invite"])
+    return send_approval_email(email, "orientation_invite.html", {
+        "subject": f"{heading}: {session_title} | {organization_name}",
+        "first_name": first_name, "organization_name": organization_name, "session_title": session_title,
+        "date_display": date_display, "time_display": time_display, "location": location,
+        "meeting_link": _safe_https_url(meeting_link), "presenter": presenter, "kind_label": label, "heading": heading,
+        "cancelled": kind == "cancelled",
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_completed(email, recipient_name, candidate_name, employee_code, position, organization_name,
+                              employees_url, joining_date_display=None, db=None, organization_id=None):
+    """Tell admins and the manager that a new hire finished onboarding and became an employee."""
+    return send_approval_email(email, "onboarding_completed.html", {
+        "subject": f"Onboarding completed: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "employee_code": employee_code,
+        "position": position, "organization_name": organization_name, "employees_url": employees_url,
+        "joining_date_display": joining_date_display,
     }, db=db, organization_id=organization_id)
 
 

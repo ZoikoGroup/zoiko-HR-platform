@@ -560,6 +560,9 @@ def _require_real_sign_in_address(email: str) -> None:
 
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
+    from app.modules.support_login import service as support_login
+    if support_login.is_support_username(str(data.email)):
+        return support_login.sign_in(db, str(data.email), data.password)      # temporary read-only support sign-in
     _require_real_sign_in_address(str(data.email))
     employee = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).first()
     if not employee:
@@ -1665,16 +1668,40 @@ _COLUMN_MAP = {
     "pan number": "pan_number",
     "pan_number": "pan_number",
     "pan": "pan_number",
+    "ssn": "pan_number",
+    "social security number": "pan_number",
+    "national insurance number": "pan_number",
+    "sin": "pan_number",
+    "tfn": "pan_number",
+    "emirates id": "pan_number",
+    "nric": "pan_number",
+    "tax id": "pan_number",
+    "tax identification number": "pan_number",
     "uan": "uan_number",
     "uan number": "uan_number",
     "uan_number": "uan_number",
+    "state payroll id": "uan_number",
+    "payroll reference": "uan_number",
+    "super reference": "uan_number",
     "bank account number": "bank_account",
     "bank account": "bank_account",
     "bank_account": "bank_account",
     "bank_account_number": "bank_account",
+    "iban": "bank_account",
     "ifsc code": "bank_ifsc",
     "ifsc_code": "bank_ifsc",
     "ifsc": "bank_ifsc",
+    "routing number": "bank_ifsc",
+    "routing_number": "bank_ifsc",
+    "routing": "bank_ifsc",
+    "sort code": "bank_ifsc",
+    "sort_code": "bank_ifsc",
+    "bsb": "bank_ifsc",
+    "transit number": "bank_ifsc",
+    "transit_number": "bank_ifsc",
+    "bic": "bank_ifsc",
+    "swift code": "bank_ifsc",
+    "currency": "currency",
 }
 
 _DATE_FIELDS = {"date_of_joining", "date_of_birth", "confirmation_date"}
@@ -1718,6 +1745,12 @@ def _clean_header(h) -> str:
 
 _CLEAN_MAP = {_clean_header(k): v for k, v in _COLUMN_MAP.items()}
 _CLEAN_MAP.update({_clean_header(k): v for k, v in _HEADER_ALIASES.items()})
+from app.modules.employee import import_countries as _import_countries  # noqa: E402
+_import_countries.register_headers(_clean_header, _CLEAN_MAP)
+for _h in ("PIN Code", "ZIP Code", "Postcode", "Postal Code", "Eircode", "CEP"):
+    _CLEAN_MAP.setdefault(_clean_header(_h), "pincode")
+for _h in ("Province", "Emirate", "County", "Prefecture", "Region"):
+    _CLEAN_MAP.setdefault(_clean_header(_h), "state")
 _KNOWN_FIELDS = set(_CLEAN_MAP.values())
 
 
@@ -2105,6 +2138,7 @@ def import_employees_from_file(
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "general", "error": f"Bulk commit failed: {str(e)[:300]}"})
 
     if import_committed:
+        result["linked_onboarding"] = _link_imported_to_onboarding(db, organization_id, rows)
         workspace_name = _org_workspace_name(db, organization_id)
         for item in created_for_email:
             new_person = db.query(Employee).filter(Employee.email == item["email"], Employee.organization_id == organization_id).first()
@@ -2127,6 +2161,43 @@ def import_employees_from_file(
     # whether the transaction committed at all.
     _record_import_summary(db, actor, organization_id, result, filename, import_committed)
     return result
+
+
+def _link_imported_to_onboarding(db: Session, organization_id: int, rows) -> int:
+    """People in the file who are being onboarded (added through Recruitment) are the same person: point their onboarding
+    record at the imported employee, so completing onboarding later links to this account instead of making a second one."""
+    try:
+        from app.modules.hr.models import OnboardingNewHire, OnboardingActivity
+        emails = set()
+        for r in rows:                                  # raw file rows: the column is whatever the heading said ("Email", "E-mail"...)
+            if isinstance(r, dict):
+                for k, v in r.items():
+                    if k != "__row" and _normalise_header(k) == "email" and v:
+                        emails.add(str(v).strip().lower())
+        emails.discard("")
+        if not emails:
+            return 0
+        hires = db.query(OnboardingNewHire).filter(
+            OnboardingNewHire.organization_id == organization_id, OnboardingNewHire.is_deleted == False,  # noqa: E712
+            OnboardingNewHire.employee_id.is_(None), func.lower(OnboardingNewHire.email).in_(emails),
+            OnboardingNewHire.status.notin_(["completed", "cancelled"])).all()
+        linked = 0
+        for hire in hires:
+            emp = db.query(Employee).filter(func.lower(Employee.email) == hire.email.lower(),
+                                            Employee.organization_id == organization_id).first()
+            if emp is None:
+                continue
+            hire.employee_id = emp.id
+            db.add(OnboardingActivity(onboarding_new_hire_id=hire.id, organization_id=organization_id, action="Linked to imported employee",
+                                      description=f"{hire.candidate_name} was imported in User Management ({emp.employee_code}); "
+                                                  "completing onboarding will use this employee account."))
+            linked += 1
+        db.commit()
+        return linked
+    except Exception:
+        db.rollback()
+        logger.warning("linking imported employees to onboarding failed", exc_info=True)
+        return 0
 
 
 def _record_import_summary(db: Session, actor, organization_id: int, result: dict,
@@ -2252,10 +2323,34 @@ def _parse_csv(file_bytes: bytes, result: dict) -> list[dict]:
     return parsed
 
 
-def _generate_import_template_bytes() -> dict:
-    """Generate sample import file bytes (.xlsx) and return as bytes."""
+_POSTAL_HEADER = {"India": "PIN Code", "United States": "ZIP Code", "United Kingdom": "Postcode", "Canada": "Postal Code",
+                  "Australia": "Postcode", "Ireland": "Eircode", "Brazil": "CEP", "New Zealand": "Postcode"}
+_REGION_HEADER = {"India": "State", "United States": "State", "Canada": "Province", "Australia": "State",
+                  "United Arab Emirates": "Emirate", "Ireland": "County", "Japan": "Prefecture", "China": "Province",
+                  "United Kingdom": "County", "Italy": "Region", "Spain": "Province", "Netherlands": "Province"}
+
+
+def _generate_import_template_bytes(country: str | None = None) -> dict:
+    """Generate the sample import file (.xlsx).
+
+    The identifier columns, address labels, currency and sample row follow the requested country (one of the 20 in
+    import_countries.py: PAN/UAN/IFSC for India, SSN/Routing number for the US, Steuer-ID/SV-Nummer/IBAN/BIC for
+    Germany, ...). No country keeps the original India template; any other country gets international headings.
+    Every heading reads back into the right employee field on import. A second sheet explains each column.
+    """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
+    from app.modules.employee import import_countries
+
+    cfg = import_countries.for_country(country)
+    ids = cfg["ids"]
+    name = cfg["name"]
+    first, last, phone = cfg["person"]
+    basic, hra, ctc = cfg["money"]
+    street, city, region, postal = cfg["place"]
+    slug = (first or "alex").lower()
+    postal_header = _POSTAL_HEADER.get(name, "Postal Code")
+    region_header = _REGION_HEADER.get(name, "State")
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -2265,10 +2360,10 @@ def _generate_import_template_bytes() -> dict:
         "First Name", "Last Name", "Email", "Password",
         "Phone", "Job Title", "Department", "Designation", "Reporting Manager",
         "Employment Type", "Status", "Date of Joining", "Date of Birth",
-        "Gender", "Basic Salary", "HRA", "CTC", "Work Email", "Personal Email",
+        "Gender", "Basic Salary", "HRA", "CTC", "Currency", "Work Email", "Personal Email",
         "Company", "Division", "Team",
-        "Current Address", "Permanent Address", "City", "State", "Country",
-        "Pincode", "PAN Number", "UAN", "Bank Account Number", "IFSC Code",
+        "Current Address", "Permanent Address", "City", region_header, "Country",
+        postal_header, ids["pan_number"][0], ids["uan_number"][0], ids["bank_account"][0], ids["bank_ifsc"][0],
     ]
 
     header_font = Font(bold=True, color="FFFFFF")
@@ -2280,21 +2375,19 @@ def _generate_import_template_bytes() -> dict:
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
 
-    # Sample data row
     sample = [
-        "John", "Doe", "john.doe@example.com", "Pass@1234",
-        "+91-9876543210", "Software Engineer", "Engineering", "Senior Developer", "Jane Smith",
+        first, last, f"{slug}.{(last or 'doe').lower().replace(' ', '')}@example.com", "Pass@1234",
+        phone, "Software Engineer", "Engineering", "Senior Developer", "Jane Smith",
         "Full Time", "Active", "2024-01-15", "1995-06-15",
-        "Male", "75000", "180000", "1200000", "john@company.com", "john@gmail.com",
+        "Male", basic, hra, ctc, cfg["currency"], f"{slug}@company.com", f"{slug}@gmail.com",
         "ZoikoOne", "Engineering", "Frontend",
-        "123 Main St, Mumbai", "456 Oak Ave, Mumbai", "Mumbai", "Maharashtra", "India",
-        "400001", "ABCDE1234F", "101234567890", "12345678901", "SBIN0001234",
+        street, street, city, region, name,
+        postal, ids["pan_number"][2], ids["uan_number"][2], ids["bank_account"][2], ids["bank_ifsc"][2],
     ]
 
     for col_idx, val in enumerate(sample, start=1):
         ws.cell(row=2, column=col_idx, value=val)
 
-    # Column widths
     for col in ws.columns:
         max_len = 0
         col_letter = col[0].column_letter
@@ -2302,6 +2395,30 @@ def _generate_import_template_bytes() -> dict:
             if cell.value:
                 max_len = max(max_len, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = min(max_len + 3, 40)
+
+    # how to fill it in, for this country
+    guide = wb.create_sheet("How to fill")
+    guide.append(["Column", "What to enter"])
+    for c in guide[1]:
+        c.font = header_font
+        c.fill = header_fill
+    country_label = name or "the employee's country"
+    rows = [
+        ("Required", "First Name, Last Name, Email, Job Title and Date of Joining. Leave Password blank to email a temporary one."),
+        ("Date of Joining / Date of Birth", "YYYY-MM-DD, e.g. 2024-01-15."),
+        ("Basic Salary / HRA", "Monthly amounts in the currency below."),
+        ("CTC", "Total yearly cost to company in the currency below."),
+        ("Currency", f"{cfg['currency'] or 'ISO code, e.g. USD'}: salaries are shown in the currency of the employee's Country."),
+        ("Country", f"{country_label}. It decides which currency and identifiers the employee's record uses."),
+    ]
+    for field in import_countries.FIELDS:
+        header, label, example = ids[field]
+        rows.append((header, f"{label}" + (f", e.g. {example}" if example else "") + "."))
+    rows.append((postal_header, f"e.g. {postal}" if postal else "The postal code, if the country uses one."))
+    for r in rows:
+        guide.append(list(r))
+    guide.column_dimensions["A"].width = 34
+    guide.column_dimensions["B"].width = 100
 
     buf = io.BytesIO()
     wb.save(buf)

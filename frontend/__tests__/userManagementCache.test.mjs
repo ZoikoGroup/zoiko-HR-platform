@@ -11,7 +11,7 @@ const settle = (ms = 150) => act(async () => { await new Promise((r) => setTimeo
 const state = { list: 0, fail: false };
 mock.module("../src/service/employee.js", { exports: {
   getEmployees: async () => { state.list += 1; if (state.fail) throw new Error("users are down"); return { items: [{ id: 1, first_name: "Zelda", last_name: "Hyrule", email: "z@x.com", status: "active", role: "employee" }], total: 1 }; },
-  importEmployees: async () => ({}), hardDeleteEmployee: async () => ({}), bulkHardDeleteEmployees: async () => ({}),
+  importEmployees: async () => ({}), downloadImportTemplate: async () => ({}), getImportTemplateCountries: async () => [{ name: "United States", currency: "USD", identifiers: ["SSN", "State payroll ID (optional)", "Routing number"] }, { name: "Germany", currency: "EUR", identifiers: ["Tax ID (Steuer-ID)", "Social insurance number (SV-Nummer)", "BIC (optional)"] }], hardDeleteEmployee: async () => ({}), bulkHardDeleteEmployees: async () => ({}),
 } });
 const noop = async () => ({});
 mock.module("../src/service/userService.js", { exports: { createUser: noop, resetPassword: noop, updateUser: noop, deactivateUser: noop, activateUser: noop, archiveUser: noop, getUser: noop, getAssignableRoles: async () => ({ roles: [{ value: "employee", label: "Employee" }] }) } });

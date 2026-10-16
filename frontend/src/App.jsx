@@ -18,6 +18,7 @@ const HomePage = lazyRoute(() => import("./pages/public/HomePage"));
 import LoginPage from "./pages/auth/LoginPage";
 const ForgotPasswordPage = lazyRoute(() => import("./pages/auth/ForgotPasswordPage"));
 const ResetPasswordPage = lazyRoute(() => import("./pages/auth/ResetPasswordPage"));
+const OnboardingPortalPage = lazyRoute(() => import("./pages/OnboardingPortalPage"));
 const TermsPage = lazyRoute(() => import("./pages/legal/TermsPage"));
 const HrProductsPage = lazyRoute(() => import("./pages/public/HrProductsPage"));
 const RequestPricingPage = lazyRoute(() => import("./pages/public/RequestPricingPage"));
@@ -167,7 +168,8 @@ const OrgAdminMetricsPage = lazyRoute(() => import("./modules/organization-admin
 const OrgAdminPayrollGuidancePage = lazyRoute(() => import("./modules/organization-admin/PayrollGuidancePage"));
 const OrgAdminBillingPlanPage = lazyRoute(() => import("./modules/organization-admin/BillingPlanPage"));
 const OrgAdminPayInvoicePage = lazyRoute(() => import("./modules/organization-admin/PayInvoicePage"));
-const OrgAdminSupportAccessPage = lazyRoute(() => import("./modules/organization-admin/SupportAccessPage"));
+// Support access is the temporary read-only sign-in flow; the older field-scoped grant pages are no longer routed.
+const OrgAdminSupportAccessPage = lazyRoute(() => import("./modules/organization-admin/TempSupportAccessApprovalsPage"));
 
 const HrAdminDashboardPage = lazyRoute(() => import("./modules/hr-admin/DashboardPage"));
 const HrAdminOrganizationPage = lazyRoute(() => import("./modules/hr-admin/OrganizationPage"));
@@ -189,7 +191,7 @@ const SuperAdminBillingInvoicesPage = lazyRoute(() => import("./modules/super-ad
 const SuperAdminBillingDelinquencyPage = lazyRoute(() => import("./modules/super-admin/BillingDelinquencyPage"));
 const SuperAdminBillingWebhookEventsPage = lazyRoute(() => import("./modules/super-admin/BillingWebhookEventsPage"));
 const SuperAdminBillingReconciliationPage = lazyRoute(() => import("./modules/super-admin/BillingReconciliationPage"));
-const SuperAdminJitSupportAccessPage = lazyRoute(() => import("./modules/super-admin/JitSupportAccessPage"));
+const SuperAdminJitSupportAccessPage = lazyRoute(() => import("./modules/super-admin/TempSupportAccessPage"));
 
 const DashboardPage = lazyRoute(() => import("./modules/platform/DashboardPage"));
 const OrganizationsPage = lazyRoute(() => import("./modules/platform/OrganizationsPage"));
@@ -500,6 +502,7 @@ export default function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/onboarding-portal/:token" element={<OnboardingPortalPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/hr-products" element={<HrProductsPage />} />
         <Route path="/request-pricing" element={<RequestPricingPage />} />

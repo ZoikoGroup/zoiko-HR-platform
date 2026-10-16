@@ -199,8 +199,8 @@ export default function DesignationSettings() {
               </Field>
               <Switch label="Auto-generate Designation Codes" hint="Automatically generate codes for new designations. Turn off to type each code yourself."
                 checked={form.auto_generate_codes} onChange={(v) => set("auto_generate_codes", v)} />
-              <Switch label="Enforce Unique Designation Codes" hint="Duplicate designation codes are always refused by the system."
-                checked disabled onChange={() => {}} />
+              <Switch label="Enforce Unique Designation Codes" hint="When on, duplicate designation codes are refused. Turn off to allow reusing a code."
+                checked={form.enforce_unique_codes} onChange={(v) => set("enforce_unique_codes", v)} />
             </div>
           </div>
         )}

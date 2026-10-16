@@ -64,6 +64,13 @@ export function validateProgramForm(f) {
   else if (!/^\d+$/.test(cap)) errors.max_participants = "Maximum participants must be a whole number.";
   else if (Number(cap) < 1 || Number(cap) > 10000) errors.max_participants = "Maximum participants must be between 1 and 10000.";
 
+  // A program that has not ended yet cannot be marked completed.
+  if (String(f.status || "") === "completed" && !errors.start_date && !errors.end_date && f.start_date && f.end_date) {
+    const d = new Date();
+    const today = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+    if (f.end_date > today) errors.status = "A program cannot be marked completed before its end date.";
+  }
+
   if (String(f.department ?? "").trim().length > 100) errors.department = "Department can be at most 100 characters.";
   const link = String(f.resource_link ?? "").trim();
   if (link && !LINK.test(link)) errors.resource_link = "Enter a valid link starting with http:// or https://.";

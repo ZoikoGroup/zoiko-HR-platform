@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Documents needed for your onboarding" %}
+{% set preheader = organization_name ~ " needs " ~ documents|length ~ " document(s) from you before you join." %}
+{% set badge = "Action required" %}
+{% set badge_tone = "warning" %}
+{% set footer_reason %}You are receiving this because you are joining {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Documents needed for your onboarding</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ first_name }}</strong>, action required: {% if is_reminder %}a friendly reminder that {% endif %}{{ organization_name }} still needs the following from you{% if joining_date_display %} before your start date ({{ joining_date_display }}){% endif %}.</p>
+{% call ui.details() %}
+{% for d in documents %}{{ ui.detail_row(d.title, d.note, first=loop.first) }}{% endfor %}
+{% endcall %}
+{{ ui.button(portal_url, "Upload documents") }}
+{{ ui.link_fallback(portal_url) }}
+{{ ui.signoff(organization_name) }}
+{% endblock %}

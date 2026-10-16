@@ -336,15 +336,20 @@ def get_audit_logs(
 @billing_router.get(
     "/plans",
     response_model=PlanListResponse,
-    summary="List plan catalog (Super Admin: all; Org Admin: active only)",
+    summary="List plan catalog (Super Admin: all; Org Admin: latest published only)",
 )
 def list_plans(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_viewer),
 ):
     role = _get_billing_role(current_user)
-    active_only = role in ("admin", "hr_admin")
-    plans = service.get_plans(db, active_only=active_only)
+    if role == "super_admin":
+        plans = service.get_plans(db, active_only=False)
+    else:
+        # Customers must never see draft/unpublished versions: an unpublished plan
+        # looks buyable on the Billing page but checkout refuses it ("not available
+        # for purchase"). Serve the latest published catalog instead.
+        plans = catalog_service.get_customer_visible_plans(db)
     return PlanListResponse(
         list=[service.plan_to_dict(p) for p in plans],
         total=len(plans),
@@ -2012,6 +2017,7 @@ def schedule_plan_change(
         action=BillingAuditAction.PLAN_CHANGE_SCHEDULED,
         entity_type="BillingPlanChange",
         entity_id=change.id,
+        before=None,
         after={
             "change_type": change.change_type.value if change.change_type else None,
             "to_plan_id": change.to_plan_id,

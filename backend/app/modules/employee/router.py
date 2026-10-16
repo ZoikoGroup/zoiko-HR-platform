@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Optional, List
@@ -93,6 +94,8 @@ def _audit_user_action(db, actor, action, target, details: dict) -> None:
 
 def _record_sign_in(request: Request, db: Session, result: dict, method: str = "password") -> dict:
     employee = result.get("employee")
+    if result.pop("support_session", False):
+        return result                       # a temporary support sign-in is recorded on its own session, not as the admin's login
     if employee:
         ip = get_client_ip(request)
         ua = request.headers.get("user-agent")
@@ -368,6 +371,9 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         raise UnauthorizedException("Invalid or expired refresh token.")
     if "role" in payload:                         # an access token is not a refresh token
         raise UnauthorizedException("Invalid or expired refresh token.")
+    if payload.get("sls"):                        # temporary support sign-in: only while its session is still live
+        from app.modules.support_login import service as support_login
+        return support_login.refresh(db, payload, data.refresh_token)
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
     if employee and employee.organization_id:
@@ -1257,16 +1263,30 @@ async def import_employees_mgmt(
 
 
 @employee_router.get(
-    "/employee-management/employees/import/template",
-    summary="Download sample import template",
+    "/employee-management/employees/import/template-countries",
+    summary="Countries with their own import template (currency and identifiers)",
 )
-def download_import_template(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_import_template_countries(current_user=Depends(get_current_user)):
+    from app.modules.employee import import_countries
+    return import_countries.summary()
+
+
+@employee_router.get(
+    "/employee-management/employees/import/template",
+    summary="Download sample import template (optionally localised for a country)",
+)
+def download_import_template(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    country: Optional[str] = Query(None, description="Localise ID headers and the sample row, e.g. India, United States"),
+):
     from fastapi.responses import StreamingResponse
-    data = service._generate_import_template_bytes()
+    data = service._generate_import_template_bytes(country=country)
+    slug = re.sub(r"[^a-z0-9]+", "-", str(country or "").strip().lower()).strip("-") or "default"
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=employee-import-template.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename=employee-import-template-{slug}.xlsx"},
     )
 
 

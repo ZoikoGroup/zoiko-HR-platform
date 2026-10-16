@@ -15,12 +15,20 @@ is exactly an ISO-8601 timestamp without a timezone designator gets ``Z``
 appended, so browsers parse it as UTC and convert to the viewer's local time
 correctly. Values that already carry a timezone (``Z`` / ``+hh:mm`` / ``-hh:mm``)
 and non-timestamp strings are left untouched.
+
+Exception: attendance check-in / check-out (and break) times are *wall-clock*
+times, not instants — "09:00" means 9 AM at the workplace in whatever timezone
+the viewer is in. Tagging them ``Z`` would shift them on display (midnight
+shows as 5:30 AM to a viewer in IST). Those keys are never suffixed.
 """
 
 import json
 import re
 from datetime import datetime, timezone
 from typing import Optional
+
+# Wall-clock fields: stored naive and rendered as-is, never shifted to UTC.
+WALL_CLOCK_KEYS = frozenset({"check_in", "check_out", "break_start", "break_end"})
 
 # Matches a full ISO-8601 datetime with NO trailing timezone designator:
 #   "2026-09-24T10:30:00" or "2026-09-24T10:30:00.123456"
@@ -31,7 +39,7 @@ _NAIVE_ISO_TIMESTAMP = re.compile(
 
 def _normalize(value):
     if isinstance(value, dict):
-        return {k: _normalize(v) for k, v in value.items()}
+        return {k: (v if k in WALL_CLOCK_KEYS else _normalize(v)) for k, v in value.items()}
     if isinstance(value, list):
         return [_normalize(v) for v in value]
     if isinstance(value, str) and _NAIVE_ISO_TIMESTAMP.fullmatch(value):

@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Offer " ~ outcome_label|lower %}
+{% set preheader = candidate_name ~ " " ~ outcome_label|lower ~ " the offer for " ~ position ~ "." %}
+{% set badge = outcome_label %}
+{% set badge_tone = "success" if accepted else "neutral" %}
+{% set footer_reason %}You are receiving this because you are an admin for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Offer {{ outcome_label|lower }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ admin_name }}</strong>, <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong> has {{ outcome_label|lower }} the offer for the {{ position }} role.{% if accepted %} They are now marked hired and onboarding has started.{% endif %}</p>
+{% call ui.details() %}
+{{ ui.detail_row("Candidate", candidate_name, first=True) }}
+{{ ui.detail_row("Position", position) }}
+{{ ui.detail_row("Outcome", outcome_label) }}
+{% if accepted %}{{ ui.detail_row("Start date", start_date_display or "To be agreed") }}{% endif %}
+{% endcall %}
+{{ ui.button(offers_url, "Open offer management") }}
+{{ ui.signoff() }}
+{% endblock %}

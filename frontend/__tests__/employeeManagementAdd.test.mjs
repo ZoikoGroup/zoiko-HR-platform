@@ -15,7 +15,7 @@ async function open(t, create) {
   const none = async () => ({ items: [] });
   t.mock.module("../src/service/employee.js", { exports: {
     getEmployees: none, getDepartments: async () => [], getDesignations: async () => [], updateEmployee: async () => ({}), deleteEmployee: async () => ({}),
-    getEmployeeById: async () => ({}), importEmployees: async () => ({}), downloadImportTemplate: async () => ({}),
+    getEmployeeById: async () => ({}), importEmployees: async () => ({}), downloadImportTemplate: async () => ({}), getImportTemplateCountries: async () => [{ name: "United States", currency: "USD", identifiers: ["SSN", "State payroll ID (optional)", "Routing number"] }, { name: "Germany", currency: "EUR", identifiers: ["Tax ID (Steuer-ID)", "Social insurance number (SV-Nummer)", "BIC (optional)"] }],
     createEmployee: create || (async (p) => { calls.push(p); return { id: 9, email: p.email, temporaryPassword: "Tmp#Pass12345" }; }),
   } });
   t.mock.module("../src/components/EmployeeBulkActions.jsx", { exports: { default: () => React.createElement("div") } });

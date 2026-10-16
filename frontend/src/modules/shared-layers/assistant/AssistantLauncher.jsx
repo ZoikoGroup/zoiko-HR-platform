@@ -54,6 +54,17 @@ export default function AssistantLauncher() {
     }
   }, [open]);
 
+  // A page dialog (any full-screen overlay) owns the screen: the floating button would sit on its footer buttons on a
+  // phone, so it steps aside until the dialog closes.
+  const [pageDialogOpen, setPageDialogOpen] = useState(false);
+  useEffect(() => {
+    const check = () => setPageDialogOpen(!!document.querySelector(".fixed.inset-0:not([data-assistant-panel]), [aria-modal='true']:not([data-assistant-panel])"));
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.body, { childList: true, subtree: true });
+    return () => obs.disconnect();
+  }, []);
+
   const close = () => {
     setOpen(false);
     setHistoryOpen(false);
@@ -82,7 +93,10 @@ export default function AssistantLauncher() {
     }
   };
 
-  if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname)) return null;
+  // The new hire's pre-onboarding page is public (reached from an email link) even if this browser holds a sign-in
+  // token, so hide the launcher there just like the other public routes.
+  if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname) || location.pathname.startsWith("/onboarding-portal/")) return null;
+  if (pageDialogOpen && !open) return null;
 
   return createPortal(
     <>
@@ -109,6 +123,7 @@ export default function AssistantLauncher() {
           aria-modal="true"
           aria-labelledby="zhr-assistant-title"
           aria-label="Zoiko HR Assistant"
+          data-assistant-panel=""
           onKeyDown={onPanelKeyDown}
           className="fixed z-40 flex flex-col overflow-hidden bg-[var(--zhr-surface-overlay)]
             max-[600px]:inset-0 max-[600px]:h-[100dvh] max-[600px]:w-screen
@@ -133,4 +148,3 @@ export default function AssistantLauncher() {
     document.body
   );
 }
-

@@ -57,7 +57,7 @@ async function load(t, over = {}) {
   };
   t.mock.module("react-router-dom", { exports: {
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
-    useParams: () => ({}), useSearchParams: () => [new URLSearchParams()],
+    useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {},
   } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
@@ -119,7 +119,7 @@ test("the candidates list shows phone, location and experience for each candidat
     getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
     createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
   };
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({}), useSearchParams: () => [new URLSearchParams()] } });
+  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
   const { default: Page } = await import(`../src/modules/zoiko-hr/recruitment/candidates.jsx?t=${Math.random()}`);
@@ -140,7 +140,7 @@ test("the candidate record shows every detail that was entered", async (t) => {
     getCandidates: async () => ({ items: [] }), getCandidateById: async () => CAND, getRequisitions: async () => ({ items: [] }),
     createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
   };
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({ id: "5" }), useSearchParams: () => [new URLSearchParams()] } });
+  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({ id: "5" }), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
   const { default: Page } = await import(`../src/modules/zoiko-hr/recruitment/candidates.jsx?t=${Math.random()}`);

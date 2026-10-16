@@ -16,7 +16,7 @@ const emp = (id, n) => ({ id, first_name: n, last_name: "Test", email: `${n}@x.c
 mock.module("../src/service/employee.js", { exports: {
   getEmployees: async (p) => { state.calls.push(p); if (state.fail && !p.per_page || state.fail && p.per_page === 25) throw new Error("directory down"); return { items: [emp(1, "Zelda")], total: 1 }; },
   getDepartments: async () => [], getDesignations: async () => [], createEmployee: async () => ({}), updateEmployee: async () => ({}), deleteEmployee: async () => ({}),
-  getEmployeeById: async () => ({}), importEmployees: async () => ({}), downloadImportTemplate: async () => ({}),
+  getEmployeeById: async () => ({}), importEmployees: async () => ({}), downloadImportTemplate: async () => ({}), getImportTemplateCountries: async () => [{ name: "United States", currency: "USD", identifiers: ["SSN", "State payroll ID (optional)", "Routing number"] }, { name: "Germany", currency: "EUR", identifiers: ["Tax ID (Steuer-ID)", "Social insurance number (SV-Nummer)", "BIC (optional)"] }],
 } });
 mock.module("../src/components/EmployeeBulkActions.jsx", { exports: { default: () => h("div") } });
 mock.module("../src/service/userService.js", { exports: { resetPassword: async () => ({}) } });

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { NavLink, useParams, useSearchParams } from "react-router-dom";
+import { NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefcase, ExternalLink, ArrowLeft, ChevronLeft, ChevronRight, Edit2, Trash2, Clock, User, X } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions } from "../../../service/hrService";
@@ -56,8 +56,22 @@ function StatusBadge({ status }) {
 
 const PAGE_SIZE = 10;
 
+// Mirrors the server's CANDIDATE_TRANSITIONS: hired is final, a rejected candidate can only be reopened as applied.
+const NEXT_STAGES = {
+  applied: ["screening", "interview", "offer", "rejected"],
+  screening: ["applied", "interview", "offer", "rejected"],
+  interview: ["screening", "offer", "rejected"],
+  offer: ["interview", "hired", "rejected"],
+  hired: [],
+  rejected: ["applied"],
+};
+const STAGE_LABEL = { applied: "Applied", screening: "Screening", interview: "Interview", offer: "Offer", hired: "Hired", rejected: "Rejected" };
+// Moving to these stages emails the candidate.
+const EMAILED_STAGES = { screening: "The candidate is emailed that their application is under review.", rejected: "The candidate is emailed that they were not selected." };
+
 export default function Candidates() {
   const { id } = useParams();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [candidates, setCandidates] = useState([]);
   const [candidate, setCandidate] = useState(null);
@@ -83,7 +97,7 @@ export default function Candidates() {
     if (id) {
       Promise.all([
         getCandidateById(id),
-        getRequisitions({ per_page: 200 }).catch(() => ({ items: [] })),
+        getRequisitions({ per_page: 100 }).catch(() => ({ items: [] })),
       ]).then(([d, reqs]) => {
         if (!d) { setError("Candidate not found"); return; }
         setCandidate(d);
@@ -95,7 +109,7 @@ export default function Candidates() {
     } else {
       Promise.all([
         getCandidates({ per_page: 100 }),
-        getRequisitions({ per_page: 200 }).catch(() => ({ items: [] })),
+        getRequisitions({ per_page: 100 }).catch(() => ({ items: [] })),
       ]).then(([d, reqs]) => {
         setCandidates(Array.isArray(d) ? d : d?.items || d?.data || []);
         setRequisitions(Array.isArray(reqs) ? reqs : reqs?.items || reqs?.data || []);
@@ -177,7 +191,7 @@ export default function Candidates() {
     if (!window.confirm("Delete this candidate?")) return;
     try {
       await deleteCandidate(candId);
-      if (id) window.location.href = "/zoiko-hr/recruitment/candidates";
+      if (id) navigate("/zoiko-hr/recruitment/candidates");
       else load();
     } catch (err) {
       console.error("Delete candidate error:", err);
@@ -186,8 +200,13 @@ export default function Candidates() {
   };
 
   const handleStatusUpdate = async (candId, status) => {
+    const warn = status === "hired"
+      ? "Mark this candidate hired? This is final and starts onboarding. (Accepting their offer does this automatically.)"
+      : EMAILED_STAGES[status] ? `${EMAILED_STAGES[status]} Continue?` : null;
+    if (warn && !window.confirm(warn)) return;
     try {
       await updateCandidateStatus(candId, { status });
+      setNotice("");
       load();
     } catch (err) {
       console.error("Status update error:", err);
@@ -206,15 +225,15 @@ export default function Candidates() {
   };
 
   const modalJsx = showModal ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <form noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-center mb-4">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
+          <form noValidate onSubmit={(e) => { e.preventDefault(); handleSave(); }} className="bg-white rounded-xl p-4 sm:p-6 w-full max-w-lg shadow-xl max-h-[92vh] overflow-y-auto">
+            <div className="flex justify-between items-center gap-2 mb-4">
               <h2 className="text-lg font-semibold">{editItem ? "Edit Candidate" : "Add Candidate"}</h2>
-              <button type="button" onClick={() => setShowModal(false)} aria-label="Close"><X className="w-5 h-5 text-gray-400" /></button>
+              <button type="button" onClick={() => setShowModal(false)} aria-label="Close" className="-m-1.5 p-1.5"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
             <p className="text-xs text-gray-400 mb-3">Fields marked <span className="text-red-500">*</span> are required.</p>
             <div className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="cand-name" className="text-xs text-gray-500 font-medium">Name <span className="text-red-500">*</span></label>
                   <input id="cand-name" value={form.name} maxLength={150} aria-invalid={!!errors.name} onChange={(e) => setField("name", e.target.value)} className={inputClass("name")} />
@@ -226,7 +245,7 @@ export default function Candidates() {
                   {fieldError("email")}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="cand-phone" className="text-xs text-gray-500 font-medium">Phone</label>
                   <input id="cand-phone" value={form.phone} maxLength={PHONE_MAX_LENGTH} placeholder="+91 9876543210" aria-invalid={!!errors.phone} onChange={(e) => setField("phone", e.target.value)} className={inputClass("phone")} />
@@ -242,20 +261,18 @@ export default function Candidates() {
                 <label htmlFor="cand-req" className="text-xs text-gray-500 font-medium">Job Requisition</label>
                 <select id="cand-req" value={form.requisition_id} onChange={(e) => handleRequisitionSelect(e.target.value)} className={inputClass("requisition_id")}>
                   <option value="">No requisition linked</option>
-                  {requisitions.map((r) => <option key={r.id} value={r.id}>{r.title} ({r.department})</option>)}
+                  {requisitions.filter((r) => r.status === "open" || String(r.id) === String(form.requisition_id)).map((r) => <option key={r.id} value={r.id}>{r.title} ({r.department}){r.status !== "open" ? ` · ${r.status}` : ""}</option>)}
                 </select>
                 {fieldError("requisition_id")}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="cand-status" className="text-xs text-gray-500 font-medium">Status</label>
                   <select id="cand-status" value={form.status} onChange={(e) => setField("status", e.target.value)} className={inputClass("status")}>
-                    <option value="applied">Applied</option>
-                    <option value="screening">Screening</option>
-                    <option value="interview">Interviewed</option>
-                    <option value="offer">Offered</option>
-                    <option value="hired">Hired</option>
-                    <option value="rejected">Rejected</option>
+                    {(editItem
+                      ? [editItem.status, ...(NEXT_STAGES[editItem.status] || [])]
+                      : ["applied", "screening", "interview", "offer"]
+                    ).map((st) => <option key={st} value={st}>{STAGE_LABEL[st] || st}</option>)}
                   </select>
                 </div>
                 <div>
@@ -270,7 +287,7 @@ export default function Candidates() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label htmlFor="cand-location" className="text-xs text-gray-500 font-medium">Location</label>
                   <input id="cand-location" value={form.location} maxLength={150} aria-invalid={!!errors.location} onChange={(e) => setField("location", e.target.value)} className={inputClass("location")} />
@@ -294,7 +311,7 @@ export default function Candidates() {
               </div>
             </div>
             {saveError ? <p role="alert" className="mt-4 text-sm text-red-700 bg-red-50 border border-red-200 rounded-lg px-3 py-2">{saveError}</p> : null}
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="flex flex-wrap justify-end gap-2 mt-6">
               <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
               <button type="submit" disabled={saving} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-60">{saving ? "Saving..." : editItem ? "Update" : "Add"}</button>
             </div>
@@ -313,37 +330,37 @@ export default function Candidates() {
         <SubNav />
         <div className="space-y-6">
           {notice ? (
-          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between">
-            <span>{notice}</span>
-            <button onClick={() => setNotice("")} aria-label="Dismiss" className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between gap-2">
+            <span className="min-w-0 break-words">{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss" className="shrink-0 -my-1 px-2 py-0.5 text-red-500 hover:text-red-800 text-lg">&times;</button>
           </div>
         ) : null}
           <div className="flex items-center gap-3">
             <NavLink to="/zoiko-hr/recruitment/candidates" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"><ArrowLeft className="w-4 h-4" />Back to Candidates</NavLink>
           </div>
-          <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <div className="flex items-start justify-between mb-6">
-              <div className="flex items-center gap-4">
-                <div className="w-14 h-14 rounded-full bg-blue-100 flex items-center justify-center"><User className="w-7 h-7 text-blue-600" /></div>
-                <div>
-                  <h2 className="text-xl font-bold text-gray-900">{candidate.name}</h2>
-                  <p className="text-sm text-gray-500">{candidate.position || "No position specified"}</p>
+          <div className="bg-white rounded-xl border border-gray-200 p-4 sm:p-6">
+            <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="w-14 h-14 shrink-0 rounded-full bg-blue-100 flex items-center justify-center"><User className="w-7 h-7 text-blue-600" /></div>
+                <div className="min-w-0">
+                  <h2 className="text-xl font-bold text-gray-900 break-words">{candidate.name}</h2>
+                  <p className="text-sm text-gray-500 break-words">{candidate.position || "No position specified"}</p>
                   {candidate.requisition_title && (
-                    <p className="text-xs text-blue-600 mt-0.5">Applying for requisition: {candidate.requisition_title}</p>
+                    <p className="text-xs text-blue-600 mt-0.5 break-words">Applying for requisition: {candidate.requisition_title}</p>
                   )}
                 </div>
               </div>
               <StatusBadge status={candidate.status} />
             </div>
             {candidate.onboarding_new_hire_id && (
-              <div className="mb-4 flex items-center justify-between gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-2 px-3 py-2 bg-green-50 border border-green-200 rounded-lg">
                 <span className="text-sm text-green-700 font-medium">✓ Onboarding started for this candidate</span>
                 <NavLink to="/zoiko-hr/onboarding/new-hires" className="text-sm text-green-700 underline hover:text-green-900">View in Onboarding →</NavLink>
               </div>
             )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
               {[
-                { icon: Mail, label: "Email", value: candidate.email ? <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline">{candidate.email}</a> : "Not provided" },
+                { icon: Mail, label: "Email", value: candidate.email ? <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline break-all">{candidate.email}</a> : "Not provided" },
                 { icon: Phone, label: "Phone", value: shown(candidate.phone, "Not provided") },
                 { icon: MapPin, label: "Location", value: shown(candidate.location, "Not provided") },
                 { icon: Briefcase, label: "Experience", value: experienceText(candidate.experience, "Not provided") },
@@ -353,25 +370,28 @@ export default function Candidates() {
               ].map(({ icon: Icon, label, value }) => (
                 <div key={label} className="flex items-start gap-2 text-gray-700">
                   <Icon className="w-4 h-4 text-gray-400 mt-0.5 shrink-0" />
-                  <div><dt className="text-xs text-gray-400">{label}</dt><dd className="font-medium">{value}</dd></div>
+                  <div className="min-w-0"><dt className="text-xs text-gray-400">{label}</dt><dd className="font-medium break-words">{value}</dd></div>
                 </div>
               ))}
             </dl>
             {candidate.notes ? (
-              <div className="mt-4 text-sm"><p className="text-xs text-gray-400 mb-1">Notes</p><p className="text-gray-700 whitespace-pre-wrap">{candidate.notes}</p></div>
+              <div className="mt-4 text-sm"><p className="text-xs text-gray-400 mb-1">Notes</p><p className="text-gray-700 whitespace-pre-wrap break-words">{candidate.notes}</p></div>
             ) : null}
             <div className="mt-6">
               <h3 className="text-sm font-semibold text-gray-900 mb-3">Status Update</h3>
               <div className="flex flex-wrap gap-2">
-                {["applied", "screening", "interview", "offer", "hired", "rejected"].map((s) => (
-                  <button key={s} onClick={() => handleStatusUpdate(candidate.id, s)} disabled={candidate.status === s}
-                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${candidate.status === s ? "bg-blue-600 text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-                    {s.charAt(0).toUpperCase() + s.slice(1)}
+                <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-blue-600 text-white">{STAGE_LABEL[candidate.status] || candidate.status}</span>
+                {(NEXT_STAGES[candidate.status] || []).map((st) => (
+                  <button key={st} onClick={() => handleStatusUpdate(candidate.id, st)} title={EMAILED_STAGES[st] || ""}
+                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${st === "rejected" ? "bg-red-50 text-red-700 hover:bg-red-100" : st === "hired" ? "bg-green-50 text-green-700 hover:bg-green-100" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+                    → {STAGE_LABEL[st]}
                   </button>
                 ))}
               </div>
+              {candidate.status === "hired" && <p className="mt-2 text-xs text-gray-400">Hired{candidate.hired_at ? ` on ${formatDate(candidate.hired_at)}` : ""}. Onboarding has started; the stage can no longer change.</p>}
+              <p className="mt-2 text-xs text-gray-400">Moving to Screening or Rejected emails the candidate. Scheduling an interview moves them to Interview; sending an offer moves them to Offer.</p>
             </div>
-            <div className="flex gap-2 mt-4">
+            <div className="flex flex-wrap gap-2 mt-4">
               <button onClick={() => openEdit(candidate)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-blue-600 border border-blue-200 rounded-lg hover:bg-blue-50"><Edit2 className="w-3.5 h-3.5" /> Edit</button>
               <button onClick={() => handleDelete(candidate.id)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-red-600 border border-red-200 rounded-lg hover:bg-red-50"><Trash2 className="w-3.5 h-3.5" /> Delete</button>
             </div>
@@ -384,9 +404,9 @@ export default function Candidates() {
               <div className="space-y-3">
                 {act.slice(0, 10).map((a, i) => (
                   <div key={i} className="flex items-start gap-3 pb-3 border-b border-gray-50 last:border-0">
-                    <div className="p-1.5 rounded-full bg-blue-100"><Clock className="w-3.5 h-3.5 text-blue-600" /></div>
-                    <div className="flex-1">
-                      <p className="text-sm text-gray-900">{a.description || a.message || a.action}</p>
+                    <div className="shrink-0 p-1.5 rounded-full bg-blue-100"><Clock className="w-3.5 h-3.5 text-blue-600" /></div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-900 break-words">{a.description || a.message || a.action}</p>
                       <p className="text-xs text-gray-400 mt-0.5">{formatDate(a.date || a.created_at)}</p>
                     </div>
                   </div>
@@ -405,14 +425,14 @@ export default function Candidates() {
       <SubNav />
       <div className="space-y-6">
         {notice ? (
-          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between">
-            <span>{notice}</span>
-            <button onClick={() => setNotice("")} aria-label="Dismiss" className="text-red-500 hover:text-red-800 text-lg">&times;</button>
+          <div role="alert" className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 text-sm font-medium rounded-lg flex items-center justify-between gap-2">
+            <span className="min-w-0 break-words">{notice}</span>
+            <button onClick={() => setNotice("")} aria-label="Dismiss" className="shrink-0 -my-1 px-2 py-0.5 text-red-500 hover:text-red-800 text-lg">&times;</button>
           </div>
         ) : null}
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Candidates</h1>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
             <button onClick={exportCsv} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Export CSV</button>
             <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
               <Plus className="w-4 h-4" /> Add Candidate
@@ -421,12 +441,12 @@ export default function Candidates() {
         </div>
 
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 max-w-xs">
+          <div className="relative w-full sm:flex-1 sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input type="text" placeholder="Search candidates..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
           </div>
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="w-full sm:w-auto px-3 py-2 border border-gray-200 rounded-lg text-sm">
             <option value="">All Statuses</option>
             <option value="applied">Applied</option>
             <option value="screening">Screening</option>
@@ -435,35 +455,35 @@ export default function Candidates() {
             <option value="hired">Hired</option>
             <option value="rejected">Rejected</option>
           </select>
-          <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+          <select value={sourceFilter} onChange={(e) => { setSourceFilter(e.target.value); setPage(1); }} className="w-full sm:w-auto px-3 py-2 border border-gray-200 rounded-lg text-sm">
             <option value="">All Sources</option>
             {sources.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
-          <select value={requisitionFilter} onChange={(e) => { setRequisitionFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
+          <select value={requisitionFilter} onChange={(e) => { setRequisitionFilter(e.target.value); setPage(1); }} className="w-full sm:w-auto px-3 py-2 border border-gray-200 rounded-lg text-sm">
             <option value="">All Requisitions</option>
             {requisitions.map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}
           </select>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full min-w-[600px] md:min-w-[1100px] text-left">
             <thead className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
               <tr>
                 {["Name", "Email", "Phone", "Position", "Location", "Experience", "Requisition", "Status", "Applied", "Source", ""].map((h) => (
-                  <th key={h} className="px-3 py-3 font-medium">{h}</th>
+                  <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${["Phone", "Location", "Experience", "Requisition", "Applied", "Source"].includes(h) ? "hidden md:table-cell" : ""}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
               {paged.map((c) => (
-                <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 text-sm cursor-pointer" onClick={() => window.location.href = `/zoiko-hr/recruitment/candidates/${c.id}`}>
-                  <td className="px-3 py-3 font-medium text-gray-900">{c.name}</td>
-                  <td className="px-3 py-3 text-gray-500">{c.email || "-"}</td>
-                  <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{shown(c.phone)}</td>
+                <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 text-sm cursor-pointer" onClick={() => navigate(`/zoiko-hr/recruitment/candidates/${c.id}`)}>
+                  <td className="px-3 py-3 font-medium text-gray-900 min-w-[8rem] break-words">{c.name}</td>
+                  <td className="px-3 py-3 text-gray-500 max-w-[220px] break-all">{c.email || "-"}</td>
+                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 whitespace-nowrap">{shown(c.phone)}</td>
                   <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.position || "-"}</td>
-                  <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{shown(c.location)}</td>
-                  <td className="px-3 py-3 text-gray-500 whitespace-nowrap">{experienceText(c.experience)}</td>
-                  <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.requisition_title || "-"}</td>
+                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 max-w-[150px] truncate">{shown(c.location)}</td>
+                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 whitespace-nowrap">{experienceText(c.experience)}</td>
+                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.requisition_title || "-"}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={c.status} />
@@ -472,12 +492,12 @@ export default function Candidates() {
                       )}
                     </div>
                   </td>
-                  <td className="px-3 py-3 text-xs text-gray-400">{daysAgo(c.applied_at || c.created_at)}</td>
-                  <td className="px-3 py-3 text-xs text-gray-400">{sourceLabel(c.source)}</td>
-                  <td className="px-3 py-3">
-                    <div className="flex gap-2">
-                      <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                  <td className="hidden md:table-cell px-3 py-3 text-xs text-gray-400 whitespace-nowrap">{daysAgo(c.applied_at || c.created_at)}</td>
+                  <td className="hidden md:table-cell px-3 py-3 text-xs text-gray-400 whitespace-nowrap">{sourceLabel(c.source)}</td>
+                  <td className="px-3 py-3 whitespace-nowrap">
+                    <div className="flex gap-1">
+                      <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
+                      <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </td>
                 </tr>
@@ -489,7 +509,7 @@ export default function Candidates() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between text-sm">
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="text-gray-500">{filtered.length} total candidate(s)</span>
           <div className="flex items-center gap-2">
             <button disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} className="p-1.5 border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>

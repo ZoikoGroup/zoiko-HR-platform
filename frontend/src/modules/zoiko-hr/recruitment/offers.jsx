@@ -1,9 +1,17 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useMemo } from "react";
 import { NavLink } from "react-router-dom";
-import { FileCheck2, Plus, Search, ChevronLeft, ChevronRight, X, Edit2, Trash2, AlertCircle, DollarSign, Calendar, Clock, User } from "lucide-react";
+import {
+  Plus, Search, ChevronLeft, ChevronRight, X, Edit2, Trash2, AlertCircle, Calendar, User, Send, CheckCircle2, XCircle,
+  Undo2, Building2, ChevronDown, Loader2, Wallet,
+} from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getOffers, createOffer, updateOffer, deleteOffer, acceptOffer, rejectOffer, withdrawOffer, getCandidates } from "../../../service/hrService";
+import RemunerationFields, { CountrySelect, currencyForCountry, guessCountry, useRegions } from "../../../components/RemunerationFields";
+import BusinessLookupFields, { checkBusinessId, checkPostal, useBusinessFormats } from "../../../components/BusinessLookupFields";
+import {
+  getOffers, createOffer, updateOffer, deleteOffer, acceptOffer, rejectOffer, withdrawOffer, sendOffer, getCandidates,
+} from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import { EMPLOYMENT_TYPES, DEFAULT_PERIOD, formatMoney, periodSuffix, remunerationFor, remunerationLabel } from "../../../utils/money";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment" },
@@ -28,232 +36,409 @@ function SubNav() {
   );
 }
 
-
 function formatDate(dateStr) {
   if (!dateStr) return "-";
-  try { return formatDateUtil(dateStr); }
-  catch { return dateStr; }
+  try { return formatDateUtil(dateStr); } catch { return dateStr; }
 }
+
+const STATUS_STYLE = {
+  draft: "bg-gray-100 text-gray-800", pending: "bg-yellow-100 text-yellow-800", approved: "bg-green-100 text-green-800",
+  rejected: "bg-red-100 text-red-800", accepted: "bg-blue-100 text-blue-800", countered: "bg-purple-100 text-purple-800",
+  withdrawn: "bg-gray-100 text-gray-500",
+};
+const STATUS_LABEL = { draft: "Draft", pending: "Sent", approved: "Approved", rejected: "Declined", accepted: "Accepted", countered: "Countered", withdrawn: "Withdrawn" };
+const OPEN_STATUSES = ["pending", "approved", "countered"];
+const CLOSED = ["accepted", "rejected", "withdrawn"];
 
 function StatusBadge({ status }) {
-  const m = { draft: "bg-gray-100 text-gray-800", pending: "bg-yellow-100 text-yellow-800", approved: "bg-green-100 text-green-800", rejected: "bg-red-100 text-red-800", accepted: "bg-blue-100 text-blue-800", countered: "bg-blue-100 text-blue-800", withdrawn: "bg-gray-100 text-gray-500" };
-  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium capitalize ${m[status] || "bg-gray-100 text-gray-800"}`}>{status?.replace(/_/g, " ")}</span>;
+  return <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${STATUS_STYLE[status] || "bg-gray-100 text-gray-800"}`}>{STATUS_LABEL[status] || status}</span>;
 }
 
-const PAGE_SIZE = 8;
-const initForm = { candidate_id: "", candidate_name: "", position: "", salary: "", equity: "", joining_date: "", status: "draft", notes: "" };
+const PAGE_SIZE = 10;
+const field = "w-full border border-gray-200 rounded-lg px-3 py-2 text-sm bg-white";
+const labelCls = "text-xs text-gray-500 font-medium";
+
+const EMPTY_ENTITY = {
+  entity_country: null, entity_id_type: null, entity_tax_id: "", entity_name: "", entity_address: "",
+  entity_city: "", entity_region: "", entity_postal_code: "",
+};
+const ENTITY_TEXT = ["entity_tax_id", "entity_name", "entity_address", "entity_city", "entity_region", "entity_postal_code"];
+
+const emptyForm = (orgCurrency = "USD") => ({
+  candidate_id: "", candidate_name: "", position: "", employment_type: "full_time", work_country: null,
+  pay: { remuneration_type: "salary", amount: "", currency: orgCurrency, pay_period: "annual", currencyTouched: false },
+  equity: "", joining_date: "", status: "draft", notes: "",
+  entity: { ...EMPTY_ENTITY },
+  entityCountryTouched: false,
+});
 
 export default function OfferManagement() {
+  const regions = useRegions();
+  const businessFormats = useBusinessFormats();
+  const orgCurrency = regions?.organization?.currency || "USD";
   const [offers, setOffers] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [busyId, setBusyId] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page, setPage] = useState(1);
 
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
-  const [form, setForm] = useState({ ...initForm });
+  const [form, setForm] = useState(emptyForm());
+  const [formError, setFormError] = useState(null);
+  const [saving, setSaving] = useState(false);
+  const [showEntity, setShowEntity] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
-    setError(null);
+    setLoadError(null);
     Promise.all([
       getOffers({ per_page: 100 }),
-      getCandidates({ per_page: 200 }).catch(() => ({ items: [] })),
+      getCandidates({ per_page: 100 }).catch(() => ({ items: [] })),
     ]).then(([d, cands]) => {
       setOffers(Array.isArray(d) ? d : d?.items || d?.data || []);
       setCandidates(Array.isArray(cands) ? cands : cands?.items || cands?.data || []);
     }).catch((err) => {
-      console.error("Offers load error:", err);
-      setError("Failed to load offers.");
+      setLoadError(err.message || "Failed to load offers.");
     }).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { load(); }, [load]);
 
-  const filtered = offers.filter((o) => {
-    if (search && !o.candidate_name?.toLowerCase().includes(search.toLowerCase()) && !o.position?.toLowerCase().includes(search.toLowerCase())) return false;
+  const filtered = useMemo(() => offers.filter((o) => {
+    const q = search.trim().toLowerCase();
+    if (q && !o.candidate_name?.toLowerCase().includes(q) && !o.position?.toLowerCase().includes(q) && !(o.entity_name || "").toLowerCase().includes(q)) return false;
     if (statusFilter && o.status !== statusFilter) return false;
     return true;
-  });
+  }), [offers, search, statusFilter]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
   const safePage = Math.min(page, totalPages);
   const paged = filtered.slice((safePage - 1) * PAGE_SIZE, safePage * PAGE_SIZE);
 
-  const formatSalary = (val) => {
-    if (!val) return "-";
-    const n = Number(val);
-    if (isNaN(n)) return val;
-    if (n >= 1000) return `$${(n / 1000).toFixed(0)}k`;
-    return `$${n.toLocaleString()}`;
+  const stats = useMemo(() => ({
+    draft: offers.filter((o) => o.status === "draft").length,
+    open: offers.filter((o) => OPEN_STATUSES.includes(o.status)).length,
+    accepted: offers.filter((o) => o.status === "accepted").length,
+    declined: offers.filter((o) => o.status === "rejected").length,
+  }), [offers]);
+
+  // ── form helpers ───────────────────────────────────────────────────────────────────────────────────────────────────
+  const setWorkCountry = (code, prev) => {
+    const cur = currencyForCountry(regions, code);
+    // until someone picks the entity's country, it follows the work country (with that country's ID type and fields)
+    const entity = prev.entityCountryTouched || !code || prev.entity.entity_country === code
+      ? prev.entity
+      : { ...prev.entity, entity_country: code, entity_id_type: businessFormats?.countries?.[code]?.ids?.[0]?.key || null, entity_region: "" };
+    return {
+      ...prev,
+      work_country: code,
+      entity,
+      pay: prev.pay.currencyTouched || !cur ? prev.pay : { ...prev.pay, currency: cur },
+    };
   };
 
-  const openCreate = () => { setEditItem(null); setForm({ ...initForm }); setShowModal(true); };
+  const setEmploymentType = (type) => setForm((prev) => {
+    const remuneration_type = remunerationFor(type, prev.pay.remuneration_type);
+    const periodChanged = remuneration_type !== prev.pay.remuneration_type;
+    return {
+      ...prev,
+      employment_type: type,
+      equity: type === "internship" ? "" : prev.equity,
+      pay: { ...prev.pay, remuneration_type, pay_period: periodChanged ? DEFAULT_PERIOD[remuneration_type] : prev.pay.pay_period },
+    };
+  });
+
+  const openCreate = () => {
+    setEditItem(null);
+    const f = emptyForm(orgCurrency);
+    if (regions?.organization?.country_code) {
+      f.work_country = regions.organization.country_code;
+      f.entity.entity_country = regions.organization.country_code;
+      f.entity.entity_id_type = businessFormats?.countries?.[regions.organization.country_code]?.ids?.[0]?.key || null;
+    }
+    setForm(f);
+    setFormError(null);
+    setShowEntity(false);
+    setShowModal(true);
+  };
+
   const openEdit = (o) => {
     setEditItem(o);
     setForm({
       candidate_id: o.candidate_id ? String(o.candidate_id) : "",
       candidate_name: o.candidate_name || "",
       position: o.position || "",
-      salary: o.salary ?? "",
+      employment_type: o.employment_type || (o.remuneration_type === "stipend" ? "internship" : "full_time"),
+      work_country: o.work_country || null,
+      pay: {
+        remuneration_type: o.remuneration_type || "salary",
+        amount: o.salary ?? "",
+        currency: o.currency || orgCurrency,
+        pay_period: o.pay_period || DEFAULT_PERIOD[o.remuneration_type || "salary"],
+        currencyTouched: true,
+      },
       equity: o.equity ?? "",
-      joining_date: o.joining_date ? o.joining_date.split("T")[0] : "",
+      joining_date: o.joining_date ? String(o.joining_date).split("T")[0] : "",
       status: o.status || "draft",
       notes: o.notes || "",
+      entity: {
+        ...EMPTY_ENTITY,
+        entity_country: o.entity_country || null, entity_id_type: o.entity_id_type || null, entity_tax_id: o.entity_tax_id || "",
+        entity_name: o.entity_name || "", entity_address: o.entity_address || "", entity_city: o.entity_city || "",
+        entity_region: o.entity_region || "", entity_postal_code: o.entity_postal_code || "",
+      },
+      entityCountryTouched: !!o.entity_country,
     });
+    setFormError(null);
+    setShowEntity(!!(o.entity_name || o.entity_tax_id));
     setShowModal(true);
   };
 
   const handleCandidateSelect = (candId) => {
     const cand = candidates.find((c) => String(c.id) === String(candId));
-    setForm((prev) => ({
-      ...prev,
-      candidate_id: candId,
-      candidate_name: cand ? cand.name : prev.candidate_name,
-      position: cand ? cand.position || prev.position : prev.position,
-    }));
+    setForm((prev) => {
+      let next = {
+        ...prev,
+        candidate_id: candId,
+        candidate_name: cand ? cand.name : prev.candidate_name,
+        position: cand ? cand.position || prev.position : prev.position,
+      };
+      const country = cand ? guessCountry(regions, cand.location) : null;
+      if (country) next = setWorkCountry(country, { ...next, pay: { ...next.pay, currencyTouched: false } });
+      return next;
+    });
   };
 
   const handleSave = async () => {
-    try {
-      const payload = {
-        candidate_id: form.candidate_id ? Number(form.candidate_id) : null,
-        candidate_name: form.candidate_name,
-        position: form.position,
-        salary: Number(form.salary) || null,
-        equity: form.equity || null,
-        joining_date: form.joining_date || null,
-        status: form.status,
-        notes: form.notes,
-      };
-      if (editItem) {
-        await updateOffer(editItem.id, payload);
-      } else {
-        await createOffer(payload);
+    setFormError(null);
+    if (!form.candidate_name.trim() || !form.position.trim()) {
+      setFormError("Candidate name and position are required.");
+      return;
+    }
+    const amount = form.pay.amount === "" ? null : Number(form.pay.amount);
+    if (amount !== null && (Number.isNaN(amount) || amount < 0)) {
+      setFormError("Enter a valid amount.");
+      return;
+    }
+    const ent = form.entity;
+    const hasEntity = ENTITY_TEXT.some((k) => String(ent[k] || "").trim());
+    if (hasEntity) {
+      const country = ent.entity_country || form.work_country;
+      if (!country) {
+        setShowEntity(true);
+        setFormError("Choose the country the contracting entity is registered in.");
+        return;
       }
+      const fmt = businessFormats?.countries?.[country] || businessFormats?.default;
+      const idType = fmt?.ids?.find((t) => t.key === ent.entity_id_type) || fmt?.ids?.[0];
+      const problem = checkBusinessId(fmt, idType, ent.entity_tax_id, country) || checkPostal(fmt, ent.entity_postal_code);
+      if (problem) {
+        setShowEntity(true);
+        setFormError(problem);
+        return;
+      }
+    }
+    const payload = {
+      candidate_id: form.candidate_id ? Number(form.candidate_id) : null,
+      candidate_name: form.candidate_name.trim(),
+      position: form.position.trim(),
+      employment_type: form.employment_type,
+      work_country: form.work_country || null,
+      remuneration_type: form.pay.remuneration_type,
+      salary: amount,
+      currency: form.pay.currency,
+      pay_period: form.pay.pay_period,
+      equity: form.employment_type === "internship" ? null : (form.equity === "" ? null : String(form.equity)),
+      joining_date: form.joining_date || null,
+      status: form.status,
+      notes: form.notes || null,
+      ...(hasEntity ? {
+        entity_country: ent.entity_country || form.work_country || null,
+        entity_id_type: ent.entity_id_type || null,
+        entity_tax_id: ent.entity_tax_id?.trim() || null,
+        entity_name: ent.entity_name?.trim() || null,
+        entity_address: ent.entity_address?.trim() || null,
+        entity_city: ent.entity_city?.trim() || null,
+        entity_region: ent.entity_region || null,
+        entity_postal_code: ent.entity_postal_code?.trim() || null,
+      } : {
+        entity_country: null, entity_id_type: null, entity_tax_id: null, entity_name: null, entity_address: null,
+        entity_city: null, entity_region: null, entity_postal_code: null,
+      }),
+    };
+    setSaving(true);
+    try {
+      if (editItem) await updateOffer(editItem.id, payload);
+      else await createOffer(payload);
       setShowModal(false);
+      setNotice(editItem ? "Offer updated." : "Offer created.");
       load();
     } catch (err) {
-      console.error("Save offer error:", err);
-      setError(err.message || "Failed to save offer.");
+      setFormError(err.message || "Failed to save offer.");
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm("Delete this offer?")) return;
+  const runAction = async (o, fn, { confirm, ok }) => {
+    if (confirm && !window.confirm(confirm)) return;
+    setBusyId(o.id);
+    setActionError(null);
     try {
-      await deleteOffer(id);
+      const res = await fn(o.id);
+      setNotice(typeof ok === "function" ? ok(res) : ok);
       load();
     } catch (err) {
-      console.error("Delete offer error:", err);
-      setError(err.message || "Failed to delete offer.");
+      setActionError(err.message || "The action failed.");
+    } finally {
+      setBusyId(null);
     }
   };
 
-  const handleAccept = async (id) => {
-    if (!window.confirm("Accept this offer?")) return;
-    try {
-      await acceptOffer(id);
-      load();
-    } catch (err) {
-      console.error("Accept offer error:", err);
-      setError(err.message || "Failed to accept offer.");
-    }
-  };
+  const lockedType = form.employment_type === "internship" ? "stipend" : null;
+  const workCountryName = regions?.countries?.find((c) => c.code === form.work_country)?.name;
+  const autoCurrency = currencyForCountry(regions, form.work_country);
+  const currencyHint = !form.pay.currencyTouched && workCountryName && autoCurrency === form.pay.currency
+    ? `Set from ${workCountryName}` : !form.work_country ? "Organization default" : null;
 
-  const handleReject = async (id) => {
-    if (!window.confirm("Reject this offer?")) return;
-    try {
-      await rejectOffer(id);
-      load();
-    } catch (err) {
-      console.error("Reject offer error:", err);
-      setError(err.message || "Failed to reject offer.");
-    }
-  };
+  if (loading && offers.length === 0) {
+    return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
+  }
 
-  const handleWithdraw = async (id) => {
-    if (!window.confirm("Withdraw this offer?")) return;
-    try {
-      await withdrawOffer(id);
-      load();
-    } catch (err) {
-      console.error("Withdraw offer error:", err);
-      setError(err.message || "Failed to withdraw offer.");
-    }
-  };
-
-  if (loading) return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
-
-  if (error) return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-center"><div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{error}</div><div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div></div></HRPage>;
+  if (loadError && offers.length === 0) {
+    return (
+      <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav />
+        <div className="p-6 text-center">
+          <div className="inline-flex items-center gap-2 px-4 py-3 bg-red-50 text-red-600 rounded-lg"><AlertCircle className="w-5 h-5" />{loadError}</div>
+          <div className="mt-4"><button onClick={load} className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm">Try Again</button></div>
+        </div>
+      </HRPage>
+    );
+  }
 
   return (
-    <HRPage title="Offer Management" subtitle="Create and manage job offers">
+    <HRPage title="Offer Management" subtitle="Create, send and track job offers">
       <SubNav />
       <div className="space-y-6">
-        <div className="flex items-center justify-between">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Offers</h1>
           <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
             <Plus className="w-4 h-4" /> New Offer
           </button>
         </div>
 
+        {actionError && (
+          <div className="flex items-center gap-2 break-words rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <AlertCircle className="h-4 w-4 shrink-0" /> {actionError}
+            <button onClick={() => setActionError(null)} className="ml-auto shrink-0 -m-1 p-1.5"><X className="h-4 w-4" /></button>
+          </div>
+        )}
+        {notice && (
+          <div className="flex items-center gap-2 break-words rounded-lg border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-700">
+            <CheckCircle2 className="h-4 w-4 shrink-0" /> {notice}
+            <button onClick={() => setNotice(null)} className="ml-auto shrink-0 -m-1 p-1.5"><X className="h-4 w-4" /></button>
+          </div>
+        )}
+
+        <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+          {[["Drafts", stats.draft, "draft"], ["Awaiting answer", stats.open, "pending"], ["Accepted", stats.accepted, "accepted"], ["Declined", stats.declined, "rejected"]].map(([label, n, s]) => (
+            <button key={label} onClick={() => { setStatusFilter(statusFilter === s ? "" : s); setPage(1); }}
+              className={`min-w-0 rounded-xl border p-3 sm:p-4 text-left transition-colors ${statusFilter === s ? "border-blue-300 bg-blue-50" : "border-gray-200 bg-white hover:bg-gray-50"}`}>
+              <div className="truncate text-xs font-medium text-gray-500">{label}</div>
+              <div className="mt-1 text-2xl font-bold text-gray-900">{n}</div>
+            </button>
+          ))}
+        </div>
+
         <div className="flex items-center gap-3 flex-wrap">
-          <div className="relative flex-1 max-w-xs">
+          <div className="relative w-full sm:flex-1 sm:max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search offers..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            <input type="text" placeholder="Search candidate, position, entity..." value={search} onChange={(e) => { setSearch(e.target.value); setPage(1); }}
               className="w-full pl-9 pr-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500" />
           </div>
-          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="px-3 py-2 border border-gray-200 rounded-lg text-sm">
-            <option value="">All Statuses</option>
-            <option value="draft">Draft</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="rejected">Rejected</option>
-            <option value="accepted">Accepted</option>
-            <option value="countered">Countered</option>
-            <option value="withdrawn">Withdrawn</option>
+          <select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="w-full sm:w-auto px-3 py-2 border border-gray-200 rounded-lg text-sm">
+            <option value="">All statuses</option>
+            {Object.entries(STATUS_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <table className="w-full text-left">
+          <table className="w-full min-w-[640px] md:min-w-[960px] text-left">
             <thead className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
               <tr>
-                {["Candidate", "Position", "Salary", "Equity", "Status", "Start Date", "Created", ""].map((h) => (
-                  <th key={h} className="px-3 py-3 font-medium">{h}</th>
+                {["Candidate", "Position", "Remuneration", "Equity", "Status", "Start date", "Created", ""].map((h) => (
+                  <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${h === "Equity" || h === "Start date" || h === "Created" ? "hidden md:table-cell" : ""}`}>{h}</th>
                 ))}
               </tr>
             </thead>
             <tbody>
-              {paged.map((o) => (
-                <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 text-sm">
-                  <td className="px-3 py-3 font-medium text-gray-900">
-                    <div className="flex items-center gap-1.5" title={o.candidate_id ? "Linked to candidate record" : "Not linked to a candidate — accepting won't trigger onboarding"}>
-                      <User className="w-3.5 h-3.5 text-gray-400" />{o.candidate_name || "-"}
-                      {!o.candidate_id && <span className="text-amber-500 text-xs">⚠</span>}
-                    </div>
-                  </td>
-                  <td className="px-3 py-3 text-gray-500">{o.position || "-"}</td>
-                  <td className="px-3 py-3"><div className="flex items-center gap-1.5 font-medium text-gray-900"><DollarSign className="w-3.5 h-3.5 text-green-500" />{formatSalary(o.salary)}</div></td>
-                  <td className="px-3 py-3 text-gray-500">{o.equity ? `${o.equity}%` : "-"}</td>
-                  <td className="px-3 py-3"><StatusBadge status={o.status} /></td>
-                  <td className="px-3 py-3 text-xs text-gray-500"><div className="flex items-center gap-1.5"><Calendar className="w-3 h-3" />{formatDate(o.joining_date)}</div></td>
-                  <td className="px-3 py-3 text-xs text-gray-400">{formatDate(o.created_at)}</td>
-                  <td className="px-3 py-3">
-                      <div className="flex gap-2 items-center">
-                        <button onClick={() => openEdit(o)} className="text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
-                        <button onClick={() => handleDelete(o.id)} className="text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
-                        {(o.status === "draft" || o.status === "pending") && <button onClick={() => handleAccept(o.id)} className="text-xs text-green-600 hover:text-green-800 font-medium">Accept</button>}
-                        {(o.status === "draft" || o.status === "pending") && <button onClick={() => handleReject(o.id)} className="text-xs text-red-600 hover:text-red-800 font-medium">Reject</button>}
-                        {(o.status === "draft" || o.status === "pending" || o.status === "approved") && <button onClick={() => handleWithdraw(o.id)} className="text-xs text-gray-500 hover:text-gray-700 font-medium">Withdraw</button>}
+              {paged.map((o) => {
+                const busy = busyId === o.id;
+                const typeLabel = EMPLOYMENT_TYPES.find((t) => t.value === o.employment_type)?.label;
+                return (
+                  <tr key={o.id} className="border-b border-gray-50 hover:bg-gray-50 text-sm align-top">
+                    <td className="px-3 py-3 font-medium text-gray-900 min-w-[10rem] max-w-[260px]">
+                      <div className="flex min-w-0 items-center gap-1.5 break-words" title={o.candidate_id ? "Linked to candidate record" : "Not linked to a candidate — accepting won't start onboarding and the offer can't be emailed"}>
+                        <User className="w-3.5 h-3.5 shrink-0 text-gray-400" />{o.candidate_name || "-"}
+                        {!o.candidate_id && <span className="text-amber-500 text-xs">⚠</span>}
+                      </div>
+                      {o.entity_name && (
+                        <div className="mt-0.5 flex flex-wrap items-center gap-1 break-all text-xs text-gray-400" title={[o.entity_address, o.entity_city, o.entity_region, o.entity_postal_code].filter(Boolean).join(", ")}>
+                          <Building2 className="h-3 w-3 shrink-0" />{o.entity_name}
+                          {o.entity_tax_id && <span className="font-mono">· {(businessFormats?.countries?.[o.entity_country]?.ids?.find((t) => t.key === o.entity_id_type)?.label) || "ID"} {o.entity_tax_id}</span>}
+                        </div>
+                      )}
+                    </td>
+                    <td className="px-3 py-3 text-gray-600 min-w-[8rem] break-words">
+                      {o.position || "-"}
+                      {typeLabel && <div className="text-xs text-gray-400">{typeLabel}</div>}
+                    </td>
+                    <td className="px-3 py-3 whitespace-nowrap">
+                      <div className="flex items-center gap-1.5 font-medium text-gray-900">
+                        <Wallet className="w-3.5 h-3.5 shrink-0 text-green-500" />
+                        {o.salary != null ? <>{formatMoney(o.salary, o.currency || orgCurrency)}<span className="text-xs font-normal text-gray-400">{periodSuffix(o.pay_period)}</span></> : "-"}
+                      </div>
+                      <div className="text-xs text-gray-400">{remunerationLabel(o.remuneration_type)}{o.currency ? ` · ${o.currency}` : ""}</div>
+                    </td>
+                    <td className="hidden md:table-cell px-3 py-3 text-gray-500">{o.equity ? `${o.equity}%` : "-"}</td>
+                    <td className="px-3 py-3"><StatusBadge status={o.status} /></td>
+                    <td className="hidden md:table-cell px-3 py-3 text-xs text-gray-500 whitespace-nowrap"><div className="flex items-center gap-1.5"><Calendar className="w-3 h-3" />{formatDate(o.joining_date)}</div></td>
+                    <td className="hidden md:table-cell px-3 py-3 text-xs text-gray-400 whitespace-nowrap">{formatDate(o.created_at)}</td>
+                    <td className="px-3 py-3 min-w-[10rem]">
+                      <div className="flex flex-wrap items-center justify-end gap-2">
+                        {busy && <Loader2 className="h-4 w-4 animate-spin text-gray-400" />}
+                        {o.status === "draft" && (
+                          <button disabled={busy} title={o.candidate_id ? "Email the offer to the candidate" : "Mark as sent (no linked candidate to email)"}
+                            onClick={() => runAction(o, sendOffer, { ok: (r) => r?.email_sent ? `Offer emailed to ${o.candidate_name}.` : "Offer marked as sent." })}
+                            className="flex items-center gap-1 text-xs font-medium text-blue-600 hover:text-blue-800 disabled:opacity-50">
+                            <Send className="h-3.5 w-3.5" /> Send
+                          </button>
+                        )}
+                        {OPEN_STATUSES.includes(o.status) && (
+                          <>
+                            <button disabled={busy} onClick={() => runAction(o, acceptOffer, { confirm: `Record that ${o.candidate_name} accepted this offer? This marks them hired and starts onboarding.`, ok: "Offer accepted. Onboarding has started." })}
+                              className="flex items-center gap-1 text-xs font-medium text-green-600 hover:text-green-800 disabled:opacity-50"><CheckCircle2 className="h-3.5 w-3.5" /> Accepted</button>
+                            <button disabled={busy} onClick={() => runAction(o, rejectOffer, { confirm: `Record that ${o.candidate_name} declined this offer?`, ok: "Offer marked as declined." })}
+                              className="flex items-center gap-1 text-xs font-medium text-red-600 hover:text-red-800 disabled:opacity-50"><XCircle className="h-3.5 w-3.5" /> Declined</button>
+                          </>
+                        )}
+                        {!CLOSED.includes(o.status) && (
+                          <button disabled={busy} onClick={() => runAction(o, withdrawOffer, { confirm: "Withdraw this offer?", ok: "Offer withdrawn." })}
+                            className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50"><Undo2 className="h-3.5 w-3.5" /> Withdraw</button>
+                        )}
+                        {!CLOSED.includes(o.status) && <button title="Edit" onClick={() => openEdit(o)} className="-m-1 p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>}
+                        <button title="Delete" disabled={busy} onClick={() => runAction(o, deleteOffer, { confirm: "Delete this offer permanently?", ok: "Offer deleted." })} className="-m-1 p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </td>
-                </tr>
-              ))}
+                  </tr>
+                );
+              })}
               {paged.length === 0 && (
                 <tr><td colSpan={8} className="px-3 py-8 text-center text-gray-400">No offers found</td></tr>
               )}
@@ -261,8 +446,8 @@ export default function OfferManagement() {
           </table>
         </div>
 
-        <div className="flex items-center justify-between text-sm">
-          <span className="text-gray-500">{filtered.length} total offer(s)</span>
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+          <span className="text-gray-500">{filtered.length} offer(s)</span>
           <div className="flex items-center gap-2">
             <button disabled={safePage <= 1} onClick={() => setPage(safePage - 1)} className="p-1.5 border border-gray-200 rounded-lg disabled:opacity-30 hover:bg-gray-50"><ChevronLeft className="w-4 h-4" /></button>
             <span className="text-gray-700 font-medium">Page {safePage} of {totalPages}</span>
@@ -272,72 +457,98 @@ export default function OfferManagement() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-xl">
-            <div className="flex justify-between items-center mb-4">
-              <h2 className="text-lg font-semibold">{editItem ? "Edit Offer" : "New Offer"}</h2>
-              <button onClick={() => setShowModal(false)}><X className="w-5 h-5 text-gray-400" /></button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
+          <div className="flex max-h-[92vh] w-full max-w-2xl flex-col rounded-xl bg-white shadow-xl">
+            <div className="flex items-center justify-between gap-2 border-b border-gray-100 px-4 py-3 sm:px-6 sm:py-4">
+              <h2 className="text-lg font-semibold">{editItem ? "Edit offer" : "New offer"}</h2>
+              <button onClick={() => setShowModal(false)} aria-label="Close" className="-m-1.5 p-1.5"><X className="w-5 h-5 text-gray-400" /></button>
             </div>
-            <div className="space-y-3">
+            <div className="min-h-0 space-y-4 overflow-y-auto px-4 py-4 sm:px-6">
               <div>
-                <label className="text-xs text-gray-500 font-medium">Link to Candidate</label>
-                <select value={form.candidate_id} onChange={(e) => handleCandidateSelect(e.target.value)} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                <label className={labelCls}>Link to candidate</label>
+                <select value={form.candidate_id} onChange={(e) => handleCandidateSelect(e.target.value)} className={field}>
                   <option value="">No candidate linked (name only)</option>
-                  {candidates.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.email})</option>)}
+                  {candidates.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.email}){c.location ? ` · ${c.location}` : ""}</option>)}
                 </select>
                 {!form.candidate_id && (
-                  <p className="text-xs text-amber-600 mt-1">Without a linked candidate, accepting this offer won't automatically mark them Hired or start Onboarding.</p>
+                  <p className="text-xs text-amber-600 mt-1">Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding.</p>
                 )}
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Candidate Name</label>
-                  <input value={form.candidate_name} onChange={(e) => setForm({ ...form, candidate_name: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <label className={labelCls}>Candidate name *</label>
+                  <input value={form.candidate_name} onChange={(e) => setForm({ ...form, candidate_name: e.target.value })} className={field} maxLength={150} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Position</label>
-                  <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
+                  <label className={labelCls}>Position *</label>
+                  <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={field} maxLength={150} />
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Salary</label>
-                  <div className="relative">
-                    <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-                    <input type="number" value={form.salary} onChange={(e) => setForm({ ...form, salary: e.target.value })} className="w-full pl-8 pr-3 py-2 border border-gray-200 rounded-lg text-sm" placeholder="100000" />
+                  <label className={labelCls}>Employment type</label>
+                  <select value={form.employment_type} onChange={(e) => setEmploymentType(e.target.value)} className={field}>
+                    {EMPLOYMENT_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Work country (sets the currency)</label>
+                  <CountrySelect regions={regions} value={form.work_country} onChange={(c) => setForm((prev) => setWorkCountry(c, { ...prev, pay: { ...prev.pay, currencyTouched: false } }))} />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 sm:p-4">
+                <RemunerationFields regions={regions} value={form.pay} lockedType={lockedType} currencyHint={currencyHint}
+                  onChange={(pay) => setForm((prev) => ({ ...prev, pay }))} />
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {form.employment_type !== "internship" && (
+                  <div>
+                    <label className={labelCls}>Equity (%)</label>
+                    <input type="number" step="0.01" min="0" max="100" value={form.equity} onChange={(e) => setForm({ ...form, equity: e.target.value })} className={field} placeholder="0.5" />
                   </div>
+                )}
+                <div>
+                  <label className={labelCls}>Start date</label>
+                  <input type="date" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} className={field} />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-500 font-medium">Equity (%)</label>
-                  <input type="number" step="0.1" value={form.equity} onChange={(e) => setForm({ ...form, equity: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" placeholder="0.5" />
-                </div>
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Start Date</label>
-                  <input type="date" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-500 font-medium">Status</label>
-                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm">
+                  <label className={labelCls}>Status</label>
+                  <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })} className={field}>
                     <option value="draft">Draft</option>
-                    <option value="pending">Pending</option>
-                    <option value="approved">Approved</option>
-                    <option value="rejected">Rejected</option>
-                    <option value="accepted">Accepted</option>
-                    <option value="countered">Countered</option>
-                    <option value="withdrawn">Withdrawn</option>
+                    <option value="pending">Sent (awaiting answer)</option>
+                    {editItem && <option value="approved">Approved</option>}
+                    {editItem && <option value="countered">Countered</option>}
                   </select>
                 </div>
               </div>
-              <div>
-                <label className="text-xs text-gray-500 font-medium">Notes</label>
-                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" rows={3} />
+
+              <div className="rounded-xl border border-gray-200">
+                <button type="button" onClick={() => setShowEntity((v) => !v)} className="flex w-full items-center justify-between gap-2 px-4 py-3 text-left text-sm font-medium text-gray-700">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2"><Building2 className="h-4 w-4 shrink-0 text-gray-400" /> Employing / contracting entity
+                    <span className="text-xs font-normal text-gray-400">{form.pay.remuneration_type === "fee" ? "recommended for fee-based work" : "optional"}</span></span>
+                  <ChevronDown className={`h-4 w-4 shrink-0 text-gray-400 transition-transform ${showEntity ? "rotate-180" : ""}`} />
+                </button>
+                {showEntity && (
+                  <div className="border-t border-gray-100 p-3 sm:p-4">
+                    <BusinessLookupFields regions={regions} value={form.entity}
+                      onChange={(entity) => setForm((prev) => ({ ...prev, entity, entityCountryTouched: prev.entityCountryTouched || entity.entity_country !== prev.entity.entity_country }))} />
+                  </div>
+                )}
               </div>
+
+              <div>
+                <label className={labelCls}>Notes</label>
+                <textarea value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} className={field} rows={3} />
+              </div>
+              {formError && <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{formError}</div>}
             </div>
-            <div className="flex justify-end gap-2 mt-6">
+            <div className="flex flex-wrap justify-end gap-2 border-t border-gray-100 px-4 py-3 sm:px-6 sm:py-4">
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button onClick={handleSave} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">{editItem ? "Update" : "Create"}</button>
+              <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
+                {saving && <Loader2 className="h-4 w-4 animate-spin" />}{editItem ? "Update" : "Create"}
+              </button>
             </div>
           </div>
         </div>

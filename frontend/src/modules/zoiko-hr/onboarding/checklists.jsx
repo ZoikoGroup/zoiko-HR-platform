@@ -12,6 +12,8 @@ import {
   deleteOnboardingChecklistAssignment,
   getOnboardingRecords,
 } from "../../../service/hrService";
+import { getEmployees } from "../../../service/employee";
+import { formatDate } from "../../../utils/dateTime";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -56,11 +58,58 @@ const CATEGORY_COLORS = {
   Custom: "bg-amber-100 text-amber-800",
 };
 
+const CHECKLIST_STATUS = {
+  pending: { label: "Pending", cls: "bg-gray-100 text-gray-700" },
+  in_progress: { label: "In progress", cls: "bg-blue-100 text-blue-700" },
+  completed: { label: "Completed", cls: "bg-green-100 text-green-700" },
+};
+
+const INACTIVE_HIRE_STATUSES = ["completed", "cancelled"];
+
+// "Due" in the template editor: a number of days plus a direction, stored as a signed due_offset_days.
+const EMPTY_ITEM = { id: undefined, title: "", description: "", assignee_employee_id: "", offsetDays: "", offsetDir: "after" };
+
+export function offsetToForm(offset) {
+  if (offset === null || offset === undefined || offset === "") return { offsetDays: "", offsetDir: "after" };
+  const n = Number(offset);
+  if (n === 0) return { offsetDays: "", offsetDir: "on" };
+  return { offsetDays: String(Math.abs(n)), offsetDir: n < 0 ? "before" : "after" };
+}
+
+export function formToOffset(item) {
+  if (item.offsetDir === "on") return 0;
+  const raw = String(item.offsetDays ?? "").trim();
+  if (raw === "") return null;
+  const n = Number(raw);
+  return item.offsetDir === "before" ? -n : n;
+}
+
+export function describeOffset(offset) {
+  if (offset === null || offset === undefined) return "";
+  const n = Number(offset);
+  if (n === 0) return "On start day";
+  const days = `${Math.abs(n)} day${Math.abs(n) === 1 ? "" : "s"}`;
+  return n < 0 ? `${days} before start` : `${days} after start`;
+}
+
+function todayIso() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+export function isOverdue(item, today = todayIso()) {
+  return !item.completed && !!item.due_date && String(item.due_date).slice(0, 10) < today;
+}
+
+const employeeName = (e) => e.full_name || [e.first_name, e.last_name].filter(Boolean).join(" ") || e.email || `Employee #${e.id}`;
+
 export default function OnboardingChecklists() {
   const [activeTab, setActiveTab] = useState("HR");
   const [templates, setTemplates] = useState([]);
+  const [allTemplates, setAllTemplates] = useState([]);
   const [assignments, setAssignments] = useState([]);
   const [records, setRecords] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [actionMsg, setActionMsg] = useState({ type: "", text: "" });
@@ -69,18 +118,20 @@ export default function OnboardingChecklists() {
   const [editingTemplate, setEditingTemplate] = useState(null);
   const [formName, setFormName] = useState("");
   const [formDescription, setFormDescription] = useState("");
-  const [formItems, setFormItems] = useState([{ title: "", description: "" }]);
+  const [formItems, setFormItems] = useState([{ ...EMPTY_ITEM }]);
+  const [formError, setFormError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  const [assigningTo, setAssigningTo] = useState(null);
-  const [selectedRecord, setSelectedRecord] = useState("");
+  const [assignHire, setAssignHire] = useState("");
+  const [assignTemplate, setAssignTemplate] = useState("");
   const [assigning, setAssigning] = useState(false);
+  const [busyAssignment, setBusyAssignment] = useState(null);
 
   const [expandedTemplate, setExpandedTemplate] = useState(null);
 
   const showAction = (type, text) => {
     setActionMsg({ type, text });
-    setTimeout(() => setActionMsg({ type: "", text: "" }), 4000);
+    if (type === "success") setTimeout(() => setActionMsg((m) => (m.text === text ? { type: "", text: "" } : m)), 4000);
   };
 
   const fetchTemplates = async () => {
@@ -93,11 +144,21 @@ export default function OnboardingChecklists() {
     }
   };
 
+  const fetchAllTemplates = async () => {
+    try {
+      const data = await getOnboardingChecklistTemplates();
+      setAllTemplates(Array.isArray(data) ? data : []);
+    } catch {
+      setAllTemplates([]);
+    }
+  };
+
   const fetchAssignments = async () => {
     try {
       const data = await getOnboardingChecklistAssignments();
       setAssignments(Array.isArray(data) ? data : []);
-    } catch {
+    } catch (err) {
+      setError(err.message || "Failed to load assigned checklists");
       setAssignments([]);
     }
   };
@@ -111,23 +172,50 @@ export default function OnboardingChecklists() {
     }
   };
 
-  const fetchAll = async () => {
-    setLoading(true);
-    setError(null);
-    await Promise.all([fetchTemplates(), fetchAssignments(), fetchRecords()]);
-    setLoading(false);
+  const fetchEmployees = async () => {
+    try {
+      const data = await getEmployees({ per_page: 200, include_all_roles: true, status: "active" });
+      setEmployees(Array.isArray(data?.items) ? data.items : Array.isArray(data) ? data : []);
+    } catch {
+      setEmployees([]);
+    }
   };
 
   useEffect(() => {
-    fetchAll();
+    (async () => {
+      setLoading(true);
+      await Promise.all([fetchTemplates(), fetchAllTemplates(), fetchAssignments(), fetchRecords(), fetchEmployees()]);
+      setLoading(false);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (!loading) fetchTemplates();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  const refreshTemplates = () => Promise.all([fetchTemplates(), fetchAllTemplates()]);
+
+  const activeHires = records.filter((r) => !INACTIVE_HIRE_STATUSES.includes(r.status));
+
+  function getRecordName(recordId) {
+    const rec = records.find((r) => r.id === recordId || r.id === Number(recordId));
+    return rec ? rec.candidate_name || rec.name || `New hire #${recordId}` : `New hire #${recordId}`;
+  }
+
+  const employeeLabel = (id) => {
+    const e = employees.find((x) => x.id === Number(id));
+    return e ? employeeName(e) : "";
+  };
 
   const resetForm = () => {
     setShowForm(false);
     setEditingTemplate(null);
     setFormName("");
     setFormDescription("");
-    setFormItems([{ title: "", description: "" }]);
+    setFormItems([{ ...EMPTY_ITEM }]);
+    setFormError("");
   };
 
   const handleEdit = (template) => {
@@ -136,53 +224,72 @@ export default function OnboardingChecklists() {
     setFormDescription(template.description || "");
     setFormItems(
       template.items && template.items.length > 0
-        ? template.items.map((i) => ({ title: i.title || "", description: i.description || "" }))
-        : [{ title: "", description: "" }]
+        ? template.items.map((i) => ({
+            id: i.id,
+            title: i.title || "",
+            description: i.description || "",
+            assignee_employee_id: i.assignee_employee_id ? String(i.assignee_employee_id) : "",
+            ...offsetToForm(i.due_offset_days),
+          }))
+        : [{ ...EMPTY_ITEM }]
     );
+    setFormError("");
     setShowForm(true);
   };
 
-  const handleAddItem = () => {
-    setFormItems((prev) => [...prev, { title: "", description: "" }]);
-  };
-
-  const handleRemoveItem = (idx) => {
-    setFormItems((prev) => prev.filter((_, i) => i !== idx));
-  };
-
+  const handleAddItem = () => setFormItems((prev) => [...prev, { ...EMPTY_ITEM }]);
+  const handleRemoveItem = (idx) => setFormItems((prev) => prev.filter((_, i) => i !== idx));
   const handleItemChange = (idx, field, value) => {
+    setFormError("");
     setFormItems((prev) => prev.map((item, i) => (i === idx ? { ...item, [field]: value } : item)));
   };
 
   const handleSave = async () => {
-    if (!formName.trim()) {
-      showAction("error", "Template name is required");
-      return;
-    }
+    if (!formName.trim()) { setFormError("Template name is required."); return; }
     const validItems = formItems.filter((i) => i.title.trim());
-    if (validItems.length === 0) {
-      showAction("error", "At least one checklist item is required");
-      return;
+    if (validItems.length === 0) { setFormError("Add at least one checklist item."); return; }
+    for (const item of validItems) {
+      if (item.offsetDir === "on") continue;
+      const raw = String(item.offsetDays ?? "").trim();
+      if (raw === "") continue;
+      const n = Number(raw);
+      if (!Number.isInteger(n) || n < 0 || n > 365) {
+        setFormError(`"${item.title.trim()}": the due offset must be a whole number of days between 0 and 365.`);
+        return;
+      }
     }
     setSaving(true);
     try {
+      const items = validItems.map((i) => {
+        const out = {
+          title: i.title.trim(),
+          description: i.description.trim() || null,
+          due_offset_days: formToOffset(i),
+          assignee_employee_id: i.assignee_employee_id ? Number(i.assignee_employee_id) : null,
+        };
+        if (editingTemplate) {
+          if (i.id) out.id = i.id;
+          out.completed = false;
+        }
+        return out;
+      });
       const payload = {
         name: formName.trim(),
         description: formDescription.trim(),
-        category: activeTab,
-        items: validItems,
+        category: editingTemplate?.category || activeTab,
+        items,
       };
       if (editingTemplate) {
         await updateOnboardingChecklistTemplate(editingTemplate.id, payload);
-        showAction("success", "Template updated successfully");
+        showAction("success", "Template updated.");
       } else {
         await createOnboardingChecklistTemplate(payload);
-        showAction("success", "Template created successfully");
+        showAction("success", "Template created.");
       }
       resetForm();
-      await fetchTemplates();
+      await refreshTemplates();
     } catch (err) {
-      showAction("error", err.message || "Failed to save template");
+      setFormError(err.message || "Failed to save template");
     } finally {
       setSaving(false);
     }
@@ -192,24 +299,24 @@ export default function OnboardingChecklists() {
     if (!window.confirm("Are you sure you want to delete this template?")) return;
     try {
       await deleteOnboardingChecklistTemplate(templateId);
-      showAction("success", "Template deleted");
-      await fetchTemplates();
+      showAction("success", "Template deleted.");
+      await refreshTemplates();
     } catch (err) {
       showAction("error", err.message || "Failed to delete template");
     }
   };
 
   const handleAssign = async () => {
-    if (!selectedRecord || !assigningTo) return;
+    if (!assignHire || !assignTemplate) return;
     setAssigning(true);
     try {
       await createOnboardingChecklistAssignment({
-        onboarding_record_id: Number(selectedRecord),
-        template_id: assigningTo,
+        onboarding_record_id: Number(assignHire),
+        template_id: Number(assignTemplate),
       });
-      showAction("success", "Checklist assigned successfully");
-      setAssigningTo(null);
-      setSelectedRecord("");
+      const tpl = allTemplates.find((t) => String(t.id) === String(assignTemplate));
+      showAction("success", `${tpl?.name || "Checklist"} assigned to ${getRecordName(Number(assignHire))}. Task owners have been emailed.`);
+      setAssignTemplate("");
       await fetchAssignments();
     } catch (err) {
       showAction("error", err.message || "Failed to assign checklist");
@@ -218,59 +325,59 @@ export default function OnboardingChecklists() {
     }
   };
 
-  const handleUnassign = async (assignmentId) => {
+  const handleUnassign = async (assignment) => {
+    if (!window.confirm(`Remove "${assignment.name}" from ${getRecordName(assignment.onboarding_new_hire_id)}?`)) return;
     try {
-      await deleteOnboardingChecklistAssignment(assignmentId);
-      showAction("success", "Assignment removed");
+      await deleteOnboardingChecklistAssignment(assignment.id);
+      showAction("success", "Checklist removed.");
       await fetchAssignments();
     } catch (err) {
-      showAction("error", err.message || "Failed to remove assignment");
+      showAction("error", err.message || "Failed to remove checklist");
     }
   };
 
-  const handleToggleItem = async (assignment, itemIdx) => {
-    const updatedItems = [...(assignment.items || [])];
-    updatedItems[itemIdx] = {
-      ...updatedItems[itemIdx],
-      completed: !updatedItems[itemIdx]?.completed,
-    };
+  // The server updates items by id, so every item goes back with its id each time.
+  const handleToggleItem = async (assignment, itemId) => {
+    const items = (assignment.items || []).map((i) => ({
+      id: i.id,
+      title: i.title,
+      description: i.description ?? null,
+      completed: i.id === itemId ? !i.completed : !!i.completed,
+      due_offset_days: i.due_offset_days ?? null,
+      assignee_employee_id: i.assignee_employee_id ?? null,
+      due_date: i.due_date ?? null,
+    }));
+    setBusyAssignment(assignment.id);
     try {
-      await updateOnboardingChecklistAssignment(assignment.id, { items: updatedItems });
-      await fetchAssignments();
+      const updated = await updateOnboardingChecklistAssignment(assignment.id, { items });
+      if (updated && updated.id) {
+        setAssignments((prev) => prev.map((a) => (a.id === updated.id ? updated : a)));
+      } else {
+        await fetchAssignments();
+      }
     } catch (err) {
       showAction("error", err.message || "Failed to update item");
+    } finally {
+      setBusyAssignment(null);
     }
   };
 
-  const getAssignmentsForTemplate = (templateId) => {
-    return assignments.filter((a) => a.template_id === templateId || a.templateId === templateId);
-  };
+  const getAssignmentsForTemplate = (templateId) => assignments.filter((a) => a.template_id === templateId);
 
-  const getRecordName = (recordId) => {
-    const rec = records.find((r) => r.id === recordId || r.id === Number(recordId));
-    return rec ? rec.candidate_name || rec.name || `Record #${recordId}` : `Record #${recordId}`;
-  };
+  // Assigned checklists grouped by new hire
+  const byHire = assignments.reduce((acc, a) => {
+    const key = a.onboarding_new_hire_id ?? "none";
+    (acc[key] = acc[key] || []).push(a);
+    return acc;
+  }, {});
+  const hireIds = Object.keys(byHire);
 
-  const calcProgress = (templateId) => {
-    const tAssignments = getAssignmentsForTemplate(templateId);
-    if (tAssignments.length === 0) return { total: 0, done: 0, pct: 0 };
-    let totalItems = 0;
-    let doneItems = 0;
-    tAssignments.forEach((a) => {
-      const items = a.items || [];
-      totalItems += items.length;
-      doneItems += items.filter((i) => i.completed).length;
-    });
-    return {
-      total: totalItems,
-      done: doneItems,
-      pct: totalItems > 0 ? Math.round((doneItems / totalItems) * 100) : 0,
-    };
-  };
+  const templateAlreadyAssigned = (tplId) =>
+    !!assignHire && assignments.some((a) => a.template_id === tplId && String(a.onboarding_new_hire_id) === String(assignHire));
 
-  if (loading && templates.length === 0) {
+  if (loading && templates.length === 0 && assignments.length === 0) {
     return (
-      <HRPage title="Onboarding Checklists" subtitle="Create and manage HR, IT, Manager, and Custom checklist templates.">
+      <HRPage title="Onboarding Checklists" subtitle="Create checklist templates and track each new hire's onboarding tasks.">
         <OnboardingSubNav />
         <div className="flex justify-center items-center py-20">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -281,32 +388,160 @@ export default function OnboardingChecklists() {
   }
 
   return (
-    <HRPage title="Onboarding Checklists" subtitle="Create and manage HR, IT, Manager, and Custom checklist templates.">
+    <HRPage title="Onboarding Checklists" subtitle="Create checklist templates and track each new hire's onboarding tasks.">
       <OnboardingSubNav />
 
       {error && (
-        <div className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-center">
-          <span>{error}</span>
-          <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
+        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-start gap-3">
+          <span className="min-w-0 break-words">{error}</span>
+          <button onClick={() => setError(null)} aria-label="Dismiss" className="text-red-500 hover:text-red-700 font-bold p-1.5 -m-1.5 shrink-0">&times;</button>
         </div>
       )}
 
       {actionMsg.text && (
-        <div className={`mb-4 px-4 py-3 rounded-lg flex justify-between items-center ${
-          actionMsg.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"
-        }`}>
-          <span>{actionMsg.text}</span>
-          <button onClick={() => setActionMsg({ type: "", text: "" })} className="font-bold">&times;</button>
+        <div
+          role={actionMsg.type === "error" ? "alert" : "status"}
+          className={`mb-4 px-4 py-3 rounded-lg flex justify-between items-start gap-3 ${
+            actionMsg.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"
+          }`}
+        >
+          <span className="min-w-0 break-words">{actionMsg.text}</span>
+          <button onClick={() => setActionMsg({ type: "", text: "" })} aria-label="Dismiss" className="font-bold p-1.5 -m-1.5 shrink-0">&times;</button>
         </div>
       )}
 
-      {/* Category Tabs */}
-      <div className="flex gap-1 border-b border-gray-200 mb-6">
+      {/* ── New hire checklists ── */}
+      <section className="mb-10">
+        <h2 className="text-base font-bold text-gray-800 mb-3">New hire checklists</h2>
+        <div className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 mb-4 flex flex-wrap items-end gap-3">
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0 sm:min-w-[200px]">
+            <label htmlFor="assign-hire" className="block text-xs font-medium text-gray-600 mb-1">New hire</label>
+            <select
+              id="assign-hire"
+              value={assignHire}
+              onChange={(e) => setAssignHire(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Choose a new hire...</option>
+              {activeHires.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.candidate_name || r.name || `New hire #${r.id}`}
+                  {r.joining_date ? ` (joins ${formatDate(r.joining_date)})` : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="w-full sm:w-auto sm:flex-1 min-w-0 sm:min-w-[200px]">
+            <label htmlFor="assign-template" className="block text-xs font-medium text-gray-600 mb-1">Checklist template</label>
+            <select
+              id="assign-template"
+              value={assignTemplate}
+              onChange={(e) => setAssignTemplate(e.target.value)}
+              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">Choose a template...</option>
+              {allTemplates.map((t) => (
+                <option key={t.id} value={t.id} disabled={templateAlreadyAssigned(t.id)}>
+                  {t.name} ({t.category}){templateAlreadyAssigned(t.id) ? " - already assigned" : ""}
+                </option>
+              ))}
+            </select>
+          </div>
+          <button
+            onClick={handleAssign}
+            disabled={assigning || !assignHire || !assignTemplate}
+            className="w-full sm:w-auto bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm px-4 py-2 rounded-lg font-medium transition-colors"
+          >
+            {assigning ? "Assigning..." : "Assign checklist"}
+          </button>
+          {activeHires.length === 0 && (
+            <p className="w-full text-xs text-gray-400">There are no active new hires. Completed or cancelled hires cannot be given checklists.</p>
+          )}
+        </div>
+
+        {hireIds.length === 0 ? (
+          <div className="text-center py-10 bg-white rounded-xl border border-gray-100 shadow-sm">
+            <p className="text-gray-500 font-medium">No checklists have been assigned yet.</p>
+            <p className="text-gray-400 text-sm mt-1">Choose a new hire and a template above.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {hireIds.map((hid) => (
+              <div key={hid} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-3 sm:px-5 py-3 border-b border-gray-100 bg-gray-50/60">
+                  <h3 className="text-sm font-bold text-gray-800 break-words">{hid === "none" ? "Unlinked" : getRecordName(Number(hid))}</h3>
+                </div>
+                <div className="divide-y divide-gray-50">
+                  {byHire[hid].map((assn) => {
+                    const items = assn.items || [];
+                    const done = items.filter((i) => i.completed).length;
+                    const pct = items.length ? Math.round((done / items.length) * 100) : 0;
+                    const st = CHECKLIST_STATUS[assn.status] || { label: assn.status || "Pending", cls: "bg-gray-100 text-gray-700" };
+                    return (
+                      <div key={assn.id} className="px-3 sm:px-5 py-4" data-testid={`assignment-${assn.id}`}>
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <div className="flex flex-wrap items-center gap-2 min-w-0">
+                            <span className="text-sm font-semibold text-gray-800 truncate min-w-0 max-w-full">{assn.name}</span>
+                            {assn.category && (
+                              <span className={`whitespace-nowrap text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_COLORS[assn.category] || "bg-gray-100 text-gray-800"}`}>
+                                {assn.category}
+                              </span>
+                            )}
+                            <span className={`whitespace-nowrap text-xs font-medium px-2 py-0.5 rounded-full ${st.cls}`}>{st.label}</span>
+                          </div>
+                          <div className="flex flex-wrap items-center gap-3">
+                            <span className="flex items-center gap-2 text-xs text-gray-500 whitespace-nowrap">
+                              <span className="inline-block w-20 sm:w-24 shrink-0 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+                                <span className={`block h-full rounded-full ${pct === 100 ? "bg-green-500" : "bg-blue-500"}`} style={{ width: `${pct}%` }} />
+                              </span>
+                              {done}/{items.length} done
+                            </span>
+                            <button onClick={() => handleUnassign(assn)} className="text-red-400 hover:text-red-600 text-xs py-1.5">Remove</button>
+                          </div>
+                        </div>
+                        {items.length === 0 ? (
+                          <p className="text-xs text-gray-400">This checklist has no items.</p>
+                        ) : (
+                          <ul className="space-y-1">
+                            {items.map((item) => (
+                              <li key={item.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm hover:bg-gray-50 rounded px-1 py-1">
+                                <label className="flex items-center gap-2 cursor-pointer flex-1 basis-full sm:basis-auto min-w-0 sm:min-w-[180px]">
+                                  <input
+                                    type="checkbox"
+                                    checked={!!item.completed}
+                                    disabled={busyAssignment === assn.id}
+                                    onChange={() => handleToggleItem(assn, item.id)}
+                                    className="rounded border-gray-300"
+                                  />
+                                  <span className={`min-w-0 break-words ${item.completed ? "line-through text-gray-400" : "text-gray-700"}`}>{item.title}</span>
+                                </label>
+                                <span className="text-xs text-gray-500 break-words">{item.assignee_name || employeeLabel(item.assignee_employee_id) || "No owner"}</span>
+                                <span className="text-xs text-gray-500">{item.due_date ? `Due ${formatDate(item.due_date)}` : "No due date"}</span>
+                                {isOverdue(item) && (
+                                  <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700">Overdue</span>
+                                )}
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
+      {/* ── Templates ── */}
+      <h2 className="text-base font-bold text-gray-800 mb-3">Checklist templates</h2>
+      <div className="flex gap-1 overflow-x-auto border-b border-gray-200 mb-6">
         {CATEGORIES.map((cat) => (
           <button
             key={cat}
             onClick={() => setActiveTab(cat)}
-            className={`px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
+            className={`whitespace-nowrap px-4 py-2 text-sm font-medium rounded-t-lg transition-colors ${
               activeTab === cat
                 ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50"
                 : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
@@ -317,8 +552,7 @@ export default function OnboardingChecklists() {
         ))}
       </div>
 
-      {/* Header Actions */}
-      <div className="flex justify-between items-center mb-4">
+      <div className="flex flex-wrap justify-between items-center gap-2 mb-4">
         <p className="text-sm text-gray-500">
           {templates.length} template{templates.length !== 1 ? "s" : ""} in {activeTab}
         </p>
@@ -332,28 +566,30 @@ export default function OnboardingChecklists() {
 
       {/* Create/Edit Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={resetForm}>
-          <div className="bg-white rounded-xl shadow-xl max-w-2xl w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-gray-800">
-                {editingTemplate ? "Edit Template" : "New Template"}
-              </h3>
-              <button onClick={resetForm} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-3 sm:p-4" onClick={resetForm}>
+          <div className="bg-white rounded-xl shadow-xl max-w-3xl w-full max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="px-4 sm:px-6 py-4 border-b border-gray-100 flex justify-between items-center gap-3">
+              <h3 className="text-lg font-bold text-gray-800 min-w-0 break-words">{editingTemplate ? "Edit Template" : `New ${activeTab} Template`}</h3>
+              <button onClick={resetForm} className="text-gray-400 hover:text-gray-600 text-xl leading-none p-1.5 -m-1.5 shrink-0">&times;</button>
             </div>
-            <div className="px-6 py-4 space-y-4">
+            <div className="px-4 sm:px-6 py-4 space-y-4">
+              {formError && <div role="alert" className="text-red-600 text-sm bg-red-50 border border-red-200 p-2 rounded">{formError}</div>}
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Template Name</label>
+                <label htmlFor="tpl-name" className="block text-sm font-medium text-gray-600 mb-1">Template Name</label>
                 <input
+                  id="tpl-name"
                   type="text"
                   value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
+                  maxLength={200}
+                  onChange={(e) => { setFormName(e.target.value); setFormError(""); }}
                   placeholder="e.g. New Hire IT Setup"
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-600 mb-1">Description</label>
+                <label htmlFor="tpl-desc" className="block text-sm font-medium text-gray-600 mb-1">Description</label>
                 <textarea
+                  id="tpl-desc"
                   value={formDescription}
                   onChange={(e) => setFormDescription(e.target.value)}
                   placeholder="Brief description of this checklist..."
@@ -362,102 +598,87 @@ export default function OnboardingChecklists() {
                 />
               </div>
               <div>
-                <div className="flex justify-between items-center mb-1">
+                <div className="flex flex-wrap justify-between items-center gap-2 mb-1">
                   <label className="block text-sm font-medium text-gray-600">Checklist Items</label>
-                  <button
-                    onClick={handleAddItem}
-                    className="text-blue-600 hover:text-blue-800 text-xs font-medium"
-                  >
-                    + Add Item
-                  </button>
+                  <button onClick={handleAddItem} className="text-blue-600 hover:text-blue-800 text-xs font-medium py-1.5">+ Add Item</button>
                 </div>
-                <div className="space-y-2">
+                <p className="text-xs text-gray-400 mb-2">
+                  Due dates are worked out from each new hire's joining date when the checklist is assigned. Owners are emailed their tasks.
+                </p>
+                <div className="space-y-3">
                   {formItems.map((item, idx) => (
-                    <div key={idx} className="flex gap-2 items-start">
-                      <div className="flex-1 space-y-1">
+                    <div key={item.id ?? `new-${idx}`} className="border border-gray-100 rounded-lg p-2 sm:p-3 flex gap-2 items-start" data-testid="template-item">
+                      <div className="flex-1 min-w-0 grid grid-cols-1 sm:grid-cols-2 gap-2">
                         <input
                           type="text"
+                          aria-label="Item title"
                           value={item.title}
+                          maxLength={200}
                           onChange={(e) => handleItemChange(idx, "title", e.target.value)}
                           placeholder="Item title"
                           className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
+                        <select
+                          aria-label="Owner"
+                          value={item.assignee_employee_id}
+                          onChange={(e) => handleItemChange(idx, "assignee_employee_id", e.target.value)}
+                          className="w-full border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">No owner</option>
+                          {employees.map((e) => (
+                            <option key={e.id} value={String(e.id)}>{employeeName(e)}</option>
+                          ))}
+                        </select>
                         <input
                           type="text"
+                          aria-label="Item description"
                           value={item.description}
                           onChange={(e) => handleItemChange(idx, "description", e.target.value)}
                           placeholder="Optional description"
                           className="w-full border border-gray-200 rounded px-2 py-1 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                         />
+                        <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-xs text-gray-500 shrink-0">Due</span>
+                          <input
+                            type="number"
+                            aria-label="Due offset days"
+                            min={0}
+                            max={365}
+                            step={1}
+                            value={item.offsetDir === "on" ? "" : item.offsetDays}
+                            disabled={item.offsetDir === "on"}
+                            onChange={(e) => handleItemChange(idx, "offsetDays", e.target.value)}
+                            placeholder="-"
+                            className="w-16 shrink-0 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-50"
+                          />
+                          <select
+                            aria-label="Due direction"
+                            value={item.offsetDir}
+                            onChange={(e) => handleItemChange(idx, "offsetDir", e.target.value)}
+                            className="flex-1 min-w-0 border border-gray-200 rounded px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          >
+                            <option value="before">days before start</option>
+                            <option value="on">on start day</option>
+                            <option value="after">days after start</option>
+                          </select>
+                        </div>
                       </div>
                       {formItems.length > 1 && (
-                        <button
-                          onClick={() => handleRemoveItem(idx)}
-                          className="text-red-400 hover:text-red-600 text-sm px-1 py-1 mt-1"
-                        >
-                          &times;
-                        </button>
+                        <button onClick={() => handleRemoveItem(idx)} aria-label="Remove item" className="text-red-400 hover:text-red-600 text-sm p-1.5 shrink-0">&times;</button>
                       )}
                     </div>
                   ))}
                 </div>
               </div>
             </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                onClick={resetForm}
-                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg"
-              >
-                Cancel
-              </button>
+            <div className="px-4 sm:px-6 py-4 border-t border-gray-100 flex flex-wrap justify-end gap-2">
+              <button onClick={resetForm} className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg">Cancel</button>
               <button
                 onClick={handleSave}
                 disabled={saving}
                 className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 text-sm font-medium rounded-lg transition-colors"
               >
                 {saving ? "Saving..." : editingTemplate ? "Update Template" : "Create Template"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Assign Modal */}
-      {assigningTo && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setAssigningTo(null)}>
-          <div className="bg-white rounded-xl shadow-xl max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center">
-              <h3 className="text-lg font-bold text-gray-800">Assign Checklist</h3>
-              <button onClick={() => setAssigningTo(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
-            </div>
-            <div className="px-6 py-4 space-y-3">
-              <p className="text-sm text-gray-600">Select an onboarding record to assign this checklist to:</p>
-              <select
-                value={selectedRecord}
-                onChange={(e) => setSelectedRecord(e.target.value)}
-                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-              >
-                <option value="">Choose a record...</option>
-                {records.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.candidate_name || r.name || `Record #${r.id}`} {r.email ? `(${r.email})` : ""}
-                  </option>
-                ))}
-              </select>
-            </div>
-            <div className="px-6 py-4 border-t border-gray-100 flex justify-end gap-2">
-              <button
-                onClick={() => setAssigningTo(null)}
-                className="px-4 py-2 text-sm font-medium text-gray-600 hover:text-gray-800 border border-gray-200 rounded-lg"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleAssign}
-                disabled={assigning || !selectedRecord}
-                className="bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white px-4 py-2 text-sm font-medium rounded-lg transition-colors"
-              >
-                {assigning ? "Assigning..." : "Assign"}
               </button>
             </div>
           </div>
@@ -473,146 +694,61 @@ export default function OnboardingChecklists() {
       ) : (
         <div className="space-y-4">
           {templates.map((tpl) => {
-            const tplId = tpl.id || tpl._id;
+            const tplId = tpl.id;
             const tplAssignments = getAssignmentsForTemplate(tplId);
-            const progress = calcProgress(tplId);
             const isExpanded = expandedTemplate === tplId;
-
+            const tplItems = tpl.items || [];
             return (
               <div key={tplId} className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
-                <div className="px-5 py-4 flex flex-wrap items-center justify-between gap-3">
+                <div className="px-3 sm:px-5 py-4 flex flex-wrap items-center justify-between gap-3">
                   <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <h3 className="text-base font-bold text-gray-800 truncate">{tpl.name}</h3>
-                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_COLORS[tpl.category] || "bg-gray-100 text-gray-800"}`}>
+                    <div className="flex items-center gap-2 min-w-0">
+                      <h3 className="text-base font-bold text-gray-800 truncate min-w-0">{tpl.name}</h3>
+                      <span className={`shrink-0 whitespace-nowrap text-xs font-medium px-2 py-0.5 rounded-full ${CATEGORY_COLORS[tpl.category] || "bg-gray-100 text-gray-800"}`}>
                         {tpl.category || activeTab}
                       </span>
                     </div>
-                    {tpl.description && (
-                      <p className="text-sm text-gray-500 mt-0.5 truncate">{tpl.description}</p>
-                    )}
-                    <div className="flex items-center gap-4 mt-1.5 text-xs text-gray-400">
-                      <span>{(tpl.items || []).length} item{(tpl.items || []).length !== 1 ? "s" : ""}</span>
-                      <span>{tplAssignments.length} assignment{tplAssignments.length !== 1 ? "s" : ""}</span>
-                      {progress.total > 0 && (
-                        <span className="flex items-center gap-1">
-                          <span className={`inline-block w-16 h-1.5 rounded-full bg-gray-200 overflow-hidden`}>
-                            <span
-                              className={`block h-full rounded-full ${
-                                progress.pct === 100 ? "bg-green-500" : "bg-blue-500"
-                              }`}
-                              style={{ width: `${progress.pct}%` }}
-                            />
-                          </span>
-                          {progress.done}/{progress.total} ({progress.pct}%)
-                        </span>
-                      )}
+                    {tpl.description && <p className="text-sm text-gray-500 mt-0.5 truncate">{tpl.description}</p>}
+                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-1.5 text-xs text-gray-400">
+                      <span>{tplItems.length} item{tplItems.length !== 1 ? "s" : ""}</span>
+                      <span>Assigned to {tplAssignments.length} new hire{tplAssignments.length !== 1 ? "s" : ""}</span>
                     </div>
                   </div>
-                  <div className="flex items-center gap-1">
-                    <button
-                      onClick={() => setAssigningTo(tplId)}
-                      className="text-blue-600 hover:text-blue-800 text-xs font-medium px-2 py-1"
-                    >
-                      Assign
-                    </button>
-                    <button
-                      onClick={() => handleEdit(tpl)}
-                      className="text-gray-500 hover:text-gray-700 text-xs px-2 py-1"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={() => handleDelete(tplId)}
-                      className="text-red-400 hover:text-red-600 text-xs px-2 py-1"
-                    >
-                      Delete
-                    </button>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <button onClick={() => setAssignTemplate(String(tplId))} className="text-blue-600 hover:text-blue-800 text-xs font-medium px-2 py-1.5">Assign</button>
+                    <button onClick={() => handleEdit(tpl)} className="text-gray-500 hover:text-gray-700 text-xs px-2 py-1.5">Edit</button>
+                    <button onClick={() => handleDelete(tplId)} className="text-red-400 hover:text-red-600 text-xs px-2 py-1.5">Delete</button>
                     <button
                       onClick={() => setExpandedTemplate(isExpanded ? null : tplId)}
-                      className="text-gray-400 hover:text-gray-600 text-xs px-2 py-1"
+                      aria-label={isExpanded ? "Collapse" : "Expand"}
+                      className="text-gray-400 hover:text-gray-600 text-xs p-1.5 sm:px-2"
                     >
-                      {isExpanded ? "\u25BC" : "\u25B6"}
+                      {isExpanded ? "▼" : "▶"}
                     </button>
                   </div>
                 </div>
 
                 {isExpanded && (
-                  <div className="border-t border-gray-100 divide-y divide-gray-50">
-                    {/* Template Items */}
-                    <div className="px-5 py-4">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2">Template Items</h4>
-                      {(tpl.items || []).length === 0 ? (
-                        <p className="text-xs text-gray-400">No items defined.</p>
-                      ) : (
-                        <ul className="space-y-1">
-                          {tpl.items.map((item, idx) => (
-                            <li key={idx} className="flex items-start gap-2 text-sm text-gray-700">
-                              <span className="text-gray-300 mt-0.5">&#8226;</span>
-                              <div>
-                                <span>{item.title}</span>
-                                {item.description && (
-                                  <p className="text-xs text-gray-400">{item.description}</p>
-                                )}
-                              </div>
-                            </li>
-                          ))}
-                        </ul>
-                      )}
-                    </div>
-
-                    {/* Assignments with Progress */}
-                    <div className="px-5 py-4">
-                      <h4 className="text-sm font-semibold text-gray-700 mb-2">Assignments</h4>
-                      {tplAssignments.length === 0 ? (
-                        <p className="text-xs text-gray-400">Not yet assigned to any onboarding record.</p>
-                      ) : (
-                        <div className="space-y-3">
-                          {tplAssignments.map((assn) => {
-                            const assnItems = assn.items || [];
-                            const doneCount = assnItems.filter((i) => i.completed).length;
-                            return (
-                              <div key={assn.id} className="bg-gray-50 rounded-lg p-3">
-                                <div className="flex justify-between items-center mb-2">
-                                  <span className="text-sm font-medium text-gray-800">
-                                    {getRecordName(assn.onboarding_new_hire_id)}
-                                  </span>
-                                  <div className="flex items-center gap-2">
-                                    <span className="text-xs text-gray-400">
-                                      {doneCount}/{assnItems.length} done
-                                    </span>
-                                    <button
-                                      onClick={() => handleUnassign(assn.id)}
-                                      className="text-red-400 hover:text-red-600 text-xs"
-                                    >
-                                      Remove
-                                    </button>
-                                  </div>
-                                </div>
-                                <div className="space-y-1">
-                                  {assnItems.map((item, idx) => (
-                                    <label
-                                      key={idx}
-                                      className="flex items-center gap-2 text-sm cursor-pointer hover:bg-white rounded px-1 py-0.5"
-                                    >
-                                      <input
-                                        type="checkbox"
-                                        checked={!!item.completed}
-                                        onChange={() => handleToggleItem(assn, idx)}
-                                        className="rounded border-gray-300"
-                                      />
-                                      <span className={item.completed ? "line-through text-gray-400" : "text-gray-700"}>
-                                        {item.title}
-                                      </span>
-                                    </label>
-                                  ))}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
+                  <div className="border-t border-gray-100 px-3 sm:px-5 py-4">
+                    <h4 className="text-sm font-semibold text-gray-700 mb-2">Template Items</h4>
+                    {tplItems.length === 0 ? (
+                      <p className="text-xs text-gray-400">No items defined.</p>
+                    ) : (
+                      <ul className="space-y-1">
+                        {tplItems.map((item) => (
+                          <li key={item.id} className="flex items-start gap-2 text-sm text-gray-700">
+                            <span className="text-gray-300 mt-0.5">&#8226;</span>
+                            <div className="min-w-0 break-words">
+                              <span>{item.title}</span>
+                              <span className="text-xs text-gray-400 ml-2">
+                                {[item.assignee_name || employeeLabel(item.assignee_employee_id), describeOffset(item.due_offset_days)].filter(Boolean).join(" · ")}
+                              </span>
+                              {item.description && <p className="text-xs text-gray-400">{item.description}</p>}
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
                 )}
               </div>
