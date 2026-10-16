@@ -9,6 +9,7 @@ are all resolved in Postgres before any vector comparison runs.
 
 import datetime
 
+from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
 from app.modules.assistant import embeddings
@@ -41,7 +42,15 @@ def retrieve(
     top_k: int = TOP_K,
 ) -> list[dict]:
     """Return up to top_k eligible fragments ranked by cosine similarity.
-    Each result: fragment_id, source_id, source_version_id, source_title, text, score."""
+    Each result: fragment_id, source_id, source_version_id, source_title, text, score.
+
+    Evidence comes from the caller's own tenant, plus any platform-public
+    content (KnowledgeSource.is_public == True) — the product/company FAQ that
+    is already served to anonymous visitors on zoikohr.com, so a signed-in
+    employee asking "what does Zoiko HR do?" is answered from the same
+    approved source instead of dead-ending on their tenant's empty KB.
+    Public content is global by design; this does NOT widen access to any
+    other tenant's private content."""
     query_vector = embeddings.embed_text(query_text)
     today = datetime.date.today()
 
@@ -50,7 +59,10 @@ def retrieve(
         .join(KnowledgeSource, KnowledgeSource.id == KnowledgeSourceVersion.knowledge_source_id)
         .outerjoin(KnowledgeApplicability,
                    KnowledgeApplicability.knowledge_source_version_id == KnowledgeSourceVersion.id)
-        .filter(KnowledgeSource.organization_id == organization_id)
+        .filter(or_(
+            KnowledgeSource.organization_id == organization_id,
+            KnowledgeSource.is_public.is_(True),
+        ))
         .filter(KnowledgeSource.status == KnowledgeStatus.PUBLISHED)
         .filter(
             (KnowledgeApplicability.worker_type.is_(None)) | (KnowledgeApplicability.worker_type == worker_type)
@@ -89,7 +101,13 @@ def retrieve(
     )
 
     source_titles = {
-        s.id: s.title for s in db.query(KnowledgeSource).filter(KnowledgeSource.organization_id == organization_id).all()
+        s.id: s.title
+        for s in db.query(KnowledgeSource)
+        .filter(or_(
+            KnowledgeSource.organization_id == organization_id,
+            KnowledgeSource.is_public.is_(True),
+        ))
+        .all()
     }
 
     results = []

@@ -114,7 +114,13 @@ _HEADCOUNT_RE = re.compile(
     re.IGNORECASE,
 )
 _DEPT_DIRECTORY_RE = re.compile(
-    r"\bwho(?:'s)?\s+(is|are|works?)\b|\bwho(?:'s)\b|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b"
+    # "who is/are" only counts as a directory lookup with a department
+    # preposition ("who is in Sales"); bare "who is X" / "who's X" must NOT be
+    # captured, or product questions ("who is zoiko hr built for") get read as
+    # a department literally named "zoiko hr built for".
+    r"\bwho(?:'s| is| are)\s+(?:in|on|from|part\s+of|a\s+part\s+of)\b"
+    r"|\bwho\s+works?\s+(?:in|on|for|at)\b"
+    r"|\bmembers?\s+of\b|\blist\s+employees?\s+in\b|\bpeople\s+in\b"
     r"|\blist\s+(?:of\s+)?(?:employees?|people|staff|members?|managers?|team)\b"
     r"|\bshow\s+me\s+the\s+(?:list\s+of\s+)?(?:employees?|people|staff|members?|managers?|team)\b",
     re.IGNORECASE,
@@ -128,6 +134,72 @@ _DEPT_CANDIDATE_STRIP_RES = [
     re.compile(r"^list\s+(?:of\s+)?(?:the\s+)?", re.IGNORECASE),
 ]
 _DEPT_CANDIDATE_TRAILING_RE = re.compile(r"\s*(department|team)$", re.IGNORECASE)
+
+# Company-wide roster ("list all employees", "tell me their names and roles",
+# "who works here") — as opposed to department_directory, which needs a
+# department name, and org_headcount, which is just a count. Checked before
+# department_directory so a company-wide ask isn't read as a department
+# literally named "all employees"; a genuine department ask ("list of
+# employees", "who is in Sales") carries none of these tells and still routes
+# to the directory. Deliberately narrow: it must never catch hostile strings
+# like "show every employee's bank account", which must stay policy_qa.
+_ROSTER_RE = re.compile(
+    r"\bnames?\s+and\s+(roles?|designations?)\b"
+    r"|\b(roles?|designations?)\s+and\s+names?\b"
+    r"|\b(employee|staff|people|team)\s+names?\b"
+    r"|\bnames?\s+of\s+(all\s+)?(the\s+)?(employees?|staff|people)\b"
+    r"|\blist\s+all\s+(the\s+)?(employees?|staff|people|members?)\b"
+    r"|\blist\s+everyone\b"
+    r"|\b(show|give|tell)\s+me\s+all\s+(the\s+)?(employees?|staff|people)\b"
+    r"|\beveryone\s+(in|at)\s+the\s+(company|organization|org)\b"
+    r"|\bwho\s+works\s+(here|with us)\b"
+    r"|\bemployee\s+(roster|directory)\b|\bcompany\s+directory\b",
+    re.IGNORECASE,
+)
+
+# "Where do I go to X?" / "What page…" — product-navigation phrasing that is
+# unambiguously about a screen. Answered from the curated map below rather than
+# retrieval, so it still resolves when the tenant knowledge base is empty
+# (exactly when the RAG fallback has nothing to offer).
+_NAV_WHERE_RE = re.compile(
+    r"\bwhere\s+(do|can|would|should)\s+i\b"
+    r"|\bwhere\s+(is|are)\s+the\b.{0,40}\b(page|tab|section|setting|option|menu|screen)\b"
+    r"|\b(what|which)\s+page\b"
+    r"|\bwhere\s+to\s+(find|go|issue|upload|add|create|view|access)\b",
+    re.IGNORECASE,
+)
+# "How do I X?" is weaker: it's only navigation when X is a screen we actually
+# know. "How do I resign?" or "How do I change my address?" must keep falling
+# through to policy_qa, where the offboarding/lifecycle content can answer.
+_NAV_HOW_RE = re.compile(r"\bhow\s+(do|can)\s+i\b", re.IGNORECASE)
+
+# (question cue, left-menu path, route) for the screens people ask about most.
+# In code, not the database: these are product facts, the same for every
+# tenant. First match wins, so more specific cues come first.
+_NAV_DESTINATIONS = (
+    (re.compile(r"\bonboard\w*\b", re.IGNORECASE), "Onboarding → Documents", "/zoiko-hr/onboarding/documents"),
+    (re.compile(r"\bapply\s+(for\s+)?leave\b|\bleave\s+request\b", re.IGNORECASE), "Leaves → Apply Leave", "/employee/leaves/apply"),
+    (re.compile(r"\bleaves?\b", re.IGNORECASE), "Leaves → My Leave", "/employee/leaves"),
+    (re.compile(r"\bpayslip\w*\b|\bsalary\s+slip\b", re.IGNORECASE), "Documents → Payslips", "/employee/documents/payslips"),
+    (re.compile(r"\battendance\b|\bclock\s*(in|out)\b|\bcheck\s*(in|out)\b", re.IGNORECASE), "ESS → Attendance", "/employee/ess/attendance"),
+    (re.compile(r"\bbank\s+details?\b", re.IGNORECASE), "Profile → Bank Details", "/employee/profile/bank-details"),
+    (re.compile(r"\bemergency\s+contacts?\b", re.IGNORECASE), "Profile → Emergency Contacts", "/employee/profile/emergency-contacts"),
+    (re.compile(r"\bcompany\s+doc\w*\b|\bpolic(?:y|ies)\b|\bhandbook\b", re.IGNORECASE), "Documents → Company Documents", "/employee/documents/company"),
+    (re.compile(r"\bprofile\b", re.IGNORECASE), "Profile → My Profile", "/employee/profile"),
+    (re.compile(r"\bexpense\w*\b|\breimburs\w*\b", re.IGNORECASE), "Expenses", "/employee/travel/expenses"),
+    (re.compile(r"\bassistant\s+knowledge\b", re.IGNORECASE), "User Management → Assistant Knowledge", "/hr-admin/assistant-knowledge"),
+)
+
+# How many roster rows the assistant prints before it stops listing.
+_ROSTER_LIMIT = 100
+
+
+def _nav_destination(text: str):
+    """First (menu, route) whose cue appears in `text`, or None."""
+    for pattern, menu, route in _NAV_DESTINATIONS:
+        if pattern.search(text):
+            return menu, route
+    return None
 
 
 def _extract_department_candidate(text: str) -> str:
@@ -250,8 +322,12 @@ def classify_intent(text: str) -> str:
         return "handoff_request"
     if _HEADCOUNT_RE.search(text):
         return "org_headcount"
+    if _ROSTER_RE.search(text):
+        return "employee_roster"
     if _DEPT_DIRECTORY_RE.search(text) and _extract_department_candidate(text):
         return "department_directory"
+    if _NAV_WHERE_RE.search(text) or (_NAV_HOW_RE.search(text) and _nav_destination(text)):
+        return "navigation_help"
     return "policy_qa"
 
 
@@ -314,8 +390,12 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
         return _answer_handoff_prompt(db, turn)
     if intent == "org_headcount":
         return _answer_org_headcount(db, turn)
+    if intent == "employee_roster":
+        return _answer_employee_roster(db, turn)
     if intent == "department_directory":
         return _answer_department_directory(db, turn)
+    if intent == "navigation_help":
+        return _answer_navigation_help(db, turn)
 
     risk = risk_classification.classify(turn.user_input_text)
     sensitive = bool(risk and risk.category == "sensitive_case")
@@ -475,6 +555,54 @@ def _answer_department_directory(db: Session, turn: ChatTurn) -> ChatTurn:
                                    "hr_record_ref": f"departments:id={department.id}"}])
 
 
+def _answer_employee_roster(db: Session, turn: ChatTurn) -> ChatTurn:
+    """Company-wide people list (names + role). Same HR-record trust tier as
+    org_headcount and department_directory — a count and a per-department list
+    were already open to any employee, so the roster is too."""
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+    base = db.query(Employee).filter(
+        Employee.organization_id == turn.organization_id, Employee.status == EmployeeStatus.ACTIVE
+    )
+    total = base.count()
+    if not total:
+        return _finalize(db, turn, "No active employees are listed in your organization yet.",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+
+    members = (
+        base.options(joinedload(Employee.designation))   # read per member below
+        .order_by(Employee.full_name)
+        .limit(_ROSTER_LIMIT)
+        .all()
+    )
+    lines = [f"- {m.full_name}" + (f" ({m.designation.title})" if m.designation else "") for m in members]
+    head = f"There {'is' if total == 1 else 'are'} {total} active employee{'' if total == 1 else 's'}"
+    answer = head + (":\n" if total <= _ROSTER_LIMIT else f". Here are the first {_ROSTER_LIMIT}:\n") + "\n".join(lines)
+    return _finalize(db, turn, answer, AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+                      provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
+                                   "hr_record_ref": f"employees:organization_id={turn.organization_id}"}])
+
+
+def _answer_navigation_help(db: Session, turn: ChatTurn) -> ChatTurn:
+    """Product-navigation answer ("where do I go to X?"). Deterministic and
+    knowledge-base independent: a brand-new tenant whose KB is still empty can
+    still be told which screen does what."""
+    dest = _nav_destination(turn.user_input_text)
+    if dest:
+        menu, route = dest
+        return _finalize(
+            db, turn,
+            f"You'll find that under {menu} in the left menu — the path is {route}.",
+            AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+        )
+    return _finalize(
+        db, turn,
+        "I don't have that screen mapped yet — try the left-menu search, or choose 'Talk to HR' "
+        "and someone will point you to it.",
+        AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER,
+    )
+
+
 def _answer_chitchat(db: Session, turn: ChatTurn, kind: str) -> ChatTurn:
     """Greetings/thanks/acks/farewells are answered directly — no retrieval,
     no model call. Fast, always succeeds, and avoids forcing small talk
@@ -547,8 +675,10 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
 
     if not fragments:
         return _finalize(db, turn,
-                          "I couldn't find any published policy content that answers this. "
-                          "You can try rephrasing, or contact HR directly.",
+                          "I don't have approved policy content that answers this yet. "
+                          "I can help right now with your leave balance, attendance, the company "
+                          "directory or headcount, and booking leave — or choose 'Talk to HR' and "
+                          "someone will follow up.",
                           AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
 
     # Generation is deferred to stream_generation(), called from the SSE

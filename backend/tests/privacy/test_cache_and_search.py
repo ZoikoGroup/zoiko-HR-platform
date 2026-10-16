@@ -48,10 +48,15 @@ def test_T12_replaying_one_tenants_request_as_another_returns_that_tenants_data(
 
 
 def test_T12_assistant_retrieval_is_limited_to_the_callers_tenant():
+    """Retrieval is the caller's own tenant, plus platform-PUBLIC content only
+    (the product/company FAQ, which is already served to anonymous visitors on
+    zoikohr.com). It must never widen to another tenant's private content."""
     import inspect
     from app.modules.assistant import retrieval_service
     src = inspect.getsource(retrieval_service.retrieve)
     assert "KnowledgeSource.organization_id == organization_id" in src
+    # the only other evidence source is explicitly public content
+    assert "KnowledgeSource.is_public.is_(True)" in src
 
 
 def test_C07_id_lookups_are_rate_limited_and_a_miss_is_a_plain_404(world):
