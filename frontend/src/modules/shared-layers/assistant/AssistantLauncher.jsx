@@ -55,13 +55,35 @@ export default function AssistantLauncher() {
   }, [open]);
 
   // A page dialog (any full-screen overlay) owns the screen: the floating button would sit on its footer buttons on a
-  // phone, so it steps aside until the dialog closes.
+  // phone, so it steps aside until the dialog closes. Visibility-filtered:
+  // always-mounted scrims (e.g. Sidebar backdrop with opacity-0) must not count.
   const [pageDialogOpen, setPageDialogOpen] = useState(false);
   useEffect(() => {
-    const check = () => setPageDialogOpen(!!document.querySelector(".fixed.inset-0:not([data-assistant-panel]), [aria-modal='true']:not([data-assistant-panel])"));
+    const isVisibleDialog = (el) => {
+      if (el.hasAttribute("data-assistant-panel")) return false;
+      if (el.hasAttribute("data-sidebar-backdrop")) return false;
+      if (el.classList.contains("hidden")) return false;
+      if (el.classList.contains("opacity-0") && el.classList.contains("pointer-events-none")) return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      return true;
+    };
+    const check = () => {
+      const candidates = document.querySelectorAll(
+        ".fixed.inset-0:not([data-assistant-panel]):not([data-sidebar-backdrop]), [aria-modal='true']:not([data-assistant-panel])"
+      );
+      setPageDialogOpen(Array.from(candidates).some(isVisibleDialog));
+    };
     check();
     const obs = new MutationObserver(check);
-    obs.observe(document.body, { childList: true, subtree: true });
+    obs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "aria-modal", "aria-hidden"],
+    });
     return () => obs.disconnect();
   }, []);
 
