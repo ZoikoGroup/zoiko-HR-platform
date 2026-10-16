@@ -5,21 +5,18 @@ import FeedbackControl from "./FeedbackControl";
 import WorkflowPanel from "./WorkflowPanel";
 import HandoffPanel from "./HandoffPanel";
 
+// Wireframe CH-04: a small 24px inline identity mark beside bot messages.
 function AssistantAvatar() {
-  return (
-    <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center overflow-hidden rounded-xl">
-      <img src={zoikoHrIcon} alt="" className="h-full w-full object-cover" />
-    </div>
-  );
+  return <img src={zoikoHrIcon} alt="" className="h-6 w-6 flex-shrink-0" />;
 }
 
 export function UserMessage({ text }) {
   return (
-    <div className="flex gap-3 max-w-[85%] ml-auto flex-row-reverse">
-      <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-xl bg-[var(--zhr-action-primary)] text-white text-xs font-bold">U</div>
-      <div className="p-3.5 rounded-2xl bg-[var(--zhr-action-primary)] text-white rounded-tr-none">
-        <p className="leading-relaxed whitespace-pre-wrap">{text}</p>
-      </div>
+    <div className="ml-auto max-w-[85%]">
+      <span className="sr-only">You said: </span>
+      <p className="whitespace-pre-wrap break-words rounded-2xl rounded-tr-md bg-[var(--zhr-chat-blue)] px-4 py-2.5 leading-relaxed text-white">
+        {text}
+      </p>
     </div>
   );
 }
@@ -29,10 +26,10 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
 
   if (inProgress && !isStreaming) {
     return (
-      <div className="flex gap-3 max-w-[85%]">
+      <div className="flex items-start gap-2.5 max-w-[85%]">
         <AssistantAvatar />
-        <div className="p-3.5 rounded-2xl bg-[var(--zhr-evidence-grounded-bg)] border border-[var(--zhr-evidence-grounded-border)] text-[var(--zhr-text-secondary)] rounded-tl-none flex items-center gap-2 text-xs">
-          <Loader2 className="h-3.5 w-3.5 animate-spin" /> Thinking...
+        <div role="status" className="px-4 py-3 rounded-2xl rounded-tl-md bg-[var(--zhr-chat-bubble)] text-[var(--zhr-text-secondary)] flex items-center gap-2 text-xs">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden="true" /> Zoiko HR Assistant is responding…
         </div>
       </div>
     );
@@ -50,10 +47,10 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
     ? { bg: "var(--zhr-evidence-partial-bg)", border: "var(--zhr-evidence-partial-border)", text: "var(--zhr-evidence-partial-text)" }
     : isRestricted
     ? { bg: "var(--zhr-evidence-unavailable-bg)", border: "var(--zhr-evidence-unavailable-border)", text: "var(--zhr-evidence-unavailable-text)" }
-    : { bg: "var(--zhr-evidence-grounded-bg)", border: "var(--zhr-evidence-grounded-border)", text: "var(--zhr-evidence-grounded-text)" };
+    : { bg: "var(--zhr-chat-bubble)", border: "var(--zhr-chat-bubble)", text: "var(--zhr-evidence-grounded-text)" };
 
   return (
-    <div className="flex gap-3 max-w-[90%]">
+    <div className="flex items-start gap-2.5 max-w-[92%]">
       <AssistantAvatar />
       <div className="flex-1 min-w-0">
         {!isStreaming && turn.subject_name && (
@@ -63,8 +60,9 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
         )}
         <div
           style={{ background: bubbleTone.bg, borderColor: bubbleTone.border, color: bubbleTone.text }}
-          className="p-3.5 rounded-2xl rounded-tl-none border text-sm leading-relaxed whitespace-pre-wrap"
+          className="px-4 py-3 rounded-2xl rounded-tl-md border leading-relaxed whitespace-pre-wrap break-words"
         >
+          <span className="sr-only">Zoiko HR Assistant (AI) said: </span>
           {isConflict && (
             <p className="mb-1.5 flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wide">
               <AlertTriangle className="h-3.5 w-3.5" /> Sources conflict
