@@ -11,6 +11,20 @@ import {
 import { formatDate } from "../../../utils/dateTime";
 
 const SOURCE_TYPES = ["policy", "faq", "sop", "compliance", "handbook", "guide", "form"];
+// Readable labels for the seven knowledge categories. The keys stay in sync
+// with knowledge_sources.source_type (policy | faq | sop | compliance |
+// handbook | guide | form) — those lowercase codes are what the API stores and
+// filters on, so only the display side is spelled out here.
+const SOURCE_TYPE_LABELS = {
+  policy: "Policy",
+  faq: "FAQs",
+  sop: "SOPs",
+  compliance: "Compliance",
+  handbook: "Handbook",
+  guide: "Guide",
+  form: "Forms",
+};
+const typeLabel = (t) => SOURCE_TYPE_LABELS[t] || t;
 const TIERS = ["A", "B", "C", "D"];
 const STATUSES = ["draft", "review", "published", "superseded", "retired"];
 
@@ -123,7 +137,7 @@ function EditMetadataForm({ source, onCancel, onSaved }) {
       />
       <div className="flex gap-2">
         <select value={form.source_type} onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value }))} className="flex-1 rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
-          {SOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+          {SOURCE_TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
         </select>
         <select value={form.authority_tier} onChange={(e) => setForm((f) => ({ ...f, authority_tier: e.target.value }))} className="w-24 rounded-lg border border-slate-200 px-2 py-1.5 text-xs">
           {TIERS.map((t) => <option key={t} value={t}>Tier {t}</option>)}
@@ -148,6 +162,7 @@ function EditMetadataForm({ source, onCancel, onSaved }) {
 
 export default function AdminKnowledgePage() {
   const [sources, setSources] = useState([]);
+  const [typeCounts, setTypeCounts] = useState({});
   const [form, setForm] = useState(emptyForm);
   const [showApplicability, setShowApplicability] = useState(false);
   const [controls, setControlsState] = useState([]);
@@ -155,24 +170,39 @@ export default function AdminKnowledgePage() {
   const [error, setError] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
   const [expandedId, setExpandedId] = useState(null);
   const [editingId, setEditingId] = useState(null);
 
-  const reload = async (params) => {
-    const [srcs, ctrls] = await Promise.all([listKnowledgeSources(params), listControls()]);
+  // The visible list is fetched with the category filter applied, and a second
+  // fetch without it feeds the per-category counts — otherwise selecting one
+  // category would collapse every other chip to 0 and hide that it exists.
+  // Always reads the current filters so a post-action refresh (publish, retire,
+  // delete) can't silently drop the filter the admin is looking through.
+  const reload = async () => {
+    const searchParam = search || undefined;
+    const statusParam = statusFilter || undefined;
+    const [srcs, ctrls, all] = await Promise.all([
+      listKnowledgeSources({ search: searchParam, status: statusParam, source_type: typeFilter || undefined }),
+      listControls(),
+      listKnowledgeSources({ search: searchParam, status: statusParam }),
+    ]);
     setSources(srcs);
     setControlsState(ctrls);
+    const counts = {};
+    for (const s of Array.isArray(all) ? all : []) {
+      counts[s.source_type] = (counts[s.source_type] || 0) + 1;
+    }
+    setTypeCounts(counts);
   };
 
   useEffect(() => { reload(); }, []);
 
   useEffect(() => {
-    const handle = setTimeout(() => {
-      reload({ search: search || undefined, status: statusFilter || undefined });
-    }, 300);
+    const handle = setTimeout(() => { reload(); }, 300);
     return () => clearTimeout(handle);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [search, statusFilter]);
+  }, [search, statusFilter, typeFilter]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -224,7 +254,7 @@ export default function AdminKnowledgePage() {
     <div className="space-y-6 font-sans">
       <PageHeader
         title="Assistant Knowledge Admin"
-        description="Author and publish policy content the HR assistant retrieves answers from, and control its kill switches."
+        description="Author and publish the seven knowledge categories the HR assistant retrieves answers from — Policy, FAQs, SOPs, Compliance, Handbook, Guide and Forms — and control its kill switches."
       />
 
       <div className="rounded-3xl border border-slate-200 bg-white p-6 shadow-sm">
@@ -261,7 +291,7 @@ export default function AdminKnowledgePage() {
             />
             <div className="flex gap-2">
               <select value={form.source_type} onChange={(e) => setForm((f) => ({ ...f, source_type: e.target.value }))} className="flex-1 rounded-lg border border-slate-200 px-3 py-2 text-sm">
-                {SOURCE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                {SOURCE_TYPES.map((t) => <option key={t} value={t}>{typeLabel(t)}</option>)}
               </select>
               <select value={form.authority_tier} onChange={(e) => setForm((f) => ({ ...f, authority_tier: e.target.value }))} className="w-28 rounded-lg border border-slate-200 px-3 py-2 text-sm">
                 {TIERS.map((t) => <option key={t} value={t}>Tier {t}</option>)}
@@ -325,6 +355,45 @@ export default function AdminKnowledgePage() {
               {STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
             </select>
           </div>
+          {/* All seven categories are always on screen with their live counts,
+              so each one can be seen and filtered directly rather than only
+              appearing as an option buried in the create/edit dropdown. */}
+          <div className="mb-3 flex flex-wrap gap-1.5" role="group" aria-label="Filter by category">
+            <button
+              type="button"
+              onClick={() => setTypeFilter("")}
+              aria-pressed={typeFilter === ""}
+              className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
+                typeFilter === ""
+                  ? "border-[var(--zhr-action-primary)] bg-[var(--zhr-action-primary)] text-white"
+                  : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+              }`}
+            >
+              All categories · {Object.values(typeCounts).reduce((a, b) => a + b, 0)}
+            </button>
+            {SOURCE_TYPES.map((t) => {
+              const active = typeFilter === t;
+              const n = typeCounts[t] || 0;
+              return (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTypeFilter(active ? "" : t)}
+                  aria-pressed={active}
+                  title={`${typeLabel(t)} — ${n} source${n === 1 ? "" : "s"}`}
+                  className={`rounded-full border px-2.5 py-1 text-[11px] font-bold transition ${
+                    active
+                      ? "border-[var(--zhr-action-primary)] bg-[var(--zhr-action-primary)] text-white"
+                      : n === 0
+                        ? "border-slate-200 bg-white text-slate-400"
+                        : "border-slate-200 bg-white text-slate-600 hover:border-slate-300"
+                  }`}
+                >
+                  {typeLabel(t)} · {n}
+                </button>
+              );
+            })}
+          </div>
           <div className="space-y-2 max-h-[380px] overflow-y-auto pr-1">
             {sources.map((s) => (
               <div key={s.id} className="rounded-xl border border-slate-100 bg-slate-50">
@@ -338,7 +407,7 @@ export default function AdminKnowledgePage() {
                         </span>
                       )}
                     </p>
-                    <p className="text-[11px] text-slate-500">{s.source_type} · Tier {s.authority_tier} · {s.status}</p>
+                    <p className="text-[11px] text-slate-500">{typeLabel(s.source_type)} · Tier {s.authority_tier} · {s.status}</p>
                   </button>
                   <div className="flex items-center gap-1.5">
                     {s.status !== "published" && s.status !== "retired" && (
