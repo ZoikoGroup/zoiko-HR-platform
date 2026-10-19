@@ -45,7 +45,8 @@ Endpoints:
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Body, status, Request
+from fastapi import APIRouter, Depends, Query, Body, status, Request, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -278,6 +279,25 @@ def create_candidate(
     current_user=Depends(get_current_admin),
 ):
     return recruitment_service.create_candidate(db, data, current_user.organization_id)
+
+
+@recruitment_router.post(
+    "/candidates/parse-cv",
+    summary="Parse a CV/resume file and extract candidate details",
+)
+async def parse_cv(
+    file: UploadFile = File(..., description="CV/resume file (PDF, DOCX, or TXT)"),
+    current_user=Depends(get_current_admin),
+):
+    """Upload a CV/resume file and extract candidate fields (name, email, phone, position, experience, location)."""
+    from app.modules.hr.cv_parser import parse_cv as _parse_cv
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty file uploaded.")
+
+    parsed = _parse_cv(file_bytes, file.filename or "resume.pdf")
+    return parsed
 
 
 @recruitment_router.get(
@@ -551,6 +571,29 @@ def withdraw_offer(
 )
 def send_offer(offer_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     return recruitment_service.send_offer(db, offer_id, current_user.organization_id)
+
+
+class SendOfferWithPDFRequest(BaseModel):
+    pdf_data: str  # base64-encoded PDF bytes
+    pdf_filename: str = "Offer Letter.pdf"
+
+
+@recruitment_router.put(
+    "/offers/{offer_id}/send-with-pdf",
+    response_model=OfferResponse,
+    summary="Send offer letter email with PDF attachment",
+)
+def send_offer_with_pdf(
+    offer_id: int,
+    data: SendOfferWithPDFRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    import base64
+    pdf_bytes = base64.b64decode(data.pdf_data)
+    return recruitment_service.send_offer_with_pdf(
+        db, offer_id, current_user.organization_id, pdf_bytes, data.pdf_filename,
+    )
 
 
 # ════════════════════════════════════════════════════════════════════════════

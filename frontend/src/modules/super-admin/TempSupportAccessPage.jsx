@@ -6,6 +6,7 @@ import PageHeader from "../../components/PageHeader";
 import OrgPicker from "../../components/OrgPicker";
 import { supportLoginService } from "../../service/supportLoginService";
 import { formatDateTime } from "../../utils/dateTime";
+import { AccessReasonSelect, ACCESS_REASON_GROUPS } from "./AccessReasonSelect";
 
 // Just-in-time support access: ask an organization for temporary read-only access, wait for one of its admins to
 // approve, then generate a one-time username and password that sign in to that organization for 5, 15 or 30 minutes.
@@ -120,12 +121,21 @@ function CopyField({ label, value, mono = true }) {
 function NewRequestModal({ onClose, onCreated }) {
   const [org, setOrg] = useState(null);
   const [duration, setDuration] = useState(15);
-  const [justification, setJustification] = useState("");
-  const [ticket, setTicket] = useState("");
+  const [accessReasonValue, setAccessReasonValue] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(null);
+  const [generatedTicket, setGeneratedTicket] = useState("");
 
-  const valid = org && justification.trim().length >= 10;
+  const valid = org && accessReasonValue.trim().length > 0;
+
+  // Auto-generate ticket reference immediately when modal opens
+  useEffect(() => {
+    if (!generatedTicket) {
+      const year = new Date().getFullYear();
+      const suffix = Math.random().toString(36).substring(2, 8).toUpperCase();
+      setGeneratedTicket(`ZHR-${year}-${suffix}`);
+    }
+  }, [generatedTicket]);
 
   const submit = async () => {
     setBusy(true);
@@ -133,8 +143,8 @@ function NewRequestModal({ onClose, onCreated }) {
     try {
       const created = await supportLoginService.createRequest({
         organization_id: org.id,
-        justification: justification.trim(),
-        ticket_reference: ticket.trim() || null,
+        justification: accessReasonValue.split(":").pop() || accessReasonValue,
+        ticket_reference: generatedTicket,
         duration_minutes: duration,
       });
       onCreated(created);
@@ -171,13 +181,24 @@ function NewRequestModal({ onClose, onCreated }) {
           <p className="mt-1.5 text-xs text-slate-400">The clock starts when you generate the credentials, not when the org approves.</p>
         </div>
         <div>
-          <label className={labelCls}>Reason *</label>
-          <textarea rows={3} value={justification} onChange={(e) => setJustification(e.target.value)} maxLength={2000}
-            placeholder="What you need to check and why (the org admin sees this)" className={inputCls} />
+          <label className={labelCls}>Access reason *</label>
+          <AccessReasonSelect
+            value={accessReasonValue}
+            onChange={setAccessReasonValue}
+            groups={ACCESS_REASON_GROUPS}
+            placeholder="Select access reason"
+          />
+          <p className="mt-1 text-xs text-slate-400">The selected reason will be sent to the organization admin for approval</p>
         </div>
         <div>
           <label className={labelCls}>Support ticket</label>
-          <input value={ticket} onChange={(e) => setTicket(e.target.value)} maxLength={100} placeholder="e.g. ZHR-1234" className={inputCls} />
+          <input
+            readOnly
+            value={generatedTicket}
+            placeholder="Auto-generated on organization selection"
+            className={`${inputCls} bg-slate-50 font-mono text-blue-700 cursor-default`}
+          />
+          <p className="mt-1 text-xs text-slate-400">Auto-generated ticket reference for this request</p>
         </div>
         <div className="flex gap-2 rounded-2xl border border-slate-200 bg-slate-50 p-3 text-xs text-slate-600">
           <Eye className="h-4 w-4 shrink-0 text-slate-400" />
@@ -356,6 +377,7 @@ export default function TempSupportAccessPage() {
                     <span className="font-semibold text-slate-800">{r.organization_name || `Organization #${r.organization_id}`}</span>
                     <Pill status={r.status} />
                     <span className="font-mono text-xs text-slate-400">{r.reference}</span>
+                    {r.ticket_reference && <span className="font-mono text-xs font-semibold text-blue-600">Ticket: {r.ticket_reference}</span>}
                     <span className="text-xs text-slate-400">{r.duration_minutes} min · read-only</span>
                     {!r.is_mine && <span className="text-xs text-slate-400">by {r.requested_by_email}</span>}
                     {r.status === "ACTIVE" && left && (

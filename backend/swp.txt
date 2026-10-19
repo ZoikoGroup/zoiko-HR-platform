@@ -1,0 +1,14 @@
+def send_offer_with_pdf(
+    offer_id: int,
+    data: SendOfferWithPDFRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    import base64
+    pdf_bytes = base64.b64decode(data.pdf_data)
+    return recruitment_service.send_offer_with_pdf(
+        db, offer_id, current_user.organization_id, pdf_bytes, data.pdf_filename,
+    )
+
+
+# ════════════════════════════

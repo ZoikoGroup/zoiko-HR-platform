@@ -870,15 +870,16 @@ def send_candidate_status_update(email, candidate_name, position, organization_n
 
 def send_offer_letter(email, candidate_name, position, organization_name, employment_type_label, remuneration_label,
                       remuneration_display, start_date_display=None, equity=None, entity_name=None, db=None,
-                      organization_id=None):
-    """Send a candidate the key terms of their offer."""
+                      organization_id=None, pdf_bytes=None, pdf_filename=None):
+    """Send a candidate the key terms of their offer, optionally with a PDF attachment."""
+    attachments = [(pdf_filename or "Offer Letter.pdf", pdf_bytes)] if pdf_bytes else None
     return send_approval_email(email, "offer_letter.html", {
         "subject": f"Your offer for {position} | {organization_name}",
         "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
         "employment_type_label": employment_type_label, "remuneration_label": remuneration_label,
         "remuneration_display": remuneration_display, "start_date_display": start_date_display, "equity": equity,
         "entity_name": entity_name,
-    }, db=db, organization_id=organization_id)
+    }, db=db, organization_id=organization_id, attachments=attachments)
 
 
 def send_offer_outcome(email, admin_name, candidate_name, position, organization_name, accepted, offers_url,
