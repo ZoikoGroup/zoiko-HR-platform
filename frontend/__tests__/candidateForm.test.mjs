@@ -54,6 +54,7 @@ async function load(t, over = {}) {
     getCandidates: async () => ({ items: [] }), getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
     createCandidate: async (p) => { calls.create.push(p); if (over.createError) throw over.createError; return {}; },
     updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
+    parseCV: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: {
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
@@ -117,7 +118,7 @@ test("the candidates list shows phone, location and experience for each candidat
   const svc = {
     getCandidates: async () => ({ items: [CAND, { ...CAND, id: 6, name: "Bo Fresh", email: "bo@x.com", phone: null, location: null, experience: 0 }] }),
     getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -126,7 +127,7 @@ test("the candidates list shows phone, location and experience for each candidat
   render(React.createElement(Page));
   await settle();
   const headers = [...document.querySelectorAll("thead th")].map((h) => h.textContent);
-  for (const h of ["Phone", "Location", "Experience"]) assert.ok(headers.includes(h), h);
+  for (const h of ["Phone", "Location", "Exp"]) assert.ok(headers.includes(h), h);
   const rows = [...document.querySelectorAll("tbody tr")].map((r) => r.textContent);
   assert.match(rows[0], /\+919876543210/);
   assert.match(rows[0], /Pune/);
@@ -138,7 +139,7 @@ test("the candidates list shows phone, location and experience for each candidat
 test("the candidate record shows every detail that was entered", async (t) => {
   const svc = {
     getCandidates: async () => ({ items: [] }), getCandidateById: async () => CAND, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({ id: "5" }), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });

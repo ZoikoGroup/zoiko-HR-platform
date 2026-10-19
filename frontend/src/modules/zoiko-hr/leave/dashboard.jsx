@@ -313,8 +313,12 @@ export default function LeaveDashboard() {
               <h2 className="text-base font-bold text-gray-900">Upcoming Leave</h2>
             </div>
             {loading ? (
-              <div className="space-y-3">
-                {[1,2,3].map(i => <SkeletonRow key={i} />)}
+              <div className="overflow-x-auto rounded-xl border border-gray-100">
+                <table className="min-w-full">
+                  <tbody className="divide-y divide-gray-50">
+                    {[1,2,3].map(i => <SkeletonRow key={i} />)}
+                  </tbody>
+                </table>
               </div>
             ) : upcoming.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-10 text-center">
