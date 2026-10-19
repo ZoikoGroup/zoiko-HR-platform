@@ -924,6 +924,28 @@ def send_offer(db: Session, offer_id: int, organization_id: Optional[int] = None
     return offer
 
 
+def send_offer_with_pdf(db: Session, offer_id: int, organization_id: Optional[int] = None,
+                        pdf_bytes: bytes = None, pdf_filename: str = "Offer Letter.pdf") -> RecruitmentOffer:
+    """Mark a draft offer as sent and email its terms with a PDF attachment to the linked candidate."""
+    offer = get_offer_by_id(db, offer_id, organization_id)
+    if offer.status not in (OfferStatus.DRAFT, OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
+        raise BadRequestException(f"A {offer.status.value} offer cannot be sent.")
+    if offer.salary is None:
+        raise BadRequestException("Add the remuneration amount before sending the offer.")
+    if offer.status == OfferStatus.DRAFT:
+        offer.status = OfferStatus.PENDING
+    db.commit()
+    db.refresh(offer)
+    if offer.candidate_id:
+        cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == offer.candidate_id).first()
+        if cand is not None and cand.status in (RecruitmentCandidateStatus.APPLIED, RecruitmentCandidateStatus.SCREENING,
+                                                RecruitmentCandidateStatus.INTERVIEW):
+            cand.status = RecruitmentCandidateStatus.OFFER
+            db.commit()
+    offer.email_sent = notify.send_offer_with_pdf(db, offer, pdf_bytes, pdf_filename)
+    return offer
+
+
 def accept_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
     if offer.status not in (OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):

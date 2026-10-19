@@ -91,6 +91,23 @@ export const resumeRequisition = (id) => api.put(`/hr/recruitment/requisitions/$
 export const closeRequisition = (id) => api.put(`/hr/recruitment/requisitions/${id}/close`);
 
 export const getCandidates = (params = {}) => api.get("/hr/recruitment/candidates", { params });
+export async function parseCV(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const token = getAccessToken();
+  const res = await fetch(`${API_BASE_URL}/hr/recruitment/candidates/parse-cv`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+  if (!res.ok) {
+    const detail = await res.json().catch(() => ({}));
+    const err = new Error(`CV parse failed: ${res.status}`);
+    err.response = { data: detail };
+    throw err;
+  }
+  return res.json();
+}
 export const getCandidateById = (id) => api.get(`/hr/recruitment/candidates/${id}`);
 export const createCandidate = (payload) => api.post("/hr/recruitment/candidates", payload);
 export const updateCandidate = (id, payload) => api.put(`/hr/recruitment/candidates/${id}`, payload);
@@ -113,6 +130,8 @@ export const acceptOffer = (id) => api.put(`/hr/recruitment/offers/${id}/accept`
 export const rejectOffer = (id) => api.put(`/hr/recruitment/offers/${id}/reject`);
 export const withdrawOffer = (id) => api.put(`/hr/recruitment/offers/${id}/withdraw`);
 export const sendOffer = (id) => api.put(`/hr/recruitment/offers/${id}/send`);
+export const sendOfferWithPDF = (id, { pdfData, pdfFilename }) =>
+  api.put(`/hr/recruitment/offers/${id}/send-with-pdf`, { pdf_data: pdfData, pdf_filename: pdfFilename });
 
 // Reference data for pay and addresses: countries with their currency, and register lookups by tax / VAT number.
 let regionsPromise = null;

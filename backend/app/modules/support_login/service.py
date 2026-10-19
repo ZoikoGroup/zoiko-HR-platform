@@ -208,6 +208,15 @@ def _notify_org_admins(db: Session, req: SupportLoginRequest, operator, org_name
 
 
 # ── operator (super admin) ───────────────────────────────────────────────────────────────────────────────────────────
+def _generate_ticket_reference() -> str:
+    """Generate a ticket reference in the format ZHR-YYYY-NNNNN."""
+    from datetime import datetime
+    now = datetime.utcnow()
+    # Use a short random suffix to ensure uniqueness
+    suffix = secrets.token_hex(3).upper()[:6]
+    return f"ZHR-{now.year}-{suffix}"
+
+
 def create_request(db: Session, operator, organization_id: int, justification: str, ticket_reference: Optional[str], duration_minutes: int) -> dict:
     justification = (justification or "").strip()
     if len(justification) < 10:
@@ -235,13 +244,14 @@ def create_request(db: Session, operator, organization_id: int, justification: s
         raise BadRequestException("You already have an open request for this organization. Cancel it or wait for it to finish.")
 
     now = _now()
+    ticket_ref = (ticket_reference or "").strip() or _generate_ticket_reference()
     req = SupportLoginRequest(
         reference=f"TMP-{secrets.token_hex(4).upper()}",
         organization_id=organization_id,
         requested_by=operator.id,
         requested_by_email=operator.email,
         justification=justification[:2000],
-        ticket_reference=(ticket_reference or "").strip()[:100] or None,
+        ticket_reference=ticket_ref[:100],
         duration_minutes=duration_minutes,
         status=S.PENDING.value,
         pending_expires_at=now + PENDING_TTL,

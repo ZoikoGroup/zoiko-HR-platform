@@ -1,8 +1,8 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { NavLink, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefcase, ExternalLink, ArrowLeft, ChevronLeft, ChevronRight, Edit2, Trash2, Clock, User, X } from "lucide-react";
+import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefcase, ExternalLink, ArrowLeft, ChevronLeft, ChevronRight, Edit2, Trash2, Clock, User, X, Upload, FileText, Loader2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions } from "../../../service/hrService";
+import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions, parseCV } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { validateCandidateForm, serverFieldErrors, candidatePayload } from "../../../utils/candidateForm";
 import { PHONE_MAX_LENGTH } from "../../../utils/phone";
@@ -90,6 +90,8 @@ export default function Candidates() {
   const [showModal, setShowModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState({ name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", resume_link: "", notes: "", requisition_id: "" });
+  const [cvParsing, setCvParsing] = useState(false);
+  const [cvError, setCvError] = useState("");
 
   const load = useCallback(() => {
     setLoading(true);
@@ -140,6 +142,38 @@ export default function Candidates() {
     setEditItem(null);
     setForm({ name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", resume_link: "", notes: "", requisition_id: "" });
     setErrors({}); setSaveError(""); setShowModal(true);
+  };
+
+  const cvFileInputRef = useRef(null);
+  const handleImportCV = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setCvParsing(true);
+    setCvError("");
+    try {
+      const parsed = await parseCV(file);
+      setEditItem(null);
+      setForm({
+        name: parsed.name || "",
+        email: parsed.email || "",
+        phone: parsed.phone || "",
+        position: parsed.position || "",
+        status: "applied",
+        source: "referral",
+        location: parsed.location || "",
+        experience: parsed.experience != null ? String(parsed.experience) : "",
+        resume_link: "",
+        notes: parsed.resume_text ? `Imported from CV: ${file.name}` : "",
+        requisition_id: "",
+      });
+      setErrors({}); setSaveError(""); setShowModal(true);
+    } catch (err) {
+      console.error("CV parse error:", err);
+      setCvError(err?.response?.data?.detail || err.message || "Failed to parse CV. Please fill details manually.");
+    } finally {
+      setCvParsing(false);
+      if (cvFileInputRef.current) cvFileInputRef.current.value = "";
+    }
   };
   const openEdit = (c) => {
     setEditItem(c);
@@ -335,6 +369,12 @@ export default function Candidates() {
             <button onClick={() => setNotice("")} aria-label="Dismiss" className="shrink-0 -my-1 px-2 py-0.5 text-red-500 hover:text-red-800 text-lg">&times;</button>
           </div>
         ) : null}
+        {cvError ? (
+          <div role="alert" className="px-4 py-3 bg-amber-50 border border-amber-200 text-amber-700 text-sm font-medium rounded-lg flex items-center justify-between gap-2">
+            <span className="min-w-0 break-words">{cvError}</span>
+            <button onClick={() => setCvError("")} aria-label="Dismiss" className="shrink-0 -my-1 px-2 py-0.5 text-amber-500 hover:text-amber-800 text-lg">&times;</button>
+          </div>
+        ) : null}
           <div className="flex items-center gap-3">
             <NavLink to="/zoiko-hr/recruitment/candidates" className="flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700"><ArrowLeft className="w-4 h-4" />Back to Candidates</NavLink>
           </div>
@@ -430,10 +470,31 @@ export default function Candidates() {
             <button onClick={() => setNotice("")} aria-label="Dismiss" className="shrink-0 -my-1 px-2 py-0.5 text-red-500 hover:text-red-800 text-lg">&times;</button>
           </div>
         ) : null}
+        {cvError ? (
+          <div role="alert" className="px-4 py-3 bg-amber-50 border border-amber-200 text-amber-700 text-sm font-medium rounded-lg flex items-center justify-between gap-2">
+            <span className="min-w-0 break-words">{cvError}</span>
+            <button onClick={() => setCvError("")} aria-label="Dismiss" className="shrink-0 -my-1 px-2 py-0.5 text-amber-500 hover:text-amber-800 text-lg">&times;</button>
+          </div>
+        ) : null}
         <div className="flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold text-gray-900">Candidates</h1>
           <div className="flex flex-wrap items-center gap-2">
             <button onClick={exportCsv} className="flex items-center gap-2 px-3 py-2 text-xs text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Export CSV</button>
+            <input
+              ref={cvFileInputRef}
+              type="file"
+              accept=".pdf,.docx,.doc,.txt"
+              onChange={handleImportCV}
+              className="hidden"
+              id="cv-import-input"
+            />
+            <label
+              htmlFor="cv-import-input"
+              className={`flex items-center gap-2 px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 text-sm font-medium cursor-pointer ${cvParsing ? "opacity-50 pointer-events-none" : ""}`}
+            >
+              {cvParsing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Upload className="w-4 h-4" />}
+              {cvParsing ? "Parsing CV..." : "Import CV"}
+            </label>
             <button onClick={openCreate} className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium">
               <Plus className="w-4 h-4" /> Add Candidate
             </button>
@@ -465,25 +526,33 @@ export default function Candidates() {
           </select>
         </div>
 
-        <div className="bg-white rounded-xl border border-gray-200 overflow-x-auto">
-          <table className="w-full min-w-[600px] md:min-w-[1100px] text-left">
+        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
+          <table className="w-full text-left table-fixed">
             <thead className="border-b border-gray-200 bg-gray-50 text-xs text-gray-500 uppercase tracking-wider">
               <tr>
-                {["Name", "Email", "Phone", "Position", "Location", "Experience", "Requisition", "Status", "Applied", "Source", ""].map((h) => (
-                  <th key={h} className={`px-3 py-3 font-medium whitespace-nowrap ${["Phone", "Location", "Experience", "Requisition", "Applied", "Source"].includes(h) ? "hidden md:table-cell" : ""}`}>{h}</th>
-                ))}
+                <th className="px-2 sm:px-3 py-3 font-medium">Name</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden sm:table-cell">Email</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden lg:table-cell">Phone</th>
+                <th className="px-2 sm:px-3 py-3 font-medium">Position</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden lg:table-cell">Location</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden xl:table-cell">Exp</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden xl:table-cell">Requisition</th>
+                <th className="px-2 sm:px-3 py-3 font-medium">Status</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden md:table-cell">Applied</th>
+                <th className="px-2 sm:px-3 py-3 font-medium hidden lg:table-cell">Source</th>
+                <th className="px-2 sm:px-3 py-3 font-medium"></th>
               </tr>
             </thead>
             <tbody>
               {paged.map((c) => (
                 <tr key={c.id} className="border-b border-gray-50 hover:bg-gray-50 text-sm cursor-pointer" onClick={() => navigate(`/zoiko-hr/recruitment/candidates/${c.id}`)}>
-                  <td className="px-3 py-3 font-medium text-gray-900 min-w-[8rem] break-words">{c.name}</td>
-                  <td className="px-3 py-3 text-gray-500 max-w-[220px] break-all">{c.email || "-"}</td>
-                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 whitespace-nowrap">{shown(c.phone)}</td>
-                  <td className="px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.position || "-"}</td>
-                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 max-w-[150px] truncate">{shown(c.location)}</td>
-                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 whitespace-nowrap">{experienceText(c.experience)}</td>
-                  <td className="hidden md:table-cell px-3 py-3 text-gray-500 max-w-[150px] truncate">{c.requisition_title || "-"}</td>
+                  <td className="px-2 sm:px-3 py-3 font-medium text-gray-900 break-words">{c.name}</td>
+                  <td className="px-2 sm:px-3 py-3 text-gray-500 break-all hidden sm:table-cell">{c.email || "-"}</td>
+                  <td className="hidden lg:table-cell px-2 sm:px-3 py-3 text-gray-500 whitespace-nowrap">{shown(c.phone)}</td>
+                  <td className="px-2 sm:px-3 py-3 text-gray-500 truncate">{c.position || "-"}</td>
+                  <td className="hidden lg:table-cell px-2 sm:px-3 py-3 text-gray-500 truncate">{shown(c.location)}</td>
+                  <td className="hidden xl:table-cell px-2 sm:px-3 py-3 text-gray-500 whitespace-nowrap">{experienceText(c.experience)}</td>
+                  <td className="hidden xl:table-cell px-2 sm:px-3 py-3 text-gray-500 truncate">{c.requisition_title || "-"}</td>
                   <td className="px-3 py-3">
                     <div className="flex items-center gap-1.5">
                       <StatusBadge status={c.status} />

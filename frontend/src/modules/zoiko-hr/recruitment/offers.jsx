@@ -2,16 +2,21 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import { NavLink } from "react-router-dom";
 import {
   Plus, Search, ChevronLeft, ChevronRight, X, Edit2, Trash2, AlertCircle, Calendar, User, Send, CheckCircle2, XCircle,
-  Undo2, Building2, ChevronDown, Loader2, Wallet,
+  Undo2, Building2, ChevronDown, Loader2, Wallet, Eye, Download, Mail, Printer,
 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import RemunerationFields, { CountrySelect, currencyForCountry, guessCountry, useRegions } from "../../../components/RemunerationFields";
 import BusinessLookupFields, { checkBusinessId, checkPostal, useBusinessFormats } from "../../../components/BusinessLookupFields";
 import {
-  getOffers, createOffer, updateOffer, deleteOffer, acceptOffer, rejectOffer, withdrawOffer, sendOffer, getCandidates,
+  getOffers, createOffer, updateOffer, deleteOffer, acceptOffer, rejectOffer, withdrawOffer, sendOffer, sendOfferWithPDF, getCandidates,
 } from "../../../service/hrService";
+import { getOrganizationDetails } from "../../../service/orgAdminService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { EMPLOYMENT_TYPES, DEFAULT_PERIOD, formatMoney, periodSuffix, remunerationFor, remunerationLabel } from "../../../utils/money";
+import { OfferLetterTemplate } from "./OfferLetterTemplate";
+import pdfMake from "pdfmake/build/pdfmake";
+import vfs from "pdfmake/build/vfs_fonts";
+pdfMake.vfs = vfs;
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/recruitment" },
@@ -94,15 +99,22 @@ export default function OfferManagement() {
   const [saving, setSaving] = useState(false);
   const [showEntity, setShowEntity] = useState(false);
 
+  const [orgDetails, setOrgDetails] = useState(null);
+  const [showPreview, setShowPreview] = useState(false);
+  const [previewOffer, setPreviewOffer] = useState(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+
   const load = useCallback(() => {
     setLoading(true);
     setLoadError(null);
     Promise.all([
       getOffers({ per_page: 100 }),
       getCandidates({ per_page: 100 }).catch(() => ({ items: [] })),
-    ]).then(([d, cands]) => {
+      getOrganizationDetails().catch(() => null),
+    ]).then(([d, cands, org]) => {
       setOffers(Array.isArray(d) ? d : d?.items || d?.data || []);
       setCandidates(Array.isArray(cands) ? cands : cands?.items || cands?.data || []);
+      setOrgDetails(org || null);
     }).catch((err) => {
       setLoadError(err.message || "Failed to load offers.");
     }).finally(() => setLoading(false));
@@ -307,6 +319,288 @@ export default function OfferManagement() {
   const currencyHint = !form.pay.currencyTouched && workCountryName && autoCurrency === form.pay.currency
     ? `Set from ${workCountryName}` : !form.work_country ? "Organization default" : null;
 
+  const companyName = orgDetails?.name || "Zoiko Industries Private Limited";
+
+  // ── offer letter preview / PDF / email ─────────────────────────────────────────────────────
+  const openPreview = (o) => {
+    setPreviewOffer(o);
+    setShowPreview(true);
+  };
+
+  const closePreview = () => {
+    setShowPreview(false);
+    setPreviewOffer(null);
+  };
+
+  const buildOfferData = (o) => {
+    const org = orgDetails || {};
+    const employmentType = o.employment_type || "full_time";
+    const amount = o.salary != null ? Number(o.salary) : null;
+    return {
+      candidateName: o.candidate_name || "Candidate",
+      candidateAddress: o.entity_address || "",
+      candidateCity: o.entity_city || "",
+      candidateCountry: o.entity_country || "",
+      position: o.position || "Position",
+      department: o.department || "Engineering",
+      employmentType,
+      joiningDate: o.joining_date ? String(o.joining_date).split("T")[0] : "",
+      remunerationType: o.remuneration_type || "salary",
+      amount,
+      currency: o.currency || "USD",
+      payPeriod: o.pay_period || "annual",
+      equity: o.equity != null ? Number(o.equity) : null,
+      workLocation: o.work_location || org.city || "",
+      entityName: o.entity_name || org.name || companyName,
+      entityAddress: o.entity_address || org.address || "",
+      entityCity: o.entity_city || org.city || "",
+      entityRegion: o.entity_region || org.region || "",
+      entityPostalCode: o.entity_postal_code || org.postal_code || "",
+      entityCountry: o.entity_country || org.country || "",
+      notes: o.notes || "",
+      companyName: org.name || "Zoiko Industries Private Limited",
+      companyAddress: org.address || "Prestige Tech Park, Tower 3",
+      companyCity: org.city || "Bangalore",
+      companyRegion: org.state || "Karnataka",
+      companyPostalCode: org.postal_code || "560103",
+      companyCountry: org.country || "India",
+      companyWebsite: org.website || "www.zoiko.com",
+      date: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }),
+    };
+  };
+
+  const buildDocDefinition = (data) => {
+    const employmentLabel = {
+      full_time: "Full-time", part_time: "Part-time", contract: "Contract",
+      internship: "Internship", freelance: "Freelance",
+    }[data.employmentType] || data.employmentType;
+    const remunerationDisplay = data.amount != null
+      ? new Intl.NumberFormat("en-IN", { style: "currency", currency: data.currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).format(data.amount)
+      : "Not specified";
+
+    return {
+      pageSize: "A4",
+      pageMargins: [40, 60, 40, 60],
+      header: (currentPage, pageCount) => ({
+        text: `${data.companyName} - Offer Letter`,
+        alignment: "right",
+        style: "header",
+      }),
+      footer: (currentPage, pageCount) => ({
+        text: `Page ${currentPage} of ${pageCount}`,
+        alignment: "center",
+        style: "footer",
+      }),
+      content: [
+        {
+          columns: [
+            {
+              width: "auto",
+              stack: [
+                {
+                  svg: `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><rect width="30" height="30" x="2" y="2" fill="#2563EB" rx="6"/><path d="M12 15L8 11M16 11L12 15M12 15L12 9M12 9L8 5M16 5L12 9" stroke="white" stroke-width="2.5" stroke-linecap="round"/></svg>`,
+                  width: 40,
+                  height: 40,
+                  margin: [0, 0, 20, 0],
+                },
+                {
+                  text: data.companyName,
+                  style: "companyName",
+                  margin: [0, 4, 0, 0],
+                },
+              ],
+            },
+            {
+              alignment: "right",
+              fontSize: 9,
+              color: "#64748b",
+              lineHeight: 1.4,
+              stack: [
+                { text: data.companyName, bold: true, color: "#111827" },
+                { text: data.companyAddress },
+                { text: `${data.companyCity}, ${data.companyRegion} - ${data.companyPostalCode}` },
+                { text: `${data.companyCountry} | ${data.companyWebsite}` },
+              ],
+            },
+          ],
+          columnGap: 20,
+          margin: [0, 0, 0, 20],
+        },
+        { text: new Date().toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }), style: "date", margin: [0, 0, 0, 20] },
+        {
+          columns: [
+            {
+              width: "auto",
+              stack: [
+                { text: data.candidateName, style: "candidateName", margin: [0, 0, 0, 4] },
+                { text: data.candidateAddress, margin: [0, 0, 0, 2] },
+                { text: `${data.candidateCity}, ${data.candidateCountry}` },
+              ],
+            },
+          ],
+          columnGap: 20,
+          margin: [0, 0, 0, 20],
+        },
+        { text: `Dear ${data.candidateName.split(" ")[0]},`, style: "salutation", margin: [0, 0, 0, 16] },
+        {
+          text: `We are pleased to offer you the position of ${data.position} at ${data.companyName}. We believe your skills and potential will be an excellent fit for our team, and we are excited about the possibility of you joining us.`,
+          style: "body",
+          margin: [0, 0, 0, 16],
+        },
+        {
+          table: {
+            widths: ["auto", "*", "*"],
+            body: [
+              [{ text: "Position", style: "tableLabel" }, { text: data.position, colSpan: 2 }, ""],
+              [{ text: "Department", style: "tableLabel" }, { text: data.department, colSpan: 2 }, ""],
+              [{ text: "Employment Type", style: "tableLabel" }, { text: employmentLabel, colSpan: 2 }, ""],
+              [{ text: "Start Date", style: "tableLabel" }, { text: data.joiningDate || "—", colSpan: 2 }, ""],
+              [{ text: "Base " + (data.remunerationType === "stipend" ? "Stipend" : "Salary"), style: "tableLabel" }, { text: remunerationDisplay + " " + (data.payPeriod === "annual" ? "per annum" : data.payPeriod), colSpan: 2 }, ""],
+              ...(data.equity != null && data.employmentType !== "internship" ? [[{ text: "Equity", style: "tableLabel" }, { text: `${data.equity}%`, colSpan: 2 }, ""]] : []),
+              [{ text: "Work Location", style: "tableLabel" }, { text: data.workLocation || data.companyCity + ", " + data.companyRegion, colSpan: 2 }, ""],
+            ],
+          },
+          layout: "noBorders",
+          margin: [0, 0, 0, 24],
+        },
+        { text: "Benefits & Perks", style: "sectionTitle", margin: [0, 0, 0, 8] },
+        {
+          columns: [
+            { width: 90, stack: [{ image: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiMyNTYzRUIiIHJ4PSI2Ii8+PC9zdmc+", fit: 24 }], margin: [0, 0, 8, 0] },
+            { text: "Health Insurance", bold: true, fontSize: 9, color: "#111827" },
+            { text: "Group medical cover", fontSize: 8, color: "#64748b" },
+          ],
+          gap: 8,
+        },
+        {
+          columns: [
+            { width: 90, stack: [{ image: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkTTExIDJMMTIgMUMxMSAyIDExIDFMMTIgMloiIHN0cm9rZT0iIzI1NjNFQiIgc3Ryb2tlLXdpZHRoPSIyLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==", fit: 24 }], margin: [0, 0, 8, 0] },
+            { text: "Work From Home", bold: true, fontSize: 9, color: "#111827" },
+            { text: "Flexible policy", fontSize: 8, color: "#64748b" },
+          ],
+          gap: 8,
+        },
+        {
+          columns: [
+            { width: 90, stack: [{ image: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cmVjdCB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIGZpbGw9IiMyNTYzRUIiIHJ4PSIzIi8+PC9zdmc+", fit: 24 }], margin: [0, 0, 8, 0] },
+            { text: "Learning & Dev", bold: true, fontSize: 9, color: "#111827" },
+            { text: "Access to Zoiko Learn", fontSize: 8, color: "#64748b" },
+          ],
+          gap: 8,
+        },
+        {
+          columns: [
+            { width: 90, stack: [{ image: "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMjQiIGhlaWdodD0iMjQiIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj48cGF0aCBkTTMgM0wyMSAyMU0yMSAzTDMgMjEiIHN0cm9rZT0iIzI1NjNFQiIgc3Ryb2tlLXdpZHRoPSIyLjUiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIvPjwvc3ZnPg==", fit: 24 }], margin: [0, 0, 8, 0] },
+            { text: "Meal Allowance", bold: true, fontSize: 9, color: "#111827" },
+            { text: "₹2,000 per month", fontSize: 8, color: "#64748b" },
+          ],
+          gap: 8,
+        },
+        { text: "", margin: [0, 24, 0, 0] },
+        { text: `Dear ${data.candidateName.split(" ")[0]}, This offer is subject to the terms and conditions outlined in the attached Annexures. Please confirm your acceptance by ${data.joiningDate ? new Date(data.joiningDate).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" }) : "30 October 2026"}.`, style: "body", margin: [0, 0, 0, 16] },
+        { text: `We look forward to welcoming you to ${data.companyName}!`, style: "body", margin: [0, 0, 0, 24] },
+        {
+          columns: [
+            {
+              width: "*",
+              stack: [
+                { text: "Sincerely,", style: "signatureLabel", margin: [0, 0, 0, 12] },
+                { text: "HR Team", style: "signatureName", margin: [0, 0, 0, 2] },
+                { text: "Hiring Manager", style: "signatureRole", margin: [0, 0, 0, 2] },
+                { text: data.companyName, style: "signatureRole", margin: [0, 0, 0, 0] },
+              ],
+            },
+            {
+              width: "*",
+              stack: [
+                { text: "Accepted and Agreed", style: "signatureLabel", margin: [0, 0, 0, 12] },
+                { text: data.candidateName, style: "signatureName", margin: [0, 0, 0, 8] },
+                { text: "Date: ____________________", style: "signatureRole", margin: [0, 0, 0, 0] },
+              ],
+            },
+          ],
+          columnGap: 40,
+          margin: [0, 24, 0, 0],
+        },
+      ],
+      styles: {
+        header: { fontSize: 8, color: "#64748b" },
+        footer: { fontSize: 8, color: "#64748b" },
+        companyName: { fontSize: 20, bold: true, color: "#111827", letterSpacing: -0.5 },
+        date: { fontSize: 10, bold: true, color: "#374151" },
+        candidateName: { fontSize: 12, bold: true, color: "#111827" },
+        salutation: { fontSize: 11, bold: true, color: "#111827" },
+        body: { fontSize: 10, color: "#374151", lineHeight: 1.5 },
+        tableLabel: { fontSize: 9, bold: true, color: "#6b7280" },
+        sectionTitle: { fontSize: 10, bold: true, color: "#111827" },
+        signatureLabel: { fontSize: 8, bold: true, color: "#6b7280" },
+        signatureName: { fontSize: 14, italic: true, color: "#111827", fontName: "serif" },
+        signatureRole: { fontSize: 8, color: "#6b7280" },
+      },
+    };;
+  };
+
+  const generatePdfBlob = async (offer) => {
+    const data = buildOfferData(offer);
+    const docDefinition = buildDocDefinition(data);
+    const pdf = pdfMake.createPdf(docDefinition);
+    return await pdf.getBlob();
+  };
+
+  const generatePdfBase64 = async (offer) => {
+    const data = buildOfferData(offer);
+    const docDefinition = buildDocDefinition(data);
+    const pdf = pdfMake.createPdf(docDefinition);
+    return await pdf.getBase64();
+  };
+
+
+  const generatePdf = async (offer = null) => {
+    const target = offer || previewOffer;
+    if (!target) return;
+    setPdfBusy(true);
+    try {
+      const blob = await generatePdfBlob(target);
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `Offer_Letter_${(target.candidate_name || "Candidate").replace(/\s+/g, "_")}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error("PDF generation failed", err);
+      setActionError("Failed to generate PDF. " + (err.message || ""));
+    } finally {
+      setPdfBusy(false);
+    }
+  };
+
+  const handleSendEmail = async (o) => {
+    if (!o.candidate_id) {
+      setActionError("Cannot email offer: no linked candidate record.");
+      return;
+    }
+    const ok = window.confirm(`Send offer letter to ${o.candidate_name} via email with PDF attachment?`);
+    if (!ok) return;
+    setBusyId(o.id);
+    setActionError(null);
+    try {
+      const base64 = await generatePdfBase64(o);
+      const res = await sendOfferWithPDF(o.id, {
+        pdfData: base64,
+        pdfFilename: `Offer_Letter_${(o.candidate_name || "Candidate").replace(/\s+/g, "_")}.pdf`,
+      });
+      setNotice(res?.email_sent ? `Offer emailed to ${o.candidate_name} with PDF attachment.` : "Offer marked as sent.");
+      load();
+    } catch (err) {
+      setActionError(err.message || "Failed to send offer email with attachment.");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
   if (loading && offers.length === 0) {
     return <HRPage title="Offer Management" subtitle="Create and manage job offers"><SubNav /><div className="p-6 text-gray-400">Loading...</div></HRPage>;
   }
@@ -433,6 +727,8 @@ export default function OfferManagement() {
                             className="flex items-center gap-1 text-xs font-medium text-gray-500 hover:text-gray-700 disabled:opacity-50"><Undo2 className="h-3.5 w-3.5" /> Withdraw</button>
                         )}
                         {!CLOSED.includes(o.status) && <button title="Edit" onClick={() => openEdit(o)} className="-m-1 p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>}
+                        <button title="Preview Offer Letter" onClick={() => openPreview(o)} className="-m-1 p-1.5 text-gray-400 hover:text-blue-600"><Eye className="w-4 h-4" /></button>
+                        <button title="Download PDF" onClick={() => generatePdf(o)} disabled={pdfBusy} className="-m-1 p-1.5 text-gray-400 hover:text-green-600"><Download className="w-4 h-4" /></button>
                         <button title="Delete" disabled={busy} onClick={() => runAction(o, deleteOffer, { confirm: "Delete this offer permanently?", ok: "Offer deleted." })} className="-m-1 p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                       </div>
                     </td>
@@ -549,6 +845,72 @@ export default function OfferManagement() {
               <button onClick={handleSave} disabled={saving} className="flex items-center gap-2 px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700 disabled:opacity-50">
                 {saving && <Loader2 className="h-4 w-4 animate-spin" />}{editItem ? "Update" : "Create"}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Offer Letter Preview Modal */}
+      {showPreview && previewOffer && (
+        <div className="fixed inset-0 z-60 flex items-center justify-center bg-black/60 p-4 sm:p-6">
+          <div className="flex max-h-[95vh] w-full max-w-3xl flex-col rounded-2xl bg-white shadow-2xl border border-slate-200">
+            <div className="flex items-center justify-between gap-4 border-b border-slate-200 px-6 py-4">
+              <h2 className="text-lg font-semibold text-slate-900">Offer Letter — {previewOffer.candidate_name}</h2>
+              <div className="flex gap-2">
+                <button
+                  onClick={generatePdf}
+                  disabled={pdfBusy}
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 text-sm font-medium disabled:opacity-50"
+                >
+                  {pdfBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Download className="w-4 h-4" />}
+                  Download PDF
+                </button>
+                <button
+                  onClick={() => handleSendEmail(previewOffer)}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 text-sm font-medium disabled:opacity-50"
+                  disabled={!previewOffer.candidate_id}
+                >
+                  <Mail className="w-4 h-4" /> Send Email
+                </button>
+                <button
+                  onClick={() => window.print()}
+                  className="flex items-center gap-2 px-4 py-2 bg-slate-100 text-slate-700 rounded-lg hover:bg-slate-200 text-sm font-medium"
+                >
+                  <Printer className="w-4 h-4" /> Print
+                </button>
+                <button onClick={closePreview} className="-m-1.5 p-1.5 text-slate-400 hover:text-slate-600">
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-y-auto p-6 sm:p-8">
+              <OfferLetterTemplate
+                candidateName={previewOffer.candidate_name || ""}
+                position={previewOffer.position || ""}
+                department={previewOffer.department || "Engineering"}
+                employmentType={previewOffer.employment_type || "full_time"}
+                joiningDate={previewOffer.joining_date ? String(previewOffer.joining_date).split("T")[0] : ""}
+                remunerationType={previewOffer.remuneration_type || "salary"}
+                amount={previewOffer.salary != null ? Number(previewOffer.salary) : null}
+                currency={previewOffer.currency || "USD"}
+                payPeriod={previewOffer.pay_period || "annual"}
+                equity={previewOffer.equity != null ? Number(previewOffer.equity) : null}
+                workLocation={previewOffer.work_location || ""}
+                entityName={previewOffer.entity_name || companyName}
+                entityAddress={previewOffer.entity_address || ""}
+                entityCity={previewOffer.entity_city || ""}
+                entityRegion={previewOffer.entity_region || ""}
+                entityPostalCode={previewOffer.entity_postal_code || ""}
+                entityCountry={previewOffer.entity_country || ""}
+                notes={previewOffer.notes || ""}
+                companyName={orgDetails?.name || "Zoiko Industries Private Limited"}
+                companyAddress={orgDetails?.address || "Prestige Tech Park, Tower 3"}
+                companyCity={orgDetails?.city || "Bangalore"}
+                companyRegion={orgDetails?.state || "Karnataka"}
+                companyPostalCode={orgDetails?.postal_code || "560103"}
+                companyCountry={orgDetails?.country || "India"}
+                companyWebsite={orgDetails?.website || "www.zoiko.com"}
+              />
             </div>
           </div>
         </div>

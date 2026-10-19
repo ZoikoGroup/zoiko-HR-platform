@@ -207,6 +207,28 @@ def send_offer(db: Session, offer) -> bool:
         return False
 
 
+def send_offer_with_pdf(db: Session, offer, pdf_bytes: bytes, pdf_filename: str) -> bool:
+    """Email the offer letter to the linked candidate with a PDF attachment."""
+    from app.modules.hr.models import RecruitmentCandidate
+    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == offer.candidate_id).first() if offer.candidate_id else None
+    if cand is None or not cand.email:
+        return False
+    try:
+        from app.services.email_service import send_offer_letter
+        rem = (offer.remuneration_type or "salary").capitalize()
+        return bool(send_offer_letter(
+            cand.email, offer.candidate_name, offer.position, _org_name(db, offer.organization_id),
+            EMPLOYMENT_TYPE_LABELS.get(offer.employment_type or "", "Employment"), rem,
+            money_display(offer.salary, offer.currency, offer.pay_period),
+            start_date_display=_date_display(offer.joining_date) if offer.joining_date else None,
+            equity=offer.equity, entity_name=offer.entity_name, db=db, organization_id=offer.organization_id,
+            pdf_bytes=pdf_bytes, pdf_filename=pdf_filename,
+        ))
+    except Exception:
+        logger.exception("offer letter email with pdf failed")
+        return False
+
+
 def notify_offer_outcome(db: Session, offer, accepted: bool) -> int:
     try:
         from app.services.email_service import send_offer_outcome
