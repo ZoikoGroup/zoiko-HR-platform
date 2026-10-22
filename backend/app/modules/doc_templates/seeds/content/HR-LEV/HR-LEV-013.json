@@ -1,0 +1,113 @@
+{
+  "canonical_id": "HR-LEV-013",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "leave.decision_status_label",
+      "leave.decided_by",
+      "leave.decided_at"
+    ],
+    "optional": [
+      "policy.eap_contact"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "bereavement_entitlement"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Bereavement Leave",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "We are very sorry for your loss. Please tell us the dates you need; you do not have to give us details you do not want to share.",
+      "id": "privacy_bereavement"
+    },
+    {
+      "type": "form_fields",
+      "id": "bereavement_fields",
+      "fields": [
+        {
+          "key": "relationship",
+          "label": "Relationship (optional)",
+          "type": "select",
+          "options": [
+            "partner",
+            "child",
+            "parent",
+            "sibling",
+            "grandparent",
+            "other family member",
+            "other",
+            "prefer not to say"
+          ]
+        },
+        {
+          "key": "start_date",
+          "label": "Start date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "end_date",
+          "label": "End date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "travel_needed",
+          "label": "Travel needed",
+          "type": "checkbox"
+        },
+        {
+          "key": "message",
+          "label": "Message to your manager (optional)",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "Decision",
+      "level": 2
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "leave.decision_status_label",
+        "leave.decided_by",
+        "leave.decided_at"
+      ],
+      "labels": {
+        "leave.decision_status_label": "Status"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "bereavement_entitlement",
+      "required": false
+    },
+    {
+      "type": "paragraph",
+      "text": "Support: {{policy.eap_contact}}",
+      "include_when": {
+        "field": "policy.eap_contact",
+        "op": "present"
+      }
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

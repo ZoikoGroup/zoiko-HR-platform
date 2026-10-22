@@ -1,0 +1,71 @@
+{
+  "canonical_id": "HR-ONB-015",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "SIGN_EMPLOYEE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "asset.items"
+    ],
+    "optional": [
+      "asset.issued_by"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Equipment Issued to {{worker.full_name}}",
+      "level": 1
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Item",
+        "Asset tag",
+        "Serial",
+        "Condition",
+        "Issued on"
+      ],
+      "rows_from": "asset.items"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "asset.issued_by"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Please look after this equipment and use it in line with our Company Property and Acceptable Use policies. Report loss, theft or damage to IT immediately. You will be asked to return all items when you leave or when they are replaced."
+    },
+    {
+      "type": "paragraph",
+      "text": "This form does not authorise any deduction from your pay.",
+      "id": "rights_deductions",
+      "style": "notice"
+    },
+    {
+      "type": "signature_block",
+      "parties": [
+        "employee"
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received the items listed in the condition described.",
+      "mode": "sign",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

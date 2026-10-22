@@ -109,6 +109,8 @@ FEATURE_LABELS: dict[str, str] = {
     "hr.documents.core": "Documents & employee files",
     "hr.documents.policies": "Policies & acknowledgments",
     "hr.documents.workflow": "Advanced document workflows / e-sign orchestration",
+    "hr.documents.templates": "Document templates, generation and e-signature",
+    "hr.documents.tenant_attestation": "Organization-approved (tenant-attested) templates",
     "hr.enterprise.data_options": "Negotiated retention / residency options",
     "hr.enterprise.sandbox": "Customer sandbox / configuration promotion",
     "hr.identity.conditional_access": "IP allowlisting / advanced access conditions",

@@ -100,9 +100,23 @@ def main():
             .all()
         }
 
+        # Company policies published from the document template engine replace these placeholder documents
+        # (app/modules/hr/policy_documents.py retires the placeholder when the policy is published). Never bring a
+        # placeholder back once a released policy covers it, so the policy hub and the assistant cannot disagree.
+        from app.modules.hr.policy_documents import LEGACY_KB_TITLES
+        live_policies = {
+            row[0] for row in db.query(KnowledgeSource.policy_canonical_id)
+            .filter(KnowledgeSource.organization_id == organization_id, KnowledgeSource.policy_canonical_id.isnot(None),
+                    KnowledgeSource.status == KnowledgeStatus.PUBLISHED)
+            .all()
+        }
+
         for doc in REAL_DOCUMENTS:
             if doc["title"] in already_published:
                 print(f"SKIP (already published): {doc['title']}")
+                continue
+            if set(LEGACY_KB_TITLES.get(doc["title"], ())) & live_policies:
+                print(f"SKIP (replaced by a published company policy): {doc['title']}")
                 continue
             full_path = os.path.join(_REPO_ROOT, doc["path"])
             content = extract_docx_text(full_path)

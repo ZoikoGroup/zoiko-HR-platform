@@ -697,7 +697,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     # Also ensure legacy `code` is set (backward compat)
     legacy_code = data.organization[:50].upper().replace(" ", "_")
     suffix = 1
-    while db.query(Organization).filter(Organization.organization_code == legacy_code).first():
+    while db.query(Organization).filter(Organization.organization_code == legacy_code).execution_options(include_deleted=True).first():
         legacy_code = f"{data.organization[:45].upper().replace(' ', '_')}_{suffix}"
         suffix += 1
 
@@ -3070,6 +3070,11 @@ def update_employee_profile(db: Session, employee_id: int, data, organization_id
         _record(db, "employee.updated", actor, employee.organization_id,
                 **_employee_target(employee), changes=changes_from(before, update_data),
                 details={"section": "profile"})
+        bank_changed = any(k in update_data and before.get(k) != update_data[k] for k in ("bank_name", "bank_account", "bank_ifsc"))
+        if bank_changed and any(update_data.get(k) for k in ("bank_name", "bank_account", "bank_ifsc")):
+            # fraud protection: the employee is told about every change, and payroll waits for finance re-verification
+            from app.modules.hr import onboarding_documents
+            onboarding_documents.bank_change_requested(db, employee, actor)
     return profile
 
 
@@ -3157,8 +3162,11 @@ def create_employee_history_entry(
     changed_by: Optional[int] = None,
     change_reason: Optional[str] = None,
 ) -> EmployeeHistory:
+    # organization_id is NOT NULL on employee_history: take it from the employee (it was never set before).
+    organization_id = db.query(Employee.organization_id).filter(Employee.id == employee_id).scalar()
     history = EmployeeHistory(
         employee_id=employee_id,
+        organization_id=organization_id,
         field_name=field_name,
         old_value=old_value,
         new_value=new_value,
@@ -3483,6 +3491,9 @@ def create_employee_compensation(db: Session, data: EmployeeCompensationCreate, 
         **_compensation_target(db, comp),
         changes=activity_diff_object(comp),
     )
+    # The first compensation record produces the initial salary confirmation (HR-CMP-001, L2: a second person approves it).
+    from app.modules.hr import compensation_documents
+    compensation_documents.after_compensation_created(db, actor, comp)
     return comp
 
 def get_employee_compensations(db: Session, org_id: int, employee_id: Optional[int] = None) -> list[EmployeeCompensation]:
@@ -3741,6 +3752,15 @@ def hard_delete_employee(db: Session, employee_id: int, organization_id: int = N
     employee = q.first()
     if not employee:
         raise NotFoundException("Employee", employee_id)
+
+    # Generated-document evidence is under retention: the FK purge below would delete it. Deactivate such a person instead.
+    from app.modules.doc_templates.retention import employee_document_references
+    refs = employee_document_references(db, employee_id)
+    if refs:
+        from app.core.exceptions import BadRequestException
+        raise BadRequestException(
+            "This person cannot be permanently deleted because they appear in document records that must be kept ("
+            + ", ".join(refs) + "). Deactivate the account instead.")
 
     # Reassign reportees to NULL
     rpt_q = db.query(Employee).filter(Employee.reporting_manager_id == employee_id)

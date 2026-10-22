@@ -1,0 +1,76 @@
+{
+  "canonical_id": "HR-ORG-004",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "position.title",
+      "position.department",
+      "position.reason",
+      "approval.decision",
+      "approval.approver_name",
+      "approval.decided_at"
+    ],
+    "optional": [
+      "position.grade",
+      "position.reports_to",
+      "position.employment_type_label",
+      "position.location",
+      "position.salary_range",
+      "position.job_description_ref",
+      "approval.comment"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Position Creation Request — {{position.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "position.title",
+        "position.department",
+        "position.grade",
+        "position.reports_to",
+        "position.employment_type_label",
+        "position.location",
+        "position.salary_range",
+        "position.job_description_ref"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Reason for the new position: {{position.reason}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "The job description reference {{position.job_description_ref}} is attached and must be approved before the position is advertised.",
+      "include_when": {
+        "field": "position.job_description_ref",
+        "op": "present"
+      }
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "approval.decision",
+        "approval.approver_name",
+        "approval.decided_at",
+        "approval.comment"
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

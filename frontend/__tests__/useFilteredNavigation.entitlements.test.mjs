@@ -56,3 +56,13 @@ test("string-state comparison treats READ_ONLY as granted", () => {
   });
   assert.ok(filtered[0].items.some((i) => i.href === undefined), "READ_ONLY group survives");
 });
+
+test("snapshot entries from useEntitlements keep granted items and fail closed otherwise", () => {
+  const filtered = filterSectionsForRole(sections, ROLES.SUPER_ADMIN, [], "standard", {
+    "hr.documents.workflow": { state: "ENTITLED_AVAILABLE", granted: true },
+    "hr.identity.sso": { state: "NOT_ENTITLED", granted: false },
+    "hr.documents.core": { state: "READ_ONLY", granted: true },
+  });
+  const hrefs = filtered[0].items.map((i) => i.href);
+  assert.deepEqual(hrefs, ["/super-admin/dashboard", "/super-admin/audit-logs", undefined]);
+});

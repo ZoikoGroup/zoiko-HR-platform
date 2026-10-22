@@ -1583,7 +1583,8 @@ def check_leave_application(db: Session, data: LeaveRequestCreate, org_id: int) 
         raise BadRequestException("The end date cannot be before the start date.")
     if data.start_date < date.today():
         raise BadRequestException("Leave cannot start in the past. Choose today or a later date.")
-    if len((data.reason or "").strip()) < 10:
+    from app.modules.hr import leave_documents
+    if leave_documents.reason_required(data.leave_type) and len((data.reason or "").strip()) < 10:
         raise BadRequestException("Give a reason of at least 10 characters.")
     days = _compute_leave_days(data.start_date, data.end_date)
     if days > 365:
@@ -1626,7 +1627,11 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
         days=days,
         reason=data.reason,
         status=RequestStatus.PENDING,
+        handover_note=(getattr(data, "handover_note", None) or "").strip() or None,
+        details=getattr(data, "details", None) or None,
     )
+    from app.modules.hr import leave_documents
+    leave_documents.protect_reason(record)      # a sickness reason never reaches the plain column
     db.add(record)
     db.commit()
     db.refresh(record)
@@ -1672,6 +1677,7 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
     except Exception as e:
         logger.warning(f"[email] Failed to notify employee about leave request {record.id}: {e}")
 
+    leave_documents.after_created(db, record, _actor_of(db, actor))
     return record
 
 
@@ -1776,7 +1782,10 @@ def get_leave_requests(
             "approved_by": reviewer_name or "-",
             "reviewer_name": reviewer_name,
             "approval_date": lr.reviewed_at,
-            "approval_comments": lr.reason if lr.status != RequestStatus.PENDING else "-",
+            "approval_comments": lr.decision_reason or "-",
+            "decision_reason": lr.decision_reason,
+            "has_sensitive_reason": bool(lr.reason_encrypted),
+            "document_id": lr.document_id,
             "created_at": lr.created_at,
             "updated_at": lr.updated_at,
         })
@@ -1805,6 +1814,12 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
         start = update_data.get("start_date", record.start_date)
         end = update_data.get("end_date", record.end_date)
         update_data["days"] = _compute_leave_days(start, end)
+    from app.modules.hr import leave_documents
+    decision = update_data.get("status") if update_data.get("status") in (RequestStatus.APPROVED, RequestStatus.REJECTED) else None
+    if decision is not None:
+        leave_documents.record_decision(db, record, getattr(actor, "id", None), decision,
+                                        update_data.pop("decision_reason", None) or record.decision_reason,
+                                        update_data.pop("alternative_dates", None))
     before = snapshot(record, update_data.keys())
     for key, value in update_data.items():
         setattr(record, key, value)
@@ -1814,6 +1829,8 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
             record.reviewed_by = actor.id
     db.commit()
     db.refresh(record)
+    if decision is not None:
+        leave_documents.after_decided(db, record, actor)
     _activity_record(
         db, "leave.updated", _actor_of(db, actor), record.organization_id,
         entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
@@ -1870,16 +1887,20 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
     record = get_leave_request(db, leave_id, org_id)
     before_status = getattr(record.status, "value", record.status)
     update_data = data.model_dump(exclude_unset=True)
+    from app.modules.hr import leave_documents
     if "status" in update_data:
         if update_data["status"] not in (RequestStatus.APPROVED, RequestStatus.REJECTED):
             raise BadRequestException("A review can only approve or reject a request.")
         if record.status not in _OPEN_LEAVE:
             raise BadRequestException(f"This request is already {before_status}; it has been decided and cannot be decided again.")
-    if "status" in update_data:
+        # a reviewer's `reason` is the decision reason: the employee's own reason is never overwritten by a review
+        leave_documents.record_decision(db, record, reviewer_id, update_data["status"],
+                                        update_data.get("decision_reason") or update_data.get("reason"),
+                                        update_data.get("alternative_dates"))
         record.status = update_data["status"]
         record.reviewed_by = reviewer_id
         record.reviewed_at = datetime.utcnow()
-    if "reason" in update_data:
+    elif "reason" in update_data and record.leave_type not in leave_documents.SENSITIVE_TYPES:
         record.reason = update_data["reason"]
     db.commit()
     db.refresh(record)
@@ -1921,7 +1942,7 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
                         leave_period_display=(
                             f"{record.start_date.strftime('%b %d, %Y')} – {record.end_date.strftime('%b %d, %Y')}"
                         ),
-                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves",
+                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves?request={record.id}",
                         workspace_name=(org.organization_name or org.display_name or "Your workspace") if org else "Your workspace",
                         db=db,
                         organization_id=record.organization_id,
@@ -1931,13 +1952,15 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
                         email=employee.email,
                         first_name=employee.first_name or "there",
                         request_reference=f"LV-{record.organization_id}-{record.id:04d}",
-                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves",
+                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves?request={record.id}",
                         db=db,
                         organization_id=record.organization_id,
                     )
         except Exception as e:
             logger.warning(f"[email] Failed to notify employee about reviewed leave request {record.id}: {e}")
 
+    if "status" in update_data:
+        leave_documents.after_decided(db, record, _actor_of(db, reviewer_id))
     return record
 
 
@@ -2477,7 +2500,10 @@ def create_salary_revision(db: Session, data: SalaryRevisionCreate, org_id: int)
     emp_comp = db.query(EmployeeCompensation).filter(EmployeeCompensation.id == data.employee_compensation_id, EmployeeCompensation.organization_id == org_id).first()
     if not emp_comp:
         raise NotFoundException("EmployeeCompensation", data.employee_compensation_id)
-    revision = SalaryRevision(**data.model_dump(), organization_id=org_id)
+    # A revision recorded here is a DRAFT: it reaches the employee (HR-CMP-005) and payroll only after an approver who is not
+    # the requester approves it (compensation_documents).
+    revision = SalaryRevision(**data.model_dump(), organization_id=org_id, employee_id=emp_comp.employee_id,
+                              currency=emp_comp.currency, status="DRAFT", revision_type="annual_review")
     db.add(revision)
     db.commit()
     db.refresh(revision)
@@ -2494,6 +2520,8 @@ def update_salary_revision(db: Session, revision_id: int, data, org_id: int) -> 
     ).first()
     if not revision:
         raise NotFoundException("SalaryRevision", revision_id)
+    if revision.status not in (None, "DRAFT", "REJECTED"):
+        raise BadRequestException("This revision is waiting for approval or has been approved; it can no longer be edited.")
     for key, value in data.model_dump(exclude_unset=True).items():
         setattr(revision, key, value)
     db.commit()
@@ -3176,10 +3204,21 @@ def get_onboarding_analytics(db: Session, organization_id: Optional[int] = None)
 
 
 # NEW HIRES SERVICE
-def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Optional[str] = None, status: Optional[str] = None, page: Optional[int] = None, per_page: Optional[int] = None):
+def get_new_hires(db: Session, organization_id: Optional[int] = None, search: Optional[str] = None, status: Optional[str] = None, page: Optional[int] = None, per_page: Optional[int] = None, accepted_offer_only: bool = False):
     query = db.query(OnboardingNewHire).filter(OnboardingNewHire.is_deleted == False)
     if organization_id:
         query = query.filter(OnboardingNewHire.organization_id == organization_id)
+    if accepted_offer_only:
+        from app.modules.hr.models import RecruitmentCandidate, RecruitmentOffer, OfferStatus
+        accepted_candidate_emails = db.query(func.lower(RecruitmentCandidate.email)).join(
+            RecruitmentOffer, RecruitmentOffer.candidate_id == RecruitmentCandidate.id
+        ).filter(RecruitmentOffer.status == OfferStatus.ACCEPTED)
+        if organization_id:
+            accepted_candidate_emails = accepted_candidate_emails.filter(
+                RecruitmentCandidate.organization_id == organization_id,
+                RecruitmentOffer.organization_id == organization_id,
+            )
+        query = query.filter(func.lower(OnboardingNewHire.email).in_(accepted_candidate_emails))
     if status:
         query = query.filter(OnboardingNewHire.status == status)
     if search:
@@ -3255,8 +3294,20 @@ def _profile_fields(new_hire: OnboardingNewHire) -> dict:
     if d.get("postal_code"):
         out["pincode"] = d["postal_code"]
     if d.get("emergency_contact_name") or d.get("emergency_contact_phone"):
-        out["emergency_contacts"] = [{"name": d.get("emergency_contact_name"), "relation": d.get("emergency_contact_relation"),
-                                      "phone": d.get("emergency_contact_phone")}]
+        # the ESS shape (core/identity_formats): onboarding used to write {name, relation, phone}, which the ESS page cannot read
+        out["emergency_contacts"] = [{"name": d.get("emergency_contact_name"), "relationship": d.get("emergency_contact_relation") or "",
+                                      "primaryPhone": d.get("emergency_contact_phone") or "", "alternatePhone": "", "address": "",
+                                      "isPrimary": True}]
+    verified = d.get("verified") or {}                      # values HR verified from the structured new-starter forms
+    for key in ("first_name", "last_name", "personal_email", "phone", "current_address", "city", "state", "country", "pincode",
+                "language", "emergency_contacts"):
+        if verified.get(key):
+            out[key] = verified[key]
+    if verified.get("date_of_birth"):
+        try:
+            out["date_of_birth"] = date.fromisoformat(str(verified["date_of_birth"])[:10])
+        except ValueError:
+            pass
     return out
 
 
@@ -3288,6 +3339,20 @@ def _offer_pay_fields(db: Session, new_hire: OnboardingNewHire) -> dict:
         out["_currency_note"] = (f"The offer was in {offer.currency.upper()} but salaries for {out.get('country', code)} are shown in "
                                  f"{regions.currency_for(code)}; check the employee's CTC.")
     return out
+
+
+def _hire_entity(db: Session, new_hire, organization_id: int):
+    """The employer entity of the accepted offer, else the organization's default entity."""
+    from app.modules.hr.models import OfferStatus, RecruitmentCandidate, RecruitmentOffer
+    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.onboarding_new_hire_id == new_hire.id).first()
+    if cand is not None:
+        offer = (db.query(RecruitmentOffer).filter(RecruitmentOffer.candidate_id == cand.id, RecruitmentOffer.status == OfferStatus.ACCEPTED)
+                 .order_by(RecruitmentOffer.id.desc()).first())
+        if offer is not None and offer.employer_entity_id:
+            return offer.employer_entity_id
+    from app.modules.doc_templates.preflight import default_entity
+    e = default_entity(db, organization_id)
+    return e.id if e is not None else None
 
 
 def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> tuple["Employee", Optional[str]]:
@@ -3326,12 +3391,17 @@ def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, o
     temp_password = _generate_temp_password()
     emp_code = generate_employee_code(db, organization_id=organization_id)
 
+    profile = {**_profile_fields(new_hire), **pay}         # the offer's work country and CTC win over the typed address country
+    # names and phone the new hire verified on the structured new-starter form win over the name typed on the offer
+    first_name = profile.pop("first_name", None) or first_name
+    last_name = profile.pop("last_name", None) or last_name
+    phone = profile.pop("phone", None) or new_hire.phone or ""
     employee = EmpModel(
         email=new_hire.email,
         hashed_password=hash_password(temp_password),
         first_name=first_name,
         last_name=last_name,
-        phone=new_hire.phone or "",
+        phone=phone,
         employee_code=emp_code,
         job_title=new_hire.position or "Employee",
         role=UserRole.EMPLOYEE,
@@ -3341,8 +3411,12 @@ def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, o
         date_of_joining=new_hire.joining_date or date.today(),
         department_id=new_hire.department_id,
         reporting_manager_id=new_hire.manager_id,
+        # jurisdiction facts captured while hiring (doc_templates): where the person will work, never guessed
+        work_country=new_hire.work_country,
+        work_region=new_hire.work_region,
+        employing_entity_id=_hire_entity(db, new_hire, organization_id),
         organization_id=organization_id,
-        **{**_profile_fields(new_hire), **pay},          # the offer's work country and CTC win over the typed address country
+        **profile,
     )
     db.add(employee)
     db.flush()
@@ -3358,7 +3432,7 @@ def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, o
     return employee, temp_password
 
 
-def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate, organization_id: int) -> dict:
+def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate, organization_id: int, actor=None) -> dict:
     from app.modules.hr import onboarding_flow
     new_hire = get_new_hire_by_id(db, new_hire_id, organization_id)
     previous_status = new_hire.status
@@ -3395,6 +3469,11 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
             organization_id,
         )
         onboarding_flow.notify_completed(db, new_hire, employee)
+        try:
+            from app.modules.hr import onboarding_documents
+            onboarding_documents.on_onboarding_completed(db, new_hire, employee, actor)   # HR-ONB-004/-022, -020, -010/-011
+        except Exception:
+            db.rollback()
     elif update_data.get("status") and update_data["status"] != previous_status:
         log_onboarding_activity(db, new_hire.id, "Status Changed",
                                 f"{new_hire.candidate_name}: {previous_status.replace('_', ' ')} -> {new_hire.status.replace('_', ' ')}.", organization_id)
@@ -4674,9 +4753,16 @@ def review_travel_expense(db: Session, expense_id: int, organization_id: int, st
     if status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
         if current not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
             raise BadRequestException(f"This claim is already {getattr(current, 'value', current)}; it has been decided and cannot be decided again.")
-        expense.status = status
-        if status == RequestStatus.APPROVED:
-            expense.approved_at = datetime.utcnow()
+        # one decision path: the claimant can never decide their own claim, large claims need a second approver,
+        # and the decision record (HR-CMP-024) is produced
+        from app.modules.hr import compensation_documents
+        reviewer = db.query(Employee).filter(Employee.id == reviewer_id).first() if reviewer_id else None
+        if reviewer is None:
+            raise BadRequestException("The reviewer could not be identified.")
+        expense = compensation_documents.decide_expense(db, reviewer, expense, approve=status == RequestStatus.APPROVED,
+                                                        require_reason=False)
+        _name_travel_rows(db, [expense])
+        return expense
     elif status == RequestStatus.COMPLETED:
         if current != RequestStatus.APPROVED:
             raise BadRequestException("Only an approved claim can be marked as reimbursed.")
@@ -4698,6 +4784,8 @@ def delete_travel_expense(db: Session, expense_id: int) -> None:
 
 def approve_travel_expense(db: Session, expense_id: int, approver_id: int, comments: Optional[str] = None) -> TravelExpense:
     expense = get_travel_expense(db, expense_id)
+    if approver_id == expense.employee_id:
+        raise BadRequestException("You cannot approve your own claim.")
     expense.status = RequestStatus.APPROVED
     expense.approved_at = datetime.utcnow()
     if comments:
@@ -5231,8 +5319,11 @@ def get_employee_history(db: Session, employee_id: int) -> list[EmployeeHistory]
 
 
 def create_employee_history_entry(db: Session, employee_id: int, field_name: str, old_value: str, new_value: str, changed_by: Optional[int] = None, change_reason: Optional[str] = None) -> EmployeeHistory:
+    # organization_id is NOT NULL on employee_history: take it from the employee (it was never set before).
+    organization_id = db.query(Employee.organization_id).filter(Employee.id == employee_id).scalar()
     history = EmployeeHistory(
         employee_id=employee_id,
+        organization_id=organization_id,
         field_name=field_name,
         old_value=old_value,
         new_value=new_value,
@@ -5762,6 +5853,11 @@ def create_designation(db: Session, data: DesignationCreate, organization_id: Op
         _check_level_depth(payload.get("level"), settings)
         if not payload.get("status"):
             payload["status"] = settings.default_status
+        if getattr(settings, "require_position_approval", False):
+            # usable only after an approved position request (HR-ORG-004, workforce_documents.request_position)
+            payload["status"] = "inactive"
+            payload["approval_status"] = "pending"
+            payload["requested_by"] = created_by
     elif not payload.get("status"):
         payload["status"] = "active"
 

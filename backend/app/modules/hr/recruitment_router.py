@@ -278,7 +278,7 @@ def create_candidate(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.create_candidate(db, data, current_user.organization_id)
+    return recruitment_service.create_candidate(db, data, current_user.organization_id, actor=current_user)
 
 
 @recruitment_router.post(
@@ -353,7 +353,7 @@ def update_candidate_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.update_candidate_status(db, candidate_id, data, current_user.organization_id)
+    return recruitment_service.update_candidate_status(db, candidate_id, data, current_user.organization_id, actor=current_user)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -479,7 +479,9 @@ def create_offer(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.create_offer(db, data, current_user.organization_id)
+    offer = recruitment_service.create_offer(db, data, current_user.organization_id, actor=current_user)
+    _auto_offer_letter(db, current_user, offer.id)
+    return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
 
 
 @recruitment_router.get(
@@ -506,7 +508,15 @@ def update_offer(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.update_offer(db, offer_id, data, current_user.organization_id)
+    offer = recruitment_service.update_offer(db, offer_id, data, current_user.organization_id, actor=current_user)
+    _auto_offer_letter(db, current_user, offer.id)
+    return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
+
+
+def _auto_offer_letter(db, user, offer_id: int) -> None:
+    """'Offer letters without approval' (recruitment settings): approve the saved offer and generate its letter at once."""
+    from app.modules.hr.recruitment_documents import auto_prepare_offer_letter
+    auto_prepare_offer_letter(db, user, offer_id)
 
 
 @recruitment_router.delete(
@@ -571,29 +581,6 @@ def withdraw_offer(
 )
 def send_offer(offer_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     return recruitment_service.send_offer(db, offer_id, current_user.organization_id)
-
-
-class SendOfferWithPDFRequest(BaseModel):
-    pdf_data: str  # base64-encoded PDF bytes
-    pdf_filename: str = "Offer Letter.pdf"
-
-
-@recruitment_router.put(
-    "/offers/{offer_id}/send-with-pdf",
-    response_model=OfferResponse,
-    summary="Send offer letter email with PDF attachment",
-)
-def send_offer_with_pdf(
-    offer_id: int,
-    data: SendOfferWithPDFRequest,
-    db: Session = Depends(get_db),
-    current_user=Depends(get_current_admin),
-):
-    import base64
-    pdf_bytes = base64.b64decode(data.pdf_data)
-    return recruitment_service.send_offer_with_pdf(
-        db, offer_id, current_user.organization_id, pdf_bytes, data.pdf_filename,
-    )
 
 
 # ════════════════════════════════════════════════════════════════════════════

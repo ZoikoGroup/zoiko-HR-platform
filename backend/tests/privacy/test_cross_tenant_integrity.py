@@ -36,3 +36,6 @@ def test_C03_every_pair_the_generator_covers_is_between_two_tenant_tables_with_a
     for p in pairs:
         assert "organization_id" in Base.metadata.tables[p["child"]].c and "organization_id" in Base.metadata.tables[p["parent"]].c
     assert ("employees", "created_by") not in {(p["child"], p["column"]) for p in pairs}, "who-created-it references may point at a platform account"
+    # a Super Admin deleting an organization cancels its subscription and is recorded as the billing actor
+    covered = {(p["child"], p["column"]) for p in pairs}
+    assert ("billing_audit_logs", "actor_id") not in covered and ("billing_confirmation_tokens", "actor_id") not in covered

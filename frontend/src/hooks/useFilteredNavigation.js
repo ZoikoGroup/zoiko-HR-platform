@@ -13,8 +13,9 @@ const SECTION_EXCLUSIONS = {
   // sidebar section here; ROLE_ALLOWED_PREFIXES (roles.js) additionally denies
   // the /shared/* routes themselves, so direct URL entry bounces too. The
   // NOTIFICATIONS section is separate and stays.
-  admin: ["SHARED LAYERS"],
-  hr_admin: ["SHARED LAYERS"],
+  // MY WORKSPACE is self-service: employees and managers keep it; organization and HR admins work from PRODUCTS
+  admin: ["SHARED LAYERS", "MY WORKSPACE"],
+  hr_admin: ["SHARED LAYERS", "MY WORKSPACE"],
   manager: ["SHARED LAYERS"],
   employee: ["SHARED LAYERS"],
 };
@@ -76,6 +77,10 @@ function isEntitledFeature(item, entitlements) {
   if (!item.featureKey || !entitlements) return true;
   const granted = entitlements[item.featureKey];
   if (typeof granted === "boolean") return granted;
+  if (granted && typeof granted === "object") {
+    if (typeof granted.granted === "boolean") return granted.granted;
+    return GRANTED_STATES.has(granted.state);
+  }
   return GRANTED_STATES.has(granted);
 }
 

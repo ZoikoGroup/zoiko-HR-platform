@@ -162,6 +162,7 @@ import app.modules.sales_leads.models  # noqa: F401,E402
 import app.modules.support_access.models  # noqa: F401,E402
 import app.modules.support_access.audit  # noqa: F401,E402
 import app.modules.support_login.models  # noqa: F401,E402
+import app.modules.doc_templates.models  # noqa: F401,E402
 
 
 # -- 4. Soft-deleted organizations are invisible by default (ZHR-35) ----------
@@ -207,6 +208,15 @@ def _schema_alterations_needed() -> bool:
 _SELF_HEALED_TABLES = (
     "recruitment_offers", "recruitment_requisitions", "recruitment_candidates", "recruitment_interviews",
     "onboarding_new_hires", "onboarding_checklist_items",
+    # document template engine (migrations d7e1a0b2c3f4 … d7e1a0b2c3f8): every existing table those migrations add columns to
+    "employees", "security_action_tokens",
+    "recruitment_interview_feedback", "wf_headcounts", "wf_successions", "designations",
+    "attendance_records", "shifts", "shift_rosters", "leave_requests", "employee_compensations", "salary_revisions",
+    "allowances", "employee_benefits", "travel_expenses", "knowledge_sources",
+    "performance_appraisals", "learning_courses", "learning_enrollments", "learning_certifications", "employee_lifecycle",
+    "hr_documents",
+    "jurisdiction_packs", "template_variants", "template_clauses", "decision_receipts", "policy_distributions",
+    "doc_template_settings", "generated_documents",
 )
 
 
@@ -233,6 +243,11 @@ def _ensure_model_columns(tables) -> None:
             ddl = str(CreateColumn(column).compile(dialect=engine.dialect))
             if not column.nullable and column.server_default is None:
                 ddl = ddl.replace(" NOT NULL", "")            # an existing table has rows: a new column must allow NULL
+            for fk in column.foreign_keys:                    # CreateColumn renders no constraint; a later migration skips
+                ref = fk.column                               # the column as present, so the reference is added here
+                if ref.table.name in present:
+                    ddl += f" REFERENCES {ref.table.name}({ref.name})"
+                break
             guard = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
             statements.append(f"ALTER TABLE {table_name} ADD COLUMN {guard}{ddl}")
     if not statements:

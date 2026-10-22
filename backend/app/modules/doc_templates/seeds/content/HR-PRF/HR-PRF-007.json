@@ -1,0 +1,143 @@
+{
+  "canonical_id": "HR-PRF-007",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "appraisal.period_label",
+      "appraisal.goals",
+      "appraisal.overall_rating_label",
+      "appraisal.manager_summary"
+    ],
+    "optional": [
+      "employment.position_title",
+      "employment.manager_name",
+      "appraisal.competencies",
+      "appraisal.development_priorities",
+      "appraisal.calibrated_by"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Performance Appraisal — {{appraisal.period_label}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "employment.position_title",
+        "employment.manager_name",
+        "appraisal.period_label"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "employment.position_title": "Role",
+        "employment.manager_name": "Manager",
+        "appraisal.period_label": "Period"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Goal",
+        "Weight",
+        "Result",
+        "Rating",
+        "Evidence"
+      ],
+      "rows_from": "appraisal.goals"
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Competency",
+        "Rating",
+        "Evidence"
+      ],
+      "rows_from": "appraisal.competencies",
+      "include_when": {
+        "field": "appraisal.competencies",
+        "op": "present"
+      }
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "appraisal.overall_rating_label",
+        "appraisal.calibrated_by"
+      ],
+      "labels": {
+        "appraisal.overall_rating_label": "Overall rating",
+        "appraisal.calibrated_by": "Calibrated by"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Manager summary",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "{{appraisal.manager_summary}}"
+    },
+    {
+      "type": "heading",
+      "text": "Development priorities",
+      "level": 2,
+      "include_when": {
+        "field": "appraisal.development_priorities",
+        "op": "present"
+      }
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "appraisal.development_priorities",
+      "include_when": {
+        "field": "appraisal.development_priorities",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Employee comments",
+      "level": 2
+    },
+    {
+      "type": "form_fields",
+      "id": "employee_comments",
+      "fields": [
+        {
+          "key": "employee_comments",
+          "label": "Your comments",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Ratings must be based on evidence from the review period. You can add comments and, if you disagree with the outcome, raise it through the appraisal review process.",
+      "id": "rights_appraisal"
+    },
+    {
+      "type": "declaration",
+      "text": "I have seen this appraisal. My acknowledgement does not mean I agree with it.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

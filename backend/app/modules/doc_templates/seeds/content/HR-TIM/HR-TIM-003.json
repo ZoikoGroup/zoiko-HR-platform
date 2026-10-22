@@ -1,0 +1,79 @@
+{
+  "canonical_id": "HR-TIM-003",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "shift.name",
+      "shift.start_date",
+      "shift.pattern"
+    ],
+    "optional": [
+      "shift.end_date",
+      "shift.break_summary",
+      "shift.location"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "shift_work_rules"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Your shift pattern",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, from {{shift.start_date}} you will work the {{shift.name}} pattern below."
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Day",
+        "Start",
+        "End",
+        "Hours"
+      ],
+      "rows_from": "shift.pattern"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "shift.break_summary",
+        "shift.location",
+        "shift.end_date"
+      ],
+      "labels": {
+        "shift.break_summary": "Breaks",
+        "shift.end_date": "End date (temporary pattern)"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "shift_work_rules",
+      "required": false
+    },
+    {
+      "type": "paragraph",
+      "text": "If this pattern causes you difficulty, for example because of caring responsibilities or a health condition, please talk to your manager or HR."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this shift pattern notice.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

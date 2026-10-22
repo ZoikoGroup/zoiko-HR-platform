@@ -124,6 +124,12 @@ def test_offer_currency_follows_the_region_and_internships_pay_a_stipend(env):
     o = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_id": cand["id"], "candidate_name": "Lena", "position": "Designer", "salary": 52000}))
     assert o["currency"] == "EUR" and o["work_country"] == "DE" and o["remuneration_type"] == "salary" and o["pay_period"] == "annual"
 
+    # An explicitly selected cross-border currency is preserved without losing the
+    # candidate's work-country jurisdiction for template-pack selection.
+    cross_border = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_id": cand["id"], "candidate_name": "Lena",
+                                                                    "position": "Designer", "salary": 52000, "currency": "GBP"}))
+    assert cross_border["currency"] == "GBP" and cross_border["work_country"] == "DE"
+
     plain = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_name": "No Link", "position": "Ops", "salary": 1}))
     assert plain["currency"] == "INR"                                                  # organization default
 
@@ -137,20 +143,20 @@ def test_offer_currency_follows_the_region_and_internships_pay_a_stipend(env):
     assert env.c.post("/hr/recruitment/offers", json={"candidate_name": "I", "position": "P", "currency": "XXX"}).status_code == 400
 
 
-def test_offer_send_accept_flow_emails_candidate_then_hr(env):
+def test_legacy_offers_are_answered_by_hand_and_new_ones_go_through_documents(env):
+    """Offer letters are engine documents now (tests/doc_templates/test_dt_recruitment.py covers that flow). The old plain-email
+    /send is retired; an offer that was already sent before the engine (pending, no document) can still be recorded by hand."""
     cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": "Sam", "email": "sam@mail.com", "position": "Intern"}))
     o = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_id": cand["id"], "candidate_name": "Sam", "position": "Intern",
                                                         "employment_type": "internship", "salary": 25000, "currency": "INR",
                                                         "entity_name": "Acme Pvt Ltd", "entity_tax_id": "27aapfu0939f1zv",
                                                         "entity_country": "IN", "entity_id_type": "gstin"}))
     assert o["entity_tax_id"] == "27AAPFU0939F1ZV"
+    assert o["remuneration_type"] == "stipend" and o["pay_period"] == "monthly"
     assert env.c.put(f"/hr/recruitment/offers/{o['id']}/accept").status_code == 400          # not sent yet
-    sent = _ok(env.c.put(f"/hr/recruitment/offers/{o['id']}/send"))
-    assert sent["status"] == "pending" and sent["email_sent"] is True
-    letter = next(m for m in env.sent if m["template"] == "offer_letter.html")
-    assert letter["to"] == "sam@mail.com" and letter["ctx"]["remuneration_label"] == "Stipend"
-    assert letter["ctx"]["remuneration_display"] == "INR 25,000 per month"
-    assert _ok(env.c.get(f"/hr/recruitment/candidates/{cand['id']}"))["status"] == "offer"
+    retired = env.c.put(f"/hr/recruitment/offers/{o['id']}/send")
+    assert retired.status_code == 410 and not any(m["template"] == "offer_letter.html" for m in env.sent)
+    _ok(env.c.put(f"/hr/recruitment/offers/{o['id']}", json={"status": "pending"}))         # sent before the engine existed
 
     assert _ok(env.c.put(f"/hr/recruitment/offers/{o['id']}/accept"))["status"] == "accepted"
     c = _ok(env.c.get(f"/hr/recruitment/candidates/{cand['id']}"))

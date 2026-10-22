@@ -1,0 +1,173 @@
+{
+  "canonical_id": "HR-POL-027",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "family_leave_entitlements",
+      "family_leave_pay"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains family leave and how we support you before, during and after it."
+    },
+    {
+      "type": "heading",
+      "text": "2. Types covered",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Maternity, paternity or partner, adoption, and shared or parental leave where the law provides it."
+    },
+    {
+      "type": "clause",
+      "key": "family_leave_entitlements",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "3. Notifying us",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Use the family leave request in Zoiko HR, within the timings set out above."
+    },
+    {
+      "type": "heading",
+      "text": "4. Pay",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "family_leave_pay",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "5. Keeping in touch",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "You and your manager can agree reasonable contact during your leave, and keeping-in-touch days where these are available."
+    },
+    {
+      "type": "heading",
+      "text": "6. Returning to work",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Your right to return is as set out above. You can also ask for flexible working when you come back."
+    },
+    {
+      "type": "heading",
+      "text": "7. Protection",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "You will not be treated unfavourably because you are pregnant, take family leave, or ask to.",
+      "id": "rights_family"
+    },
+    {
+      "type": "heading",
+      "text": "8. Health and safety for pregnant and breastfeeding employees",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "We carry out a risk assessment and make reasonable adjustments to protect you and your baby."
+    },
+    {
+      "type": "heading",
+      "text": "9. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Annual Leave Policy; Working Hours Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

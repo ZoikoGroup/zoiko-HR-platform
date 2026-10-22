@@ -1,0 +1,66 @@
+{
+  "canonical_id": "HR-PRF-018",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "training.course",
+      "training.completed_on"
+    ],
+    "optional": [
+      "training.version",
+      "training.score",
+      "training.valid_until",
+      "training.provider",
+      "document.verify_url"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Training Completion Record",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "training.course",
+        "training.version",
+        "training.completed_on",
+        "training.score",
+        "training.valid_until",
+        "training.provider"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "training.provider": "Delivered by / provider"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "This record confirms completion of mandatory training required for your role."
+    },
+    {
+      "type": "paragraph",
+      "text": "Verify this record at {{document.verify_url}}.",
+      "include_when": {
+        "field": "document.verify_url",
+        "op": "present"
+      },
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

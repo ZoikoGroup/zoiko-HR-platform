@@ -1,0 +1,60 @@
+{
+  "canonical_id": "HR-ORG-015",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "succession.critical_role",
+      "succession.incumbent_ref",
+      "succession.risk_of_vacancy",
+      "succession.candidates"
+    ],
+    "optional": [
+      "succession.owner",
+      "succession.review_date"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Succession Plan — {{succession.critical_role}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "succession.critical_role",
+        "succession.incumbent_ref",
+        "succession.risk_of_vacancy",
+        "succession.owner",
+        "succession.review_date"
+      ]
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Potential successor",
+        "Readiness",
+        "Development actions"
+      ],
+      "rows_from": "succession.candidates"
+    },
+    {
+      "type": "paragraph",
+      "text": "This plan is a confidential planning tool. Being named, or not named, is not a promise or a decision about promotion, pay or employment. Assessments must be based on job-related evidence.",
+      "id": "rights_succession",
+      "style": "notice"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

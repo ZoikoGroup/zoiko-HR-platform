@@ -107,7 +107,7 @@ def test_full_onboarding_flow_from_offer_to_employee(env):
     cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": "Sam Rivera", "email": "sam@mail.com", "position": "Intern", "requisition_id": req["id"]}))
     offer = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_id": cand["id"], "candidate_name": "Sam Rivera", "position": "Intern",
                                                             "employment_type": "internship", "salary": 20000, "joining_date": JOIN.isoformat()}))
-    _ok(env.c.put(f"/hr/recruitment/offers/{offer['id']}/send"))
+    _ok(env.c.put(f"/hr/recruitment/offers/{offer['id']}", json={"status": "pending"}))     # a pre-engine offer, answered by hand
     _ok(env.c.put(f"/hr/recruitment/offers/{offer['id']}/accept"))
 
     hires = _ok(env.c.get("/hr/onboarding/new-hires"))

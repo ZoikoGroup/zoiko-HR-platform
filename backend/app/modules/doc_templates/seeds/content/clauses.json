@@ -1,0 +1,29 @@
+{
+  "starter_text": {
+    "offer_statutory_statement": {
+      "title": "Offer letter: written terms still to follow",
+      "text": "This letter sets out the main terms of our offer. Your full terms and conditions will be confirmed in your employment contract or written statement of employment terms, which you will receive as required by law."
+    },
+    "offer_conditions_explainer": {
+      "title": "Offer letter: how conditions work",
+      "text": "Each condition must be satisfied before your employment starts. We will tell you if a condition is not met and give you a chance to respond before making any final decision, unless the law requires otherwise."
+    },
+    "part_time_equal_treatment": {
+      "title": "Part-time: pro-rata treatment",
+      "text": "As a part-time employee, your pay and benefits will be provided on a pro-rata basis compared with comparable full-time employees, unless your contract states otherwise in line with the law."
+    },
+    "probation_policy_reference": {
+      "title": "Probation: policy reference",
+      "text": "Your probation period is managed in line with our Probation Policy and your contract of employment. The policy explains how reviews work and what support is available."
+    }
+  },
+  "no_starter_text": [
+    "privacy_lawful_basis_recruitment",
+    "privacy_international_transfers",
+    "probation_summary",
+    "internship_status_statement",
+    "fixed_term_statement",
+    "offer_withdrawal_rights"
+  ],
+  "_note": "Clauses in no_starter_text must be written for each jurisdiction (tenant or platform) and released before the templates that require them can be generated. Starters never invent entitlements, notice, probation or statutory terms."
+}

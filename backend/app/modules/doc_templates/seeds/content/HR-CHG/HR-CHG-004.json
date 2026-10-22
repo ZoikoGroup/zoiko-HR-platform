@@ -1,0 +1,130 @@
+{
+  "canonical_id": "HR-CHG-004",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "change.previous_title",
+      "change.new_title",
+      "change.effective_date"
+    ],
+    "optional": [
+      "change.new_grade",
+      "change.new_manager",
+      "change.department",
+      "change.new_responsibilities",
+      "change.pay_rows",
+      "change.has_pay"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "change_terms_statement"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Congratulations on your promotion",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, we are delighted to confirm your promotion from {{change.previous_title}} to {{change.new_title}} with effect from {{change.effective_date}}."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "change.new_title",
+        "change.new_grade",
+        "change.new_manager",
+        "change.department"
+      ],
+      "labels": {
+        "change.new_title": "New title",
+        "change.new_grade": "Grade",
+        "change.new_manager": "Reporting to",
+        "change.department": "Department"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Your new responsibilities",
+      "level": 2,
+      "include_when": {
+        "field": "change.new_responsibilities",
+        "op": "present"
+      }
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "change.new_responsibilities",
+      "include_when": {
+        "field": "change.new_responsibilities",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Pay",
+      "level": 2,
+      "include_when": {
+        "field": "change.has_pay",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Previous salary",
+        "New salary",
+        "Effective from"
+      ],
+      "rows_from": "change.pay_rows",
+      "include_when": {
+        "field": "change.has_pay",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your pay is unchanged.",
+      "include_when": {
+        "field": "change.has_pay",
+        "op": "eq",
+        "value": false
+      }
+    },
+    {
+      "type": "clause",
+      "key": "change_terms_statement",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "Thank you for your contribution — we look forward to your continued success."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

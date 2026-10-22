@@ -36,6 +36,7 @@ async function open(t, over = {}) {
     mocked.add(t);
     t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
     t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+    t.mock.module("../src/components/documents/GenerateDocumentButton.jsx", { exports: { default: () => null } });
     t.mock.module("../src/service/hrService.js", { exports: {
       getDesignations: (...a) => svc.getDesignations(...a), getDepartments: (...a) => svc.getDepartments(...a), getHrEmployees: (...a) => svc.getHrEmployees(...a),
       getDesignationSettings: (...a) => svc.getDesignationSettings(...a),

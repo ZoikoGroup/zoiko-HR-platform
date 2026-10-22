@@ -55,6 +55,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/super-admin/jit-support-access",
     "/super-admin/audit-logs",
     "/super-admin/demo-requests",
+    "/super-admin/template-controls",
     "/super-admin/pricing-requests",
     "/super-admin/notifications",
     // ── Shared & platform ──
@@ -81,6 +82,12 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/organization-admin/billing-and-plan",
     "/organization-admin/pay-invoice",
     "/organization-admin/support-access",
+    // documents issued to them and documents waiting for them as an authorised signatory (doc_templates)
+    "/employee/documents/company",
+    "/employee/documents/policies",
+    "/employee/documents/to-action",
+    "/employee/documents/signatory-queue",
+    "/employee/compensation",
     // ── HR Assistant admin tools (knowledge base + support tickets) ──
     "/hr-admin/assistant-knowledge",
     "/hr-admin/assistant-handoffs",
@@ -120,6 +127,13 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/organization-admin/billing-and-plan",
     "/organization-admin/pay-invoice",
     "/organization-admin/support-access",
+    // documents issued to them and documents waiting for them as an authorised signatory (doc_templates)
+    "/employee/documents/company",
+    "/employee/documents/policies",
+    "/employee/documents/to-action",
+    "/employee/documents/signatory-queue",
+    "/employee/compensation",
+    "/employee/performance",
     // ── All product paths ──
     "/zoiko-hr",
     "/zoikotime",
@@ -143,6 +157,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/leaves",
     "/employee/documents",
     "/employee/travel",
+    "/employee/compensation",
     // ── All product paths ──
     "/zoikotime",
     "/payroll",
@@ -170,6 +185,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/ess/attendance",
     "/employee/ess/requests",
     "/employee/ess/settings",
+    "/employee/ess/time-requests",
+    "/employee/compensation",
+    "/employee/performance",
 
     // ── Learning ─────────────────────────────────────────────
     "/employee/learning",

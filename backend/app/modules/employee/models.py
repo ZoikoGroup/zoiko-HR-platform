@@ -97,6 +97,7 @@ class SecurityActionPurpose(str, enum.Enum):
     INVITE       = "invite"
     RESET        = "reset"
     VERIFY_EMAIL = "verify_email"
+    DOCUMENT_SIGN = "document_sign"      # candidate e-signature link for one generated document (doc_templates)
 
 
 class SecurityActionToken(Base):
@@ -117,6 +118,8 @@ class SecurityActionToken(Base):
     expires_at      = Column(DateTime, nullable=False)
     used_at         = Column(DateTime, nullable=True)
     created_at      = Column(DateTime, server_default=func.now())
+    # What the token is for when a purpose can have several live tokens per address (document_sign: "generated_document:<id>").
+    reference       = Column(String(100), nullable=True, index=True)
 
 
 class Employee(Base):
@@ -168,6 +171,13 @@ class Employee(Base):
     language            = Column(String(30), nullable=True)
     travel_preferences  = Column(JSON, nullable=True)           # {currency, per_diem, auto_notify}; None = never saved
     timezone            = Column(String(50), nullable=True)
+    # Worker jurisdiction facts (doc_templates, ZHR-ELT-TPL-001 §4): where the person habitually works, not nationality.
+    work_country        = Column(String(2), nullable=True)            # ISO 3166-1 alpha-2
+    work_region         = Column(String(100), nullable=True)          # state / province name as in core/business_ids.REGIONS
+    work_city           = Column(String(100), nullable=True)
+    employing_entity_id = Column(Integer, ForeignKey("employer_entities.id"), nullable=True)
+    worker_category     = Column(String(20), nullable=True)           # employee | intern | apprentice | contractor | casual
+    contract_end_date   = Column(Date, nullable=True)
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, onupdate=func.now())
     created_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
@@ -189,7 +199,7 @@ class Employee(Base):
     mfa_last_step        = Column(Integer, nullable=True)     # the last accepted time step: a code can be used once
 
     department     = relationship("Department", back_populates="employees")
-    designation    = relationship("Designation", backref="employees")
+    designation    = relationship("Designation", backref="employees", foreign_keys=[designation_id])
     reporting_manager = relationship("Employee", remote_side="Employee.id", foreign_keys=[reporting_manager_id], backref="reportees")
     organization   = relationship("Organization", back_populates="employees", foreign_keys=[organization_id])
     leave_requests = relationship("LeaveRequest", back_populates="employee", foreign_keys="LeaveRequest.employee_id")

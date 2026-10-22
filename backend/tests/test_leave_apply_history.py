@@ -113,8 +113,10 @@ def test_bad_applications_are_refused_with_a_clear_message(env):
     t = date.today()
     assert "before the start date" in _msg(apply(env, "sick", t + timedelta(days=3), t + timedelta(days=1)))
     assert "in the past" in _msg(apply(env, "sick", t - timedelta(days=2)))
-    assert "at least 10 characters" in _msg(apply(env, "sick", t + timedelta(days=1), reason="flu"))
-    assert env.get(f"{URL}?employee_id={env.emp.id}").json() == []
+    assert "at least 10 characters" in _msg(apply(env, "casual", t + timedelta(days=1), reason="trip"))
+    # a sickness reason is optional (special-category data): a short or empty one is accepted
+    assert apply(env, "sick", t + timedelta(days=2), reason="flu").status_code == 201
+    assert len(env.get(f"{URL}?employee_id={env.emp.id}").json()) == 1
 
 
 def test_overlapping_requests_are_refused_but_back_to_back_ones_are_fine(env):

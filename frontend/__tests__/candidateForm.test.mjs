@@ -94,7 +94,7 @@ test("a server refusal appears under its own field and the page behind it stays"
   await settle();
   assert.equal(calls.create.length, 1);
   assert.match(document.querySelector(".fixed").textContent, /Enter a valid email address/);
-  assert.ok(screen.getByRole("heading", { name: "Candidates" }), "the list page is still there");
+  assert.ok(screen.getAllByRole("heading", { name: "Candidates" }).length >= 1, "the list page is still there");
 });
 
 // ── ZHR-65: what was entered is shown

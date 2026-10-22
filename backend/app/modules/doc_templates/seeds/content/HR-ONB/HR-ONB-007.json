@@ -1,0 +1,81 @@
+{
+  "canonical_id": "HR-ONB-007",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "employer.legal_name",
+      "employment.start_date",
+      "worker.employee_code",
+      "employment.position_title"
+    ],
+    "optional": [
+      "employment.department",
+      "employment.manager_name",
+      "employment.work_location",
+      "employment.employment_type_label",
+      "employment.continuous_service_date",
+      "employment.probation_end_date"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Confirmation of your employment start",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, we are pleased to confirm that your employment with {{employer.legal_name}} started on {{employment.start_date}}."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.employee_code",
+        "employment.position_title",
+        "employment.department",
+        "employment.manager_name",
+        "employment.work_location",
+        "employment.employment_type_label",
+        "employment.continuous_service_date"
+      ],
+      "labels": {
+        "worker.employee_code": "Employee number"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your probation period is expected to end on {{employment.probation_end_date}}. We will review your progress with you during this period.",
+      "include_when": {
+        "field": "employment.probation_end_date",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "If any of these details are wrong, please tell HR within 14 days."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this document.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

@@ -1,0 +1,91 @@
+{
+  "canonical_id": "HR-TIM-007",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "overtime.date",
+      "overtime.time_range",
+      "overtime.hours",
+      "overtime.reason",
+      "overtime.timing_label",
+      "overtime.status_label",
+      "overtime.decided_by",
+      "overtime.decided_at"
+    ],
+    "optional": [
+      "overtime.emergency_label",
+      "overtime.compensation_method_label",
+      "overtime.decision_reason"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "overtime_pay_or_time_off"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Overtime Authorization",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "overtime.date",
+        "overtime.time_range",
+        "overtime.hours",
+        "overtime.reason",
+        "overtime.timing_label",
+        "overtime.emergency_label"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "overtime.time_range": "Time",
+        "overtime.timing_label": "Pre-approved or retrospective",
+        "overtime.emergency_label": "Emergency"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Decision",
+      "level": 2
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "overtime.status_label",
+        "overtime.decided_by",
+        "overtime.decided_at",
+        "overtime.compensation_method_label",
+        "overtime.decision_reason"
+      ],
+      "labels": {
+        "overtime.status_label": "Status",
+        "overtime.compensation_method_label": "Compensation method",
+        "overtime.decision_reason": "Reason"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "overtime_pay_or_time_off",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "Approved overtime is passed to payroll or time-off records through the normal process. This record does not change pay by itself.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

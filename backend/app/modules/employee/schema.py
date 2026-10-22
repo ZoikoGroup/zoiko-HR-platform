@@ -782,6 +782,10 @@ class EmployeeCompensationCreate(BaseModel):
     pay_grade_id: Optional[int] = None
     band_id: Optional[int] = None
     effective_date: date
+    base_amount: Optional[Decimal] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    pay_period: Optional[str] = Field(None, pattern="^(annual|monthly|weekly|hourly)$")
+    pay_frequency: Optional[str] = Field(None, pattern="^(monthly|semi_monthly|biweekly|weekly)$")
 
 class EmployeeCompensationResponse(EmployeeCompensationCreate):
     id: int
@@ -794,6 +798,10 @@ class EmployeeCompensationUpdate(BaseModel):
     pay_grade_id: Optional[int] = None
     band_id: Optional[int] = None
     effective_date: Optional[date] = None
+    base_amount: Optional[Decimal] = Field(None, ge=0)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    pay_period: Optional[str] = Field(None, pattern="^(annual|monthly|weekly|hourly)$")
+    pay_frequency: Optional[str] = Field(None, pattern="^(monthly|semi_monthly|biweekly|weekly)$")
 
 class EmployeeDashboardResponse(BaseModel):
     total_employees: int = 0

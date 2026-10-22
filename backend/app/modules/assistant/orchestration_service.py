@@ -312,6 +312,11 @@ def classify_intent(text: str) -> str:
         return "chitchat:farewell"
     if _ACK_RE.match(text):
         return "chitchat:ack"
+    # generated documents: Mira lists your own pending ones and explains templates; it never reads, drafts or approves them
+    from app.modules.assistant import document_intents
+    doc_intent = document_intents.classify(text)
+    if doc_intent:
+        return doc_intent
     if _is_leave_booking(text):
         return "book_leave"
     if _LEAVE_BALANCE_RE.search(text) and not _LEAVE_POLICY_OVERRIDE_RE.search(text):
@@ -382,6 +387,13 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
 
     if intent.startswith("chitchat:"):
         return _answer_chitchat(db, turn, intent.split(":", 1)[1])
+    if intent in ("document_refused", "document_actions", "template_explain"):
+        from app.modules.assistant import document_intents
+        if intent == "document_refused":
+            return _finalize(db, turn, document_intents.REFUSAL, AnswerType.RESTRICTED, ConfidenceState.RESTRICTED)
+        if intent == "document_actions":
+            return _finalize(db, turn, document_intents.pending_answer(db, employee), AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
+        return _finalize(db, turn, document_intents.template_answer(db, turn.user_input_text), AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
     if intent == "leave_balance":
         return _answer_leave_balance(db, turn, subject)
     if intent == "attendance_status":
@@ -632,7 +644,7 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
     role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
     fragments = retrieval_service.retrieve(
         db, turn.organization_id, turn.user_input_text, audience_role=role_val,
-        jurisdiction=getattr(employee, "country", None),
+        jurisdiction=getattr(employee, "country", None), employee=employee,
     )
 
     retrieval_run = ChatRetrievalRun(turn_id=turn.id, query_text=turn.user_input_text)
@@ -705,7 +717,7 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
     role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
     fragments = retrieval_service.retrieve(
         db, turn.organization_id, turn.user_input_text, audience_role=role_val,
-        jurisdiction=getattr(employee, "country", None),
+        jurisdiction=getattr(employee, "country", None), employee=employee,
     )
     retrieved_ids = {f["fragment_id"] for f in fragments}
 

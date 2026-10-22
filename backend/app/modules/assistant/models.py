@@ -272,6 +272,12 @@ class KnowledgeSource(Base):
     # of which organization owns/authors it — decoupled from organization_id
     # so public content never needs a fake tenant. See retrieval_service.retrieve_public().
     is_public       = Column(Boolean, nullable=False, default=False)
+    # Published company policies (Prompt 3): the policy hub and Mira read the same released version. policy_audience is the
+    # distribution audience ({"type": "all"|"departments"|..., "ids": [...]}); retrieval only serves it to people inside it.
+    policy_canonical_id    = Column(String(20), nullable=True, index=True)
+    policy_version         = Column(Integer, nullable=True)
+    policy_audience        = Column(JSON, nullable=True)
+    policy_distribution_id = Column(Integer, nullable=True)
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, onupdate=func.now())
 

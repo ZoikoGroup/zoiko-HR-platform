@@ -279,6 +279,12 @@ def execute_workflow(db: Session, organization_id: int, employee_id: int, workfl
         audit_service.record(db, organization_id, "workflow_executed", "chat_workflow", workflow.id, employee_id,
                               {"record_id": record_id})
         db.commit()
+        if workflow.workflow_type == "book_leave":
+            from app.modules.hr import leave_documents
+            from app.modules.hr.models import LeaveRequest as _Leave
+            booked = db.get(_Leave, record_id)
+            if booked is not None:
+                leave_documents.after_created(db, booked, employee_id)     # isolated: never fails the booking
     except Exception as e:
         db.rollback()
         workflow.status = WorkflowStatus.RECONCILIATION_REQUIRED
@@ -386,6 +392,8 @@ def _execute_book_leave(db: Session, workflow: ChatWorkflow, fields: dict, emplo
         days=(end_date - start_date).days + 1,
         reason=fields.get("reason"),
     )
+    from app.modules.hr import leave_documents
+    leave_documents.protect_reason(leave)       # a sickness reason is special-category data: never stored in plain text
     db.add(leave)
     db.flush()
     return leave.id

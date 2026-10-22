@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Document expired" %}
+{% set preheader = "A document expired before it was completed." %}
+{% set badge = "Expired" %}
+{% set badge_tone = "warning" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Document expired</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ document_label }} expired before every required action was completed. It can no longer be signed or acknowledged. Generate a new document if it is still needed.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{{ ui.detail_row("Expired", expired_at_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Review in Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

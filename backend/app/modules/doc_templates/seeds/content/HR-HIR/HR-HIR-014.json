@@ -1,0 +1,188 @@
+{
+  "canonical_id": "HR-HIR-014",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "SIGN_CANDIDATE",
+  "audience": "CANDIDATE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "candidate.first_name",
+      "candidate.full_name",
+      "employer.legal_name",
+      "employment.position_title",
+      "employment.employment_type_label",
+      "employment.start_date",
+      "offer.reference",
+      "offer.pay_amount",
+      "offer.currency",
+      "offer.pay_period_label",
+      "offer.response_deadline",
+      "employer.hr_contact_email",
+      "offer.internship_end_date"
+    ],
+    "optional": [
+      "candidate.postal_address",
+      "employment.department",
+      "employment.manager_name",
+      "employment.work_location",
+      "employment.work_country_name",
+      "employment.work_pattern",
+      "offer.work_arrangement_label",
+      "offer.remuneration_type_label",
+      "offer.components",
+      "offer.equity",
+      "offer.benefits_summary",
+      "offer.conditions",
+      "employer.hr_contact_name",
+      "document.date",
+      "employer.signatory_name",
+      "offer.learning_objectives",
+      "offer.mentor_name",
+      "offer.academic_institution"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "internship_status_statement",
+      "offer_statutory_statement",
+      "offer_conditions_explainer"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{document.date}} · Private and confidential · Reference {{offer.reference}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{candidate.full_name}}, {{candidate.postal_address}}"
+    },
+    {
+      "type": "heading",
+      "text": "Internship offer",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{candidate.first_name}}, we are pleased to offer you an internship as {{employment.position_title}} from {{employment.start_date}} to {{offer.internship_end_date}}."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "employment.department",
+        "offer.mentor_name",
+        "employment.work_location",
+        "employment.work_pattern"
+      ],
+      "labels": {
+        "offer.mentor_name": "Mentor"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Stipend / pay: {{offer.pay_amount}} {{offer.currency}} {{offer.pay_period_label}}."
+    },
+    {
+      "type": "heading",
+      "text": "What you will learn",
+      "level": 2,
+      "include_when": {
+        "field": "offer.learning_objectives",
+        "op": "present"
+      }
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "offer.learning_objectives",
+      "include_when": {
+        "field": "offer.learning_objectives",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "This internship is arranged with {{offer.academic_institution}}.",
+      "include_when": {
+        "field": "offer.academic_institution",
+        "op": "present"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "internship_status_statement",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "Conditions of this offer",
+      "level": 2,
+      "include_when": {
+        "field": "offer.conditions",
+        "op": "present"
+      }
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "offer.conditions",
+      "include_when": {
+        "field": "offer.conditions",
+        "op": "present"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "offer_conditions_explainer",
+      "required": true,
+      "include_when": {
+        "field": "offer.conditions",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Next steps",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Please review this offer and accept or decline it using the secure link by {{offer.response_deadline}}. If you have questions, contact {{employer.hr_contact_name}} at {{employer.hr_contact_email}}."
+    },
+    {
+      "type": "clause",
+      "key": "offer_statutory_statement",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "We look forward to welcoming you."
+    },
+    {
+      "type": "signature_block",
+      "parties": [
+        "employer",
+        "candidate"
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "I accept this internship offer on the terms set out above.",
+      "mode": "sign",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    3,
+    1
+  ],
+  "response_days": 7
+}

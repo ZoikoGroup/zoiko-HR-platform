@@ -1,0 +1,89 @@
+{
+  "canonical_id": "HR-CMP-024",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "claim.reference",
+      "worker.full_name",
+      "claim.items",
+      "claim.total_claimed",
+      "claim.total_approved",
+      "claim.decision_label",
+      "claim.decided_by",
+      "claim.decided_at",
+      "policy.claim_dispute_days"
+    ],
+    "optional": [
+      "claim.trip_reference",
+      "claim.submitted_on",
+      "claim.decision_reason",
+      "claim.second_approver"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Expense Claim Decision — {{claim.reference}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "claim.trip_reference",
+        "claim.submitted_on"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "claim.trip_reference": "Trip / request reference",
+        "claim.submitted_on": "Submitted on"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Date",
+        "Type",
+        "Description",
+        "Amount",
+        "Currency",
+        "Receipt",
+        "Within policy"
+      ],
+      "rows_from": "claim.items"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "claim.total_claimed",
+        "claim.total_approved",
+        "claim.decision_label",
+        "claim.decided_by",
+        "claim.second_approver",
+        "claim.decided_at",
+        "claim.decision_reason"
+      ],
+      "labels": {
+        "claim.decision_label": "Decision",
+        "claim.second_approver": "Second approver",
+        "claim.decision_reason": "Reason for any reduction or refusal"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Approved amounts are paid through the normal payment process. If you disagree, reply through Zoiko HR within {{policy.claim_dispute_days}} days."
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

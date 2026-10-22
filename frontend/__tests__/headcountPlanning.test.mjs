@@ -43,7 +43,8 @@ test("payload, form values and server messages", () => {
 });
 
 async function load(t, { items = [], departments, createError } = {}) {
-  const calls = { create: [], update: [] };
+  const calls = { create: [], update: [], authorizationSubmit: [] };
+  let authorization = { id: 12, status: "draft", requested_by: null, decided_by: null, decision_comment: null };
   const svc = {
     getWfHeadcounts: async () => ({ items }),
     createWfHeadcount: async (p) => { calls.create.push(p); if (createError) throw createError; return {}; },
@@ -53,7 +54,17 @@ async function load(t, { items = [], departments, createError } = {}) {
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+  t.mock.module("../src/components/documents/GenerateDocumentButton.jsx", { exports: { default: () => null } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
+  t.mock.module("../src/service/workforcePlanningService.js", { exports: {
+    getHeadcountAuthorization: async (id) => ({ ...authorization, id }),
+    submitHeadcountAuthorization: async (id, payload) => {
+      calls.authorizationSubmit.push([id, payload]);
+      authorization = { ...authorization, ...payload, id, status: "submitted", requested_by: 8 };
+      return authorization;
+    },
+    decideHeadcountAuthorization: async () => ({}),
+  } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/workforce-planning/headcount.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
   await settle();
@@ -114,6 +125,18 @@ test("a duplicate-year refusal from the server appears under Fiscal Year", async
   await settle();
   const alerts = [...document.querySelectorAll(".fixed [role=alert]")].map((a) => a.textContent);
   assert.ok(alerts.some((a) => /already has a headcount record for 2027/.test(a)));
+});
+
+test("headcount authorization submits the documented rationale and optional plan id", async (t) => {
+  const calls = await load(t, { departments: DEPTS, items: [{ id: 12, department_id: 3, fiscal_year: 2027 }] });
+  fireEvent.click(screen.getByRole("button", { name: /Authorization for Management 2027/ }));
+  await settle();
+  fireEvent.change(screen.getByLabelText("Rationale"), { target: { value: "Expand the service desk team." } });
+  fireEvent.change(screen.getByLabelText("Workforce plan ID (optional)"), { target: { value: "5" } });
+  fireEvent.click(screen.getByRole("button", { name: "Submit request" }));
+  await settle();
+  assert.deepEqual(calls.authorizationSubmit, [[12, { rationale: "Expand the service desk team.", plan_id: 5 }]]);
+  assert.match(screen.getByLabelText("Headcount authorization record").textContent, /submitted/);
 });
 
 test("Edit opens with the department selected and a saved 0 kept as 0", async (t) => {

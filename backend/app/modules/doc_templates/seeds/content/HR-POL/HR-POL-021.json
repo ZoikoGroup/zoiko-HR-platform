@@ -1,0 +1,212 @@
+{
+  "canonical_id": "HR-POL-021",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name",
+      "policy.remote_cost_support",
+      "policy.core_hours"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "cross_border_remote_work"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how remote and hybrid working is requested, agreed and supported."
+    },
+    {
+      "type": "heading",
+      "text": "2. Eligibility",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Remote work depends on whether the role is suitable, on performance and on manager approval. Any employee can ask."
+    },
+    {
+      "type": "heading",
+      "text": "3. Requesting remote work",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Make your request in Zoiko HR. You will receive a written decision."
+    },
+    {
+      "type": "heading",
+      "text": "4. Working location",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "You must work from the country and location agreed with us. Working from another country, even for a short time, requires prior HR approval because of tax, immigration and employment law. Your location is never decided from your IP address, VPN or nationality."
+    },
+    {
+      "type": "clause",
+      "key": "cross_border_remote_work",
+      "required": false
+    },
+    {
+      "type": "heading",
+      "text": "5. Equipment and costs",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Company equipment is issued and returned in line with our Company Property Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Support with remote working costs: {{policy.remote_cost_support}}",
+      "include_when": {
+        "field": "policy.remote_cost_support",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "6. Health and safety at home",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Complete the home-working self-assessment, keep your workspace safe, and report any problems or injuries to your manager."
+    },
+    {
+      "type": "heading",
+      "text": "7. Information security",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Use secure Wi-Fi, never open public networks for work without the company VPN.",
+        "Lock your screen whenever you step away.",
+        "Do not print confidential information at home unless this has been approved.",
+        "Follow our Acceptable Use Policy."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "8. Availability and communication",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Be available during core hours: {{policy.core_hours}}.",
+      "include_when": {
+        "field": "policy.core_hours",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Keep your calendar and status up to date so colleagues know how to reach you."
+    },
+    {
+      "type": "heading",
+      "text": "9. Wellbeing and the right to switch off",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Outside your working hours you are not expected to read or reply to work messages, except in a genuine emergency or where your contract says otherwise, and where the law gives you a right to disconnect we respect it."
+    },
+    {
+      "type": "heading",
+      "text": "10. Ending or changing arrangements",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Remote arrangements can be changed or ended with reasonable notice, in line with your contract and the written decision you received."
+    },
+    {
+      "type": "heading",
+      "text": "11. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Working Hours Policy; Acceptable Use Policy; Company Property Policy; Employee Data Protection Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

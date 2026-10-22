@@ -99,6 +99,23 @@ TABLES: dict[str, Level] = {
     "chat_audit_events": L.PLATFORM_META, "chat_idempotency_keys": L.PLATFORM_META, "chat_operational_controls": L.PLATFORM_META,
     "chat_safety_events": L.PLATFORM_META, "chat_action_evidence": L.PERSONAL_CONFIDENTIAL,
     "chat_privacy_requests": L.PERSONAL_CONFIDENTIAL,
+    # document template engine (app/modules/doc_templates). Template content is not personal data; generated documents,
+    # their evidence and their snapshots are. One-time signing codes are secrets (only hashes are stored).
+    "employer_entities": L.PERSONAL_BASIC, "authorised_signatories": L.PERSONAL_BASIC,
+    "template_definitions": L.PLATFORM_META, "jurisdiction_packs": L.PERSONAL_BASIC, "template_variants": L.PERSONAL_BASIC,
+    "template_clauses": L.PERSONAL_BASIC, "template_supersessions": L.PERSONAL_BASIC, "template_approval_records": L.PERSONAL_BASIC,
+    "doc_template_settings": L.PERSONAL_BASIC, "document_number_sequences": L.PLATFORM_META,
+    "generated_documents": L.PERSONAL_CONFIDENTIAL, "generated_document_approvals": L.PERSONAL_CONFIDENTIAL,
+    "decision_receipts": L.PERSONAL_CONFIDENTIAL, "document_signatures": L.PERSONAL_CONFIDENTIAL,
+    "document_acknowledgements": L.PERSONAL_CONFIDENTIAL, "document_events": L.PERSONAL_BASIC, "document_sign_otps": L.SECRET,
+    "policy_distributions": L.PERSONAL_BASIC, "document_expiry_items": L.PERSONAL_BASIC, "document_bulk_runs": L.PERSONAL_BASIC,
+    "template_starters": L.PLATFORM_META, "template_starter_clauses": L.PLATFORM_META,
+    "job_descriptions": L.PERSONAL_BASIC,
+    # Prompt 3 working-time and compensation requests
+    "overtime_requests": L.PERSONAL_CONFIDENTIAL, "attendance_correction_requests": L.PERSONAL_CONFIDENTIAL,
+    "shift_notices": L.PERSONAL_BASIC, "compensation_statement_requests": L.FINANCIAL,
+    # Prompt 4: probation reviews and improvement plans hold performance concerns (C3 documents)
+    "probation_reviews": L.PERSONAL_CONFIDENTIAL, "performance_improvement_plans": L.SPECIAL_CATEGORY,
     # child tables of tenant tables (no organization_id of their own)
     "billable_workforce_snapshots": L.TENANT_AGGREGATE, "downgrade_impact_item": L.PLATFORM_META, "workflow_workflows": L.PLATFORM_META,
     "connect_channels": L.PLATFORM_META, "hub_webhooks": L.PLATFORM_META, "hub_webhook_deliveries": L.PERSONAL_CONFIDENTIAL,
@@ -145,6 +162,10 @@ COLUMN_RULES: list[tuple[re.Pattern, Level]] = [(re.compile(p, re.I), lvl) for p
 # Explicit per-column levels where a table default or the name rules would be wrong.
 COLUMN_OVERRIDES: dict[str, Level] = {
     "employees.hashed_password": L.SECRET,
+    "onboarding_form_submissions.data_encrypted": L.FINANCIAL,   # bank / tax identifiers, encrypted at rest
+    "leave_requests.reason_encrypted": L.SPECIAL_CATEGORY,        # sickness reasons, encrypted, never rendered or shown to managers
+    "leave_requests.details": L.PERSONAL_CONFIDENTIAL,            # family / bereavement answers (never medical detail)
+    "knowledge_sources.policy_audience": L.PLATFORM_META,
     "employees.role": L.PLATFORM_META,                    # which role someone holds is account-management data
     "employees.is_active": L.PLATFORM_META,
     "employees.status": L.PLATFORM_META,

@@ -1,0 +1,175 @@
+{
+  "canonical_id": "HR-POL-019",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name",
+      "policy.standard_workday_hours"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "rest_breaks",
+      "overtime_pay_or_time_off",
+      "maximum_working_time"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains working hours, breaks, overtime and how time is recorded."
+    },
+    {
+      "type": "heading",
+      "text": "2. Normal hours",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Your normal hours and working pattern are set out in your contract or offer. Standard working day for timekeeping: {{policy.standard_workday_hours}} hours."
+    },
+    {
+      "type": "heading",
+      "text": "3. Breaks",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "rest_breaks",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "4. Overtime",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Overtime must be approved in advance using an overtime authorization unless there is an emergency."
+    },
+    {
+      "type": "clause",
+      "key": "overtime_pay_or_time_off",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "5. Maximum working time",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "maximum_working_time",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "6. Night and shift work",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you work shifts, you will receive a written shift pattern notice, and a shift change notice when your pattern changes."
+    },
+    {
+      "type": "heading",
+      "text": "7. Recording time",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Record your working time accurately in the attendance system. Never record time for someone else."
+    },
+    {
+      "type": "heading",
+      "text": "8. Flexibility requests",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "You can ask for a change to your hours, times or place of work. Talk to your manager or HR; every request is considered and answered in writing."
+    },
+    {
+      "type": "heading",
+      "text": "9. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Attendance Policy; Remote Work Policy; Annual Leave Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

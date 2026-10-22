@@ -1,0 +1,91 @@
+{
+  "canonical_id": "HR-ONB-017",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name"
+    ],
+    "optional": []
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Bank and Payroll Details",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "We need these details to pay you. They are stored securely and shared only with our payroll provider."
+    },
+    {
+      "type": "form_fields",
+      "id": "bank_fields",
+      "fields": [
+        {
+          "key": "account_holder",
+          "label": "Account holder name",
+          "type": "text",
+          "required": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "key": "bank_name",
+          "label": "Bank name",
+          "type": "text",
+          "required": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "key": "account_number",
+          "label": "Account number / IBAN",
+          "type": "text",
+          "required": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "key": "routing_code",
+          "label": "Bank routing code (sort code, IFSC, BSB, routing number or SWIFT)",
+          "type": "text",
+          "required": true,
+          "classification": "FINANCIAL"
+        },
+        {
+          "key": "tax_identifier",
+          "label": "Tax identifier (only where required)",
+          "type": "text",
+          "classification": "FINANCIAL"
+        },
+        {
+          "key": "social_security_number",
+          "label": "Pension / social security number (only where required)",
+          "type": "text",
+          "classification": "FINANCIAL"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Never send bank details by email or chat. We will never ask you for your passwords or one-time codes.",
+      "id": "privacy_bank",
+      "style": "notice"
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm these details are correct and that the account is in my name.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

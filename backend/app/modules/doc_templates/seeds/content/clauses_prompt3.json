@@ -1,0 +1,39 @@
+{
+  "starter_text": {
+    "leave_rights_statement": {
+      "title": "Leave: rights statement on decisions",
+      "text": "If you disagree with this decision, you can discuss it with your manager or HR. Refusing a request does not affect any minimum leave entitlement you have under the law."
+    },
+    "sickness_evidence_reminder": {
+      "title": "Sick leave: evidence reminder",
+      "text": "If your absence continues, we may ask for evidence of your sickness in line with our Sick Leave Policy."
+    }
+  },
+  "no_starter_text": [
+    "probation_legal_limits",
+    "rest_breaks",
+    "overtime_pay_or_time_off",
+    "maximum_working_time",
+    "statutory_annual_leave",
+    "annual_leave_carry_over",
+    "leave_on_termination",
+    "sickness_evidence_rules",
+    "sick_pay",
+    "family_leave_entitlements",
+    "family_leave_pay",
+    "monitoring_notice",
+    "family_leave_notice_requirements",
+    "handbook_local_annex",
+    "attendance_local_rules",
+    "cross_border_remote_work",
+    "sickness_during_leave",
+    "data_transfers",
+    "expense_tax_treatment",
+    "bereavement_entitlement",
+    "shift_work_rules",
+    "shift_change_notice",
+    "pay_statement_notice",
+    "allowance_tax_note"
+  ],
+  "_note": "Prompt 3 clauses. Mandatory clauses in no_starter_text block preflight until a jurisdiction clause is released; optional ones are simply omitted until one exists. Starters never invent entitlements, amounts, limits or notice periods."
+}

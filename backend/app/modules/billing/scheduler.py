@@ -242,6 +242,9 @@ def _ensure_scheduler():
         replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Generated documents: reminders, expiry, HR-DOC-016 expiry items and digest, retention flags, policies for new joiners.
+    from app.modules.doc_templates.jobs import register as _register_doc_template_jobs
+    _register_doc_template_jobs(_scheduler)
     return _scheduler
 
 

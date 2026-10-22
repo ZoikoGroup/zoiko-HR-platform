@@ -1592,7 +1592,10 @@ def get_employee_reports_mgmt(
 ):
     filters = {}
     if department_id: filters["department_id"] = department_id
-    if status: filters["status"] = status
+    if status:
+        if status not in {s.value for s in EmployeeStatus}:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status}")
+        filters["status"] = status
     if search: filters["search"] = search
     if report_type: filters["report_type"] = report_type
     return service.get_employee_reports(db, filters or None, current_user.organization_id)

@@ -8,6 +8,7 @@ import { collectNavMatches } from "../utils/navigationSearch";
 import { ROLE_LABELS } from "../config/roles";
 import { useAuth } from "../context/AuthContext";
 import { prefetchRoute } from "../lib/prefetch";
+import { useEntitlements } from "../hooks/useEntitlements";
 
 import SearchBar from "./SearchBar.jsx";
 import logo from "../assets/zoikohr-icon-svg.svg";
@@ -102,7 +103,8 @@ function MenuItem({ item, pathname, search }) {
 export default function Sidebar({ open, onClose }) {
   const { pathname, search } = useLocation();
   const { role, product, products } = useAuth();
-  const filteredSections = useFilteredNavigation(role, product, products);
+  const { entitlements, loading: entitlementsLoading, error: entitlementsError, refetch: refetchEntitlements } = useEntitlements();
+  const filteredSections = useFilteredNavigation(role, product, products, entitlementsLoading ? null : entitlements);
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -149,6 +151,14 @@ export default function Sidebar({ open, onClose }) {
         <div className="mb-6">
           <SearchBar value={searchQuery} onChange={setSearchQuery} />
         </div>
+        {entitlementsError && (
+          <div role="alert" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <p>Feature access could not be loaded. Restricted links are hidden.</p>
+            <button type="button" onClick={refetchEntitlements} className="mt-2 font-semibold underline underline-offset-2">
+              Retry
+            </button>
+          </div>
+        )}
 
         {searching ? (
           <div className="pb-8">

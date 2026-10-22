@@ -14,6 +14,7 @@ import {
 } from "../../../service/hrService";
 import { getEmployees } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
+import { errorMessage, setChecklistException } from "../../../service/onboardingPrompt2Service";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -28,7 +29,7 @@ const NAV_ITEMS = [
 
 function OnboardingSubNav() {
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
+    <div className="hidden">
       {NAV_ITEMS.map((item) => (
         <NavLink
           key={item.href}
@@ -56,6 +57,42 @@ const CATEGORY_COLORS = {
   IT: "bg-emerald-100 text-emerald-800",
   Manager: "bg-[#0A1128]/10 text-[#0A1128]",
   Custom: "bg-amber-100 text-amber-800",
+};
+
+const openException = (item) => {
+  setExceptionItem(item);
+  setExceptionForm({
+    reason: item.exception_reason || "",
+    owner_id: String(item.exception_owner_id || ""),
+    due_date: String(item.exception_due_date || "").slice(0, 10),
+    blocked_action: item.blocked_action || "",
+  });
+  setExceptionError("");
+};
+
+const saveException = async (event) => {
+  event.preventDefault();
+  if (!exceptionItem) return;
+  setSavingException(true);
+  setExceptionError("");
+  try {
+    const result = await setChecklistException(exceptionItem.id, {
+      reason: exceptionForm.reason.trim(),
+      owner_id: Number(exceptionForm.owner_id),
+      due_date: exceptionForm.due_date,
+      blocked_action: exceptionForm.blocked_action.trim() || null,
+    });
+    setAssignments((current) => current.map((assignment) => ({
+      ...assignment,
+      items: (assignment.items || []).map((item) => item.id === result.id ? { ...item, ...result } : item),
+    })));
+    setExceptionItem(null);
+    showAction("success", "Checklist exception recorded.");
+  } catch (err) {
+    setExceptionError(errorMessage(err, "The exception could not be recorded."));
+  } finally {
+    setSavingException(false);
+  }
 };
 
 const CHECKLIST_STATUS = {
@@ -128,6 +165,10 @@ export default function OnboardingChecklists() {
   const [busyAssignment, setBusyAssignment] = useState(null);
 
   const [expandedTemplate, setExpandedTemplate] = useState(null);
+  const [exceptionItem, setExceptionItem] = useState(null);
+  const [exceptionForm, setExceptionForm] = useState({ reason: "", owner_id: "", due_date: "", blocked_action: "" });
+  const [exceptionError, setExceptionError] = useState("");
+  const [savingException, setSavingException] = useState(false);
 
   const showAction = (type, text) => {
     setActionMsg({ type, text });
@@ -520,6 +561,13 @@ export default function OnboardingChecklists() {
                                 {isOverdue(item) && (
                                   <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-red-100 text-red-700">Overdue</span>
                                 )}
+                                {!item.completed && (
+                                  <button type="button" onClick={() => openException(item)}
+                                    className="min-h-8 rounded-md border border-amber-300 px-2 text-xs font-medium text-amber-800">
+                                    {item.exception_reason ? "Edit exception" : "Record exception"}
+                                  </button>
+                                )}
+                                {item.exception_reason && <span className="text-xs text-amber-700" title={item.exception_reason}>Exception recorded</span>}
                               </li>
                             ))}
                           </ul>
@@ -536,6 +584,54 @@ export default function OnboardingChecklists() {
 
       {/* ── Templates ── */}
       <h2 className="text-base font-bold text-gray-800 mb-3">Checklist templates</h2>
+      {exceptionItem && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" role="dialog" aria-modal="true" aria-labelledby="checklist-exception-title">
+          <form onSubmit={saveException} className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl bg-white p-5 shadow-xl space-y-4">
+            <div>
+              <h2 id="checklist-exception-title" className="text-lg font-bold text-gray-900">Checklist exception</h2>
+              <p className="mt-1 text-sm text-gray-500">{exceptionItem.title}</p>
+            </div>
+            {exceptionError && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{exceptionError}</p>}
+            <div>
+              <label htmlFor="exception-reason" className="block text-sm font-medium text-gray-700">Reason</label>
+              <textarea id="exception-reason" required maxLength={2000} value={exceptionForm.reason}
+                onChange={(e) => setExceptionForm({ ...exceptionForm, reason: e.target.value })}
+                className="mt-1 min-h-20 w-full rounded-lg border border-gray-300 p-3 text-sm" />
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label htmlFor="exception-owner" className="block text-sm font-medium text-gray-700">Exception owner</label>
+                <select id="exception-owner" required value={exceptionForm.owner_id}
+                  onChange={(e) => setExceptionForm({ ...exceptionForm, owner_id: e.target.value })}
+                  className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 text-sm">
+                  <option value="">Choose an employee</option>
+                  {employees.map((employee) => <option key={employee.id} value={employee.id}>{employeeName(employee)}</option>)}
+                </select>
+              </div>
+              <div>
+                <label htmlFor="exception-due" className="block text-sm font-medium text-gray-700">Due date</label>
+                <input id="exception-due" type="date" required value={exceptionForm.due_date}
+                  onChange={(e) => setExceptionForm({ ...exceptionForm, due_date: e.target.value })}
+                  className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 text-sm" />
+              </div>
+            </div>
+            <div>
+              <label htmlFor="exception-blocked-action" className="block text-sm font-medium text-gray-700">Action blocked (optional)</label>
+              <input id="exception-blocked-action" maxLength={300} value={exceptionForm.blocked_action}
+                onChange={(e) => setExceptionForm({ ...exceptionForm, blocked_action: e.target.value })}
+                className="mt-1 min-h-10 w-full rounded-lg border border-gray-300 px-3 text-sm" />
+            </div>
+            <div className="flex justify-end gap-2">
+              <button type="button" onClick={() => setExceptionItem(null)} className="min-h-10 rounded-lg border px-4 text-sm">Cancel</button>
+              <button type="submit" disabled={savingException || !exceptionForm.reason.trim() || !exceptionForm.owner_id || !exceptionForm.due_date}
+                className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">
+                {savingException ? "Saving…" : "Save exception"}
+              </button>
+            </div>
+          </form>
+        </div>
+      )}
+
       <div className="flex gap-1 overflow-x-auto border-b border-gray-200 mb-6">
         {CATEGORIES.map((cat) => (
           <button

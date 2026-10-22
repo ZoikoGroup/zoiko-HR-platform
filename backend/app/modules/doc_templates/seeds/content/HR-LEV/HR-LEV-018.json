@@ -1,0 +1,87 @@
+{
+  "canonical_id": "HR-LEV-018",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "leave.type_label",
+      "leave.start_date",
+      "leave.end_date",
+      "leave.days",
+      "leave.decision_status_label",
+      "leave.decided_by",
+      "leave.decided_at"
+    ],
+    "optional": [
+      "leave.decision_reason",
+      "leave.alternative_dates",
+      "leave.balance_after",
+      "leave.is_refused",
+      "leave.is_approved"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "leave_rights_statement"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Your leave request: {{leave.decision_status_label}}",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, your request for {{leave.type_label}} from {{leave.start_date}} to {{leave.end_date}} ({{leave.days}} days) has been {{leave.decision_status_label}} by {{leave.decided_by}} on {{leave.decided_at}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "Reason: {{leave.decision_reason}}.",
+      "include_when": {
+        "field": "leave.is_refused",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "If it helps, you could consider: {{leave.alternative_dates}}.",
+      "include_when": {
+        "field": "leave.alternative_dates",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your remaining balance after this leave is {{leave.balance_after}} days.",
+      "include_when": {
+        "all": [
+          {
+            "field": "leave.is_approved",
+            "op": "eq",
+            "value": true
+          },
+          {
+            "field": "leave.balance_after",
+            "op": "present"
+          }
+        ]
+      }
+    },
+    {
+      "type": "clause",
+      "key": "leave_rights_statement",
+      "required": true
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

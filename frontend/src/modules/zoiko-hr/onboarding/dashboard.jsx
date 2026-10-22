@@ -38,7 +38,7 @@ const DEPARTMENT_COLORS = [
 
 function SubNav() {
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
+    <div className="hidden">
       {NAV_ITEMS.map((item) => (
         <NavLink
           key={item.href}
