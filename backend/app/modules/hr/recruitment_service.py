@@ -1,3 +1,4 @@
+import logging
 import re
 from datetime import datetime, date
 from typing import Optional
@@ -22,9 +23,14 @@ from app.modules.hr.schemas import (
     InterviewFeedbackCreate,
     OfferApprovalCreate, OfferApprovalResponse,
 )
-from app.core.exceptions import NotFoundException, BadRequestException
+from fastapi import HTTPException
+
+from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.sanitize import sanitize_dict
 
+
+
+logger = logging.getLogger("zoiko.recruitment")
 
 def get_recruitment_dashboard(db: Session, organization_id: Optional[int] = None) -> dict:
     org = organization_id
@@ -95,6 +101,8 @@ def get_recruitment_dashboard(db: Session, organization_id: Optional[int] = None
 
 def create_requisition(db: Session, data: RequisitionCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentRequisition:
     safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    from app.modules.hr.recruitment_documents import json_safe
+    json_safe(safe)
     status_value = safe.pop("status", None) or "draft"
     req = RecruitmentRequisition(**safe)
     req.status = RequisitionStatus.PENDING if status_value == "pending" else RequisitionStatus.DRAFT
@@ -186,6 +194,8 @@ def update_requisition(db: Session, req_id: int, data: RequisitionUpdate, organi
     if req.status == RequisitionStatus.CLOSED:
         raise BadRequestException("A closed requisition can no longer be edited.")
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    from app.modules.hr.recruitment_documents import json_safe
+    json_safe(update_data)
     for required in ("title", "department", "openings", "priority"):
         if required in update_data and update_data[required] is None:
             update_data.pop(required)
@@ -227,20 +237,48 @@ def submit_requisition(db: Session, req_id: int, organization_id: Optional[int] 
     return req
 
 
-def approve_requisition(db: Session, req_id: int, organization_id: Optional[int] = None, actor=None) -> RecruitmentRequisition:
+def _decide_requisition(db: Session, req: RecruitmentRequisition, actor, comment: Optional[str]) -> None:
+    # The decision itself keeps today's rule (any admin). Separation of duties is enforced on the HR-HIR-001 authorization
+    # record: when the decider also raised the requisition, the record stays PENDING_APPROVAL until someone else approves it.
+    req.decided_by = getattr(actor, "id", None)
+    req.decided_at = datetime.utcnow()
+    req.decision_comment = (comment or "").strip()[:2000] or None
+
+
+def approve_requisition(db: Session, req_id: int, organization_id: Optional[int] = None, actor=None,
+                        comment: Optional[str] = None) -> RecruitmentRequisition:
     req = get_requisition_by_id(db, req_id, organization_id)
+    _decide_requisition(db, req, actor, comment)
     req = _move_requisition(db, req, {RequisitionStatus.DRAFT, RequisitionStatus.PENDING}, RequisitionStatus.OPEN,
                             "Requisition must be in DRAFT or PENDING status to approve")
     notify.notify_requisition_decision(db, req, True, actor)
+    _requisition_record(db, req, actor)
     return req
 
 
-def reject_requisition(db: Session, req_id: int, organization_id: Optional[int] = None, actor=None) -> RecruitmentRequisition:
+def reject_requisition(db: Session, req_id: int, organization_id: Optional[int] = None, actor=None,
+                       comment: Optional[str] = None) -> RecruitmentRequisition:
     req = get_requisition_by_id(db, req_id, organization_id)
+    _decide_requisition(db, req, actor, comment)
     req = _move_requisition(db, req, {RequisitionStatus.DRAFT, RequisitionStatus.PENDING}, RequisitionStatus.CLOSED,
                             "Only a requisition awaiting approval can be rejected. Close an open one instead.")
     notify.notify_requisition_decision(db, req, False, actor)
+    _requisition_record(db, req, actor)
     return req
+
+
+def _requisition_record(db: Session, req, actor) -> None:
+    """HR-HIR-001 authorization record (best effort: a missing template never blocks the decision itself)."""
+    if actor is None:
+        return
+    try:
+        from app.modules.hr import recruitment_documents
+        recruitment_documents.on_requisition_decided(db, req, actor)
+    except Exception:
+        db.rollback()
+        logger.warning("requisition authorization record failed for requisition id %s", req.id)
+    db.refresh(req)
+    _attach_candidate_counts(db, [req])
 
 
 def hold_requisition(db: Session, req_id: int, organization_id: Optional[int] = None) -> RecruitmentRequisition:
@@ -323,15 +361,21 @@ def check_candidate_transition(current, new) -> None:
         raise BadRequestException(f"A candidate in {_label(current)} cannot move to {_label(new)}.")
 
 
-def _after_candidate_status_change(db: Session, candidate: RecruitmentCandidate, previous, organization_id) -> None:
+def _after_candidate_status_change(db: Session, candidate: RecruitmentCandidate, previous, organization_id, actor=None,
+                                   note: Optional[str] = None) -> None:
     if candidate.status == previous:
         return
     if candidate.status == RecruitmentCandidateStatus.HIRED:
         _handle_candidate_hired(db, candidate, organization_id)
+    if candidate.status == RecruitmentCandidateStatus.REJECTED:
+        # HR-HIR-020 replaces the generic e-mail for rejections; if no released template exists the candidate is still told
+        from app.modules.hr import recruitment_documents
+        if recruitment_documents.on_candidate_rejected(db, candidate, previous, actor, note):
+            return
     notify.notify_candidate_status(db, candidate, candidate.status.value)
 
 
-def create_candidate(db: Session, data: CandidateCreate, organization_id: Optional[int] = None) -> RecruitmentCandidate:
+def create_candidate(db: Session, data: CandidateCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentCandidate:
     _check_candidate(db, organization_id, data.email, data.position, data.requisition_id)
     safe = sanitize_dict(data.model_dump(exclude_unset=True))
     if safe.get("status") in (RecruitmentCandidateStatus.HIRED, RecruitmentCandidateStatus.REJECTED):
@@ -342,6 +386,10 @@ def create_candidate(db: Session, data: CandidateCreate, organization_id: Option
     db.add(candidate)
     db.commit()
     db.refresh(candidate)
+    if actor is not None:
+        from app.modules.hr import recruitment_documents
+        recruitment_documents.on_candidate_created(db, candidate, actor)        # HR-HIR-004 privacy notice
+        db.refresh(candidate)
     _attach_requisition_titles(db, [candidate])
     return candidate
 
@@ -408,6 +456,59 @@ def _create_onboarding_record_for_hire(db: Session, candidate: RecruitmentCandid
     carries the accepted offer's start date and employment type and the requisition's department, and the
     organization's onboarding settings are applied (checklists, document requests, the pre-onboarding invite)."""
     active = ("offer_sent", "offer_accepted", "pre_joining", "in_progress")
+
+    accepted_offer_query = db.query(RecruitmentOffer).filter(
+        RecruitmentOffer.candidate_id == candidate.id,
+        RecruitmentOffer.status == OfferStatus.ACCEPTED,
+    )
+    if organization_id is not None:
+        accepted_offer_query = accepted_offer_query.filter(RecruitmentOffer.organization_id == organization_id)
+    accepted_offer = accepted_offer_query.order_by(RecruitmentOffer.updated_at.desc(), RecruitmentOffer.id.desc()).first()
+
+    department_id = None
+    if candidate.requisition_id:
+        from app.modules.hr.models import Department
+        req_query = db.query(RecruitmentRequisition).filter(RecruitmentRequisition.id == candidate.requisition_id)
+        if organization_id is not None:
+            req_query = req_query.filter(RecruitmentRequisition.organization_id == organization_id)
+        req = req_query.first()
+        if req is not None and req.department:
+            dept_query = db.query(Department).filter(func.lower(Department.name) == req.department.strip().lower())
+            if organization_id is not None:
+                dept_query = dept_query.filter(Department.organization_id == organization_id)
+            dept = dept_query.first()
+            department_id = dept.id if dept is not None else None
+
+    offer_fields = {
+        "position": accepted_offer.position if accepted_offer else None,
+        "joining_date": accepted_offer.joining_date if accepted_offer else None,
+        "employment_type": accepted_offer.employment_type if accepted_offer else None,
+        "work_country": accepted_offer.work_country if accepted_offer else None,
+        "work_region": getattr(accepted_offer, "work_region", None) if accepted_offer else None,
+        "manager_id": getattr(accepted_offer, "reporting_manager_id", None) if accepted_offer else None,
+        "department_id": (getattr(accepted_offer, "department_id", None) or department_id) if accepted_offer else department_id,
+    }
+
+    def sync_existing(existing: OnboardingNewHire) -> OnboardingNewHire:
+        changed = False
+        for field, value in (("candidate_name", candidate.name), ("email", candidate.email), ("phone", candidate.phone)):
+            if value and not getattr(existing, field, None):
+                setattr(existing, field, value)
+                changed = True
+        # The accepted offer is authoritative for the terms it contains. Keep manually supplied onboarding
+        # values when the offer omitted a field.
+        for field, value in offer_fields.items():
+            if value is not None and getattr(existing, field, None) != value:
+                setattr(existing, field, value)
+                changed = True
+        if accepted_offer and existing.status == "offer_sent":
+            existing.status = "offer_accepted"
+            changed = True
+        if changed:
+            db.commit()
+            db.refresh(existing)
+        return existing
+
     if candidate.onboarding_new_hire_id:
         existing_by_id = db.query(OnboardingNewHire).filter(
             OnboardingNewHire.id == candidate.onboarding_new_hire_id,
@@ -416,7 +517,7 @@ def _create_onboarding_record_for_hire(db: Session, candidate: RecruitmentCandid
             OnboardingNewHire.status.in_(active),
         ).first()
         if existing_by_id:
-            return existing_by_id
+            return sync_existing(existing_by_id)
 
     existing_by_email = db.query(OnboardingNewHire).filter(
         func.lower(OnboardingNewHire.email) == (candidate.email or "").lower(),
@@ -427,31 +528,19 @@ def _create_onboarding_record_for_hire(db: Session, candidate: RecruitmentCandid
     if existing_by_email:
         candidate.onboarding_new_hire_id = existing_by_email.id
         db.commit()
-        return existing_by_email
-
-    accepted_offer = (
-        db.query(RecruitmentOffer)
-        .filter(RecruitmentOffer.candidate_id == candidate.id, RecruitmentOffer.status == OfferStatus.ACCEPTED)
-        .order_by(RecruitmentOffer.updated_at.desc(), RecruitmentOffer.id.desc())
-        .first()
-    )
-    department_id = None
-    if candidate.requisition_id:
-        from app.modules.hr.models import Department
-        req = db.query(RecruitmentRequisition).filter(RecruitmentRequisition.id == candidate.requisition_id).first()
-        if req is not None and req.department:
-            dept = db.query(Department).filter(func.lower(Department.name) == req.department.strip().lower(),
-                                               Department.organization_id == organization_id).first()
-            department_id = dept.id if dept is not None else None
+        return sync_existing(existing_by_email)
 
     new_hire = OnboardingNewHire(
         candidate_name=candidate.name,
         email=candidate.email,
         phone=candidate.phone,
-        position=accepted_offer.position if accepted_offer else candidate.position,
-        joining_date=accepted_offer.joining_date if accepted_offer else None,
-        employment_type=accepted_offer.employment_type if accepted_offer else None,
-        department_id=department_id,
+        position=offer_fields["position"] or candidate.position,
+        joining_date=offer_fields["joining_date"],
+        employment_type=offer_fields["employment_type"],
+        work_country=offer_fields["work_country"],       # jurisdiction for onboarding documents
+        work_region=offer_fields["work_region"],
+        manager_id=offer_fields["manager_id"],
+        department_id=offer_fields["department_id"],
         status="offer_accepted",
     )
     if organization_id is not None:
@@ -537,14 +626,15 @@ def delete_candidate(db: Session, candidate_id: int, organization_id: Optional[i
     db.commit()
 
 
-def update_candidate_status(db: Session, candidate_id: int, data: CandidateStatusUpdate, organization_id: Optional[int] = None) -> RecruitmentCandidate:
+def update_candidate_status(db: Session, candidate_id: int, data: CandidateStatusUpdate, organization_id: Optional[int] = None,
+                            actor=None, note: Optional[str] = None) -> RecruitmentCandidate:
     candidate = get_candidate_by_id(db, candidate_id, organization_id)
     previous_status = candidate.status
     check_candidate_transition(previous_status, data.status)
     candidate.status = data.status
     db.commit()
     db.refresh(candidate)
-    _after_candidate_status_change(db, candidate, previous_status, organization_id)
+    _after_candidate_status_change(db, candidate, previous_status, organization_id, actor=actor, note=note)
     _attach_requisition_titles(db, [candidate])
     return candidate
 
@@ -752,18 +842,25 @@ def _apply_offer_pay_rules(db: Session, values: dict, organization_id: Optional[
     if not cur("pay_period"):
         values["pay_period"] = _DEFAULT_PAY_PERIOD[remuneration]
 
+    # Country controls the legal template pack even when HR explicitly chooses a
+    # cross-border currency. Resolve it independently from currency defaults.
+    country = cur("work_country")
+    if not country:
+        cand_id = cur("candidate_id")
+        cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == cand_id).first() if cand_id else None
+        country = regions.country_code(cand.location) if cand is not None and cand.location else None
+        if not country and organization_id:
+            from app.modules.hr.models import Organization
+            org = db.query(Organization).filter(Organization.id == organization_id).first()
+            country = regions.country_code_strict(org.country) if org is not None else None
+        if country:
+            values["work_country"] = country
+
     if values.get("currency"):
         if not regions.is_currency(values["currency"]):
             raise BadRequestException(f"Unknown currency: {values['currency']}.")
         values["currency"] = values["currency"].upper()
     elif not cur("currency"):
-        country = cur("work_country")
-        if not country:
-            cand_id = cur("candidate_id")
-            cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == cand_id).first() if cand_id else None
-            country = regions.country_code(cand.location) if cand is not None and cand.location else None
-            if country and not cur("work_country"):
-                values["work_country"] = country
         org_currency = None
         if organization_id:
             from app.modules.hr.models import Organization
@@ -815,8 +912,11 @@ def _check_offer_candidate(db: Session, candidate_id: Optional[int], organizatio
             raise BadRequestException("The linked candidate was not found.")
 
 
-def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] = None) -> RecruitmentOffer:
+def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
     safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    from app.modules.hr import recruitment_documents
+    recruitment_documents.json_safe(safe)
+    recruitment_documents.check_offer_fields(db, safe, organization_id)
     if safe.get("status") is None:
         safe.pop("status", None)
     elif safe["status"] not in (OfferStatus.DRAFT, OfferStatus.PENDING):
@@ -824,6 +924,7 @@ def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] 
     _check_offer_candidate(db, safe.get("candidate_id"), organization_id)
     safe = _apply_offer_pay_rules(db, safe, organization_id)
     offer = RecruitmentOffer(**safe)
+    offer.created_by = getattr(actor, "id", None)
     if organization_id:
         offer.organization_id = organization_id
     db.add(offer)
@@ -874,22 +975,50 @@ def get_offer_by_id(db: Session, offer_id: int, organization_id: Optional[int] =
     return offer
 
 
-def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id: Optional[int] = None) -> RecruitmentOffer:
+def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
     for required in ("candidate_name", "position", "status", "remuneration_type"):
         if required in update_data and update_data[required] is None:
             update_data.pop(required)
-    if offer.status in (OfferStatus.ACCEPTED, OfferStatus.REJECTED, OfferStatus.WITHDRAWN):
+    if offer.status in (OfferStatus.ACCEPTED, OfferStatus.REJECTED, OfferStatus.WITHDRAWN, OfferStatus.EXPIRED):
         raise BadRequestException(f"A {offer.status.value} offer can no longer be edited.")
+    if offer.issued_at is not None:
+        raise BadRequestException("This offer's letter was issued. Use Amend to change its terms.")
     if "status" in update_data and update_data["status"] not in _EDITABLE_OFFER_STATUSES:
         raise BadRequestException("Use Accept, Reject or Withdraw to close an offer.")
+    if update_data.get("status") == OfferStatus.APPROVED and offer.status != OfferStatus.APPROVED:
+        raise BadRequestException("Approve the offer with the Approve action (someone other than its author).")
+    from app.modules.hr import recruitment_documents
+    recruitment_documents.json_safe(update_data)
+    recruitment_documents.check_offer_fields(db, update_data, organization_id, offer)
+    terms_changed = bool(set(update_data) - {"notes", "status"})
     if "candidate_id" in update_data:
         _check_offer_candidate(db, update_data["candidate_id"], organization_id)
     if "work_country" in update_data and "currency" not in update_data:
         update_data["currency"] = None                      # a new work country brings its own currency unless one is given
-        offer.currency = None
     update_data = _apply_offer_pay_rules(db, update_data, organization_id, offer)
+    if terms_changed and offer.document_id:
+        # An unissued letter is a snapshot of the old offer terms. Retire it before editing so the
+        # newly approved offer can generate a fresh document instead of hitting the in-progress guard.
+        from app.modules.doc_templates import service as doc_service
+        from app.modules.doc_templates.models import GeneratedDocument
+        previous_letter = db.get(GeneratedDocument, offer.document_id)
+        if previous_letter and previous_letter.status in ("ISSUED", "ACKNOWLEDGED", "EXECUTED", "DECLINED", "EXPIRED"):
+            raise BadRequestException("This offer letter has already been issued. Use Amend to change its terms.")
+        if previous_letter and previous_letter.status in ("RENDERED_DRAFT", "PENDING_APPROVAL", "HUMAN_APPROVED"):
+            doc_service.cancel(db, previous_letter, actor, "Offer terms changed; generate a new letter after re-approval.",
+                               system_trigger="recruitment_offer.updated")
+        offer.document_id = None
+    if offer.status == OfferStatus.APPROVED and terms_changed:
+        offer.status, offer.approved_by, offer.approved_at = OfferStatus.DRAFT, None, None   # changed terms need a new approval
+    if terms_changed:
+        prior_approvals = db.query(RecruitmentOfferApproval).filter(
+            RecruitmentOfferApproval.offer_id == offer.id,
+            RecruitmentOfferApproval.approval_status == "approved",
+        ).all()
+        for approval in prior_approvals:
+            approval.approval_status = "superseded"
     for field, value in update_data.items():
         setattr(offer, field, value)
     db.commit()
@@ -904,7 +1033,13 @@ def delete_offer(db: Session, offer_id: int, organization_id: Optional[int] = No
 
 
 def send_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> RecruitmentOffer:
-    """Mark a draft offer as sent and email its terms to the linked candidate."""
+    """Retired: offers are issued as engine documents (POST /hr/recruitment/offers/{id}/letter, then /letter/issue)."""
+    raise HTTPException(410, {"code": "OFFER_LETTER_THROUGH_DOCUMENTS",
+                              "message": "Offer letters are now generated, approved and issued as documents. Use Generate letter."})
+
+
+def _legacy_send_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> RecruitmentOffer:
+    """Kept for reference only: the pre-engine plain e-mail. Not routed."""
     offer = get_offer_by_id(db, offer_id, organization_id)
     if offer.status not in (OfferStatus.DRAFT, OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
         raise BadRequestException(f"A {offer.status.value} offer cannot be sent.")
@@ -924,30 +1059,10 @@ def send_offer(db: Session, offer_id: int, organization_id: Optional[int] = None
     return offer
 
 
-def send_offer_with_pdf(db: Session, offer_id: int, organization_id: Optional[int] = None,
-                        pdf_bytes: bytes = None, pdf_filename: str = "Offer Letter.pdf") -> RecruitmentOffer:
-    """Mark a draft offer as sent and email its terms with a PDF attachment to the linked candidate."""
+def accept_offer(db: Session, offer_id: int, organization_id: Optional[int] = None, _from_engine: bool = False) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
-    if offer.status not in (OfferStatus.DRAFT, OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
-        raise BadRequestException(f"A {offer.status.value} offer cannot be sent.")
-    if offer.salary is None:
-        raise BadRequestException("Add the remuneration amount before sending the offer.")
-    if offer.status == OfferStatus.DRAFT:
-        offer.status = OfferStatus.PENDING
-    db.commit()
-    db.refresh(offer)
-    if offer.candidate_id:
-        cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == offer.candidate_id).first()
-        if cand is not None and cand.status in (RecruitmentCandidateStatus.APPLIED, RecruitmentCandidateStatus.SCREENING,
-                                                RecruitmentCandidateStatus.INTERVIEW):
-            cand.status = RecruitmentCandidateStatus.OFFER
-            db.commit()
-    offer.email_sent = notify.send_offer_with_pdf(db, offer, pdf_bytes, pdf_filename)
-    return offer
-
-
-def accept_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> RecruitmentOffer:
-    offer = get_offer_by_id(db, offer_id, organization_id)
+    if offer.document_id and not _from_engine:
+        raise BadRequestException("The candidate accepts this offer by signing the letter through their secure link.")
     if offer.status not in (OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
         raise BadRequestException("Send the offer before recording the candidate's answer.")
     offer.status = OfferStatus.ACCEPTED
@@ -956,10 +1071,11 @@ def accept_offer(db: Session, offer_id: int, organization_id: Optional[int] = No
 
     if offer.candidate_id:
         candidate = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == offer.candidate_id).first()
-        if candidate and candidate.status != RecruitmentCandidateStatus.HIRED:
-            candidate.status = RecruitmentCandidateStatus.HIRED
-            db.commit()
-            db.refresh(candidate)
+        if candidate:
+            if candidate.status != RecruitmentCandidateStatus.HIRED:
+                candidate.status = RecruitmentCandidateStatus.HIRED
+                db.commit()
+                db.refresh(candidate)
             _handle_candidate_hired(db, candidate, candidate.organization_id)
 
     notify.notify_offer_outcome(db, offer, accepted=True)
@@ -968,6 +1084,8 @@ def accept_offer(db: Session, offer_id: int, organization_id: Optional[int] = No
 
 def reject_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
+    if offer.document_id:
+        raise BadRequestException("The candidate declines this offer through their secure link. To withdraw it, use Withdraw.")
     if offer.status not in (OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
         raise BadRequestException("Only a sent offer can be declined. Withdraw a draft instead.")
     offer.status = OfferStatus.REJECTED
@@ -979,6 +1097,8 @@ def reject_offer(db: Session, offer_id: int, organization_id: Optional[int] = No
 
 def withdraw_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
+    if offer.issued_at is not None:
+        raise BadRequestException("This offer's letter was issued. Withdraw it with a withdrawal notice (reason and approval required).")
     if offer.status not in (OfferStatus.DRAFT, OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
         raise BadRequestException("Offer cannot be withdrawn in its current status")
     offer.status = OfferStatus.WITHDRAWN

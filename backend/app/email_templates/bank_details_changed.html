@@ -1,0 +1,14 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Your bank details were changed" %}
+{% set preheader = "A change to your bank details was saved in Zoiko HR." %}
+{% set badge = "Security notice" %}
+{% set badge_tone = "warning" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Your bank details were changed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">This security notice confirms that the bank details on your employee record were changed on {{ changed_at_local }}. For your protection the new details are used for pay only after our payroll team has verified them. This e-mail does not include the details themselves.</p>
+{% call ui.notice(title="Not you?", tone="warning") %}If you did not make this change, contact your HR team straight away.{% endcall %}
+{{ ui.button(action_url, "Sign in to Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

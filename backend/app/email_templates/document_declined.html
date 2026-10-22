@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Document declined" %}
+{% set preheader = "A recipient declined to sign a document." %}
+{% set badge = "Declined" %}
+{% set badge_tone = "danger" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Document declined</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A signer declined {{ document_label }}. The reason they gave is recorded in Zoiko HR, not in this e-mail.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{{ ui.detail_row("Declined by", declined_party) }}
+{% endcall %}
+{{ ui.button(action_url, "Review in Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

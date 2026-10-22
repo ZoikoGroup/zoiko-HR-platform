@@ -19,6 +19,9 @@ import { createEmployee, getDesignations } from "../../service/employee";
 import { pick, employeeName, employeeInitials } from "../../utils/fieldAccess";
 import { validateAddEmployee, addEmployeePayload, serverAddEmployeeErrors } from "../../utils/addEmployeeForm";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
+import { ROLES } from "../../config/roles";
+import { getStoredUser } from "../../service/api";
+import MyOnboardingTasks from "./onboarding/MyOnboardingTasks";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
 const NAVY = "#0A1128";
@@ -191,6 +194,7 @@ function EmptyState({ label, height = 140 }) {
 }
 
 export default function HrDashBoard() {
+  const role = getStoredUser()?.role;
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState("Executive");
   const [deptView, setDeptView] = useState("Headcount");
@@ -455,6 +459,7 @@ export default function HrDashBoard() {
 
   return (
     <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
+      {role === ROLES.MANAGER && <div className="mb-5"><MyOnboardingTasks /></div>}
       {error && (
         <div className="mb-4 rounded-[14px] border p-4 text-sm" style={{ background: RED_100, borderColor: RED, color: RED }}>
           {error}

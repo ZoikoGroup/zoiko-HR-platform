@@ -112,6 +112,24 @@ def country_code(value: Optional[str]) -> Optional[str]:
     return None
 
 
+def country_code_strict(value: Optional[str]) -> Optional[str]:
+    """ISO alpha-2 only when the whole value IS a country code, name or alias. No scanning of free text: for legal
+    jurisdiction facts a near-miss must stay unknown (country_code() would read "New Jersey, USA" or "Indiana" loosely)."""
+    if not value:
+        return None
+    t = str(value).strip().strip(".").lower()
+    if t in _CITY_ALIASES:
+        return None
+    return _lookup(t)
+
+
+# Aliases above that name a city, not a country: fine for display defaults, never for a jurisdiction fact.
+_CITY_ALIASES = {
+    "dubai", "abu dhabi", "bengaluru", "bangalore", "mumbai", "delhi", "new delhi", "hyderabad", "chennai", "pune", "kolkata",
+    "london", "manchester", "new york", "san francisco", "singapore city", "toronto", "sydney", "melbourne", "berlin", "paris",
+}
+
+
 def currency_for(country: Optional[str], fallback: Optional[str] = None) -> str:
     code = country_code(country)
     if code:

@@ -252,6 +252,8 @@ class AttendanceRecord(Base):
     total_hours = Column(Numeric(5, 2), nullable=True)
     notes       = Column(Text, nullable=True)
     is_deleted  = Column(Boolean, default=False)
+    overtime_authorized_hours = Column(Numeric(5, 2), nullable=True)   # approved overtime (HR-TIM-007); the rest is unauthorised
+    overtime_request_id = Column(Integer, nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at  = Column(DateTime, server_default=func.now())
     updated_at  = Column(DateTime, onupdate=func.now())
@@ -277,6 +279,7 @@ class Shift(Base):
     break_duration_minutes= Column(Integer, default=60)
     is_overtime_eligible  = Column(Boolean, default=True)
     requires_attendance   = Column(Boolean, default=True)
+    standard_hours        = Column(Numeric(4, 2), nullable=True)   # overrides attendance.standard_workday_hours for this shift
     description           = Column(Text, nullable=True)
     is_active             = Column(Boolean, default=True)
     organization_id       = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
@@ -293,6 +296,9 @@ class ShiftRoster(Base):
     date        = Column(Date, nullable=False)
     is_active   = Column(Boolean, default=True)
     assigned_by = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    notified_at = Column(DateTime, nullable=True)                         # when the shift notice (HR-TIM-003/004) was issued
+    document_id = Column(Integer, nullable=True)                          # generated_documents.id of that notice
+    notice_id   = Column(Integer, nullable=True)                          # shift_notices.id
     created_at  = Column(DateTime, server_default=func.now())
     updated_at  = Column(DateTime, onupdate=func.now())
 
@@ -331,11 +337,25 @@ class LeaveRequest(Base):
     status          = Column(Enum(RequestStatus), default=RequestStatus.PENDING, nullable=False)
     reviewed_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
     reviewed_at     = Column(DateTime, nullable=True)
+    # Prompt 3 decision evidence (HR-LEV-001/018). decided_* mirror reviewed_* for the engine; decision_reason is required on refusal.
+    decision_reason = Column(Text, nullable=True)
+    decided_by      = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at      = Column(DateTime, nullable=True)
+    handover_note   = Column(Text, nullable=True)                # seen by the employee, their manager and HR only
+    alternative_dates = Column(Text, nullable=True)
+    balance_before  = Column(Numeric(6, 2), nullable=True)       # leave_balances snapshot at decision time, never recalculated
+    balance_after   = Column(Numeric(6, 2), nullable=True)
+    # Sickness reasons are SPECIAL_CATEGORY: encrypted here, `reason` left empty, never rendered or shown to managers.
+    reason_encrypted = Column(Text, nullable=True)
+    details         = Column(JSON, nullable=True)                # family leave / bereavement form answers (no medical detail)
+    confirmation    = Column(JSON, nullable=True)                # HR confirmation of family leave
+    document_id     = Column(Integer, nullable=True)             # the decision record (generated_documents.id)
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
     employee = relationship("Employee", back_populates="leave_requests", foreign_keys=[employee_id])
     reviewer = relationship("Employee", back_populates="reviewed_leave_requests", foreign_keys=[reviewed_by])
+    decider  = relationship("Employee", foreign_keys=[decided_by])
 
 
 class LeaveTypeConfig(Base):
@@ -590,6 +610,11 @@ class EmployeeCompensation(Base):
     pay_grade_id    = Column(Integer, ForeignKey("pay_grades.id"), nullable=True)
     band_id         = Column(Integer, ForeignKey("compensation_bands.id"), nullable=True)
     effective_date  = Column(Date, nullable=False)
+    base_amount     = Column(Numeric(12, 2), nullable=True)
+    currency        = Column(String(3), nullable=True)
+    pay_period      = Column(String(20), nullable=True)          # annual | monthly | weekly | hourly
+    pay_frequency   = Column(String(20), nullable=True)          # monthly | semi_monthly | biweekly | weekly
+    document_id     = Column(Integer, nullable=True)             # HR-CMP-001 confirmation letter
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, onupdate=func.now())
@@ -604,6 +629,18 @@ class SalaryRevision(Base):
     new_salary               = Column(Numeric(12, 2), nullable=False)
     effective_date           = Column(Date, nullable=False)
     reason                   = Column(Text, nullable=True)
+    # Prompt 3 approval (HR-CMP-005). NULL status = a revision recorded before approvals existed.
+    employee_id              = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)
+    revision_type            = Column(String(30), nullable=True)   # initial | annual_review | merit | promotion | market_adjustment | correction
+    percentage_change        = Column(Numeric(7, 2), nullable=True)
+    currency                 = Column(String(3), nullable=True)
+    status                   = Column(String(20), nullable=True)   # DRAFT | PENDING_APPROVAL | APPROVED | REJECTED | COMMUNICATED
+    reason_statement         = Column(Text, nullable=True)         # employee-facing sentence for the letter (optional)
+    requested_by             = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    approved_by              = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    approved_at              = Column(DateTime, nullable=True)
+    decision_comment         = Column(Text, nullable=True)
+    communicated_document_id = Column(Integer, nullable=True)
     organization_id          = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     created_at               = Column(DateTime, server_default=func.now())
     updated_at               = Column(DateTime, onupdate=func.now())
@@ -617,6 +654,18 @@ class Allowance(Base):
     allowance_type  = Column(String(100), nullable=False)
     amount          = Column(Numeric(12, 2), nullable=False)
     effective_date  = Column(Date, nullable=False)
+    # Prompt 3 award terms and approval (HR-CMP-010). NULL status = an allowance recorded before awards were approved.
+    currency        = Column(String(3), nullable=True)
+    frequency       = Column(String(20), nullable=True)          # monthly | annual | weekly | one_time
+    end_date        = Column(Date, nullable=True)
+    review_date     = Column(Date, nullable=True)
+    eligibility_reason = Column(Text, nullable=True)
+    conditions      = Column(Text, nullable=True)
+    status          = Column(String(20), nullable=True)          # PENDING_APPROVAL | APPROVED | REJECTED | COMMUNICATED
+    requested_by    = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    approved_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    approved_at     = Column(DateTime, nullable=True)
+    document_id     = Column(Integer, nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, onupdate=func.now())
@@ -642,6 +691,9 @@ class EmployeeBenefit(Base):
     benefit_id          = Column(Integer, ForeignKey("benefits.id"), nullable=False)
     coverage_start_date = Column(Date, nullable=True)
     coverage_end_date   = Column(Date, nullable=True)
+    provider            = Column(String(200), nullable=True)
+    employer_contribution = Column(String(60), nullable=True)   # as stated by the plan ("5%", "100.00 per month")
+    employee_contribution = Column(String(60), nullable=True)
     organization_id     = Column(Integer, ForeignKey("organizations.id"), nullable=False)
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, onupdate=func.now())
@@ -822,6 +874,8 @@ class OnboardingNewHire(Base):
     joining_status  = Column(String(50), default="not_joined", nullable=False)
     notes           = Column(Text, nullable=True)
     employment_type = Column(String(30), nullable=True)          # from the accepted offer: full_time, internship, ...
+    work_country    = Column(String(2), nullable=True)           # ISO-2, from the accepted offer when there is one (doc_templates)
+    work_region     = Column(String(100), nullable=True)
     completed_at    = Column(DateTime, nullable=True)            # onboarding finished (the employee account exists)
     # Pre-onboarding link: the new hire uploads requested documents and their details before they have an account.
     portal_token_hash = Column(String(64), nullable=True, index=True)   # looked up by hash
@@ -925,6 +979,13 @@ class OnboardingChecklistItem(Base):
     due_date              = Column(Date, nullable=True)
     due_offset_days       = Column(Integer, nullable=True)       # templates: days from the joining date (negative = before)
     assignee_employee_id  = Column(Integer, ForeignKey("employees.id"), nullable=True)   # who does it (IT, manager, HR...)
+    owner_role       = Column(String(20), nullable=True)         # hr | manager | it | employee
+    mandatory        = Column(Boolean, nullable=False, default=False, server_default="false")
+    item_key         = Column(String(40), nullable=True)         # links to an engine record (onb001, onb011, ...) for auto-ticks
+    blocked_action   = Column(String(300), nullable=True)
+    exception_reason = Column(Text, nullable=True)
+    exception_owner_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    exception_due_date = Column(Date, nullable=True)
     is_deleted            = Column(Boolean, default=False, nullable=False)
     created_by            = Column(String(100), nullable=True)
     created_at            = Column(DateTime, server_default=func.now(), nullable=False)
@@ -1116,6 +1177,22 @@ class Appraisal(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at     = Column(DateTime, server_default=func.now())
     reviewed_at    = Column(DateTime, nullable=True)
+    # Prompt 4 (HR-PRF-007/010/011). Appraisals, manager assessments and their records are C3.
+    goals_assessment     = Column(JSON, nullable=True)     # [{goal, weight, result, rating, evidence}]
+    competencies         = Column(JSON, nullable=True)     # [{name, rating, evidence}]
+    overall_rating_label = Column(String(60), nullable=True)
+    manager_summary      = Column(Text, nullable=True)
+    employee_comments    = Column(Text, nullable=True)
+    development_priorities = Column(JSON, nullable=True)   # [str]
+    self_assessment      = Column(JSON, nullable=True)     # {goals: [{goal, achievement}], went_well, difficult, support, development, wellbeing}
+    self_submitted_at    = Column(DateTime, nullable=True)
+    manager_assessment   = Column(JSON, nullable=True)     # {goals: [{goal, rating, evidence}], competencies: [...], overall_recommendation, ...}
+    manager_submitted_at = Column(DateTime, nullable=True)
+    calibrated_by        = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    calibrated_at        = Column(DateTime, nullable=True)
+    finalised_at         = Column(DateTime, nullable=True)
+    finalised_by         = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    document_id          = Column(Integer, nullable=True)  # the HR-PRF-007 record
 
 
 class RecruitmentCandidateStatus(str, enum.Enum):
@@ -1147,6 +1224,7 @@ class OfferStatus(str, enum.Enum):
     ACCEPTED  = "accepted"
     WITHDRAWN = "withdrawn"
     COUNTERED = "countered"
+    EXPIRED   = "expired"     # the signing link expired before the candidate answered (doc_templates)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -1174,6 +1252,8 @@ class RecruitmentCandidate(Base):
     hired_at       = Column(DateTime, nullable=True)          # when the candidate became HIRED (time-to-hire)
     created_at     = Column(DateTime, server_default=func.now())
     updated_at     = Column(DateTime, onupdate=func.now())
+    rejection_note  = Column(Text, nullable=True)                # reviewed personal note for final-stage rejections (HR-HIR-020)
+    stage_reached   = Column(String(20), nullable=True)          # application | screening | interview | final, set on rejection
 
 
 class RecruitmentRequisition(Base):
@@ -1193,6 +1273,22 @@ class RecruitmentRequisition(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at     = Column(DateTime, server_default=func.now())
     updated_at     = Column(DateTime, onupdate=func.now())
+    # Hiring requisition authorization (HR-HIR-001) and structured scorecards (HR-HIR-007)
+    hiring_manager_id   = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    employment_type     = Column(String(30), nullable=True)
+    reason              = Column(String(20), nullable=True)      # new_role | replacement | backfill | growth
+    replaces_employee_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    budget_min          = Column(Numeric(14, 2), nullable=True)
+    budget_max          = Column(Numeric(14, 2), nullable=True)
+    currency            = Column(String(3), nullable=True)
+    target_start_date   = Column(Date, nullable=True)
+    headcount_id        = Column(Integer, ForeignKey("wf_headcounts.id"), nullable=True)
+    justification       = Column(Text, nullable=True)
+    job_description_id  = Column(Integer, ForeignKey("job_descriptions.id"), nullable=True)
+    scorecard_criteria  = Column(JSON, nullable=True)            # [{key, label, description, weight}]
+    decided_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at          = Column(DateTime, nullable=True)
+    decision_comment    = Column(Text, nullable=True)
 
 
 class RecruitmentInterview(Base):
@@ -1248,6 +1344,39 @@ class RecruitmentOffer(Base):
     notes          = Column(Text, nullable=True)
     created_at     = Column(DateTime, server_default=func.now())
     updated_at     = Column(DateTime, onupdate=func.now())
+    # Offer letters through the document engine (HR-HIR-011..019)
+    created_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    department_id       = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    reporting_manager_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    employer_entity_id  = Column(Integer, ForeignKey("employer_entities.id"), nullable=True)
+    work_location       = Column(String(200), nullable=True)
+    work_region         = Column(String(100), nullable=True)
+    work_arrangement    = Column(String(10), nullable=True)      # onsite | hybrid | remote
+    hours_per_week      = Column(Numeric(5, 2), nullable=True)
+    work_pattern        = Column(String(200), nullable=True)
+    contract_end_date   = Column(Date, nullable=True)
+    internship_end_date = Column(Date, nullable=True)
+    fixed_term_reason   = Column(String(300), nullable=True)
+    probation_months    = Column(Integer, nullable=True)
+    response_deadline   = Column(Date, nullable=True)
+    conditions          = Column(JSON, nullable=True)            # [{type, description, due_by, status}]
+    benefits_summary    = Column(Text, nullable=True)
+    components          = Column(JSON, nullable=True)            # [{label, amount, frequency}]
+    learning_objectives = Column(JSON, nullable=True)            # internships
+    mentor_id           = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    academic_institution = Column(String(200), nullable=True)
+    approved_by         = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    approved_at         = Column(DateTime, nullable=True)
+    issued_at           = Column(DateTime, nullable=True)
+    accepted_at         = Column(DateTime, nullable=True)
+    decline_reason      = Column(Text, nullable=True)
+    document_id         = Column(Integer, ForeignKey("generated_documents.id"), nullable=True)
+    amends_offer_id     = Column(Integer, ForeignKey("recruitment_offers.id"), nullable=True)
+    withdrawal_reason_category = Column(String(30), nullable=True)   # condition_not_met | role_cancelled | candidate_request | other
+    withdrawal_reason_note = Column(Text, nullable=True)             # HR-written, reviewed statement shown to the candidate
+    withdrawal_condition = Column(String(300), nullable=True)
+    withdrawal_legal_review = Column(Boolean, nullable=True)         # internal note when an accepted offer is withdrawn
+    withdrawal_requested_by = Column(Integer, ForeignKey("employees.id"), nullable=True)
 
 
 class RecruitmentDocument(Base):
@@ -1289,6 +1418,16 @@ class RecruitmentInterviewFeedback(Base):
     strengths = Column(Text, nullable=True)
     improvements = Column(Text, nullable=True)
     created_date = Column(DateTime, server_default=func.now())
+    # Structured scorecard and evidence record (HR-HIR-006 / HR-HIR-007)
+    scores               = Column(JSON, nullable=True)           # [{criterion_key, label, weight, score, evidence}]
+    weighted_total       = Column(Numeric(6, 2), nullable=True)
+    questions            = Column(JSON, nullable=True)           # [text]
+    evidence_notes       = Column(Text, nullable=True)
+    concerns             = Column(Text, nullable=True)
+    adjustments_provided = Column(Text, nullable=True)
+    recommendation       = Column(String(20), nullable=True)     # proceed | hold | do_not_proceed
+    recommendation_reason = Column(Text, nullable=True)
+    stage                = Column(String(50), nullable=True)
 
 
 class RecruitmentOfferApproval(Base):
@@ -1361,6 +1500,15 @@ class TravelExpense(Base):
     submitted_at    = Column(DateTime, server_default=func.now())
     approved_at     = Column(DateTime, nullable=True)
     reimbursed_at  = Column(DateTime, nullable=True)
+    # Prompt 3 decision evidence (HR-CMP-024). Approvers are never the claimant; above the org threshold two approvers decide.
+    approved_amount = Column(Numeric(12, 2), nullable=True)
+    decided_by      = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at      = Column(DateTime, nullable=True)
+    decision_reason = Column(Text, nullable=True)
+    first_approver_id = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    first_approved_at = Column(DateTime, nullable=True)
+    within_policy   = Column(Boolean, nullable=True)
+    document_id     = Column(Integer, nullable=True)
     created_at      = Column(DateTime, server_default=func.now())
 
     request       = relationship("TravelRequest", back_populates="expenses")
@@ -1487,6 +1635,14 @@ class WfHeadcount(Base):
     deleted_at         = Column(DateTime, nullable=True)
     created_at         = Column(DateTime, server_default=func.now())
     updated_at         = Column(DateTime, onupdate=func.now())
+    # Headcount authorization (HR-ORG-003)
+    status           = Column(String(20), nullable=False, default="draft", server_default="draft")  # draft|submitted|approved|rejected
+    rationale        = Column(Text, nullable=True)
+    plan_id          = Column(Integer, ForeignKey("wf_plans.id"), nullable=True)
+    requested_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_by       = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at       = Column(DateTime, nullable=True)
+    decision_comment = Column(Text, nullable=True)
 
     department = relationship("Department", lazy="joined")
 
@@ -1508,6 +1664,14 @@ class WfSuccession(Base):
     deleted_at          = Column(DateTime, nullable=True)
     created_at          = Column(DateTime, server_default=func.now())
     updated_at          = Column(DateTime, onupdate=func.now())
+    # Succession plan record (HR-ORG-015): restricted to admin, hr_admin and the plan owner
+    development_actions = Column(Text, nullable=True)
+    owner_id         = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    status           = Column(String(20), nullable=False, default="draft", server_default="draft")  # draft|submitted|approved|rejected
+    requested_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_by       = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at       = Column(DateTime, nullable=True)
+    decision_comment = Column(Text, nullable=True)
 
     employee = relationship("Employee", foreign_keys=[employee_id], lazy="joined")
     successor = relationship("Employee", foreign_keys=[successor_employee_id], lazy="joined")
@@ -1543,6 +1707,10 @@ class LearningCourse(Base):
     duration_hours = Column(Integer, nullable=True)
     cost           = Column(Numeric(10, 2), nullable=True)
     status         = Column(String(20), default="active")
+    is_mandatory   = Column(Boolean, nullable=False, default=False, server_default="0")
+    mandatory_audience = Column(JSON, nullable=True)            # {"type": "all"|"departments"|..., "ids": [...]} (policy audience rules)
+    renewal_months = Column(Integer, nullable=True)             # completion stays valid this long (None: never expires)
+    version        = Column(String(40), nullable=True)
     created_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at     = Column(DateTime, server_default=func.now())
@@ -1565,6 +1733,8 @@ class LearningEnrollment(Base):
     completed_at = Column(DateTime, nullable=True)
     score        = Column(Integer, nullable=True)
     notes        = Column(Text, nullable=True)
+    expires_on   = Column(Date, nullable=True)                  # completion of a course with renewal_months
+    document_id  = Column(Integer, nullable=True)               # HR-PRF-018
     created_at   = Column(DateTime, server_default=func.now())
     updated_at   = Column(DateTime, onupdate=func.now())
 
@@ -1606,6 +1776,11 @@ class LearningCertification(Base):
     issue_date            = Column(Date, nullable=False)
     expiry_date           = Column(Date, nullable=True)
     credential_url        = Column(String(500), nullable=True)
+    certificate_number    = Column(String(120), nullable=True)   # printed masked (last 4) in records
+    renewal_requirements  = Column(Text, nullable=True)
+    renewal_history       = Column(JSON, nullable=True)          # [{renewed_on, document_id}]
+    reminders_sent        = Column(JSON, nullable=True)          # [days_before, ...] already sent for the current expiry
+    document_id           = Column(Integer, nullable=True)       # HR-PRF-020 (latest)
     status                = Column(String(20), default="active")
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_by            = Column(Integer, ForeignKey("employees.id"), nullable=True)
@@ -1816,6 +1991,14 @@ class EmployeeLifecycle(Base):
     status          = Column(String(20), default="pending", nullable=False)
     documents       = Column(JSON, nullable=True)
     notes           = Column(Text, nullable=True)
+    # Prompt 4: approval (approver ≠ initiator) and completion are separate; documents never change HR state.
+    approved_at     = Column(DateTime, nullable=True)
+    decision_comment = Column(Text, nullable=True)
+    hr_approved_by  = Column(Integer, ForeignKey("employees.id"), nullable=True)   # second approval (internal transfers)
+    hr_approved_at  = Column(DateTime, nullable=True)
+    completed_by    = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    completed_at    = Column(DateTime, nullable=True)
+    linked_salary_revision_id = Column(Integer, ForeignKey("salary_revisions.id"), nullable=True)
     created_at      = Column(DateTime, server_default=func.now())
     updated_at      = Column(DateTime, onupdate=func.now())
 
@@ -1896,6 +2079,18 @@ class Designation(Base):
     # the two tables makes Employee.designation ambiguous for SQLAlchemy.
     created_by      = Column(Integer, nullable=True)
     created_at      = Column(DateTime, default=datetime.utcnow)
+    # Position creation and approval (HR-ORG-004), used when the organization requires approval
+    approval_status  = Column(String(20), nullable=True)         # None (no approval required) | pending | approved | rejected
+    position_reason  = Column(Text, nullable=True)
+    reports_to_designation_id = Column(Integer, ForeignKey("designations.id"), nullable=True)
+    pay_grade_id     = Column(Integer, ForeignKey("pay_grades.id"), nullable=True)
+    employment_type  = Column(String(30), nullable=True)
+    location         = Column(String(200), nullable=True)
+    job_description_id = Column(Integer, ForeignKey("job_descriptions.id"), nullable=True)
+    requested_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_by       = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at       = Column(DateTime, nullable=True)
+    decision_comment = Column(Text, nullable=True)
     updated_at      = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 
     organization    = relationship("Organization")
@@ -1956,6 +2151,9 @@ class HrDocument(Base):
     expiry_date     = Column(Date, nullable=True)
     tags            = Column(JSON, nullable=True)           # list[str] for free-form tags
     is_deleted      = Column(Boolean, default=False, nullable=False, index=True)
+    # Prompt 4: uploads made before the template engine stay readable as legacy files; canonical_id is for reporting only.
+    is_legacy       = Column(Boolean, nullable=False, default=False, server_default="0")
+    canonical_id    = Column(String(20), nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at      = Column(DateTime, server_default=func.now(), nullable=False)
     updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=False)
@@ -2144,3 +2342,209 @@ _Index("ix_employee_benefits_organization_id", EmployeeBenefit.organization_id)
 _Index("ix_asset_requests_employee_id", AssetRequest.employee_id)
 _Index("ix_onboarding_new_hires_employee_id", OnboardingNewHire.employee_id)
 _Index("ix_onboarding_preboarding_tasks_employee_id", OnboardingPreboardingTask.employee_id)
+
+
+
+class JobDescription(Base):
+    """Structured job description (HR-ORG-005). Requisitions and designations link to an APPROVED version."""
+    __tablename__ = "job_descriptions"
+
+    id                     = Column(Integer, primary_key=True, index=True)
+    organization_id        = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    designation_id         = Column(Integer, ForeignKey("designations.id"), nullable=True)
+    title                  = Column(String(200), nullable=False)
+    purpose                = Column(Text, nullable=True)
+    key_responsibilities   = Column(JSON, nullable=True)
+    requirements_essential = Column(JSON, nullable=True)
+    requirements_desirable = Column(JSON, nullable=True)
+    department_id          = Column(Integer, ForeignKey("departments.id"), nullable=True)
+    reporting_to_designation_id = Column(Integer, ForeignKey("designations.id"), nullable=True)
+    direct_reports_summary = Column(Text, nullable=True)
+    work_location          = Column(String(200), nullable=True)
+    work_arrangement       = Column(String(10), nullable=True)
+    pay_grade_id           = Column(Integer, ForeignKey("pay_grades.id"), nullable=True)
+    physical_requirements  = Column(Text, nullable=True)
+    version                = Column(Integer, nullable=False, default=1)
+    status                 = Column(String(20), nullable=False, default="DRAFT")    # DRAFT | PENDING | APPROVED | RETIRED
+    previous_version_id    = Column(Integer, ForeignKey("job_descriptions.id"), nullable=True)
+    created_by             = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_by             = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at             = Column(DateTime, nullable=True)
+    decision_comment       = Column(Text, nullable=True)
+    language_flags         = Column(JSON, nullable=True)          # inclusive-language check results at submission
+    created_at             = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at             = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
+
+
+class OnboardingFormSubmission(Base):
+    """Structured new-starter data (HR-ONB-001 / 003 / 017). Financial values are encrypted at rest and masked on the way out."""
+    __tablename__ = "onboarding_form_submissions"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    new_hire_id     = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True, index=True)
+    employee_id     = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)   # ESS changes after onboarding
+    canonical_id    = Column(String(20), nullable=False)
+    data            = Column(JSON, nullable=True)                # non-financial values
+    data_encrypted  = Column(Text, nullable=True)                # financial values (Fernet, purpose-keyed)
+    status          = Column(String(20), nullable=False, default="DRAFT")   # DRAFT | SUBMITTED | VERIFIED | RETURNED
+    submitted_at    = Column(DateTime, nullable=True)
+    verified_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    verified_at     = Column(DateTime, nullable=True)
+    return_reason   = Column(Text, nullable=True)
+    document_id     = Column(Integer, ForeignKey("generated_documents.id"), nullable=True)
+    created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at      = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROMPT 3 — working time requests, shift notices, compensation statements
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class OvertimeRequest(Base):
+    """Overtime asked for in advance or recorded afterwards (HR-TIM-007). The decider is never the requester or the employee."""
+    __tablename__ = "overtime_requests"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    organization_id     = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id         = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    date                = Column(Date, nullable=False)
+    start_time          = Column(String(5), nullable=False)
+    end_time            = Column(String(5), nullable=False)
+    hours               = Column(Numeric(5, 2), nullable=False)
+    reason              = Column(Text, nullable=False)
+    pre_approved        = Column(Boolean, nullable=False, default=True)     # asked before the work (False = retrospective)
+    emergency           = Column(Boolean, nullable=False, default=False)
+    status              = Column(String(20), nullable=False, default="PENDING")   # PENDING | APPROVED | REJECTED | CANCELLED
+    requested_by        = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    decided_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at          = Column(DateTime, nullable=True)
+    decision_reason     = Column(Text, nullable=True)
+    compensation_method = Column(String(20), nullable=True)               # pay | time_off | per_policy
+    attendance_record_id = Column(Integer, ForeignKey("attendance_records.id"), nullable=True)
+    document_id         = Column(Integer, nullable=True)
+    created_at          = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
+
+
+class AttendanceCorrectionRequest(Base):
+    """A request to correct a check-in/out (HR-TIM-013). Applied to attendance_records only after approval; originals kept here."""
+    __tablename__ = "attendance_correction_requests"
+
+    id                    = Column(Integer, primary_key=True, index=True)
+    organization_id       = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id           = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    attendance_record_id  = Column(Integer, ForeignKey("attendance_records.id"), nullable=True)   # NULL: a day with no record
+    date                  = Column(Date, nullable=False)
+    original_check_in     = Column(DateTime, nullable=True)
+    original_check_out    = Column(DateTime, nullable=True)
+    requested_check_in    = Column(DateTime, nullable=False)
+    requested_check_out   = Column(DateTime, nullable=False)
+    reason                = Column(String(40), nullable=False)       # forgot | system_issue | off_site | other
+    reason_detail         = Column(Text, nullable=True)
+    evidence_file         = Column(String(500), nullable=True)
+    declared_at           = Column(DateTime, nullable=True)          # "I confirm the corrected times are accurate."
+    requested_by          = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    status                = Column(String(20), nullable=False, default="PENDING")
+    decided_by            = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_at            = Column(DateTime, nullable=True)
+    decision_reason       = Column(Text, nullable=True)
+    applied_at            = Column(DateTime, nullable=True)
+    document_id           = Column(Integer, nullable=True)
+    created_at            = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at            = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
+
+
+class ShiftNotice(Base):
+    """One written shift notice to one employee: a pattern assignment (HR-TIM-003) or a change (HR-TIM-004)."""
+    __tablename__ = "shift_notices"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    organization_id     = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id         = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    kind                = Column(String(20), nullable=False)               # assignment | change
+    shift_id            = Column(Integer, ForeignKey("shifts.id"), nullable=True)
+    start_date          = Column(Date, nullable=False)
+    end_date            = Column(Date, nullable=True)
+    pattern             = Column(JSON, nullable=True)                      # [[day, start, end, hours]]
+    changes             = Column(JSON, nullable=True)                      # [[date, previous, new]]
+    location            = Column(String(200), nullable=True)
+    reason              = Column(Text, nullable=True)
+    short_notice_reason = Column(Text, nullable=True)
+    notice_days_given   = Column(Integer, nullable=True)
+    created_by          = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    notified_at         = Column(DateTime, nullable=True)
+    document_id         = Column(Integer, nullable=True)
+    created_at          = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+class CompensationStatementRequest(Base):
+    """A total reward statement asked for by the employee or produced by HR's annual run (HR-CMP-002)."""
+    __tablename__ = "compensation_statement_requests"
+
+    id              = Column(Integer, primary_key=True, index=True)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id     = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    period_label    = Column(String(40), nullable=False)
+    requested_by    = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    source          = Column(String(20), nullable=False, default="employee")   # employee | annual_run
+    document_id     = Column(Integer, nullable=True)
+    created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROMPT 4 — probation reviews and performance improvement plans
+# ═══════════════════════════════════════════════════════════════════════════════
+
+class ProbationReview(Base):
+    """One structured probation review (HR-PRF-002), usually created from the review tasks of the probation schedule."""
+    __tablename__ = "probation_reviews"
+
+    id                  = Column(Integer, primary_key=True, index=True)
+    organization_id     = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id         = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    probation_event_id  = Column(Integer, ForeignKey("employee_lifecycle.id"), nullable=True)
+    checklist_item_id   = Column(Integer, nullable=True)
+    review_number       = Column(Integer, nullable=False, default=1)
+    scheduled_date      = Column(Date, nullable=True)
+    held_on             = Column(Date, nullable=True)
+    reviewer_id         = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    objectives_progress = Column(JSON, nullable=True)     # [{objective, rating: meets|partly|not_yet, evidence}]
+    strengths           = Column(Text, nullable=True)
+    concerns            = Column(Text, nullable=True)
+    support_agreed      = Column(Text, nullable=True)
+    employee_comments   = Column(Text, nullable=True)
+    employee_commented_at = Column(DateTime, nullable=True)
+    recommendation      = Column(String(30), nullable=True)   # on_track | concerns | recommend_confirm | recommend_extend | recommend_end
+    status              = Column(String(20), nullable=False, default="SCHEDULED")   # SCHEDULED | SUBMITTED | ISSUED
+    document_id         = Column(Integer, nullable=True)
+    created_at          = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at          = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)
+
+
+class PerformanceImprovementPlan(Base):
+    """HR-PRF-013. A plan never changes employment status or pay by itself; outcomes beyond success are separate procedures."""
+    __tablename__ = "performance_improvement_plans"
+
+    id                     = Column(Integer, primary_key=True, index=True)
+    organization_id        = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
+    employee_id            = Column(Integer, ForeignKey("employees.id"), nullable=False, index=True)
+    manager_id             = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    hr_owner_id            = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    start_date             = Column(Date, nullable=False)
+    end_date               = Column(Date, nullable=False)
+    objectives             = Column(JSON, nullable=False)    # [{objective, standard, evidence_of_gap, success_measure}]
+    support                = Column(JSON, nullable=True)     # [str]
+    review_dates           = Column(JSON, nullable=True)     # [{date, with_id}]
+    adjustments_considered = Column(Text, nullable=True)
+    status                 = Column(String(30), nullable=False, default="DRAFT")
+    created_by             = Column(Integer, ForeignKey("employees.id"), nullable=False)
+    hr_approved_by         = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    hr_approved_at         = Column(DateTime, nullable=True)
+    outcomes_log           = Column(JSON, nullable=True)     # [{date, by, note}] review meeting notes
+    employee_comments      = Column(Text, nullable=True)
+    outcome                = Column(String(30), nullable=True)
+    completed_at           = Column(DateTime, nullable=True)
+    document_id            = Column(Integer, nullable=True)
+    created_at             = Column(DateTime, server_default=func.now(), nullable=False)
+    updated_at             = Column(DateTime, server_default=func.now(), onupdate=func.now(), nullable=True)

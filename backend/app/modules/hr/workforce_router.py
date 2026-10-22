@@ -169,6 +169,15 @@ def list_wf_successions(
     sort_by: str = Query("created_at"),
     sort_order: str = Query("desc"),
 ):
+    from app.modules.doc_templates import access
+    if not access.is_hr(current_user):
+        # succession plans are restricted: a non-HR user sees only the plans they own, never plans naming them
+        from app.modules.hr.models import WfSuccession
+        owned = (db.query(WfSuccession).filter(WfSuccession.organization_id == current_user.organization_id,
+                                               WfSuccession.owner_id == current_user.id, WfSuccession.deleted_at.is_(None))
+                 .order_by(WfSuccession.id.desc()).all())
+        items = [workforce_service._succession_view(s) for s in owned]
+        return {"items": items, "total": len(items), "page": 1, "per_page": max(len(items), 1), "pages": 1}
     return workforce_service.list_successions(
         db, current_user.organization_id, page, per_page,
         readiness_level, risk_level, employee_id, sort_by, sort_order,
@@ -181,7 +190,12 @@ def get_wf_succession(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return workforce_service._succession_view(workforce_service.get_succession(db, current_user.organization_id, succ_id))
+    from app.modules.doc_templates import access
+    succ = workforce_service.get_succession(db, current_user.organization_id, succ_id)
+    if not access.is_hr(current_user) and succ.owner_id != current_user.id:
+        from app.core.exceptions import NotFoundException
+        raise NotFoundException("WfSuccession", succ_id)
+    return workforce_service._succession_view(succ)
 
 
 @workforce_router.post("/succession", response_model=WfSuccessionResponse, status_code=status.HTTP_201_CREATED)

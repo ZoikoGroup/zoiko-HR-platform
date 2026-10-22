@@ -11,6 +11,10 @@ import {
   getHrEmployees,
   getDesignationSettings,
 } from "../../../service/hrService";
+import {
+  decidePositionApproval, getJobDescriptions, getPositionAuthorization, requestPositionApproval,
+} from "../../../service/workforcePlanningService";
+import GenerateDocumentButton from "../../../components/documents/GenerateDocumentButton";
 import { updateEmployee } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
 import { DEFAULT_DESIGNATION_SETTINGS, normalizeDesignationSettings, sortDesignations } from "../../../utils/designationSettings";
@@ -66,6 +70,17 @@ export default function DesignationList() {
   // The organization's Designation Settings (sort, page size, columns, compact layout, level limit, codes).
   const [settings, setSettings] = useState(DEFAULT_DESIGNATION_SETTINGS);
   const [page, setPage] = useState(1);
+  const [positionAuthorization, setPositionAuthorization] = useState(null);
+  const [positionError, setPositionError] = useState("");
+  const [positionBusy, setPositionBusy] = useState(false);
+  const [jobDescriptions, setJobDescriptions] = useState([]);
+  const [positionReason, setPositionReason] = useState("");
+  const [reportsToId, setReportsToId] = useState("");
+  const [payGradeId, setPayGradeId] = useState("");
+  const [employmentType, setEmploymentType] = useState("");
+  const [positionLocation, setPositionLocation] = useState("");
+  const [jobDescriptionId, setJobDescriptionId] = useState("");
+  const [positionComment, setPositionComment] = useState("");
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -262,6 +277,56 @@ export default function DesignationList() {
     }
   };
 
+  const openPositionAuthorization = async (item) => {
+    setPositionBusy(true); setPositionError("");
+    try {
+      const [record, jdResponse] = await Promise.all([
+        getPositionAuthorization(item.id),
+        getJobDescriptions({ designation_id: item.id }),
+      ]);
+      setPositionAuthorization({ ...record, title: item.title });
+      setJobDescriptions((jdResponse?.items || []).filter((jd) => jd.status === "APPROVED"));
+      setPositionReason(record.position_reason || "");
+      setReportsToId((record.reports_to_designation_id ?? item.reports_to_designation_id) ? String(record.reports_to_designation_id ?? item.reports_to_designation_id) : "");
+      setPayGradeId((record.pay_grade_id ?? item.pay_grade_id) ? String(record.pay_grade_id ?? item.pay_grade_id) : "");
+      setEmploymentType(record.employment_type || item.employment_type || "");
+      setPositionLocation(record.location || item.location || "");
+      setJobDescriptionId((record.job_description_id ?? item.job_description_id) ? String(record.job_description_id ?? item.job_description_id) : "");
+      setPositionComment("");
+    } catch (err) { setPositionError(err.message || "Could not load the position authorization record."); }
+    finally { setPositionBusy(false); }
+  };
+
+  const requestPosition = async () => {
+    if (!positionAuthorization || !positionReason.trim()) { setPositionError("Enter a reason for this position request."); return; }
+    setPositionBusy(true); setPositionError("");
+    try {
+      await requestPositionApproval(positionAuthorization.id, {
+        reason: positionReason.trim(),
+        reports_to_designation_id: reportsToId ? Number(reportsToId) : null,
+        pay_grade_id: payGradeId ? Number(payGradeId) : null,
+        employment_type: employmentType.trim() || null,
+        location: positionLocation.trim() || null,
+        job_description_id: jobDescriptionId ? Number(jobDescriptionId) : null,
+      });
+      await openPositionAuthorization(positionAuthorization);
+      await fetchRecords({ fresh: true });
+    } catch (err) { setPositionError(err.message || "Could not submit the position request."); }
+    finally { setPositionBusy(false); }
+  };
+
+  const decidePosition = async (approve) => {
+    if (!positionAuthorization) return;
+    if (!approve && !positionComment.trim()) { setPositionError("A comment is required when rejecting."); return; }
+    setPositionBusy(true); setPositionError("");
+    try {
+      await decidePositionApproval(positionAuthorization.id, { approve, comment: positionComment.trim() || null });
+      await openPositionAuthorization(positionAuthorization);
+      await fetchRecords({ fresh: true });
+    } catch (err) { setPositionError(err.message || "Could not save the position decision."); }
+    finally { setPositionBusy(false); }
+  };
+
   return (
     <HRPage title="Designation List" breadcrumbs={[{ label: "HR" }, { label: "Designations", href: "/zoiko-hr/designations" }, { label: "List" }]}>
       <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
@@ -403,6 +468,40 @@ export default function DesignationList() {
                 <label className="block text-sm font-medium text-gray-500">Description</label>
                 <p className="text-sm text-gray-700 bg-gray-50 p-3 rounded-lg border">{detailItem.description || "N/A"}</p>
               </div>
+            </div>
+            <div className="mb-4 rounded-xl border border-blue-100 bg-blue-50/50 p-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div><h3 className="font-semibold text-gray-900">Position authorization</h3><p className="text-xs text-gray-600">Approval is required before this designation can become active.</p></div>
+                <button type="button" disabled={positionBusy} onClick={() => openPositionAuthorization(detailItem)} className="rounded-lg border border-blue-200 bg-white px-3 py-2 text-sm font-medium text-blue-700 disabled:opacity-50">View authorization</button>
+              </div>
+              {positionError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{positionError}</p>}
+              {positionAuthorization?.id === detailItem.id && <div className="mt-4 space-y-3 border-t border-blue-100 pt-3">
+                <p className="text-sm text-gray-700">Status: <strong className="capitalize">{positionAuthorization.approval_status || "not requested"}</strong></p>
+                <dl className="grid gap-2 text-sm sm:grid-cols-2">
+                  <div><dt className="text-gray-500">Reason</dt><dd>{positionAuthorization.position_reason || "—"}</dd></div>
+                  <div><dt className="text-gray-500">Requested by</dt><dd>{positionAuthorization.requested_by || "—"}</dd></div>
+                  <div><dt className="text-gray-500">Decided by</dt><dd>{positionAuthorization.decided_by || "—"}</dd></div>
+                  <div><dt className="text-gray-500">Decision comment</dt><dd>{positionAuthorization.decision_comment || "—"}</dd></div>
+                </dl>
+                {positionAuthorization.approval_status !== "pending" && <div className="grid gap-2 sm:grid-cols-2">
+                  <label className="text-xs font-medium text-gray-600">Reason for position request<input className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" value={positionReason} onChange={(e) => setPositionReason(e.target.value)} maxLength={4000} /></label>
+                  <label className="text-xs font-medium text-gray-600">Reports to designation ID<input className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" type="number" value={reportsToId} onChange={(e) => setReportsToId(e.target.value)} /></label>
+                  <label className="text-xs font-medium text-gray-600">Pay grade ID<input className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" type="number" value={payGradeId} onChange={(e) => setPayGradeId(e.target.value)} /></label>
+                  <label className="text-xs font-medium text-gray-600">Employment type<input className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" value={employmentType} onChange={(e) => setEmploymentType(e.target.value)} maxLength={30} /></label>
+                  <label className="text-xs font-medium text-gray-600">Location<input className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" value={positionLocation} onChange={(e) => setPositionLocation(e.target.value)} maxLength={200} /></label>
+                  <label className="text-xs font-medium text-gray-600">Approved job description<select className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" value={jobDescriptionId} onChange={(e) => setJobDescriptionId(e.target.value)}><option value="">No job description linked</option>{jobDescriptions.map((jd) => <option key={jd.id} value={jd.id}>{jd.reference} · {jd.title} · v{jd.version}</option>)}</select></label>
+                  <div className="flex items-end"><button type="button" disabled={positionBusy || !positionReason.trim()} onClick={requestPosition} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium text-white disabled:opacity-50">Submit position request</button></div>
+                </div>}
+                {positionAuthorization.approval_status === "pending" && <div className="flex flex-wrap items-end gap-2">
+                  <label className="min-w-[14rem] flex-1 text-xs font-medium text-gray-600">Decision comment<textarea className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={2} value={positionComment} onChange={(e) => setPositionComment(e.target.value)} maxLength={2000} /></label>
+                  <button type="button" disabled={positionBusy} onClick={() => decidePosition(true)} className="rounded-lg bg-green-600 px-3 py-2 text-sm font-medium text-white">Approve</button>
+                  <button type="button" disabled={positionBusy || !positionComment.trim()} onClick={() => decidePosition(false)} className="rounded-lg border border-red-200 px-3 py-2 text-sm font-medium text-red-700 disabled:opacity-50">Reject</button>
+                </div>}
+                {positionAuthorization.approval_status === "approved" && <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-xs text-gray-600">Document readiness and missing fields can be checked here; issue documents from Generated documents.</span>
+                  <GenerateDocumentButton canonicalId="HR-ORG-004" subjectType="org" subjectId={positionAuthorization.id} sourceRef={`designation:${positionAuthorization.id}`} label="Check / generate position document" />
+                </div>}
+              </div>}
             </div>
             <button onClick={() => setShowDetail(false)} className="w-full py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 rounded-lg text-sm font-medium">Close Panel</button>
           </div>

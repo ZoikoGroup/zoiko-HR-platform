@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Template review required" %}
+{% set preheader = "A document template is waiting for your review." %}
+{% set badge = "Review required" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Template review required</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Review required: template {{ canonical_id }} (version {{ version }}, {{ jurisdiction }}) was submitted by {{ author_name }} and is waiting for {{ step_label }}. You cannot review a template you authored.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Template", canonical_id, first=True, mono=True) }}
+{{ ui.detail_row("Version", version) }}
+{{ ui.detail_row("Jurisdiction", jurisdiction) }}
+{% endcall %}
+{{ ui.button(action_url, "Open the template") }}
+{{ ui.signoff() }}
+{% endblock %}

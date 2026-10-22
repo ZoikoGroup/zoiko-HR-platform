@@ -9,6 +9,7 @@ import { getMyAssignedDocuments } from "../../../service/hrService";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
 import { formatDate } from "../../../utils/dateTime";
+import IssuedDocumentsSection from "../../../components/documents/IssuedDocumentsSection";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/ess" },
@@ -102,6 +103,7 @@ export default function AssignedDocuments() {
   return (
     <HRPage>
       <SubNav />
+      <IssuedDocumentsSection className="mb-6" />
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
         <div className="flex items-center justify-between mb-6">
           <div>

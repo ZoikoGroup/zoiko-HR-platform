@@ -146,7 +146,8 @@ def tenant_fk_pairs(metadata: MetaData) -> list[dict]:
                 continue
             # who CREATED or DECIDED a record may be a platform account (no organization): those references are bookkeeping, not
             # the record's own data, and a composite key would refuse them
-            if parent.name == "employees" and (fk.parent.name.endswith("_by") or fk.parent.name in ("assigned_to", "assigned_to_id", "approver_id")):
+            if parent.name == "employees" and (fk.parent.name.endswith("_by")
+                                               or fk.parent.name in ("assigned_to", "assigned_to_id", "approver_id", "actor_id")):
                 continue
             pairs.append({"child": t.name, "column": fk.parent.name, "parent": parent.name, "ondelete": (fk.ondelete or "").upper() or None})
     return sorted(pairs, key=lambda p: (p["child"], p["column"]))

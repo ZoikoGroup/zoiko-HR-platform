@@ -1106,7 +1106,10 @@ def log_billing_audit(
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        actor_id=None if isinstance(actor, str) else getattr(actor, "id", None),
+        # Only a member of this organization is stored by id: a platform account (Super Admin, no organization) would break
+        # the tenant key on (actor_id, organization_id) still present on older databases; its email below records who acted.
+        actor_id=(None if isinstance(actor, str) or getattr(actor, "organization_id", None) != organization_id
+                  else getattr(actor, "id", None)),
         # Callers that only have an identity string (webhooks, services handed an
         # email) must still be attributed — getattr(str, "email") is None.
         actor_email=actor if isinstance(actor, str) else getattr(actor, "email", None),

@@ -92,3 +92,8 @@ def test_map_is_nonempty_and_keyed_by_method_path_tuple():
     for (method, path), _ in rem.ROUTE_ENTITLEMENT_MAP.items():
         assert isinstance(method, str) and method == method.upper()
         assert isinstance(path, str) and path.startswith("/")
+
+
+def test_onboarding_manager_task_routes_use_onboarding_entitlement():
+    assert rem.ROUTE_ENTITLEMENT_MAP[("GET", "/hr/onboarding/my-tasks")] == "hr.onboarding.core"
+    assert rem.ROUTE_ENTITLEMENT_MAP[("PUT", "/hr/onboarding/my-tasks/{item_id}")] == "hr.onboarding.core"

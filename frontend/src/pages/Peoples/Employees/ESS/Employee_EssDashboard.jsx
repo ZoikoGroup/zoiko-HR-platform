@@ -5,6 +5,7 @@ import {
 } from "lucide-react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
+import DocumentActionsWidget from "../../../../components/documents/DocumentActionsWidget";
 import {
   getMyProfile, getLeaveBalances, getLeaveRequests, getAttendanceRecords, getEss, getHolidays, getTravel, getTravelExpenses,
 } from "../../../../service/employee";
@@ -146,6 +147,7 @@ export default function EssDashboard() {
 
   return shell(
     <div className="space-y-8">
+      <DocumentActionsWidget />
       {partial && (
         <div role="status" className="px-4 py-2.5 rounded-xl bg-amber-50 dark:bg-amber-900/30 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-medium flex items-center justify-between gap-3">
           <span>Some parts of this page could not be loaded, so a few numbers may be missing.</span>

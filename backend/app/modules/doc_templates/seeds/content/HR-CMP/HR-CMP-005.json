@@ -1,0 +1,78 @@
+{
+  "canonical_id": "HR-CMP-005",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "revision.type_label",
+      "revision.summary_rows",
+      "revision.previous_amount",
+      "revision.new_amount",
+      "revision.currency",
+      "revision.effective_date"
+    ],
+    "optional": [
+      "revision.percentage_change",
+      "revision.reason_statement"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Your salary increase",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, we are pleased to confirm an increase to your salary following {{revision.type_label}}."
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Previous salary",
+        "New salary",
+        "Change",
+        "Effective from"
+      ],
+      "rows_from": "revision.summary_rows"
+    },
+    {
+      "type": "paragraph",
+      "text": "{{revision.reason_statement}}",
+      "include_when": {
+        "field": "revision.reason_statement",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your new salary will be reflected in the first pay run after the effective date. All other terms of your employment remain unchanged."
+    },
+    {
+      "type": "paragraph",
+      "text": "Thank you for your contribution."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

@@ -2,6 +2,8 @@ import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { getEmployeeById } from "../../../../service/employee";
 import HRPage from "../../../../components/HRPage";
+import EmployeeJurisdictionCard from "../../../../components/employee/EmployeeJurisdictionCard";
+import { useAuth } from "../../../../context/AuthContext";
 import { ArrowLeft, Mail, Phone, Calendar, MapPin, Building, Briefcase, DollarSign, User, Award } from "lucide-react";
 
 const STATUS_STYLES = {
@@ -76,6 +78,8 @@ export default function EmployeeProfile() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState("overview");
+  const { user } = useAuth();
+  const isHr = ["admin", "hr_admin"].includes(user?.role);
 
   useEffect(() => {
     if (!id) return;
@@ -319,6 +323,8 @@ export default function EmployeeProfile() {
                     <InfoRow label="Confirmation Date" value={formatDate(confirmationDate)} />
                     <InfoRow label="Created At" value={formatDate(employee?.created_at || employee?.createdAt)} />
                   </SectionCard>
+
+                  {isHr && <EmployeeJurisdictionCard employeeId={id} />}
 
                   <SectionCard title="Reporting" icon={User}>
                     <InfoRow label="Reporting Manager" value={managerName || (reportingManagerId ? `ID: ${reportingManagerId}` : null)} />

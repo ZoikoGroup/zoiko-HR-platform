@@ -33,6 +33,9 @@ CONTROL_PLANE_PREFIXES = (
     "/super-admin/workflow",
     "/super-admin/demo-requests",
     "/super-admin/pricing-requests",
+    # Template engine emergency controls: platform packs/variants (Zoiko's own content), suspension, and per-country counts of
+    # organizations. No tenant document, variant or person is read (app/modules/doc_templates/golive.py).
+    "/super-admin/doc-templates",
     "/super-admin/bootstrap",
     # Support access. The platform request/approval API (control plane) only touches grant metadata. The /support data
     # path is control-plane REACHABLE so a platform bearer is not refused before the grant is examined, but every

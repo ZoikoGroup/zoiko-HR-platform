@@ -1,3 +1,4 @@
+import { organizationIdOf } from "../../service/api";
 import React, { useState, useEffect, useCallback } from "react";
 import { BillingSkeleton } from "../../components/OrgAdminSkeleton";
 import { useNavigate, useSearchParams } from "react-router-dom";
@@ -254,7 +255,7 @@ export default function OrgAdminBillingPlanPage() {
   const hasPlan = React.useRef(false);
   // Coming back from Stripe the page must settle the payment BEFORE it reads the plan; reading both at once let the
   // older (pre-payment) answer arrive last and put the old plan back on screen.
-  const returningFromStripe = React.useRef(!!searchParams.get("session_id") && !!user?.organization_id);
+  const returningFromStripe = React.useRef(!!searchParams.get("session_id") && !!organizationIdOf(user));
 
   const role = user?.role;
   const isOwner = OWNER_ROLES.includes(role);
@@ -298,7 +299,7 @@ export default function OrgAdminBillingPlanPage() {
   // no-op — this just makes the UI correct even when the webhook never does.
   const confirmSession = useCallback(
     (sessionId, attempt) => {
-      const targetOrgId = sub?.organization_id || user?.organization_id;
+      const targetOrgId = sub?.organization_id || organizationIdOf(user);
       if (!targetOrgId) {
         // Subscription/identity still loading. Leave the ref unset so this
         // effect runs again once they arrive — dropping it here would abandon
@@ -369,7 +370,7 @@ export default function OrgAdminBillingPlanPage() {
     }
 
     if (sessionId && confirmingRef.current !== sessionId) {
-      const targetOrgId = sub?.organization_id || user?.organization_id;
+      const targetOrgId = sub?.organization_id || organizationIdOf(user);
       if (targetOrgId) {
         // Only consume the session id once it can actually be confirmed.
         // Stripping it while the subscription is still loading would abandon
@@ -454,7 +455,7 @@ export default function OrgAdminBillingPlanPage() {
       notify("Payment changes require an organization billing authority.", "error");
       return;
     }
-    const targetOrgId = sub?.organization_id || user?.organization_id;
+    const targetOrgId = sub?.organization_id || organizationIdOf(user);
     if (!targetOrgId) {
       notify("Organization context is missing for checkout.", "error");
       return;

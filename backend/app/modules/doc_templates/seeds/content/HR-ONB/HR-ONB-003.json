@@ -1,0 +1,162 @@
+{
+  "canonical_id": "HR-ONB-003",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name"
+    ],
+    "optional": []
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Emergency Contacts",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Please give details of at least one person we can contact in an emergency. Make sure they agree to you sharing their details with us."
+    },
+    {
+      "type": "form_fields",
+      "id": "contact_fields",
+      "fields": [
+        {
+          "key": "contact1_name",
+          "label": "Contact 1: full name",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact1_relationship",
+          "label": "Contact 1: relationship",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact1_phone",
+          "label": "Contact 1: phone",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact1_alt_phone",
+          "label": "Contact 1: alternative phone",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact1_email",
+          "label": "Contact 1: email",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact1_address",
+          "label": "Contact 1: address",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact2_name",
+          "label": "Contact 2: full name",
+          "type": "text",
+          "required": false,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact2_relationship",
+          "label": "Contact 2: relationship",
+          "type": "text",
+          "required": false,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact2_phone",
+          "label": "Contact 2: phone",
+          "type": "text",
+          "required": false,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact2_alt_phone",
+          "label": "Contact 2: alternative phone",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact2_email",
+          "label": "Contact 2: email",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact2_address",
+          "label": "Contact 2: address",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact3_name",
+          "label": "Contact 3: full name",
+          "type": "text",
+          "required": false,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact3_relationship",
+          "label": "Contact 3: relationship",
+          "type": "text",
+          "required": false,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact3_phone",
+          "label": "Contact 3: phone",
+          "type": "text",
+          "required": false,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact3_alt_phone",
+          "label": "Contact 3: alternative phone",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact3_email",
+          "label": "Contact 3: email",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "contact3_address",
+          "label": "Contact 3: address",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        }
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm that the people listed have agreed to be my emergency contacts and that I will keep these details up to date.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

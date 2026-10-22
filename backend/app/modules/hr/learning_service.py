@@ -202,6 +202,12 @@ def update_enrollment(db: Session, enrollment_id: int, data: EnrollmentUpdate, o
         setattr(enrollment, field, value)
     db.commit()
     db.refresh(enrollment)
+    # a completed mandatory course gets its completion record (HR-PRF-018); never fails the update
+    try:
+        from app.modules.hr import learning_documents
+        learning_documents.on_enrollment_updated(db, enrollment)
+    except Exception:
+        db.rollback()
     return enrollment
 
 
@@ -315,6 +321,11 @@ def create_certification(db: Session, data: CertificationCreate, created_by: int
     db.add(cert)
     db.commit()
     db.refresh(cert)
+    try:
+        from app.modules.hr import learning_documents
+        learning_documents.on_certification_saved(db, cert)                    # HR-PRF-020
+    except Exception:
+        db.rollback()
     return cert
 
 
@@ -337,10 +348,17 @@ def get_certification_by_id(db: Session, cert_id: int) -> LearningCertification:
 def update_certification(db: Session, cert_id: int, data: CertificationUpdate, organization_id: Optional[int] = None) -> LearningCertification:
     cert = get_certification_by_id(db, cert_id)
     update_data = data.model_dump(exclude_unset=True)
+    previous_expiry = cert.expiry_date
     for field, value in update_data.items():
         setattr(cert, field, value)
     db.commit()
     db.refresh(cert)
+    if previous_expiry and cert.expiry_date and cert.expiry_date > previous_expiry:
+        try:
+            from app.modules.hr import learning_documents
+            learning_documents.on_certification_saved(db, cert, renewed_from=previous_expiry)     # renewal record
+        except Exception:
+            db.rollback()
     return cert
 
 

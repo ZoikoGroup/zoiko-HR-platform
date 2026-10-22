@@ -3,6 +3,7 @@ import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates } from "../../../service/hrService";
 import { humanizeValidationError } from "../../../utils/validationMessage";
+import FinanceViewersSetting from "./FinanceViewersSetting";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -17,7 +18,7 @@ const NAV_ITEMS = [
 
 function OnboardingSubNav() {
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
+    <div className="hidden">
       {NAV_ITEMS.map((item) => (
         <NavLink
           key={item.href}
@@ -353,6 +354,7 @@ export default function OnboardingSettings() {
           {saving ? "Saving..." : "Save Settings"}
         </button>
       </div>
+      <FinanceViewersSetting />
     </div>
   );
 }

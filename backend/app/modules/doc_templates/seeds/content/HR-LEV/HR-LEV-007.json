@@ -1,0 +1,141 @@
+{
+  "canonical_id": "HR-LEV-007",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "leave.confirmed_start",
+      "leave.expected_return",
+      "leave.confirmed_by",
+      "leave.confirmed_at"
+    ],
+    "optional": [
+      "leave.pay_summary"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "family_leave_notice_requirements",
+      "family_leave_entitlements"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Family Leave Request",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name"
+      ],
+      "labels": {
+        "worker.full_name": "Employee"
+      }
+    },
+    {
+      "type": "form_fields",
+      "id": "family_leave_fields",
+      "fields": [
+        {
+          "key": "parental_type",
+          "label": "Type of leave",
+          "type": "select",
+          "required": true,
+          "options": [
+            "maternity",
+            "paternity_partner",
+            "adoption",
+            "shared_parental"
+          ]
+        },
+        {
+          "key": "expected_date",
+          "label": "Expected week of childbirth or placement",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "start_date",
+          "label": "Proposed start",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "end_date",
+          "label": "Proposed end or return",
+          "type": "date"
+        },
+        {
+          "key": "pay_option",
+          "label": "Pay option (where offered)",
+          "type": "text"
+        },
+        {
+          "key": "kit_days_interest",
+          "label": "Interested in keep-in-touch days",
+          "type": "checkbox"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Evidence: we may ask for the evidence the law permits (for example a certificate of expected birth or matching certificate). Please do not upload more medical information than requested.",
+      "id": "privacy_family_evidence",
+      "style": "notice"
+    },
+    {
+      "type": "clause",
+      "key": "family_leave_notice_requirements",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "HR confirmation",
+      "level": 2
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "leave.confirmed_start",
+        "leave.expected_return",
+        "leave.pay_summary",
+        "leave.confirmed_by",
+        "leave.confirmed_at"
+      ],
+      "labels": {
+        "leave.confirmed_start": "Confirmed start",
+        "leave.expected_return": "Expected return",
+        "leave.pay_summary": "Pay summary",
+        "leave.confirmed_by": "Confirmed by",
+        "leave.confirmed_at": "Date"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "family_leave_entitlements",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "You will not be treated unfavourably for requesting or taking family leave.",
+      "id": "rights_family"
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this document.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

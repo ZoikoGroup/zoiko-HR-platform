@@ -1,0 +1,13 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Documents to action" %}
+{% set preheader = "You have " ~ pending_count ~ " document(s) waiting in Zoiko HR." %}
+{% set badge = "Action needed" %}
+{% set badge_tone = "warning" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Documents to action</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Action needed: you have {{ pending_count }} document(s) waiting for your acknowledgement, signature or input in Zoiko HR. This e-mail does not include their contents.</p>
+{{ ui.button(action_url, "Open documents to action") }}
+{{ ui.signoff() }}
+{% endblock %}

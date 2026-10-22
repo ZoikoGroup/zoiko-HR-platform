@@ -14,7 +14,10 @@ const svc = {};
 function register(t) {
   if (mocked.has(t)) return;
   mocked.add(t);
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
+  t.mock.module("react-router-dom", { exports: {
+    NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
+    Link: ({ children, to }) => React.createElement("a", { href: to }, children),
+  } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getDesignationSettings: (...a) => svc.get(...a), saveDesignationSettings: (...a) => svc.save(...a),

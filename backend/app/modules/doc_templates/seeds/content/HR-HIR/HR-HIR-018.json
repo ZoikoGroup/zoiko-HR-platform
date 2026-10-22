@@ -1,0 +1,95 @@
+{
+  "canonical_id": "HR-HIR-018",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "CANDIDATE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "candidate.first_name",
+      "employment.position_title",
+      "offer.issue_date",
+      "offer.reference",
+      "offer.withdrawal_reason_category",
+      "offer.withdrawal_reason_statement",
+      "employer.hr_contact_email"
+    ],
+    "optional": [
+      "offer.condition_not_met",
+      "document.date",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "offer_withdrawal_rights"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Withdrawal of offer of employment",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{candidate.first_name}}, we are writing about our offer of employment for the position of {{employment.position_title}} dated {{offer.issue_date}} (reference {{offer.reference}})."
+    },
+    {
+      "type": "paragraph",
+      "text": "Our offer was conditional on {{offer.condition_not_met}}. We have not been able to confirm that this condition has been met. {{offer.withdrawal_reason_statement}}",
+      "include_when": {
+        "field": "offer.withdrawal_reason_category",
+        "op": "eq",
+        "value": "condition_not_met"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "The role has been cancelled and we are therefore withdrawing our offer. {{offer.withdrawal_reason_statement}}",
+      "include_when": {
+        "field": "offer.withdrawal_reason_category",
+        "op": "eq",
+        "value": "role_cancelled"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "{{offer.withdrawal_reason_statement}}",
+      "include_when": {
+        "field": "offer.withdrawal_reason_category",
+        "op": "not_in",
+        "value": [
+          "condition_not_met",
+          "role_cancelled"
+        ]
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "We are sorry to give you this news. If you believe we have made a mistake, please contact {{employer.hr_contact_email}} within 10 days.",
+      "id": "rights_withdrawal_contact"
+    },
+    {
+      "type": "clause",
+      "key": "offer_withdrawal_rights",
+      "required": true
+    },
+    {
+      "type": "signature_block",
+      "parties": [
+        "employer"
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

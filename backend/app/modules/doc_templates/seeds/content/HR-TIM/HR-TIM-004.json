@@ -1,0 +1,78 @@
+{
+  "canonical_id": "HR-TIM-004",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "shift.changes",
+      "shift.change_effective_date",
+      "shift.change_reason"
+    ],
+    "optional": [
+      "shift.short_notice_reason",
+      "shift.is_short_notice"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "shift_change_notice"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Change to your shift",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, your shifts are changing as shown below."
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Date",
+        "Previous shift",
+        "New shift"
+      ],
+      "rows_from": "shift.changes"
+    },
+    {
+      "type": "paragraph",
+      "text": "This change takes effect from {{shift.change_effective_date}}. Reason: {{shift.change_reason}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "We are giving you less notice than usual because {{shift.short_notice_reason}}.",
+      "include_when": {
+        "field": "shift.is_short_notice",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "clause",
+      "key": "shift_change_notice",
+      "required": false
+    },
+    {
+      "type": "paragraph",
+      "text": "If you cannot work the new shift, tell your manager as soon as possible."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this shift change notice.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

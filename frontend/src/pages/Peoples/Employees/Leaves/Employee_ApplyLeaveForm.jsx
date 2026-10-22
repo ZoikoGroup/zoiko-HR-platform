@@ -28,19 +28,20 @@ export default function ApplyLeaveForm() {
     "Work From Home",
   ];
 
-  const [formData, setFormData] = useState({
-    leave_type: '',
-    start_date: '',
-    end_date: '',
-    reason: ''
-  });
+  const EMPTY = { leave_type: '', start_date: '', end_date: '', reason: '', handover_note: '',
+    parental_type: '', expected_date: '', pay_option: '', kit_days_interest: false, relationship: '', travel_needed: false, message: '' };
+  const [formData, setFormData] = useState(EMPTY);
+  // A sickness or bereavement reason is optional: you never have to explain a diagnosis or a loss to apply.
+  const isSick = /sick/i.test(formData.leave_type);
+  const isBereavement = /bereavement/i.test(formData.leave_type);
+  const isFamily = /maternity|paternity/i.test(formData.leave_type);
   const [submitting, setSubmitting] = useState(false);
   const [success, setSuccess] = useState(null);
   const [errors, setErrors] = useState({});
 
   const handleChange = (e) => {
-    const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    const { name, value, type, checked } = e.target;
+    setFormData((prev) => ({ ...prev, [name]: type === "checkbox" ? checked : value }));
     // Drop the stale message for the field being edited (and any old API error),
     // so a corrected value never sits under its own red error.
     setErrors((prev) => {
@@ -71,7 +72,9 @@ export default function ApplyLeaveForm() {
     if (formData.start_date && formData.end_date && new Date(formData.end_date) < new Date(formData.start_date)) {
       e.end_date = "End date must be after start date";
     }
-    if (formData.reason.trim().length < 10) e.reason = "Provide at least 10 characters";
+    if (!isSick && !isBereavement && formData.reason.trim().length < 10) e.reason = "Provide at least 10 characters";
+    if (isFamily && !formData.parental_type) e.parental_type = "Choose the type of family leave";
+    if (isFamily && !formData.expected_date) e.expected_date = "Give the expected week of birth or placement";
     return e;
   };
 
@@ -83,9 +86,16 @@ export default function ApplyLeaveForm() {
     setErrors({});
     setSuccess(null);
     try {
-      await createLeaveRequest(formData);
+      const details = isFamily
+        ? { parental_type: formData.parental_type, expected_date: formData.expected_date, pay_option: formData.pay_option || undefined,
+            kit_days_interest: formData.kit_days_interest }
+        : isBereavement
+          ? { relationship: formData.relationship || undefined, travel_needed: formData.travel_needed, message: formData.message || undefined }
+          : undefined;
+      await createLeaveRequest({ leave_type: formData.leave_type, start_date: formData.start_date, end_date: formData.end_date,
+        reason: formData.reason.trim() || null, handover_note: formData.handover_note.trim() || null, details });
       setSuccess("Leave application submitted successfully! It is under process.");
-      setFormData({ leave_type: '', start_date: '', end_date: '', reason: '' });
+      setFormData(EMPTY);
     } catch (err) {
       setErrors({ _api: err?.message || "Failed to submit leave request" });
     } finally {
@@ -211,11 +221,53 @@ export default function ApplyLeaveForm() {
                 </div>
               </div>
 
+              {isFamily && (
+                <fieldset className="space-y-4 rounded-xl border border-slate-800 p-4">
+                  <legend className="px-1 text-xs font-bold text-slate-300 uppercase tracking-wider">Family leave</legend>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className="space-y-1 block"><span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Type of leave *</span>
+                      <select name="parental_type" value={formData.parental_type} onChange={handleChange} className="w-full bg-slate-950/80 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 [color-scheme:dark]">
+                        <option value="">Choose…</option><option value="maternity">Maternity</option><option value="paternity_partner">Paternity / partner</option>
+                        <option value="adoption">Adoption</option><option value="shared_parental">Shared / parental</option>
+                      </select>
+                      {errors.parental_type && <p className="text-xs text-red-400">{errors.parental_type}</p>}</label>
+                    <label className="space-y-1 block"><span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Expected week of birth or placement *</span>
+                      <input type="date" name="expected_date" value={formData.expected_date} onChange={handleChange} className="w-full bg-slate-950/80 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 [color-scheme:dark]" />
+                      {errors.expected_date && <p className="text-xs text-red-400">{errors.expected_date}</p>}</label>
+                    <label className="space-y-1 block"><span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Pay option (where offered)</span>
+                      <input name="pay_option" value={formData.pay_option} onChange={handleChange} className="w-full bg-slate-950/80 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 [color-scheme:dark]" /></label>
+                    <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" name="kit_days_interest" checked={formData.kit_days_interest} onChange={handleChange} className="accent-orange-500" />
+                      I am interested in keep-in-touch days</label>
+                  </div>
+                  <p className="text-xs text-slate-400">We may ask for the evidence the law allows, such as a certificate of expected birth. Please do not share more medical information than we ask for. HR will confirm your dates and pay.</p>
+                </fieldset>
+              )}
+              {isBereavement && (
+                <fieldset className="space-y-4 rounded-xl border border-slate-800 p-4">
+                  <legend className="px-1 text-xs font-bold text-slate-300 uppercase tracking-wider">Bereavement leave</legend>
+                  <p className="text-sm text-slate-300">We are very sorry for your loss. You do not have to tell us anything you do not want to share.</p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <label className="space-y-1 block"><span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Relationship (optional)</span>
+                      <select name="relationship" value={formData.relationship} onChange={handleChange} className="w-full bg-slate-950/80 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 [color-scheme:dark]">
+                        <option value="">Not given</option>{["partner", "child", "parent", "sibling", "grandparent", "other family member", "other", "prefer not to say"].map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select></label>
+                    <label className="flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" name="travel_needed" checked={formData.travel_needed} onChange={handleChange} className="accent-orange-500" />
+                      I need to travel</label>
+                    <label className="space-y-1 block sm:col-span-2"><span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Message to your manager (optional)</span>
+                      <textarea name="message" rows={2} value={formData.message} onChange={handleChange} className="w-full bg-slate-950/80 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 [color-scheme:dark]" /></label>
+                  </div>
+                </fieldset>
+              )}
+
+              {/* HANDOVER (seen by your manager and HR only) */}
+              <label className="space-y-1 block"><span className="text-xs font-bold text-slate-300 uppercase tracking-wider">Cover and handover (optional, seen by your manager and HR)</span>
+                <textarea name="handover_note" rows={2} value={formData.handover_note} onChange={handleChange} className="w-full bg-slate-950/80 border border-slate-800 text-white rounded-xl px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:border-orange-500 focus:ring-orange-500 [color-scheme:dark]" /></label>
+
               {/* REASON TEXTAREA */}
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-bold text-slate-300 uppercase tracking-wider">
                   <UserCheck className="w-4 h-4 text-orange-500" />
-                  Reason for Leave
+                  Reason for Leave {isSick || isBereavement ? <span className="normal-case font-normal text-slate-400">(optional, you do not need to give a diagnosis)</span> : null}
                 </label>
                 <textarea
                   name="reason"

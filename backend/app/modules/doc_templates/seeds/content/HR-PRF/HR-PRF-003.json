@@ -1,0 +1,115 @@
+{
+  "canonical_id": "HR-PRF-003",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "probation.review_date",
+      "probation.new_end_date",
+      "probation.extension_reason",
+      "employer.hr_contact_name"
+    ],
+    "optional": [
+      "probation.extension_objectives",
+      "probation.support_agreed",
+      "probation.next_review_dates"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "probation_extension_rules"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Extension of your probation period",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, following your probation review on {{probation.review_date}}, we have decided to extend your probation period until {{probation.new_end_date}}."
+    },
+    {
+      "type": "heading",
+      "text": "Why we are extending it",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "{{probation.extension_reason}}"
+    },
+    {
+      "type": "heading",
+      "text": "What we need to see",
+      "level": 2,
+      "include_when": {
+        "field": "probation.extension_objectives",
+        "op": "present"
+      }
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "probation.extension_objectives",
+      "include_when": {
+        "field": "probation.extension_objectives",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Support",
+      "level": 2,
+      "include_when": {
+        "field": "probation.support_agreed",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "{{probation.support_agreed}}",
+      "include_when": {
+        "field": "probation.support_agreed",
+        "op": "present"
+      }
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "probation.next_review_dates"
+      ],
+      "labels": {
+        "probation.next_review_dates": "Next review dates"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "probation_extension_rules",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or disagree, please speak to {{employer.hr_contact_name}}."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

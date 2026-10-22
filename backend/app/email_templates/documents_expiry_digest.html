@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Documents expiring soon" %}
+{% set preheader = "Weekly summary of documents and templates nearing expiry." %}
+{% set badge = "Weekly digest" %}
+{% set badge_tone = "neutral" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Documents expiring soon</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Here is your weekly digest of items that expire within {{ window_days }} days and still need a decision.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Generated documents", documents_count, first=True) }}
+{{ ui.detail_row("Uploaded documents", uploads_count) }}
+{{ ui.detail_row("Templates", templates_count) }}
+{{ ui.detail_row("Overdue", overdue_count) }}
+{% endcall %}
+{{ ui.button(action_url, "Review expiring items") }}
+{{ ui.signoff() }}
+{% endblock %}

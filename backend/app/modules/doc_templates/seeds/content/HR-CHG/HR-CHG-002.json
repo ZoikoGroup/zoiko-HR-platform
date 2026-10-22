@@ -1,0 +1,75 @@
+{
+  "canonical_id": "HR-CHG-002",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "change.from_summary",
+      "change.to_summary",
+      "change.decision_label",
+      "change.decided_by",
+      "change.decided_at"
+    ],
+    "optional": [
+      "change.effective_date",
+      "change.hr_approved_by",
+      "change.decision_reason",
+      "change.is_refused"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Internal Transfer Decision",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "change.from_summary",
+        "change.to_summary",
+        "change.effective_date",
+        "change.decision_label",
+        "change.decided_by",
+        "change.hr_approved_by",
+        "change.decided_at"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "change.from_summary": "From",
+        "change.to_summary": "To",
+        "change.decision_label": "Decision",
+        "change.decided_by": "Decided by (receiving manager)",
+        "change.hr_approved_by": "HR approval by",
+        "change.decided_at": "Date"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Reason: {{change.decision_reason}}",
+      "include_when": {
+        "field": "change.is_refused",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Approved transfers are completed in the employee record on the effective date. A transfer letter (HR-CHG-007) is issued to the employee.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

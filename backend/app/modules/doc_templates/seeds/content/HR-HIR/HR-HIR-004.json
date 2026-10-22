@@ -1,0 +1,149 @@
+{
+  "canonical_id": "HR-HIR-004",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "CANDIDATE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "candidate.first_name",
+      "employer.legal_name",
+      "employer.registered_address",
+      "recruitment.privacy_contact_email",
+      "recruitment.retention_months"
+    ],
+    "optional": [
+      "recruitment.uses_cv_parsing",
+      "candidate.full_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "privacy_lawful_basis_recruitment"
+    ],
+    "optional": [
+      "privacy_international_transfers"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "How we use your personal information when you apply for a job",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{candidate.first_name}}, thank you for your interest in working with {{employer.legal_name}}. This notice explains what personal information we collect during recruitment, why we use it, and your rights.",
+      "id": "privacy_intro"
+    },
+    {
+      "type": "heading",
+      "text": "Who is responsible",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "{{employer.legal_name}}, {{employer.registered_address}}, is responsible for your information. Contact: {{recruitment.privacy_contact_email}}.",
+      "id": "privacy_controller"
+    },
+    {
+      "type": "heading",
+      "text": "What we collect",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Identity and contact details.",
+        "Your CV, work history, education and qualifications.",
+        "Information you give us in applications, assessments and interviews.",
+        "Interview notes and evaluations.",
+        "References and verification results, where you are told about them in advance.",
+        "Information needed to make an offer, such as expected pay and availability."
+      ],
+      "id": "privacy_collect"
+    },
+    {
+      "type": "heading",
+      "text": "Why we use it",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "To assess your suitability for the role.",
+        "To communicate with you.",
+        "To make and manage an offer.",
+        "To meet legal obligations.",
+        "To keep a record of our recruitment decisions."
+      ],
+      "id": "privacy_purposes"
+    },
+    {
+      "type": "heading",
+      "text": "Legal basis",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "privacy_lawful_basis_recruitment",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "We use automated tools to read the text of your CV so that our recruiters can review it more easily. These tools do not make hiring decisions. A person reviews every application.",
+      "id": "privacy_cv_parsing",
+      "include_when": {
+        "field": "recruitment.uses_cv_parsing",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Who we share it with",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Our recruitment team and the hiring managers for the role; service providers who host our HR systems for us under contract; referees and verification providers only when we have told you; authorities where the law requires it.",
+      "id": "privacy_sharing"
+    },
+    {
+      "type": "clause",
+      "key": "privacy_international_transfers",
+      "required": false
+    },
+    {
+      "type": "heading",
+      "text": "How long we keep it",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you are not hired, we keep your information for {{recruitment.retention_months}} months after the recruitment process ends and then delete or anonymise it, unless you agree to us keeping it longer for future vacancies. If you are hired, it becomes part of your employee record.",
+      "id": "privacy_retention"
+    },
+    {
+      "type": "heading",
+      "text": "Your rights",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Depending on where you live, you may have the right to access, correct or delete your information, to object to or restrict its use, and to complain to a data protection authority. To use your rights, contact {{recruitment.privacy_contact_email}}.",
+      "id": "rights_candidate"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

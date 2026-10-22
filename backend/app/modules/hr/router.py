@@ -1310,8 +1310,10 @@ def list_new_hires(
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    accepted_offer_only: bool = Query(False, description="Only candidates linked to an accepted recruitment offer"),
 ):
-    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id, page=page, per_page=per_page)
+    return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id,
+                                 page=page, per_page=per_page, accepted_offer_only=accepted_offer_only)
 
 
 @hr_router.post(
@@ -1340,7 +1342,7 @@ def get_new_hire(new_hire_id: int, db: Session = Depends(get_db), current_user=D
     summary="Update a new hire record",
 )
 def update_new_hire(new_hire_id: int, data: OnboardingNewHireUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.update_new_hire(db, new_hire_id, data, organization_id=current_user.organization_id)["new_hire"]
+    return service.update_new_hire(db, new_hire_id, data, organization_id=current_user.organization_id, actor=current_user)["new_hire"]
 
 
 @hr_router.delete(
@@ -1377,9 +1379,10 @@ def list_onboarding_records(
     current_user=Depends(get_current_admin),
     search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
+    accepted_offer_only: bool = Query(False, description="Only candidates linked to an accepted recruitment offer"),
 ):
     return service.get_new_hires(db, search=search, status=status, organization_id=current_user.organization_id,
-                                 page=page, per_page=per_page)
+                                 page=page, per_page=per_page, accepted_offer_only=accepted_offer_only)
 
 
 @hr_router.get(
@@ -1397,7 +1400,7 @@ def get_onboarding_record(record_id: int, db: Session = Depends(get_db), current
     summary="Update onboarding record (alias)",
 )
 def update_onboarding_record(record_id: int, data: OnboardingNewHireUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return service.update_new_hire(db, record_id, data, organization_id=current_user.organization_id)["new_hire"]
+    return service.update_new_hire(db, record_id, data, organization_id=current_user.organization_id, actor=current_user)["new_hire"]
 
 
 @hr_router.delete(

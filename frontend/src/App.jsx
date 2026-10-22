@@ -91,6 +91,7 @@ const JobRequisitions = lazyRoute(() => import("./modules/zoiko-hr/recruitment/j
 const Candidates = lazyRoute(() => import("./modules/zoiko-hr/recruitment/candidates.jsx"));
 const Interviews = lazyRoute(() => import("./modules/zoiko-hr/recruitment/interviews.jsx"));
 const OfferManagement = lazyRoute(() => import("./modules/zoiko-hr/recruitment/offers.jsx"));
+const OffersIssued = lazyRoute(() => import("./modules/zoiko-hr/recruitment/offers-issued.jsx"));
 const ZoikoHROnboardingDashboard = lazyRoute(() => import("./modules/zoiko-hr/onboarding/dashboard.jsx"));
 const ZoikoHROnboardingNewHires = lazyRoute(() => import("./modules/zoiko-hr/onboarding/new-hires.jsx"));
 const ZoikoHROnboardingPreOnboarding = lazyRoute(() => import("./modules/zoiko-hr/onboarding/pre-onboarding.jsx"));
@@ -99,6 +100,7 @@ const ZoikoHROnboardingChecklists = lazyRoute(() => import("./modules/zoiko-hr/o
 const ZoikoHROnboardingOrientation = lazyRoute(() => import("./modules/zoiko-hr/onboarding/orientation.jsx"));
 const ZoikoHROnboardingReports = lazyRoute(() => import("./modules/zoiko-hr/onboarding/reports.jsx"));
 const ZoikoHROnboardingSettings = lazyRoute(() => import("./modules/zoiko-hr/onboarding/settings.jsx"));
+const OnboardingFormsReviewPage = lazyRoute(() => import("./modules/zoiko-hr/onboarding/OnboardingFormsReview.jsx"));
 const ZoikoHRLearning = lazyRoute(() => import("./modules/zoiko-hr/learning/learning.jsx"));
 
 const EssDashboard = lazyRoute(() => import("./modules/zoiko-hr/ess/dashboard.jsx"));
@@ -128,6 +130,18 @@ const AssetSettings = lazyRoute(() => import("./modules/zoiko-hr/assets/settings
 const DocumentsDashboard = lazyRoute(() => import("./modules/zoiko-hr/documents/dashboard.jsx"));
 const CompanyDocuments = lazyRoute(() => import("./modules/zoiko-hr/documents/company-documents.jsx"));
 const ApprovalWorkflow = lazyRoute(() => import("./modules/zoiko-hr/documents/approvals.jsx"));
+// Document template engine (docs/templates)
+const TemplateLibraryPage = lazyRoute(() => import("./modules/zoiko-hr/documents/templates/TemplateLibraryPage.jsx"));
+const TemplateDetailPage = lazyRoute(() => import("./modules/zoiko-hr/documents/templates/TemplateDetailPage.jsx"));
+const TemplateEditorPage = lazyRoute(() => import("./modules/zoiko-hr/documents/templates/TemplateEditorPage.jsx"));
+const ClauseLibraryPage = lazyRoute(() => import("./modules/zoiko-hr/documents/templates/ClauseLibraryPage.jsx"));
+const JurisdictionPacksPage = lazyRoute(() => import("./modules/zoiko-hr/documents/templates/JurisdictionPacksPage.jsx"));
+const GeneratedDocumentsPage = lazyRoute(() => import("./modules/zoiko-hr/documents/generated/GeneratedDocumentsPage.jsx"));
+const PolicyDistributionsPage = lazyRoute(() => import("./modules/zoiko-hr/documents/generated/PolicyDistributionsPage.jsx"));
+const GovernanceReportsPage = lazyRoute(() => import("./modules/zoiko-hr/documents/generated/GovernanceReportsPage.jsx"));
+const SignatoryQueuePage = lazyRoute(() => import("./modules/zoiko-hr/ess/SignatoryQueuePage.jsx"));
+const CandidateSignPage = lazyRoute(() => import("./pages/public/CandidateSignPage.jsx"));
+const VerifyDocumentPage = lazyRoute(() => import("./pages/public/VerifyDocumentPage.jsx"));
 
 const ZoikoHRAttendanceDashboard = lazyRoute(() => import("./modules/zoiko-hr/attendance/dashboard.jsx"));
 const ZoikoHRAttendanceDailyRecords = lazyRoute(() => import("./modules/zoiko-hr/attendance/daily-records.jsx"));
@@ -141,6 +155,7 @@ const WorkforcePlans = lazyRoute(() => import("./modules/zoiko-hr/workforce-plan
 const HeadcountPlanning = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/headcount.jsx"));
 const Succession = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/succession.jsx"));
 const WorkforceReports = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/reports.jsx"));
+const WorkforceJobDescriptions = lazyRoute(() => import("./modules/zoiko-hr/workforce-planning/job-descriptions.jsx"));
 
 const ZoikoHRCompDashboard = lazyRoute(() => import("./modules/zoiko-hr/compensation/dashboard.jsx"));
 const ZoikoHRCompSalaryStructures = lazyRoute(() => import("./modules/zoiko-hr/compensation/salary-structures.jsx"));
@@ -148,6 +163,20 @@ const ZoikoHRCompPayGrades = lazyRoute(() => import("./modules/zoiko-hr/compensa
 const ZoikoHRCompSalaryComponents = lazyRoute(() => import("./modules/zoiko-hr/compensation/salary-components.jsx"));
 const ZoikoHRCompBands = lazyRoute(() => import("./modules/zoiko-hr/compensation/compensation-bands.jsx"));
 const ZoikoHRCompRevisions = lazyRoute(() => import("./modules/zoiko-hr/compensation/salary-revisions.jsx"));
+// Prompt 3: policies, working time and compensation documents
+const PolicyLibraryPage = lazyRoute(() => import("./modules/zoiko-hr/documents/policies/PolicyLibraryPage.jsx"));
+const ZoikoHRTimeRequests = lazyRoute(() => import("./modules/zoiko-hr/attendance/time-requests.jsx"));
+const ZoikoHRCompApprovals = lazyRoute(() => import("./modules/zoiko-hr/compensation/approvals.jsx"));
+const EmployeeCompanyPolicies = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_CompanyPolicies.jsx"));
+const EmployeeMyCompensation = lazyRoute(() => import("./pages/Peoples/Employees/Compensation/Employee_MyCompensation.jsx"));
+const EmployeeTimeRequests = lazyRoute(() => import("./pages/Peoples/Employees/ESS/Employee_TimeRequests.jsx"));
+// Prompt 4: probation, appraisals, PIPs, employment changes, documents centre, documents to action, emergency controls
+const ZoikoHRPerformanceDocuments = lazyRoute(() => import("./modules/zoiko-hr/performance/performance-documents.jsx"));
+const ZoikoHREmployeeChanges = lazyRoute(() => import("./modules/zoiko-hr/employee-changes/changes.jsx"));
+const DocumentCentrePage = lazyRoute(() => import("./modules/zoiko-hr/documents/golive/DocumentCentrePage.jsx"));
+const EmployeeDocumentsToAction = lazyRoute(() => import("./pages/Peoples/Employees/Documents/Employee_DocumentsToAction.jsx"));
+const EmployeeMyPerformance = lazyRoute(() => import("./pages/Peoples/Employees/Performance/Employee_MyPerformance.jsx"));
+const SuperAdminTemplateEmergencyPage = lazyRoute(() => import("./modules/super-admin/TemplateEmergencyPage"));
 const ZoikoHRCompAllowances = lazyRoute(() => import("./modules/zoiko-hr/compensation/allowances.jsx"));
 const ZoikoHRCompBenefits = lazyRoute(() => import("./modules/zoiko-hr/compensation/benefits.jsx"));
 
@@ -276,6 +305,7 @@ const routeOverrides = {
   "/zoiko-hr/attendance/daily": <ZoikoHRAttendanceDailyRecords />,
   "/zoiko-hr/attendance/leaves": <ZoikoHRAttendanceLeaves />,
   "/zoiko-hr/attendance/shifts": <ZoikoHRAttendanceShifts />,
+  "/zoiko-hr/attendance/time-requests": <ZoikoHRTimeRequests />,
   "/zoiko-hr/attendance/holidays": <ZoikoHRAttendanceHolidays />,
   "/zoiko-hr/attendance/analytics": <ZoikoHRAttendanceAnalytics />,
   "/zoiko-hr/performance": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceDashboard /></PlanGate>,
@@ -288,6 +318,7 @@ const routeOverrides = {
   "/zoiko-hr/onboarding/orientation": <ZoikoHROnboardingOrientation />,
   "/zoiko-hr/onboarding/reports": <ZoikoHROnboardingReports />,
   "/zoiko-hr/onboarding/settings": <ZoikoHROnboardingSettings />,
+  "/zoiko-hr/onboarding/payroll-verifications": <OnboardingFormsReviewPage payrollQueue />,
   // Assets
   "/zoiko-hr/assets": <AssetsDashboard />,
   "/zoiko-hr/assets/my-assets": <MyAssets />,
@@ -309,6 +340,7 @@ const routeOverrides = {
   "/zoiko-hr/compensation/salary-components": <ZoikoHRCompSalaryComponents />,
   "/zoiko-hr/compensation/bands": <ZoikoHRCompBands />,
   "/zoiko-hr/compensation/revisions": <ZoikoHRCompRevisions />,
+  "/zoiko-hr/compensation/approvals": <ZoikoHRCompApprovals />,
   "/zoiko-hr/compensation/allowances": <ZoikoHRCompAllowances />,
   "/zoiko-hr/compensation/benefits": <ZoikoHRCompBenefits />,
   // ESS (HR admin view)
@@ -338,6 +370,7 @@ const routeOverrides = {
   "/zoiko-hr/recruitment/candidates": <Candidates />,
   "/zoiko-hr/recruitment/interviews": <Interviews />,
   "/zoiko-hr/recruitment/offers": <OfferManagement />,
+  "/zoiko-hr/recruitment/offers-issued": <OffersIssued />,
   // Performance
   "/zoiko-hr/performance/goals": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><GoalsOKRs /></PlanGate>,
   "/zoiko-hr/performance/reviews": <PlanGate featureKey="hr.performance.cycles" title="Performance management"><PerformanceReviews /></PlanGate>,
@@ -348,12 +381,32 @@ const routeOverrides = {
   "/zoiko-hr/documents/company-documents": <CompanyDocuments />,
   "/zoiko-hr/documents/approvals": <ApprovalWorkflow />,
   "/zoiko-hr/documents/employee-upload": <OrgAdminEmployeeDocumentsPage />,
+  // ("variants" is matched before ":canonicalId": react-router ranks the static segment higher)
+  "/zoiko-hr/documents/templates": <TemplateLibraryPage />,
+  "/zoiko-hr/documents/templates/variants/:variantId": <TemplateEditorPage />,
+  "/zoiko-hr/documents/templates/:canonicalId": <TemplateDetailPage />,
+  "/zoiko-hr/documents/clauses": <ClauseLibraryPage />,
+  "/zoiko-hr/documents/jurisdiction-packs": <JurisdictionPacksPage />,
+  "/zoiko-hr/documents/generated": <GeneratedDocumentsPage />,
+  "/zoiko-hr/documents/policy-distributions": <PolicyDistributionsPage />,
+  "/zoiko-hr/documents/policies": <PolicyLibraryPage />,
+  "/zoiko-hr/documents/centre": <DocumentCentrePage />,
+  "/zoiko-hr/performance/probation": <ZoikoHRPerformanceDocuments />,
+  "/zoiko-hr/performance/pips": <ZoikoHRPerformanceDocuments />,
+  "/zoiko-hr/employee-changes": <ZoikoHREmployeeChanges />,
+  "/employee/documents/to-action": <EmployeeDocumentsToAction />,
+  "/employee/performance": <EmployeeMyPerformance />,
+  "/employee/documents/policies": <EmployeeCompanyPolicies />,
+  "/employee/compensation": <EmployeeMyCompensation />,
+  "/zoiko-hr/documents/governance": <GovernanceReportsPage />,
+  "/employee/documents/signatory-queue": <SignatoryQueuePage />,
   // Workforce Planning
   "/zoiko-hr/workforce-planning": <WorkforceDashboard />,
   "/zoiko-hr/workforce-planning/plans": <WorkforcePlans />,
   "/zoiko-hr/workforce-planning/headcount": <HeadcountPlanning />,
   "/zoiko-hr/workforce-planning/succession": <Succession />,
   "/zoiko-hr/workforce-planning/reports": <WorkforceReports />,
+  "/zoiko-hr/workforce-planning/job-descriptions": <WorkforceJobDescriptions />,
   // Settings
   "/settings/user-management": <UserManagementPage />,
   // Organization Admin
@@ -392,6 +445,7 @@ const routeOverrides = {
   "/super-admin/access": <SuperAdminAccessPage />,
   "/super-admin/audit-logs": <SuperAdminAuditLogsPage />,
   "/super-admin/demo-requests": <SuperAdminSalesRequestsPage />,
+  "/super-admin/template-controls": <SuperAdminTemplateEmergencyPage />,
   "/super-admin/pricing-requests": <SuperAdminSalesRequestsPage />,
   "/super-admin/notifications": <NotificationCenter />,
   "/shared/notifications": <NotificationsPage />,
@@ -432,6 +486,7 @@ const routeOverrides = {
   "/employee/ess/attendance": <EmployeeEssAttendance />,
   "/employee/ess/requests":   <Navigate to="/employee/learning" replace />,
   "/employee/ess/settings":   <EmployeeEssSettings />,
+  "/employee/ess/time-requests": <EmployeeTimeRequests />,
 
   // Learning
   "/employee/learning":                   <EmployeeLearningModule />,
@@ -503,6 +558,9 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/onboarding-portal/:token" element={<OnboardingPortalPage />} />
+        {/* Candidate e-signature (single-use link) and public document verification: no app shell, no sign-in. */}
+        <Route path="/sign/:token" element={<CandidateSignPage />} />
+        <Route path="/verify/:documentNumber" element={<VerifyDocumentPage />} />
         <Route path="/terms" element={<TermsPage />} />
         <Route path="/hr-products" element={<HrProductsPage />} />
         <Route path="/request-pricing" element={<RequestPricingPage />} />

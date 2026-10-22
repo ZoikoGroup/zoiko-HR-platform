@@ -1,0 +1,112 @@
+{
+  "canonical_id": "HR-ORG-005",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "jd.title",
+      "jd.purpose",
+      "jd.responsibilities",
+      "jd.essential",
+      "jd.version",
+      "jd.approved_on"
+    ],
+    "optional": [
+      "jd.department",
+      "jd.grade",
+      "jd.reports_to",
+      "jd.location",
+      "jd.work_arrangement_label",
+      "jd.desirable"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Job Description — {{jd.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "jd.department",
+        "jd.grade",
+        "jd.reports_to",
+        "jd.location",
+        "jd.work_arrangement_label"
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "Purpose of the role",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "{{jd.purpose}}"
+    },
+    {
+      "type": "heading",
+      "text": "Key responsibilities",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "jd.responsibilities"
+    },
+    {
+      "type": "heading",
+      "text": "Essential requirements",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "jd.essential"
+    },
+    {
+      "type": "heading",
+      "text": "Desirable requirements",
+      "level": 2,
+      "include_when": {
+        "field": "jd.desirable",
+        "op": "present"
+      }
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "jd.desirable",
+      "include_when": {
+        "field": "jd.desirable",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "We welcome applications from everyone. If you need any adjustments during the application process, please tell us.",
+      "id": "rights_inclusive_hiring"
+    },
+    {
+      "type": "paragraph",
+      "text": "This job description reflects the main duties of the role at the date shown and may be reviewed as the role develops. Version {{jd.version}}, approved {{jd.approved_on}}.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

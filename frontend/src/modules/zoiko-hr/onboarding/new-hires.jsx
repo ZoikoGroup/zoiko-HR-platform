@@ -9,6 +9,8 @@ import {
 } from "../../../service/hrService";
 import { getEmployees } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
+import OnboardingFormsReview from "./OnboardingFormsReview";
+import ProbationScheduleForm from "./ProbationScheduleForm";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/onboarding" },
@@ -23,7 +25,7 @@ const NAV_ITEMS = [
 
 function SubNav() {
   return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
+    <div className="hidden">
       {NAV_ITEMS.map((item) => (
         <NavLink
           key={item.href}
@@ -169,6 +171,7 @@ export default function NewHires() {
   const [success, setSuccess] = useState(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
+  const [showAllRecords, setShowAllRecords] = useState(false);
   const [departmentFilter, setDepartmentFilter] = useState("");
   const [joiningStatusFilter, setJoiningStatusFilter] = useState("");
   const [currentPage, setCurrentPage] = useState(1);
@@ -189,14 +192,21 @@ export default function NewHires() {
   const flash = (msg) => { setError(null); setSuccess(msg); };
   const fail = (err, fallback) => { setSuccess(null); setError(err?.message || fallback); };
 
-  const fetchRecords = async () => {
+  const fetchRecords = async (acceptedOfferOnly = !showAllRecords) => {
     try {
-      const data = await getOnboardingRecords();
+      const data = await getOnboardingRecords({ accepted_offer_only: acceptedOfferOnly });
       setRecords(asList(data));
       setLoadError(null);
     } catch (err) {
       setLoadError(err.message || "Failed to load onboarding records");
     }
+  };
+
+  const toggleRecordView = async () => {
+    const showAll = !showAllRecords;
+    setShowAllRecords(showAll);
+    setCurrentPage(1);
+    await fetchRecords(!showAll);
   };
 
   useEffect(() => {
@@ -541,7 +551,7 @@ export default function NewHires() {
 
   if (loading && records.length === 0) {
     return (
-      <HRPage title="New Hires" subtitle="Manage new hire onboarding records.">
+      <HRPage title="New Hires" subtitle="Accepted-offer candidates and their onboarding progress. Switch to All Onboarding to view other records.">
         <SubNav />
         <div className="flex justify-center items-center py-20">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
@@ -707,6 +717,14 @@ export default function NewHires() {
             </div>
           </div>
         )}
+        {!panelLoading && (
+          <div className="space-y-4">
+            <OnboardingFormsReview hireId={rec.id} />
+            {rec.employee_id && (
+              <ProbationScheduleForm employeeId={rec.employee_id} reviewers={employees} onScheduled={fetchRecords} />
+            )}
+          </div>
+        )}
       </div>
     );
   };
@@ -714,7 +732,7 @@ export default function NewHires() {
   const progress = completion?.progress;
 
   return (
-    <HRPage title="New Hires" subtitle="Manage new hire onboarding records.">
+    <HRPage title="New Hires" subtitle="Accepted-offer candidates and their onboarding progress. Switch to All Onboarding to view other records.">
       <SubNav />
 
       {(error || loadError) && (
@@ -794,16 +812,19 @@ export default function NewHires() {
             >
               {exporting ? "Exporting..." : "Export CSV"}
             </button>
-            <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
-              + New Onboarding
+            <button onClick={toggleRecordView} className="border border-gray-200 hover:bg-gray-50 text-gray-700 text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+              {showAllRecords ? "Accepted Offers Only" : "All Onboarding"}
             </button>
+            {showAllRecords && <button onClick={openCreate} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors">
+              + New Onboarding
+            </button>}
           </div>
         </div>
 
         {filtered.length === 0 && !loading ? (
           <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
             <p className="text-gray-500 font-medium">
-              {records.length === 0 ? "No new hire records yet." : "No records match your search."}
+              {records.length === 0 ? (showAllRecords ? "No new hire records yet." : "No candidates have accepted an offer yet.") : "No records match your search."}
             </p>
           </div>
         ) : (
@@ -834,7 +855,20 @@ export default function NewHires() {
                           </button>
                         </td>
                         <td className="px-3 py-3">
-                          <button onClick={() => handleToggleExpand(r.id)} className="font-medium text-gray-800 hover:text-blue-600 text-left">{r.candidate_name}</button>
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <button onClick={() => handleToggleExpand(r.id)} className="font-medium text-gray-800 hover:text-blue-600 text-left">{r.candidate_name}</button>
+                            {["offer_accepted", "pre_joining"].includes(r.status) && (
+                              <button
+                                type="button"
+                                disabled={busyId === r.id}
+                                onClick={(event) => { event.stopPropagation(); handleStatusChange(r, "in_progress"); }}
+                                className="whitespace-nowrap rounded-md bg-blue-50 px-2 py-1 text-[11px] font-semibold text-blue-700 hover:bg-blue-100 disabled:cursor-wait disabled:opacity-50"
+                                aria-label={`Start onboarding for ${r.candidate_name}`}
+                              >
+                                {busyId === r.id ? "Starting…" : "Start Onboarding"}
+                              </button>
+                            )}
+                          </div>
                           <p className="text-xs text-gray-400 break-all">{r.email}</p>
                         </td>
                         <td className="px-3 py-3 text-gray-700">{r.position}</td>

@@ -48,6 +48,19 @@ test("any write clears the cache so the next read is fresh", async () => {
   assert.deepEqual(calls.map((c) => c[1]), ["GET", "POST", "GET"]);
 });
 
+test("long-running setup writes can use an operation-specific timeout", async () => {
+  const { api } = await load();
+  const originalTimeout = AbortSignal.timeout;
+  let timeoutMs;
+  AbortSignal.timeout = (ms) => { timeoutMs = ms; return new AbortController().signal; };
+  try {
+    await api.post("/hr/recruitment/offer-letter-setup", {}, { timeoutMs: 120000 });
+    assert.equal(timeoutMs, 120000);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+});
+
 test("a failed request is not remembered", async () => {
   const { api } = await load();
   globalThis.fetch = async (url, opts) => { calls.push([url, opts?.method]); return { ok: false, status: 500, statusText: "boom", json: async () => ({ detail: "boom" }), headers: { get: () => "application/json" } }; };

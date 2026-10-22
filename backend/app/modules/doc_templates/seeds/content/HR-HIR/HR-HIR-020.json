@@ -1,0 +1,84 @@
+{
+  "canonical_id": "HR-HIR-020",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "CANDIDATE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "candidate.first_name",
+      "employment.position_title",
+      "employer.legal_name",
+      "candidate.stage_reached"
+    ],
+    "optional": [
+      "recruitment.talent_pool_opt_in_url",
+      "candidate.personal_note"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Your application for {{employment.position_title}}",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{candidate.first_name}}, thank you for your interest in {{employer.legal_name}} and for the time you spent on your application."
+    },
+    {
+      "type": "paragraph",
+      "text": "After careful review, we have decided not to progress your application on this occasion.",
+      "include_when": {
+        "field": "candidate.stage_reached",
+        "op": "in",
+        "value": [
+          "application",
+          "screening"
+        ]
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Thank you for meeting with us. After careful consideration, we have decided to offer the role to another candidate.",
+      "include_when": {
+        "field": "candidate.stage_reached",
+        "op": "in",
+        "value": [
+          "interview",
+          "final"
+        ]
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "{{candidate.personal_note}}",
+      "include_when": {
+        "field": "candidate.personal_note",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "If you would like us to keep your details for future vacancies, you can tell us here: {{recruitment.talent_pool_opt_in_url}}. Otherwise we will delete your information as explained in our candidate privacy notice.",
+      "id": "privacy_talent_pool",
+      "include_when": {
+        "field": "recruitment.talent_pool_opt_in_url",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "We wish you every success in your search."
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

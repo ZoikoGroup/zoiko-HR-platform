@@ -47,10 +47,18 @@ async function load(t, over = {}) {
   return calls;
 }
 
-const card = (name) => screen.getByText(name).closest("div.bg-white");
+// every interview is listed ("View All" includes past ones); a row's status moves live in its "…" menu
+const showAll = () => fireEvent.click(screen.getByRole("button", { name: "View all interviews" }));
+const openMenu = (name) => {
+  const row = screen.getByText(name).closest("tr");
+  if (!row.querySelector("[data-status-actions]")) fireEvent.click(within(row).getByRole("button", { name: `More actions for ${name}` }));
+  return row;
+};
+const card = (name) => openMenu(name).querySelector("[data-status-actions]");
 
 test("a completed card has no actions, a cancelled card can only be rescheduled, and nothing offers completed <-> cancelled", async (t) => {
   const calls = await load(t);
+  showAll();
   const done = within(card("Done Dan"));
   assert.equal(done.queryAllByRole("button").length, 0);
   assert.ok(done.getByText("Final"));
@@ -65,6 +73,7 @@ test("a completed card has no actions, a cancelled card can only be rescheduled,
 
 test("cancelling asks first, and a refusal from the server is shown without wiping the page", async (t) => {
   const calls = await load(t, { updateError: "An interview that is scheduled cannot be changed." });
+  showAll();
   const original = globalThis.window.confirm;
   globalThis.window.confirm = () => false;
   fireEvent.click(within(card("Soon Sue")).getByRole("button", { name: "Cancel interview" }));
@@ -81,9 +90,9 @@ test("cancelling asks first, and a refusal from the server is shown without wipi
 
 test("editing a completed interview offers no way to change its status and does not send one", async (t) => {
   const calls = await load(t);
-  fireEvent.click(screen.getByRole("button", { name: "Schedule" }));
-  const row = screen.getByText("Done Dan").closest("tr");
-  fireEvent.click(within(row).getAllByRole("button")[0]);
+  showAll();
+  const row = openMenu("Done Dan");
+  fireEvent.click(within(row).getByRole("button", { name: "Edit" }));
   const status = document.getElementById("iv-status");
   assert.equal(status.disabled, true);
   assert.deepEqual([...status.options].map((o) => o.value), ["completed"]);
@@ -98,7 +107,6 @@ test("editing a completed interview offers no way to change its status and does 
 
 test("scheduling with nothing entered shows field messages and sends nothing", async (t) => {
   const calls = await load(t, { items: [] });
-  fireEvent.click(screen.getByRole("button", { name: "Schedule" }));
   fireEvent.click(screen.getByRole("button", { name: /Schedule Interview/ }));
   fireEvent.click(screen.getByRole("button", { name: "Create" }));
   await settle();

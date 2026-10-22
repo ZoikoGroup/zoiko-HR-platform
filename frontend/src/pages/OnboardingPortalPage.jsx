@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import { getPortal, savePortalDetails, uploadPortalDocument } from "../service/hrService";
 import { formatDate } from "../utils/dateTime";
+import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructuredForms";
 
 // The new hire's own pre-onboarding page. Public: the link token is the credential, so nothing here needs a login.
 
@@ -203,6 +204,8 @@ export default function OnboardingPortalPage() {
         </header>
 
         <Banner type={banner.type} text={banner.text} onClose={() => setBanner({ type: "", text: "" })} />
+
+        <PortalStructuredForms token={token} />
 
         <section className="bg-white rounded-2xl shadow-sm border border-slate-200 p-4 sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2">

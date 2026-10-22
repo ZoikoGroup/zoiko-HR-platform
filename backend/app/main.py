@@ -89,6 +89,16 @@ async def lifespan(application: FastAPI):
     if not _leader:
         logger.info("[startup] Another process runs the background jobs; this one only serves requests.")
 
+    # Document templates: keep the 566-item catalogue (gate R0) and the suspended research packs in step with the code, so the
+    # implemented flags added by later releases reach the database without a data migration. Idempotent, leader only.
+    if _leader:
+        try:
+            from app.modules.doc_templates.bootstrap import ensure_catalogue
+
+            ensure_catalogue()
+        except Exception as e:
+            logger.warning("[startup] Template catalogue sync could not run: %s", e)
+
     # Background scheduler: plan-change execution (02:00) + delinquency walk (02:05).
     try:
         if _leader:
@@ -421,6 +431,39 @@ support_data_router = _safe_import(lambda: __import__("app.modules.support_acces
 support_login_operator_router = _safe_import(lambda: __import__("app.modules.support_login.router", fromlist=["operator_router"]).operator_router, "support_login.operator_router")
 support_login_tenant_router = _safe_import(lambda: __import__("app.modules.support_login.router", fromlist=["tenant_router"]).tenant_router, "support_login.tenant_router")
 support_login_session_router = _safe_import(lambda: __import__("app.modules.support_login.router", fromlist=["session_router"]).session_router, "support_login.session_router")
+doc_templates_routers = _safe_import(lambda: [getattr(__import__("app.modules.doc_templates.router", fromlist=["x"]), n) for n in (
+    "templates_router", "documents_router", "ess_router", "entities_router", "distributions_router", "public_router")],
+    "doc_templates.router")
+# Mounted before hr_router: hr_router owns /hr/documents/{document_id}, and these must never be shadowed by a sibling path.
+for _r in doc_templates_routers:
+    app.include_router(_r)
+# Recruitment, workforce planning and onboarding documents (Prompt 2): offer letters, records, forms and checklists.
+document_flow_routers = _safe_import(lambda: [
+    __import__("app.modules.hr.recruitment_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.recruitment_insights", fromlist=["x"]).router,     # KPIs and panels of the Recruitment screens
+    __import__("app.modules.hr.offer_letter_setup", fromlist=["x"]).router,      # one-step offer letter setup per work country
+    __import__("app.modules.hr.workforce_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.onboarding_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.onboarding_documents", fromlist=["x"]).portal_router,
+    # Prompt 3: policies (library, hub, Mira sync), leave, working time and compensation documents
+    __import__("app.modules.hr.policy_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.policy_documents", fromlist=["x"]).me_router,
+    __import__("app.modules.hr.leave_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.time_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.compensation_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.compensation_documents", fromlist=["x"]).me_router,
+    # Prompt 4: probation, appraisals, PIPs, training records, employment changes; go-live tooling and platform controls
+    __import__("app.modules.hr.performance_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.performance_documents", fromlist=["x"]).me_router,
+    __import__("app.modules.hr.learning_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.change_documents", fromlist=["x"]).router,
+    __import__("app.modules.hr.change_documents", fromlist=["x"]).me_router,
+    __import__("app.modules.doc_templates.golive", fromlist=["x"]).router,
+    __import__("app.modules.doc_templates.golive", fromlist=["x"]).me_router,
+    __import__("app.modules.doc_templates.golive", fromlist=["x"]).platform_router,
+], "hr.document_flows")
+for _r in document_flow_routers:
+    app.include_router(_r)
 app.include_router(support_data_router)
 app.include_router(support_login_operator_router)
 app.include_router(support_login_tenant_router)

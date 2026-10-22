@@ -15,6 +15,18 @@ EVENT_CATALOG = {
     "user.created": "A user account was created.",
     "subscription.converted": "An evaluation was converted to a paid subscription.",
     "refund.created": "A refund or credit request was created.",
+    # Generated documents (doc_templates). Payloads carry ids, numbers, template ids and statuses only, never contents.
+    "document.generated": "A document was generated from an approved template variant.",
+    "document.issued": "A generated document was issued to its recipient.",
+    "document.executed": "Every required party signed a generated document.",
+    "document.acknowledged": "A recipient acknowledged receipt of a generated document.",
+    "document.declined": "A signer declined a generated document.",
+    "document.expired": "A generated document expired before it was completed.",
+    "template.variant.released": "A template variant was released for use.",
+    "template.variant.suspended": "A template variant was suspended or retired.",
+    "onboarding.payroll_details_verified": "A new starter's bank and payroll details were verified for the payroll hand-off (ids only).",
+    "attendance.overtime.approved": "Overtime was authorised for payroll or time-off processing (ids and date only).",
+    "compensation.change.approved": "A salary revision or allowance was approved for the payroll hand-off (ids and effective date only).",
 }
 
 

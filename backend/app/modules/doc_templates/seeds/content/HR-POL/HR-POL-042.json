@@ -1,0 +1,174 @@
+{
+  "canonical_id": "HR-POL-042",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name",
+      "policy.expense_limits_summary",
+      "policy.claim_deadline_days"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "expense_tax_treatment"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains which business expenses we reimburse and how to claim them."
+    },
+    {
+      "type": "heading",
+      "text": "2. What we reimburse",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Reasonable, necessary business expenses within these limits: {{policy.expense_limits_summary}}"
+    },
+    {
+      "type": "heading",
+      "text": "3. What we do not reimburse",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Personal items.",
+        "Fines.",
+        "Alcohol, unless pre-approved for client entertainment.",
+        "Upgrades that were not approved."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "4. Claims",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Submit your claim in Zoiko HR within {{policy.claim_deadline_days}} days, with receipts. You will receive a written decision."
+    },
+    {
+      "type": "heading",
+      "text": "5. Approval",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Claims are approved by your manager, then by finance where our settings require it. Nobody can approve their own claim."
+    },
+    {
+      "type": "heading",
+      "text": "6. Payment",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Approved amounts are paid through payroll or accounts payable, following our usual payment process."
+    },
+    {
+      "type": "heading",
+      "text": "7. Tax",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "expense_tax_treatment",
+      "required": false
+    },
+    {
+      "type": "heading",
+      "text": "8. Misuse",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Misuse may lead to disciplinary action and recovery of the amounts involved, as permitted by law."
+    },
+    {
+      "type": "heading",
+      "text": "9. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Business Travel Policy; Code of Conduct."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

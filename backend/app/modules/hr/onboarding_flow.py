@@ -271,6 +271,12 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
     except Exception:
         db.rollback()
         logger.exception("starting onboarding failed for new hire %s", hire.id)
+    try:
+        from app.modules.hr import onboarding_documents
+        onboarding_documents.on_onboarding_started(db, hire)        # HR-ONB-005: manager checklist and its record
+    except Exception:
+        db.rollback()
+        logger.exception("manager onboarding checklist failed for new hire %s", hire.id)
 
 
 # ── completion ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -306,7 +312,9 @@ def progress(db: Session, hire: OnboardingNewHire) -> dict:
 
 
 def completion_blockers(db: Session, hire: OnboardingNewHire) -> list[str]:
-    return progress(db, hire)["blockers"]
+    from app.modules.hr import onboarding_documents
+    # mandatory checklist items must be done (by hand or by their engine record) or carry a recorded exception
+    return progress(db, hire)["blockers"] + onboarding_documents.checklist_blockers(db, hire)
 
 
 def notify_completed(db: Session, hire: OnboardingNewHire, employee) -> int:

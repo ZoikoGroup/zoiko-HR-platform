@@ -77,6 +77,8 @@ export const getLearning = () => fetchList("learning");
 // RECRUITMENT MODULE
 // ════════════════════════════════════════════════════════════════════════════
 export const getRecruitmentDashboard = () => api.get("/hr/recruitment/dashboard");
+// KPIs (with trend and sparkline series), panels and lists of the Recruitment screens: dashboard | requisitions | interviews | offers
+export const getRecruitmentInsights = (section) => api.get("/hr/recruitment/insights", { params: { section } });
 
 export const getRequisitions = (params = {}) => api.get("/hr/recruitment/requisitions", { params });
 export const getRequisitionById = (id) => api.get(`/hr/recruitment/requisitions/${id}`);
@@ -187,7 +189,7 @@ export const createOnboardingTask = (payload) => api.post("/hr/onboarding/preboa
 export const updateOnboardingTask = (id, payload) => api.put(`/hr/onboarding/preboarding-tasks/${id}`, payload);
 export const deleteOnboardingTask = (id) => api.delete(`/hr/onboarding/preboarding-tasks/${id}`);
 
-export const getOnboardingRecords = () => api.get("/hr/onboarding/records");
+export const getOnboardingRecords = (params = {}) => api.get("/hr/onboarding/records", { params });
 export const getOnboardingRecordById = (id) => api.get(`/hr/onboarding/records/${id}`);
 export const createOnboardingRecord = (payload) => api.post("/hr/onboarding/records", payload);
 export const updateOnboardingRecord = (id, payload) => api.put(`/hr/onboarding/records/${id}`, payload);
