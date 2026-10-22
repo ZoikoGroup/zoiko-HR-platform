@@ -25,8 +25,11 @@ from app.core.privacy import classification as cls
 TENANT_SETTING = "app.tenant_id"
 PLANE_SETTING = "app.plane"
 POLICY_NAME = "zhr_tenant_isolation"
-
-TENANT_EXPR = f"organization_id = NULLIF(current_setting('{TENANT_SETTING}', true), '')::int"
+TENANT_ID_SETTING = f"NULLIF(current_setting('{TENANT_SETTING}', true), '')"
+TENANT_EXPR = (
+    f"CASE WHEN {TENANT_ID_SETTING} ~ '^[0-9]{{1,10}}$' "
+    f"THEN organization_id::text = {TENANT_ID_SETTING} ELSE FALSE END"
+)
 PLATFORM_EXPR = f"current_setting('{PLANE_SETTING}', true) = 'PLATFORM'"
 
 ROLES = {
@@ -63,6 +66,16 @@ def policy_plan(metadata: MetaData) -> list[dict]:
         kind = kind_of(t.name)
         if "organization_id" in t.c:
             using = TENANT_EXPR
+        elif "owner_organization_id" in t.c:
+            # Shared template, clause, and pack records are either global
+            # (owner is NULL) or belong to one tenant. Do not derive this
+            # policy through a parent FK: template_variants has a self-FK
+            # (previous_version_id), which would recursively query its own
+            # RLS policy and make every read fail on PostgreSQL.
+            using = (
+                f"(owner_organization_id IS NULL OR CASE WHEN {TENANT_ID_SETTING} ~ '^[0-9]{{1,10}}$' "
+                f"THEN owner_organization_id::text = {TENANT_ID_SETTING} ELSE FALSE END)"
+            )
         else:
             fk = _parent_fk(t, {x.name for x in tables})
             if fk is None:
@@ -75,7 +88,7 @@ def policy_plan(metadata: MetaData) -> list[dict]:
     if "organizations" in metadata.tables:
         # a tenant sees its own organization row; the platform sees them all
         plan.append({"table": "organizations", "kind": "CONTROL",
-                     "using": f"(id = NULLIF(current_setting('{TENANT_SETTING}', true), '')::int) OR {PLATFORM_EXPR}", "direct": True})
+                     "using": f"({TENANT_EXPR.replace('organization_id', 'id')}) OR {PLATFORM_EXPR}", "direct": True})
     return plan
 
 
