@@ -1025,7 +1025,7 @@ export default function JobRequisitions() {
   const kpis = ins?.kpis || {};
   const columns = [
     { label: <input type="checkbox" aria-label="Select all requisitions on this page" checked={allOnPage} onChange={togglePage} className="h-4 w-4 rounded border-gray-300" />, className: "w-10" },
-    { label: "Requisition ID" }, { label: "Job Title" }, { label: "Department" }, { label: "Hiring Manager" }, { label: "Location", className: "hidden md:table-cell" },
+    { label: "Requisition ID", className: "min-w-[6.5rem] whitespace-nowrap" }, { label: "Job Title" }, { label: "Department" }, { label: "Hiring Manager" }, { label: "Location", className: "hidden md:table-cell" },
     { label: "Openings" }, { label: "Candidates" }, { label: "Status" }, { label: "Age", className: "hidden xl:table-cell" },
     { label: "Created", className: "hidden 2xl:table-cell" }, { label: "Actions", className: "text-right" },
   ];
@@ -1097,7 +1097,7 @@ export default function JobRequisitions() {
                     <td className={td} onClick={(e) => e.stopPropagation()}>
                       <input type="checkbox" aria-label={`Select ${r.title}`} checked={selected.has(r.id)} onChange={() => toggleOne(r.id)} className="h-4 w-4 rounded border-gray-300" />
                     </td>
-                    <td className={`${td} whitespace-nowrap text-xs text-gray-600`}>{reqCode(r)}</td>
+                    <td className={`${td} min-w-[6.5rem] whitespace-nowrap text-xs text-gray-600`}>{reqCode(r)}</td>
                     <td className={`${td} min-w-[11rem]`}>
                       <p className="break-words font-medium text-blue-700">{r.title}</p>
                       <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-gray-500">

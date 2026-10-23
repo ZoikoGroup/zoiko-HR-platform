@@ -4,8 +4,8 @@
  * Testing step 5.5 from the "Remove Super Admin Approval Requirement from New
  * Organization Creation" prompt: a render test for RegistrationSuccessPage.jsx
  * confirming the updated copy ("Your workspace is ready" / "no approval
- * needed") and a working sign-in call-to-action — no "awaiting approval"
- * messaging left, and the primary button actually navigates to /login.
+ * needed") and a working sign-in call-to-action — no approval or email-
+ * confirmation gate messaging left, and the primary button navigates to /login.
  *
  * Follows the same pattern as documentPagesSharedComponents.test.mjs: mocks
  * react-router-dom's hooks (the page reads useLocation().state and calls
@@ -55,8 +55,13 @@ test("RegistrationSuccessPage: renders immediate-usability copy (no approval mes
 
   assert.ok(screen.getByText("Your workspace is ready"));
   assert.ok(screen.getByText(/Workspace activated — no approval needed/));
-  assert.ok(screen.getByText(/To finish, confirm your email address/));
-  assert.ok(screen.getByText(/Confirm your email address to sign in/));
+  assert.ok(screen.getByText("Account created — ready to sign in"));
+  assert.ok(screen.getByText("admin@newco.example"));
+  assert.equal(
+    screen.queryByText(/confirm your email address/i),
+    null,
+    "email confirmation must not block sign-in after registration"
+  );
 
   assert.equal(
     screen.queryByText(/awaiting.*approval/i),

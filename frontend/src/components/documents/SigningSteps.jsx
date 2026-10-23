@@ -324,6 +324,7 @@ export default function SigningSteps({
           {signLabel}
         </button>
       </div>
+      {busy && <p className="text-right text-xs text-slate-500" role="status">Recording your signature securely. Please keep this page open for a moment.</p>}
       {!canSign && !busy && (
         <p className="text-right text-xs text-slate-500" aria-live="polite">
           {!agreed

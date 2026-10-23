@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
 import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
@@ -93,7 +93,7 @@ export default function CompanyDocuments() {
   const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
 
   return (
-    <EmployeePageShell
+    <EmployeeDocumentsLayout
       title="Company documents"
       subtitle="Documents shared with you by the company"
     >
@@ -189,6 +189,6 @@ export default function CompanyDocuments() {
 
         <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
       </div>
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }

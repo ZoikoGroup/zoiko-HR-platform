@@ -113,21 +113,29 @@ export default function CandidateSignPage() {
 
   if (outcome) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-slate-50 px-4">
-        <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-6 text-center shadow-sm sm:p-8">
-          {outcome.kind === "signed"
-            ? <CheckCircle2 size={44} className="mx-auto mb-3 text-emerald-600" aria-hidden="true" />
-            : <XCircle size={44} className="mx-auto mb-3 text-slate-500" aria-hidden="true" />}
-          <h1 ref={headingRef} tabIndex={-1} className="mb-2 text-xl font-semibold text-slate-900 outline-none">
-            {outcome.kind === "signed" ? "Thank you, you have signed" : "You have declined this document"}
-          </h1>
-          <p className="text-sm text-slate-600" role="status">
+      <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
+        <section className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-7 text-center shadow-sm sm:p-10" role="status">
+          <div className={`mx-auto mb-5 grid h-16 w-16 place-items-center rounded-full ${outcome.kind === "signed" ? "bg-emerald-50" : "bg-slate-100"}`}>
             {outcome.kind === "signed"
-              ? `${view.title} (${outcome.document_number || view.document_number}) has been signed. ${view.organization_name || "The organization"} will send you a copy once everyone has signed.`
-              : `${view.organization_name || "The organization"} has been told and will see your reason. You can close this page.`}
+              ? <CheckCircle2 size={36} className="text-emerald-600" aria-hidden="true" />
+              : <XCircle size={36} className="text-slate-500" aria-hidden="true" />}
+          </div>
+          <p className="mb-2 text-xs font-bold uppercase tracking-[0.16em] text-emerald-700">Response recorded</p>
+          <h1 ref={headingRef} tabIndex={-1} className="text-2xl font-semibold text-slate-900 outline-none sm:text-3xl">
+            {outcome.kind === "signed" ? "Your signature is complete" : "Your decision has been sent"}
+          </h1>
+          <p className="mx-auto mt-3 max-w-md text-sm leading-6 text-slate-600">
+            {outcome.kind === "signed"
+              ? `Your signature for ${view.title} has been recorded securely. ${view.organization_name || "The organization"} will follow up with you about next steps.`
+              : `${view.organization_name || "The organization"} has received your decision and can review your reason.`}
           </p>
-        </div>
-      </div>
+          <div className="mx-auto mt-6 max-w-sm rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-left">
+            <p className="text-xs font-medium text-slate-500">Document reference</p>
+            <p className="mt-1 break-all font-mono text-sm font-semibold text-slate-800">{outcome.document_number || view.document_number}</p>
+          </div>
+          <p className="mt-6 text-xs text-slate-500">You can safely close this page.</p>
+        </section>
+      </main>
     );
   }
 

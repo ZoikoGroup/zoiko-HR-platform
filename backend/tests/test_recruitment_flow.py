@@ -146,6 +146,9 @@ def test_offer_currency_follows_the_region_and_internships_pay_a_stipend(env):
 def test_legacy_offers_are_answered_by_hand_and_new_ones_go_through_documents(env):
     """Offer letters are engine documents now (tests/doc_templates/test_dt_recruitment.py covers that flow). The old plain-email
     /send is retired; an offer that was already sent before the engine (pending, no document) can still be recorded by hand."""
+    from app.modules.hr.models import OrganizationConfig
+    env.db.add(OrganizationConfig(organization_id=1, key="recruitment.offer_letters_without_approval", value="false", category="recruitment"))
+    env.db.commit()                                   # a legacy offer keeps its own lifecycle: no automatic approval here
     cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": "Sam", "email": "sam@mail.com", "position": "Intern"}))
     o = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_id": cand["id"], "candidate_name": "Sam", "position": "Intern",
                                                         "employment_type": "internship", "salary": 25000, "currency": "INR",

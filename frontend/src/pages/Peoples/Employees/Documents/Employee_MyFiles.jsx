@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
 import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
@@ -115,7 +115,7 @@ export default function MyFiles() {
 
   // render ───────────────────────────────────────────────────────────────────
   return (
-    <EmployeePageShell title="My Files" subtitle="Documents your organization has shared with you. View and download only.">
+    <EmployeeDocumentsLayout title="My Files" subtitle="Documents your organization has shared with you. View and download only.">
       <div className="max-w-4xl mx-auto space-y-8">
 
         {/* UPLOADED FILES LIST */}
@@ -181,6 +181,6 @@ export default function MyFiles() {
 
       </div>
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }

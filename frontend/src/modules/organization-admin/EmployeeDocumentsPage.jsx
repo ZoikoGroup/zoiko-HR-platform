@@ -3,13 +3,13 @@ import {
   Search, RefreshCw, FileText, Download, User, Hash,
   Clock, Upload, X, Loader2, Check, Receipt, FileSignature, ShieldCheck, Eye, History
 } from "lucide-react";
-import PageHeader from "../../components/PageHeader";
 import DocumentPreviewModal from "../../components/DocumentPreviewModal";
 import DocumentEmptyState from "../../components/documents/DocumentEmptyState";
 import DocumentErrorState from "../../components/documents/DocumentErrorState";
 import { useDocumentFile } from "../../hooks/useDocumentFile";
 import { fileTypeIcon, fmtDate } from "../../utils/documents";
 import { getDocuments, uploadDocument, getHrEmployees, getDocumentVersions, uploadDocumentVersion, getDocumentVersionFile } from "../../service/hrService";
+import { OrganizationDocumentsLayout } from "../zoiko-hr/documents/ui";
 
 // "Offer & Contracts" deliberately maps to category "employee", not "contract"
 // (a separate HrDocumentCategory value that exists but isn't used here). This
@@ -181,13 +181,12 @@ export default function OrgAdminEmployeeDocumentsPage() {
   });
 
   return (
-    <div className="min-h-screen bg-doc-surface-soft p-4 font-sans">
-      <PageHeader
-        title="Employee Documents"
-        description="Upload and manage payslips, contracts, tax & compliance documents for employees"
-      />
-
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+    <OrganizationDocumentsLayout
+      title="Employee Documents"
+      subtitle="Organise employee records, contracts, payslips and compliance files."
+    >
+      <div className="space-y-5">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm">
         <div className="flex gap-2 flex-wrap">
           {TABS.map(t => (
             <button key={t.key} onClick={() => setTab(t.key)}
@@ -211,7 +210,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
         </div>
       </div>
 
-      <div className="flex flex-col sm:flex-row gap-3 mb-6">
+      <div className="flex flex-col sm:flex-row gap-3 rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm">
         <div className="relative max-w-md flex-1">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-doc-ink-soft" />
           <label htmlFor="org-doc-search" className="sr-only">Search by document name or employee</label>
@@ -565,6 +564,7 @@ export default function OrgAdminEmployeeDocumentsPage() {
       )}
 
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </div>
+      </div>
+    </OrganizationDocumentsLayout>
   );
 }

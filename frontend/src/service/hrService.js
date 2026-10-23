@@ -131,7 +131,8 @@ export const deleteOffer = (id) => api.delete(`/hr/recruitment/offers/${id}`);
 export const acceptOffer = (id) => api.put(`/hr/recruitment/offers/${id}/accept`);
 export const rejectOffer = (id) => api.put(`/hr/recruitment/offers/${id}/reject`);
 export const withdrawOffer = (id) => api.put(`/hr/recruitment/offers/${id}/withdraw`);
-export const sendOffer = (id) => api.put(`/hr/recruitment/offers/${id}/send`);
+export const sendOffer = (id) => api.post(`/hr/recruitment/offers/${id}/letter/send`, {}, { timeoutMs: 180000 });
+export const resendOffer = (id) => api.post(`/hr/recruitment/offers/${id}/letter/resend`, {}, { timeoutMs: 180000 });
 export const sendOfferWithPDF = (id, { pdfData, pdfFilename }) =>
   api.put(`/hr/recruitment/offers/${id}/send-with-pdf`, { pdf_data: pdfData, pdf_filename: pdfFilename });
 

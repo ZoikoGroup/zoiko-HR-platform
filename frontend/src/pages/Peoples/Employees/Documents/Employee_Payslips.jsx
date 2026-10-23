@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { CreditCard, TrendingDown, Wallet, Receipt } from "lucide-react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
 import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
@@ -79,17 +79,17 @@ export default function Payslips() {
 
   if (loading) {
     return (
-      <EmployeePageShell title="My Payslips" subtitle="Download your monthly salary slips.">
+      <EmployeeDocumentsLayout title="My Payslips" subtitle="Download your monthly salary slips.">
         <div className="flex justify-center items-center py-20">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-doc-primary" />
           <span className="ml-3 text-doc-ink-soft dark:text-[#94a3b8]">Loading payslips...</span>
         </div>
-      </EmployeePageShell>
+      </EmployeeDocumentsLayout>
     );
   }
 
   return (
-    <EmployeePageShell title="My Payslips" subtitle="Download your monthly salary slips.">
+    <EmployeeDocumentsLayout title="My Payslips" subtitle="Download your monthly salary slips.">
       <DocumentErrorState message={error} />
       <div className="h-4" />
       <DocumentErrorState message={fileError} />
@@ -138,6 +138,6 @@ export default function Payslips() {
       )}
 
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }

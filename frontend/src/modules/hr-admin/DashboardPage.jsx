@@ -1,83 +1,143 @@
-import { useState, useEffect, useMemo } from "react";
-import { useNavigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { NavLink, useNavigate } from "react-router-dom";
+import {
+  Activity,
+  ArrowRight,
+  BookOpen,
+  Briefcase,
+  Building2,
+  CalendarCheck,
+  ClipboardCheck,
+  CreditCard,
+  GraduationCap,
+  Package,
+  UserPlus,
+  Users,
+} from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
-import { getLearningDashboard } from "../../service/hrService";
-import { getPerformanceDashboard } from "../../service/hrService";
-import { getRecruitmentDashboard } from "../../service/hrService";
-import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from "recharts";
-import { Users, Building2, BadgeInfo, CalendarCheck, Activity, CreditCard, Wrench, BookOpen, ClipboardCheck, UserPlus, Clock } from "lucide-react";
-import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
+import { getLearningDashboard, getPerformanceDashboard, getRecruitmentDashboard } from "../../service/hrService";
+import { PrimaryButton } from "../zoiko-hr/recruitment/ui";
+import { HrAdminLayout } from "./ui";
+import {
+  Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 
-const NAVY = "#0A1128";
-const BLUE = "#3B82F6";
-const EMERALD = "#10B981";
-const RED = "#EF4444";
-const INK = "#0A1128";
-const INK_SOFT = "#475569";
-const NAVY_100 = "#E0E7FF";
-const BLUE_100 = "#DBEAFE";
-const EMERALD_100 = "#D1FAE5";
-// Status dots in the "Recent employees" table: teal = active, amber = on leave. These were referenced but never
-// defined, so the whole dashboard crashed (ReferenceError) as soon as the organization had any employees.
-const TEAL = "#14B8A6";
-const TEAL_100 = "#CCFBF1";
-const AMBER = "#F59E0B";
-const AMBER_100 = "#FEF3C7";
-const RED_100 = "#FEE2E2";
-const LINE = "rgba(10,17,40,0.08)";
-const AVATAR_COLORS = [
-  `linear-gradient(135deg,${NAVY},#1A2744)`,
-  `linear-gradient(135deg,${BLUE},#2563EB)`,
-  `linear-gradient(135deg,${EMERALD},#059669)`,
-  `linear-gradient(135deg,#64748B,#475569)`,
-  `linear-gradient(135deg,#2563EB,${BLUE})`,
-  `linear-gradient(135deg,#CBD5E1,#94A3B8)`,
-];
+const TONES = {
+  blue: "bg-blue-50 text-blue-600",
+  teal: "bg-teal-50 text-teal-600",
+  violet: "bg-violet-50 text-violet-600",
+  amber: "bg-amber-50 text-amber-600",
+  slate: "bg-slate-100 text-slate-600",
+};
 
-function getInitials(name) {
-  if (!name) return "U";
-  return name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+const cardClass = "rounded-2xl border border-slate-200/80 bg-white shadow-sm shadow-slate-900/[0.03]";
+
+function number(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed.toLocaleString() : String(value);
 }
 
-function fmtCurrency(amount) {
-  if (amount == null) return "—";
-  return `$${Number(amount).toLocaleString()}`;
+function money(value, currency) {
+  if (value === null || value === undefined || value === "") return "—";
+  const amount = Number(value);
+  if (!Number.isFinite(amount)) return String(value);
+  if (!/^[A-Z]{3}$/.test(currency || "")) return amount.toLocaleString();
+  try {
+    return new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency,
+      maximumFractionDigits: 0,
+    }).format(amount);
+  } catch {
+    return amount.toLocaleString();
+  }
 }
 
-function todayLabel() {
-  const d = new Date();
-  const monthNames = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  return `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+function currentDate() {
+  return new Intl.DateTimeFormat(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(new Date());
+}
+
+function localDateISO() {
+  const date = new Date();
+  date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+  return date.toISOString().slice(0, 10);
 }
 
 function greeting() {
-  const h = new Date().getHours();
-  if (h < 12) return "Good morning";
-  if (h < 17) return "Good afternoon";
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good morning";
+  if (hour < 17) return "Good afternoon";
   return "Good evening";
 }
 
-function StatCard({ icon: Icon, iconBg, iconColor, label, value, sub, trendIcon: TrendIcon, trendLabel, trendColor }) {
-  return (
-    <div className="rounded-[14px] border bg-white p-5 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)] hover:-translate-y-0.5 hover:shadow-[0_4px_10px_rgba(10,17,40,0.06),0_20px_40px_-20px_rgba(59,130,246,0.25)] hover:border-transparent transition-all duration-[180ms]">
-      <div className="flex items-center justify-between mb-4">
-        <div className="w-[38px] h-[38px] rounded-[10px] flex items-center justify-center text-[17px]" style={{ background: iconBg, color: iconColor }}>
-          <Icon className="w-[18px] h-[18px]" strokeWidth={2.5} />
-        </div>
-        {TrendIcon && trendLabel ? (
-          <span className="text-[11.5px] font-bold flex items-center gap-1" style={{ color: trendColor }}>
-            <TrendIcon className="w-3.5 h-3.5" strokeWidth={2.5} />
-            {trendLabel}
-          </span>
-        ) : null}
+function MetricCard({ icon: Icon, label, value, detail, tone = "blue", to, compact = false }) {
+  const content = (
+    <>
+      <div className="flex items-start justify-between gap-3">
+        <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${TONES[tone] || TONES.blue}`}>
+          <Icon className="h-5 w-5" aria-hidden="true" />
+        </span>
+        {to && <ArrowRight className="mt-1 h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" aria-hidden="true" />}
       </div>
-      <p className="text-[12.5px] font-medium" style={{ color: INK_SOFT }}>{label}</p>
-      <p className="text-[29px] font-bold tracking-[-0.01em] leading-none mt-1.5" style={{ color: INK }}>{value}</p>
-      {sub ? <p className="text-[11.5px] mt-1.5" style={{ color: INK_SOFT }}>{sub}</p> : null}
+      <div className={compact ? "mt-4" : "mt-5"}>
+        <p className="text-sm font-medium text-slate-500">{label}</p>
+        <p className={`${compact ? "mt-1 text-2xl" : "mt-1.5 text-3xl"} font-semibold tracking-tight text-slate-950`}>{value}</p>
+        {detail && <p className="mt-1 text-xs leading-5 text-slate-500">{detail}</p>}
+      </div>
+    </>
+  );
+
+  if (to) {
+    return (
+      <NavLink to={to} className={`${cardClass} group block p-4 transition hover:-translate-y-0.5 hover:border-blue-200 hover:shadow-md ${compact ? "sm:p-4" : "sm:p-5"}`}>
+        {content}
+      </NavLink>
+    );
+  }
+  return <div className={`${cardClass} p-4 ${compact ? "sm:p-4" : "sm:p-5"}`}>{content}</div>;
+}
+
+function PanelHeading({ title, description, action }) {
+  return (
+    <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
+      <div>
+        <h2 className="text-base font-semibold tracking-tight text-slate-900">{title}</h2>
+        {description && <p className="mt-1 text-sm text-slate-500">{description}</p>}
+      </div>
+      {action}
     </div>
   );
+}
+
+function EmptyChart({ children = "No data available for this period." }) {
+  return <div className="grid h-56 place-items-center rounded-xl border border-dashed border-slate-200 bg-slate-50/70 px-6 text-center text-sm text-slate-500">{children}</div>;
+}
+
+function initials(name) {
+  return (name || "?").split(/\s+/).filter(Boolean).map((part) => part[0]).join("").slice(0, 2).toUpperCase();
+}
+
+function statusTone(status) {
+  const normalized = String(status || "").toLowerCase();
+  if (normalized.includes("active") || normalized.includes("approved") || normalized === "done") return "bg-emerald-50 text-emerald-700 ring-emerald-600/10";
+  if (normalized.includes("leave") || normalized.includes("pending") || normalized.includes("review")) return "bg-amber-50 text-amber-700 ring-amber-600/10";
+  if (normalized.includes("reject") || normalized.includes("inactive") || normalized.includes("cancel")) return "bg-rose-50 text-rose-700 ring-rose-600/10";
+  return "bg-slate-100 text-slate-600 ring-slate-500/10";
 }
 
 export default function HrAdminDashboardPage() {
@@ -85,385 +145,231 @@ export default function HrAdminDashboardPage() {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [learningStats, setLearningStats] = useState(null);
-  const [perfStats, setPerfStats] = useState(null);
+  const [performanceStats, setPerformanceStats] = useState(null);
   const [recruitmentStats, setRecruitmentStats] = useState(null);
-  const [org, setOrg] = useState(null);
+  const [organization, setOrganization] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const [error, setError] = useState("");
 
   useEffect(() => {
-    let cancelled = false;
-    Promise.all([
-      getOrganizationDashboardStats().catch(() => null),
-      getLearningDashboard().catch(() => null),
-      getPerformanceDashboard().catch(() => null),
-      getRecruitmentDashboard().catch(() => null),
-      getOrganizationDetails().catch(() => null),
-    ])
-      .then(([s, l, p, r, o]) => {
-        if (cancelled) return;
-        if (s) setStats(s);
-        if (l) setLearningStats(l);
-        if (p) setPerfStats(p);
-        if (r) setRecruitmentStats(r);
-        if (o) setOrg(o);
-      })
-      .catch(err => { if (!cancelled) setError(err?.message); })
-      .finally(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; };
+    let live = true;
+    Promise.allSettled([
+      getOrganizationDashboardStats(),
+      getLearningDashboard(),
+      getPerformanceDashboard(),
+      getRecruitmentDashboard(),
+      getOrganizationDetails(),
+    ]).then(([dashboard, learning, performance, recruitment, org]) => {
+      if (!live) return;
+      if (dashboard.status === "fulfilled") setStats(dashboard.value);
+      else setError(dashboard.reason?.message || "The workforce dashboard could not be loaded.");
+      if (learning.status === "fulfilled") setLearningStats(learning.value);
+      if (performance.status === "fulfilled") setPerformanceStats(performance.value);
+      if (recruitment.status === "fulfilled") setRecruitmentStats(recruitment.value);
+      if (org.status === "fulfilled") setOrganization(org.value);
+    }).finally(() => {
+      if (live) setLoading(false);
+    });
+    return () => { live = false; };
   }, []);
 
   const displayName = user?.name || user?.full_name || "HR Admin";
-  const orgName = org?.name || user?.organization_name || "Your Organization";
-  const orgId = org?.org_code || org?.code || "ZK-0192";
+  const orgName = organization?.name || user?.organization_name || "Your organization";
+  const currency = organization?.currency || stats?.currency;
+  const totalEmployees = stats?.total_employees;
+  const activeEmployees = stats?.active_employees;
+  const attendanceTrend = Array.isArray(stats?.attendance_trend) ? stats.attendance_trend : [];
+  const departmentData = Array.isArray(stats?.department_headcount) ? stats.department_headcount : [];
+  const payrollData = Array.isArray(stats?.payroll_by_department) ? stats.payroll_by_department : [];
+  const recentApprovals = Array.isArray(stats?.recent_approvals) ? stats.recent_approvals : [];
+  const recentEmployees = Array.isArray(stats?.recent_employees) ? stats.recent_employees : [];
+  const openPositions = recruitmentStats?.total_open_positions ?? stats?.open_positions;
 
-  const totalEmployees = stats?.total_employees ?? 21;
-  const activeEmployees = stats?.active_employees ?? 20;
-  const departments = stats?.departments ?? 9;
-  const healthScore = totalEmployees > 0 ? Math.round((activeEmployees / totalEmployees) * 100) : 95;
-
-  const fmt = (val, key) => {
-    if (val === null || val === undefined) return "—";
-    if (key === "monthly_payroll") return fmtCurrency(val);
-    return Number(val).toLocaleString();
-  };
-
-  const kpiRows = useMemo(() => [
-    [
-      { key: "active_employees", label: "Active Employees", icon: Users, iconBg: BLUE_100, iconColor: BLUE, trend: "up", trendLabel: "100%" },
-      { key: "hr_admins", label: "HR Admins", icon: Building2, iconBg: EMERALD_100, iconColor: EMERALD, trend: "flat", trendLabel: "0%" },
-      { key: "departments", label: "Departments", icon: BadgeInfo, iconBg: NAVY_100, iconColor: NAVY, trend: "up", trendLabel: "2 new" },
-      { key: "designations", label: "Designations", icon: BadgeInfo, iconBg: BLUE_100, iconColor: BLUE, trend: "flat", trendLabel: "0%" },
-    ],
-    [
-      { key: "pending_leave_requests", label: "Pending Leaves", icon: CalendarCheck, iconBg: NAVY_100, iconColor: NAVY, trend: "flat", trendLabel: "Clear" },
-      { key: "pending_approvals", label: "Pending Approvals", icon: Activity, iconBg: RED_100, iconColor: RED, trend: "flat", trendLabel: "Clear" },
-      { key: "monthly_payroll", label: "Monthly Payroll", icon: CreditCard, iconBg: BLUE_100, iconColor: BLUE, trend: "up", trendLabel: "4.2%" },
-      { key: "assets", label: "Assets", icon: Wrench, iconBg: NAVY_100, iconColor: NAVY, trend: "flat", trendLabel: "0%" },
-    ],
-    [
-      { key: "learning_courses", label: "Learning Courses", icon: BookOpen, iconBg: BLUE_100, iconColor: BLUE, trend: "up", trendLabel: `${learningStats?.total_courses || 0} total` },
-      { key: "performance_reviews", label: "Performance Reviews", icon: ClipboardCheck, iconBg: EMERALD_100, iconColor: EMERALD, trend: "flat", trendLabel: `${perfStats?.total_reviews || 0} total` },
-      { key: "recruitment_openings", label: "Open Positions", icon: UserPlus, iconBg: NAVY_100, iconColor: NAVY, trend: "up", trendLabel: `${recruitmentStats?.total_open_positions || 0} open` },
-      { key: "attendance_today", label: "Today's Attendance", icon: Clock, iconBg: RED_100, iconColor: RED, trend: "flat", trendLabel: "today" },
-    ],
-  ], [learningStats, perfStats, recruitmentStats]);
-
-  function renderKpi(kpi) {
-    let val;
-    if (loading) {
-      val = "—";
-    } else if (["total_employees", "active_employees", "hr_admins", "departments", "designations", "pending_leave_requests", "pending_approvals", "monthly_payroll", "assets", "attendance_today"].includes(kpi.key)) {
-      val = stats ? fmt(stats[kpi.key], kpi.key) : "—";
-    } else if (kpi.key === "learning_courses" && learningStats) {
-      val = fmt(learningStats.total_courses);
-    } else if (kpi.key === "performance_reviews" && perfStats) {
-      val = fmt(perfStats.total_reviews);
-    } else if (kpi.key === "recruitment_openings" && recruitmentStats) {
-      val = fmt(recruitmentStats.total_open_positions);
-    } else {
-      val = "—";
-    }
-    const TrendIcon = kpi.trend === "up" ? TrendingUp : kpi.trend === "down" ? TrendingDown : Minus;
-    const trendColor = kpi.trend === "up" ? EMERALD : kpi.trend === "down" ? RED : INK_SOFT;
-    return (
-      <StatCard
-        key={kpi.key}
-        icon={kpi.icon}
-        iconBg={kpi.iconBg}
-        iconColor={kpi.iconColor}
-        label={kpi.label}
-        value={val}
-        sub={kpi.key === "active_employees" ? `of ${totalEmployees} total headcount` : kpi.key === "departments" ? "Engineering leads headcount" : kpi.key === "monthly_payroll" ? "Disburses Aug 1, 2026" : kpi.key === "learning_courses" ? `${learningStats?.enrolled || 0} enrolled` : kpi.key === "performance_reviews" ? `${perfStats?.pending_reviews || 0} pending` : kpi.key === "recruitment_openings" ? `${recruitmentStats?.new_applicants || 0} new applicants` : kpi.key === "attendance_today" ? `${stats?.attendance_today || 0} checked in` : null}
-        trendIcon={TrendIcon}
-        trendLabel={kpi.trendLabel}
-        trendColor={trendColor}
-      />
-    );
-  }
-
-  const attendanceData = stats?.attendance_trend || [];
-  const approvalData = stats?.recent_approvals || [];
-  const deptData = stats?.department_headcount || [];
-  const payrollData = stats?.payroll_by_department || [];
-  const employeeData = stats?.recent_employees || [];
-
-  const badgeColors = { teal: { bg: EMERALD_100, color: EMERALD }, amber: { bg: BLUE_100, color: BLUE }, red: { bg: RED_100, color: RED } };
-
-  function avatarBg(index) {
-    return AVATAR_COLORS[index % AVATAR_COLORS.length];
-  }
+  const headerActions = (
+    <PrimaryButton icon={UserPlus} onClick={() => navigate("/hr-admin/employees")}>
+      Add employee
+    </PrimaryButton>
+  );
 
   return (
-    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
-      {error && (
-        <div className="mb-4 rounded-[14px] border p-4 text-sm" style={{ background: RED_100, borderColor: RED, color: RED }}>
-          {error}
-        </div>
-      )}
-
-      <div className="flex items-center gap-3 mb-4 pb-4" style={{ borderBottom: `1px solid ${LINE}` }}>
-        <img src={zoikoIcon} alt="ZoikoHR" className="w-10 h-10" />
-        <div>
-          <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold" style={{ color: INK }}>{orgName}</p>
-          <p className="text-[12px] font-medium" style={{ color: INK_SOFT }}>Organization ID · {orgId}</p>
-        </div>
-      </div>
-
-      <div
-        className="relative flex justify-between items-center gap-6 mb-[22px] rounded-[20px] px-[34px] py-[30px] text-white overflow-hidden"
-        style={{ background: `linear-gradient(120deg, #0A1128 0%, #1A2744 62%, #1E3A5F 100%)`, boxShadow: "0 4px 10px rgba(10,17,40,0.06), 0 20px 40px -20px rgba(59,130,246,0.25)" }}
-      >
-          <div
-            className="absolute rounded-full pointer-events-none"
-            style={{ right: -60, top: -90, width: 280, height: 280, background: "radial-gradient(circle, rgba(59,130,246,0.35), transparent 70%)" }}
-          />
-          <div className="z-[1]">
-            <p className="text-[11.5px] font-bold uppercase tracking-[0.12em]" style={{ color: "rgba(255,255,255,0.55)" }}>
-              {todayLabel()}
-            </p>
-            <h1 className="font-['Sora',system-ui,sans-serif] text-[27px] font-bold tracking-[-0.01em] mt-2">{greeting()}, {displayName}</h1>
-            <p className="mt-1.5 text-[14px] max-w-[520px]" style={{ color: "rgba(255,255,255,0.68)" }}>
-              {totalEmployees} total employees across {departments} departments. {learningStats?.total_courses || 0} courses active, {recruitmentStats?.total_open_positions || 0} positions open.
-            </p>
-            <div className="flex gap-2.5 mt-[18px]">
-              <button onClick={() => navigate("/hr-admin/employees")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold border-none cursor-pointer whitespace-nowrap" style={{ background: `linear-gradient(135deg,${BLUE},#2563EB)`, color: "#fff", boxShadow: `0 8px 20px -8px rgba(59,130,246,0.7)` }}>
-                ＋ Add Employee
-              </button>
-              <button onClick={() => navigate("/hr-admin/learning")} className="btn flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
-                Manage Learning
-              </button>
-              <button onClick={() => navigate("/hr-admin/reports")} className="btn hidden sm:flex items-center gap-2 px-[18px] py-2.5 rounded-[11px] text-[13.5px] font-semibold cursor-pointer whitespace-nowrap" style={{ background: "rgba(255,255,255,0.1)", color: "#fff", border: "1px solid rgba(255,255,255,0.22)" }}>
-                View Reports
-              </button>
-            </div>
+    <HrAdminLayout
+      title="HR Admin Dashboard"
+      subtitle={`${orgName} · ${greeting().toLowerCase()}, ${displayName}`}
+      actions={headerActions}
+    >
+      <div className="space-y-7">
+        {error && (
+          <div role="alert" className="flex items-start gap-3 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+            <Activity className="mt-0.5 h-5 w-5 shrink-0" aria-hidden="true" />
+            <div><p className="font-semibold">Dashboard data is unavailable</p><p className="mt-1 text-rose-700">{error}</p></div>
           </div>
-          <div className="z-[1] hidden md:flex items-center gap-4">
-            <div className="relative" style={{ width: 88, height: 88 }}>
-              <ResponsiveContainer width={88} height={88}>
-                <PieChart>
-                  <Pie data={[{ value: healthScore }, { value: 100 - healthScore }]} cx="50%" cy="50%" innerRadius={32} outerRadius={42} startAngle={90} endAngle={-270} dataKey="value" stroke="none">
-                    <Cell fill={BLUE} />
-                    <Cell fill="rgba(255,255,255,0.15)" />
-                  </Pie>
-                </PieChart>
-              </ResponsiveContainer>
-              <div className="absolute inset-0 flex items-center justify-center font-['Sora',system-ui,sans-serif] font-extrabold text-[19px] pointer-events-none">{healthScore}%</div>
-            </div>
+        )}
+
+        <section className={`${cardClass} relative overflow-hidden p-5 sm:p-7`} aria-labelledby="dashboard-welcome">
+          <div aria-hidden="true" className="pointer-events-none absolute -right-12 -top-20 h-64 w-64 rounded-full bg-blue-100/80 blur-3xl" />
+          <div className="relative flex flex-wrap items-end justify-between gap-5">
             <div>
-              <p className="font-['Sora',system-ui,sans-serif] text-[14.5px] font-bold">Org Health Score</p>
-              <p className="text-[11px] font-semibold tracking-[0.04em]" style={{ color: "rgba(255,255,255,0.6)" }}>Attendance, payroll &amp; compliance combined</p>
+              <p className="text-xs font-semibold uppercase tracking-[0.16em] text-blue-700">People operations</p>
+              <h2 id="dashboard-welcome" className="mt-2 text-2xl font-semibold tracking-tight text-slate-950 sm:text-3xl">Your workforce, at a glance</h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-600">Review team activity, follow up on requests, and keep your organization moving.</p>
+            </div>
+            <div className="flex items-center gap-2 rounded-xl border border-slate-200 bg-white/80 px-3.5 py-2.5 text-sm font-medium text-slate-600">
+              <CalendarCheck className="h-4 w-4 text-blue-600" aria-hidden="true" />
+              <time dateTime={localDateISO()}>{currentDate()}</time>
             </div>
           </div>
-        </div>
+        </section>
 
-        <div className="flex items-baseline justify-between mb-[14px] mt-[30px]">
-          <h2 className="font-['Sora',system-ui,sans-serif] text-[15.5px] font-bold tracking-[-0.01em]" style={{ color: INK }}>Key Metrics</h2>
-          <button className="text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>View all metrics →</button>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          {kpiRows[0].map(renderKpi)}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-          {kpiRows[1].map(renderKpi)}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mt-4">
-          {kpiRows[2].map(renderKpi)}
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-[18px] mt-1.5">
-          <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="flex items-center justify-between mb-[18px]">
-              <div>
-                <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Attendance Trend</h3>
-                <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>Daily check-ins over the last 14 days</p>
-              </div>
-              <div className="flex gap-1.5">
-                <span className="text-[11.5px] font-semibold px-[11px] py-[5px] rounded-full cursor-pointer" style={{ background: "#F0F4F8", color: INK_SOFT }}>7D</span>
-                <span className="text-[11.5px] font-semibold px-[11px] py-[5px] rounded-full cursor-pointer text-white" style={{ background: BLUE }}>14D</span>
-                <span className="text-[11.5px] font-semibold px-[11px] py-[5px] rounded-full cursor-pointer" style={{ background: "#F0F4F8", color: INK_SOFT }}>30D</span>
-              </div>
+        <section aria-labelledby="workforce-overview">
+          <div className="mb-3 flex items-end justify-between gap-3">
+            <div>
+              <h2 id="workforce-overview" className="text-lg font-semibold tracking-tight text-slate-950">Workforce overview</h2>
+              <p className="mt-1 text-sm text-slate-500">Key items that may need your attention.</p>
             </div>
-            <ResponsiveContainer width="100%" height={130}>
-              <LineChart data={attendanceData}>
-                <defs>
-                  <linearGradient id="attGradHr" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor={BLUE} stopOpacity={0.08} />
-                    <stop offset="100%" stopColor={BLUE} stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(10,17,40,0.05)" />
-                <XAxis dataKey="day" tick={{ fontSize: 10, fill: INK_SOFT }} axisLine={false} tickLine={false} />
-                <YAxis domain={[0, 21]} tick={{ fontSize: 11, fill: INK_SOFT }} axisLine={false} tickLine={false} />
-                <Tooltip />
-                <Area type="monotone" dataKey="present" fill="url(#attGradHr)" stroke="none" />
-                <Line type="monotone" dataKey="present" stroke={BLUE} strokeWidth={2.5} dot={false} />
-              </LineChart>
-            </ResponsiveContainer>
+            {loading && <span className="text-xs font-medium text-slate-400" role="status">Updating…</span>}
+          </div>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            <MetricCard icon={Users} label="Active employees" value={number(activeEmployees)} detail={`of ${number(totalEmployees)} total employees`} tone="blue" to="/hr-admin/employees" />
+            <MetricCard icon={CalendarCheck} label="Pending leave requests" value={number(stats?.pending_leave_requests)} detail="Awaiting review" tone="amber" to="/zoiko-hr/leave" />
+            <MetricCard icon={Activity} label="Checked in today" value={number(stats?.attendance_today)} detail="Attendance records for today" tone="teal" to="/zoiko-hr/attendance" />
+            <MetricCard icon={Briefcase} label="Open positions" value={number(openPositions)} detail={recruitmentStats?.new_applicants == null ? "Across your hiring pipeline" : `${number(recruitmentStats.new_applicants)} new applicants`} tone="violet" to="/zoiko-hr/recruitment" />
+          </div>
+        </section>
+
+        <section aria-labelledby="organization-metrics">
+          <div className="mb-3">
+            <h2 id="organization-metrics" className="text-lg font-semibold tracking-tight text-slate-950">Organization metrics</h2>
+            <p className="mt-1 text-sm text-slate-500">A quick view across your HR functions.</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-4">
+            <MetricCard compact icon={Building2} label="HR admins" value={number(stats?.hr_admins)} tone="teal" to="/hr-admin/my-organization" />
+            <MetricCard compact icon={Building2} label="Departments" value={number(stats?.departments)} tone="blue" to="/zoiko-hr/departments" />
+            <MetricCard compact icon={Users} label="Designations" value={number(stats?.designations)} tone="slate" to="/zoiko-hr/designations" />
+            <MetricCard compact icon={ClipboardCheck} label="Pending approvals" value={number(stats?.pending_approvals)} detail="Requests awaiting decision" tone="amber" to="/zoiko-hr/leave/requests" />
+            <MetricCard compact icon={CreditCard} label="Monthly payroll" value={money(stats?.monthly_payroll, currency)} detail={currency || "Organization currency"} tone="violet" to="/payroll" />
+            <MetricCard compact icon={Package} label="Assets" value={number(stats?.assets)} tone="amber" to="/zoiko-hr/assets" />
+            <MetricCard compact icon={BookOpen} label="Learning courses" value={number(learningStats?.total_courses)} detail={learningStats?.enrolled == null ? undefined : `${number(learningStats.enrolled)} enrolled`} tone="blue" to="/hr-admin/learning" />
+            <MetricCard compact icon={GraduationCap} label="Performance reviews" value={number(performanceStats?.total_reviews)} detail={performanceStats?.pending_reviews == null ? undefined : `${number(performanceStats.pending_reviews)} pending`} tone="teal" to="/hr-admin/performance" />
+          </div>
+        </section>
+
+        <section className="grid grid-cols-1 gap-5 xl:grid-cols-2" aria-label="Workforce analytics">
+          <div className={`${cardClass} p-5 sm:p-6`}>
+            <PanelHeading title="Attendance trend" description="Daily attendance over the last two weeks." />
+            {attendanceTrend.length ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <AreaChart data={attendanceTrend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}>
+                  <defs>
+                    <linearGradient id="hrAttendanceFill" x1="0" y1="0" x2="0" y2="1">
+                      <stop offset="0%" stopColor="#2563eb" stopOpacity={0.2} />
+                      <stop offset="100%" stopColor="#2563eb" stopOpacity={0.01} />
+                    </linearGradient>
+                  </defs>
+                  <CartesianGrid vertical={false} stroke="#e8edf4" strokeDasharray="4 4" />
+                  <XAxis dataKey="day" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <YAxis allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <Tooltip contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0", boxShadow: "0 8px 24px rgba(15,23,42,.08)" }} />
+                  <Area type="monotone" dataKey="present" name="Present" stroke="#2563eb" strokeWidth={2.5} fill="url(#hrAttendanceFill)" activeDot={{ r: 5 }} />
+                </AreaChart>
+              </ResponsiveContainer>
+            ) : <EmptyChart>{loading ? "Loading attendance…" : "Attendance history will appear here when available."}</EmptyChart>}
           </div>
 
-          <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="mb-[18px]">
-              <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Approvals Queue</h3>
-              <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>Nothing waiting — here's recent activity</p>
-            </div>
-            {approvalData.map((a, i) => (
-              <div key={i} className="flex items-center gap-[13px] py-3" style={{ borderBottom: i < approvalData.length - 1 ? `1px solid ${LINE}` : "none" }}>
-                <div className="w-[38px] h-[38px] rounded-[10px] flex-shrink-0 flex items-center justify-center font-['Sora',system-ui,sans-serif] font-bold text-[13px] text-white" style={{ background: avatarBg(i) }}>
-                  {a.initials}
-                </div>
-                <div>
-                  <p className="text-[13.5px] font-semibold" style={{ color: INK }}>{a.name}</p>
-                  <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>{a.meta}</p>
-                </div>
-                <span className="ml-auto text-[10.5px] font-bold px-[9px] py-1 rounded-full whitespace-nowrap" style={{ background: badgeColors[a.badgeColor].bg, color: badgeColors[a.badgeColor].color }}>
-                  {a.badge}
-                </span>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_1.5fr] gap-[18px] mt-[18px]">
-          <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="mb-[18px]">
-              <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Headcount by Department</h3>
-              <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>{departments} departments · {activeEmployees} active</p>
-            </div>
-            {deptData.map((d, i) => {
-              const deptColors = [BLUE, EMERALD, NAVY, BLUE, "#64748B", "#CBD5E1"];
-              return (
-                <div key={d.name} className="flex items-center gap-3 mb-[14px] last:mb-0">
-                  <span className="w-[118px] text-[12.5px] font-semibold flex-shrink-0" style={{ color: INK }}>{d.name}</span>
-                  <div className="flex-1 h-2 rounded-full overflow-hidden" style={{ background: "#F0F4F8" }}>
-                    <div className="h-full rounded-full" style={{ width: `${d.pct}%`, background: deptColors[i % deptColors.length] }} />
-                  </div>
-                  <span className="w-[26px] text-right text-[12.5px] font-bold" style={{ color: INK }}>{d.count}</span>
-                </div>
-              );
-            })}
+          <div className={`${cardClass} p-5 sm:p-6`}>
+            <PanelHeading title="Headcount by department" description="Active employees grouped by department." />
+            {departmentData.length ? (
+              <ResponsiveContainer width="100%" height={250}>
+                <BarChart data={departmentData} layout="vertical" margin={{ top: 0, right: 18, left: 4, bottom: 0 }}>
+                  <CartesianGrid horizontal={false} stroke="#e8edf4" strokeDasharray="4 4" />
+                  <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <YAxis type="category" dataKey="name" width={100} tick={{ fontSize: 11, fill: "#475569" }} tickLine={false} axisLine={false} />
+                  <Tooltip cursor={{ fill: "#f8fafc" }} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
+                  <Bar dataKey="count" name="Employees" fill="#3b82f6" radius={[0, 6, 6, 0]} maxBarSize={24} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <EmptyChart>{loading ? "Loading departments…" : "Department headcount will appear here when available."}</EmptyChart>}
           </div>
 
-          <div className="rounded-[20px] border p-6 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="mb-[18px]">
-              <h3 className="font-['Sora',system-ui,sans-serif] text-[15px] font-bold" style={{ color: INK }}>Payroll Distribution</h3>
-              <p className="text-[12px] mt-0.5" style={{ color: INK_SOFT }}>{fmtCurrency(stats?.monthly_payroll)} allocated across departments this month</p>
-            </div>
-            <ResponsiveContainer width="100%" height={150}>
-              <BarChart data={payrollData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="rgba(10,17,40,0.05)" />
-                <XAxis dataKey="dept" tick={{ fontSize: 11, fill: INK_SOFT }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: INK_SOFT }} axisLine={false} tickLine={false} tickFormatter={(v) => `$${v / 1000}k`} />
-                <Tooltip formatter={(v) => [`$${Number(v).toLocaleString()}`, "Payroll"]} />
-                <Bar dataKey="amount" radius={[8, 8, 0, 0]} maxBarSize={38}>
-                  {payrollData.map((_, idx) => (
-                    <Cell key={idx} fill={avatarBg(idx)} />
-                  ))}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
+          <div className={`${cardClass} p-5 sm:p-6`}>
+            <PanelHeading title="Payroll by department" description={currency ? `Monthly allocation in ${currency}.` : "Monthly payroll allocation by department."} />
+            {payrollData.length ? (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart data={payrollData} margin={{ top: 8, right: 8, left: -12, bottom: 0 }}>
+                  <CartesianGrid vertical={false} stroke="#e8edf4" strokeDasharray="4 4" />
+                  <XAxis dataKey="dept" tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} />
+                  <YAxis tick={{ fontSize: 11, fill: "#64748b" }} tickLine={false} axisLine={false} tickFormatter={(value) => Number(value).toLocaleString(undefined, { notation: "compact", maximumFractionDigits: 1 })} />
+                  <Tooltip formatter={(value) => [money(value, currency), "Payroll"]} contentStyle={{ borderRadius: 12, borderColor: "#e2e8f0" }} />
+                  <Bar dataKey="amount" name="Payroll" fill="#0f766e" radius={[6, 6, 0, 0]} maxBarSize={42} />
+                </BarChart>
+              </ResponsiveContainer>
+            ) : <EmptyChart>{loading ? "Loading payroll…" : "Payroll distribution will appear here when available."}</EmptyChart>}
           </div>
-        </div>
 
-        <div className="flex items-baseline justify-between mb-[14px] mt-[30px]">
-          <h2 className="font-['Sora',system-ui,sans-serif] text-[15.5px] font-bold tracking-[-0.01em]" style={{ color: INK }}>Recently Added Employees</h2>
-          <button onClick={() => navigate("/hr-admin/employees")} className="text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>View all {totalEmployees} →</button>
-        </div>
-        <div className="rounded-[20px] border overflow-hidden shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
+          <div className={`${cardClass} p-5 sm:p-6`}>
+            <PanelHeading
+              title="Recent leave activity"
+              description="Latest leave requests and their current status."
+              action={<NavLink to="/zoiko-hr/leave" className="inline-flex items-center gap-1 text-sm font-semibold text-blue-700 hover:text-blue-800">View leave <ArrowRight className="h-4 w-4" aria-hidden="true" /></NavLink>}
+            />
+            {recentApprovals.length ? (
+              <ul className="divide-y divide-slate-100">
+                {recentApprovals.map((item, index) => (
+                  <li key={`${item.name || "request"}-${index}`} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0">
+                    <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-semibold text-slate-600">{item.initials || initials(item.name)}</span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-semibold text-slate-800">{item.name || "Employee"}</span>
+                      <span className="mt-0.5 block truncate text-xs text-slate-500">{item.meta || "Leave request"}</span>
+                    </span>
+                    <span className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${statusTone(item.badge)}`}>{item.badge || "Updated"}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : <EmptyChart>{loading ? "Loading activity…" : "No recent leave activity."}</EmptyChart>}
+          </div>
+        </section>
+
+        <section className={`${cardClass} overflow-hidden`} aria-labelledby="recent-employees-heading">
+          <div className="flex flex-wrap items-center justify-between gap-3 px-5 py-5 sm:px-6">
+            <div>
+              <h2 id="recent-employees-heading" className="text-base font-semibold tracking-tight text-slate-900">Recently added employees</h2>
+              <p className="mt-1 text-sm text-slate-500">The newest additions to your organization.</p>
+            </div>
+            <NavLink to="/hr-admin/employees" className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 hover:text-blue-800">View employees <ArrowRight className="h-4 w-4" aria-hidden="true" /></NavLink>
+          </div>
           <div className="overflow-x-auto">
-            <table className="w-full" style={{ borderCollapse: "collapse" }}>
-              <thead>
+            <table className="min-w-full divide-y divide-slate-100">
+              <thead className="bg-slate-50/80">
                 <tr>
-                  {["Employee", "Department", "Designation", "Status"].map((h) => (
-                    <th key={h} className="text-left text-[11px] font-bold uppercase tracking-[0.05em] px-[14px] pb-2.5" style={{ color: INK_SOFT, borderBottom: `1px solid ${LINE}` }}>{h}</th>
-                  ))}
+                  {["Employee", "Department", "Designation", "Status"].map((heading) => <th key={heading} scope="col" className="px-5 py-3 text-left text-xs font-semibold uppercase tracking-wide text-slate-500">{heading}</th>)}
                 </tr>
               </thead>
-              <tbody>
-                {employeeData.length === 0 ? (
-                  <tr><td colSpan={4} className="px-[14px] py-8 text-center text-[13px]" style={{ color: INK_SOFT }}>No employees found</td></tr>
-                ) : employeeData.map((e, idx) => {
-                  const statusDots = {
-                    teal: { bg: TEAL, shadow: TEAL_100 },
-                    amber: { bg: AMBER, shadow: AMBER_100 },
-                    off: { bg: "#94A3B8", shadow: "#E2E8F0" },
-                  };
-                  const dot = statusDots[e.statusColor] || statusDots.off;
-                  return (
-                    <tr key={e.name || idx}>
-                      <td className="px-[14px] py-[13px] text-[13px]" style={{ borderBottom: `1px solid ${LINE}` }}>
-                        <div className="flex items-center gap-2.5">
-                          <div className="w-[30px] h-[30px] rounded-[8px] flex items-center justify-center font-['Sora',system-ui,sans-serif] font-bold text-[11.5px] text-white flex-shrink-0" style={{ background: avatarBg(idx) }}>
-                            {e.initials}
-                          </div>
-                          {e.name}
-                        </div>
-                      </td>
-                      <td className="px-[14px] py-[13px] text-[13px]" style={{ borderBottom: `1px solid ${LINE}` }}>{e.dept}</td>
-                      <td className="px-[14px] py-[13px] text-[13px]" style={{ borderBottom: `1px solid ${LINE}` }}>{e.designation}</td>
-                      <td className="px-[14px] py-[13px] text-[13px]" style={{ borderBottom: `1px solid ${LINE}` }}>
-                        <span className="inline-block w-[7px] h-[7px] rounded-full mr-1.5 align-middle" style={{ background: dot.bg, boxShadow: `0 0 0 3px ${dot.shadow}` }} />
-                        {e.status}
-                      </td>
-                    </tr>
-                  );
-                })}
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {recentEmployees.length ? recentEmployees.map((employee, index) => (
+                  <tr key={`${employee.name || "employee"}-${index}`} className="hover:bg-slate-50/70">
+                    <td className="whitespace-nowrap px-5 py-3.5">
+                      <div className="flex items-center gap-3">
+                        <span className="grid h-9 w-9 place-items-center rounded-full bg-blue-50 text-xs font-semibold text-blue-700">{employee.initials || initials(employee.name)}</span>
+                        <span className="text-sm font-medium text-slate-800">{employee.name || "—"}</span>
+                      </div>
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-3.5 text-sm text-slate-600">{employee.dept || "—"}</td>
+                    <td className="whitespace-nowrap px-5 py-3.5 text-sm text-slate-600">{employee.designation || "—"}</td>
+                    <td className="whitespace-nowrap px-5 py-3.5"><span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ring-1 ring-inset ${statusTone(employee.status)}`}>{employee.status || "Unknown"}</span></td>
+                  </tr>
+                )) : (
+                  <tr><td colSpan={4} className="px-5 py-10 text-center text-sm text-slate-500">{loading ? "Loading employees…" : "No recently added employees."}</td></tr>
+                )}
               </tbody>
             </table>
           </div>
-        </div>
+        </section>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-[18px]">
-          <div className="rounded-[14px] border p-[18px] shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[12px] font-semibold" style={{ color: INK_SOFT }}>Avg. Attendance</span>
-              <span className="text-[12px] font-bold" style={{ color: EMERALD }}>{stats?.average_attendance ? "▲" : "—"}</span>
-            </div>
-            <p className="text-[20px] font-bold" style={{ color: INK }}>{stats?.average_attendance != null ? `${stats.average_attendance}%` : "—"}</p>
-          </div>
-          <div className="rounded-[14px] border p-[18px] shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[12px] font-semibold" style={{ color: INK_SOFT }}>Avg. Tenure</span>
-              <span className="text-[12px] font-bold" style={{ color: INK_SOFT }}>{stats?.average_tenure_years ? "stable" : "—"}</span>
-            </div>
-            <p className="text-[20px] font-bold" style={{ color: INK }}>{stats?.average_tenure_years != null ? `${stats.average_tenure_years} yrs` : "—"}</p>
-          </div>
-          <div className="rounded-[14px] border p-[18px] shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ background: "#fff", borderColor: LINE }}>
-            <div className="flex justify-between items-center mb-2">
-              <span className="text-[12px] font-semibold" style={{ color: INK_SOFT }}>Open Positions</span>
-              <span className="text-[12px] font-bold" style={{ color: EMERALD }}>{stats?.open_positions != null ? `${stats.open_positions} roles` : "—"}</span>
-            </div>
-            <p className="text-[20px] font-bold" style={{ color: INK }}>{stats?.open_positions != null ? stats.open_positions : "—"}</p>
-          </div>
-        </div>
-    </div>
-  );
-}
-
-function TrendingUp(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <polyline points="23 6 13.5 15.5 8.5 10.5 1 18" />
-      <polyline points="17 6 23 6 23 12" />
-    </svg>
-  );
-}
-
-function TrendingDown(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <polyline points="23 18 13.5 8.5 8.5 13.5 1 6" />
-      <polyline points="17 18 23 18 23 12" />
-    </svg>
-  );
-}
-
-function Minus(props) {
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round" {...props}>
-      <line x1="5" y1="12" x2="19" y2="12" />
-    </svg>
+        <section aria-label="Additional workforce indicators" className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className={`${cardClass} flex items-center gap-3 p-4`}><span className="grid h-10 w-10 place-items-center rounded-xl bg-teal-50 text-teal-600"><Activity className="h-5 w-5" aria-hidden="true" /></span><div><p className="text-xs font-medium text-slate-500">Average attendance</p><p className="mt-0.5 text-lg font-semibold text-slate-900">{stats?.average_attendance == null ? "—" : `${number(stats.average_attendance)}%`}</p></div></div>
+          <div className={`${cardClass} flex items-center gap-3 p-4`}><span className="grid h-10 w-10 place-items-center rounded-xl bg-violet-50 text-violet-600"><Users className="h-5 w-5" aria-hidden="true" /></span><div><p className="text-xs font-medium text-slate-500">Average tenure</p><p className="mt-0.5 text-lg font-semibold text-slate-900">{stats?.average_tenure_years == null ? "—" : `${number(stats.average_tenure_years)} years`}</p></div></div>
+          <NavLink to="/zoiko-hr/recruitment" className={`${cardClass} group flex items-center gap-3 p-4 transition hover:border-blue-200 hover:shadow-md`}><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Briefcase className="h-5 w-5" aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-medium text-slate-500">Hiring pipeline</span><span className="mt-0.5 block text-lg font-semibold text-slate-900">{number(openPositions)} open roles</span></span><ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" aria-hidden="true" /></NavLink>
+        </section>
+      </div>
+    </HrAdminLayout>
   );
 }

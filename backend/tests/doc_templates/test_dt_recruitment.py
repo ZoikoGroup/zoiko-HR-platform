@@ -12,6 +12,13 @@ from app.modules.hr.models import (OfferStatus, OnboardingNewHire, RecruitmentCa
                                    RecruitmentRequisition)
 from tests.doc_templates.p2_support import activate, code, set_recruitment_privacy, signatory
 
+
+@pytest.fixture(autouse=True)
+def _second_approver(world):
+    """These tests cover the approval path: switch off "offer letters without approval" (on by default since 2026-10-22)."""
+    r = world.put("a_admin", "/hr/recruitment/privacy-settings", json={"offer_letters_without_approval": False})
+    assert r.status_code == 200, r.text
+
 FRONTEND = pathlib.Path(__file__).resolve().parents[3] / "frontend" / "src"
 BACKEND = pathlib.Path(__file__).resolve().parents[2] / "app"
 
@@ -116,15 +123,17 @@ def test_offer_end_to_end_generate_approve_issue_sign_accept_onboard(world):
     assert ack.status == "ISSUED" and ack.source_ref == f"recruitment_offer:{o['id']}"
 
 
-def test_generating_an_unconfigured_cross_border_offer_provisions_starters_automatically(world):
-    from app.modules.doc_templates.models import JurisdictionPack, TemplateApprovalRecord, TemplateVariant
+def test_generating_an_unconfigured_cross_border_offer_uses_preview_without_attestation(world):
+    from app.modules.doc_templates.models import JurisdictionPack
     signatory(world)
     cand = _candidate(world, "Jordan Crossborder", "jordan.crossborder@example.com")
     o = _offer(world, cand, work_country="US", currency="USD", conditions=None)
     assert world.put("a_admin", "/hr/recruitment/privacy-settings", json={"offer_letters_without_approval": True}).status_code == 200
     readiness = world.get("a_admin", f"/hr/recruitment/offers/{o['id']}/letter/readiness").json()
-    assert readiness["auto_setup_available"] is True
-    assert all(step["automatic"] for step in readiness["steps"] if step["key"] in ("pack", "template", "clauses"))
+    assert readiness["draft_preview_available"] is True
+    assert readiness["draft_preview_countries"] == ["AU", "CA", "GB", "IN", "US"]
+    assert readiness["auto_setup_available"] is False
+    assert all(step["preview_only"] for step in readiness["steps"] if step["key"] in ("pack", "template", "clauses"))
     assert next(step for step in readiness["steps"] if step["key"] == "approval")["automatic"] is True
 
     r = world.post("a_admin", f"/hr/recruitment/offers/{o['id']}/letter")
@@ -132,15 +141,12 @@ def test_generating_an_unconfigured_cross_border_offer_provisions_starters_autom
     letter = r.json()["letter"]
     world.db.expire_all()
     assert world.db.get(RecruitmentOffer, o["id"]).status == OfferStatus.APPROVED
-    pack = world.db.query(JurisdictionPack).filter_by(owner_organization_id=1, country="US", status="ACTIVE").one()
-    variant = world.db.query(TemplateVariant).filter_by(pack_id=pack.id, canonical_id="HR-HIR-012", status="ACTIVE").one()
-    assert "GB" in variant.applicability["cross_border_from"]
-    approval = world.db.query(TemplateApprovalRecord).filter_by(variant_id=variant.id).one()
-    assert approval.signed_name_typed is None
-    assert approval.review["attestation_method"] == "offer_generation_request"
-    assert letter["canonical_id"] == "HR-HIR-012" and letter["status"] in ("RENDERED_DRAFT", "HUMAN_APPROVED", "PENDING_APPROVAL")
+    preview = world.db.get(GeneratedDocument, letter["id"])
+    assert preview.canonical_id == "HR-HIR-012" and preview.status == "RENDERED_DRAFT"
+    assert preview.release_mode == "STARTER_PREVIEW"
+    assert world.db.query(JurisdictionPack).filter_by(owner_organization_id=1, country="US").count() == 0
     issued = world.post("a_admin", f"/hr/recruitment/offers/{o['id']}/letter/issue")
-    assert issued.status_code == 200 and issued.json()["letter"]["status"] == "ISSUED"
+    assert issued.status_code == 409 and "unreviewed starter draft" in str(issued.json()).lower()
 
 
 def test_decline_and_expiry_drive_the_offer(world):

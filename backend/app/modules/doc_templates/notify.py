@@ -46,18 +46,19 @@ def _first_name(person) -> str:
 EMAIL_ATTEMPTS = 3
 
 
-def _safe(fn, doc_id, what):
+def _safe(fn, doc_id, what, *, attempts=EMAIL_ATTEMPTS):
     """Send an e-mail, retrying a transient failure (no sleep: the next attempt is immediate). Failures are logged by id only and
     never break the action that triggered them."""
-    for attempt in range(1, EMAIL_ATTEMPTS + 1):
+    for attempt in range(1, attempts + 1):
         try:
             result = fn()
             if result is not False:
-                return
+                return True
         except Exception:
             pass
-        if attempt == EMAIL_ATTEMPTS:
+        if attempt == attempts:
             logger.warning("doc_templates: %s e-mail failed for document id %s after %s attempts", what, doc_id, attempt)
+    return False
 
 
 def event(db, name: str, doc: GeneratedDocument) -> None:
@@ -115,13 +116,16 @@ def reminder(db, doc: GeneratedDocument, person) -> None:
         app_url(f"/employee/documents/company?generated={doc.id}"), db=db, organization_id=doc.organization_id), doc.id, "reminder")
 
 
-def candidate_link(db, doc: GeneratedDocument, candidate, raw_token: str, expires_at, organization_name: str) -> None:
+def candidate_link(db, doc: GeneratedDocument, candidate, raw_token: str, expires_at, organization_name: str,
+                   *, wait: bool = False) -> bool:
     from app.services import email_service
     url = app_url(f"/sign/{raw_token}")
-    _safe(lambda: email_service.send_candidate_document_sign_email(
+    errors = [] if wait else None
+    return _safe(lambda: email_service.send_candidate_document_sign_email(
         candidate.email, (getattr(candidate, "name", None) or getattr(candidate, "candidate_name", None) or "there").split()[0],
         organization_name, doc.document_number, fmt_day(expires_at), url, fmt_day(doc.due_by), db=db,
-        organization_id=doc.organization_id), doc.id, "candidate link")
+        organization_id=doc.organization_id, wait=wait, error_out=errors), doc.id, "candidate link",
+        attempts=1 if wait else EMAIL_ATTEMPTS)
 
 
 def sign_code(db, doc: GeneratedDocument, email: str, first_name: str, code: str) -> None:

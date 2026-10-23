@@ -251,12 +251,19 @@ class EntitlementMiddleware:
             await self.app(scope, receive, send)
             return
 
+        # Do not await the downstream ASGI app while this session is open. For orgs
+        # outside the staged billing scope, the route will open its own DB session;
+        # keeping this connection checked out across that await can double the
+        # connection demand per request and exhaust the pool under normal UI fan-out.
         with self.session_factory() as db:
-            if not self._is_org_in_scope(db, org_id):
-                await self.app(scope, receive, send)
-                return
-            result = check_entitlement(db, org_id, matched_key)
-            state = result.get("state")
+            in_scope = self._is_org_in_scope(db, org_id)
+            result = check_entitlement(db, org_id, matched_key) if in_scope else None
+
+        if not in_scope:
+            await self.app(scope, receive, send)
+            return
+
+        state = result.get("state")
 
         if state == ENTITLED_AVAILABLE:
             await self.app(scope, receive, send)

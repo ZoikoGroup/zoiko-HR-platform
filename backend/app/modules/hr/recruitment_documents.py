@@ -22,7 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.core.dependencies import get_current_user
 from app.database import get_db
-from app.modules.doc_templates import access, hooks, service as doc_service
+from app.modules.doc_templates import access, hooks, preflight, service as doc_service
 from app.modules.doc_templates.models import DecisionReceipt, GeneratedDocument, TemplateVariant
 from app.modules.hr.models import (OfferStatus, OrganizationConfig, RecruitmentCandidate, RecruitmentCandidateStatus, RecruitmentInterview,
                                    RecruitmentInterviewFeedback, RecruitmentOffer, RecruitmentOfferApproval, RecruitmentRequisition)
@@ -58,7 +58,9 @@ OFFER_WAIVER_REASON = "Organization setting: offer letters without approval"
 
 
 def offer_letters_without_approval(db, organization_id: int) -> bool:
-    return bool(privacy_setting(db, organization_id, "offer_letters_without_approval"))
+    """On unless the organization switched it off (since 2026-10-22): saving an offer generates its letter."""
+    value = privacy_setting(db, organization_id, "offer_letters_without_approval")
+    return True if value is None else bool(value)
 
 
 def _cast(value, typ):
@@ -237,7 +239,51 @@ def _offer(db, actor, offer_id: int) -> RecruitmentOffer:
 
 
 def _letter(db, offer) -> Optional[GeneratedDocument]:
-    return db.get(GeneratedDocument, offer.document_id) if offer.document_id else None
+    """Return the current offer letter, repairing older generated rows that were never linked back to the offer.
+
+    Some automatic document triggers create the GeneratedDocument with the correct offer source_ref but do not pass
+    through the explicit generate-letter endpoint that normally stores RecruitmentOffer.document_id. Resolve that
+    canonical offer template from the source record so reads, issuing, and signing hooks all see the same document.
+    """
+    canonical_id, _ = select_offer_template(offer)
+    if not canonical_id:
+        return None
+
+    source_ref = _ref("recruitment_offer", offer.id)
+    linked = db.get(GeneratedDocument, offer.document_id) if offer.document_id else None
+    if (linked is not None and linked.organization_id == offer.organization_id
+            and linked.source_ref == source_ref and linked.canonical_id == canonical_id):
+        return linked
+
+    recovered = (db.query(GeneratedDocument)
+                 .filter(GeneratedDocument.organization_id == offer.organization_id,
+                         GeneratedDocument.source_ref == source_ref,
+                         GeneratedDocument.canonical_id == canonical_id)
+                 .order_by(GeneratedDocument.id.desc())
+                 .first())
+    if recovered is not None:
+        offer.document_id = recovered.id
+        return recovered
+    return None
+
+
+def _has_released_offer_variant(db, organization_id: int, offer: RecruitmentOffer, canonical_id: str) -> bool:
+    """Whether this offer can use a currently effective released variant for its work location."""
+    country = (offer.work_country or "").upper()
+    if not country:
+        return False
+    today = date.today()
+    packs = preflight.candidate_packs(db, organization_id, country, offer.work_region, today)
+    return any(
+        db.query(TemplateVariant.id).filter(
+            TemplateVariant.canonical_id == canonical_id,
+            TemplateVariant.pack_id == pack.id,
+            TemplateVariant.status == "ACTIVE",
+            (TemplateVariant.effective_from.is_(None) | (TemplateVariant.effective_from <= today)),
+            (TemplateVariant.effective_to.is_(None) | (TemplateVariant.effective_to >= today)),
+        ).first() is not None
+        for pack in packs
+    )
 
 
 def approve_offer(db, actor, offer: RecruitmentOffer, comment: Optional[str]) -> RecruitmentOffer:
@@ -269,11 +315,20 @@ def auto_prepare_offer_letter(db, actor, offer_id: int) -> dict:
     if current is not None and current.status in ("ISSUED", "EXECUTED"):
         return {"auto": True, "generated": False, "reason": "This offer's letter was already sent."}
     if current is not None and current.status in OFFER_IN_PROGRESS:
-        if offer.status == OfferStatus.APPROVED:
+        if current.release_mode == "STARTER_PREVIEW":
+            # The preview is useful while no released variant exists. A later template setup must replace it.
+            if not _has_released_offer_variant(db, actor.organization_id, offer, current.canonical_id):
+                return {"auto": True, "generated": False, "reason": "An unreviewed starter preview is already available."}
+            doc_service.cancel(db, current, actor, "A released jurisdiction template is now available.",
+                               system_trigger="recruitment_offer.template_ready")
+            offer.document_id = None
+            db.commit()
+        elif offer.status == OfferStatus.APPROVED:
             return {"auto": True, "generated": False, "reason": "A letter for this offer already exists."}
-        # the terms changed after the letter was made (an edit puts the offer back to draft): replace the unsent letter
-        doc_service.cancel(db, current, actor, "The offer's terms changed; a new letter was generated.",
-                           system_trigger="recruitment_offer.updated")
+        else:
+            # the terms changed after the letter was made (an edit puts the offer back to draft): replace the unsent letter
+            doc_service.cancel(db, current, actor, "The offer's terms changed; a new letter was generated.",
+                               system_trigger="recruitment_offer.updated")
     cid, blocked = select_offer_template(offer)
     if blocked or not offer.candidate_id or offer.salary is None:
         return {"auto": True, "generated": False,
@@ -307,17 +362,18 @@ LETTER_FIX_LINKS = {
 def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     """Everything an offer letter needs, each checked on its own (the engine's preflight stops at the first problem, so HR
     would otherwise fix one thing at a time). Read-only; nothing is generated or recorded."""
-    from app.modules.doc_templates import entitlements, preflight
+    from app.modules.doc_templates import entitlements, preflight, starters
     from app.modules.doc_templates.approvals import _people_with_roles, eligible_signatories
     from app.modules.doc_templates.models import TemplateDefinition
     org = actor.organization_id
     today = date.today()
     steps = []
 
-    def step(key, label, ok, detail, fix=None, automatic=False):
+    def step(key, label, ok, detail, fix=None, automatic=False, preview_only=False):
         link = LETTER_FIX_LINKS.get(fix or key) if not ok else None
         steps.append({"key": key, "label": label, "ok": bool(ok), "detail": detail,
-                      "automatic": bool(automatic), "fix": {"label": link[0], "href": link[1]} if link and not automatic else None})
+                      "automatic": bool(automatic), "preview_only": bool(preview_only),
+                      "fix": {"label": link[0], "href": link[1]} if link and not automatic and not preview_only else None})
 
     cid, blocked = select_offer_template(offer)
     details_missing = [m for m, bad in (("candidate", not offer.candidate_id), ("pay", offer.salary is None),
@@ -325,6 +381,12 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     step("offer", "Offer details", not blocked and not details_missing,
          blocked or (f"Add the {', '.join(details_missing)} to the offer." if details_missing else f"Template {cid} applies to this offer."))
     definition = db.get(TemplateDefinition, cid) if cid else None
+    draft_preview_available = bool(
+        cid and (offer.work_country or "").upper() in DRAFT_PREVIEW_COUNTRIES
+        and starters.latest(db, cid)
+        and preflight.templates_enabled(db, org)
+        and preflight.entitled(db, org)
+    )
 
     missing_features = [k for k in (entitlements.required_features(definition) if definition else [])
                         if not preflight.entitled(db, org, k)]
@@ -337,12 +399,14 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     step("entity", "Employing legal entity", entity_ok,
          f"{entity.legal_name} ({entity.country})" if entity_ok else
          ("The entity needs a legal name and a country." if entity is not None else
-          "No active legal entity is set up for your organization."))
+          "No active legal entity is set up for your organization."),
+         preview_only=draft_preview_available and not entity_ok)
 
     sigs = eligible_signatories(db, org, entity.id, cid, definition.family_id, definition.legal_risk, set()) if (entity_ok and definition) else []
     step("signatory", "Authorised signatory", bool(sigs),
          f"{len(sigs)} signatory(ies) can sign offer letters." if sigs else
-         "Nobody is authorised to sign offer letters for this entity.")
+         "Nobody is authorised to sign offer letters for this entity.",
+         preview_only=draft_preview_available and not bool(sigs))
 
     auto_setup_available = False
     if cid:
@@ -353,8 +417,9 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     step("pack", f"Jurisdiction pack for {offer.work_country or 'the work country'}", bool(packs),
          ", ".join(f"{p.scope_type.lower()} pack #{p.id}" for p in packs) if packs else
          ("Will be provisioned automatically from the starter when you generate the letter." if auto_setup_available else
+          "Automatic starter preview is available; no legal jurisdiction pack is created for preview." if draft_preview_available else
           f"No active pack covers {offer.work_country or 'the work country'}. Create your organization's pack and activate it."),
-         automatic=auto_setup_available and not packs)
+         automatic=auto_setup_available and not packs, preview_only=draft_preview_available and not packs and not auto_setup_available)
 
     variant = None
     if packs and cid:
@@ -367,8 +432,10 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     step("template", f"Released template {cid or ''}".strip(), variant is not None,
          f"Version {variant.version} ({variant.release_mode.replace('_', ' ').lower()})" if variant else
          ("Will be released automatically from the starter when you generate the letter." if auto_setup_available else
+          "Starter template is available for a draft preview only; it is not released for sending." if draft_preview_available else
           f"No released version of {cid} in the pack. Create it from the starter and release it.") if cid else "No template applies.",
-         automatic=auto_setup_available and variant is None)
+         automatic=auto_setup_available and variant is None,
+         preview_only=draft_preview_available and variant is None and not auto_setup_available)
 
     missing_clauses = []
     if variant is not None:
@@ -378,8 +445,10 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
     step("clauses", "Required clauses", variant is not None and not missing_clauses,
          ("All required clauses are released." if not missing_clauses else "Missing: " + ", ".join(missing_clauses)) if variant
          else ("Will be released automatically from the starter when you generate the letter."
-               if auto_setup_available else "Checked once the template is released."),
-         automatic=auto_setup_available and (variant is None or bool(missing_clauses)))
+               if auto_setup_available else "Country-specific clause placeholders are shown in the preview; clauses are not legally released." if draft_preview_available
+               else "Checked once the template is released."),
+         automatic=auto_setup_available and (variant is None or bool(missing_clauses)),
+         preview_only=draft_preview_available and (variant is None or bool(missing_clauses)) and not auto_setup_available)
 
     waived = offer_letters_without_approval(db, org)
     if waived:
@@ -407,7 +476,9 @@ def offer_letter_readiness(db, actor, offer: RecruitmentOffer) -> dict:
         if final.get("outcome") != "ALLOW":
             step("final", "Final check", False, "; ".join(final.get("reasons") or []) or "The engine refused the letter.")
     return {"offer_id": offer.id, "canonical_id": cid, "ready": all(s["ok"] for s in steps), "steps": steps,
-            "work_country": offer.work_country, "auto_setup_available": auto_setup_available}
+            "work_country": offer.work_country, "auto_setup_available": auto_setup_available,
+            "draft_preview_available": draft_preview_available,
+            "draft_preview_countries": sorted(DRAFT_PREVIEW_COUNTRIES)}
 
 
 def offer_preflight(db, actor, offer: RecruitmentOffer) -> dict:
@@ -422,6 +493,144 @@ def offer_preflight(db, actor, offer: RecruitmentOffer) -> dict:
     elif cid:
         out["selection_blocked"] = "Link the offer to a candidate before generating the letter."
     return out
+
+
+DRAFT_PREVIEW_COUNTRIES = {"GB", "US", "AU", "IN", "CA"}
+SENDABLE_OFFER_STARTER = "OFFER_STARTER"
+
+
+def generate_unreviewed_offer_draft(db, actor, offer: RecruitmentOffer, canonical_id: str, *, sendable: bool = False):
+    """Persist a rendered starter draft, or a sendable offer using unchanged platform starter content.
+
+    A sendable starter is intentionally distinct from a jurisdiction-released variant. It is available only for the five
+    supported offer countries, uses the exact starter blocks and existing starter clause text, and refuses to send when a
+    required clause or required offer field has no starter value.
+    """
+    from datetime import timedelta
+    from types import SimpleNamespace
+    from app.modules.doc_templates import fields, renderer, service as doc_service, starters, state
+    from app.modules.doc_templates.models import GeneratedDocument, TemplateDefinition
+    from app.modules.hr.models import RecruitmentCandidate
+
+    if (offer.work_country or "").upper() not in DRAFT_PREVIEW_COUNTRIES:
+        raise HTTPException(409, "A released jurisdiction template is required for this work country.")
+    if not preflight.templates_enabled(db, actor.organization_id):
+        raise HTTPException(409, "Document generation is disabled for this organization.")
+    if not preflight.entitled(db, actor.organization_id):
+        raise HTTPException(403, "Your plan does not include offer letters.")
+    definition = db.get(TemplateDefinition, canonical_id)
+    starter = starters.latest(db, canonical_id)
+    candidate = db.get(RecruitmentCandidate, offer.candidate_id)
+    if definition is None or starter is None or candidate is None:
+        raise HTTPException(404, "Offer template or candidate not found.")
+    if sendable and not (candidate.email or "").strip():
+        raise HTTPException(409, "Add an email address to the linked candidate before sending the offer letter.")
+
+    existing = _letter(db, offer)
+    if existing is not None and existing.status in OFFER_IN_PROGRESS:
+        return existing
+    country = offer.work_country.upper()
+    entity = preflight.resolve_entity(db, actor.organization_id, None, offer.employer_entity_id)
+    if entity is None:
+        organization = actor.organization
+        entity = SimpleNamespace(
+            legal_name=getattr(organization, "organization_name", None) or getattr(organization, "display_name", None) or "Employer name not set",
+            trading_name=None, country=country, region=getattr(organization, "state", None), city=getattr(organization, "city", None),
+            postal_code=None, address_lines=[getattr(organization, "address", None)] if getattr(organization, "address", None) else [],
+            registration_number=None, registration_type=None, logo_file=None)
+    if sendable and getattr(entity, "legal_name", None) == "Employer name not set":
+        raise HTTPException(409, "Set your organization's name before sending an offer letter.")
+
+    now = datetime.utcnow()
+    number = doc_service.next_document_number(db, actor.organization)
+    source_ref = _ref("recruitment_offer", offer.id)
+    doc = GeneratedDocument(
+        document_number=number, organization_id=actor.organization_id, canonical_id=canonical_id,
+        family_id=definition.family_id, title=definition.title, kind=definition.kind,
+        legal_risk=definition.legal_risk, sensitivity=definition.sensitivity, output_mode=definition.output_mode,
+        execution_mode=definition.execution_mode, audience=definition.audience,
+        approval_policy="L1" if sendable else "L2",
+        variant_id=None, variant_version=None, variant_checksum=None, pack_id=None,
+        release_mode=SENDABLE_OFFER_STARTER if sendable else "STARTER_PREVIEW", subject_type="candidate", subject_id=candidate.id,
+        source_ref=source_ref, language="en", recipient_name=fields._full_name(candidate),
+        recipient_email=candidate.email, entity_id=getattr(entity, "id", None), requested_by=actor.id)
+    state.initial(doc)
+    db.add(doc)
+    db.flush()
+    state.add_event(db, doc, "requested", actor_id=actor.id,
+                    detail={"canonical_id": canonical_id, "preview_only": not sendable,
+                            "release_mode": doc.release_mode, "starter_revision": starter.get("revision")})
+    state.transition(db, doc, "CONTEXT_VALIDATED", actor_id=actor.id,
+                     detail={"jurisdiction": country, "preview_only": not sendable})
+
+    ctx = fields.FieldContext(db=db, organization=actor.organization, subject_type="candidate", subject=candidate,
+                              entity=entity, requester=actor, canonical_id=canonical_id, source=offer,
+                              language="en", sample=False)
+    today = date.today()
+    days = int(starter.get("options", {}).get("response_days") or 14)
+    ctx.document = {"number": number, "date": today, "title": definition.title,
+                    "response_deadline": today + timedelta(days=days)}
+    rules = starter.get("clause_rules") or {}
+    mandatory = list(rules.get("mandatory") or [])
+    clauses = {}
+    for key in mandatory + list(rules.get("optional") or []):
+        clause = starters.starter_clause(db, key)
+        if clause and clause.get("text"):
+            clauses[key] = SimpleNamespace(text=clause["text"])
+        elif key in mandatory and sendable:
+            raise HTTPException(409, {"code": "OFFER_STARTER_CLAUSE_MISSING",
+                                      "message": f"The selected offer template has no ready starter text for required clause '{key}'."})
+        else:
+            clauses[key] = SimpleNamespace(text=f"[Unreviewed draft placeholder: jurisdiction-specific clause '{key}' is not configured.]")
+    if sendable:
+        missing = fields.required_missing(ctx, list((starter.get("field_contract") or {}).get("required") or []))
+        if missing:
+            raise HTTPException(422, {"code": "OFFER_FIELDS_MISSING",
+                                      "message": "Complete the required offer fields before sending: " + ", ".join(missing)})
+    inp = doc_service.build_input(ctx, blocks=starter.get("content") or [], clauses=clauses,
+                                  required_clause_keys=mandatory, number=number, title=definition.title,
+                                  sensitivity=definition.sensitivity, letterhead_info=doc_service.letterhead(entity, actor.organization),
+                                  author=getattr(entity, "legal_name", ""))
+    doc_service._store_render(db, doc, inp)
+    state.transition(db, doc, "RENDERED_DRAFT", actor_id=actor.id, event_type="rendered",
+                     detail={"sha256": doc.pdf_sha256, "preview_only": not sendable,
+                             "country": country, "release_mode": doc.release_mode,
+                             "starter_revision": starter.get("revision")})
+    doc.due_by = datetime.combine(today + timedelta(days=days), datetime.min.time())
+    doc.expires_at = doc.due_by + timedelta(days=7)
+    doc.reminder_days = list(starter.get("options", {}).get("reminder_days") or [])
+    offer.document_id = doc.id
+    if sendable:
+        if offer.status != OfferStatus.APPROVED:
+            raise HTTPException(409, "Approve the offer before sending the letter.")
+        approver_id = offer.approved_by or actor.id
+        doc.approved_by = [approver_id]
+        state.transition(db, doc, "HUMAN_APPROVED", actor_id=approver_id, event_type="offer_approval_reused",
+                         detail={"source": "recruitment_offer", "offer_id": offer.id})
+        state.add_event(db, doc, "automatic_offer_template", actor_id=actor.id,
+                        detail={"country": country, "starter_revision": starter.get("revision"),
+                                "jurisdiction_pack_required": False})
+    db.commit()
+    db.refresh(doc)
+    return doc
+
+
+def auto_generate_offer_draft_on_create(db, actor, offer: RecruitmentOffer) -> Optional[GeneratedDocument]:
+    """Attach a starter draft as soon as an offer is created for a supported work country."""
+    if actor is None or offer is None or not offer.candidate_id or (offer.work_country or "").upper() not in DRAFT_PREVIEW_COUNTRIES:
+        return None
+    current = _letter(db, offer)
+    if current is not None:
+        return current
+    cid, blocked = select_offer_template(offer)
+    if blocked or not cid:
+        return None
+    try:
+        return generate_unreviewed_offer_draft(db, actor, offer, cid)
+    except Exception:
+        db.rollback()
+        logger.exception("offer %s: automatic starter draft generation failed", offer.id)
+        return None
 
 
 def generate_offer_letter(db, actor, offer: RecruitmentOffer, *, waive_approval: bool = False) -> GeneratedDocument:
@@ -444,8 +653,9 @@ def generate_offer_letter(db, actor, offer: RecruitmentOffer, *, waive_approval:
             offer = db.get(RecruitmentOffer, offer.id)
         else:
             raise HTTPException(409, {"code": "OFFER_NOT_APPROVED", "message": "The offer must be approved before its letter is generated."})
+    country = (offer.work_country or "").upper()
     current = _letter(db, offer)
-    if current is not None and current.status in OFFER_IN_PROGRESS:
+    if current is not None and current.status in OFFER_IN_PROGRESS and current.release_mode != "STARTER_PREVIEW":
         raise HTTPException(409, "A letter for this offer is already in progress. Issue or cancel it first.")
     # A generation request by an organization admin can provision eligible, unchanged starter content for the offer's
     # work country. Existing entity/signatory and plan checks remain required; unresolved legal wording still blocks.
@@ -455,38 +665,194 @@ def generate_offer_letter(db, actor, offer: RecruitmentOffer, *, waive_approval:
     except HTTPException:
         db.rollback()  # leave the offer intact; the normal preflight below returns the actionable blocker
         offer = db.get(RecruitmentOffer, offer.id)
+    current = _letter(db, offer)
+    released = _has_released_offer_variant(db, actor.organization_id, offer, cid)
+    if current is not None and current.status in OFFER_IN_PROGRESS and current.release_mode == "STARTER_PREVIEW":
+        if not released:
+            return current
+        doc_service.cancel(db, current, actor, "A released jurisdiction template is now available.",
+                           system_trigger="recruitment_offer.template_ready")
+        offer.document_id = None
+        db.commit()
     approvals = (db.query(RecruitmentOfferApproval).filter(RecruitmentOfferApproval.offer_id == offer.id,
                                                            RecruitmentOfferApproval.approval_status == "approved")
                  .order_by(RecruitmentOfferApproval.id).all())
     prior = [{"approver_id": a.approver_id, "decided_at": a.approved_date, "comment": a.comments, "source": "recruitment offer approval"}
              for a in approvals]
-    doc = doc_service.generate(db, actor, canonical_id=cid, subject_type="candidate", subject_id=offer.candidate_id,
-                               source_ref=_ref("recruitment_offer", offer.id), entity_id=offer.employer_entity_id,
-                               prior_approvals=None if waive_approval else prior,
-                               waive_approval=OFFER_WAIVER_REASON if waive_approval else None)
+    try:
+        doc = doc_service.generate(db, actor, canonical_id=cid, subject_type="candidate", subject_id=offer.candidate_id,
+                                   source_ref=_ref("recruitment_offer", offer.id), entity_id=offer.employer_entity_id,
+                                   prior_approvals=None if waive_approval else prior,
+                                   waive_approval=OFFER_WAIVER_REASON if waive_approval else None)
+    except doc_service.PreflightDenied:
+        if country in DRAFT_PREVIEW_COUNTRIES:
+            current = _letter(db, offer)
+            if current is not None and current.status in OFFER_IN_PROGRESS and current.release_mode == "STARTER_PREVIEW":
+                return current
+            return generate_unreviewed_offer_draft(db, actor, offer, cid)
+        raise
     offer = db.get(RecruitmentOffer, offer.id)
     offer.document_id = doc.id
     db.commit()
     return doc
 
 
-def issue_offer_letter(db, actor, offer: RecruitmentOffer) -> GeneratedDocument:
-    doc = _letter(db, offer)
-    if doc is None:
-        raise HTTPException(409, "Generate the letter first.")
-    doc = doc_service.issue(db, doc, actor)
-    offer = db.get(RecruitmentOffer, offer.id)
+def _approve_offer_for_sending(db, actor, offer: RecruitmentOffer) -> bool:
+    """Ensure offer approval exists, returning whether the organization uses automatic approval."""
+    access.require_hr(actor)
+    if offer.status in (OfferStatus.ACCEPTED, OfferStatus.REJECTED, OfferStatus.WITHDRAWN, OfferStatus.EXPIRED):
+        raise HTTPException(409, f"A {offer.status.value} offer cannot be sent.")
+    automatic = offer_letters_without_approval(db, actor.organization_id)
+    if offer.status == OfferStatus.APPROVED and offer.approved_by:
+        return automatic
+    if not automatic:
+        raise HTTPException(409, "Approve the offer before sending its letter.")
     if offer.status == OfferStatus.APPROVED:
-        offer.status = OfferStatus.PENDING                         # "Sent": waiting for the candidate
-    offer.issued_at = datetime.utcnow()
+        if offer.salary is None:
+            raise HTTPException(400, "Add the remuneration amount before sending the offer.")
+        offer.approved_by, offer.approved_at = actor.id, offer.approved_at or datetime.utcnow()
+        db.add(RecruitmentOfferApproval(offer_id=offer.id, approver_id=actor.id, approval_status="approved",
+                                        comments=OFFER_WAIVER_REASON, organization_id=offer.organization_id))
+        db.commit()
+        return True
+    if offer.status not in (OfferStatus.DRAFT, OfferStatus.PENDING, OfferStatus.COUNTERED):
+        raise HTTPException(409, f"A {offer.status.value} offer cannot be approved for sending.")
+    if offer.salary is None:
+        raise HTTPException(400, "Add the remuneration amount before sending the offer.")
+    offer.status, offer.approved_by, offer.approved_at = OfferStatus.APPROVED, actor.id, datetime.utcnow()
+    db.add(RecruitmentOfferApproval(offer_id=offer.id, approver_id=actor.id, approval_status="approved",
+                                    comments=OFFER_WAIVER_REASON, organization_id=offer.organization_id))
+    db.commit()
+    return True
+
+
+def send_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedDocument:
+    """Prepare, approve when configured, issue and synchronously email an offer's candidate signing link."""
+    access.require_hr(actor)
+    if offer.issued_at:
+        raise HTTPException(409, "This offer has already been sent. Use Resend to send a fresh signing link.")
+    if not offer.candidate_id:
+        raise HTTPException(409, "Link this offer to a candidate before sending it.")
+    candidate = db.get(RecruitmentCandidate, offer.candidate_id)
+    if candidate is None or not (candidate.email or "").strip():
+        raise HTTPException(409, "The linked candidate needs an email address before the offer can be sent.")
+
+    automatic_approval = _approve_offer_for_sending(db, actor, offer)
+    canonical_id, blocked = select_offer_template(offer)
+    if blocked or not canonical_id:
+        raise HTTPException(409, blocked or "No offer letter template applies to this offer.")
+
+    current = _letter(db, offer)
+    if current is not None and current.status in ("ISSUED", "EXECUTED"):
+        raise HTTPException(409, "This offer letter has already been issued. Use Resend to send a fresh signing link.")
+
+    def block_unreviewed_cross_border_preview(doc):
+        if doc is None or doc.release_mode != "STARTER_PREVIEW":
+            return
+        entity = preflight.resolve_entity(db, actor.organization_id, None, offer.employer_entity_id)
+        employer_country = getattr(entity, "country", None) or getattr(actor.organization, "country", None)
+        if employer_country:
+            from app.core.regions import country_code_strict
+            employer_country = country_code_strict(employer_country) or employer_country.upper()
+        else:
+            employer_country = (offer.work_country or "").upper()
+        work_country = (offer.work_country or "").upper()
+        if employer_country and work_country and employer_country != work_country:
+            raise HTTPException(409, {
+                "code": "STARTER_PREVIEW_NOT_ISSUABLE",
+                "message": "This is an unreviewed starter draft. Release a jurisdiction-specific template that covers this cross-border employment before issuing it.",
+            })
+
+    # A preview may help HR prepare the offer, but the sendable starter fallback is not
+    # sufficient for work performed across a border. Keep the preview intact so the
+    # employee cannot receive unreviewed cross-border terms.
+    block_unreviewed_cross_border_preview(current)
+
+    must_regenerate = bool(current and current.status in OFFER_IN_PROGRESS and (
+        current.release_mode == "STARTER_PREVIEW"
+        or (automatic_approval and current.approval_policy != "L1")
+    ))
+    if must_regenerate:
+        doc_service.cancel(db, current, actor,
+                           "Replaced for one-step offer sending using the active approval setting.",
+                           system_trigger="recruitment_offer.send")
+        offer.document_id = None
+        db.commit()
+        current = None
+
+    if current is None or current.status not in OFFER_IN_PROGRESS:
+        current = generate_offer_letter(db, actor, offer, waive_approval=automatic_approval)
+
+    block_unreviewed_cross_border_preview(current)
+
+    if current.release_mode == "STARTER_PREVIEW":
+        doc_service.cancel(db, current, actor, "Replaced by the sendable platform offer starter.",
+                           system_trigger="recruitment_offer.send")
+        offer.document_id = None
+        db.commit()
+        current = generate_unreviewed_offer_draft(db, actor, offer, canonical_id, sendable=True)
+
+    if current.status == "PENDING_APPROVAL":
+        raise HTTPException(409, "The offer letter needs its assigned document approval before it can be sent.")
+    if current.status not in ("HUMAN_APPROVED", "RENDERED_DRAFT"):
+        raise HTTPException(409, f"The offer letter is {current.status.lower().replace('_', ' ')} and cannot be sent.")
+    if current.status == "RENDERED_DRAFT" and current.approval_policy != "L1":
+        raise HTTPException(409, "The offer letter needs approval before it can be sent.")
+
+    doc = doc_service.issue(db, current, actor, require_delivery=True)
+    offer = db.get(RecruitmentOffer, offer.id)
+    offer.status = OfferStatus.PENDING
+    offer.issued_at = doc.issued_at or datetime.utcnow()
     if offer.response_deadline is None and doc.due_by:
         offer.response_deadline = doc.due_by.date()
-    cand = db.get(RecruitmentCandidate, offer.candidate_id)
-    if cand is not None and cand.status in (RecruitmentCandidateStatus.APPLIED, RecruitmentCandidateStatus.SCREENING,
-                                            RecruitmentCandidateStatus.INTERVIEW):
-        cand.status = RecruitmentCandidateStatus.OFFER
+    if candidate.status in (RecruitmentCandidateStatus.APPLIED, RecruitmentCandidateStatus.SCREENING,
+                            RecruitmentCandidateStatus.INTERVIEW):
+        candidate.status = RecruitmentCandidateStatus.OFFER
     db.commit()
+    db.refresh(doc)
     return doc
+
+
+def resend_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedDocument:
+    """Retry delivery by replacing the candidate's single-use signing link."""
+    access.require_hr(actor)
+    doc = _letter(db, offer)
+    if doc is None or doc.status != "ISSUED":
+        raise HTTPException(409, "Issue the offer letter before resending it.")
+    if doc.legal_hold:
+        raise HTTPException(409, "This offer letter is on legal hold and cannot be resent.")
+    if not offer.issued_at:
+        offer.issued_at = doc.issued_at or datetime.utcnow()
+        if offer.status in (OfferStatus.DRAFT, OfferStatus.APPROVED, OfferStatus.COUNTERED):
+            offer.status = OfferStatus.PENDING
+        if offer.response_deadline is None and doc.due_by:
+            offer.response_deadline = doc.due_by.date()
+        db.commit()
+    if offer.status in (OfferStatus.ACCEPTED, OfferStatus.REJECTED, OfferStatus.WITHDRAWN, OfferStatus.EXPIRED):
+        raise HTTPException(409, f"A {offer.status.value} offer cannot be resent.")
+    candidate = db.get(RecruitmentCandidate, offer.candidate_id) if offer.candidate_id else None
+    if candidate is None or not (candidate.email or "").strip():
+        raise HTTPException(409, "The linked candidate needs an email address before the offer can be resent.")
+    from app.modules.doc_templates import signing, notify, fields
+    doc.recipient_email = candidate.email
+    doc.recipient_name = fields._full_name(candidate)
+    raw, expires = signing.issue_candidate_token(db, doc)
+    organization_name = (getattr(actor.organization, "organization_name", None)
+                         or getattr(actor.organization, "display_name", None) or "Your employer")
+    if not notify.candidate_link(db, doc, candidate, raw, expires, organization_name, wait=True):
+        signing.revoke_candidate_tokens(db, doc)
+        db.commit()
+        raise HTTPException(502, {"code": "OFFER_EMAIL_DELIVERY_FAILED",
+                                  "message": "The signing link could not be delivered. Check the email configuration and try again."})
+    doc.delivered_via, doc.delivered_at = "email", datetime.utcnow()
+    state.add_event(db, doc, "emailed", actor_id=actor.id, detail={"channel": "candidate_link", "resent": True})
+    db.commit()
+    db.refresh(doc)
+    return doc
+
+
+def issue_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedDocument:
+    return send_offer_letter(db, actor, offer)
 
 
 def amend_offer(db, actor, offer: RecruitmentOffer, changes: dict) -> dict:
@@ -616,7 +982,10 @@ def _offer_of(db, doc) -> Optional[RecruitmentOffer]:
 def on_offer_executed(db, doc):
     from app.modules.hr import recruitment_service
     offer = _offer_of(db, doc)
-    if offer is None or offer.document_id != doc.id:
+    if offer is None:
+        return
+    letter = _letter(db, offer)
+    if letter is None or letter.id != doc.id:
         return
     offer.accepted_at = datetime.utcnow()
     db.commit()
@@ -637,7 +1006,10 @@ def on_offer_declined(db, doc):
     from app.modules.doc_templates.signing import signatures
     from app.modules.hr import recruitment_notify
     offer = _offer_of(db, doc)
-    if offer is None or offer.document_id != doc.id:
+    if offer is None:
+        return
+    letter = _letter(db, offer)
+    if letter is None or letter.id != doc.id:
         return
     declined = next((s for s in signatures(db, doc) if s.decision == "DECLINED"), None)
     offer.status = OfferStatus.REJECTED                        # shown as "Declined"
@@ -648,7 +1020,10 @@ def on_offer_declined(db, doc):
 
 def on_offer_expired(db, doc):
     offer = _offer_of(db, doc)
-    if offer is None or offer.document_id != doc.id:
+    if offer is None:
+        return
+    letter = _letter(db, offer)
+    if letter is None or letter.id != doc.id:
         return
     if offer.status in (OfferStatus.PENDING, OfferStatus.APPROVED, OfferStatus.COUNTERED):
         offer.status = OfferStatus.EXPIRED
@@ -883,7 +1258,12 @@ def put_privacy_settings(body: PrivacySettingsBody, db: Session = Depends(get_db
 def offer_document(offer_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     access.require_hr(user)
     offer = _offer(db, user, offer_id)
-    return {**_offer_view(db, offer), **documents_for_source(db, user.organization_id, _ref("recruitment_offer", offer.id))}
+    previous_document_id = offer.document_id
+    view = _offer_view(db, offer)
+    # Persist legacy-link repair so subsequent issue/signing actions and refreshed pages use this same letter.
+    if offer.document_id != previous_document_id:
+        db.commit()
+    return {**view, **documents_for_source(db, user.organization_id, _ref("recruitment_offer", offer.id))}
 
 
 @router.get("/offers/{offer_id}/letter/preflight")
@@ -898,6 +1278,68 @@ def offer_letter_readiness_route(offer_id: int, db: Session = Depends(get_db), u
     return offer_letter_readiness(db, user, _offer(db, user, offer_id))
 
 
+@router.get("/offers/{offer_id}/letter/draft-preview")
+def offer_letter_draft_preview(offer_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """Render an unissued starter preview for the supported countries without activating a legal pack.
+
+    This is an ephemeral preview only: it creates no document, approval, or signature record, and cannot be issued.
+    Jurisdiction clauses without released text are rendered as explicit placeholders.
+    """
+    access.require_hr(user)
+    offer = _offer(db, user, offer_id)
+    cid, blocked = select_offer_template(offer)
+    if blocked or not cid or not offer.candidate_id:
+        raise HTTPException(409, blocked or "Link the offer to a candidate before previewing the letter.")
+    country = (offer.work_country or "").upper()
+    if country not in DRAFT_PREVIEW_COUNTRIES:
+        raise HTTPException(409, {"code": "DRAFT_PREVIEW_UNAVAILABLE", "message": f"Starter previews are available for {', '.join(sorted(DRAFT_PREVIEW_COUNTRIES))}."})
+
+    from app.core.regions import country_name
+    from app.modules.doc_templates import fields, renderer, service, starters
+    from app.modules.doc_templates.models import TemplateDefinition
+    from app.modules.hr.models import RecruitmentCandidate
+    starter = starters.latest(db, cid)
+    candidate = db.get(RecruitmentCandidate, offer.candidate_id)
+    if starter is None or candidate is None:
+        raise HTTPException(404, "Offer letter starter or candidate not found.")
+    entity = preflight.resolve_entity(db, user.organization_id, None, offer.employer_entity_id)
+    if entity is None:
+        # Use the organization's existing profile for preview-only letterhead; never persist this as a legal entity.
+        from types import SimpleNamespace
+        organization = user.organization
+        address = getattr(organization, "address", None)
+        entity = SimpleNamespace(
+            legal_name=getattr(organization, "organization_name", None) or getattr(organization, "display_name", None) or "Employer name not set",
+            trading_name=None, country=country, region=getattr(organization, "state", None), city=getattr(organization, "city", None),
+            postal_code=None, address_lines=[address] if address else [], registration_number=None, registration_type=None,
+            logo_file=None, email=getattr(organization, "registered_email", None), phone=getattr(organization, "phone", None))
+    ctx = fields.FieldContext(db=db, organization=user.organization, subject_type="candidate", subject=candidate,
+                              entity=entity, requester=user, canonical_id=cid, source=offer,
+                              language="en", sample=False)
+    definition = db.get(TemplateDefinition, cid)
+    ctx.document = {"date": date.today(), "title": definition.title if definition else cid}
+    rules = starter.get("clause_rules") or {}
+    required = list(rules.get("mandatory") or [])
+    clauses = {}
+    packs = preflight.candidate_packs(db, user.organization_id, country, offer.work_region, date.today())
+    for key in required + list(rules.get("optional") or []):
+        clause = next((found for pack in packs
+                       if (found := preflight.find_clause(db, user.organization_id, key, pack.id, "en", date.today()))), None)
+        if clause is not None:
+            clauses[key] = clause
+        elif key in required:
+            clauses[key] = type("DraftClause", (), {"text": f"[Draft placeholder: jurisdiction-specific clause '{key}' has not been configured.]"})()
+    html = renderer.render_html(service.build_input(
+        ctx, blocks=starter.get("content") or [], clauses=clauses, required_clause_keys=required,
+        number="DRAFT-PREVIEW", title=ctx.document["title"],
+        sensitivity=getattr(definition, "sensitivity", "C2"),
+        letterhead_info=service.letterhead(entity, user.organization),
+        author=getattr(entity, "legal_name", None) or getattr(user.organization, "organization_name", "")))
+    return {"html": html, "preview_only": True, "issuable": False, "jurisdiction": country,
+            "jurisdiction_name": country_name(country) or country, "canonical_id": cid,
+            "notice": "Unreviewed starter preview. It is not an approved jurisdiction template and cannot be issued."}
+
+
 @router.post("/offers/{offer_id}/approve")
 def approve(offer_id: int, body: Comment, db: Session = Depends(get_db), user=Depends(get_current_user)):
     return _offer_view(db, approve_offer(db, user, _offer(db, user, offer_id), body.comment))
@@ -909,9 +1351,21 @@ def generate_letter(offer_id: int, db: Session = Depends(get_db), user=Depends(g
     return _offer_view(db, db.get(RecruitmentOffer, offer_id))
 
 
+@router.post("/offers/{offer_id}/letter/send")
+def send_letter(offer_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    send_offer_letter(db, user, _offer(db, user, offer_id))
+    return _offer_view(db, db.get(RecruitmentOffer, offer_id))
+
+
+@router.post("/offers/{offer_id}/letter/resend")
+def resend_letter(offer_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
+    resend_offer_letter(db, user, _offer(db, user, offer_id))
+    return _offer_view(db, db.get(RecruitmentOffer, offer_id))
+
+
 @router.post("/offers/{offer_id}/letter/issue")
 def issue_letter(offer_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
-    issue_offer_letter(db, user, _offer(db, user, offer_id))
+    send_offer_letter(db, user, _offer(db, user, offer_id))
     return _offer_view(db, db.get(RecruitmentOffer, offer_id))
 
 

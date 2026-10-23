@@ -19,11 +19,12 @@ import "./support/setup-jsdom.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
 async function flushRender(importPath) {
   const mod = await import(`${importPath}?t=${Date.now()}-${Math.random()}`);
-  render(React.createElement(mod.default));
+  render(React.createElement(MemoryRouter, null, React.createElement(mod.default)));
   for (let i = 0; i < 4; i++) {
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
   }

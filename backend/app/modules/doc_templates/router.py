@@ -11,10 +11,11 @@
 Every /hr route is tenant-scoped by the signed token (privacy middleware + automatic tenant filter); platform accounts get
 404 on all of them. A foreign or forbidden object always answers exactly like a missing one.
 """
+import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -39,6 +40,33 @@ distributions_router = APIRouter(prefix="/hr/policy-distributions", tags=["Polic
 public_router = APIRouter(prefix="/public/documents", tags=["Public documents"])
 
 MAX_PER_PAGE = 200
+logger = logging.getLogger("zoiko.doc_templates.public_signing")
+
+
+def _finish_public_signature(document_id: int, bind=None) -> None:
+    """Run emails and HR lifecycle hooks after the candidate receives the signed confirmation."""
+    if bind is None:
+        from app.database import SessionLocal
+        make_session = SessionLocal
+    else:
+        from sqlalchemy.orm import sessionmaker
+        make_session = sessionmaker(bind=bind)
+    from app.modules.doc_templates.models import GeneratedDocument
+
+    db = make_session()
+    try:
+        doc = db.get(GeneratedDocument, document_id)
+        if doc is None or doc.status != "EXECUTED":
+            return
+        from app.modules.doc_templates import hooks, notify
+        notify.executed(db, doc)
+        notify.event(db, "document.executed", doc)
+        hooks.dispatch(db, "executed", doc)
+    except Exception:
+        db.rollback()
+        logger.exception("public signature follow-up failed for document id %s", document_id)
+    finally:
+        db.close()
 
 
 def _page(query, page, per_page, ser):
@@ -1144,12 +1172,15 @@ def public_sign_otp(request: Request, token: str, db: Session = Depends(get_db))
 
 @public_router.post("/sign/{token}/sign")
 @limiter.limit("10/minute")
-def public_sign(request: Request, token: str, body: S.SignRequest, db: Session = Depends(get_db)):
+def public_sign(request: Request, token: str, body: S.SignRequest, background_tasks: BackgroundTasks,
+                db: Session = Depends(get_db)):
     doc, tok = signing.resolve_candidate_token(db, token)
-    signing.sign(db, doc, party="candidate", signer_employee=None, signer_email=doc.recipient_email, typed_name=body.typed_name,
+    signed = signing.sign(db, doc, party="candidate", signer_employee=None, signer_email=doc.recipient_email, typed_name=body.typed_name,
                  method=body.method, drawn=body.drawn_signature, consent_version=body.consent_version, otp_code=body.otp_code,
-                 ip=get_client_ip(request), user_agent=_ua(request), token=tok)
-    return {"status": doc.status, "document_number": doc.document_number, "signed": True}
+                 ip=get_client_ip(request), user_agent=_ua(request), token=tok, run_followups=False)
+    if signed.status == "EXECUTED":
+        background_tasks.add_task(_finish_public_signature, signed.id, db.get_bind())
+    return {"status": signed.status, "document_number": signed.document_number, "signed": True}
 
 
 @public_router.post("/sign/{token}/decline")

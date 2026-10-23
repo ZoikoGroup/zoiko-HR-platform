@@ -4,8 +4,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { Globe2 } from "lucide-react";
-import HRPage from "../../../../components/HRPage";
 import { blockedText } from "../../../../components/documents/RecordDocumentsPanel";
+import { OrganizationDocumentsLayout } from "../ui";
 import {
   getActivationOverview, getAutomationRules, getCountryActivation, getDocumentReport, getRetentionQueue, getRetentionSettings, getTeamDocumentActions,
   getTemplateLanguages, getTrainingCompliance, reviewRetention, saveAutomationRules, saveRetentionSettings,
@@ -20,11 +20,12 @@ export default function DocumentCentrePage() {
   const [tab, setTab] = useState("team");
   const [toast, showToast] = useToast();
   return (
-    <HRPage title="Documents centre" subtitle="Go-live tools: what to do, what is unlocked in each country, automation, retention and reports.">
+    <OrganizationDocumentsLayout title="Dashboard" subtitle="Document readiness, country coverage, automation and compliance at a glance.">
+      <div className="space-y-5">
       <Toast toast={toast} />
-      <div role="tablist" aria-label="Documents centre" className="mb-4 flex flex-wrap gap-2">
+      <div role="tablist" aria-label="Documents centre" className="flex flex-wrap gap-2 rounded-2xl border border-gray-200/80 bg-white p-2 shadow-sm">
         {TABS.map(([k, l]) => <button key={k} role="tab" type="button" aria-selected={tab === k} onClick={() => setTab(k)}
-          className={`rounded-xl px-3 py-1.5 text-sm font-semibold ${tab === k ? "bg-blue-600 text-white" : "border border-slate-200 bg-white text-slate-700"}`}>{l}</button>)}
+          className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors ${tab === k ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"}`}>{l}</button>)}
       </div>
       {tab === "team" && <TeamActions />}
       {tab === "activation" && <Activation toast={showToast} />}
@@ -33,7 +34,8 @@ export default function DocumentCentrePage() {
       {tab === "reports" && <Reports />}
       {tab === "training" && <Training />}
       {tab === "languages" && <Languages />}
-    </HRPage>
+      </div>
+    </OrganizationDocumentsLayout>
   );
 }
 

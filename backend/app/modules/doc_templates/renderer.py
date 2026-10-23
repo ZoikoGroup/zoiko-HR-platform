@@ -53,6 +53,7 @@ class RenderInput:
     letterhead: dict = field(default_factory=dict)   # legal_name, trading_name, address, registration, logo_path
     author: str = ""
     landscape: bool = False                      # wide engine records (registers with many columns)
+    visual_profile: str = "standard"             # presentation only; never changes template wording or data
 
 
 # ── layout ───────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -162,13 +163,19 @@ def _html_runs(runs: list[Run]) -> str:
 
 def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
     elements = layout(inp) if elements is None else elements
+    offer_design = inp.visual_profile == "offer_letter"
     parts: list[str] = []
     lists = {"bullet": "ul", "number": "ol", "check": "ul"}
+    offer_meta_pending = offer_design
+    if offer_design:
+        parts.append('<div aria-hidden="true" style="height:5px;background:#0f4c5c;border-radius:3px;margin:0 0 24px;"></div>')
     for el in elements:
         k = el.kind
         if k == "letterhead":
             d = el.data
-            parts.append(f'<div style="{_CSS["lh"]}"><p style="{_CSS["lh_name"]}">{_E(d.get("legal_name") or "")}</p>')
+            letterhead_style = (_CSS["lh"] + "border-bottom-color:#0f4c5c;padding-bottom:16px;margin-bottom:22px;") if offer_design else _CSS["lh"]
+            name_style = (_CSS["lh_name"] + "font-size:21px;color:#102a43;letter-spacing:-.2px;") if offer_design else _CSS["lh_name"]
+            parts.append(f'<div style="{letterhead_style}"><p style="{name_style}">{_E(d.get("legal_name") or "")}</p>')
             if d.get("trading_name") and d.get("trading_name") != d.get("legal_name"):
                 parts.append(f'<p style="{_CSS["lh_meta"]}">Trading as {_E(d["trading_name"])}</p>')
             for key in ("address", "registration"):
@@ -177,9 +184,24 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
             parts.append("</div>")
         elif k == "heading":
             lvl = el.data.get("level", 1)
-            parts.append(f'<h{lvl} style="{_CSS["h" + str(lvl)]}">{_html_runs(el.runs)}</h{lvl}>')
+            heading_style = _CSS["h" + str(lvl)]
+            if offer_design and lvl == 1:
+                heading_style += "font-size:29px;line-height:1.2;color:#102a43;letter-spacing:-.6px;margin:26px 0 14px;"
+            elif offer_design and lvl == 2:
+                heading_style += "font-size:15px;line-height:1.35;color:#0f4c5c;border-left:3px solid #0f4c5c;background:#f1f7f8;padding:7px 10px;margin:22px 0 10px;"
+            elif offer_design and lvl == 3:
+                heading_style += "color:#0f4c5c;"
+            parts.append(f'<h{lvl} style="{heading_style}">{_html_runs(el.runs)}</h{lvl}>')
         elif k == "paragraph":
-            parts.append(f'<p style="{_CSS[el.data.get("style", "normal") if el.data.get("style") != "normal" else "p"]}">{_html_runs(el.runs)}</p>')
+            paragraph_text = "".join(run.text for run in el.runs)
+            style_key = el.data.get("style", "normal") if el.data.get("style") != "normal" else "p"
+            paragraph_style = _CSS[style_key]
+            if offer_design and offer_meta_pending:
+                paragraph_style += "font-size:11px;color:#64748b;letter-spacing:.15px;margin:0 0 8px;"
+                offer_meta_pending = False
+            elif offer_design and paragraph_text.lstrip().startswith("Pay:"):
+                paragraph_style += "margin:14px 0;padding:12px 14px;background:#f1f7f8;border:1px solid #d7e8e9;border-left:4px solid #0f4c5c;border-radius:5px;font-size:15px;font-weight:600;color:#102a43;"
+            parts.append(f'<p style="{paragraph_style}">{_html_runs(el.runs)}</p>')
         elif k == "list":
             tag = lists[el.data["style"]]
             marker = "list-style:none;padding-left:4px;" if el.data["style"] == "check" else ""
@@ -187,13 +209,24 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
                             for r in el.runs)
             parts.append(f'<{tag} style="margin:0 0 10px;{marker}">{items}</{tag}>')
         elif k == "table":
-            head = "".join(f'<th style="{_CSS["th"]}">{_E(c)}</th>' for c in el.data["columns"])
-            body = "".join("<tr>" + "".join(f'<td style="{_CSS["td"]}">{_E(c)}</td>' for c in r) + "</tr>" for r in el.data["rows"])
-            parts.append(f'<table style="{_CSS["table"]}"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>')
+            if offer_design:
+                head = "".join(f'<th style="border:0;border-bottom:2px solid #0f4c5c;background:#102a43;color:#fff;text-align:left;padding:9px 10px;font-size:12px;">{_E(c)}</th>' for c in el.data["columns"])
+                body = "".join("<tr>" + "".join(f'<td style="border-bottom:1px solid #e2e8f0;background:{"#f8fafc" if i % 2 else "#fff"};padding:8px 10px;vertical-align:top;">{_E(c)}</td>' for c in r) + "</tr>" for i, r in enumerate(el.data["rows"]))
+                table_style = _CSS["table"] + "border:1px solid #e2e8f0;border-radius:5px;overflow:hidden;margin:4px 0 16px;"
+            else:
+                head = "".join(f'<th style="{_CSS["th"]}">{_E(c)}</th>' for c in el.data["columns"])
+                body = "".join("<tr>" + "".join(f'<td style="{_CSS["td"]}">{_E(c)}</td>' for c in r) + "</tr>" for r in el.data["rows"])
+                table_style = _CSS["table"]
+            parts.append(f'<table style="{table_style}"><thead><tr>{head}</tr></thead><tbody>{body}</tbody></table>')
         elif k == "kv":
-            rows = "".join(f'<tr><td style="{_CSS["kv_l"]}">{_E(lbl)}</td><td style="{_CSS["kv_v"]}">{_E(val)}</td></tr>'
-                           for lbl, val in el.data["rows"])
-            parts.append(f'<table style="border-collapse:collapse;width:100%;margin:0 0 12px;">{rows}</table>')
+            if offer_design:
+                rows = "".join(f'<tr><td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;background:#f8fafc;color:#52677a;vertical-align:top;width:38%;font-size:11px;">{_E(lbl)}</td><td style="padding:8px 10px;border-bottom:1px solid #e2e8f0;color:#102a43;vertical-align:top;font-weight:600;">{_E(val)}</td></tr>'
+                               for lbl, val in el.data["rows"])
+                parts.append(f'<table style="border-collapse:collapse;width:100%;margin:0 0 16px;border:1px solid #e2e8f0;">{rows}</table>')
+            else:
+                rows = "".join(f'<tr><td style="{_CSS["kv_l"]}">{_E(lbl)}</td><td style="{_CSS["kv_v"]}">{_E(val)}</td></tr>'
+                               for lbl, val in el.data["rows"])
+                parts.append(f'<table style="border-collapse:collapse;width:100%;margin:0 0 12px;">{rows}</table>')
         elif k == "form":
             vals = el.data.get("values") or {}
             rows = "".join(
@@ -210,9 +243,13 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
                 for it in el.data["items"])
             parts.append(f'<ul style="margin:0 0 10px;list-style:none;padding-left:4px;">{items}</ul>')
         elif k == "declaration":
-            parts.append(f'<div style="{_CSS["decl"]}">{_html_runs(el.runs)}</div>')
+            declaration_style = _CSS["decl"]
+            if offer_design:
+                declaration_style += "border-color:#cbdde0;border-left:4px solid #0f4c5c;background:#f6fafb;border-radius:4px;padding:14px 16px;"
+            parts.append(f'<div style="{declaration_style}">{_html_runs(el.runs)}</div>')
         elif k == "signatures":
-            sigs = "".join(f'<div style="{_CSS["sig"]}"><div style="font-size:12px;color:#4b5563;">{_E(PARTY_LABELS.get(p, p))}</div>'
+            sig_style = _CSS["sig"] + ("border-top:1px solid #9fb7bf;padding-top:10px;margin-top:20px;" if offer_design else "")
+            sigs = "".join(f'<div style="{sig_style}"><div style="font-size:12px;color:#4b5563;">{_E(PARTY_LABELS.get(p, p))}</div>'
                            f'<div style="margin-top:22px;">{_E(text)}</div></div>' for p, text in el.data["parties"])
             parts.append(f"<div>{sigs}</div>")
         elif k == "page_break":
@@ -226,8 +263,12 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
     foot = f'<div style="{_CSS["footer"]}">{" · ".join(footer)}</div>' if footer else ""
     lang = _E(inp.language or "en")
     direction = text_direction(inp.language)
+    page_style = _CSS["page"] + ("max-width:720px;padding:34px 42px 38px;color:#263746;line-height:1.68;" if offer_design else "")
+    footer_style = _CSS["footer"] + ("border-top-color:#cbdde0;padding-top:12px;" if offer_design else "")
+    if foot and offer_design:
+        foot = f'<div style="{footer_style}">{" · ".join(footer)}</div>'
     return (f'<!DOCTYPE html><html lang="{lang}" dir="{direction}"><head><meta charset="utf-8"><title>{_E(inp.title)}</title></head>'
-            f'<body style="margin:0;background:#ffffff;"><div dir="{direction}" style="{_CSS["page"]}">{body}{foot}</div></body></html>')
+            f'<body style="margin:0;background:#ffffff;"><div dir="{direction}" style="{page_style}">{body}{foot}</div></body></html>')
 
 
 RTL_LANGUAGES = {"ar", "he", "fa", "ur"}
@@ -305,6 +346,7 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
                                     Spacer, Table, TableStyle)
 
     elements = layout(inp) if elements is None else elements
+    offer_design = inp.visual_profile == "offer_letter"
     f = _fonts()
     from reportlab.lib.enums import TA_RIGHT
     align = TA_RIGHT if text_direction(inp.language) == "rtl" else TA_LEFT
@@ -324,12 +366,34 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
         "decl": ParagraphStyle("decl", parent=base, borderColor=colors.HexColor("#9ca3af"), borderWidth=0.6, borderPadding=7,
                                spaceBefore=8, spaceAfter=12),
     }
+    if offer_design:
+        st["h1"] = ParagraphStyle("offer_h1", parent=st["h1"], fontSize=21, leading=27,
+                                   textColor=colors.HexColor("#102a43"), spaceBefore=15, spaceAfter=12)
+        st["h2"] = ParagraphStyle("offer_h2", parent=st["h2"], fontSize=11.5, leading=15,
+                                   textColor=colors.HexColor("#0f4c5c"), backColor=colors.HexColor("#f1f7f8"),
+                                   borderPadding=6, spaceBefore=13, spaceAfter=8)
+        st["offer_meta"] = ParagraphStyle("offer_meta", parent=st["small"], fontSize=8.5, leading=12,
+                                           textColor=colors.HexColor("#64748b"), spaceAfter=7)
+        st["offer_value"] = ParagraphStyle("offer_value", parent=st["cell_b"], fontSize=9.5, leading=13,
+                                            textColor=colors.HexColor("#102a43"))
+        st["offer_table_header"] = ParagraphStyle("offer_table_header", parent=st["cell_b"], fontSize=9, leading=12,
+                                                   textColor=colors.white)
+        st["offer_pay"] = ParagraphStyle("offer_pay", parent=base, fontName=f["bold"], fontSize=11.5, leading=16,
+                                         textColor=colors.HexColor("#102a43"), backColor=colors.HexColor("#f1f7f8"),
+                                         borderColor=colors.HexColor("#d7e8e9"), borderWidth=0.6, borderPadding=8,
+                                         spaceBefore=5, spaceAfter=12)
+        st["offer_decl"] = ParagraphStyle("offer_decl", parent=st["decl"], backColor=colors.HexColor("#f6fafb"),
+                                           borderColor=colors.HexColor("#9fb7bf"), borderWidth=0.8, borderPadding=9,
+                                           spaceBefore=9, spaceAfter=13)
+        st["lh_name"] = ParagraphStyle("offer_lh_name", parent=st["lh_name"], fontSize=16, leading=20,
+                                        textColor=colors.HexColor("#102a43"))
     story = []
     grid = TableStyle([("GRID", (0, 0), (-1, -1), 0.4, colors.HexColor("#d1d5db")),
                        ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#f9fafb")),
                        ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 4), ("RIGHTPADDING", (0, 0), (-1, -1), 4)])
     page = _landscape(A4) if inp.landscape else A4
     width = page[0] - 40 * mm
+    offer_meta_pending = offer_design
     for el in elements:
         k = el.kind
         if k == "letterhead":
@@ -351,7 +415,8 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
                     t = Table([[rows]], colWidths=[width])
             else:
                 t = Table([[rows]], colWidths=[width])
-            t.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 1.2, colors.HexColor("#1f2937")),
+            t.setStyle(TableStyle([("LINEBELOW", (0, 0), (-1, 0), 1.8 if offer_design else 1.2,
+                                    colors.HexColor("#0f4c5c" if offer_design else "#1f2937")),
                                    ("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
                                    ("BOTTOMPADDING", (0, 0), (-1, -1), 8)]))
             story += [t, Spacer(1, 10)]
@@ -359,7 +424,15 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
             story.append(Paragraph(_xml_runs(el.runs), st["h" + str(el.data.get("level", 1))]))
         elif k == "paragraph":
             style = el.data.get("style", "normal")
-            story.append(Paragraph(_xml_runs(el.runs), st["p" if style == "normal" else style]))
+            paragraph_text = "".join(run.text for run in el.runs)
+            if offer_design and offer_meta_pending:
+                paragraph_style = st["offer_meta"]
+                offer_meta_pending = False
+            elif offer_design and paragraph_text.lstrip().startswith("Pay:"):
+                paragraph_style = st["offer_pay"]
+            else:
+                paragraph_style = st["p" if style == "normal" else style]
+            story.append(Paragraph(_xml_runs(el.runs), paragraph_style))
         elif k == "list":
             if el.data["style"] == "check":
                 for r in el.runs:
@@ -371,22 +444,48 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
                                           bulletFontName=f["regular"], bulletFontSize=9, leftIndent=12))
         elif k == "table":
             cols = el.data["columns"]
-            data = [[Paragraph(_xml(c), st["cell_b"]) for c in cols]] + \
+            header_style = st["offer_table_header"] if offer_design else st["cell_b"]
+            data = [[Paragraph(_xml(c), header_style) for c in cols]] + \
                    [[Paragraph(_xml(c), st["cell"]) for c in r] for r in el.data["rows"]]
             t = Table(data, colWidths=[width / max(len(cols), 1)] * len(cols), repeatRows=1)
-            t.setStyle(grid)
+            if offer_design:
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#102a43")),
+                    ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+                    ("LINEBELOW", (0, 0), (-1, 0), 1.5, colors.HexColor("#0f4c5c")),
+                    ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#f8fafc")]),
+                    ("LINEBELOW", (0, 1), (-1, -1), 0.35, colors.HexColor("#e2e8f0")),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d7e2e8")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 6), ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
+                ]))
+            else:
+                t.setStyle(grid)
             story += [t, Spacer(1, 8)]
         elif k in ("kv", "form"):
             if k == "kv":
-                data = [[Paragraph(_xml(lbl), st["label"]), Paragraph(_xml(val), st["cell"])] for lbl, val in el.data["rows"]]
+                value_style = st["offer_value"] if offer_design else st["cell"]
+                data = [[Paragraph(_xml(lbl), st["label"]), Paragraph(_xml(val), value_style)] for lbl, val in el.data["rows"]]
             else:
                 vals = el.data.get("values") or {}
                 data = [[Paragraph(_xml(fd["label"] + (" *" if fd.get("required") else "")), st["label"]),
                          Paragraph(_xml(str(vals[fd["key"]])) if vals.get(fd["key"]) not in (None, "") else "_" * 40, st["cell"])]
                         for fd in el.data["fields"]]
             t = Table(data, colWidths=[width * 0.38, width * 0.62])
-            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                   ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+            if offer_design and k == "kv":
+                t.setStyle(TableStyle([
+                    ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f8fafc")),
+                    ("BACKGROUND", (1, 0), (1, -1), colors.white),
+                    ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#d7e2e8")),
+                    ("LINEBELOW", (0, 0), (-1, -1), 0.35, colors.HexColor("#e2e8f0")),
+                    ("VALIGN", (0, 0), (-1, -1), "TOP"),
+                    ("LEFTPADDING", (0, 0), (-1, -1), 7), ("RIGHTPADDING", (0, 0), (-1, -1), 7),
+                    ("TOPPADDING", (0, 0), (-1, -1), 5), ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+                ]))
+            else:
+                t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                                       ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
             story += [t, Spacer(1, 6)]
         elif k == "checklist":
             state_ = el.data.get("state") or {}
@@ -397,15 +496,19 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
                 box = "&#9745; " if s_.get("done") else "&#9744; "
                 story.append(Paragraph(box + _xml(it["label"] + extra + (f" — {note}" if note else "")), st["p"]))
         elif k == "declaration":
-            story.append(Paragraph(_xml_runs(el.runs), st["decl"]))
+            story.append(Paragraph(_xml_runs(el.runs), st["offer_decl"] if offer_design else st["decl"]))
         elif k == "signatures":
             cells = [[Paragraph(_xml(PARTY_LABELS.get(p, p)), st["label"]), Spacer(1, 16), Paragraph(_xml(text), st["cell"])]
                      for p, text in el.data["parties"]]
             pairs = [cells[i:i + 2] for i in range(0, len(cells), 2)]
             rows = [[c for c in pair] + ([""] if len(pair) == 1 else []) for pair in pairs]
             t = Table(rows, colWidths=[width / 2] * 2)
-            t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
-                                   ("TOPPADDING", (0, 0), (-1, -1), 12)]))
+            signature_style = [("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("TOPPADDING", (0, 0), (-1, -1), 12)]
+            if offer_design:
+                signature_style.extend([("LINEABOVE", (0, 0), (-1, -1), 0.8, colors.HexColor("#9fb7bf")),
+                                        ("RIGHTPADDING", (0, 0), (-1, -1), 14)])
+            t.setStyle(TableStyle(signature_style))
             story.append(KeepTogether([Spacer(1, 6), t]))
         elif k == "page_break":
             story.append(PageBreak())
@@ -433,6 +536,13 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
 
         def _footer(self, total):
             self.saveState()
+            if offer_design:
+                self.setStrokeColor(colors.HexColor("#0f4c5c"))
+                self.setLineWidth(1.7)
+                self.line(20 * mm, page[1] - 11 * mm, page[0] - 20 * mm, page[1] - 11 * mm)
+                self.setStrokeColor(colors.HexColor("#d7e2e8"))
+                self.setLineWidth(0.6)
+                self.line(20 * mm, 18 * mm, page[0] - 20 * mm, 18 * mm)
             self.setFont(f["regular"], 7.5)
             self.setFillColor(colors.HexColor("#6b7280"))
             left = "  ·  ".join(footer_bits + (["Confidential"] if confidential else []))
@@ -443,7 +553,8 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
             self.restoreState()
 
     buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=page, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=18 * mm, bottomMargin=22 * mm,
+    doc = SimpleDocTemplate(buf, pagesize=page, leftMargin=20 * mm, rightMargin=20 * mm,
+                            topMargin=23 * mm if offer_design else 18 * mm, bottomMargin=22 * mm,
                             title=inp.title, author=inp.author or "", subject=inp.document_number or "",
                             creator="Zoiko HR document engine", producer="Zoiko HR", keywords="", invariant=1)
     if not story:

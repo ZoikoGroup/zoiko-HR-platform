@@ -2,6 +2,7 @@ import "./support/setup-jsdom.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
 afterEach(() => cleanup());
@@ -115,7 +116,7 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
   } });
   t.mock.module("../src/modules/zoiko-hr/recruitment/PrivacySettings.jsx", { exports: { default: () => null } });
   const { default: Candidates } = await import(`../src/modules/zoiko-hr/recruitment/candidates.jsx?t=${Math.random()}`);
-  render(React.createElement(Candidates));
+  render(React.createElement(MemoryRouter, null, React.createElement(Candidates)));
   await settle();
 
   fireEvent.click(screen.getByRole("button", { name: "Privacy notice status for Ari Applicant" }));
@@ -151,7 +152,7 @@ test("interview scorecard loads requisition criteria and submits the documented 
     submitInterviewScorecard: async (id, body) => { calls.push(["post", id, body]); return {}; },
   } });
   const { default: Interviews } = await import(`../src/modules/zoiko-hr/recruitment/interviews.jsx?t=${Math.random()}`);
-  render(React.createElement(Interviews));
+  render(React.createElement(MemoryRouter, null, React.createElement(Interviews)));
   await settle();
   fireEvent.click(screen.getByRole("button", { name: "View all interviews" }));
   fireEvent.click(screen.getByRole("button", { name: "More actions for Ari Applicant" }));
@@ -168,7 +169,7 @@ test("interview scorecard loads requisition criteria and submits the documented 
   assert.equal(calls[1][2].recommendation, "proceed");
 });
 
-test("offer letter lifecycle uses server approval, generation, preview and issue", async (t) => {
+test("offer letter lifecycle uses server approval, generation, preview and send", async (t) => {
   const calls = [];
   const state = { status: "draft", letter: null, approved_at: null, issued_at: null };
   t.mock.module("react-router-dom", { exports: {
@@ -191,7 +192,8 @@ test("offer letter lifecycle uses server approval, generation, preview and issue
     getOfferLetterPreflight: async (id) => { calls.push(["preflight", id]); return { canonical_id: "HR-HIR-011", approved: state.status === "approved", preflight: { outcome: "ALLOW", reasons: [] } }; },
     approveOfferDocument: async (id, comment) => { calls.push(["approve", id, comment]); state.status = "approved"; state.approved_at = "2026-10-21T10:00:00Z"; return {}; },
     generateOfferLetter: async (id) => { calls.push(["generate", id]); state.letter = { id: 88, canonical_id: "HR-HIR-011", status: "HUMAN_APPROVED", title: "Offer Letter" }; return {}; },
-    issueOfferLetter: async (id) => { calls.push(["issue", id]); state.letter.status = "ISSUED"; state.issued_at = "2026-10-21T11:00:00Z"; return {}; },
+    sendOfferLetter: async (id) => { calls.push(["send", id]); state.status = "pending"; state.letter.status = "ISSUED"; state.issued_at = "2026-10-21T11:00:00Z"; return {}; },
+    resendOfferLetter: async (id) => { calls.push(["resend", id]); return {}; },
     amendOffer: async () => ({}), requestOfferWithdrawal: async () => ({}), clearOfferCondition: async () => ({}),
   } });
   t.mock.module("../src/service/docTemplatesService.js", { exports: {
@@ -199,7 +201,7 @@ test("offer letter lifecycle uses server approval, generation, preview and issue
     downloadGeneratedDocument: async () => ({}),
   } });
   const { default: Offers } = await import(`../src/modules/zoiko-hr/recruitment/offers.jsx?t=${Math.random()}`);
-  render(React.createElement(Offers));
+  render(React.createElement(MemoryRouter, null, React.createElement(Offers)));
   await settle();
   fireEvent.click(screen.getByTitle("Manage offer letter"));
   await settle();
@@ -211,8 +213,8 @@ test("offer letter lifecycle uses server approval, generation, preview and issue
   await settle();
   assert.deepEqual(calls.find((call) => call[0] === "generate"), ["generate", 7]);
   assert.ok(screen.getByTitle("Offer letter for Ari Applicant").getAttribute("srcdoc").includes("Server-rendered"));
-  fireEvent.click(screen.getByRole("button", { name: "Issue to candidate" }));
+  fireEvent.click(screen.getByRole("button", { name: "Send to candidate" }));
   await settle();
-  assert.deepEqual(calls.find((call) => call[0] === "issue"), ["issue", 7]);
+  assert.deepEqual(calls.find((call) => call[0] === "send"), ["send", 7]);
   assert.ok(screen.getByText("ISSUED", { selector: "strong" }));
 });

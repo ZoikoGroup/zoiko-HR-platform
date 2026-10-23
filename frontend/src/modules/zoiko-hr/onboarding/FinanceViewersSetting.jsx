@@ -54,26 +54,26 @@ export default function FinanceViewersSetting() {
   };
 
   return (
-    <section aria-label="Finance viewer settings" className="rounded-xl border border-slate-200 bg-white p-4 sm:p-5">
+    <section aria-label="Finance viewer settings" className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-base font-bold text-gray-800">Finance viewers</h2>
+          <h2 className="text-base font-semibold text-gray-900">Finance viewers</h2>
           <p className="mt-1 text-sm text-gray-500">Explicitly grant access to reveal and verify onboarding bank and payroll details. Changes are audited.</p>
         </div>
         <button type="button" onClick={() => setOpen((current) => !current)} aria-expanded={open}
-          className="min-h-9 rounded-lg border border-slate-300 px-3 text-sm font-medium text-slate-700">
+          className="inline-flex min-h-9 items-center rounded-xl border border-gray-200 bg-white px-4 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50">
           {open ? "Hide finance viewer settings" : "Manage finance viewers"}
         </button>
       </div>
       {open && (
         <div className="mt-4 space-y-4">
-          {error && <p role="alert" className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-          {notice && <p role="status" className="rounded-lg bg-green-50 p-3 text-sm text-green-700">{notice}</p>}
+          {error && <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700">{error}</p>}
+          {notice && <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 text-sm text-emerald-800">{notice}</p>}
           {loading ? <p className="text-sm text-gray-500">Loading employees and permissions…</p>
             : employees.length ? (
-              <div className="max-h-64 overflow-auto rounded-lg border border-slate-100 p-2">
+              <div className="grid max-h-72 grid-cols-1 gap-1 overflow-auto rounded-xl border border-gray-100 p-2 sm:grid-cols-2">
                 {employees.map((employee) => (
-                  <label key={employee.id} className="flex items-center gap-3 rounded-md px-2 py-2 text-sm text-gray-700 hover:bg-slate-50">
+                  <label key={employee.id} className="flex items-center gap-3 rounded-lg px-2 py-2 text-sm text-gray-700 hover:bg-gray-50">
                     <input type="checkbox" checked={selected.includes(Number(employee.id))} onChange={() => toggle(employee.id)}
                       className="rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
                     <span>{label(employee)}</span>
@@ -83,7 +83,7 @@ export default function FinanceViewersSetting() {
             ) : <p className="text-sm text-gray-500">No active employees were returned.</p>}
           <div className="flex justify-end">
             <button type="button" onClick={save} disabled={loading || saving}
-              className="min-h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white disabled:opacity-50">
+              className="inline-flex min-h-10 items-center rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50">
               {saving ? "Saving…" : "Save finance viewers"}
             </button>
           </div>
