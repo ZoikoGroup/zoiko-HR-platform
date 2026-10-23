@@ -481,6 +481,9 @@ def create_offer(
 ):
     offer = recruitment_service.create_offer(db, data, current_user.organization_id, actor=current_user)
     _auto_offer_letter(db, current_user, offer.id)
+    from app.modules.hr.recruitment_documents import auto_generate_offer_draft_on_create
+    offer = recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
+    auto_generate_offer_draft_on_create(db, current_user, offer)
     return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
 
 
@@ -580,7 +583,10 @@ def withdraw_offer(
     summary="Send an offer: mark it sent and email its terms to the linked candidate",
 )
 def send_offer(offer_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    return recruitment_service.send_offer(db, offer_id, current_user.organization_id)
+    from app.modules.hr import recruitment_documents
+    offer = recruitment_documents._offer(db, current_user, offer_id)
+    recruitment_documents.send_offer_letter(db, current_user, offer)
+    return recruitment_service.get_offer_by_id(db, offer_id, current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════

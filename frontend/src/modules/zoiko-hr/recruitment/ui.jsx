@@ -19,10 +19,6 @@ export const NAV_ITEMS = [
 
 // the page each heading belongs to (the header never reads the URL, so it also works where the router is replaced)
 const PAGE_OF_TITLE = { "Recruitment Dashboard": "Dashboard", "Candidate Profile": "Candidates" };
-function pageFor(title) {
-  const label = PAGE_OF_TITLE[title] || title;
-  return NAV_ITEMS.find((i) => i.label === label) || NAV_ITEMS[0];
-}
 
 // ── tones (icon tiles, pills, sparklines) ───────────────────────────────────────────────────────────────────────────
 export const TONES = {
@@ -41,9 +37,19 @@ export const TONES = {
  * Navy header band in the sidebar's colours (#0A1128 → #111A33): breadcrumb, page icon, heading, subtitle, the page's
  * actions, and the section tabs as folder tabs that join the content below.
  */
-export function RecruitmentLayout({ title, subtitle, actions, children }) {
-  const page = pageFor(title);
+export function RecruitmentLayout(props) {
+  return <ModuleLayout module="Recruitment" items={NAV_ITEMS} pageOfTitle={PAGE_OF_TITLE} {...props} />;
+}
+
+/**
+ * The shared module shell (Recruitment, Onboarding, …): `items` are the section tabs ({label, href, icon}); the first one
+ * is the module home. `pageOfTitle` maps a heading to the tab it belongs to when they differ.
+ */
+export function ModuleLayout({ module, items, pageOfTitle = {}, title, subtitle, actions, children }) {
+  const label = pageOfTitle[title] || title;
+  const page = items.find((i) => i.label === label) || items[0];
   const PageIcon = page.icon;
+  const home = items[0]?.href;
   return (
     <div className="min-h-screen bg-slate-50">
       <header className="relative overflow-hidden rounded-b-3xl bg-gradient-to-r from-[#0A1128] via-[#0E1734] to-[#111A33] text-white shadow-[0_10px_30px_rgba(4,7,20,0.25)] sm:rounded-3xl">
@@ -51,7 +57,7 @@ export function RecruitmentLayout({ title, subtitle, actions, children }) {
         <div className="relative mx-auto max-w-[1600px] px-4 pt-5 sm:px-6 lg:px-8">
           <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-slate-400">
             <span>Zoiko HR</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
-            <span>Recruitment</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
+            <span>{module}</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
             <span className="font-medium text-slate-200">{title}</span>
           </nav>
           <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
@@ -66,11 +72,11 @@ export function RecruitmentLayout({ title, subtitle, actions, children }) {
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
           </div>
-          <nav aria-label="Recruitment sections" className="mt-6 flex gap-1 overflow-x-auto">
-            {NAV_ITEMS.map((item) => {
+          <nav aria-label={`${module} sections`} className="mt-6 flex gap-1 overflow-x-auto">
+            {items.map((item) => {
               const Icon = item.icon;
               return (
-                <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/recruitment"}
+                <NavLink key={item.href} to={item.href} end={item.href === home}
                   className={({ isActive }) => `inline-flex items-center gap-2 whitespace-nowrap rounded-t-xl px-4 py-2.5 text-sm font-medium transition-colors ${
                     isActive ? "bg-slate-50 text-[#0A1128] shadow-[0_-2px_8px_rgba(0,0,0,0.08)]" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
                   <Icon className="h-4 w-4" aria-hidden="true" />{item.label}

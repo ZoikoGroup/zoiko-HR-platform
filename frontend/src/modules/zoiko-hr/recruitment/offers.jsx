@@ -14,7 +14,8 @@ import {
 // provides only the core calls still works
 import * as hrApi from "../../../service/hrService";
 import {
-  getOfferDocument, getOfferLetterPreflight, approveOfferDocument, generateOfferLetter, issueOfferLetter,
+  getOfferDocument, getOfferLetterPreflight, approveOfferDocument, generateOfferLetter,
+  sendOfferLetter, resendOfferLetter,
   amendOffer, requestOfferWithdrawal, clearOfferCondition,
 } from "../../../service/recruitmentDocumentsService";
 import * as recDocs from "../../../service/recruitmentDocumentsService";
@@ -38,6 +39,20 @@ function formatDate(dateStr) {
 // ── statuses ───────────────────────────────────────────────────────────────────────────────────────────────────────
 const STATUS_LABEL = { draft: "Draft", pending: "Sent", approved: "Ready to Send", rejected: "Declined", accepted: "Accepted", countered: "Countered", withdrawn: "Withdrawn", expired: "Expired" };
 const CLOSED = ["accepted", "rejected", "withdrawn", "expired"];
+
+export function offerSendReason({ issued, closed, closedLabel, letterStatus, waived, letter, offerStatus, candidateEmail }) {
+  if (issued) return "The letter has already been sent.";
+  if (closed) return `This offer is ${closedLabel || offerStatus}.`;
+  if (candidateEmail === false) return "Link a candidate with an email address before sending.";
+  const canPrepare = offerStatus === "approved" || waived;
+  if (!canPrepare) return "Approve the offer first (Preview Offer).";
+  if (!letter || letter.release_mode === "STARTER_PREVIEW") return "";
+  if (letterStatus === "HUMAN_APPROVED" || (letterStatus === "RENDERED_DRAFT" && letter?.approval_policy === "L1")) return "";
+  if (waived && ["PENDING_APPROVAL", "RENDERED_DRAFT"].includes(letterStatus)) return "";
+  if (letterStatus === "CANCELLED") return "";
+  if (letter) return `The letter is ${letterStatus.replace(/_/g, " ").toLowerCase()}; finish its approvals first.`;
+  return "";
+}
 const WITHDRAW_BLOCKED = ["rejected", "withdrawn", "expired"];
 
 /**
@@ -96,6 +111,7 @@ const ENTITY_TEXT = ["entity_tax_id", "entity_name", "entity_address", "entity_c
 
 const emptyForm = (orgCurrency = "USD") => ({
   candidate_id: "", candidate_name: "", position: "", employment_type: "full_time", work_country: null,
+  department_id: "", reporting_manager_id: "", work_location: "", work_arrangement: "", work_pattern: "",
   pay: { remuneration_type: "salary", amount: "", currency: orgCurrency, pay_period: "annual", currencyTouched: false },
   equity: "", joining_date: "", response_deadline: "", notes: "",
   entity: { ...EMPTY_ENTITY },
@@ -159,6 +175,8 @@ export default function OfferManagement({ mode = "all" }) {
   const [offers, setOffers] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [requisitions, setRequisitions] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
   const [actionError, setActionError] = useState(null);
@@ -201,10 +219,16 @@ export default function OfferManagement({ mode = "all" }) {
       getOffers({ per_page: 100 }),
       getCandidates({ per_page: 100 }).catch(() => ({ items: [] })),
       typeof hrApi.getRequisitions === "function" ? hrApi.getRequisitions({ per_page: 100 }).catch(() => ({ items: [] })) : Promise.resolve({ items: [] }),
-    ]).then(([d, cands, reqs]) => {
+      typeof hrApi.getDepartments === "function" ? hrApi.getDepartments().catch(() => []) : Promise.resolve([]),
+      typeof hrApi.getHrEmployees === "function"
+        ? hrApi.getHrEmployees({ per_page: 200, status: "active", include_all_roles: true }).catch(() => ({ items: [] }))
+        : Promise.resolve({ items: [] }),
+    ]).then(([d, cands, reqs, depts, people]) => {
       setOffers(asList(d));
       setCandidates(asList(cands));
       setRequisitions(asList(reqs));
+      setDepartments(asList(depts).filter((dept) => dept?.is_active !== false));
+      setEmployees(asList(people).filter((person) => person?.is_active !== false));
     }).catch((err) => {
       setLoadError(err.message || "Failed to load offers.");
     }).finally(() => setLoading(false));
@@ -218,7 +242,16 @@ export default function OfferManagement({ mode = "all" }) {
   // ── lookups ──────────────────────────────────────────────────────────────────────────────────────────────────────
   const candById = useMemo(() => Object.fromEntries(candidates.map((c) => [String(c.id), c])), [candidates]);
   const reqById = useMemo(() => Object.fromEntries(requisitions.map((r) => [String(r.id), r])), [requisitions]);
-  const managerNames = useMemo(() => Object.fromEntries((insights.data?.hiring_managers || []).map((m) => [String(m.id), m.name])), [insights.data]);
+  const managerNames = useMemo(() => Object.fromEntries([
+    ...(insights.data?.hiring_managers || []).map((m) => [String(m.id), m.name]),
+    ...employees.map((person) => [String(person.id), person.fullName || person.full_name
+      || [person.firstName || person.first_name, person.lastName || person.last_name].filter(Boolean).join(" ") || person.email]),
+  ]), [employees, insights.data]);
+  const departmentNames = useMemo(() => Object.fromEntries(departments.map((dept) => [String(dept.id), dept.name])), [departments]);
+  const managerOptions = useMemo(() => Object.entries(managerNames)
+    .filter(([, label]) => Boolean(label))
+    .map(([value, label]) => ({ value, label }))
+    .sort((a, b) => a.label.localeCompare(b.label)), [managerNames]);
   const activity = insights.data?.activity || {};
   const reqOf = (o) => {
     const c = o.candidate_id ? candById[String(o.candidate_id)] : null;
@@ -230,7 +263,6 @@ export default function OfferManagement({ mode = "all" }) {
     const names = insights.data?.entities?.length ? insights.data.entities : [...new Set(offers.map((o) => o.entity_name).filter(Boolean))].sort();
     return names.map((n) => ({ value: n, label: n }));
   }, [insights.data, offers]);
-  const managerOptions = useMemo(() => (insights.data?.hiring_managers || []).map((m) => ({ value: String(m.id), label: m.name })), [insights.data]);
   const statusOptions = useMemo(() => {
     const seen = new Map();
     offers.forEach((o) => { const s = offerStatus(o); if (!seen.has(s.key)) seen.set(s.key, s.label); });
@@ -312,6 +344,11 @@ export default function OfferManagement({ mode = "all" }) {
       position: o.position || "",
       employment_type: o.employment_type || (o.remuneration_type === "stipend" ? "internship" : "full_time"),
       work_country: o.work_country || null,
+      department_id: o.department_id ? String(o.department_id) : "",
+      reporting_manager_id: o.reporting_manager_id ? String(o.reporting_manager_id) : "",
+      work_location: o.work_location || "",
+      work_arrangement: o.work_arrangement || "",
+      work_pattern: o.work_pattern || "",
       pay: {
         remuneration_type: o.remuneration_type || "salary",
         amount: o.salary ?? "",
@@ -386,6 +423,11 @@ export default function OfferManagement({ mode = "all" }) {
       position: form.position.trim(),
       employment_type: form.employment_type,
       work_country: form.work_country || null,
+      department_id: form.department_id ? Number(form.department_id) : null,
+      reporting_manager_id: form.reporting_manager_id ? Number(form.reporting_manager_id) : null,
+      work_location: form.work_location.trim() || null,
+      work_arrangement: form.work_arrangement || null,
+      work_pattern: form.work_pattern.trim() || null,
       remuneration_type: form.pay.remuneration_type,
       salary: amount,
       currency: form.pay.currency,
@@ -440,6 +482,8 @@ export default function OfferManagement({ mode = "all" }) {
       if (detailId === o.id) loadDetail(o.id);
     } catch (err) {
       setActionError(err.message || "The action failed.");
+      refreshAll();
+      if (detailId === o.id) loadDetail(o.id);
     } finally {
       setBusyId(null);
     }
@@ -457,11 +501,13 @@ export default function OfferManagement({ mode = "all" }) {
     setWorkflowForm({ mode, comment: "", category: "other", statement: "", condition: "", legal_review_completed: false,
       position: offer.position || "", salary: offer.salary ?? "", currency: offer.currency || "", joining_date: offer.joining_date ? String(offer.joining_date).slice(0, 10) : "" });
     setShowPreview(true);
-    setLetterState({ loading: true, error: "", data: null, preflight: null, html: "" });
+    setLetterState({ loading: true, error: "", data: null, preflight: null, html: "", draftPreview: null });
     try {
       const [data, preflight, readiness] = await Promise.all([getOfferDocument(offer.id), getOfferLetterPreflight(offer.id), typeof recDocs.getOfferLetterReadiness === "function" ? recDocs.getOfferLetterReadiness(offer.id).catch(() => null) : null]);
       const html = data?.letter?.id ? (await previewGeneratedDocument(data.letter.id))?.html || "" : "";
-      setLetterState({ loading: false, error: "", data, preflight, readiness, html });
+      const draftPreview = !data?.letter && typeof recDocs.getOfferLetterDraftPreview === "function"
+        ? await recDocs.getOfferLetterDraftPreview(offer.id).catch(() => null) : null;
+      setLetterState({ loading: false, error: "", data, preflight, readiness, html, draftPreview });
     } catch (e) {
       setLetterState({ loading: false, error: e?.message || "Offer documents could not be loaded.", data: null, preflight: null, html: "" });
     }
@@ -473,7 +519,9 @@ export default function OfferManagement({ mode = "all" }) {
     try {
       const [data, preflight, readiness] = await Promise.all([getOfferDocument(offerId), getOfferLetterPreflight(offerId), typeof recDocs.getOfferLetterReadiness === "function" ? recDocs.getOfferLetterReadiness(offerId).catch(() => null) : null]);
       const html = data?.letter?.id ? (await previewGeneratedDocument(data.letter.id))?.html || "" : "";
-      setLetterState({ loading: false, error: "", data, preflight, readiness, html });
+      const draftPreview = !data?.letter && typeof recDocs.getOfferLetterDraftPreview === "function"
+        ? await recDocs.getOfferLetterDraftPreview(offerId).catch(() => null) : null;
+      setLetterState({ loading: false, error: "", data, preflight, readiness, html, draftPreview });
       refreshAll();
       if (detailId === offerId) loadDetail(offerId);
     } catch (e) {
@@ -498,6 +546,7 @@ export default function OfferManagement({ mode = "all" }) {
       await refreshLetter(previewOffer.id);
     } catch (e) {
       setActionError(e?.message || "The offer document action failed.");
+      await refreshLetter(previewOffer.id);
     } finally {
       setBusyId(null);
     }
@@ -508,7 +557,7 @@ export default function OfferManagement({ mode = "all" }) {
     if (!previewOffer) return;
     if (workflowForm.mode === "approve") return manageLetter(() => approveOfferDocument(previewOffer.id, workflowForm.comment.trim() || null), "Offer approved.");
     if (workflowForm.mode === "generate") return manageLetter(() => generateOfferLetter(previewOffer.id), "Offer letter generated.");
-    if (workflowForm.mode === "issue") return manageLetter(() => issueOfferLetter(previewOffer.id), "Offer letter issued to the candidate.");
+    if (workflowForm.mode === "issue") return manageLetter(() => sendOfferLetter(previewOffer.id), "Offer letter sent to the candidate by email.");
     if (workflowForm.mode === "amend") {
       const changes = {};
       if (workflowForm.position.trim() !== (previewOffer.position || "")) changes.position = workflowForm.position.trim();
@@ -569,7 +618,14 @@ export default function OfferManagement({ mode = "all" }) {
   const openDetail = (o) => { setDetailId(o.id); setDetailTab("overview"); loadDetail(o.id); };
   const detailOffer = detailId ? offers.find((o) => o.id === detailId) : null;
 
-  const sendLetter = (o) => runAction(o, issueOfferLetter, { confirm: `Send the offer letter to ${o.candidate_name}?`, ok: "Offer letter issued to the candidate." });
+  const sendLetter = (o) => runAction(o, sendOfferLetter, {
+    confirm: `Send the offer letter to ${o.candidate_name}?`,
+    ok: `Offer letter sent to ${o.candidate_name}. A secure signing link was emailed to the candidate.`,
+  });
+  const resendLetter = (o) => runAction(o, resendOfferLetter, {
+    confirm: `Send a fresh signing link to ${o.candidate_name}?`,
+    ok: `A fresh signing link was emailed to ${o.candidate_name}.`,
+  });
 
   // ── templates tab ──────────────────────────────────────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -648,9 +704,11 @@ export default function OfferManagement({ mode = "all" }) {
       <WithDetail detail={detailOffer && (
         <OfferDetail
           offer={detailOffer} detail={detail} tab={detailTab} onTab={setDetailTab} onClose={() => setDetailId(null)}
-          info={reqOf(detailOffer)} managerName={managerNames[String(detailOffer.reporting_manager_id)]}
+          info={reqOf(detailOffer)} departmentName={departmentNames[String(detailOffer.department_id)]}
+          managerName={managerNames[String(detailOffer.reporting_manager_id)]}
           delivery={activity[detailOffer.id]?.delivery} approvedByName={activity[detailOffer.id]?.approved_by_name} busy={busyId === detailOffer.id}
           onPreview={() => openPreview(detailOffer)} onEdit={() => openEdit(detailOffer)} onSend={() => sendLetter(detailOffer)}
+          onResend={() => resendLetter(detailOffer)}
           onWithdraw={() => openPreview(detailOffer, "withdraw")} onAmend={() => openPreview(detailOffer, "amend")}
           onSetup={setSetupCountry}
         />
@@ -829,8 +887,30 @@ export default function OfferManagement({ mode = "all" }) {
                   <input value={form.candidate_name} onChange={(e) => setForm({ ...form, candidate_name: e.target.value })} className={field} maxLength={150} />
                 </div>
                 <div>
-                  <label className={labelCls}>Position *</label>
+                  <label className={labelCls}>Position title *</label>
                   <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={field} maxLength={150} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Department</label>
+                  <select value={form.department_id} onChange={(e) => setForm((prev) => ({ ...prev, department_id: e.target.value }))} className={field}>
+                    <option value="">Select department</option>
+                    {form.department_id && !departmentNames[form.department_id] && (
+                      <option value={form.department_id}>Current department (#{form.department_id})</option>
+                    )}
+                    {departments.map((dept) => <option key={dept.id} value={dept.id}>{dept.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className={labelCls}>Reporting to</label>
+                  <select value={form.reporting_manager_id} onChange={(e) => setForm((prev) => ({ ...prev, reporting_manager_id: e.target.value }))} className={field}>
+                    <option value="">Select reporting manager</option>
+                    {form.reporting_manager_id && !managerNames[form.reporting_manager_id] && (
+                      <option value={form.reporting_manager_id}>Current manager (#{form.reporting_manager_id})</option>
+                    )}
+                    {managerOptions.map((manager) => <option key={manager.value} value={manager.value}>{manager.label}</option>)}
+                  </select>
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -843,6 +923,27 @@ export default function OfferManagement({ mode = "all" }) {
                 <div>
                   <label className={labelCls}>Work country (sets the currency)</label>
                   <CountrySelect regions={regions} value={form.work_country} onChange={(c) => setForm((prev) => setWorkCountry(c, { ...prev, pay: { ...prev.pay, currencyTouched: false } }))} />
+                </div>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className={labelCls}>Work location</label>
+                  <input value={form.work_location} onChange={(e) => setForm((prev) => ({ ...prev, work_location: e.target.value }))}
+                    className={field} maxLength={200} placeholder="City, office, or site" />
+                </div>
+                <div>
+                  <label className={labelCls}>Working arrangement</label>
+                  <select value={form.work_arrangement} onChange={(e) => setForm((prev) => ({ ...prev, work_arrangement: e.target.value }))} className={field}>
+                    <option value="">Select arrangement</option>
+                    <option value="onsite">On-site</option>
+                    <option value="hybrid">Hybrid</option>
+                    <option value="remote">Remote</option>
+                  </select>
+                </div>
+                <div className="sm:col-span-2">
+                  <label className={labelCls}>Working pattern</label>
+                  <input value={form.work_pattern} onChange={(e) => setForm((prev) => ({ ...prev, work_pattern: e.target.value }))}
+                    className={field} maxLength={200} placeholder="e.g. Monday–Friday, 9:00–17:00" />
                 </div>
               </div>
 
@@ -859,7 +960,7 @@ export default function OfferManagement({ mode = "all" }) {
                   </div>
                 )}
                 <div>
-                  <label className={labelCls}>Start date</label>
+                  <label className={labelCls}>Proposed start date</label>
                   <input type="date" value={form.joining_date} onChange={(e) => setForm({ ...form, joining_date: e.target.value })} className={field} />
                 </div>
                 <div>
@@ -917,7 +1018,26 @@ export default function OfferManagement({ mode = "all" }) {
                 {letterState.loading ? <p role="status" className="py-8 text-center text-sm text-gray-500">Loading server document status…</p> : null}
                 {letterState.error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{letterState.error}</div>}
                 {letterState.data?.letter ? (
-                  <SandboxedHtmlPreview html={letterState.html} title={`Offer letter for ${previewOffer.candidate_name}`} height="min(65vh, 720px)" />
+                  <div className="space-y-2">
+                    {letterState.data.letter.release_mode === "STARTER_PREVIEW" && (
+                      <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                        Preview draft for {letterState.data.letter.jurisdiction || previewOffer.work_country}. Use Send to candidate to prepare a sendable copy from the unchanged platform starter and its available clauses.
+                      </p>
+                    )}
+                    {letterState.data.letter.release_mode === "OFFER_STARTER" && (
+                      <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs font-medium text-blue-900">
+                        Prepared from the unchanged platform offer starter for {previewOffer.work_country}. Sending does not require a separate jurisdiction pack setup.
+                      </p>
+                    )}
+                    <SandboxedHtmlPreview html={letterState.html} title={`Offer letter for ${previewOffer.candidate_name}`} height="min(65vh, 720px)" />
+                  </div>
+                ) : letterState.draftPreview?.html ? (
+                  <div className="space-y-2">
+                    <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
+                      Draft preview for {letterState.draftPreview.jurisdiction}. Send to candidate prepares a sendable copy from the unchanged platform starter and its available clauses.
+                    </p>
+                    <SandboxedHtmlPreview html={letterState.draftPreview.html} title={`Draft offer letter for ${previewOffer.candidate_name}`} height="min(65vh, 720px)" />
+                  </div>
                 ) : (
                   <div className="flex min-h-56 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
                     {letterState.loading ? "Checking offer documents…" : "No offer letter has been generated yet."}
@@ -999,9 +1119,16 @@ export default function OfferManagement({ mode = "all" }) {
                       || letterState.readiness?.steps?.some((step) => step.key === "approval" && step.automatic)) && !letterState.data?.letter && (
                       <button type="button" onClick={() => manageLetter(() => generateOfferLetter(previewOffer.id), "Offer letter generated.")} disabled={Boolean(busyId)} className="w-full rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">Generate server letter</button>
                     )}
-                    {(letterState.data?.letter?.status === "HUMAN_APPROVED"
-                      || (letterState.data?.letter?.status === "RENDERED_DRAFT" && letterState.data?.letter?.approval_policy === "L1")) && (
-                      <button type="button" onClick={() => manageLetter(() => issueOfferLetter(previewOffer.id), "Offer letter issued to the candidate.")} disabled={Boolean(busyId)} className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Issue to candidate</button>
+                    {(letterState.data?.status === "approved"
+                      || letterState.readiness?.steps?.some((step) => step.key === "approval" && step.automatic))
+                      && !letterState.data?.issued_at
+                      && !["ISSUED", "EXECUTED"].includes(letterState.data?.letter?.status)
+                      && !CLOSED.includes(letterState.data?.status || previewOffer.status) && (
+                      <button type="button" onClick={() => manageLetter(() => sendOfferLetter(previewOffer.id), "Offer letter sent. A secure signing link was emailed to the candidate.")} disabled={Boolean(busyId)} className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Send to candidate</button>
+                    )}
+                    {["ISSUED"].includes(letterState.data?.letter?.status)
+                      && !CLOSED.includes(letterState.data?.status || previewOffer.status) && (
+                      <button type="button" onClick={() => manageLetter(() => resendOfferLetter(previewOffer.id), "A fresh signing link was emailed to the candidate.")} disabled={Boolean(busyId)} className="w-full rounded-lg border border-blue-200 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-50 disabled:opacity-50">Resend signing link</button>
                     )}
                     {letterState.data?.letter && !["HUMAN_APPROVED", "ISSUED", "EXECUTED"].includes(letterState.data.letter.status)
                       && !(letterState.data.letter.status === "RENDERED_DRAFT" && letterState.data.letter.approval_policy === "L1") && (
@@ -1120,25 +1247,32 @@ const SETUP_STEPS = ["entity", "signatory", "pack", "template", "clauses"];
 
 function LetterReadiness({ readiness, onSetup }) {
   const steps = readiness?.steps || [];
-  const open = steps.filter((st) => !st.ok && !st.automatic).length;
-  const automatic = steps.filter((st) => !st.ok && st.automatic).length;
+  const open = steps.filter((st) => !st.ok && !st.automatic && !st.preview_only).length;
+  const automatic = steps.filter((st) => !st.ok && st.automatic && !st.preview_only).length;
   const automaticSetup = steps.some((st) => !st.ok && st.automatic && SETUP_STEPS.includes(st.key));
-  const setupHelps = onSetup && steps.some((st) => !st.ok && !st.automatic && SETUP_STEPS.includes(st.key));
+  const setupHelps = onSetup && steps.some((st) => !st.ok && !st.automatic && !st.preview_only && SETUP_STEPS.includes(st.key));
   return (
     <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+      {readiness.draft_preview_available && (
+        <p className="mb-3 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+          Automatic draft previews are enabled for {readiness.draft_preview_countries.join(", ")}. They use the offer and organization details, but are not legally released and cannot be issued or sent.
+        </p>
+      )}
       <p className="text-xs font-medium text-amber-800">
-        {open ? `${open} thing${open === 1 ? "" : "s"} to set up before ${readiness.canonical_id || "the letter"} can be generated`
+        {readiness.draft_preview_available && open === 0 && automatic === 0 ? "Draft preview available · not issuable"
+          : open ? `${open} thing${open === 1 ? "" : "s"} to set up before ${readiness.canonical_id || "the letter"} can be generated`
           : automatic ? `${automatic} setup step${automatic === 1 ? "" : "s"} will run when you generate ${readiness.canonical_id || "the letter"}`
             : "Ready to generate"}
       </p>
       <ul className="mt-2 space-y-2">
         {steps.map((st) => (
           <li key={st.key} className="flex gap-2 text-xs">
-            {st.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-label="Done" />
+            {st.preview_only ? <Eye className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-label="Preview only" />
+              : st.ok ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" aria-label="Done" />
               : st.automatic ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" aria-label="Automatic" />
               : <XCircle className="mt-0.5 h-4 w-4 shrink-0 text-rose-500" aria-label="Missing" />}
             <span className="min-w-0">
-              <span className="font-medium text-gray-900">{st.label}{st.automatic ? " · Automatic" : ""}</span>
+              <span className="font-medium text-gray-900">{st.label}{st.automatic ? " · Automatic" : st.preview_only ? " · Draft preview only" : ""}</span>
               <span className="block text-gray-600">{st.detail}</span>
               {st.fix && <NavLink to={st.fix.href} className="font-medium text-blue-600 hover:underline">{st.fix.label} →</NavLink>}
             </span>
@@ -1158,15 +1292,19 @@ function LetterReadiness({ readiness, onSetup }) {
   );
 }
 
-function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, managerName, delivery, approvedByName, onSetup, busy, onPreview, onEdit, onSend, onWithdraw, onAmend }) {
-  const st = offerStatus(o);
+function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, departmentName, managerName, delivery, approvedByName, onSetup, busy, onPreview, onEdit, onSend, onResend, onWithdraw, onAmend }) {
   const cand = info.cand;
   const mine = detail.id === o.id;
   const doc = mine ? detail.doc : null;
   const timeline = mine ? detail.timeline : [];
   const letter = doc?.letter || null;
   const letterStatus = letter?.status || "";
-  const issued = Boolean(doc?.issued_at || o.issued_at);
+  const issuedAt = doc?.issued_at || o.issued_at || letter?.issued_at;
+  const issued = Boolean(issuedAt || ["ISSUED", "EXECUTED"].includes(letterStatus));
+  const statusOffer = issued && !CLOSED.includes(o.status)
+    ? { ...o, status: o.status === "approved" ? "pending" : o.status, issued_at: issuedAt || o.issued_at || true }
+    : o;
+  const st = offerStatus(statusOffer);
   // Approval is waived by the organization setting "offer letters without approval": the letter records an
   // approval_waived event, or the offer was approved by the person who prepared it (separation of duties forbids that
   // for a normal approval, so only the automatic waiver path produces it).
@@ -1174,19 +1312,17 @@ function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, managerName,
     || Boolean(o.approved_by && o.created_by && o.approved_by === o.created_by);
   const approvedAt = doc?.approved_at || o.approved_at;
   const typeLabel = EMPLOYMENT_TYPES.find((t) => t.value === o.employment_type)?.label;
-  const department = info.req?.department || "";
+  const department = departmentName || info.req?.department || "";
   const location = o.work_location || o.entity_city || info.req?.location || "";
   const components = Array.isArray(o.components) ? o.components.filter((c) => c && c.label) : [];
-  const sentAt = delivery?.sent_at || doc?.issued_at || o.issued_at;
+  const sentAt = delivery?.sent_at || issuedAt || (letterStatus === "ISSUED" ? letter?.status_changed_at : null);
   const openedAt = delivery?.opened_at || letter?.viewed_at;
 
   const closed = CLOSED.includes(o.status);
-  const sendReason = issued ? "The letter has already been sent."
-    : closed ? `This offer is ${STATUS_LABEL[o.status]?.toLowerCase() || o.status}.`
-    : letterStatus === "HUMAN_APPROVED" ? ""
-    : letter ? `The letter is ${letterStatus.replace(/_/g, " ").toLowerCase()}; finish its approvals first.`
-    : o.status === "approved" ? "Generate the letter first (Preview Offer)."
-    : "Approve the offer first (Preview Offer).";
+  const autoApproval = Boolean(detail?.readiness?.steps?.some((step) => step.key === "approval" && step.automatic));
+  const sendReason = offerSendReason({ issued, closed, closedLabel: STATUS_LABEL[o.status]?.toLowerCase(),
+    letterStatus, waived: waived || autoApproval, letter, offerStatus: o.status,
+    candidateEmail: info.cand ? Boolean(info.cand.email) : undefined });
 
   const events = [
     o.created_at && { at: o.created_at, label: "Offer created" },
@@ -1236,6 +1372,11 @@ function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, managerName,
                   <p className="mt-0.5 flex items-center gap-1 text-xs text-gray-500"><MapPin className="h-3 w-3" />{[o.entity_name, location].filter(Boolean).join(" · ")}</p>
                 )}
                 {managerName && <p className="mt-0.5 text-xs text-gray-500">Reports to {managerName}</p>}
+                {(o.work_arrangement || o.work_pattern) && (
+                  <p className="mt-0.5 text-xs text-gray-500">
+                    {[o.work_arrangement && ({ onsite: "On-site", hybrid: "Hybrid", remote: "Remote" }[o.work_arrangement] || o.work_arrangement), o.work_pattern].filter(Boolean).join(" / ")}
+                  </p>
+                )}
               </div>
             </div>
           </DetailSection>
@@ -1288,7 +1429,7 @@ function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, managerName,
                     title="Letter approval"
                     sub={waived ? "Approval not required (organization setting)" : ["HUMAN_APPROVED", "ISSUED", "EXECUTED"].includes(letterStatus) ? "Approved" : letterStatus.replace(/_/g, " ").toLowerCase()} />
                 )}
-                <CheckItem state={issued ? "done" : "pending"} title="Sent to candidate" sub={issued ? formatDate(doc?.issued_at || o.issued_at) : "Not sent"} />
+                <CheckItem state={issued ? "done" : "pending"} title="Sent to candidate" sub={issued ? formatDate(issuedAt) : "Not sent"} />
               </ul>
             )}
           </DetailSection>
@@ -1311,9 +1452,10 @@ function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, managerName,
               <QuickAction icon={Eye} label="Preview Offer" onClick={onPreview} />
               <QuickAction icon={Edit2} label="Edit" onClick={issued ? onAmend : onEdit} disabled={closed}
                 title={closed ? "A closed offer cannot be edited." : issued ? "An issued offer is changed by an amendment." : undefined} />
-              <QuickAction icon={busy ? Loader2 : Send} label="Send" tone="primary" onClick={onSend} disabled={Boolean(sendReason) || busy} title={sendReason || "Send the approved letter to the candidate"} />
-              <QuickAction icon={RefreshCw} label="Resend" disabled
-                title={issued ? "Resending is not available: the document engine sends reminders on the signing link automatically." : "Nothing has been sent yet."} />
+              <QuickAction icon={busy ? Loader2 : Send} label="Send" tone="primary" onClick={onSend} disabled={Boolean(sendReason) || busy} title={sendReason || "Prepare the approved letter and email a secure signing link to the candidate"} />
+              <QuickAction icon={busy ? Loader2 : RefreshCw} label="Resend" onClick={onResend}
+                disabled={!issued || closed || busy}
+                title={!issued ? "Send the offer first." : closed ? `A ${STATUS_LABEL[o.status]?.toLowerCase()} offer cannot be resent.` : "Send a fresh secure signing link to the candidate."} />
               <QuickAction icon={X} label="Withdraw" tone="danger" onClick={onWithdraw} disabled={WITHDRAW_BLOCKED.includes(o.status)}
                 title={WITHDRAW_BLOCKED.includes(o.status) ? `A ${STATUS_LABEL[o.status]?.toLowerCase()} offer cannot be withdrawn.` : "Request a reviewed withdrawal notice"} />
             </div>

@@ -124,7 +124,7 @@ def test_a_dummy_or_disposable_address_cannot_be_used_to_add_a_person(env):
     assert env.db.query(Employee).count() == 1, "nobody was created"
 
 
-def test_a_new_person_is_unconfirmed_gets_a_confirmation_email_and_cannot_sign_in_yet(env):
+def test_a_new_person_can_sign_in_immediately_without_confirming_email(env):
     r = env.post(ADD, json=_new())
     assert r.status_code == 201, r.text
     mails = _verification_mails(env)
@@ -132,10 +132,9 @@ def test_a_new_person_is_unconfirmed_gets_a_confirmation_email_and_cannot_sign_i
     from app.modules.employee.models import Employee
     person = env.db.query(Employee).filter_by(email="new.hire@gmail.com").one()
     assert person.email_verified is False
-    refused = env.post("/auth/login", json={"email": "new.hire@gmail.com", "password": "Passw0rd1"})
-    assert refused.status_code == 403, refused.text
-    assert refused.json()["error"] == "EMAIL_NOT_VERIFIED" and "confirm your email" in refused.json()["message"].lower()
-    assert "access_token" not in refused.text
+    login = env.post("/auth/login", json={"email": "new.hire@gmail.com", "password": "Passw0rd1"})
+    assert login.status_code == 200, login.text
+    assert login.json()["access_token"]
 
 
 def test_the_confirmation_link_lets_them_in_once(env):

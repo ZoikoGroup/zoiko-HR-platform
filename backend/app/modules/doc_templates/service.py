@@ -110,7 +110,10 @@ def build_input(ctx: fields.FieldContext, *, blocks: list, clauses: dict, requir
         rows_of=rows_of, items_of=items_of, form_values=dict(ctx.form_values or {}), checklist_state=dict(ctx.checklist_state or {}),
         signatures=signatures or {}, document_number=number, title=title,
         verify_url=verify_url(number) if number else "", confidential=sensitivity in ("C3", "C4"), language=ctx.language,
-        letterhead=letterhead_info, author=author)
+        letterhead=letterhead_info, author=author,
+        visual_profile="offer_letter" if ctx.canonical_id in {
+            "HR-HIR-011", "HR-HIR-012", "HR-HIR-014", "HR-HIR-015", "HR-HIR-016", "HR-HIR-017"
+        } else "standard")
 
 
 def _store_render(db, doc: GeneratedDocument, inp: renderer.RenderInput) -> None:
@@ -270,6 +273,8 @@ def _retention_until(pack: JurisdictionPack, d: TemplateDefinition, on: date, *,
 # ── approve / reject ─────────────────────────────────────────────────────────────────────────────────────────────────
 
 def approve(db, doc: GeneratedDocument, actor, comment: Optional[str]) -> GeneratedDocument:
+    if doc.release_mode == "STARTER_PREVIEW":
+        raise HTTPException(409, "An unreviewed starter preview cannot be approved. Release a jurisdiction-specific template first.")
     step, complete = approvals.decide(db, doc, actor, approve=True, comment=comment)
     state.add_event(db, doc, "approved", actor_id=actor.id, detail={"step": step.step_order, "kind": step.step_kind})
     if complete:
@@ -302,21 +307,32 @@ def _variant_still_usable(db, doc: GeneratedDocument) -> None:
                                   "message": "The jurisdiction pack behind this draft is no longer active. Generate the document again."})
 
 
-def issue(db, doc: GeneratedDocument, actor, *, system_trigger: Optional[str] = None) -> GeneratedDocument:
+def issue(db, doc: GeneratedDocument, actor, *, system_trigger: Optional[str] = None,
+          require_delivery: bool = False) -> GeneratedDocument:
     """system_trigger: issued automatically by a module (an L1 record or letter whose trigger was a human action already
     authorised there, e.g. an interview record when an interviewer submits feedback). Everything else still applies."""
     if not system_trigger:
         access.require_hr(actor)
     if doc.legal_hold:
         raise HTTPException(409, "The document is on legal hold.")
+    if doc.release_mode == "STARTER_PREVIEW":
+        raise HTTPException(409, {"code": "STARTER_PREVIEW_NOT_ISSUABLE",
+                                 "message": "This is an unreviewed starter draft. Release a jurisdiction-specific template before issuing it."})
+    offer_starter = doc.release_mode == "OFFER_STARTER"
+    if offer_starter and (doc.subject_type != "candidate" or doc.audience != "CANDIDATE"
+                          or doc.execution_mode != "SIGN_CANDIDATE"
+                          or not (doc.source_ref or "").startswith("recruitment_offer:")):
+        raise HTTPException(409, "This automatic starter can only issue from its recruitment offer.")
     if doc.status == "RENDERED_DRAFT":
         if doc.approval_policy != "L1":
             raise HTTPException(409, "This document needs approval before it can be issued.")
-        _variant_still_usable(db, doc)
+        if not offer_starter:
+            _variant_still_usable(db, doc)
         doc.approved_by = [actor.id]
         state.transition(db, doc, "HUMAN_APPROVED", actor_id=actor.id, detail={"policy": "L1", "issuer_approval": True})
     elif doc.status == "HUMAN_APPROVED":
-        _variant_still_usable(db, doc)
+        if not offer_starter:
+            _variant_still_usable(db, doc)
     else:
         raise HTTPException(409, f"A document in status {doc.status} cannot be issued.")
 
@@ -328,7 +344,20 @@ def issue(db, doc: GeneratedDocument, actor, *, system_trigger: Optional[str] = 
     doc.issued_by = actor.id
     doc.issued_at = datetime.utcnow()
     state.transition(db, doc, "ISSUED", actor_id=actor.id)
-    _deliver(db, doc, actor)
+    delivered = _deliver(db, doc, actor, wait_for_email=require_delivery)
+    if require_delivery and delivered is False:
+        from app.modules.doc_templates import signing
+        signing.revoke_candidate_tokens(db, doc)
+        doc.issued_by = None
+        doc.issued_at = None
+        doc.delivered_via = None
+        doc.delivered_at = None
+        doc.cancel_reason = "Candidate email delivery failed before the offer could be sent."
+        state.transition(db, doc, "CANCELLED", actor_id=actor.id, event_type="delivery_failed",
+                         detail={"channel": "candidate_link"})
+        db.commit()
+        raise HTTPException(502, {"code": "OFFER_EMAIL_DELIVERY_FAILED",
+                                  "message": "The offer letter was not sent because email delivery failed. Check the email configuration and try again."})
     db.commit()
     notify.event(db, "document.issued", doc)
     hooks.dispatch(db, "issued", doc)
@@ -340,27 +369,35 @@ def _signed(db, doc: GeneratedDocument, party: str) -> bool:
                                               DocumentSignature.decision == "SIGNED").first() is not None
 
 
-def _deliver(db, doc: GeneratedDocument, actor) -> None:
+def _deliver(db, doc: GeneratedDocument, actor, *, wait_for_email: bool = False) -> Optional[bool]:
     from app.modules.doc_templates import signing
     if doc.audience == "HR_INTERNAL":
-        return
+        return True
     if doc.audience == "CANDIDATE":
         from app.modules.hr.models import RecruitmentCandidate
         candidate = db.get(RecruitmentCandidate, doc.subject_id)
+        if candidate is None or not candidate.email:
+            return False
+        doc.recipient_email = candidate.email
+        doc.recipient_name = fields._full_name(candidate)
         raw, expires = signing.issue_candidate_token(db, doc)
-        doc.delivered_via, doc.delivered_at = "email", datetime.utcnow()
-        state.add_event(db, doc, "emailed", actor_id=actor.id, detail={"channel": "candidate_link"})
         db.flush()
-        org_name = actor.organization.organization_name
+        org_name = (getattr(actor.organization, "organization_name", None)
+                    or getattr(actor.organization, "display_name", None) or "Your employer")
         if doc.execution_mode == "SIGN_CANDIDATE":
-            notify.candidate_link(db, doc, candidate, raw, expires, org_name)
+            sent = notify.candidate_link(db, doc, candidate, raw, expires, org_name, wait=wait_for_email)
         else:
             v = db.get(TemplateVariant, doc.variant_id) if doc.variant_id else None
             attach = None
             if v is not None and (v.options or {}).get("email_attachment") and doc.sensitivity == "C2" and not doc.files_encrypted:
                 attach = (f"{doc.document_number}.pdf", file_bytes(doc, "original"))
             notify.candidate_view_link(db, doc, candidate, raw, expires, org_name, attachment=attach)
-        return
+            sent = True
+        if not sent:
+            return False
+        doc.delivered_via, doc.delivered_at = "email", datetime.utcnow()
+        state.add_event(db, doc, "emailed", actor_id=actor.id, detail={"channel": "candidate_link"})
+        return True
     from app.modules.employee.models import Employee
     person = db.get(Employee, doc.recipient_employee_id)
     link_hr_document(db, doc, actor)
@@ -369,6 +406,7 @@ def _deliver(db, doc: GeneratedDocument, actor) -> None:
     if person is not None:
         notify.action_required(db, doc, person, actor)
         state.add_event(db, doc, "emailed", actor_id=actor.id, detail={"channel": "notification"})
+    return True
 
 
 def link_hr_document(db, doc: GeneratedDocument, actor) -> None:

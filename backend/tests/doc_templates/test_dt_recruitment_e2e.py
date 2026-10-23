@@ -121,3 +121,37 @@ def test_the_whole_recruitment_flow_for_india_with_one_admin(world):
     # 7. the screens' figures follow
     ins = world.get("a_admin", "/hr/recruitment/insights", params={"section": "offers"}).json()
     assert ins["kpis"]["accepted"]["value"] == 1 and ins["kpis"]["sent"]["value"] == 1
+
+
+def test_one_standing_attestation_activates_every_work_country_for_offers_saved_by_hr(world):
+    r = world.post("a_admin", "/hr/recruitment/offer-letter-setup", json=_setup_body(world, all_countries=True))
+    assert r.status_code == 200, r.text
+    assert r.json()["all_countries"]["by"] == world.u["a_admin"].id
+    cand = world.post("a_hr", "/hr/recruitment/candidates", json={"name": "Fleur Candidate", "email": "fleur.candidate@example.com",
+                                                                   "position": "Designer"}).json()
+    # France was never set up: HR saves an offer there, no approval, the letter is generated (employer in India: cross-border)
+    r = world.post("a_hr", "/hr/recruitment/offers", json={
+        "candidate_id": cand["id"], "candidate_name": cand["name"], "position": "Designer", "salary": 52000, "currency": "EUR",
+        "pay_period": "annual", "employment_type": "full_time", "work_country": "FR", "joining_date": START})
+    assert r.status_code in (200, 201), r.text
+    world.db.expire_all()
+    offer = world.db.get(RecruitmentOffer, r.json()["id"])
+    assert offer.status == OfferStatus.APPROVED and offer.document_id, "letter generated with the offer"
+    pack = world.db.query(JurisdictionPack).filter_by(country="FR", owner_organization_id=1).one()
+    v = world.db.query(TemplateVariant).filter_by(pack_id=pack.id, canonical_id="HR-HIR-012", status="ACTIVE").one()
+    assert pack.attested_by == world.u["a_admin"].id and v.released_by == world.u["a_admin"].id, "recorded under the attesting admin"
+    assert "IN" in (v.applicability or {}).get("cross_border_from", [])
+    assert world.db.get(GeneratedDocument, offer.document_id).pack_id == pack.id
+
+
+def test_without_a_standing_attestation_hr_cannot_activate_a_new_country(world):
+    assert world.post("a_admin", "/hr/recruitment/offer-letter-setup", json=_setup_body(world)).status_code == 200
+    cand = world.post("a_hr", "/hr/recruitment/candidates", json={"name": "Hugo Candidate", "email": "hugo.candidate@example.com",
+                                                                   "position": "Designer"}).json()
+    r = world.post("a_hr", "/hr/recruitment/offers", json={
+        "candidate_id": cand["id"], "candidate_name": cand["name"], "position": "Designer", "salary": 52000, "currency": "EUR",
+        "pay_period": "annual", "employment_type": "full_time", "work_country": "FR", "joining_date": START})
+    assert r.status_code in (200, 201), r.text
+    world.db.expire_all()
+    assert world.db.get(RecruitmentOffer, r.json()["id"]).document_id is None
+    assert world.db.query(JurisdictionPack).filter_by(country="FR", owner_organization_id=1).count() == 0

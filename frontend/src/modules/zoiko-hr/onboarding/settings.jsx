@@ -1,43 +1,11 @@
 import { useState, useEffect } from "react";
 import { NavLink } from "react-router-dom";
-import HRPage from "../../../components/HRPage";
+import { AlertCircle, CheckCircle2, ClipboardCheck, FileText, Info, Link2, ListChecks, Save, BellRing } from "lucide-react";
 import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates } from "../../../service/hrService";
 import { humanizeValidationError } from "../../../utils/validationMessage";
 import FinanceViewersSetting from "./FinanceViewersSetting";
-
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/zoiko-hr/onboarding" },
-  { label: "New Hires", href: "/zoiko-hr/onboarding/new-hires" },
-  { label: "Pre-Onboarding", href: "/zoiko-hr/onboarding/pre-onboarding" },
-  { label: "Documents", href: "/zoiko-hr/onboarding/documents" },
-  { label: "Checklists", href: "/zoiko-hr/onboarding/checklists" },
-  { label: "Orientation", href: "/zoiko-hr/onboarding/orientation" },
-  { label: "Reports", href: "/zoiko-hr/onboarding/reports" },
-  { label: "Settings", href: "/zoiko-hr/onboarding/settings" },
-];
-
-function OnboardingSubNav() {
-  return (
-    <div className="hidden">
-      {NAV_ITEMS.map((item) => (
-        <NavLink
-          key={item.href}
-          to={item.href}
-          end={item.href === "/zoiko-hr/onboarding"}
-          className={({ isActive }) =>
-            `whitespace-nowrap px-3 py-2 text-sm font-medium rounded-t-lg transition-colors ${
-              isActive
-                ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50"
-                : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
-            }`
-          }
-        >
-          {item.label}
-        </NavLink>
-      ))}
-    </div>
-  );
-}
+import { PrimaryButton } from "../recruitment/ui";
+import OnboardingLayout from "./OnboardingLayout";
 
 const DOCUMENT_CATEGORIES = [
   { value: "id_proof", label: "ID proof" },
@@ -102,25 +70,48 @@ function Toggle({ id, checked, onChange, label }) {
   );
 }
 
-function Section({ step, title, help, children }) {
+function Section({ step, icon: Icon, title, help, children }) {
   return (
-    <section className="bg-white rounded-xl border border-gray-100 shadow-sm p-4 sm:p-5">
-      <div className="flex items-start gap-3 mb-4">
-        {step ? <span className="w-6 h-6 rounded-full bg-blue-50 text-blue-600 text-xs font-bold flex items-center justify-center shrink-0 mt-0.5">{step}</span> : null}
+    <section aria-labelledby={`os-section-${step}`} className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
+      <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4">
+        <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-hidden="true">
+          {Icon ? <Icon className="h-5 w-5" /> : <span className="text-sm font-bold">{step}</span>}
+        </span>
         <div className="min-w-0">
-          <h3 className="text-base font-bold text-gray-800">{title}</h3>
-          {help ? <p className="text-xs text-gray-500 mt-0.5">{help}</p> : null}
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-gray-400">Step {step}</p>
+          <h2 id={`os-section-${step}`} className="text-base font-semibold text-gray-900">{title}</h2>
+          {help ? <p className="mt-0.5 text-sm text-gray-500">{help}</p> : null}
         </div>
       </div>
-      <div className="space-y-4">{children}</div>
+      <div className="space-y-4 px-5 py-4">{children}</div>
     </section>
   );
 }
 
-const FieldError = ({ msg }) => (msg ? <p role="alert" className="text-xs text-red-600 mt-1">{msg}</p> : null);
+/** A labelled on/off row: the text on the left, the switch on the right. */
+function ToggleRow({ id, title, help, checked, onChange, label }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-gray-100 bg-gray-50/50 px-4 py-3 sm:gap-4">
+      <div className="min-w-0">
+        <p className="text-sm font-medium text-gray-800">{title}</p>
+        <p className="text-xs text-gray-500">{help}</p>
+      </div>
+      <Toggle id={id} checked={checked} onChange={onChange} label={label} />
+    </div>
+  );
+}
+
+const FieldError = ({ msg }) => (msg ? <p role="alert" className="mt-1 inline-flex items-center gap-1 text-xs text-rose-600"><AlertCircle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />{msg}</p> : null);
+
+const optionTile = (on) => `flex items-center gap-2 rounded-xl border px-3 py-2.5 text-sm cursor-pointer transition-colors ${
+  on ? "border-blue-200 bg-blue-50/60 text-gray-900" : "border-gray-200 bg-white text-gray-700 hover:bg-gray-50"}`;
+const checkbox = "shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500";
+
+const SUBTITLE = "Decide what happens automatically when a new hire is created.";
 
 export default function OnboardingSettings() {
   const [form, setForm] = useState(EMPTY);
+  const [saved, setSaved] = useState(EMPTY);
   const [templates, setTemplates] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(null);
@@ -137,7 +128,9 @@ export default function OnboardingSettings() {
       try {
         const [settings, tpl] = await Promise.all([getOnboardingSettings(), getOnboardingChecklistTemplates()]);
         if (!mounted) return;
-        setForm(fromServer(settings));
+        const loaded = fromServer(settings);
+        setForm(loaded);
+        setSaved(loaded);
         const list = Array.isArray(tpl) ? tpl : Array.isArray(tpl?.items) ? tpl.items : [];
         setTemplates(list);
       } catch (err) {
@@ -181,8 +174,10 @@ export default function OnboardingSettings() {
         require_documents_approved: form.require_documents_approved,
         welcome_message: form.welcome_message.trim() === "" ? null : form.welcome_message,
       };
-      const saved = await saveOnboardingSettings(payload);
-      if (saved) setForm(fromServer(saved));
+      const result = await saveOnboardingSettings(payload);
+      const next = result ? fromServer(result) : form;
+      setForm(next);
+      setSaved(next);
       setBanner({ type: "success", text: "Onboarding settings saved. They apply to new hires created from now on." });
     } catch (err) {
       const fields = {};
@@ -200,13 +195,10 @@ export default function OnboardingSettings() {
   };
 
   const numberBox = (name) =>
-    `w-24 border ${errors[name] ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`;
+    `w-24 rounded-xl border ${errors[name] ? "border-rose-300 bg-rose-50/40" : "border-gray-200 bg-white"} px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100`;
 
   const page = (body) => (
-    <HRPage title="Onboarding Settings" subtitle="Decide what happens automatically when a new hire is created.">
-      <OnboardingSubNav />
-      {body}
-    </HRPage>
+    <OnboardingLayout title="Onboarding Settings" subtitle={SUBTITLE}>{body}</OnboardingLayout>
   );
 
   if (loading) {
@@ -220,141 +212,165 @@ export default function OnboardingSettings() {
 
   if (loadError) {
     return page(
-      <div role="alert" className="bg-red-50 border border-red-200 text-red-700 rounded-xl px-4 py-6 text-center">
-        <p className="text-sm font-medium break-words">{loadError}</p>
-        <button onClick={() => setReloadKey((k) => k + 1)} className="mt-3 text-sm font-medium text-white bg-red-600 hover:bg-red-700 px-4 py-2 rounded-lg">
-          Retry
-        </button>
+      <div role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-6 text-center">
+        <p className="inline-flex items-center gap-2 text-sm font-medium text-rose-700 break-words"><AlertCircle className="h-5 w-5 shrink-0" />{loadError}</p>
+        <div className="mt-3"><PrimaryButton onClick={() => setReloadKey((k) => k + 1)}>Retry</PrimaryButton></div>
       </div>
     );
   }
 
   const reminders = Number(form.reminder_days) || 0;
   const welcomeLen = form.welcome_message.length;
+  const dirty = JSON.stringify(form) !== JSON.stringify(saved);
+  const errorCount = Object.values(errors).filter(Boolean).length;
+  const savedRules = [saved.require_checklists_complete && "Checklists", saved.require_documents_approved && "Documents"].filter(Boolean);
 
   return page(
-    <div className="space-y-5 max-w-3xl">
-      {banner.text && (
-        <div role={banner.type === "error" ? "alert" : "status"} className={`px-4 py-3 rounded-lg flex justify-between items-start sm:items-center gap-3 ${
-          banner.type === "success" ? "bg-green-50 border border-green-200 text-green-700" : "bg-red-50 border border-red-200 text-red-700"
-        }`}>
-          <span className="text-sm min-w-0 break-words">{banner.text}</span>
-          <button onClick={() => setBanner({ type: "", text: "" })} className="font-bold shrink-0 p-1.5 -m-1.5 leading-none" aria-label="Dismiss">&times;</button>
-        </div>
-      )}
-
-      <div className="bg-blue-50/60 border border-blue-100 rounded-xl px-4 py-3 text-sm text-gray-600">
-        <p className="font-medium text-gray-700 mb-1">How onboarding runs</p>
-        <p>
-          When a candidate accepts an offer, a new hire is created. The checklist templates below are assigned, the
-          required documents are requested, and (if turned on) the new hire is emailed a pre-onboarding link. Reminders go
-          out for anything still missing, and the completion rules decide when onboarding can be marked complete.
-        </p>
-      </div>
-
-      <Section step={1} title="Checklists assigned automatically" help="Every new hire gets a copy of these templates as soon as they are created.">
-        {templates.length === 0 ? (
-          <p className="text-sm text-gray-400">
-            No checklist templates yet. Create one on the <NavLink to="/zoiko-hr/onboarding/checklists" className="text-blue-600 hover:underline">Checklists</NavLink> page.
-          </p>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-            {templates.map((t) => (
-              <label key={t.id} className="flex items-center gap-2 text-sm text-gray-700 border border-gray-100 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer">
-                <input type="checkbox" checked={form.auto_template_ids.includes(Number(t.id))} onChange={() => toggleIn("auto_template_ids", Number(t.id))}
-                  className="shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-                <span className="min-w-0 truncate" title={t.name}>{t.name}</span>
-                {t.category ? <span className="ml-auto text-xs text-gray-400 capitalize shrink-0">{String(t.category).replace(/_/g, " ")}</span> : null}
-              </label>
-            ))}
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+      <div className="min-w-0 space-y-5">
+        {banner.text && (
+          <div role={banner.type === "error" ? "alert" : "status"} className={`flex items-start justify-between gap-3 rounded-2xl border px-4 py-3 sm:items-center ${
+            banner.type === "success" ? "border-emerald-200 bg-emerald-50 text-emerald-800" : "border-rose-200 bg-rose-50 text-rose-700"
+          }`}>
+            <span className="inline-flex min-w-0 items-center gap-2 text-sm break-words">
+              {banner.type === "success" ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : <AlertCircle className="h-4 w-4 shrink-0" />}{banner.text}
+            </span>
+            <button onClick={() => setBanner({ type: "", text: "" })} className="font-bold shrink-0 p-1.5 -m-1.5 leading-none" aria-label="Dismiss">&times;</button>
           </div>
         )}
-        <FieldError msg={errors.auto_template_ids} />
-      </Section>
 
-      <Section step={2} title="Documents requested from new hires" help="These are requested from every new hire; they upload them through their pre-onboarding link.">
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {DOCUMENT_CATEGORIES.map((c) => (
-            <label key={c.value} className="flex items-center gap-2 text-sm text-gray-700 border border-gray-100 rounded-lg px-3 py-2 hover:bg-gray-50 cursor-pointer">
-              <input type="checkbox" checked={form.required_document_categories.includes(c.value)} onChange={() => toggleIn("required_document_categories", c.value)}
-                className="shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
-              <span className="min-w-0 break-words">{c.label}</span>
-            </label>
-          ))}
-        </div>
-        <FieldError msg={errors.required_document_categories} />
-      </Section>
+        <Section step={1} icon={ClipboardCheck} title="Checklists assigned automatically" help="Every new hire gets a copy of these templates as soon as they are created.">
+          {templates.length === 0 ? (
+            <p className="text-sm text-gray-500">
+              No checklist templates yet. Create one on the <NavLink to="/zoiko-hr/onboarding/checklists" className="text-blue-600 hover:underline">Checklists</NavLink> page.
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+              {templates.map((t) => {
+                const on = form.auto_template_ids.includes(Number(t.id));
+                return (
+                  <label key={t.id} className={optionTile(on)}>
+                    <input type="checkbox" checked={on} onChange={() => toggleIn("auto_template_ids", Number(t.id))} className={checkbox} />
+                    <span className="min-w-0 truncate" title={t.name}>{t.name}</span>
+                    {t.category ? <span className="ml-auto shrink-0 rounded-md bg-gray-100 px-1.5 py-0.5 text-[11px] capitalize text-gray-500">{String(t.category).replace(/_/g, " ")}</span> : null}
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          <FieldError msg={errors.auto_template_ids} />
+        </Section>
 
-      <Section step={3} title="Pre-onboarding link" help="The new hire's personal page where they fill in their details, read the welcome message and upload documents.">
-        <div className="flex items-center justify-between gap-3 sm:gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-700">Email new hires their pre-onboarding link automatically</p>
-            <p className="text-xs text-gray-400">When off, send the link yourself from the New Hires page.</p>
+        <Section step={2} icon={FileText} title="Documents requested from new hires" help="These are requested from every new hire; they upload them through their pre-onboarding link.">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            {DOCUMENT_CATEGORIES.map((c) => {
+              const on = form.required_document_categories.includes(c.value);
+              return (
+                <label key={c.value} className={optionTile(on)}>
+                  <input type="checkbox" checked={on} onChange={() => toggleIn("required_document_categories", c.value)} className={checkbox} />
+                  <span className="min-w-0 break-words">{c.label}</span>
+                </label>
+              );
+            })}
           </div>
-          <Toggle id="os-auto-invite" checked={form.auto_send_portal_invite} onChange={(v) => set("auto_send_portal_invite", v)} label="Email new hires their pre-onboarding link automatically" />
-        </div>
-        <div>
-          <label htmlFor="os-link-days" className="block text-sm font-medium text-gray-700">Link valid for</label>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <input id="os-link-days" type="number" min={1} max={180} step={1} value={form.portal_link_days} aria-invalid={!!errors.portal_link_days}
-              onChange={(e) => set("portal_link_days", e.target.value)} className={numberBox("portal_link_days")} />
-            <span className="text-sm text-gray-500">days (1 to 180)</span>
-          </div>
-          <p className="text-xs text-gray-400 mt-1">After this the link stops working; sending a new link replaces the old one.</p>
-          <FieldError msg={errors.portal_link_days} />
-        </div>
-        <div>
-          <label htmlFor="os-welcome" className="block text-sm font-medium text-gray-700">Welcome message</label>
-          <p className="text-xs text-gray-400 mb-1">Shown in the welcome email and on the new hire's pre-onboarding page.</p>
-          <textarea id="os-welcome" rows={4} value={form.welcome_message} maxLength={WELCOME_MAX} aria-invalid={!!errors.welcome_message}
-            onChange={(e) => set("welcome_message", e.target.value)} placeholder="e.g. We're excited to have you join us! Please complete the steps below before your first day."
-            className={`w-full border ${errors.welcome_message ? "border-red-300" : "border-gray-200"} rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500`} />
-          <div className="flex flex-wrap justify-between gap-x-3">
-            <FieldError msg={errors.welcome_message} />
-            <span className={`text-xs ml-auto ${welcomeLen > WELCOME_MAX ? "text-red-600" : "text-gray-400"}`}>{welcomeLen}/{WELCOME_MAX}</span>
-          </div>
-        </div>
-      </Section>
+          <FieldError msg={errors.required_document_categories} />
+        </Section>
 
-      <Section step={4} title="Reminders" help="Nudges new hires who still have documents to upload.">
-        <div>
-          <label htmlFor="os-reminder-days" className="block text-sm font-medium text-gray-700">Remind new hires about missing documents every</label>
-          <div className="flex flex-wrap items-center gap-2 mt-1">
-            <input id="os-reminder-days" type="number" min={0} max={30} step={1} value={form.reminder_days} aria-invalid={!!errors.reminder_days}
-              onChange={(e) => set("reminder_days", e.target.value)} className={numberBox("reminder_days")} />
-            <span className="text-sm text-gray-500">days</span>
+        <Section step={3} icon={Link2} title="Pre-onboarding link" help="The new hire's personal page where they fill in their details, read the welcome message and upload documents.">
+          <ToggleRow id="os-auto-invite" title="Email new hires their pre-onboarding link automatically" help="When off, send the link yourself from the New Hires page."
+            checked={form.auto_send_portal_invite} onChange={(v) => set("auto_send_portal_invite", v)} label="Email new hires their pre-onboarding link automatically" />
+          <div>
+            <label htmlFor="os-link-days" className="block text-sm font-medium text-gray-800">Link valid for</label>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <input id="os-link-days" type="number" min={1} max={180} step={1} value={form.portal_link_days} aria-invalid={!!errors.portal_link_days}
+                onChange={(e) => set("portal_link_days", e.target.value)} className={numberBox("portal_link_days")} />
+              <span className="text-sm text-gray-500">days (1 to 180)</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">After this the link stops working; sending a new link replaces the old one.</p>
+            <FieldError msg={errors.portal_link_days} />
           </div>
-          <p className="text-xs text-gray-400 mt-1">
-            {reminders === 0 ? "0 means no reminders are sent." : `A reminder is emailed every ${reminders} day${reminders === 1 ? "" : "s"} until all requested documents are uploaded. Set 0 to turn reminders off.`}
-          </p>
-          <FieldError msg={errors.reminder_days} />
-        </div>
-      </Section>
+          <div>
+            <label htmlFor="os-welcome" className="block text-sm font-medium text-gray-800">Welcome message</label>
+            <p className="mb-1 text-xs text-gray-500">Shown in the welcome email and on the new hire's pre-onboarding page.</p>
+            <textarea id="os-welcome" rows={4} value={form.welcome_message} maxLength={WELCOME_MAX} aria-invalid={!!errors.welcome_message}
+              onChange={(e) => set("welcome_message", e.target.value)} placeholder="e.g. We're excited to have you join us! Please complete the steps below before your first day."
+              className={`w-full rounded-xl border ${errors.welcome_message ? "border-rose-300" : "border-gray-200"} px-3 py-2 text-sm text-gray-900 placeholder:text-gray-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100`} />
+            <div className="flex flex-wrap justify-between gap-x-3">
+              <FieldError msg={errors.welcome_message} />
+              <span className={`ml-auto text-xs ${welcomeLen > WELCOME_MAX ? "text-rose-600" : "text-gray-400"}`}>{welcomeLen}/{WELCOME_MAX}</span>
+            </div>
+          </div>
+        </Section>
 
-      <Section step={5} title="Before onboarding can be completed" help="HR cannot mark a new hire's onboarding complete until these are met.">
-        <div className="flex items-center justify-between gap-3 sm:gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-700">All checklist items are done</p>
-            <p className="text-xs text-gray-400">Every item on the new hire's assigned checklists must be completed.</p>
+        <Section step={4} icon={BellRing} title="Reminders" help="Nudges new hires who still have documents to upload.">
+          <div>
+            <label htmlFor="os-reminder-days" className="block text-sm font-medium text-gray-800">Remind new hires about missing documents every</label>
+            <div className="mt-1 flex flex-wrap items-center gap-2">
+              <input id="os-reminder-days" type="number" min={0} max={30} step={1} value={form.reminder_days} aria-invalid={!!errors.reminder_days}
+                onChange={(e) => set("reminder_days", e.target.value)} className={numberBox("reminder_days")} />
+              <span className="text-sm text-gray-500">days</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">
+              {reminders === 0 ? "0 means no reminders are sent." : `A reminder is emailed every ${reminders} day${reminders === 1 ? "" : "s"} until all requested documents are uploaded. Set 0 to turn reminders off.`}
+            </p>
+            <FieldError msg={errors.reminder_days} />
           </div>
-          <Toggle id="os-req-checklists" checked={form.require_checklists_complete} onChange={(v) => set("require_checklists_complete", v)} label="Require all checklist items to be done" />
-        </div>
-        <div className="flex items-center justify-between gap-3 sm:gap-4">
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-gray-700">All requested documents are approved</p>
-            <p className="text-xs text-gray-400">Every requested document must be uploaded and approved by HR.</p>
-          </div>
-          <Toggle id="os-req-documents" checked={form.require_documents_approved} onChange={(v) => set("require_documents_approved", v)} label="Require all documents to be approved" />
-        </div>
-      </Section>
+        </Section>
 
-      <div className="flex flex-wrap justify-end gap-2">
-        <button onClick={handleSave} disabled={saving}
-          className="w-full sm:w-auto min-h-10 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-sm px-5 py-2 rounded-lg font-medium transition-colors">
-          {saving ? "Saving..." : "Save Settings"}
-        </button>
+        <Section step={5} icon={ListChecks} title="Before onboarding can be completed" help="HR cannot mark a new hire's onboarding complete until these are met.">
+          <ToggleRow id="os-req-checklists" title="All checklist items are done" help="Every item on the new hire's assigned checklists must be completed."
+            checked={form.require_checklists_complete} onChange={(v) => set("require_checklists_complete", v)} label="Require all checklist items to be done" />
+          <ToggleRow id="os-req-documents" title="All requested documents are approved" help="Every requested document must be uploaded and approved by HR."
+            checked={form.require_documents_approved} onChange={(v) => set("require_documents_approved", v)} label="Require all documents to be approved" />
+        </Section>
+
+        <div className="sticky bottom-0 z-10 rounded-2xl border border-gray-200/80 bg-white/95 px-4 py-3 shadow-[0_-6px_20px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-gray-600">
+              {errorCount ? <span className="text-rose-600">{errorCount} field{errorCount === 1 ? " needs" : "s need"} attention</span>
+                : dirty ? "You have unsaved changes." : "No unsaved changes."}
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <button type="button" onClick={() => { setForm(saved); setErrors({}); }} disabled={!dirty || saving}
+                className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
+                Discard changes
+              </button>
+              <PrimaryButton icon={Save} onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Settings"}</PrimaryButton>
+            </div>
+          </div>
+        </div>
+
+        <FinanceViewersSetting />
       </div>
-      <FinanceViewersSetting />
+
+      <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+        <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5 text-sm text-gray-600">
+          <p className="mb-1 inline-flex items-center gap-2 font-semibold text-gray-800"><Info className="h-4 w-4 text-blue-600" />How onboarding runs</p>
+          <p>
+            When a candidate accepts an offer, a new hire is created. The checklist templates are assigned, the
+            required documents are requested, and (if turned on) the new hire is emailed a pre-onboarding link. Reminders go
+            out for anything still missing, and the completion rules decide when onboarding can be marked complete.
+          </p>
+        </div>
+        <div className="rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm">
+          <p className="text-sm font-semibold text-gray-900">Saved setup</p>
+          <dl className="mt-3 space-y-2 text-sm">
+            {[
+              ["Checklists assigned", saved.auto_template_ids.length],
+              ["Documents requested", saved.required_document_categories.length],
+              ["Link emailed automatically", saved.auto_send_portal_invite ? "Yes" : "No"],
+              ["Link valid for", `${saved.portal_link_days} days`],
+              ["Reminders", Number(saved.reminder_days) ? `Every ${saved.reminder_days} days` : "Off"],
+              ["Completion rules", savedRules.join(", ") || "None"],
+            ].map(([k, v]) => (
+              <div key={k} className="flex justify-between gap-3">
+                <dt className="text-gray-500">{k}</dt>
+                <dd className="text-right font-medium text-gray-900">{v}</dd>
+              </div>
+            ))}
+          </dl>
+        </div>
+      </aside>
     </div>
   );
 }

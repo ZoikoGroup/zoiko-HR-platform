@@ -224,8 +224,12 @@ def detect_all_blockers(
 
 
 def has_blocking_blockers(blockers: list[Blocker]) -> bool:
-    """True if any blocker has severity 'blocking' (not 'warning' or 'error')."""
-    return any(b.severity == "blocking" for b in blockers)
+    """True if a downgrade blocker exists or a required check failed.
+
+    Warnings are informational, but errors mean eligibility could not be
+    established and must fail closed.
+    """
+    return any(b.severity in {"blocking", "error"} for b in blockers)
 
 
 def blockers_to_dict(blockers: list[Blocker]) -> list[dict]:

@@ -5,7 +5,7 @@
  * country pack and releases the offer templates. Templates that need the organization's own wording are listed, not released.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { AlertCircle, Building2, CheckCircle2, FileText, Loader2, PenLine, ShieldCheck, UserCheck, X } from "lucide-react";
+import { AlertCircle, Building2, CheckCircle2, FileText, Globe, Loader2, PenLine, ShieldCheck, UserCheck, X } from "lucide-react";
 import * as recDocs from "../../../service/recruitmentDocumentsService";
 import { Avatar, PrimaryButton, SecondaryButton, StatusPill } from "./ui";
 
@@ -55,6 +55,7 @@ export default function OfferLetterSetupPanel({ country, onClose, onDone }) {
           registration_number: e.registration_number || "", email: e.email || "", phone: e.phone || "",
           signatory_employee_id: sig ? String(sig.employee_id) : (data.people?.[0] ? String(data.people[0].id) : ""),
           signatory_title: sig?.title || "", offers_without_approval: Boolean(data.offers_without_approval),
+          all_countries: true,
           attestation_accepted: false, signed_name: "",
         });
         setState({ loading: false, error: "", data });
@@ -96,7 +97,8 @@ export default function OfferLetterSetupPanel({ country, onClose, onDone }) {
           postal_code: form.postal_code || null, address: form.address || null, tax_id: form.tax_id || null,
           registration_number: form.registration_number || null, email: form.email || null, phone: form.phone || null },
         signatory_employee_id: Number(form.signatory_employee_id), signatory_title: form.signatory_title.trim(),
-        offers_without_approval: form.offers_without_approval, attestation_accepted: true, signed_name: form.signed_name.trim(),
+        offers_without_approval: form.offers_without_approval, all_countries: Boolean(form.all_countries),
+        attestation_accepted: true, signed_name: form.signed_name.trim(),
       });
       setResult(out);
       onDone?.(out);
@@ -203,6 +205,19 @@ export default function OfferLetterSetupPanel({ country, onClose, onDone }) {
                     );
                   })}
                 </ul>
+              </Section>
+
+              <Section icon={Globe} title="Countries" hint="Where offer letters can be generated.">
+                {data.all_countries ? (
+                  <p className="flex items-start gap-2 text-sm text-emerald-800"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" />
+                    Active for every country — attested by {data.all_countries.name}{data.all_countries.at ? ` on ${new Date(data.all_countries.at).toLocaleDateString()}` : ""}. A new work country is activated the first time an offer needs it.</p>
+                ) : (
+                  <label className="flex items-start gap-2 text-sm text-gray-700">
+                    <input type="checkbox" className="mt-0.5 rounded border-gray-300" checked={form.all_countries} onChange={set("all_countries")} />
+                    <span>Activate offer letters for every country
+                      <span className="block text-xs text-gray-500">{data.country || form.country} is set up now. Any other work country is set up from the same starter wording the first time an offer is saved for it, under this attestation — whoever in HR saves the offer.</span></span>
+                  </label>
+                )}
               </Section>
 
               <Section icon={ShieldCheck} title="Approval of offers" hint="Who approves an offer before its letter is generated.">

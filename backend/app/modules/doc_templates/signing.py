@@ -195,7 +195,7 @@ def _drawn_png(data_url: Optional[str]) -> bytes:
 
 def sign(db, doc: GeneratedDocument, *, party: str, signer_employee=None, signer_email: Optional[str], typed_name: str,
          method: str, drawn: Optional[str], consent_version: str, otp_code: Optional[str], ip: Optional[str], user_agent: Optional[str],
-         token=None) -> GeneratedDocument:
+         token=None, run_followups: bool = True) -> GeneratedDocument:
     if doc.legal_hold:
         raise HTTPException(409, "The document is on legal hold.")
     parties = required_parties(doc)
@@ -247,7 +247,7 @@ def sign(db, doc: GeneratedDocument, *, party: str, signer_employee=None, signer
     if set(parties) <= signed_parties(db, doc) and doc.status == "ISSUED":
         _finalize(db, doc)
     db.commit()
-    if doc.status == "EXECUTED":
+    if doc.status == "EXECUTED" and run_followups:
         notify.executed(db, doc)
         notify.event(db, "document.executed", doc)
         from app.modules.doc_templates import hooks

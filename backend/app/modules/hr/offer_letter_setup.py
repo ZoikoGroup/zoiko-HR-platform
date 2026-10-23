@@ -36,6 +36,9 @@ router = APIRouter(prefix="/hr/recruitment", tags=["Offer letter setup"])
 OFFER_TEMPLATES = ("HR-HIR-011", "HR-HIR-012", "HR-HIR-014", "HR-HIR-015", "HR-HIR-016", "HR-HIR-017", "HR-HIR-018", "HR-HIR-019")
 MODE = "STARTER_SINGLE_ADMIN_ATTESTATION"
 SIGNATORY_SCOPE = ["HR-HIR"]
+# "activate for every country": an admin's standing attestation. An offer saved by anyone in HR then activates its work
+# country from the unchanged starters, recorded under that admin (see standing_attester).
+STANDING_KEY = "recruitment.offer_letters_standing_attestation"
 
 
 def _country_of(org) -> Optional[str]:
@@ -130,6 +133,7 @@ def overview(db, actor, country: Optional[str]) -> dict:
         "templates": _template_plan(db, actor.organization_id, pack),
         "plan_missing": missing_plan,
         "offers_without_approval": bool(offer_letters_without_approval(db, actor.organization_id)),
+        "all_countries": standing(db, actor.organization_id),
     }
 
 
@@ -154,6 +158,7 @@ class SetupBody(BaseModel):
     signatory_employee_id: int
     signatory_title: str = Field(..., min_length=2, max_length=150)
     offers_without_approval: Optional[bool] = None
+    all_countries: bool = False
     attestation_accepted: bool
     signed_name: str = Field(..., min_length=2, max_length=200)
 
@@ -299,6 +304,46 @@ def _release_template(db, actor, pack: JurisdictionPack, cid: str, signed_name: 
     return v
 
 
+def standing(db, org_id: int) -> Optional[dict]:
+    import json
+    from app.modules.hr.models import OrganizationConfig
+    row = db.query(OrganizationConfig).filter(OrganizationConfig.organization_id == org_id, OrganizationConfig.key == STANDING_KEY).first()
+    try:
+        return json.loads(row.value) if row and row.value else None
+    except ValueError:
+        return None
+
+
+def _save_standing(db, actor, signed_name: str) -> None:
+    import json
+    from app.modules.hr.models import OrganizationConfig
+    row = db.query(OrganizationConfig).filter(OrganizationConfig.organization_id == actor.organization_id,
+                                              OrganizationConfig.key == STANDING_KEY).first()
+    if row is None:
+        row = OrganizationConfig(organization_id=actor.organization_id, key=STANDING_KEY, category="recruitment",
+                                 description="Offer letters: standing attestation of unchanged starter wording for every country")
+        db.add(row)
+    row.value = json.dumps({"by": actor.id, "name": signed_name, "at": datetime.utcnow().isoformat(), "mode": MODE})
+    db.flush()
+
+
+def standing_attester(db, actor):
+    """Return only the active admin who explicitly saved a standing attestation.
+
+    An admin's offer-generation request by itself is not consent to attest jurisdiction-specific legal wording.
+    """
+    if actor is None:
+        return None
+    att = standing(db, actor.organization_id)
+    if not att:
+        return None
+    from app.modules.employee.models import Employee
+    admin = db.get(Employee, att.get("by"))
+    if admin is None or not admin.is_active or admin.organization_id != actor.organization_id or access.role_of(admin) != "admin":
+        return None
+    return admin
+
+
 def run_setup(db, actor, body: SetupBody, ip: Optional[str] = None) -> dict:
     access.require_org_admin(actor)
     if not body.attestation_accepted:
@@ -323,6 +368,8 @@ def run_setup(db, actor, body: SetupBody, ip: Optional[str] = None) -> dict:
                     clauses_released.append(key)
             _release_template(db, actor, pack, t["canonical_id"], body.signed_name, ip)
             released.append(t["canonical_id"])
+        if body.all_countries:
+            _save_standing(db, actor, body.signed_name)
         if body.offers_without_approval is not None:
             from app.modules.hr.recruitment_documents import save_privacy_settings
             db.flush()
@@ -348,7 +395,8 @@ def provision_offer_starters_on_generation(db, actor, offer, canonical_id: str) 
     an existing complete employer entity, an authorized signatory, and an organization admin making the request.
     The approval evidence records the generation request (not a typed-name signature).
     """
-    if actor is None or access.role_of(actor) != "admin":
+    actor = standing_attester(db, actor)
+    if actor is None:
         return []
     from app.modules.doc_templates.approvals import eligible_signatories
     from app.modules.doc_templates.models import TemplateDefinition
@@ -421,7 +469,8 @@ def provision_offer_starters_on_generation(db, actor, offer, canonical_id: str) 
 
 def can_auto_provision_offer_starters(db, actor, offer, canonical_id: str) -> bool:
     """Whether generation can complete setup from existing, unchanged starter wording."""
-    if actor is None or access.role_of(actor) != "admin" or not offer.work_country:
+    actor = standing_attester(db, actor)
+    if actor is None or not offer.work_country:
         return False
     from app.modules.doc_templates.approvals import eligible_signatories
     from app.modules.doc_templates.models import TemplateDefinition

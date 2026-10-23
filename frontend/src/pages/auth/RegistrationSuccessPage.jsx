@@ -101,7 +101,7 @@ export default function RegistrationSuccessPage() {
             </h1>
             <p className="mt-2 text-sm leading-relaxed text-slate-500">
               <span className="font-medium text-slate-700">{orgName}</span>{" "}
-              is ready.{emailConfirmed ? " Your email address was confirmed by Google:" : " To finish, confirm your email address with the link we've sent to"}
+              is ready. You can sign in now using:
             </p>
             <p className="mt-0.5 flex items-center justify-center gap-1.5 text-sm font-medium text-slate-700">
               <Mail size={14} className="text-slate-400" />
@@ -134,16 +134,14 @@ export default function RegistrationSuccessPage() {
                 <Mail size={13} />
               </div>
               <span className="text-sm text-slate-700">
-                {emailConfirmed ? "Email address confirmed by Google" : "Confirm your email address to sign in"}
+                Account created — ready to sign in
               </span>
             </div>
           </div>
 
           <p className="mt-6 text-center text-xs leading-relaxed text-slate-400">
             Your {evaluationDays}-day evaluation has started.
-            {emailConfirmed
-              ? "No credit card required. Sign in with Google or with your password to set up your organization."
-              : "No credit card required. Open the confirmation email first (check spam too), then sign in to set up your organization."}
+            No credit card required. Sign in with Google or your password to set up your organization.
           </p>
 
           <button

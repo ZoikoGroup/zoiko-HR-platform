@@ -2000,12 +2000,12 @@ def send_document_expired_email(email, first_name, document_label, document_numb
 
 
 def send_candidate_document_sign_email(email, first_name, organization_name, document_number, link_expires_local, action_url,
-                                       due_at_local=None, db=None, organization_id=None):
+                                       due_at_local=None, db=None, organization_id=None, wait=False, error_out=None):
     return send_approval_email(email, "candidate_document_sign.html", {
         "subject": f"{organization_name}: a document is ready for your signature",
         "first_name": first_name, "organization_name": organization_name, "document_number": document_number,
         "link_expires_local": link_expires_local, "due_at_local": due_at_local, "action_url": action_url,
-    }, db=db, organization_id=organization_id)
+    }, db=db, organization_id=organization_id, wait=wait, error_out=error_out)
 
 
 

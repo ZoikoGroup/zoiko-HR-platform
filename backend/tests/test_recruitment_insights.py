@@ -121,3 +121,30 @@ def test_candidates_section_counts_the_whole_pool_by_stage(env):
     assert (k["total"]["value"], k["active"]["value"], k["interview"]["value"], k["hired"]["value"]) == (3, 2, 1, 1)
     assert k["hired"]["change_pct"] is None and k["hired"]["window"] is None      # no trend is claimed for a stage count
     assert c["sources"] == ["LinkedIn"]
+
+
+def test_onboarding_section_counts_new_hires_tasks_documents_and_checklists(env):
+    from app.modules.hr.models import (OnboardingChecklist, OnboardingChecklistItem, OnboardingDocument, OnboardingNewHire,
+                                       OnboardingPreboardingTask)
+    db = env.db
+    a = OnboardingNewHire(organization_id=1, candidate_name="Nia New", email="nia@x.test", position="Engineer", status="in_progress",
+                          joining_date=TODAY + timedelta(days=5), manager_id=env.interviewer.id, created_at=NOW - timedelta(days=2))
+    b = OnboardingNewHire(organization_id=1, candidate_name="Old Joiner", email="old@x.test", position="Analyst", status="completed",
+                          joining_date=TODAY - timedelta(days=40), completed_at=NOW - timedelta(days=1), created_at=NOW - timedelta(days=50))
+    db.add_all([a, b]); db.flush()
+    cl = OnboardingChecklist(organization_id=1, onboarding_new_hire_id=a.id, name="Day one")
+    db.add(cl); db.flush()
+    db.add_all([OnboardingChecklistItem(organization_id=1, checklist_id=cl.id, title="Laptop", completed=True, completed_at=NOW),
+                OnboardingChecklistItem(organization_id=1, checklist_id=cl.id, title="Badge", completed=False, due_date=TODAY - timedelta(days=1)),
+                OnboardingPreboardingTask(organization_id=1, onboarding_new_hire_id=a.id, title="Sign NDA", completed=False),
+                OnboardingDocument(organization_id=1, onboarding_new_hire_id=a.id, title="ID proof", category="identity", status="pending")])
+    db.commit()
+    d = _get(env, "onboarding")
+    k = d["kpis"]
+    assert (k["active_new_hires"]["value"], k["preboarding_open"]["value"], k["documents_pending"]["value"]) == (1, 1, 1)
+    assert k["checklist_completion"]["value"] == 50.0 and k["completed"]["value"] == 1
+    assert k["payroll_to_verify"]["window"] is None
+    assert {s["key"]: s["count"] for s in d["stages"]}["in_progress"] == 1
+    j = d["upcoming_joiners"][0]
+    assert (j["name"], j["manager"], j["pct"], j["overdue"], j["open_tasks"], j["pending_documents"]) == ("Nia New", "Lee T", 50, 1, 1, 1)
+    assert d["overdue"]["checklist_items"] == 1

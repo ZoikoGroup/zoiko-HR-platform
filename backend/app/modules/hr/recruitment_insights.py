@@ -30,7 +30,7 @@ from app.modules.hr.recruitment_router import get_recruitment_reader
 router = APIRouter(prefix="/hr/recruitment", tags=["Recruitment insights"])
 
 WEEKS = 8
-SECTIONS = ("dashboard", "requisitions", "candidates", "interviews", "offers")
+SECTIONS = ("dashboard", "requisitions", "candidates", "interviews", "offers", "onboarding")
 FEEDBACK_DUE_DAYS = 2           # feedback is "overdue" this many days after the interview
 
 
@@ -438,10 +438,112 @@ def candidates(db, org: int, today: date) -> dict:
     return {"kpis": kpis, "sources": sorted({(c.source or "").strip() for c in cands if (c.source or "").strip()})}
 
 
+ACTIVE_HIRE = ("offer_sent", "offer_accepted", "in_progress")
+
+
+def _live(db, model, org):
+    q = db.query(model).filter(model.organization_id == org)
+    return q.filter(model.is_deleted.is_(False)) if hasattr(model, "is_deleted") else q
+
+
+def onboarding(db, org: int, today: date) -> dict:
+    """The Onboarding screens: new hires by stage, joiners, pre-boarding, documents, checklists, payroll forms, orientation."""
+    from app.modules.hr.models import (OnboardingActivity, OnboardingChecklist, OnboardingChecklistItem, OnboardingDocument,
+                                       OnboardingFormSubmission, OnboardingNewHire, OnboardingOrientation,
+                                       OnboardingOrientationAttendee, OnboardingPreboardingTask)
+    hires = _live(db, OnboardingNewHire, org).all()
+    tasks = _live(db, OnboardingPreboardingTask, org).all()
+    docs = _live(db, OnboardingDocument, org).all()
+    checklists = _live(db, OnboardingChecklist, org).all()
+    items = _live(db, OnboardingChecklistItem, org).all()
+    forms = _live(db, OnboardingFormSubmission, org).all()
+    cur_w, prev_w = _windows(today)
+    month = (today.replace(day=1), today + timedelta(days=1))
+    prev_month_end = today.replace(day=1)
+    prev_month = ((prev_month_end - timedelta(days=1)).replace(day=1), prev_month_end)
+    next_month_start = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+    whole_month = (today.replace(day=1), next_month_start)
+
+    created = [_day(h.created_at) for h in hires]
+    active = [h for h in hires if h.status in ACTIVE_HIRE]
+    joining = [h.joining_date for h in hires if h.status != "cancelled" and h.joining_date]
+    done = [_day(h.completed_at) for h in hires if h.status == "completed" and h.completed_at]
+    open_tasks = [t for t in tasks if not t.completed]
+    pending_docs = [d for d in docs if (d.status or "pending") in ("pending", "uploaded", "submitted")]
+    forms_waiting = [f for f in forms if f.status == "submitted"]
+    item_done = [_day(i.completed_at) for i in items if i.completed and i.completed_at]
+    task_days = [_day(t.created_at) for t in open_tasks]
+    doc_days = [_day(d.created_at) for d in pending_docs]
+
+    def rate(rows):
+        rows = list(rows)
+        return round(sum(1 for i in rows if i.completed) * 100.0 / len(rows), 1) if rows else None
+
+    kpis = {
+        "active_new_hires": _kpi(len(active), _count_in(created, cur_w), _count_in(created, prev_w), _weekly_counts(created, today)),
+        "joining_this_month": _kpi(_count_in(joining, whole_month), _count_in(joining, whole_month), _count_in(joining, prev_month),
+                                   _weekly_counts(joining, today), window="month"),
+        "preboarding_open": _kpi(len(open_tasks), _count_in(task_days, cur_w), _count_in(task_days, prev_w),
+                                 _weekly_counts(task_days, today), better="down"),
+        "documents_pending": _kpi(len(pending_docs), _count_in(doc_days, cur_w), _count_in(doc_days, prev_w),
+                                  _weekly_counts(doc_days, today), better="down"),
+        "checklist_completion": _kpi(rate(items), _count_in(item_done, cur_w), _count_in(item_done, prev_w),
+                                     _weekly_counts(item_done, today)),
+        "completed": _kpi(_count_in(done, month), _count_in(done, month), _count_in(done, prev_month), _weekly_counts(done, today),
+                          window="month"),
+        # a count "now": no honest previous value, so no trend is claimed
+        "payroll_to_verify": {"value": len(forms_waiting), "current": None, "previous": None, "change_pct": None, "window": None,
+                              "series": None, "better": "down"},
+    }
+
+    by_status = Counter(h.status for h in hires)
+    stages = [{"key": k, "label": label, "count": by_status.get(k, 0)} for k, label in
+              (("offer_sent", "Offer sent"), ("offer_accepted", "Offer accepted"), ("in_progress", "Onboarding"),
+               ("completed", "Completed"), ("cancelled", "Cancelled"))]
+
+    # per new hire: checklist progress (items of their checklists), open pre-boarding tasks, pending documents
+    lists_of = defaultdict(list)
+    for c in checklists:
+        lists_of[c.onboarding_new_hire_id].append(c.id)
+    items_of = defaultdict(list)
+    for i in items:
+        items_of[i.checklist_id].append(i)
+    progress = {}
+    for h in hires:
+        mine = [i for cid in lists_of.get(h.id, []) for i in items_of.get(cid, [])]
+        finished = sum(1 for i in mine if i.completed)
+        progress[h.id] = {"items": len(mine), "done": finished, "pct": round(finished * 100.0 / len(mine)) if mine else None,
+                          "overdue": sum(1 for i in mine if not i.completed and i.due_date and i.due_date < today),
+                          "open_tasks": sum(1 for t in open_tasks if t.onboarding_new_hire_id == h.id),
+                          "pending_documents": sum(1 for d in pending_docs if d.onboarding_new_hire_id == h.id)}
+
+    managers = _names(db, [h.manager_id for h in hires])
+    upcoming = sorted((h for h in hires if h.status in ACTIVE_HIRE and h.joining_date and h.joining_date >= today),
+                      key=lambda h: h.joining_date)[:8]
+    upcoming_joiners = [{"id": h.id, "name": h.candidate_name, "position": h.position, "joining_date": h.joining_date,
+                         "status": h.status, "manager": managers.get(h.manager_id), **progress[h.id]} for h in upcoming]
+
+    sessions = (_live(db, OnboardingOrientation, org).filter(OnboardingOrientation.date >= today)
+                .order_by(OnboardingOrientation.date, OnboardingOrientation.time).limit(5).all())
+    counts = Counter(a.session_id for a in _live(db, OnboardingOrientationAttendee, org).all())
+    orientation = [{"id": o.id, "title": o.title, "date": o.date, "time": o.time, "presenter": o.presenter, "status": o.status,
+                    "meeting_link": o.meeting_link, "location": o.location, "attendees": counts.get(o.id, 0)} for o in sessions]
+
+    acts = (db.query(OnboardingActivity).filter(OnboardingActivity.organization_id == org)
+            .order_by(OnboardingActivity.created_at.desc()).limit(8).all())
+    names = {h.id: h.candidate_name for h in hires}
+    recent_activity = [{"action": a.action, "description": a.description, "at": a.created_at,
+                        "new_hire": names.get(a.onboarding_new_hire_id)} for a in acts]
+    overdue = {"checklist_items": sum(1 for i in items if not i.completed and i.due_date and i.due_date < today),
+               "preboarding_tasks": sum(1 for t in open_tasks if t.due_date and t.due_date < today)}
+    return {"kpis": kpis, "stages": stages, "progress": progress, "upcoming_joiners": upcoming_joiners,
+            "orientation": orientation, "recent_activity": recent_activity, "overdue": overdue}
+
+
 @router.get("/insights")
 def get_insights(section: str = Query("dashboard"), db: Session = Depends(get_db), user=Depends(get_recruitment_reader)):
     if section not in SECTIONS:
         raise HTTPException(422, f"section must be one of {', '.join(SECTIONS)}")
     fn = {"dashboard": dashboard, "requisitions": requisitions, "candidates": candidates, "interviews": interviews,
-          "offers": offers}[section]
+          "offers": offers, "onboarding": onboarding}[section]
     return {"section": section, "as_of": date.today(), **fn(db, user.organization_id, date.today())}

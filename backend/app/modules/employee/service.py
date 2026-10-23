@@ -624,13 +624,6 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
     if employee.status == EmployeeStatus.DEACTIVATED:
         raise UnauthorizedException("Your account has been deactivated.")
 
-    if not employee.email_verified:
-        raise ZoikoException(
-            403, EMAIL_NOT_VERIFIED_CODE,
-            f"Please confirm your email address before signing in. We sent a confirmation link to {_mask_email(employee.email)}. "
-            "Open it, then sign in. You can ask for a new link below.",
-        )
-
     org_code = None
     if employee.organization_id:
         oa_code = org_access.get_org_access(db, employee.organization_id)
