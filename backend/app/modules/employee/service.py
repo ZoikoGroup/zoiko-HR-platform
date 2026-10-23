@@ -581,8 +581,16 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
     Organization state comes from the cached org-access decision (app/core/org_access.py):
     one query for the employee, zero for the org on a cache hit."""
     from app.core import org_access
+    from app.config import settings
 
     _require_real_sign_in_address(employee.email)       # an older account saved with a placeholder address can no longer sign in
+
+    if settings.REQUIRE_EMAIL_VERIFICATION and not employee.email_verified:
+        raise ZoikoException(
+            403,
+            EMAIL_NOT_VERIFIED_CODE,
+            "Please confirm your email address before signing in. Request a new confirmation link if needed.",
+        )
 
     if employee.organization_id:
         oa = org_access.get_org_access(db, employee.organization_id)

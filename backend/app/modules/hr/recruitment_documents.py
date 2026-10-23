@@ -746,6 +746,28 @@ def send_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedD
     if current is not None and current.status in ("ISSUED", "EXECUTED"):
         raise HTTPException(409, "This offer letter has already been issued. Use Resend to send a fresh signing link.")
 
+    def block_unreviewed_cross_border_preview(doc):
+        if doc is None or doc.release_mode != "STARTER_PREVIEW":
+            return
+        entity = preflight.resolve_entity(db, actor.organization_id, None, offer.employer_entity_id)
+        employer_country = getattr(entity, "country", None) or getattr(actor.organization, "country", None)
+        if employer_country:
+            from app.core.regions import country_code_strict
+            employer_country = country_code_strict(employer_country) or employer_country.upper()
+        else:
+            employer_country = (offer.work_country or "").upper()
+        work_country = (offer.work_country or "").upper()
+        if employer_country and work_country and employer_country != work_country:
+            raise HTTPException(409, {
+                "code": "STARTER_PREVIEW_NOT_ISSUABLE",
+                "message": "This is an unreviewed starter draft. Release a jurisdiction-specific template that covers this cross-border employment before issuing it.",
+            })
+
+    # A preview may help HR prepare the offer, but the sendable starter fallback is not
+    # sufficient for work performed across a border. Keep the preview intact so the
+    # employee cannot receive unreviewed cross-border terms.
+    block_unreviewed_cross_border_preview(current)
+
     must_regenerate = bool(current and current.status in OFFER_IN_PROGRESS and (
         current.release_mode == "STARTER_PREVIEW"
         or (automatic_approval and current.approval_policy != "L1")
@@ -760,6 +782,8 @@ def send_offer_letter(db: Session, actor, offer: RecruitmentOffer) -> GeneratedD
 
     if current is None or current.status not in OFFER_IN_PROGRESS:
         current = generate_offer_letter(db, actor, offer, waive_approval=automatic_approval)
+
+    block_unreviewed_cross_border_preview(current)
 
     if current.release_mode == "STARTER_PREVIEW":
         doc_service.cancel(db, current, actor, "Replaced by the sendable platform offer starter.",

@@ -580,13 +580,10 @@ def withdraw_offer(
 @recruitment_router.put(
     "/offers/{offer_id}/send",
     response_model=OfferResponse,
-    summary="Send an offer: mark it sent and email its terms to the linked candidate",
+    summary="Retired: offer letters are generated and sent through the documents workflow",
 )
 def send_offer(offer_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
-    from app.modules.hr import recruitment_documents
-    offer = recruitment_documents._offer(db, current_user, offer_id)
-    recruitment_documents.send_offer_letter(db, current_user, offer)
-    return recruitment_service.get_offer_by_id(db, offer_id, current_user.organization_id)
+    return recruitment_service.send_offer(db, offer_id, current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
