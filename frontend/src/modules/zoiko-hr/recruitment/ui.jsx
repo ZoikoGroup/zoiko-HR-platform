@@ -45,53 +45,57 @@ export function RecruitmentLayout(props) {
  * The shared module shell (Recruitment, Onboarding, …): `items` are the section tabs ({label, href, icon}); the first one
  * is the module home. `pageOfTitle` maps a heading to the tab it belongs to when they differ.
  */
-export function ModuleLayout({ module, items, pageOfTitle = {}, title, subtitle, actions, children }) {
+export function ModuleLayout({ module, items = [], pageOfTitle = {}, title, subtitle, actions, children, variant = "default" }) {
+  const sectionItems = Array.isArray(items) ? items : [];
+  const plain = variant === "plain";
   const rawPathname = typeof window !== "undefined" ? window.location.pathname : "/";
   const pathname = rawPathname.replace(/\/+$/, "") || "/";
   const label = pageOfTitle[title] || title;
-  const routePage = items
+  const routePage = sectionItems
     .filter((item) => {
       const href = item.href.replace(/\/+$/, "") || "/";
       return pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
     })
     .sort((a, b) => b.href.length - a.href.length)[0];
-  const page = routePage || items.find((i) => i.label === label) || items[0];
-  const PageIcon = page.icon;
-  const home = items[0]?.href;
+  const page = routePage || sectionItems.find((i) => i.label === label) || sectionItems[0];
+  const PageIcon = page?.icon || LayoutDashboard;
+  const home = sectionItems[0]?.href;
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className="relative overflow-hidden rounded-b-3xl bg-gradient-to-r from-[#0A1128] via-[#0E1734] to-[#111A33] text-white shadow-[0_10px_30px_rgba(4,7,20,0.25)] sm:rounded-3xl">
-        <div aria-hidden="true" className="pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full bg-blue-500/10 blur-3xl" />
+      <header className={`relative overflow-hidden rounded-b-3xl shadow-sm sm:rounded-3xl ${plain ? "border border-slate-200 bg-white text-slate-900" : "bg-gradient-to-r from-[#0A1128] via-[#0E1734] to-[#111A33] text-white shadow-[0_10px_30px_rgba(4,7,20,0.25)]"}`}>
+        <div aria-hidden="true" className={`pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl ${plain ? "bg-blue-100/80" : "bg-blue-500/10"}`} />
         <div className="relative mx-auto max-w-[1600px] px-4 pt-5 sm:px-6 lg:px-8">
-          <nav aria-label="Breadcrumb" className="flex items-center gap-1.5 text-xs text-slate-400">
+          <nav aria-label="Breadcrumb" className={`flex items-center gap-1.5 text-xs ${plain ? "text-slate-500" : "text-slate-400"}`}>
             <span>Zoiko HR</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
             <span>{module}</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
-            <span className="font-medium text-slate-200">{title}</span>
+            <span className={`font-medium ${plain ? "text-slate-700" : "text-slate-200"}`}>{title}</span>
           </nav>
           <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
             <div className="flex min-w-0 items-center gap-4">
-              <span className="hidden h-12 w-12 shrink-0 place-items-center rounded-2xl bg-white/10 ring-1 ring-white/15 sm:grid" aria-hidden="true">
-                <PageIcon className="h-6 w-6 text-blue-300" />
+              <span className={`hidden h-12 w-12 shrink-0 place-items-center rounded-2xl sm:grid ${plain ? "bg-blue-50 ring-1 ring-blue-100" : "bg-white/10 ring-1 ring-white/15"}`} aria-hidden="true">
+                <PageIcon className={`h-6 w-6 ${plain ? "text-blue-700" : "text-blue-300"}`} />
               </span>
               <div className="min-w-0">
-                <h1 className="text-2xl font-bold tracking-tight text-white sm:text-[28px]">{title}</h1>
-                {subtitle && <p className="mt-1 text-sm text-slate-300">{subtitle}</p>}
+                <h1 className={`text-2xl font-bold tracking-tight sm:text-[28px] ${plain ? "text-slate-950" : "text-white"}`}>{title}</h1>
+                {subtitle && <p className={`mt-1 text-sm ${plain ? "text-slate-600" : "text-slate-300"}`}>{subtitle}</p>}
               </div>
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
           </div>
-          <nav aria-label={`${module} sections`} className="mt-6 flex gap-1 overflow-x-auto">
-            {items.map((item) => {
+          {sectionItems.length > 0 && <nav aria-label={`${module} sections`} className={`mt-6 flex gap-1 overflow-x-auto ${plain ? "border-b border-slate-200" : ""}`}>
+            {sectionItems.map((item) => {
               const Icon = item.icon;
               return (
                 <NavLink key={item.href} to={item.href} end={item.href === home}
                   className={({ isActive }) => `inline-flex items-center gap-2 whitespace-nowrap rounded-t-xl px-4 py-2.5 text-sm font-medium transition-colors ${
-                    isActive ? "bg-slate-50 text-[#0A1128] shadow-[0_-2px_8px_rgba(0,0,0,0.08)]" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
+                    isActive
+                      ? plain ? "bg-blue-50 text-blue-800 ring-1 ring-inset ring-blue-100" : "bg-slate-50 text-[#0A1128] shadow-[0_-2px_8px_rgba(0,0,0,0.08)]"
+                      : plain ? "text-slate-600 hover:bg-slate-100 hover:text-slate-900" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
                   <Icon className="h-4 w-4" aria-hidden="true" />{item.label}
                 </NavLink>
               );
             })}
-          </nav>
+          </nav>}
         </div>
       </header>
       <main className="mx-auto max-w-[1600px] px-4 pb-10 pt-6 sm:px-6 lg:px-8">{children}</main>

@@ -10,7 +10,6 @@ import {
   ClipboardCheck,
   CreditCard,
   GraduationCap,
-  LayoutDashboard,
   Package,
   UserPlus,
   Users,
@@ -18,7 +17,8 @@ import {
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
 import { getLearningDashboard, getPerformanceDashboard, getRecruitmentDashboard } from "../../service/hrService";
-import { ModuleLayout, PrimaryButton } from "../zoiko-hr/recruitment/ui";
+import { PrimaryButton } from "../zoiko-hr/recruitment/ui";
+import { HrAdminLayout } from "./ui";
 import {
   Area,
   AreaChart,
@@ -31,13 +31,6 @@ import {
   YAxis,
 } from "recharts";
 
-const HR_ADMIN_NAV = [
-  { label: "Dashboard", href: "/hr-admin/dashboard", icon: LayoutDashboard },
-  { label: "My Organization", href: "/hr-admin/my-organization", icon: Building2 },
-  { label: "Documents", href: "/hr-admin/documents", icon: ClipboardCheck },
-];
-
-const PAGE_OF_TITLE = { "HR Admin Dashboard": "Dashboard" };
 const TONES = {
   blue: "bg-blue-50 text-blue-600",
   teal: "bg-teal-50 text-teal-600",
@@ -199,10 +192,7 @@ export default function HrAdminDashboardPage() {
   );
 
   return (
-    <ModuleLayout
-      module="HR Admin"
-      items={HR_ADMIN_NAV}
-      pageOfTitle={PAGE_OF_TITLE}
+    <HrAdminLayout
       title="HR Admin Dashboard"
       subtitle={`${orgName} · ${greeting().toLowerCase()}, ${displayName}`}
       actions={headerActions}
@@ -380,6 +370,6 @@ export default function HrAdminDashboardPage() {
           <NavLink to="/zoiko-hr/recruitment" className={`${cardClass} group flex items-center gap-3 p-4 transition hover:border-blue-200 hover:shadow-md`}><span className="grid h-10 w-10 place-items-center rounded-xl bg-blue-50 text-blue-600"><Briefcase className="h-5 w-5" aria-hidden="true" /></span><span className="min-w-0 flex-1"><span className="block text-xs font-medium text-slate-500">Hiring pipeline</span><span className="mt-0.5 block text-lg font-semibold text-slate-900">{number(openPositions)} open roles</span></span><ArrowRight className="h-4 w-4 text-slate-300 transition group-hover:translate-x-0.5 group-hover:text-blue-600" aria-hidden="true" /></NavLink>
         </section>
       </div>
-    </ModuleLayout>
+    </HrAdminLayout>
   );
 }
