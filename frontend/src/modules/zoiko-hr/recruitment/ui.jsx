@@ -46,8 +46,16 @@ export function RecruitmentLayout(props) {
  * is the module home. `pageOfTitle` maps a heading to the tab it belongs to when they differ.
  */
 export function ModuleLayout({ module, items, pageOfTitle = {}, title, subtitle, actions, children }) {
+  const rawPathname = typeof window !== "undefined" ? window.location.pathname : "/";
+  const pathname = rawPathname.replace(/\/+$/, "") || "/";
   const label = pageOfTitle[title] || title;
-  const page = items.find((i) => i.label === label) || items[0];
+  const routePage = items
+    .filter((item) => {
+      const href = item.href.replace(/\/+$/, "") || "/";
+      return pathname === href || (href !== "/" && pathname.startsWith(`${href}/`));
+    })
+    .sort((a, b) => b.href.length - a.href.length)[0];
+  const page = routePage || items.find((i) => i.label === label) || items[0];
   const PageIcon = page.icon;
   const home = items[0]?.href;
   return (

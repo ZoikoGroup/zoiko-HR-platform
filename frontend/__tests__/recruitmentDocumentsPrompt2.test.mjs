@@ -2,6 +2,7 @@ import "./support/setup-jsdom.mjs";
 import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
 afterEach(() => cleanup());
@@ -115,7 +116,7 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
   } });
   t.mock.module("../src/modules/zoiko-hr/recruitment/PrivacySettings.jsx", { exports: { default: () => null } });
   const { default: Candidates } = await import(`../src/modules/zoiko-hr/recruitment/candidates.jsx?t=${Math.random()}`);
-  render(React.createElement(Candidates));
+  render(React.createElement(MemoryRouter, null, React.createElement(Candidates)));
   await settle();
 
   fireEvent.click(screen.getByRole("button", { name: "Privacy notice status for Ari Applicant" }));
@@ -151,7 +152,7 @@ test("interview scorecard loads requisition criteria and submits the documented 
     submitInterviewScorecard: async (id, body) => { calls.push(["post", id, body]); return {}; },
   } });
   const { default: Interviews } = await import(`../src/modules/zoiko-hr/recruitment/interviews.jsx?t=${Math.random()}`);
-  render(React.createElement(Interviews));
+  render(React.createElement(MemoryRouter, null, React.createElement(Interviews)));
   await settle();
   fireEvent.click(screen.getByRole("button", { name: "View all interviews" }));
   fireEvent.click(screen.getByRole("button", { name: "More actions for Ari Applicant" }));
@@ -200,7 +201,7 @@ test("offer letter lifecycle uses server approval, generation, preview and send"
     downloadGeneratedDocument: async () => ({}),
   } });
   const { default: Offers } = await import(`../src/modules/zoiko-hr/recruitment/offers.jsx?t=${Math.random()}`);
-  render(React.createElement(Offers));
+  render(React.createElement(MemoryRouter, null, React.createElement(Offers)));
   await settle();
   fireEvent.click(screen.getByTitle("Manage offer letter"));
   await settle();

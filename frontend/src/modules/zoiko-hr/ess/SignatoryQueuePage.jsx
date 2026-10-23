@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useState } from "react";
 import { ShieldCheck, AlertTriangle, RefreshCw, Eye, CheckCircle2, XCircle, FileSignature, Loader2, FileText, Inbox } from "lucide-react";
-import HRPage from "../../../components/HRPage";
+import { EmployeeDocumentsLayout } from "../documents/ui";
 import { Modal } from "../../../components/billing-ui";
 import SandboxedHtmlPreview from "../../../components/documents/SandboxedHtmlPreview";
 import DocumentActionDialog from "../../../components/documents/DocumentActionDialog";
@@ -152,7 +152,7 @@ export default function SignatoryQueuePage() {
   );
 
   return (
-    <HRPage
+    <EmployeeDocumentsLayout
       title="Signatory queue"
       subtitle="Documents waiting for you as an authorised signatory of the employer."
       actions={
@@ -210,6 +210,6 @@ export default function SignatoryQueuePage() {
           onDone={() => { setNotice(`${signing.document_number} signed for the employer.`); load(); }}
         />
       )}
-    </HRPage>
+    </EmployeeDocumentsLayout>
   );
 }

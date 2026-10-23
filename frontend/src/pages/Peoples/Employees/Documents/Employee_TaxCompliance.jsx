@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import { getDocuments } from "../../../../service/employee";
 import { useDocumentFile } from "../../../../hooks/useDocumentFile";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
@@ -65,17 +65,17 @@ export default function TaxCompliance() {
 
   if (loading) {
     return (
-      <EmployeePageShell title="Tax & Compliance" subtitle="Access your Form 16, TDS certificates, and investment declarations.">
+      <EmployeeDocumentsLayout title="Tax & Compliance" subtitle="Access your Form 16, TDS certificates, and investment declarations.">
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-doc-primary" />
           <span className="text-sm text-doc-ink-soft dark:text-[#94a3b8]">Loading tax documents...</span>
         </div>
-      </EmployeePageShell>
+      </EmployeeDocumentsLayout>
     );
   }
 
   return (
-    <EmployeePageShell title="Tax & Compliance" subtitle="Access your Form 16, TDS certificates, and investment declarations.">
+    <EmployeeDocumentsLayout title="Tax & Compliance" subtitle="Access your Form 16, TDS certificates, and investment declarations.">
       <div className="space-y-3 mb-6">
         <DocumentErrorState message={error} />
         <DocumentErrorState message={fileError} />
@@ -120,6 +120,6 @@ export default function TaxCompliance() {
         </>
       )}
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }

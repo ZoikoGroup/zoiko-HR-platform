@@ -2,6 +2,7 @@
 import React from 'react';
 import { NavLink } from 'react-router-dom';
 import { BarChart3, CalendarDays, ClipboardCheck, FileText, LayoutDashboard, Settings, UserPlus, Users } from 'lucide-react';
+import { OrganizationDocumentsLayout } from '../modules/zoiko-hr/documents/ui';
 
 const ONBOARDING_NAV = [
   { label: 'Dashboard', href: '/zoiko-hr/onboarding', icon: LayoutDashboard },
@@ -16,6 +17,14 @@ const ONBOARDING_NAV = [
 
 export default function HRPage({ title, subtitle, children, actions }) {
   const isOnboarding = /onboarding|new hires|orientation sessions/i.test(title || '');
+  const isDocuments = typeof window !== 'undefined' && window.location.pathname.startsWith('/zoiko-hr/documents');
+  if (isDocuments) {
+    return (
+      <OrganizationDocumentsLayout title={title} subtitle={subtitle} actions={actions}>
+        {children}
+      </OrganizationDocumentsLayout>
+    );
+  }
   if (isOnboarding) {
     const PageIcon = ONBOARDING_NAV.find((item) => item.label === title.replace(/^Onboarding\s+/i, '').replace(/^Orientation Sessions$/i, 'Orientation'))?.icon || Users;
     return (

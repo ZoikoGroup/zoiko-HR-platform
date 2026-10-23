@@ -4,7 +4,7 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, CheckCircle2, FileText, History, Loader2 } from "lucide-react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import { listMyPolicies } from "../../../../service/workDocumentsService";
 import { formatDate } from "../../../../utils/dateTime";
 
@@ -19,7 +19,7 @@ export default function EmployeeCompanyPolicies() {
   }, []);
 
   return (
-    <EmployeePageShell title="Company policies" subtitle="The policies that apply to you, and the versions you have received.">
+    <EmployeeDocumentsLayout title="Company policies" subtitle="The policies that apply to you, and the versions you have received.">
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {!items && !error && <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Loading…</p>}
       {items && items.length === 0 && <p className="text-sm text-slate-600">No policies have been published to you yet.</p>}
@@ -65,6 +65,6 @@ export default function EmployeeCompanyPolicies() {
           ))}
         </ul>
       )}
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }
