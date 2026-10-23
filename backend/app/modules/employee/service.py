@@ -585,7 +585,11 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
 
     _require_real_sign_in_address(employee.email)       # an older account saved with a placeholder address can no longer sign in
 
-    if settings.REQUIRE_EMAIL_VERIFICATION and not employee.email_verified:
+    # Self-serve workspace registrations must prove the admin inbox before
+    # activating the workspace. Employee accounts added by HR may sign in with
+    # their issued credentials while their confirmation link remains available.
+    if (settings.REQUIRE_EMAIL_VERIFICATION and not employee.email_verified
+            and employee.organization_id is not None and employee.role == UserRole.ADMIN):
         raise ZoikoException(
             403,
             EMAIL_NOT_VERIFIED_CODE,

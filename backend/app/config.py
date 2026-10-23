@@ -164,7 +164,7 @@ class Settings(BaseSettings):
     # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────
     # EMAIL_REAL_ONLY refuses placeholder and disposable addresses wherever an account or contact address is entered.
     # EMAIL_DNS_CHECK also asks DNS whether the domain can receive mail (an inconclusive lookup never blocks anyone).
-    # REQUIRE_EMAIL_VERIFICATION makes every NEW account confirm its address from a link before it can sign in.
+    # REQUIRE_EMAIL_VERIFICATION requires a self-serve workspace admin to confirm the registered address before signing in.
     EMAIL_REAL_ONLY: bool = True
     EMAIL_DNS_CHECK: bool = True
     REQUIRE_EMAIL_VERIFICATION: bool = True

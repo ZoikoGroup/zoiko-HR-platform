@@ -1,4 +1,4 @@
-"""Only real e-mail addresses can be used, and a new account can sign in only after its owner confirms the address."""
+"""Real addresses are required; self-serve workspace admins confirm before sign-in, while HR-added employees can sign in immediately."""
 
 from datetime import date, datetime, timedelta
 
