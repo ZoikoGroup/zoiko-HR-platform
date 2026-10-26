@@ -286,7 +286,7 @@ export default function OrgAdminMetricsPage() {
           )}
         </Card>
         <Card title="Leave Summary" icon={Activity} iconColor={EMERALD}>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             <div className="rounded-[12px] border p-4 text-center" style={{ borderColor: LINE, background: "#F8FAFC" }}>
               <p className="text-[26px] font-bold" style={{ color: AMBER }}>{lm.pending_count ?? 0}</p>
               <p className="text-[11.5px] mt-1" style={{ color: INK_SOFT }}>Pending</p>

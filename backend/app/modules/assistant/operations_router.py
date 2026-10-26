@@ -11,11 +11,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_admin, get_scoped_organization_id as get_organization_id
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import audit_service
 from app.modules.assistant.models import ChatOperationalControl, ControlType
 from app.modules.assistant.schemas import OperationalControlUpdate, OperationalControlResponse
 
-operations_router = APIRouter(prefix="/assistant/admin/controls", tags=["Assistant Admin - Controls"])
+operations_router = APIRouter(prefix="/assistant/admin/controls", tags=["Assistant Admin - Controls"], dependencies=plan_gate.CONTROLS_ADMIN)
 
 
 @operations_router.get("", response_model=list[OperationalControlResponse])

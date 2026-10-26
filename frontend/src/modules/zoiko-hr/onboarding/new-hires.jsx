@@ -4,6 +4,7 @@
  * Every figure comes from the records API or GET /hr/recruitment/insights?section=onboarding; nothing is invented.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   AlertCircle, AlertTriangle, Briefcase, Building2, CalendarClock, CalendarDays, CheckCircle2, ClipboardCheck, ClipboardList, Copy,
   Download, Edit2, Eye, FileClock, FileText, Link2, ListChecks, Loader2, Mail, MoreHorizontal, Phone, Play, Plus, RotateCcw, Send,
@@ -22,6 +23,7 @@ import {
 } from "../../../service/hrService";
 import { getEmployees } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
+import { downloadCSV } from "../../../utils/export-helpers";
 import OnboardingFormsReview from "./OnboardingFormsReview";
 import ProbationScheduleForm from "./ProbationScheduleForm";
 
@@ -890,6 +892,16 @@ export default function NewHires() {
   const [links, setLinks] = useState({});
   const [docRequest, setDocRequest] = useState(null); // { record, categories: [] }
   const [completion, setCompletion] = useState(null); // { record, progress, loading, error, submitting }
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  // ?new=1 (the dashboard's "Add New Hire") opens the create form on arrival
+  useEffect(() => {
+    if (searchParams.get("new") !== "1") return;
+    setFormFor({});
+    const next = new URLSearchParams(searchParams);
+    next.delete("new");
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const flash = (msg) => { setError(null); setSuccess(msg); };
   const fail = (err, fallback) => { setSuccess(null); setError(err?.message || fallback); };
@@ -1032,10 +1044,17 @@ export default function NewHires() {
       await updateOnboardingRecord(editId, payload);
       flash(`${payload.candidate_name} updated.`);
     } else {
-      await createOnboardingRecord({ ...payload, status: formData.status, start_onboarding: formData.start_onboarding });
+      const created = await createOnboardingRecord({ ...payload, status: formData.status, start_onboarding: formData.start_onboarding });
       flash(formData.start_onboarding
         ? `${payload.candidate_name} added. Onboarding started and the pre-onboarding link was emailed.`
         : `${payload.candidate_name} added.`);
+      setFormFor(null);
+      // a manually added hire has no accepted recruitment offer, so the Accepted Offers view would hide it
+      if (!showAllRecords) { setShowAllRecords(true); setStatusFilter(""); setCurrentPage(1); }
+      await fetchRecords(false);
+      insights.reload();
+      if (created?.id) openDetail(created.id);
+      return;
     }
     setFormFor(null);
     await refresh();
@@ -1185,22 +1204,23 @@ export default function NewHires() {
   };
 
   const handleExport = () => {
+    if (!filtered.length) {
+      fail(null, records.length
+        ? "No new hires match the current filters, so there is nothing to export. Clear the filters and try again."
+        : showAllRecords ? "There are no new hire records to export yet."
+          : "No candidates have accepted an offer yet, so there is nothing to export. Switch to All Onboarding to export every record.");
+      return;
+    }
     setExporting(true);
     try {
       const headers = ["Candidate Name", "Email", "Phone", "Position", "Department", "Manager", "Employment Type", "Status", "Joining Date", "Joining Status", "Notes"];
       const rows = filtered.map((r) => [
         r.candidate_name || "", r.email || "", r.phone || "", r.position || "", r.department_name || "", r.manager_name || "",
-        EMPLOYMENT_TYPES.find((t) => t.value === r.employment_type)?.label || "", statusLabel(r.status) || "", r.joining_date || "",
+        employmentLabel(r.employment_type), statusLabel(r.status) || "", r.joining_date || "",
         joiningMeta(r.joining_status).label, r.notes || "",
       ]);
-      const csv = [headers.join(","), ...rows.map((r) => r.map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","))].join("\n");
-      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `new-hires-export-${new Date().toISOString().split("T")[0]}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
+      downloadCSV(rows, headers, `new-hires-${showAllRecords ? "all" : "accepted-offers"}-${new Date().toISOString().split("T")[0]}.csv`);
+      flash(`Exported ${rows.length} new hire${rows.length === 1 ? "" : "s"} to CSV.`);
     } catch (err) {
       fail(err, "Failed to export");
     } finally {
@@ -1284,8 +1304,9 @@ export default function NewHires() {
   return (
     <OnboardingLayout {...layoutProps}
       actions={<>
-        <SecondaryButton icon={Download} onClick={handleExport} disabled={exporting || filtered.length === 0}>{exporting ? "Exporting..." : "Export CSV"}</SecondaryButton>
-        {showAllRecords && <PrimaryButton icon={Plus} onClick={() => setFormFor({})}>New Onboarding</PrimaryButton>}
+        <SecondaryButton icon={Download} onClick={handleExport} disabled={exporting}
+          title={filtered.length ? `Export the ${filtered.length} new hire${filtered.length === 1 ? "" : "s"} shown` : "Nothing to export in this view"}>{exporting ? "Exporting..." : "Export CSV"}</SecondaryButton>
+        <PrimaryButton icon={Plus} onClick={() => setFormFor({})}>Add New Hire</PrimaryButton>
       </>}>
       <div className="space-y-6">
         {(error || loadError) && (
@@ -1333,7 +1354,8 @@ export default function NewHires() {
             <Table columns={columns}
               empty={filtered.length === 0 && (
                 <EmptyState icon={UserPlus} title={records.length === 0 ? (showAllRecords ? "No new hire records yet." : "No candidates have accepted an offer yet.") : "No records match your search."}>
-                  {records.length === 0 && !showAllRecords ? "Switch to All Onboarding to see every onboarding record." : records.length ? "Try a different filter." : null}
+                  {records.length === 0 && !showAllRecords ? "Switch to All Onboarding to see every onboarding record, or use Add New Hire."
+                    : records.length ? "Try a different filter." : "Use Add New Hire to create the first one."}
                 </EmptyState>
               )}>
               {paginated.map((r) => {

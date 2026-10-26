@@ -540,7 +540,7 @@ export default function HrDashBoard() {
           </div>
 
           <div className="flex items-center justify-end gap-4 rounded-2xl px-4.5 py-3.5 mb-5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <span className="text-xs font-semibold mr-1" style={{ color: INK_SOFT }}>Quick Access:</span>
               {["Executive", "Department", "Operational", "Performance"].map((tab) => (
                 <button key={tab} onClick={() => setActiveTab(tab)} className="px-4 py-2 rounded-[9px] text-sm font-semibold transition"
@@ -553,7 +553,7 @@ export default function HrDashBoard() {
 
           {activeTab === "Executive" && (
             <>
-          <div className="grid grid-cols-5 gap-4">
+          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
             <div className="rounded-2xl p-4.5 transition hover:-translate-y-0.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="flex items-center justify-between mb-3.5">
                 <div className="w-9 h-9 rounded-[10px] flex items-center justify-center" style={{ background: BLUE_100, color: BLUE }}><Users size={17} /></div>
@@ -599,7 +599,7 @@ export default function HrDashBoard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-[1.4fr_1fr] gap-4.5 mt-5">
+          <div className="grid grid-cols-1 lg:grid-cols-[1.4fr_1fr] gap-4.5 mt-5">
             <div className="rounded-[20px] p-5.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="flex items-center justify-between mb-4">
                 <div>
@@ -648,7 +648,7 @@ export default function HrDashBoard() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4.5 mt-4.5">
+          <div className="grid grid-cols-1 gap-4.5 lg:grid-cols-2 mt-4.5">
             <div className="rounded-[20px] p-5.5" style={{ background: "#fff", border: `1px solid ${LINE}`, boxShadow: cardShadow }}>
               <div className="mb-4">
                 <h3 className="text-base font-bold" style={{ fontFamily: "'Sora', sans-serif" }}>Recruitment Funnel</h3>
@@ -723,14 +723,14 @@ export default function HrDashBoard() {
 
           {activeTab === "Department" && (
             <>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatCard icon={Building2} tint={BLUE_100} color={BLUE} label="Departments" value={deptRows.length || null} trend="flat" trendLabel={deptRows.length ? "tracked" : null} />
                 <StatCard icon={CheckCircle2} tint={EMERALD_100} color={EMERALD} label="Active Departments" value={deptRows.filter((r) => r.active).length || null} />
                 <StatCard icon={TrendingUp} tint={NAVY_100} color={NAVY} label="Largest Department" value={largestDept ? largestDept.count : null} sub={largestDept ? largestDept.name : undefined} />
                 <StatCard icon={Users} tint={BLUE_100} color={BLUE} label="Avg. Headcount" value={avgHeadcount} sub="per department" />
               </div>
 
-              <div className="grid grid-cols-2 gap-4.5 mt-5">
+              <div className="grid grid-cols-1 gap-4.5 lg:grid-cols-2 mt-5">
                 <Panel title="Headcount by Department" subtitle="Employee count per department">
                   {deptData.length > 0 ? (
                     <ResponsiveContainer width="100%" height={220}>
@@ -791,21 +791,21 @@ export default function HrDashBoard() {
 
           {activeTab === "Operational" && (
             <>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatCard icon={CheckCircle2} tint={EMERALD_100} color={EMERALD} label="Present Today" value={attendanceStats.present_today ?? null} sub={`of ${attendanceStats.total_employees ?? totalEmployees ?? "-"} employees`} />
                 <StatCard icon={Users} tint={RED_100} color={RED} label="Absent Today" value={attendanceStats.absent_today ?? null} />
                 <StatCard icon={Clock} tint={BLUE_100} color={BLUE} label="Late Arrivals" value={attendanceStats.late_arrivals ?? null} trend={attendanceStats.late_arrivals > 0 ? "down" : "flat"} trendLabel={attendanceStats.late_arrivals != null ? `${attendanceStats.late_arrivals}` : null} />
                 <StatCard icon={FileText} tint={NAVY_100} color={NAVY} label="On Leave Today" value={leaveStats.on_leave_today ?? attendanceStats.on_leave ?? null} />
               </div>
 
-              <div className="grid grid-cols-4 gap-4 mt-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4 mt-4">
                 <StatCard icon={TrendingUp} tint={BLUE_100} color={BLUE} label="Attendance %" value={attendanceStats.attendance_percentage != null ? `${attendanceStats.attendance_percentage}%` : null} />
                 <StatCard icon={Timer} tint={NAVY_100} color={NAVY} label="Avg. Working Hours" value={attendanceStats.avg_working_hours ?? null} />
                 <StatCard icon={Target} tint={EMERALD_100} color={EMERALD} label="Remote / WFH" value={attendanceStats.remote ?? leaveStats.wfh ?? null} />
                 <StatCard icon={Clock} tint={RED_100} color={RED} label="Overtime Hours" value={attendanceStats.overtime ?? null} />
               </div>
 
-              <div className="grid grid-cols-2 gap-4.5 mt-5">
+              <div className="grid grid-cols-1 gap-4.5 lg:grid-cols-2 mt-5">
                 <Panel title="Attendance Trend" subtitle="Present vs absent across recent days">
                   {attendanceTrend.length > 0 ? (
                     <ResponsiveContainer width="100%" height={240}>
@@ -838,7 +838,7 @@ export default function HrDashBoard() {
                 </Panel>
               </div>
 
-              <div className="grid grid-cols-2 gap-4.5 mt-4.5">
+              <div className="grid grid-cols-1 gap-4.5 lg:grid-cols-2 mt-4.5">
                 <Panel title="Leave Pipeline" subtitle="Requests by status">
                   <MetricBar label="Total requests" value={leaveStats.total_requests} suffix="" color={NAVY} />
                   <MetricBar label="Approved" value={leaveStats.approved_requests} suffix="" color={EMERALD} />
@@ -866,14 +866,14 @@ export default function HrDashBoard() {
 
           {activeTab === "Performance" && (
             <>
-              <div className="grid grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
                 <StatCard icon={TrendingUp} tint={EMERALD_100} color={EMERALD} label="Avg. Performance Score" value={performanceStats.avg_performance_score ?? null} />
                 <StatCard icon={Target} tint={BLUE_100} color={BLUE} label="Goal Completion" value={performanceStats.goal_completion_rate != null ? `${performanceStats.goal_completion_rate}%` : null} />
                 <StatCard icon={CheckCircle2} tint={NAVY_100} color={NAVY} label="Review Completion" value={performanceStats.review_completion_rate != null ? `${performanceStats.review_completion_rate}%` : null} />
                 <StatCard icon={BarChart3} tint={BLUE_100} color={BLUE} label="Avg. Rating" value={performanceStats.avg_rating ?? null} />
               </div>
 
-              <div className="grid grid-cols-2 gap-4.5 mt-5">
+              <div className="grid grid-cols-1 gap-4.5 lg:grid-cols-2 mt-5">
                 <Panel title="Completion Progress" subtitle="Goals, reviews and appraisals">
                   <MetricBar label="Goal completion rate" value={performanceStats.goal_completion_rate} color={EMERALD} />
                   <MetricBar label="Review completion rate" value={performanceStats.review_completion_rate} color={BLUE} />
@@ -888,7 +888,7 @@ export default function HrDashBoard() {
                 </Panel>
               </div>
 
-              <div className="grid grid-cols-2 gap-4.5 mt-4.5">
+              <div className="grid grid-cols-1 gap-4.5 lg:grid-cols-2 mt-4.5">
                 <Panel title="Cycle Totals" subtitle="Feedback, appraisals and ratings in the current cycle">
                   <div className="grid grid-cols-2 gap-4">
                     {[
@@ -910,7 +910,7 @@ export default function HrDashBoard() {
           <div className="mt-7 mb-3.5">
             <h2 className="text-[15.5px] font-bold" style={{ fontFamily: "'Sora', sans-serif" }}>Quick Actions</h2>
           </div>
-          <div className="grid grid-cols-4 gap-3.5">
+          <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
             {quickActions.map((a, i) => (
               <button key={i} className="rounded-2xl px-4.5 py-5 text-white text-left flex flex-col gap-6 transition hover:-translate-y-0.5" style={{ background: `linear-gradient(135deg, ${a.from}, ${a.to})`, boxShadow: cardShadow, border: "1px solid rgba(255,255,255,0.12)" }}>
                 <div className="flex items-center justify-center rounded-[9px]" style={{ width: 34, height: 34, background: "rgba(255,255,255,0.18)" }}><a.icon size={16} /></div>
@@ -986,7 +986,7 @@ export default function HrDashBoard() {
                   </select>
                 </Field>
 
-                <div className="grid grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
                   <Field label="Date of Joining" required error={formErrors.date_of_joining}>
                     <input type="date" value={form.date_of_joining} onChange={updateForm("date_of_joining")} className={fieldClass(!!formErrors.date_of_joining)} />
                   </Field>
@@ -1028,7 +1028,7 @@ export default function HrDashBoard() {
               <button onClick={() => setReportsOpen(false)} className="text-white/60 hover:text-white transition-colors cursor-pointer" aria-label="Close"><X className="w-5 h-5" /></button>
             </div>
 
-            <div className="p-6 overflow-y-auto grid grid-cols-2 gap-3.5">
+            <div className="p-6 overflow-y-auto grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               {REPORT_LINKS.map((r) => (
                 <button key={r.href} onClick={() => goToReport(r.href)}
                   className="text-left rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:border-blue-400 cursor-pointer"

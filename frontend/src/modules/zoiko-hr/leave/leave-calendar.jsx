@@ -212,7 +212,7 @@ export default function LeaveCalendar() {
               )}
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 min-w-0">
               <Filter className="w-4 h-4 text-gray-400" />
               <div className="flex gap-1 overflow-x-auto pb-1 lg:pb-0 hide-scrollbar">
                 <button

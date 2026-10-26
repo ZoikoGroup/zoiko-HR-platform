@@ -1011,6 +1011,8 @@ def create_organization_user(
 
         extra = _import_style_fields(db, data, organization_id, created_by=created_by_id)
         profile_fields = extra.pop("_profile", {})
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, organization_id, extra.get("country"))
         status = EmployeeStatus(data.status) if data.status else EmployeeStatus.ACTIVE
         employee = Employee(
             email=data.email,
@@ -1177,6 +1179,9 @@ def update_organization_user(
     # Extra import-style fields (plain columns plus department/designation by name), same as create.
     extra = _import_style_fields(db, data, user.organization_id, created_by=updated_by_id)
     profile_fields = extra.pop("_profile", {})
+    if extra.get("country"):
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, user.organization_id, extra["country"], previous=user.country)
     for field, value in extra.items():
         setattr(user, field, value)
 
@@ -1575,6 +1580,8 @@ def create_employee(
         employee_data.pop("organization_id", None)
         if not resolved_org_id:
             raise BadRequestException("organization_id is required to create an employee")
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, resolved_org_id, employee_data.get("work_country") or employee_data.get("country"))
         generated = not data.password
         initial_password = data.password or _generate_temp_password()
         employee = Employee(
@@ -1839,6 +1846,11 @@ def _parse_enum(val, field: str):
     return None
 
 
+def _country_codes_match(a, b) -> bool:
+    from app.modules.billing.country_policy import code_of
+    return code_of(a) is not None and code_of(a) == code_of(b)
+
+
 def import_employees_from_file(
     db: Session,
     file_bytes: bytes,
@@ -2024,6 +2036,15 @@ def import_employees_from_file(
                 break
         if row_invalid:
             continue
+
+        # The plan's countries: a row that would put someone in a country the plan does not cover is reported, not imported
+        if payload.get("country") and not (existing and _country_codes_match(existing.country, payload["country"])):
+            from app.modules.billing import country_policy
+            refusal = country_policy.country_refusal(db, organization_id, payload["country"], what="Country")
+            if refusal:
+                result["skipped"] += 1
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "country", "error": refusal})
+                continue
 
         # Resolve department by name – auto-create if not found
         dept_name = str(row_data.get("department_name", "")).strip()
@@ -2568,6 +2589,10 @@ def update_employee(
                 raise NotFoundException("Department", data.department_id)
 
         update_data = data.model_dump(exclude_unset=True)
+        from app.modules.billing import country_policy
+        for key in ("work_country", "country"):
+            if update_data.get(key):
+                country_policy.check_country(db, org_id, update_data[key], previous=getattr(employee, key, None))
         from app.modules.super_admin.activity_service import changes_from, snapshot
 
         before = snapshot(employee, update_data.keys())

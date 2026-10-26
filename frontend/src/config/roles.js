@@ -10,6 +10,8 @@ export const ROLE_LABELS = {
   [ROLES.SUPER_ADMIN]: "Super Admin",
   [ROLES.ADMIN]: "Organization Admin",
   [ROLES.HR_ADMIN]: "HR Admin",
+  billing_admin: "Billing Admin",
+  [ROLES.MANAGER]: "Manager",
   [ROLES.EMPLOYEE]: "Employee",
 };
 
@@ -225,6 +227,14 @@ export const ROLE_ALLOWED_PREFIXES = {
 export const ROLE_DISALLOWED_PREFIXES = {
   [ROLES.ADMIN]: ["/zoiko-hr/ess", "/zoiko-hr/employee-management"],
   [ROLES.HR_ADMIN]: ["/zoiko-hr/employee-management"],
+  // HR-only areas the API refuses a manager: hidden from the menu and the router instead of opening onto errors.
+  // (A manager's own onboarding tasks are on their dashboard, not under /zoiko-hr/onboarding.)
+  [ROLES.MANAGER]: [
+    "/zoiko-hr/onboarding",
+    "/zoiko-hr/workforce-planning/job-descriptions",
+    "/zoiko-hr/compensation/approvals",
+    "/zoiko-hr/employee-management/reports",
+  ],
 };
 
 export const VALID_ROLES = Object.values(ROLES);

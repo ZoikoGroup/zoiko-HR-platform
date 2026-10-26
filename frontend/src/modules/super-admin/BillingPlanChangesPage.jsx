@@ -115,6 +115,19 @@ export default function BillingPlanChangesPage() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [scheduleLoading, setScheduleLoading] = useState(false);
   const [wizardError, setWizardError] = useState(null);
+  const [billingCycle, setBillingCycle] = useState("monthly");
+  const [notice, setNotice] = useState(null);
+
+  // the change keeps the organization's billing cycle unless the admin picks another (it used to be forced to monthly)
+  const wizardOrgId = activeOrgId || wizardOrg?.id;
+  useEffect(() => {
+    if (!wizardOpen || !wizardOrgId) return undefined;
+    let live = true;
+    const known = String(subscription?.organization_id) === String(wizardOrgId) ? subscription : null;
+    (known ? Promise.resolve(known) : billingService.getSubscription(wizardOrgId).catch(() => null))
+      .then((sub) => { if (live && sub?.billing_cycle) setBillingCycle(String(sub.billing_cycle).toLowerCase()); });
+    return () => { live = false; };
+  }, [wizardOpen, wizardOrgId, subscription]);
 
   // Cancel state
   const [cancelLoading, setCancelLoading] = useState(null);
@@ -171,10 +184,14 @@ export default function BillingPlanChangesPage() {
     setScheduleLoading(true);
     setWizardError(null);
     try {
-      await billingService.schedulePlanChange(orgToSchedule, {
+      const change = await billingService.schedulePlanChange(orgToSchedule, {
         plan_id: Number(targetPlanId),
-        billing_cycle: "monthly",
+        billing_cycle: billingCycle,
       });
+      const planName = plans.find((p) => String(p.id) === String(targetPlanId))?.name || change?.to_plan_code || "the new plan";
+      setNotice(change?.status === "blocked"
+        ? `Change to ${planName} saved, but it is blocked by active features and is held for ops review.`
+        : `Change to ${planName} scheduled${change?.effective_at ? ` for ${formatDate(change.effective_at)}` : ""}.`);
       setWizardOpen(false);
       setTargetPlanId("");
       setPreviewResult(null);
@@ -226,7 +243,7 @@ export default function BillingPlanChangesPage() {
             </button>
             {isAdmin && (
               <button
-                onClick={() => { setWizardOpen(true); setWizardError(null); setPreviewResult(null); }}
+                onClick={() => { setWizardOpen(true); setWizardError(null); setPreviewResult(null); setNotice(null); }}
                 className="flex items-center gap-2 rounded-full bg-[#3B82F6] hover:bg-[#2563EB] text-white px-4 py-2 text-xs font-semibold transition shadow-sm"
               >
                 <Plus className="h-4 w-4" /> Schedule Plan Change
@@ -294,6 +311,14 @@ export default function BillingPlanChangesPage() {
           </div>
         )}
       </div>
+
+      {notice && (
+        <div role="status" className="rounded-3xl border border-emerald-200 bg-emerald-50 p-4 text-emerald-700 text-sm flex items-center gap-3">
+          <CheckCircle className="h-5 w-5 shrink-0" />
+          <span>{notice}</span>
+          <button onClick={() => setNotice(null)} aria-label="Dismiss" className="ml-auto p-1 text-emerald-600 hover:text-emerald-800"><X className="h-4 w-4" /></button>
+        </div>
+      )}
 
       {error && (
         <div className="rounded-3xl border border-red-200 bg-red-50 p-4 text-red-700 text-sm flex items-center gap-3">
@@ -418,7 +443,7 @@ export default function BillingPlanChangesPage() {
             {!activeOrgId && (
               <div>
                 <label className="block text-xs font-semibold text-slate-600 mb-1">Target Organization *</label>
-                <OrgPicker selectedOrg={wizardOrg} onSelect={setWizardOrg} placeholder="Select target organization..." />
+                <OrgPicker selectedOrg={wizardOrg} onSelect={(o) => { setWizardOrg(o); setPreviewResult(null); setWizardError(null); }} placeholder="Select target organization..." />
               </div>
             )}
 
@@ -434,6 +459,20 @@ export default function BillingPlanChangesPage() {
                   <option key={p.id} value={p.id}>{p.name || p.code} ({p.code?.toUpperCase()} - v{p.catalog_version})</option>
                 ))}
               </select>
+            </div>
+
+            <div>
+              <label htmlFor="pc-billing-cycle" className="block text-xs font-semibold text-slate-600 mb-1">Billing Cycle *</label>
+              <select
+                id="pc-billing-cycle"
+                value={billingCycle}
+                onChange={e => setBillingCycle(e.target.value)}
+                className="w-full rounded-xl border border-slate-200 bg-white py-2.5 px-4 text-sm text-slate-800 outline-none focus:border-[#3B82F6]"
+              >
+                <option value="monthly">Monthly</option>
+                <option value="annual">Annual</option>
+              </select>
+              <p className="mt-1 text-[11px] text-slate-400">Defaults to the organization's current billing cycle.</p>
             </div>
 
             <div className="flex gap-2 pt-2">

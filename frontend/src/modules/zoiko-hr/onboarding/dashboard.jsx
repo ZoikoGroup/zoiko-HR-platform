@@ -316,7 +316,7 @@ export default function OnboardingDashboard() {
   const actions = (
     <>
       <SecondaryButton icon={RefreshCw} onClick={refresh}>Refresh</SecondaryButton>
-      <NavLink to="/zoiko-hr/onboarding/new-hires" end className={primaryLinkClass}><Plus className="h-4 w-4" />Add New Hire</NavLink>
+      <NavLink to="/zoiko-hr/onboarding/new-hires?new=1" end className={primaryLinkClass}><Plus className="h-4 w-4" />Add New Hire</NavLink>
     </>
   );
   const shell = (body) => <OnboardingLayout title="Onboarding Dashboard" subtitle={SUBTITLE} actions={actions}>{body}</OnboardingLayout>;

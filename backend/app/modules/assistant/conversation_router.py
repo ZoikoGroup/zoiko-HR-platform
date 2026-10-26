@@ -10,6 +10,7 @@ from app.core.dependencies import get_current_user, get_organization_id
 from app.core.rate_limiter import limiter
 from app.core.exceptions import NotFoundException
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import conversation_service, audit_service, orchestration_service
 from app.modules.assistant.models import ChatFeedback
 from app.modules.assistant.schemas import (
@@ -17,7 +18,7 @@ from app.modules.assistant.schemas import (
     TurnCreate, TurnResponse, TurnListResponse, FeedbackCreate, SuccessResponse,
 )
 
-conversation_router = APIRouter(prefix="/assistant", tags=["Assistant"])
+conversation_router = APIRouter(prefix="/assistant", tags=["Assistant"], dependencies=plan_gate.CHAT)
 
 
 @conversation_router.get("/capabilities")

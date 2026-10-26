@@ -446,7 +446,8 @@ const organizationAdminDashboard = {
     { label: "My Organization", href: "/organization-admin/organization", icon: Building2 },
     { label: "Payroll Guidance", href: "/organization-admin/payroll-guidance", icon: BookOpen, badge: "Payroll" },
     { label: "Billing & Plan", href: "/organization-admin/billing-and-plan", icon: CreditCard },
-    { label: "Support Access", href: "/organization-admin/support-access", icon: KeyRound },
+    // approving platform support access is the organization admin's call (the API refuses HR admins)
+    { label: "Support Access", href: "/organization-admin/support-access", icon: KeyRound, excludeRoles: [ROLES.HR_ADMIN] },
   ],
 };
 

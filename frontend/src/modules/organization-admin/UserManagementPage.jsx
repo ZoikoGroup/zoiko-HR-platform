@@ -735,7 +735,7 @@ export default function OrgAdminUserManagementPage() {
       )}
 
       {/* Toolbar */}
-      <div style={{ display:'flex', gap:12, marginBottom:20 }}>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:12, marginBottom:20 }}>
         <button onClick={() => setModalOpen(true)} title="Pick a country template in the import dialog" className="tool-btn" style={{
           display:'flex', alignItems:'center', gap:9, padding:'11px 18px', borderRadius:12,
           background:'#fff', border:'1px solid rgba(10,17,40,0.08)', fontSize:13.5, fontWeight:600,
@@ -763,7 +763,7 @@ export default function OrgAdminUserManagementPage() {
       </div>
 
       {/* Stat cards */}
-      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:16, marginBottom:22 }}>
+      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit, minmax(min(100%, 180px), 1fr))', gap:16, marginBottom:22 }}>
         {[
           { label:'Total Users', value:total, color:'#3B82F6', bg:'#DBEAFE', icon:Users },
           { label:'Active', value:active, color:'#10B981', bg:'#D1FAE5', icon:UserCheck },
@@ -790,9 +790,9 @@ export default function OrgAdminUserManagementPage() {
       </div>
 
       {/* Filter bar */}
-      <div style={{ display:'flex', gap:12, marginBottom:18 }}>
+      <div style={{ display:'flex', flexWrap:'wrap', gap:12, marginBottom:18 }}>
         <div style={{
-          flex:1, display:'flex', alignItems:'center', gap:10, background:'#fff',
+          flex:'1 1 240px', minWidth:0, display:'flex', alignItems:'center', gap:10, background:'#fff',
           border:'1px solid rgba(10,17,40,0.08)', borderRadius:12, padding:'12px 16px',
           boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)'
         }}>
@@ -810,7 +810,7 @@ export default function OrgAdminUserManagementPage() {
           { val:status, set:setStatus, options:['All statuses','Active','Inactive'] },
         ].map((sel) => (
           <div key={sel.options[0]} style={{
-            display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, minWidth:160,
+            display:'flex', alignItems:'center', justifyContent:'space-between', gap:10, flex:'1 1 160px', minWidth:0,
             background:'#fff', border:'1px solid rgba(10,17,40,0.08)', borderRadius:12, padding:'12px 16px',
             fontSize:13, fontWeight:600, color:'#0A1128', boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)', cursor:'pointer'
           }}>

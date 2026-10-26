@@ -112,3 +112,48 @@ def test_preview_eligible_then_schedule_succeeds(client):
 
     listed = client.get("/billing/plan-changes/1").json()["list"]
     assert [c["id"] for c in listed] == [body["id"]]
+
+
+def _schedule(client, target):
+    return client.post("/billing/plan-changes/schedule", params={"org_id": 1}, json={"plan_id": target, "billing_cycle": "monthly"})
+
+
+def test_impact_row_failure_after_saving_still_answers_with_the_saved_change(client, monkeypatch):
+    """A failed impact-row write left the session needing a rollback, so the audit write after it raised and the
+    admin saw "Something went wrong on the server" for a change that had been saved."""
+    from app.modules.billing import plan_change_service as pcs
+    from app.modules.billing.models import DowngradeImpactItem
+
+    def failing_sync(db, change, blockers):
+        db.add(DowngradeImpactItem(plan_change_id=change.id, feature_key=None, severity="warning"))  # NOT NULL -> flush fails
+        db.commit()
+
+    monkeypatch.setattr(pcs, "_sync_impact_items", failing_sync)
+    target = _plan_id(client, "advanced")
+    scheduled = _schedule(client, target)
+    assert scheduled.status_code == 200, scheduled.text
+    assert scheduled.json()["status"] == "scheduled"
+    assert [c["id"] for c in client.get("/billing/plan-changes/1").json()["list"]] == [scheduled.json()["id"]]
+
+
+def test_audit_failure_does_not_turn_a_saved_change_into_a_server_error(client, monkeypatch):
+    from app.modules.billing import service
+
+    def failing_audit(*a, **k):
+        raise RuntimeError("audit table unavailable")
+
+    monkeypatch.setattr(service, "log_billing_audit", failing_audit)
+    scheduled = _schedule(client, _plan_id(client, "advanced"))
+    assert scheduled.status_code == 200, scheduled.text
+    assert len(client.get("/billing/plan-changes/1").json()["list"]) == 1
+
+
+def test_a_second_submit_for_the_same_plan_is_refused_clearly(client):
+    target = _plan_id(client, "advanced")
+    first = _schedule(client, target)
+    assert first.status_code == 200, first.text
+    again = _schedule(client, target)
+    assert again.status_code == 400
+    msg = again.json().get("message") or again.json().get("detail")
+    assert "already scheduled" in msg and f"#{first.json()['id']}" in msg, msg
+    assert len(client.get("/billing/plan-changes/1").json()["list"]) == 1

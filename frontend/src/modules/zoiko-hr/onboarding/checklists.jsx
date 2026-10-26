@@ -385,8 +385,18 @@ export default function OnboardingChecklists() {
     setShowAssign(true);
   };
 
+  // picking a hire who already has the chosen template (or the reverse) clears the other choice
+  const chooseAssignHire = (value) => {
+    setAssignHire(value);
+    if (value && assignTemplate && isAssigned(value, assignTemplate)) setAssignTemplate("");
+  };
+  const chooseAssignTemplate = (value) => {
+    setAssignTemplate(value);
+    if (value && assignHire && isAssigned(assignHire, value)) setAssignHire("");
+  };
+
   const handleAssign = async () => {
-    if (!assignHire || !assignTemplate) return;
+    if (!assignHire || !assignTemplate || assignPairTaken) return;
     setAssigning(true);
     try {
       await createOnboardingChecklistAssignment({
@@ -401,6 +411,7 @@ export default function OnboardingChecklists() {
       insights.reload();
     } catch (err) {
       showAction("error", err.message || "Failed to assign checklist");
+      await fetchAssignments(); // e.g. assigned meanwhile by someone else: refresh so it shows as assigned
     } finally {
       setAssigning(false);
     }
@@ -527,8 +538,17 @@ export default function OnboardingChecklists() {
 
   const getAssignmentsForTemplate = (templateId) => assignments.filter((a) => a.template_id === templateId);
 
-  const templateAlreadyAssigned = (tplId) =>
-    !!assignHire && assignments.some((a) => a.template_id === tplId && String(a.onboarding_new_hire_id) === String(assignHire));
+  // which template each hire already has (from every assignment, not the filtered view): the server refuses a second copy,
+  // so Assign is only offered where a hire/template pair is still open
+  const assignedPairs = new Set(assignments.filter((a) => a.template_id != null && a.onboarding_new_hire_id != null)
+    .map((a) => `${a.onboarding_new_hire_id}:${a.template_id}`));
+  const isAssigned = (hireId, tplId) => !!hireId && !!tplId && assignedPairs.has(`${hireId}:${tplId}`);
+  const openTemplatesFor = (hireId) => allTemplates.filter((t) => !isAssigned(hireId, t.id));
+  const openHiresFor = (tplId) => activeHires.filter((r) => !isAssigned(r.id, tplId));
+  const canAssignAny = activeHires.some((r) => openTemplatesFor(r.id).length > 0);
+  const templateAlreadyAssigned = (tplId) => isAssigned(assignHire, tplId);
+  const hireAlreadyHas = (hireId) => isAssigned(hireId, assignTemplate);
+  const assignPairTaken = isAssigned(assignHire, assignTemplate);
 
   // ── numbers from the loaded checklists (insights add the completion trend) ──────────────────────────────────────
   const allItems = assignments.flatMap((a) => a.items || []);
@@ -556,7 +576,9 @@ export default function OnboardingChecklists() {
       actions={
         <>
           <SecondaryButton icon={Layers} onClick={() => { setView("templates"); resetForm(); setShowForm(true); }}>New Template</SecondaryButton>
-          <PrimaryButton icon={UserPlus} onClick={() => openAssign()}>Assign Checklist</PrimaryButton>
+          <PrimaryButton icon={UserPlus} onClick={() => openAssign()} disabled={!canAssignAny}
+            title={canAssignAny ? undefined : activeHires.length && allTemplates.length
+              ? "Every active new hire already has every checklist template" : "Needs an active new hire and a checklist template"}>Assign Checklist</PrimaryButton>
         </>
       }>
       {body}
@@ -638,7 +660,7 @@ export default function OnboardingChecklists() {
         const name = hid === "none" ? "Unlinked" : getRecordName(Number(hid));
         const sub = [rec?.position, rec?.joining_date ? `Joins ${formatDate(rec.joining_date)}` : null].filter(Boolean).join(" · ");
         const collapsed = !!collapsedHires[hid];
-        const canAssign = rec && !INACTIVE_HIRE_STATUSES.includes(rec.status);
+        const canAssign = rec && !INACTIVE_HIRE_STATUSES.includes(rec.status) && openTemplatesFor(rec.id).length > 0;
         return (
           <section key={hid} className="overflow-hidden rounded-2xl border border-gray-200/80 bg-white shadow-sm" aria-label={`Checklists for ${name}`}>
             <div className="flex flex-wrap items-center gap-4 border-b border-gray-100 px-4 py-4 sm:px-5">
@@ -736,7 +758,13 @@ export default function OnboardingChecklists() {
                   </div>
                 </div>
                 <div className="mt-auto flex flex-wrap items-center gap-1 border-t border-gray-100 px-4 py-2 sm:px-5">
-                  <button type="button" onClick={() => openAssign({ template: tplId })} className="rounded-lg px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Assign</button>
+                  {openHiresFor(tplId).length > 0 ? (
+                    <button type="button" onClick={() => openAssign({ template: tplId })} className="rounded-lg px-2 py-1.5 text-xs font-medium text-blue-600 hover:bg-blue-50">Assign</button>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-emerald-700">
+                      <CheckCircle2 className="h-3.5 w-3.5" aria-hidden="true" />{activeHires.length ? "Assigned to all active hires" : "No active hires"}
+                    </span>
+                  )}
                   <button type="button" onClick={() => handleEdit(tpl)} className="rounded-lg px-2 py-1.5 text-xs font-medium text-gray-600 hover:bg-gray-100">Edit</button>
                   <button type="button" onClick={() => handleDelete(tplId)} className="rounded-lg px-2 py-1.5 text-xs font-medium text-rose-600 hover:bg-rose-50">Delete</button>
                   <button type="button" onClick={() => setExpandedTemplate(isExpanded ? null : tplId)} aria-label={isExpanded ? "Collapse" : "Expand"} aria-expanded={isExpanded}
@@ -819,27 +847,32 @@ export default function OnboardingChecklists() {
           onClose={() => setShowAssign(false)}
           footer={<>
             <SecondaryButton onClick={() => setShowAssign(false)}>Cancel</SecondaryButton>
-            <PrimaryButton onClick={handleAssign} disabled={assigning || !assignHire || !assignTemplate}>
+            <PrimaryButton onClick={handleAssign} disabled={assigning || !assignHire || !assignTemplate || assignPairTaken}>
               {assigning && <Loader2 className="h-4 w-4 animate-spin" />}{assigning ? "Assigning..." : "Assign checklist"}
             </PrimaryButton>
           </>}>
           <Section>
             <div>
               <label htmlFor="assign-hire" className={labelCls}>New hire</label>
-              <select id="assign-hire" value={assignHire} onChange={(e) => setAssignHire(e.target.value)} className={fieldCls}>
+              <select id="assign-hire" value={assignHire} onChange={(e) => chooseAssignHire(e.target.value)} className={fieldCls}>
                 <option value="">Choose a new hire...</option>
-                {activeHires.map((r) => (
-                  <option key={r.id} value={r.id}>
-                    {r.candidate_name || r.name || `New hire #${r.id}`}
-                    {r.joining_date ? ` (joins ${formatDate(r.joining_date)})` : ""}
-                  </option>
-                ))}
+                {activeHires.map((r) => {
+                  const full = openTemplatesFor(r.id).length === 0;
+                  const has = hireAlreadyHas(r.id);
+                  return (
+                    <option key={r.id} value={r.id} disabled={full || has}>
+                      {r.candidate_name || r.name || `New hire #${r.id}`}
+                      {r.joining_date ? ` (joins ${formatDate(r.joining_date)})` : ""}
+                      {has ? " - already assigned" : full ? " - has every template" : ""}
+                    </option>
+                  );
+                })}
               </select>
               {activeHires.length === 0 && <p className="mt-1 text-xs text-gray-400">There are no active new hires. Completed or cancelled hires cannot be given checklists.</p>}
             </div>
             <div>
               <label htmlFor="assign-template" className={labelCls}>Checklist template</label>
-              <select id="assign-template" value={assignTemplate} onChange={(e) => setAssignTemplate(e.target.value)} className={fieldCls}>
+              <select id="assign-template" value={assignTemplate} onChange={(e) => chooseAssignTemplate(e.target.value)} className={fieldCls}>
                 <option value="">Choose a template...</option>
                 {allTemplates.map((t) => (
                   <option key={t.id} value={t.id} disabled={templateAlreadyAssigned(t.id)}>

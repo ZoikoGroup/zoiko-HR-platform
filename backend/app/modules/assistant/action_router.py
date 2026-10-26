@@ -5,11 +5,12 @@ from app.database import get_db
 from app.core.dependencies import get_current_user, get_organization_id
 from app.core.exceptions import BadRequestException
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import action_service
 from app.modules.assistant.models import ChatWorkflowField, ChatWorkflowValidation
 from app.modules.assistant.schemas import WorkflowResponse, WorkflowConfirmRequest
 
-action_router = APIRouter(prefix="/assistant/workflows", tags=["Assistant Actions"])
+action_router = APIRouter(prefix="/assistant/workflows", tags=["Assistant Actions"], dependencies=plan_gate.CHAT)
 
 
 def _serialize(db: Session, workflow) -> dict:

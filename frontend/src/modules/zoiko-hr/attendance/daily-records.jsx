@@ -241,7 +241,7 @@ export default function DailyRecords() {
             <h1 className="text-xl font-extrabold text-gray-900">Attendance Log</h1>
             <p className="text-sm text-gray-500 font-medium mt-1">Review check-ins, check-outs, and daily statuses</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <button onClick={async () => { try { await exportAttendanceCsv(); } catch (err) { setError(err.message); } }}
               className="flex justify-center items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 bg-gray-50 rounded-xl hover:bg-gray-100 text-sm font-bold transition-colors">
               <Download className="w-4 h-4" /> CSV

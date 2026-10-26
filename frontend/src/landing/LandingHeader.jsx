@@ -246,11 +246,12 @@ export default function LandingHeader() {
       <style>{dropdownStyles}</style>
       <header className="sticky top-0 z-50 bg-white border-b border-[#E2E4EF] rounded-b-xl">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 sm:px-6 lg:px-8 h-16">
-          <a href="https://zoikoone.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 shrink-0 no-underline">
-            <img src={logo} alt="Zoiko One" style={{ height: "36px", width: "auto", objectFit: "contain" }} />
+          <a href="https://zoikoone.com" target="_blank" rel="noopener noreferrer" className="flex min-w-0 items-center gap-2 no-underline">
+            {/* the logo gives way on a phone so Sign In and Get a Demo always fit beside it */}
+            <img src={logo} alt="Zoiko One" className="h-7 w-auto max-w-full object-contain sm:h-9" />
           </a>
 
-          <div className="hidden md:flex items-center gap-6 text-sm font-medium text-[#2A2F55] overflow-visible">
+          <div className="hidden lg:flex items-center gap-6 text-sm font-medium text-[#2A2F55] overflow-visible">
             {navLinks.map((l) => {
               if (l === "Home") {
                 return <Link key={l} to="/" className="hover:text-[#3B82F6] transition-colors no-underline">{l}</Link>;
@@ -310,7 +311,7 @@ export default function LandingHeader() {
             })}
           </div>
 
-          <div className="flex items-center gap-3 sm:gap-4 text-sm font-semibold shrink-0">
+          <div className="ml-3 flex items-center gap-2.5 sm:gap-4 text-sm font-semibold shrink-0">
             <Link to="/login" className="text-[#0A1128] no-underline whitespace-nowrap">
               Sign In
             </Link>
