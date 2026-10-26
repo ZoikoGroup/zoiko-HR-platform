@@ -50,6 +50,7 @@ function MenuItem({ item, pathname, search }) {
       <div className="space-y-2">
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
           className={`group flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-3 text-left text-sm transition duration-200 ${
             active

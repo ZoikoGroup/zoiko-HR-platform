@@ -97,6 +97,8 @@ def create_entity(db, actor, data: dict) -> EmployerEntity:
     if not clean.get("legal_name"):
         raise HTTPException(422, "The legal name is required.")
     _check_registration(clean.get("country"), clean.get("registration_type"), clean.get("registration_number"))
+    from app.modules.billing import country_policy
+    country_policy.check_country(db, actor.organization_id, clean.get("country"), what="The legal entity's country")
     first = db.query(EmployerEntity).filter(EmployerEntity.organization_id == actor.organization_id).count() == 0
     e = EmployerEntity(organization_id=actor.organization_id, created_by=actor.id, status="active",
                        is_default=bool(data.get("is_default")) or first, **clean)
@@ -115,6 +117,8 @@ def update_entity(db, actor, e: EmployerEntity, data: dict) -> EmployerEntity:
         raise HTTPException(422, "The legal name cannot be empty.")
     _check_registration(clean.get("country", e.country), clean.get("registration_type", e.registration_type),
                         clean.get("registration_number", e.registration_number))
+    from app.modules.billing import country_policy
+    country_policy.check_country(db, e.organization_id, clean.get("country"), what="The legal entity's country", previous=e.country)
     changes = []
     for k, v in clean.items():
         if getattr(e, k) != v:
@@ -270,6 +274,8 @@ def update_jurisdiction(db, actor, emp, data: dict) -> dict:
         c = (data["work_country"] or "").upper() or None
         if c and not regions.country_name(c):
             raise HTTPException(422, "Choose a valid ISO country code.")
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, emp.organization_id, c, previous=emp.work_country)
         clean["work_country"] = c
     if "work_region" in data:
         clean["work_region"] = normalise_region(clean.get("work_country", emp.work_country), data["work_region"])

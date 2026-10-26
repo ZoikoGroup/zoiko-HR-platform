@@ -1044,6 +1044,9 @@ def update_organization(db: Session, organization_id: int, data) -> dict:
     update_fields = data.model_dump(exclude_unset=True)
     if not update_fields:
         raise BadRequestException("No fields to update")
+    if update_fields.get("country"):
+        from app.modules.billing import country_policy
+        country_policy.check_org_country_change(db, organization_id, update_fields["country"])
 
     for field, value in update_fields.items():
         setattr(org, field, value)

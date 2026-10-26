@@ -168,6 +168,8 @@ def _save_entity(db, actor, body: EntityBody) -> EmployerEntity:
     if e is None:
         e = EmployerEntity(organization_id=actor.organization_id, is_default=True, status="active", created_by=actor.id)
         db.add(e)
+    from app.modules.billing import country_policy
+    country_policy.check_country(db, actor.organization_id, body.country, what="The legal entity's country", previous=e.country)
     e.legal_name, e.country = body.legal_name.strip(), body.country.upper()
     e.region, e.city, e.postal_code = body.region or None, body.city or None, body.postal_code or None
     e.address_lines = [ln.strip() for ln in (body.address or "").splitlines() if ln.strip()] or None
@@ -351,6 +353,8 @@ def run_setup(db, actor, body: SetupBody, ip: Optional[str] = None) -> dict:
     if not content.blocks_mod_same_name(body.signed_name, content._name(actor)):
         raise HTTPException(422, {"code": "NAME_MISMATCH", "message": "Type your full name exactly as it appears on your profile."})
     country = body.country.upper()
+    from app.modules.billing import country_policy
+    country_policy.check_country(db, actor.organization_id, country, what="The offer letter country")
     released, clauses_released, skipped = [], [], []
     try:
         entity = _save_entity(db, actor, body.entity)

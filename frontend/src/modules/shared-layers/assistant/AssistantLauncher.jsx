@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { X } from "lucide-react";
 import zoikoWaveGlyph from "../../../assets/zoikohr-wave-glyph.svg";
 import { useAuth } from "../../../context/AuthContext";
+import { loadStates } from "../../../components/PlanGate";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
 
@@ -16,6 +17,9 @@ import ConversationView from "./ConversationView";
 // launcher is mounted once at the app root regardless of route, so it needs
 // its own route check rather than relying on the token check alone.
 const PUBLIC_PATHS = new Set(["/", "/login", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/register", "/register/success"]);
+
+const CHAT_FEATURE_KEY = "hr.ai.navigation";
+const CHAT_BLOCKING_STATES = new Set(["NOT_ENTITLED", "DELINQUENCY_RESTRICTED"]);
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -87,6 +91,18 @@ export default function AssistantLauncher() {
     return () => obs.disconnect();
   }, []);
 
+  // The chatbot is not in the Core plan: hide the launcher when the plan leaves it out (or access is paused for an
+  // overdue payment), the same states the server refuses (assistant/plan_gate.py). Any other answer, or none, keeps it.
+  const [planAllows, setPlanAllows] = useState(true);
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    let live = true;
+    loadStates().then((states) => {
+      if (live) setPlanAllows(!CHAT_BLOCKING_STATES.has(states?.[CHAT_FEATURE_KEY]));
+    });
+    return () => { live = false; };
+  }, [isAuthenticated, location.pathname]);
+
   const close = () => {
     setOpen(false);
     setHistoryOpen(false);
@@ -119,6 +135,7 @@ export default function AssistantLauncher() {
   // token, so hide the launcher there just like the other public routes.
   if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname) || location.pathname.startsWith("/onboarding-portal/")) return null;
   if (pageDialogOpen && !open) return null;
+  if (!planAllows) return null;
 
   return createPortal(
     <>

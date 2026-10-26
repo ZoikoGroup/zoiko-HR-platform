@@ -4,6 +4,7 @@
  * gets the Onboarding module shell, KPI row, status chips, a table and a detail panel.
  */
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, FileText, Loader2, RotateCcw, ShieldCheck, Undo2, WalletCards } from "lucide-react";
 import {
   errorMessage, getNewHireForms, getPayrollVerifications, returnOnboardingForm,
@@ -100,6 +101,7 @@ export default function OnboardingFormsReview({ hireId, payrollQueue = false }) 
   const [financePermitted, setFinancePermitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [noFinancePermission, setNoFinancePermission] = useState(false);
   const [notice, setNotice] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [revealed, setRevealed] = useState({});
@@ -115,12 +117,15 @@ export default function OnboardingFormsReview({ hireId, payrollQueue = false }) 
     setLoading(true);
     setError("");
     setNotice("");
+    setNoFinancePermission(false);
     try {
       const result = payrollQueue ? await getPayrollVerifications() : await getNewHireForms(hireId);
       setForms(Array.isArray(result?.items) ? result.items : []);
       setFinancePermitted(!!result?.finance_permitted || payrollQueue);
     } catch (err) {
-      setError(errorMessage(err, "Onboarding forms could not be loaded."));
+      // not an error: bank details are for the finance viewers the organization admin chose, and nobody is one by default
+      if (payrollQueue && err?.code === "FINANCE_PERMISSION_REQUIRED") setNoFinancePermission(true);
+      else setError(errorMessage(err, "Onboarding forms could not be loaded."));
     } finally {
       setLoading(false);
     }
@@ -286,6 +291,24 @@ function PayrollQueue({ forms, loading, banners, retry, hireNames, tab, setTab, 
     { value: "VERIFIED", label: "Verified", count: counts.VERIFIED },
     { value: "RETURNED", label: "Returned", count: counts.RETURNED },
   ];
+
+  if (noFinancePermission) {
+    return (
+      <OnboardingLayout title="Payroll Verifications" subtitle="Submitted bank and payroll forms awaiting finance verification.">
+        <Card>
+          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
+            <span className="grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-blue-600" aria-hidden="true"><ShieldCheck className="h-6 w-6" /></span>
+            <h2 className="text-base font-semibold text-gray-900">Finance permission needed</h2>
+            <p className="max-w-md text-sm text-gray-600">
+              Bank and payroll details are shown only to the finance viewers your organization admin has chosen. An organization admin can
+              add you under Onboarding settings, in Finance viewers.
+            </p>
+            <Link to="/zoiko-hr/onboarding/settings" className="text-sm font-semibold text-blue-600 hover:underline">Go to Onboarding settings</Link>
+          </div>
+        </Card>
+      </OnboardingLayout>
+    );
+  }
 
   return (
     <OnboardingLayout title="Payroll Verifications" subtitle="Submitted bank and payroll forms awaiting finance verification."

@@ -8,13 +8,14 @@ from app.core.dependencies import get_current_admin, get_scoped_organization_id 
 from app.core.rate_limiter import limiter
 from fastapi import Request
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import knowledge_service, audit_service
 from app.modules.assistant.schemas import (
     KnowledgeSourceCreate, KnowledgeSourceResponse, KnowledgeSourceVersionResponse, SuccessResponse,
     KnowledgeSourceVersionCreate, KnowledgeSourceMetadataUpdate,
 )
 
-knowledge_router = APIRouter(prefix="/assistant/admin/knowledge", tags=["Assistant Admin - Knowledge"])
+knowledge_router = APIRouter(prefix="/assistant/admin/knowledge", tags=["Assistant Admin - Knowledge"], dependencies=plan_gate.KNOWLEDGE_ADMIN)
 
 
 @knowledge_router.get("/sources", response_model=list[KnowledgeSourceResponse])

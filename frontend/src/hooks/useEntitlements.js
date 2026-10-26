@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
-import { entitlementService } from "../service/entitlementService";
+import { billingService } from "../service/billingService";
 import { getStoredUser, organizationIdOf } from "../service/api";
 
 export const GRANTED_STATES = new Set(["ENTITLED_AVAILABLE", "READ_ONLY"]);
@@ -34,8 +34,9 @@ export function useEntitlements() {
     try {
       setLoading(true);
       setError(null);
-      const snapshot = await entitlementService.getSnapshot(orgId);
-      const states = snapshot?.feature_states || {};
+      // the self-serve read works for every member of the organization (the per-org snapshot is for billing roles)
+      const mine = await billingService.getMyEntitlements();
+      const states = mine?.states || {};
       const mapped = {};
       Object.entries(states).forEach(([key, state]) => {
         mapped[key] = { state, granted: GRANTED_STATES.has(state) };

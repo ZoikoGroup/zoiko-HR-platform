@@ -844,11 +844,20 @@ def _apply_offer_pay_rules(db: Session, values: dict, organization_id: Optional[
 
     # Country controls the legal template pack even when HR explicitly chooses a
     # cross-border currency. Resolve it independently from currency defaults.
+    from app.modules.billing import country_policy
+    for field, label in (("work_country", "The offer's work country"), ("entity_country", "The employing entity's country")):
+        if values.get(field):
+            country_policy.check_country(db, organization_id, values[field], what=label,
+                                         previous=getattr(current, field, None) if current is not None else None)
+
     country = cur("work_country")
     if not country:
         cand_id = cur("candidate_id")
         cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == cand_id).first() if cand_id else None
         country = regions.country_code(cand.location) if cand is not None and cand.location else None
+        # a default nobody chose must not be refused: the candidate's location only when the plan covers it
+        if country and country_policy.country_refusal(db, organization_id, country):
+            country = None
         if not country and organization_id:
             from app.modules.hr.models import Organization
             org = db.query(Organization).filter(Organization.id == organization_id).first()

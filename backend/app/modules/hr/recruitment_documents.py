@@ -870,6 +870,18 @@ def amend_offer(db, actor, offer: RecruitmentOffer, changes: dict) -> dict:
         "document_id", "amends_offer_id", "withdrawal_reason_category", "withdrawal_reason_note", "withdrawal_condition",
         "withdrawal_legal_review", "withdrawal_requested_by")]
     new = RecruitmentOffer(**{c: getattr(offer, c) for c in copy_cols})
+    # countries are normalised and held to the plan exactly as on create/edit (they used to be stored as typed)
+    from app.core import regions
+    from app.modules.billing import country_policy
+    changes = dict(changes)
+    for field, label in (("work_country", "The offer's work country"), ("entity_country", "The employing entity's country")):
+        if changes.get(field):
+            code = regions.country_code(changes[field])
+            if not code:
+                raise HTTPException(422, f"Unknown country code: {changes[field]}.")
+            country_policy.check_country(db, offer.organization_id or actor.organization_id, code, what=label,
+                                         previous=getattr(offer, field, None))
+            changes[field] = code
     for k, v in changes.items():
         if k in copy_cols and k not in ("candidate_id", "candidate_name", "organization_id"):
             setattr(new, k, v)

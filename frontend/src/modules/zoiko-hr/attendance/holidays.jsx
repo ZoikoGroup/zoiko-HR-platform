@@ -280,7 +280,7 @@ export default function Holidays() {
               <p className="text-sm text-gray-500 font-medium mt-0.5">Track public and company events</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <div className="flex bg-gray-100 rounded-xl p-1">
               <button onClick={() => setView("calendar")}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-bold transition-all ${view === "calendar" ? "bg-white text-blue-600 shadow-sm" : "text-gray-500 hover:text-gray-800"}`}>

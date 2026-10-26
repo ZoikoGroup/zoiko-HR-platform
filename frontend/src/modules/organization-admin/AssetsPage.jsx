@@ -299,7 +299,7 @@ export default function OrgAdminAssetsPage() {
                   <AlertCircle size={14} /> {formErrors.submit}
                 </div>
               )}
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Name *</label>
                   <input type="text" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })}
@@ -313,7 +313,7 @@ export default function OrgAdminAssetsPage() {
                   {formErrors.assetTag && <p className="text-xs text-red-500 mt-1">{formErrors.assetTag}</p>}
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Category</label>
                   <select value={form.category} onChange={(e) => setForm({ ...form, category: e.target.value })}
@@ -332,7 +332,7 @@ export default function OrgAdminAssetsPage() {
                 <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Assign to Employee</label>
                 <EmployeeSelectModal employees={employees} value={form.employee_id} onChange={(v) => setForm({ ...form, employee_id: v })} />
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Status</label>
                   <select value={form.status} onChange={(e) => setForm({ ...form, status: e.target.value })}
@@ -348,7 +348,7 @@ export default function OrgAdminAssetsPage() {
                   </select>
                 </div>
               </div>
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5">Purchase Price ($)</label>
                   <input type="number" value={form.purchasePrice} onChange={(e) => setForm({ ...form, purchasePrice: e.target.value })}

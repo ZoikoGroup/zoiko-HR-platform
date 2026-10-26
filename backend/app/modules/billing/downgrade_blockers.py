@@ -185,6 +185,20 @@ def check_governance_blocker(db: Session, organization_id: int, target_plan_code
     return _check_feature_blocks_downgrade(db, organization_id, "hr.compliance.core", "governance", target_plan_code)
 
 
+# ── 8. Countries Blocker ──────────────────────────────────────────────────
+
+def check_country_blocker(db: Session, organization_id: int, target_plan_code) -> list[Blocker]:
+    """Core covers one country and Advanced the five configured ones (country_policy): a move to a plan that does not
+    cover every country the organization uses would strand those people, so it is refused until they are moved."""
+    from app.modules.billing import country_policy
+    target = str(getattr(target_plan_code, "value", target_plan_code) or "").lower()
+    message = country_policy.downgrade_refusal(db, organization_id, target)
+    if not message:
+        return []
+    return [Blocker(category="countries", feature_key="plan.countries", message=message, severity="blocking",
+                    details={"in_use": sorted(country_policy.countries_in_use(db, organization_id)), "target_plan": target})]
+
+
 # ── Composite runner ──────────────────────────────────────────────────────
 
 ALL_CHECKS = [
@@ -195,6 +209,7 @@ ALL_CHECKS = [
     check_workflow_blocker,
     check_ai_blocker,
     check_governance_blocker,
+    check_country_blocker,
 ]
 
 
@@ -203,7 +218,7 @@ def detect_all_blockers(
     organization_id: int,
     target_plan_code: str,
 ) -> list[Blocker]:
-    """Run all seven blocker checks and return aggregated results."""
+    """Run every blocker check (ALL_CHECKS) and return aggregated results."""
     all_blockers: list[Blocker] = []
     for check_fn in ALL_CHECKS:
         try:
