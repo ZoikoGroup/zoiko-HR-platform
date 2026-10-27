@@ -27,8 +27,8 @@ export const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   // Render the shell from the cached user and refresh /auth/me in the
   // background; blocking on it left a blank "Checking your session…" screen.
-  const [user, setUser] = useState(() => getCachedUser());
-  const [loading, setLoading] = useState(() => !getCachedUser());
+  const [user, setUser] = useState(() => isAuthenticated() ? getCachedUser() : null);
+  const [loading, setLoading] = useState(() => isAuthenticated() && !getCachedUser());
   const [error, setError] = useState(null);
 
 
@@ -211,7 +211,7 @@ export function AuthProvider({ children }) {
     role,
     product,
     products,
-    isAuthenticated: Boolean(user) || isAuthenticated(),
+    isAuthenticated: Boolean(user) && isAuthenticated(),
     loading,
     error,
     login,

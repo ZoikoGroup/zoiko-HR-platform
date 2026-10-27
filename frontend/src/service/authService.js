@@ -145,9 +145,14 @@ export async function fetchCurrentUser() {
       const user = await api.get("/auth/me");
       return user;
     } catch (err) {
-      const cached = getCachedUser();
-      if (cached) return cached;
-      if (err?.authInvalid) clearSession();
+      if (err?.authInvalid) {
+        clearSession();
+        throw err;
+      }
+      if (isAuthenticated()) {
+        const cached = getCachedUser();
+        if (cached) return cached;
+      }
       throw err;
     }
   })().finally(() => {
