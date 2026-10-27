@@ -199,6 +199,7 @@ const OrgAdminBillingPlanPage = lazyRoute(() => import("./modules/organization-a
 const OrgAdminPayInvoicePage = lazyRoute(() => import("./modules/organization-admin/PayInvoicePage"));
 // Support access is the temporary read-only sign-in flow; the older field-scoped grant pages are no longer routed.
 const OrgAdminSupportAccessPage = lazyRoute(() => import("./modules/organization-admin/TempSupportAccessApprovalsPage"));
+const OrgAdminTimeRequestsPage = lazyRoute(() => import("./modules/organization-admin/TimeRequestsPage"));
 
 const HrAdminDashboardPage = lazyRoute(() => import("./modules/hr-admin/DashboardPage"));
 const HrAdminOrganizationPage = lazyRoute(() => import("./modules/hr-admin/OrganizationPage"));
@@ -420,6 +421,7 @@ const routeOverrides = {
   "/organization-admin/billing-and-plan": <OrgAdminBillingPlanPage />,
   "/organization-admin/pay-invoice": <OrgAdminPayInvoicePage />,
   "/organization-admin/support-access": <OrgAdminSupportAccessPage />,
+  "/organization-admin/time-requests": <OrgAdminTimeRequestsPage />,
   // HR Admin
   "/hr-admin/dashboard": <HrAdminDashboardPage />,
   "/hr-admin/my-organization": <HrAdminOrganizationPage />,

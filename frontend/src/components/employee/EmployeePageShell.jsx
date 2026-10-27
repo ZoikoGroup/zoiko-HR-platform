@@ -26,21 +26,45 @@ const EMPLOYEE_WORKSPACE_NAV = [
 ];
 
 const PAGE_OF_TITLE = {
+  "Overview": "Overview",
   "Employee Self Service": "Overview",
-  "My Attendance": "Overview",
-  "Time requests": "Overview",
+  "Employee Profile": "Profile",
+  "Profile": "Profile",
+  "My Attendance": "Attendance",
+  "Attendance": "Attendance",
+  "Time requests": "Time requests",
+  "Learning": "Learning",
+  "Leave": "Leave",
+  "My Leave": "Leave",
+  "Documents": "Documents",
+  "Travel": "Travel",
   "My compensation": "Compensation",
+  "Compensation": "Compensation",
   "My performance": "Performance",
+  "Performance": "Performance",
+  "Settings": "Overview",
 };
 
 /** Shared employee workspace frame for profile, ESS, leave, learning, travel and compensation pages. */
-export default function EmployeePageShell({ title, subtitle, actions, children, variant = "banner" }) {
+export default function EmployeePageShell({
+  title,
+  breadcrumbTitle,
+  subtitle,
+  actions,
+  children,
+  variant = "banner",
+  excludeNav = [],
+}) {
+  const items = excludeNav.length
+    ? EMPLOYEE_WORKSPACE_NAV.filter((i) => !excludeNav.includes(i.label))
+    : EMPLOYEE_WORKSPACE_NAV;
   return (
     <ModuleLayout
       module="My Workspace"
-      items={EMPLOYEE_WORKSPACE_NAV}
+      items={items}
       pageOfTitle={PAGE_OF_TITLE}
       title={title}
+      breadcrumbTitle={breadcrumbTitle}
       subtitle={subtitle}
       actions={actions}
       variant={variant === "plain" ? "plain" : "default"}

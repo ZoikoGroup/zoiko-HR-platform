@@ -24,11 +24,11 @@ const DEPARTMENT_COLORS = [
 ];
 
 const STAGE_LOOK = {
-  offer_sent: { icon: Send, tone: "blue", bar: "bg-blue-400", tile: "bg-blue-50" },
-  offer_accepted: { icon: UserCheck, tone: "violet", bar: "bg-violet-400", tile: "bg-violet-50" },
-  in_progress: { icon: ClipboardCheck, tone: "amber", bar: "bg-amber-400", tile: "bg-amber-50" },
-  completed: { icon: CheckCircle2, tone: "green", bar: "bg-emerald-400", tile: "bg-emerald-50" },
-  cancelled: { icon: XCircle, tone: "gray", bar: "bg-gray-300", tile: "bg-gray-50" },
+  offer_sent: { icon: Send, tone: "blue", bar: "bg-blue-500", tile: "bg-blue-50 text-blue-600", accent: "#3B82F6" },
+  offer_accepted: { icon: UserCheck, tone: "violet", bar: "bg-violet-500", tile: "bg-violet-50 text-violet-600", accent: "#8B5CF6" },
+  in_progress: { icon: ClipboardCheck, tone: "amber", bar: "bg-amber-500", tile: "bg-amber-50 text-amber-600", accent: "#F59E0B" },
+  completed: { icon: CheckCircle2, tone: "green", bar: "bg-emerald-500", tile: "bg-emerald-50 text-emerald-600", accent: "#10B981" },
+  cancelled: { icon: XCircle, tone: "gray", bar: "bg-slate-400", tile: "bg-slate-100 text-slate-600", accent: "#64748B" },
 };
 
 const STATUS_TONE = { offer_sent: "blue", offer_accepted: "violet", in_progress: "amber", completed: "green", cancelled: "gray" };
@@ -84,13 +84,13 @@ function PieSegment({ label, value, percent, color }) {
 function GlanceTile({ title, count, icon: Icon, tone = "blue", to }) {
   const t = TONES[tone] || TONES.blue;
   return (
-    <NavLink to={to} end className="flex items-center gap-3 rounded-xl border border-gray-100 px-3 py-2.5 transition hover:border-blue-200 hover:bg-blue-50/40 focus:outline-none focus:ring-2 focus:ring-blue-300">
-      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${t.tile}`}><Icon className="h-4 w-4" /></span>
+    <NavLink to={to} end className="group flex items-center gap-3 rounded-xl border border-slate-200/80 bg-white p-3 shadow-2xs transition-all duration-200 hover:-translate-y-0.5 hover:border-blue-300/80 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-blue-300">
+      <span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl shadow-xs transition-transform group-hover:scale-105 ${t.tile}`}><Icon className="h-4 w-4" /></span>
       <div className="min-w-0 flex-1">
-        <p className="text-xs text-gray-500 break-words">{title}</p>
-        <p className="text-lg font-bold text-gray-900">{count}</p>
+        <p className="text-xs font-medium text-slate-500 break-words">{title}</p>
+        <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold text-slate-900 leading-tight mt-0.5">{count}</p>
       </div>
-      <ChevronRight className="h-4 w-4 shrink-0 text-gray-300" aria-hidden="true" />
+      <ChevronRight className="h-4 w-4 shrink-0 text-slate-300 group-hover:text-blue-500 transition-colors" aria-hidden="true" />
     </NavLink>
   );
 }
@@ -104,18 +104,27 @@ function Pipeline({ stages }) {
         const look = STAGE_LOOK[s.key] || STAGE_LOOK.offer_sent;
         const Icon = look.icon;
         const pct = Math.round(((Number(s.count) || 0) * 100) / total);
+        const stepNum = String(i + 1).padStart(2, "0");
         return (
-          <div key={s.key} className="flex min-w-0 items-center gap-1">
-            <div className="min-w-0 flex-1">
-              <div className={`rounded-2xl p-3 ${look.tile}`}>
-                <Icon className={`h-5 w-5 ${TONES[look.tone].tile.split(" ")[1]}`} />
-                <p className="mt-2 truncate text-xs font-medium text-gray-600" title={s.label}>{s.label}</p>
-                <p className="text-2xl font-bold text-gray-900">{s.count}</p>
+          <div key={s.key} className="relative flex min-w-0 items-center gap-1.5">
+            <div className="group relative flex-1 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-3.5 shadow-[0_2px_8px_rgba(10,17,40,0.03)] hover:-translate-y-0.5 hover:shadow-md transition-all duration-200">
+              <div className="absolute inset-x-0 top-0 h-1 transition-all group-hover:h-1.5" style={{ background: look.accent }} />
+              <div className="flex items-center justify-between mb-2">
+                <span className={`grid h-8 w-8 place-items-center rounded-xl font-bold text-xs shadow-xs ${look.tile}`}>
+                  <Icon className="h-4 w-4" />
+                </span>
+                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{stepNum}</span>
               </div>
-              <p className="mt-2 text-xs font-medium text-gray-600">{pct}%</p>
-              <div className="mt-1 h-1.5 rounded-full bg-gray-100"><div className={`h-1.5 rounded-full ${look.bar}`} style={{ width: `${pct}%` }} /></div>
+              <p className="mt-1 truncate text-xs font-semibold text-slate-700" title={s.label}>{s.label}</p>
+              <div className="mt-1 flex items-baseline justify-between">
+                <p className="font-['Sora',system-ui,sans-serif] text-2xl font-bold tracking-tight text-slate-900 leading-none">{s.count}</p>
+                <span className="text-[11px] font-bold text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded-md">{pct}%</span>
+              </div>
+              <div className="mt-3 h-1.5 w-full rounded-full bg-slate-100 overflow-hidden">
+                <div className={`h-full rounded-full ${look.bar} transition-all duration-500`} style={{ width: `${Math.max(pct, 3)}%` }} />
+              </div>
             </div>
-            {i < stages.length - 1 && <ChevronRight className="hidden h-4 w-4 shrink-0 text-gray-300 xl:block" aria-hidden="true" />}
+            {i < stages.length - 1 && <ChevronRight className="hidden h-4 w-4 shrink-0 text-slate-300 xl:block" aria-hidden="true" />}
           </div>
         );
       })}
@@ -124,12 +133,14 @@ function Pipeline({ stages }) {
 }
 
 function ProgressBar({ pct }) {
-  if (pct == null) return <span className="text-xs text-gray-400" title="No checklist assigned yet">—</span>;
+  if (pct == null) return <span className="text-xs text-slate-400" title="No checklist assigned yet">—</span>;
   const color = pct >= 100 ? "bg-emerald-500" : pct >= 50 ? "bg-blue-500" : "bg-amber-500";
   return (
     <div className="flex min-w-[120px] items-center gap-2" title={`Checklist ${pct}% done`}>
-      <div className="h-1.5 flex-1 rounded-full bg-gray-100"><div className={`h-1.5 rounded-full ${color}`} style={{ width: `${pct}%` }} /></div>
-      <span className="w-9 shrink-0 text-right text-xs font-semibold text-gray-700">{pct}%</span>
+      <div className="h-2 flex-1 rounded-full bg-slate-100 overflow-hidden">
+        <div className={`h-full rounded-full ${color} transition-all duration-300`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="w-9 shrink-0 text-right text-xs font-bold text-slate-700">{pct}%</span>
     </div>
   );
 }

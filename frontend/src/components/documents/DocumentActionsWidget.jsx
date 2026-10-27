@@ -24,10 +24,10 @@ export function useDocumentActions() {
 export function DocumentActionsList({ items, compact = false }) {
   const shown = compact ? items.slice(0, 4) : items;
   return (
-    <ul className="divide-y divide-slate-100" aria-label="Documents to action">
+    <ul className="divide-y divide-slate-100 dark:divide-[#334155]" aria-label="Documents to action">
       {shown.map((i) => (
         <li key={`${i.kind}-${i.document_id || i.id}`} className="flex flex-wrap items-center justify-between gap-2 py-2 text-sm">
-          <span className="flex items-center gap-2 text-slate-800">
+          <span className="flex items-center gap-2 text-slate-800 dark:text-slate-200">
             {i.overdue ? <AlertTriangle size={16} className="text-amber-600" aria-label="Overdue" /> : <ClipboardList size={16} className="text-slate-400" aria-hidden="true" />}
             <span>{i.title}</span>
             {i.document_number && <span className="font-mono text-xs text-slate-500">{i.document_number}</span>}
@@ -44,21 +44,41 @@ export function DocumentActionsList({ items, compact = false }) {
   );
 }
 
-export default function DocumentActionsWidget() {
+export default function DocumentActionsWidget({ hideIfEmpty = true }) {
   const { loading, error, items, overdue } = useDocumentActions();
+  // On dashboards, only show this widget if there are actual actionable items!
+  // If loading, error, or no items exist, don't show an empty or error card.
+  if (loading) return null;
+  if (error || !items || items.length === 0) {
+    if (hideIfEmpty) return null;
+    return (
+      <section aria-label="Documents to action" className="bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-200 dark:border-[#334155] shadow-sm p-6">
+        <div className="mb-2 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-slate-900 dark:text-[#f1f5f9]">Documents to action</h2>
+        </div>
+        {error ? (
+          <p role="alert" className="text-sm text-red-700 dark:text-red-400">{error}</p>
+        ) : (
+          <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-400">
+            <CheckCircle2 size={16} aria-hidden="true" /> Nothing is waiting for you.
+          </p>
+        )}
+      </section>
+    );
+  }
+
   return (
-    <section aria-label="Documents to action" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+    <section aria-label="Documents to action" className="bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-200 dark:border-[#334155] shadow-sm p-6">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="text-base font-semibold text-slate-900">Documents to action</h2>
-        {items.length > 0 && <Link to="/employee/documents/to-action" className="text-xs font-semibold text-blue-700 hover:underline">See all ({items.length})</Link>}
+        <h2 className="text-base font-semibold text-slate-900 dark:text-[#f1f5f9]">Documents to action</h2>
+        {items.length > 0 && (
+          <Link to="/employee/documents/to-action" className="text-xs font-semibold text-blue-700 dark:text-blue-400 hover:underline">
+            See all ({items.length})
+          </Link>
+        )}
       </div>
-      {loading ? <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Loading…</p>
-        : error ? <p role="alert" className="text-sm text-red-700">{error}</p>
-          : items.length === 0 ? <p className="flex items-center gap-2 text-sm text-emerald-700"><CheckCircle2 size={16} aria-hidden="true" /> Nothing is waiting for you.</p>
-            : <>
-              {overdue > 0 && <p className="mb-1 text-xs font-semibold text-amber-700">{overdue} overdue</p>}
-              <DocumentActionsList items={items} compact />
-            </>}
+      {overdue > 0 && <p className="mb-1 text-xs font-semibold text-amber-700">{overdue} overdue</p>}
+      <DocumentActionsList items={items} compact />
     </section>
   );
 }

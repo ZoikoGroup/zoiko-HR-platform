@@ -81,7 +81,33 @@ export async function loginWithGoogleTicket(ticket) {
   return user;
 }
 
-export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail, googleProof }) {
+export async function sendRegistrationOtp({ registeredEmail, orgName }) {
+  try {
+    const payload = { registered_email: registeredEmail };
+    if (orgName) payload.org_name = orgName;
+    const data = await api.post("/auth/send-registration-otp", payload, { auth: false });
+    return data;
+  } catch (err) {
+    console.error("Send registration OTP failed:", err);
+    throw err;
+  }
+}
+
+export async function verifyRegistrationOtp({ registeredEmail, otp }) {
+  try {
+    const data = await api.post(
+      "/auth/verify-registration-otp",
+      { registered_email: registeredEmail, otp },
+      { auth: false }
+    );
+    return data;
+  } catch (err) {
+    console.error("Verify registration OTP failed:", err);
+    throw err;
+  }
+}
+
+export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail, googleProof, otp }) {
   try {
     const payload = { name, email, password, organization, plan_code: planCode };
     if (orgType) payload.org_type = orgType;
@@ -95,6 +121,7 @@ export async function register({ name, email, password, organization, planCode, 
     if (taxNumber) payload.tax_number = taxNumber;
     if (registeredEmail) payload.registered_email = registeredEmail;
     if (googleProof) payload.google_proof = googleProof;
+    if (otp) payload.otp = otp;
     const data = await api.post(
       "/auth/register",
       payload,

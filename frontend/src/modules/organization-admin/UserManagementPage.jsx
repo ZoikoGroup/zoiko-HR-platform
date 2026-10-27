@@ -666,13 +666,12 @@ export default function OrgAdminUserManagementPage() {
     <div style={{ fontFamily:'Inter, sans-serif', color:'#0A1128' }}>
 
       {/* Hero */}
-      <div style={{
-        background:'linear-gradient(120deg,#0A1128 0%,#1A2744 55%,#1E3A5F 100%)',
-        borderRadius:20, padding:'28px 32px', display:'flex', justifyContent:'space-between',
-        alignItems:'center', gap:24, color:'#fff', position:'relative', overflow:'hidden',
-        boxShadow:'0 4px 10px rgba(10,17,40,0.06), 0 20px 40px -20px rgba(59,130,246,0.25)',
-        marginBottom:20
-      }}>
+      <div
+        className="flex flex-col sm:flex-row sm:items-center justify-between gap-6 rounded-2xl p-6 sm:p-8 text-white relative overflow-hidden shadow-sm mb-6"
+        style={{
+          background: 'linear-gradient(120deg,#0A1128 0%,#1A2744 55%,#1E3A5F 100%)',
+        }}
+      >
         <div style={{ position:'relative', zIndex:1 }}>
           <div style={{ fontSize:11.5, letterSpacing:'0.12em', textTransform:'uppercase', color:'rgba(255,255,255,0.55)', fontWeight:700, marginBottom:8 }}>
             Administration

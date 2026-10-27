@@ -402,50 +402,52 @@ export default function PayrollGuidancePage() {
   if (!products.includes(PRODUCTS.PAYROLL)) return null;
 
   return (
-    <div className="-m-4 sm:-m-6 lg:-m-8 min-h-[calc(100vh-4rem)]" style={{ background: "#F8F7F4" }}>
+    <div className="space-y-6">
       <style>{printCss}</style>
 
       {/* Breadcrumb */}
-      <div className="no-print px-4 sm:px-6 lg:px-8 pt-4 flex items-center gap-1.5 text-[12px]" style={{ color: MUTED }}>
+      <div className="no-print flex items-center gap-1.5 text-xs text-slate-500">
         <Home className="w-3.5 h-3.5" />
         <span>Organization Admin</span>
         <ChevronRight className="w-3.5 h-3.5" />
-        <span className="font-semibold" style={{ color: DARK }}>Payroll Guidance</span>
+        <span className="font-semibold text-slate-800">Payroll Guidance</span>
       </div>
 
       {/* Hero */}
-      <div className="no-print px-4 sm:px-6 lg:px-8 pt-4">
+      <div className="no-print">
         <div
-          className="rounded-[20px] p-6 sm:p-8 text-white relative overflow-hidden"
+          className="rounded-2xl p-6 sm:p-8 text-white relative overflow-hidden shadow-sm min-h-[140px]"
           style={{ background: `linear-gradient(135deg, #0A1128, #1A2744)` }}
         >
-          <div className="relative z-10 max-w-2xl">
-            <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.05em] bg-white/15 px-2.5 py-1 rounded-full mb-3">
-              <BookOpen className="w-3.5 h-3.5" /> Reference & Learning Guide
-            </span>
-            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-[-0.01em]">{GUIDANCE_META.title}</h1>
-            <p className="text-[13.5px] mt-2 text-white/85 leading-relaxed">{GUIDANCE_META.subtitle}</p>
-            <p className="text-[11.5px] mt-3 text-white/70">{SAMPLE_DISCLAIMER}</p>
-          </div>
-          <div className="relative z-10 mt-5 max-w-md">
-            <div className="relative">
-              <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-white/70" />
-              <input
-                value={query}
-                onChange={(e) => setQuery(e.target.value)}
-                placeholder="Search this guide…"
-                className="w-full rounded-[12px] bg-white/15 placeholder-white/60 text-white text-[13px] pl-10 pr-4 py-2.5 outline-none focus:bg-white/20 transition-colors"
-              />
+          <div className="relative z-10 flex flex-col md:flex-row items-center justify-between gap-6">
+            <div className="max-w-2xl">
+              <span className="inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.05em] bg-white/15 px-2.5 py-1 rounded-full mb-3">
+                <BookOpen className="w-3.5 h-3.5" /> Reference & Learning Guide
+              </span>
+              <h1 className="font-['Sora',system-ui,sans-serif] text-2xl sm:text-[28px] font-bold tracking-tight">{GUIDANCE_META.title}</h1>
+              <p className="text-sm mt-2 text-white/85 leading-relaxed">{GUIDANCE_META.subtitle}</p>
+              <p className="text-xs mt-3 text-white/70">{SAMPLE_DISCLAIMER}</p>
             </div>
-            {query ? (
-              <p className="text-[11.5px] mt-1.5 text-white/70">{filteredSteps.length} of {GUIDANCE_STEPS.length} sections match</p>
-            ) : null}
+            <div className="w-full md:w-auto md:min-w-[320px]">
+              <div className="relative">
+                <Search className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-white/70" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  placeholder="Search this guide…"
+                  className="w-full rounded-xl bg-white/15 placeholder-white/60 text-white text-[13px] pl-10 pr-4 py-2.5 outline-none focus:bg-white/20 transition-colors"
+                />
+              </div>
+              {query ? (
+                <p className="text-[11.5px] mt-1.5 text-white/70">{filteredSteps.length} of {GUIDANCE_STEPS.length} sections match</p>
+              ) : null}
+            </div>
           </div>
         </div>
       </div>
 
-      {/* Sticky progress bar */}
-      <div className="no-print sticky top-0 z-20 px-4 sm:px-6 lg:px-8 py-2.5 backdrop-blur-sm" style={{ background: "#F8F7F4EE", borderBottom: `1px solid ${BORDER}` }}>
+      {/* Progress bar card */}
+      <div className="no-print rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex items-center justify-between mb-1.5">
           <span className="text-[11.5px] font-semibold" style={{ color: DARK }}>
             Step {Math.max(activeIndex, 0) + 1} of {GUIDANCE_STEPS.length} — {GUIDANCE_STEPS[Math.max(activeIndex, 0)]?.title}
@@ -483,7 +485,7 @@ export default function PayrollGuidancePage() {
         </div>
       ) : null}
 
-      <div className="px-4 sm:px-6 lg:px-8 py-6 grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-[260px_1fr] gap-6">
         {/* Desktop sticky TOC */}
         <aside className="no-print hidden lg:block">
           <div className="sticky top-[74px] max-h-[calc(100vh-96px)] overflow-y-auto rounded-[16px] border bg-white p-3" style={{ borderColor: BORDER }}>

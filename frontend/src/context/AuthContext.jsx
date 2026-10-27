@@ -5,6 +5,7 @@ import {
   loginWithGoogleTicket as googleTicketRequest,
   mfaEnrollConfirm as mfaEnrollConfirmRequest,
   register as registerRequest,
+  sendRegistrationOtp as sendRegistrationOtpRequest,
   logout as logoutRequest,
   fetchCurrentUser,
   getCachedUser,
@@ -114,6 +115,10 @@ export function AuthProvider({ children }) {
     }
   }, []);
 
+  const sendRegistrationOtp = useCallback(async (payload) => {
+    return await sendRegistrationOtpRequest(payload);
+  }, []);
+
   const products = Array.isArray(user?.products) ? user.products : [];
 
   const product = (() => {
@@ -213,6 +218,7 @@ export function AuthProvider({ children }) {
     loginWithGoogle,
     confirmMfaEnrollment,
     register,
+    sendRegistrationOtp,
     logout,
     hasRole,
     canAccess,

@@ -494,22 +494,15 @@ export default function OrgAdminBillingPlanPage() {
       .finally(() => setBusy(null));
   };
 
-  const shellStyle = { background: "#F1F5F9", color: INK, minHeight: "calc(100vh - 4rem)" };
-  const shellClass = "font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8";
+  const shellClass = "font-['Inter',system-ui,sans-serif] space-y-6";
 
   if (loading) {
-    return (
-      <div className={`${shellClass} p-4 sm:p-6 lg:p-8`} style={shellStyle}>
-        <div role="status" className="text-center py-20 text-[13px] flex items-center justify-center gap-2" style={{ color: INK_SOFT }}>
-          <Loader2 className="w-4 h-4 animate-spin" /> Loading billing details...
-        </div>
-      </div>
-    );
+    return <BillingSkeleton />;
   }
 
   if (!sub) {
     return (
-      <div className={`${shellClass} p-4 sm:p-6 lg:p-8`} style={shellStyle}>
+      <div className={shellClass}>
         <div role="alert" className="max-w-md mx-auto mt-16 rounded-2xl bg-white border border-slate-200 p-8 text-center shadow-sm">
           <AlertTriangle className="w-8 h-8 mx-auto text-amber-500" />
           <p className="mt-3 text-[14px] font-semibold" style={{ color: INK }}>{error || "Unable to load billing details."}</p>
@@ -537,7 +530,7 @@ export default function OrgAdminBillingPlanPage() {
   const card = "rounded-2xl border border-slate-200 bg-white shadow-sm";
 
   return (
-    <div className={shellClass} style={shellStyle}>
+    <div className={shellClass}>
       {toast ? (
         <div role="status" className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg transition-all"
           style={{ background: toast.type === "error" ? RED : toast.type === "info" ? BLUE : EMERALD, color: "#fff" }}>
@@ -555,9 +548,9 @@ export default function OrgAdminBillingPlanPage() {
       ) : null}
 
       {/* Header banner */}
-      <header className="relative overflow-hidden bg-gradient-to-r from-[#0A192F] via-[#0F2942] to-[#1E3A8A] text-white">
-        <div className="relative z-10 px-4 sm:px-6 lg:px-8 py-7">
-          <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-[12px] font-semibold mb-4 cursor-pointer text-blue-200 hover:text-white">
+      <header className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#0A192F] via-[#0F2942] to-[#1E3A8A] text-white p-6 sm:p-8 shadow-sm min-h-[140px] flex flex-col justify-center">
+        <div className="relative z-10">
+          <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-200 hover:text-white">
             <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} /> Back to Dashboard
           </button>
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -566,13 +559,13 @@ export default function OrgAdminBillingPlanPage() {
                 <img src={zoikoIcon} className="w-8 h-8" alt="ZoikoHR" />
               </div>
               <div className="min-w-0">
-                <h1 className="font-['Sora',system-ui,sans-serif] text-2xl font-bold tracking-tight">Billing &amp; Plan</h1>
-                <p className="text-[13px] text-slate-300 mt-0.5">Your plan, payments and subscription in one place.</p>
+                <h1 className="font-['Sora',system-ui,sans-serif] text-2xl sm:text-[26px] font-bold tracking-tight">Billing &amp; Plan</h1>
+                <p className="text-xs sm:text-[13px] text-slate-300 mt-0.5">Your plan, payments and subscription in one place.</p>
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2.5">
-              <span className="text-[12px] font-semibold px-3 py-1.5 rounded-full bg-white/10 border border-white/20 capitalize">{planName}</span>
-              <span className={`text-[12px] font-semibold px-3 py-1.5 rounded-full border capitalize ${STATUS_TONE[statusKey] || "bg-white/10 border-white/20"}`}>{String(status).split("_").join(" ")}</span>
+              <span className="text-xs font-semibold px-3 py-1.5 rounded-full bg-white/10 border border-white/20 capitalize">{planName}</span>
+              <span className={`text-xs font-semibold px-3 py-1.5 rounded-full border capitalize ${STATUS_TONE[statusKey] || "bg-white/10 border-white/20"}`}>{String(status).split("_").join(" ")}</span>
               {!isOwner ? <span className="text-[11px] font-semibold px-2.5 py-1 rounded-full bg-amber-400/20 text-amber-100 border border-amber-300/30">View-only for your role</span> : null}
             </div>
           </div>
@@ -580,8 +573,6 @@ export default function OrgAdminBillingPlanPage() {
         <div className="absolute -right-10 -bottom-24 w-72 h-72 rounded-full bg-blue-500/10 blur-2xl pointer-events-none" />
         <div className="absolute top-0 right-1/3 w-48 h-48 rounded-full bg-indigo-500/10 blur-xl pointer-events-none" />
       </header>
-
-      <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
         {unconfirmed ? (
           <div role="alert" className="rounded-xl px-4 py-3 text-[12.5px] font-semibold flex flex-wrap items-center gap-3 border border-amber-200" style={{ background: AMBER_100, color: "#92400E" }}>
             <span>Your payment went through at Stripe, but we have not been able to confirm it on your plan yet.</span>
@@ -831,7 +822,6 @@ export default function OrgAdminBillingPlanPage() {
             )}
           </div>
         </details>
-      </div>
     </div>
   );
 }

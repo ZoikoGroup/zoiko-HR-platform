@@ -5,7 +5,8 @@ import { useCallback, useEffect, useState } from "react";
 import { Loader2, Send } from "lucide-react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
 import {
-  commentOnMyProbationReview, listMyProbationReviews, listMyTransferRequests, requestTransfer, submitSelfAssessment,
+  commentOnMyProbationReview, listMyProbationReviews, listMyTransferRequests, listMyAppraisals,
+  requestTransfer, submitSelfAssessment,
 } from "../../../../service/goLiveService";
 import { getDepartments } from "../../../../service/hrService";
 import { useDocumentActions } from "../../../../components/documents/DocumentActionsWidget";
@@ -21,6 +22,7 @@ function Notice({ notice }) {
 
 export default function EmployeeMyPerformance() {
   const [reviews, setReviews] = useState([]);
+  const [appraisals, setAppraisals] = useState([]);
   const [transfers, setTransfers] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [comments, setComments] = useState({});
@@ -34,6 +36,7 @@ export default function EmployeeMyPerformance() {
 
   const load = useCallback(() => {
     listMyProbationReviews().then((r) => setReviews(r?.items || [])).catch(() => setReviews([]));
+    listMyAppraisals().then((r) => setAppraisals(r?.items || [])).catch(() => setAppraisals([]));
     listMyTransferRequests().then((r) => setTransfers(r?.items || [])).catch(() => setTransfers([]));
   }, []);
   useEffect(() => {
@@ -73,6 +76,34 @@ export default function EmployeeMyPerformance() {
                     <Send size={14} aria-hidden="true" /> Send comments</button>
                 </>
               ) : <p className="mt-1 text-xs text-slate-500">Issued: acknowledge it in Documents to action.</p>}
+            </div>
+          ))}
+        </section>
+        <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Appraisals">
+          <h2 className="mb-2 text-base font-semibold flex items-center gap-2">
+            Appraisals
+            <span className="ml-2 text-[10px] font-semibold bg-blue-50 text-blue-600 px-2 py-0.5 rounded-full">Organization Admin</span>
+          </h2>
+          <p className="mb-3 text-xs text-slate-500">
+            Only appraisals reviewed by your organization admin appear here.
+          </p>
+          {appraisals.length === 0 && <p className="text-sm text-slate-600">No organization-admin appraisals yet.</p>}
+          {appraisals.map((a) => (
+            <div key={a.id} className="mb-3 rounded-xl border border-slate-100 p-3 text-sm">
+              <p className="font-medium">Appraisal · {a.cycle}</p>
+              <p className="text-xs text-slate-500 mb-2">Reviewed by your organization admin · Status: {a.status}</p>
+              {a.final_score != null && (
+                <p className="text-slate-700">Final score: {a.final_score} / 5</p>
+              )}
+              {a.manager_score != null && (
+                <p className="text-slate-700">Manager score: {a.manager_score} / 5</p>
+              )}
+              {a.recommendation && <p className="text-slate-700">Recommendation: {a.recommendation}</p>}
+              {a.salary_hike != null && <p className="text-slate-700">Salary hike: {a.salary_hike}%</p>}
+              {a.comments && <p className="text-slate-700 mt-1">Comments: {a.comments}</p>}
+              {a.status === "DRAFT" ? (
+                <p className="mt-1 text-xs text-slate-400">Draft — not yet finalised by your organization admin.</p>
+              ) : null}
             </div>
           ))}
         </section>

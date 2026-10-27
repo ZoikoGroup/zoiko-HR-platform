@@ -98,6 +98,7 @@ class SecurityActionPurpose(str, enum.Enum):
     RESET        = "reset"
     VERIFY_EMAIL = "verify_email"
     DOCUMENT_SIGN = "document_sign"      # candidate e-signature link for one generated document (doc_templates)
+    ORG_REGISTRATION_OTP = "org_registration_otp"
 
 
 class SecurityActionToken(Base):

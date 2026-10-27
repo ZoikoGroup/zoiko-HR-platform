@@ -4,6 +4,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDetailedMetrics } from "../../service/orgAdminService";
 import { Users, Building2, BadgeInfo, CalendarCheck, Activity, CreditCard, Wrench, ArrowLeft, TrendingUp, TrendingDown, Minus, Briefcase, Clock, UserCheck, UserX, UserMinus, PieChart, Layers, DollarSign, Package, Percent, Hash, BarChart3, List } from "lucide-react";
+import { formatCurrencyForUser } from "../../utils/appCurrency";
 import zoikoIcon from "../../assets/zoikohr-icon-svg.svg";
 
 const BLUE = "#3B82F6";
@@ -32,7 +33,7 @@ function avatarBg(index) {
 
 function fmtCurrency(amount) {
   if (amount == null) return "\u2014";
-  return `$${Number(amount).toLocaleString()}`;
+  return formatCurrencyForUser(amount);
 }
 
 function MiniStat({ icon: Icon, bg, iconColor, label, value, sub }) {
@@ -108,8 +109,16 @@ export default function OrgAdminMetricsPage() {
 
   if (!data) {
     return (
-      <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
-        <div className="text-center py-20 text-[13px]" style={{ color: INK_SOFT }}>Unable to load metrics.</div>
+      <div className="font-['Inter',system-ui,sans-serif] space-y-6">
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center shadow-sm">
+          <p className="text-sm font-semibold text-slate-600">Unable to load metrics.</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-4 px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold cursor-pointer"
+          >
+            Retry
+          </button>
+        </div>
       </div>
     );
   }
@@ -123,21 +132,22 @@ export default function OrgAdminMetricsPage() {
   const dsb = data.designation_breakdown || [];
 
   return (
-    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
-      <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-[12.5px] font-semibold mb-4 cursor-pointer" style={{ color: BLUE }}>
-        <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
-        Back to Dashboard
-      </button>
-
-      <div className="flex items-center gap-3 mb-4 pb-4" style={{ borderBottom: `1px solid ${LINE}` }}>
-        <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden">
-          <img src={zoikoIcon} className="w-10 h-10" alt="ZoikoHR" />
+    <div className="font-['Inter',system-ui,sans-serif] space-y-6">
+      <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-600 hover:text-blue-700">
+          <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
+          Back to Dashboard
+        </button>
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
+            <img src={zoikoIcon} className="w-7 h-7" alt="ZoikoHR" />
+          </div>
+          <div>
+            <h1 className="font-['Sora',system-ui,sans-serif] text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900">All Metrics</h1>
+            <p className="text-xs sm:text-[13px] text-slate-500 mt-1">Comprehensive view of your organization's key metrics and analytics</p>
+          </div>
         </div>
-        <div>
-          <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold" style={{ color: INK }}>All Metrics</p>
-          <p className="text-[12px] font-medium" style={{ color: INK_SOFT }}>Comprehensive view of your organization's key metrics and analytics</p>
-        </div>
-      </div>
+      </header>
 
       <SectionHeading title="Employee Overview" />
       <div className="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-6 gap-3">

@@ -4,6 +4,7 @@ import { getEmployeeById } from "../../../../service/employee";
 import HRPage from "../../../../components/HRPage";
 import EmployeeJurisdictionCard from "../../../../components/employee/EmployeeJurisdictionCard";
 import { useAuth } from "../../../../context/AuthContext";
+import { formatCurrencyForUser } from "../../../../utils/appCurrency";
 import { ArrowLeft, Mail, Phone, Calendar, MapPin, Building, Briefcase, DollarSign, User, Award } from "lucide-react";
 
 const STATUS_STYLES = {
@@ -250,7 +251,7 @@ export default function EmployeeProfile() {
 
           <div className="grid grid-cols-2 gap-2">
             <StatBadge label="Salary" value={basicSalary ? `$${Number(basicSalary).toLocaleString()}` : "\u2014"} />
-            <StatBadge label="CTC" value={ctc ? `$${Number(ctc).toLocaleString()}` : "\u2014"} />
+            <StatBadge label="CTC" value={ctc ? formatCurrencyForUser(ctc) : "\u2014"} />
           </div>
         </div>
 
@@ -334,7 +335,7 @@ export default function EmployeeProfile() {
 
                   <SectionCard title="Compensation" icon={DollarSign}>
                     <InfoRow label="Basic Salary" value={basicSalary ? `$${Number(basicSalary).toLocaleString()}` : null} />
-                    <InfoRow label="CTC" value={ctc ? `$${Number(ctc).toLocaleString()}` : null} />
+                    <InfoRow label="CTC" value={ctc ? formatCurrencyForUser(ctc) : null} />
                   </SectionCard>
                 </>
               )}

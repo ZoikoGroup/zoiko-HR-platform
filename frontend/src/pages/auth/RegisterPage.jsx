@@ -1,10 +1,26 @@
-﻿import { realEmailError } from "../../utils/realEmail";
+import { realEmailError } from "../../utils/realEmail";
 import PlanComparison from "../../components/PlanComparison";
 import { planHighlights } from "../../config/planMatrix";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { readGoogleSignup, withoutGoogleSignupParams } from "../../utils/googleSignup";
-import { Loader2, Eye, EyeOff, AlertCircle, Check, X, Building2, Crown, Phone, Sparkles, ShieldCheck, ChevronDown, ArrowLeft } from "lucide-react";
+import {
+  Loader2,
+  Eye,
+  EyeOff,
+  AlertCircle,
+  Check,
+  X,
+  Building2,
+  Crown,
+  Phone,
+  Sparkles,
+  ShieldCheck,
+  ChevronDown,
+  ArrowLeft,
+  Mail,
+  RotateCcw,
+} from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import {
   REGISTRATION_COUNTRIES,
@@ -16,17 +32,17 @@ import LandingHeader from "../../landing/LandingHeader";
 import Footer from "../../landing/Footer";
 import { usePublicCatalog, formatRate } from "../../hooks/usePublicCatalog";
 
-const STEPS = ["Plan Selection", "Organization Details", "Admin Account"];
+const STEPS = ["Plan Selection", "Organization Details", "Admin Account", "Email Verification"];
 
 export default function RegisterPage() {
-  const { register, error: authError } = useAuth();
+  const { register, sendRegistrationOtp, error: authError } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   // Arrived through "Continue with Google" without an account: their Google email (and name) fill the form in, and the
   // signed proof lets the new account start with the address already confirmed.
   const [google] = useState(() => readGoogleSignup(location.search));
   useEffect(() => {
-    if (google) navigate(`${location.pathname}${withoutGoogleSignupParams(location.search)}`, { replace: true });     // keep the proof out of the address bar
+    if (google) navigate(`${location.pathname}${withoutGoogleSignupParams(location.search)}`, { replace: true }); // keep the proof out of the address bar
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -48,14 +64,35 @@ export default function RegisterPage() {
     adminEmail: google?.email || "",
     password: "",
     termsAccepted: false,
+    otp: "",
   });
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
 
-  // Live published rates. The plan cards below render these, so a Super Admin
-  // re-price reaches registration with no redeploy. Null on failure => the cards
-  // simply omit the price.
+  // OTP Verification state
+  const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
+  const otpInputRefs = useRef([]);
+  const [sendingOtp, setSendingOtp] = useState(false);
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  // Cooldown countdown
+  useEffect(() => {
+    if (resendCooldown <= 0) return;
+    const interval = setInterval(() => {
+      setResendCooldown((c) => Math.max(0, c - 1));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [resendCooldown]);
+
+  // Focus the first OTP box when arriving on Step 3
+  useEffect(() => {
+    if (step === 3 && otpInputRefs.current[0]) {
+      setTimeout(() => otpInputRefs.current[0]?.focus(), 150);
+    }
+  }, [step]);
+
+  // Live published rates
   const { byCode } = usePublicCatalog();
 
   function update(field, value) {
@@ -95,6 +132,11 @@ export default function RegisterPage() {
       if (!form.password || form.password.length < 8) return "Password must be at least 8 characters.";
       if (!form.termsAccepted) return "You must accept the Terms & Conditions.";
     }
+    if (s === 3) {
+      const cleanOtp = (form.otp || "").trim();
+      if (!cleanOtp) return "Please enter the verification code sent to your organization's registered email.";
+      if (cleanOtp.length < 6) return "Verification code must be 6 digits.";
+    }
     return null;
   }
 
@@ -102,7 +144,7 @@ export default function RegisterPage() {
     setLocalError(null);
     const err = validateStep(step);
     if (err) { setLocalError(err); return; }
-    setStep((s) => Math.min(s + 1, 2));
+    setStep((s) => Math.min(s + 1, 3));
   }
 
   function goBack() {
@@ -110,10 +152,86 @@ export default function RegisterPage() {
     setStep((s) => Math.max(s - 1, 0));
   }
 
+  async function handleSendOtp() {
+    setLocalError(null);
+    setSendingOtp(true);
+    try {
+      await sendRegistrationOtp({
+        registeredEmail: form.registeredEmail.trim(),
+        orgName: form.orgName.trim(),
+      });
+      setResendCooldown(60);
+      return true;
+    } catch (err) {
+      setLocalError(err.message || "Failed to send verification code to registered email.");
+      return false;
+    } finally {
+      setSendingOtp(false);
+    }
+  }
+
+  async function proceedToVerification() {
+    setLocalError(null);
+    const err = validateStep(2);
+    if (err) { setLocalError(err); return; }
+    const ok = await handleSendOtp();
+    if (ok) {
+      setStep(3);
+    }
+  }
+
+  function handleDigitChange(index, val) {
+    const digit = val.replace(/\D/g, "").slice(-1);
+    const newDigits = [...otpDigits];
+    newDigits[index] = digit;
+    setOtpDigits(newDigits);
+    const combined = newDigits.join("");
+    update("otp", combined);
+
+    if (digit && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleDigitKeyDown(index, e) {
+    if (e.key === "Backspace") {
+      if (!otpDigits[index] && index > 0) {
+        const newDigits = [...otpDigits];
+        newDigits[index - 1] = "";
+        setOtpDigits(newDigits);
+        update("otp", newDigits.join(""));
+        otpInputRefs.current[index - 1]?.focus();
+      } else {
+        const newDigits = [...otpDigits];
+        newDigits[index] = "";
+        setOtpDigits(newDigits);
+        update("otp", newDigits.join(""));
+      }
+    } else if (e.key === "ArrowLeft" && index > 0) {
+      otpInputRefs.current[index - 1]?.focus();
+    } else if (e.key === "ArrowRight" && index < 5) {
+      otpInputRefs.current[index + 1]?.focus();
+    }
+  }
+
+  function handleOtpPaste(e) {
+    e.preventDefault();
+    const pasted = e.clipboardData.getData("text").replace(/\D/g, "").slice(0, 6);
+    if (!pasted) return;
+    const newDigits = ["", "", "", "", "", ""];
+    for (let i = 0; i < pasted.length; i++) {
+      newDigits[i] = pasted[i];
+    }
+    setOtpDigits(newDigits);
+    update("otp", pasted);
+    const nextIdx = Math.min(pasted.length, 5);
+    otpInputRefs.current[nextIdx]?.focus();
+  }
+
   async function handleSubmit(e) {
     e.preventDefault();
     setLocalError(null);
-    const err = validateStep(2);
+    const err = validateStep(3);
     if (err) { setLocalError(err); return; }
     setSubmitting(true);
     try {
@@ -133,6 +251,7 @@ export default function RegisterPage() {
         industry: form.industry,
         taxNumber: form.taxNumber,
         registeredEmail: form.registeredEmail,
+        otp: form.otp.trim(),
         googleProof: google && google.email.toLowerCase() === form.adminEmail.trim().toLowerCase() ? google.proof : undefined,
       });
       navigate("/register/success", {
@@ -232,9 +351,6 @@ export default function RegisterPage() {
                     <div className="grid sm:grid-cols-2 gap-4 items-stretch">
                       {PLANS.map((plan) => {
                         const isSelected = form.selectedPlan === plan.code;
-                        // Live rate from the published customer catalog. Renders
-                        // nothing when unavailable, so a fetch failure can never
-                        // display a wrong or zero price.
                         const live = byCode[plan.code];
                         const monthly = formatRate(live, "monthly");
                         const annual = formatRate(live, "annual");
@@ -315,6 +431,7 @@ export default function RegisterPage() {
                       <div>
                         <label className={label}>Registered Email<Req /></label>
                         <input type="email" required value={form.registeredEmail} onChange={(e) => update("registeredEmail", e.target.value)} placeholder="company@yourcompany.com" className={field} />
+                        <p className="mt-1 text-xs text-slate-500">A one-time verification code (OTP) will be sent to this email address.</p>
                       </div>
                       <div>
                         <label className={label}>Phone Number<Req /></label>
@@ -398,14 +515,20 @@ export default function RegisterPage() {
                     <div className="rounded-2xl bg-slate-50 border border-slate-200 p-5">
                       <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Review</p>
                       <dl className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-                        {[["Organization", form.orgName || "—"], ["Plan", planName], ["Admin Email", form.adminEmail || "—"], ["Country", form.country || "—"]].map(([k, v]) => (
+                        {[
+                          ["Organization", form.orgName || "—"],
+                          ["Registered Email", form.registeredEmail || "—"],
+                          ["Plan", planName],
+                          ["Admin Email", form.adminEmail || "—"],
+                          ["Country", form.country || "—"],
+                        ].map(([k, v]) => (
                           <div key={k} className="min-w-0">
                             <dt className="text-[11px] text-slate-400">{k}</dt>
                             <dd className="text-[13px] font-semibold text-slate-900 truncate">{v}</dd>
                           </div>
                         ))}
                       </dl>
-                      <p className="mt-4 text-[11.5px] text-slate-500">Your 14-day evaluation starts the moment you sign up. No credit card required.</p>
+                      <p className="mt-4 text-[11.5px] text-slate-500">In the next step, you will enter the OTP sent to <strong>{form.registeredEmail}</strong> to verify your organization.</p>
                     </div>
 
                     <div className="flex items-start gap-2.5">
@@ -419,23 +542,113 @@ export default function RegisterPage() {
                   </>
                 )}
 
+                {step === 3 && (
+                  <div className="flex flex-col items-center text-center py-3 sm:py-5">
+                    <div className="w-14 h-14 rounded-2xl bg-blue-50 border border-blue-100 text-blue-600 flex items-center justify-center mb-4 shadow-sm">
+                      <Mail className="w-7 h-7" />
+                    </div>
+
+                    <h3 className="text-xl font-bold text-slate-900">Verify Organization Email</h3>
+                    <p className="mt-2 text-sm text-slate-600 max-w-md">
+                      We sent a 6-digit verification code (OTP) to your organization&apos;s registered email address:
+                    </p>
+                    <div className="mt-2.5 inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-slate-100 border border-slate-200 text-slate-800 text-sm font-semibold">
+                      <span>{form.registeredEmail}</span>
+                      <button
+                        type="button"
+                        onClick={() => { setLocalError(null); setStep(1); }}
+                        className="text-xs text-blue-600 hover:text-blue-800 underline font-normal ml-1"
+                      >
+                        Change
+                      </button>
+                    </div>
+
+                    <div className="mt-7 w-full max-w-sm">
+                      <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">
+                        Enter 6-Digit Code
+                      </label>
+
+                      {/* 6-box OTP entry with paste, backspace, and navigation */}
+                      <div className="flex justify-center gap-2 sm:gap-3" onPaste={handleOtpPaste}>
+                        {[0, 1, 2, 3, 4, 5].map((index) => (
+                          <input
+                            key={index}
+                            ref={(el) => (otpInputRefs.current[index] = el)}
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={1}
+                            value={otpDigits[index] || ""}
+                            onChange={(e) => handleDigitChange(index, e.target.value)}
+                            onKeyDown={(e) => handleDigitKeyDown(index, e)}
+                            className="w-11 sm:w-12 h-14 text-center text-2xl font-bold font-mono rounded-xl border-2 border-slate-200 bg-slate-50 text-slate-900 focus:bg-white focus:border-blue-600 focus:ring-4 focus:ring-blue-500/10 focus:outline-none transition"
+                          />
+                        ))}
+                      </div>
+
+                      <div className="mt-6 flex flex-col items-center gap-2">
+                        {resendCooldown > 0 ? (
+                          <p className="text-xs text-slate-500">
+                            Resend code in <span className="font-semibold text-slate-700">{resendCooldown}s</span>
+                          </p>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={sendingOtp}
+                            onClick={handleSendOtp}
+                            className="inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:text-blue-800 disabled:opacity-50"
+                          >
+                            {sendingOtp ? <Loader2 size={13} className="animate-spin" /> : <RotateCcw size={13} />}
+                            {sendingOtp ? "Sending new code..." : "Resend verification code"}
+                          </button>
+                        )}
+                      </div>
+
+                      <div className="mt-6 p-3.5 rounded-xl bg-slate-50 border border-slate-100 text-left text-xs text-slate-500 flex items-start gap-2.5">
+                        <ShieldCheck className="w-4 h-4 text-emerald-600 mt-0.5 shrink-0" />
+                        <span>Verifying your registered email verifies official ownership of your organization before the workspace is created.</span>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-col-reverse sm:flex-row gap-3 pt-5 mt-1 border-t border-slate-100">
                   {step > 0 && (
-                    <button type="button" onClick={goBack}
-                      className="h-12 px-6 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 transition flex items-center justify-center gap-1.5">
+                    <button
+                      type="button"
+                      onClick={goBack}
+                      disabled={submitting || sendingOtp}
+                      className="h-12 px-6 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition flex items-center justify-center gap-1.5"
+                    >
                       <ArrowLeft size={16} /> Back
                     </button>
                   )}
                   {step < 2 ? (
-                    <button type="button" onClick={goNext}
-                      className="h-12 w-full sm:flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[15px] font-bold shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2">
+                    <button
+                      type="button"
+                      onClick={goNext}
+                      className="h-12 w-full sm:flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-[15px] font-bold shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2"
+                    >
                       Continue
                     </button>
+                  ) : step === 2 ? (
+                    <button
+                      type="button"
+                      onClick={proceedToVerification}
+                      disabled={sendingOtp}
+                      className="h-12 w-full sm:flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-[15px] font-bold shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2"
+                    >
+                      {sendingOtp && <Loader2 size={16} className="animate-spin" />}
+                      {sendingOtp ? "Sending verification code..." : "Continue to Verification"}
+                    </button>
                   ) : (
-                    <button type="submit" disabled={submitting}
-                      className="h-12 w-full sm:flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white text-[15px] font-bold shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2">
+                    <button
+                      type="submit"
+                      disabled={submitting || (form.otp || "").trim().length < 6}
+                      className="h-12 w-full sm:flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300 disabled:cursor-not-allowed text-white text-[15px] font-bold shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2"
+                    >
                       {submitting && <Loader2 size={16} className="animate-spin" />}
-                      {submitting ? "Starting evaluation..." : "Start Evaluation"}
+                      {submitting ? "Creating your account..." : "Verify & Start Evaluation"}
                     </button>
                   )}
                 </div>

@@ -43,7 +43,10 @@ export function useEntitlements() {
       });
       setEntitlements(mapped);
     } catch (err) {
-      setError(err.message);
+      // Fail closed per the hook's contract: transport/API errors leave an empty
+      // entitlement map so restricted links are simply hidden. Don't surface a
+      // sidebar alert — a down/slow backend shouldn't pepper the UI with error
+      // banners; the empty map is the graceful degradation.
       setEntitlements({});
     } finally {
       setLoading(false);
