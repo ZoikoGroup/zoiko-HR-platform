@@ -798,7 +798,18 @@ DEFAULT_EVALUATION_DAYS = 14
 
 
 def register_enterprise(db: Session, data: RegisterRequest) -> dict:
-    if data.registered_email:
+    from app.modules.employee import google_auth
+
+    google_proof_valid = bool(
+        data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email)
+    )
+    google_confirms_registered_email = bool(
+        google_proof_valid
+        and data.registered_email
+        and data.registered_email.strip().casefold() == data.email.strip().casefold()
+    )
+
+    if data.registered_email and not google_confirms_registered_email:
         if not data.otp or not str(data.otp).strip():
             raise BadRequestException("Verification code (OTP) is required for the organization's registered email.")
         if not verify_registration_otp(db, data.registered_email, data.otp, consume=True):
@@ -883,8 +894,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.add(employee)
     db.commit()
     db.refresh(employee)
-    from app.modules.employee import google_auth
-    if data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email):
+    if google_proof_valid:
         employee.email_verified = True             # Google has already confirmed this person controls the address
         employee.email_verified_at = datetime.utcnow()
         db.commit()

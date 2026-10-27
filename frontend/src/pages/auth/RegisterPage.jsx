@@ -66,6 +66,11 @@ export default function RegisterPage() {
     termsAccepted: false,
     otp: "",
   });
+  const googleConfirmsRegisteredEmail = !!(
+    google &&
+    google.email.toLowerCase() === form.adminEmail.trim().toLowerCase() &&
+    google.email.toLowerCase() === form.registeredEmail.trim().toLowerCase()
+  );
   const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
@@ -231,7 +236,7 @@ export default function RegisterPage() {
   async function handleSubmit(e) {
     e.preventDefault();
     setLocalError(null);
-    const err = validateStep(3);
+    const err = validateStep(googleConfirmsRegisteredEmail ? 2 : 3);
     if (err) { setLocalError(err); return; }
     setSubmitting(true);
     try {
@@ -431,7 +436,11 @@ export default function RegisterPage() {
                       <div>
                         <label className={label}>Registered Email<Req /></label>
                         <input type="email" required value={form.registeredEmail} onChange={(e) => update("registeredEmail", e.target.value)} placeholder="company@yourcompany.com" className={field} />
-                        <p className="mt-1 text-xs text-slate-500">A one-time verification code (OTP) will be sent to this email address.</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {googleConfirmsRegisteredEmail
+                            ? "Google has confirmed this email address."
+                            : "A one-time verification code (OTP) will be sent to this email address."}
+                        </p>
                       </div>
                       <div>
                         <label className={label}>Phone Number<Req /></label>
@@ -528,7 +537,11 @@ export default function RegisterPage() {
                           </div>
                         ))}
                       </dl>
-                      <p className="mt-4 text-[11.5px] text-slate-500">In the next step, you will enter the OTP sent to <strong>{form.registeredEmail}</strong> to verify your organization.</p>
+                      <p className="mt-4 text-[11.5px] text-slate-500">
+                        {googleConfirmsRegisteredEmail
+                          ? "Google has confirmed your registered email address."
+                          : <>In the next step, you will enter the OTP sent to <strong>{form.registeredEmail}</strong> to verify your organization.</>}
+                      </p>
                     </div>
 
                     <div className="flex items-start gap-2.5">
@@ -633,13 +646,15 @@ export default function RegisterPage() {
                     </button>
                   ) : step === 2 ? (
                     <button
-                      type="button"
-                      onClick={proceedToVerification}
-                      disabled={sendingOtp}
+                      type={googleConfirmsRegisteredEmail ? "submit" : "button"}
+                      onClick={googleConfirmsRegisteredEmail ? undefined : proceedToVerification}
+                      disabled={sendingOtp || submitting}
                       className="h-12 w-full sm:flex-1 rounded-xl bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white text-[15px] font-bold shadow-lg shadow-blue-600/25 transition flex items-center justify-center gap-2"
                     >
-                      {sendingOtp && <Loader2 size={16} className="animate-spin" />}
-                      {sendingOtp ? "Sending verification code..." : "Continue to Verification"}
+                      {(sendingOtp || submitting) && <Loader2 size={16} className="animate-spin" />}
+                      {googleConfirmsRegisteredEmail
+                        ? submitting ? "Creating your account..." : "Start Evaluation"
+                        : sendingOtp ? "Sending verification code..." : "Continue to Verification"}
                     </button>
                   ) : (
                     <button

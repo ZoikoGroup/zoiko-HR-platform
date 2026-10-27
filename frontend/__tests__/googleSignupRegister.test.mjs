@@ -25,10 +25,11 @@ function Where() {
 }
 
 async function open(t, url, register) {
-  const calls = { register: [] };
+  const calls = { register: [], sendRegistrationOtp: [] };
   t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({
     error: null,
     register: register || (async (payload) => { calls.register.push(payload); return { evaluation_ends_at: "2026-10-25T00:00:00Z" }; }),
+    sendRegistrationOtp: async (payload) => { calls.sendRegistrationOtp.push(payload); },
   }) } });
   t.mock.module("../src/hooks/usePublicCatalog.js", { exports: { usePublicCatalog: () => ({ byCode: {} }), formatRate: () => null } });
   t.mock.module("../src/components/PlanComparison.jsx", { exports: { default: () => React.createElement("div") } });
@@ -91,7 +92,24 @@ test("registering sends Google's proof, and the success page says the address is
   assert.equal(calls.register[0].email, "lee.park@gmail.com");
   assert.equal(calls.register[0].googleProof, "signed.proof");
   assert.equal(calls.register[0].registeredEmail, "lee.park@gmail.com");
+  assert.equal(calls.sendRegistrationOtp.length, 0);
   assert.equal(document.querySelector('[data-testid="where"]').textContent, "/register/success");
+});
+
+test("Google sign-in keeps OTP verification when the registered email is different", async (t) => {
+  const calls = await open(t, GOOGLE_URL);
+  fireEvent.click(screen.getByText("Core"));
+  await next();
+  type("Organization Name", "Acme Inc."); type("Organization Type", "partnership"); type("Registered Email", "finance@gmail.com");
+  type("Phone Number", "9876543210"); type("Tax / Registration Number", "TAX123"); type("Address", "1 Main Road");
+  type("Country", [...labelled("Country").options].find((o) => o.value)?.value);
+  await next();
+  type("Password", "Passw0rd1");
+  fireEvent.click(document.getElementById("termsAccepted"));
+  fireEvent.click(screen.getByRole("button", { name: "Continue to Verification" }));
+  await settle();
+  assert.equal(calls.sendRegistrationOtp.length, 1);
+  assert.match(document.body.textContent, /Verify Organization Email/);
 });
 
 test("without Google the Register page is as before: empty email boxes, no banner, no proof sent", async (t) => {

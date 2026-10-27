@@ -338,12 +338,23 @@ def test_registering_after_google_sign_in_starts_confirmed_and_a_wrong_proof_doe
     monkeypatch.setattr("app.services.email_service.send_registration_received", lambda *a, **k: True)
     monkeypatch.setattr("app.services.email_service.send_new_organization_created", lambda *a, **k: True)
     proof = google_auth.make_signup_proof("via.google@gmail.com")
-    ok = env.post("/auth/register", json={**REGISTER, "email": "via.google@gmail.com", "organization": "Google Co", "google_proof": proof})
+    ok = env.post("/auth/register", json={**REGISTER, "email": "via.google@gmail.com", "registered_email": "via.google@gmail.com", "organization": "Google Co", "google_proof": proof})
     assert ok.status_code in (200, 201), ok.text
     person = env.db.query(Employee).filter_by(email="via.google@gmail.com").one()
     assert person.email_verified is True and person.email_verified_at is not None
     assert not [m for m in _verification_mails(env) if m["email"] == "via.google@gmail.com"], "no confirmation email: Google already did that"
     assert env.post("/auth/login", json={"email": "via.google@gmail.com", "password": "Passw0rd1"}).status_code == 200
+    wrong_proof = env.post(
+        "/auth/register",
+        json={
+            **REGISTER,
+            "email": "someone.else@gmail.com",
+            "registered_email": "someone.else@gmail.com",
+            "organization": "Else Co",
+            "google_proof": proof,
+        },
+    )
+    assert wrong_proof.status_code == 400
     # a proof for another address, or none, still needs the confirmation link
     other = env.post("/auth/register", json={**REGISTER, "email": "someone.else@gmail.com", "organization": "Else Co", "google_proof": proof})
     assert other.status_code in (200, 201)
