@@ -15,6 +15,7 @@ import {
   Users,
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
+import { resolveCurrencyForCountry, getCurrentAppCurrency } from "../../utils/appCurrency";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
 import { getLearningDashboard, getPerformanceDashboard, getRecruitmentDashboard } from "../../service/hrService";
 import { PrimaryButton } from "../zoiko-hr/recruitment/ui";
@@ -175,7 +176,7 @@ export default function HrAdminDashboardPage() {
 
   const displayName = user?.name || user?.full_name || "HR Admin";
   const orgName = organization?.name || user?.organization_name || "Your organization";
-  const currency = organization?.currency || stats?.currency;
+  const currency = organization?.currency || resolveCurrencyForCountry(organization?.country) || stats?.currency || getCurrentAppCurrency();
   const totalEmployees = stats?.total_employees;
   const activeEmployees = stats?.active_employees;
   const attendanceTrend = Array.isArray(stats?.attendance_trend) ? stats.attendance_trend : [];

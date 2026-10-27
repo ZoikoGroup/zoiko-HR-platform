@@ -674,6 +674,16 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
     emp_data = EmployeeResponse.model_validate(employee).model_dump()
     # The standalone HR platform exposes a single product module.
     emp_data["products"] = ["hr"]
+    if employee.organization_id:
+        from app.modules.hr.models import Organization
+        from app.core import regions
+        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
+        if org:
+            emp_data["organization_country"] = org.country
+            effective_country = employee.country or employee.work_country or org.country
+            emp_data["currency"] = org.currency or regions.currency_for(effective_country, "USD")
+            if not emp_data.get("work_country") and effective_country:
+                emp_data["work_country"] = regions.country_code(effective_country)
     employee_serialized = EmployeeResponse.model_validate(emp_data)
 
     return {
@@ -686,10 +696,125 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
 
 # TODO: This function is duplicated in hr/service.py.  Changes here must be
 # mirrored there, or the two copies should be consolidated into one.
+REGISTRATION_OTP_TTL_MINUTES = 10
+
+
+def generate_and_send_registration_otp(db: Session, registered_email: str, org_name: Optional[str] = None) -> dict:
+    from app.core.email_quality import check_real_email
+    clean_email = check_real_email(registered_email, label="Registered email").strip().lower()
+
+    # Generate 6-digit cryptographically secure OTP
+    otp = f"{secrets.randbelow(900000) + 100000:06d}"
+    token_hash = _token_hash(f"{clean_email}:{otp}")
+    now = datetime.utcnow()
+    expires_at = now + timedelta(minutes=REGISTRATION_OTP_TTL_MINUTES)
+
+    # Invalidate any existing unused OTPs for this email
+    _revoke_outstanding_tokens(db, clean_email, SecurityActionPurpose.ORG_REGISTRATION_OTP)
+
+    token = SecurityActionToken(
+        email=clean_email,
+        organization_id=None,
+        purpose=SecurityActionPurpose.ORG_REGISTRATION_OTP,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(token)
+    db.commit()
+
+    # Dispatch email
+    from app.services import email_service
+    email_service.send_org_registration_otp_email(
+        email=clean_email,
+        org_name=org_name or "your organization",
+        otp=otp,
+        ttl_minutes=REGISTRATION_OTP_TTL_MINUTES,
+        db=db,
+    )
+
+    return {
+        "success": True,
+        "message": f"Verification code sent to {clean_email}.",
+        "expires_in_seconds": REGISTRATION_OTP_TTL_MINUTES * 60,
+    }
+
+
+def verify_registration_otp(db: Session, registered_email: str, otp: str, consume: bool = False) -> bool:
+    if not registered_email or not otp:
+        return False
+    clean_email = registered_email.strip().lower()
+    clean_otp = str(otp).strip()
+    token_hash = _token_hash(f"{clean_email}:{clean_otp}")
+    now = datetime.utcnow()
+
+    if consume:
+        row = db.execute(
+            text(
+                """
+                UPDATE security_action_tokens
+                SET used_at = :now
+                WHERE token_hash = :hash
+                  AND purpose = :purpose
+                  AND email = :email
+                  AND used_at IS NULL
+                  AND expires_at > :now
+                RETURNING id, email
+                """
+            ),
+            {
+                "hash": token_hash,
+                "purpose": SecurityActionPurpose.ORG_REGISTRATION_OTP.name,
+                "email": clean_email,
+                "now": now,
+            },
+        ).fetchone()
+        if row:
+            db.commit()
+            return True
+        return False
+    else:
+        row = db.execute(
+            text(
+                """
+                SELECT id FROM security_action_tokens
+                WHERE token_hash = :hash
+                  AND purpose = :purpose
+                  AND email = :email
+                  AND used_at IS NULL
+                  AND expires_at > :now
+                """
+            ),
+            {
+                "hash": token_hash,
+                "purpose": SecurityActionPurpose.ORG_REGISTRATION_OTP.name,
+                "email": clean_email,
+                "now": now,
+            },
+        ).fetchone()
+        return row is not None
+
+
 DEFAULT_EVALUATION_DAYS = 14
 
 
 def register_enterprise(db: Session, data: RegisterRequest) -> dict:
+    from app.modules.employee import google_auth
+
+    google_proof_valid = bool(
+        data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email)
+    )
+    google_confirms_registered_email = bool(
+        google_proof_valid
+        and data.registered_email
+        and data.registered_email.strip().casefold() == data.email.strip().casefold()
+    )
+
+    if data.registered_email and not google_confirms_registered_email:
+        if not data.otp or not str(data.otp).strip():
+            raise BadRequestException("Verification code (OTP) is required for the organization's registered email.")
+        if not verify_registration_otp(db, data.registered_email, data.otp, consume=True):
+            raise BadRequestException("Invalid or expired verification code. Please check your code or request a new one.")
+
     existing = _identity_query(db).filter(Employee.email == data.email).first()
     if existing:
         raise AlreadyExistsException("Employee", "email")
@@ -706,6 +831,9 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         legacy_code = f"{data.organization[:45].upper().replace(' ', '_')}_{suffix}"
         suffix += 1
 
+    from app.core.regions import currency_for, country_code as _cc
+    _emp_work_country = _cc(data.country)
+
     org = Organization(
         name=data.organization,
         code=legacy_code,
@@ -718,6 +846,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         city=data.city,
         state=data.state,
         country=data.country,
+        currency=currency_for(data.country, "USD"),
         timezone=data.timezone or "UTC",
         industry=data.industry,
         org_type=data.org_type,
@@ -759,12 +888,13 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         date_of_joining=date.today(),
         department_id=dept.id,
         organization_id=org.id,
+        country=data.country,
+        work_country=_emp_work_country,
     )
     db.add(employee)
     db.commit()
     db.refresh(employee)
-    from app.modules.employee import google_auth
-    if data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email):
+    if google_proof_valid:
         employee.email_verified = True             # Google has already confirmed this person controls the address
         employee.email_verified_at = datetime.utcnow()
         db.commit()

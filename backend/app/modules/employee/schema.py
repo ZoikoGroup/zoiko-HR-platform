@@ -411,6 +411,9 @@ class EmployeeResponse(BaseModel):
     travel_preferences: Optional[dict] = None
     language: Optional[str] = None
     timezone: Optional[str] = None
+    work_country: Optional[str] = None
+    currency: Optional[str] = None
+    organization_country: Optional[str] = None
     redacted: Optional[list[str]] = None                 # fields hidden from this viewer (ZHR-PRIV-001 E02)
 
     model_config = {
@@ -434,6 +437,14 @@ class EmployeeResponse(BaseModel):
     @classmethod
     def _populate_extra(cls, data):
         if isinstance(data, dict):
+            # If currency or organization_country are missing from the dict, attempt derivation
+            if not data.get("currency") or not data.get("work_country"):
+                from app.core import regions
+                effective_country = data.get("country") or data.get("work_country") or data.get("organization_country")
+                if not data.get("currency") and effective_country:
+                    data["currency"] = regions.currency_for(effective_country, "USD")
+                if not data.get("work_country") and effective_country:
+                    data["work_country"] = regions.country_code(effective_country)
             return data
         fields = list(cls.model_fields.keys())
         result = {f: getattr(data, f, None) for f in fields}
@@ -447,6 +458,17 @@ class EmployeeResponse(BaseModel):
             result["managerName"] = data.reporting_manager.full_name
         if result.get("designationName"):
             result["title"] = result["designationName"]
+        from app.core import regions
+        org = getattr(data, "organization", None)
+        org_country = getattr(org, "country", None) if org else None
+        org_currency = getattr(org, "currency", None) if org else None
+        emp_country = result.get("country") or getattr(data, "country", None)
+        emp_work_country = result.get("work_country") or getattr(data, "work_country", None)
+        effective_country = emp_country or emp_work_country or org_country
+        result["organization_country"] = org_country
+        result["currency"] = org_currency or (regions.currency_for(effective_country, "USD") if effective_country else "USD")
+        if not result.get("work_country") and effective_country:
+            result["work_country"] = regions.country_code(effective_country)
         return result
 
 
@@ -532,6 +554,7 @@ class RegisterRequest(BaseModel):
     industry: Optional[str] = Field(None, example="Technology")
     tax_number: Optional[str] = Field(None, example="12-3456789")
     registered_email: Optional[str] = Field(None, example="company@yourcompany.com")
+    otp: Optional[str] = Field(None, example="123456", description="Verification code sent to registered_email")
     # Set when the person arrived through "Continue with Google": proof that Google already confirmed the admin address.
     google_proof: Optional[str] = Field(None, max_length=2000)
 
@@ -540,6 +563,22 @@ class RegisterRequest(BaseModel):
     def _v_real_email(cls, v, info):
         from app.core.email_quality import check_real_email
         return check_real_email(v, label="Email")
+
+
+class SendRegistrationOtpRequest(BaseModel):
+    registered_email: EmailStr = Field(..., example="company@yourcompany.com")
+    org_name: Optional[str] = Field(None, max_length=200, example="Acme Inc.")
+
+    @field_validator("registered_email", mode="after")
+    @classmethod
+    def _v_real_email(cls, v):
+        from app.core.email_quality import check_real_email
+        return check_real_email(v, label="Registered email")
+
+
+class VerifyRegistrationOtpRequest(BaseModel):
+    registered_email: EmailStr = Field(..., example="company@yourcompany.com")
+    otp: str = Field(..., min_length=4, max_length=10, example="123456")
 
 
 class UserCreateRequest(BaseModel):

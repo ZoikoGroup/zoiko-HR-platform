@@ -1,4 +1,4 @@
-import { Archive, Building2, ClipboardCheck, FileCheck2, FileText, FolderOpen, Globe2, LayoutDashboard, Library, Receipt, ScrollText, ShieldCheck, Users } from "lucide-react";
+import { Building2, ClipboardCheck, FileCheck2, FileText, FolderOpen, LayoutDashboard, Receipt, ShieldCheck, Users } from "lucide-react";
 import { ModuleLayout } from "../recruitment/ui";
 
 const DOCUMENTS_NAV = [
@@ -6,13 +6,6 @@ const DOCUMENTS_NAV = [
   { label: "Employee Documents", href: "/zoiko-hr/documents/employee-upload", icon: Users },
   { label: "Company Documents", href: "/zoiko-hr/documents/company-documents", icon: Building2 },
   { label: "Approval Workflow", href: "/zoiko-hr/documents/approvals", icon: ClipboardCheck },
-  { label: "Templates", href: "/zoiko-hr/documents/templates", icon: Library },
-  { label: "Clauses", href: "/zoiko-hr/documents/clauses", icon: ScrollText },
-  { label: "Jurisdiction Packs", href: "/zoiko-hr/documents/jurisdiction-packs", icon: Globe2 },
-  { label: "Generated Documents", href: "/zoiko-hr/documents/generated", icon: FileCheck2 },
-  { label: "Policy Library", href: "/zoiko-hr/documents/policies", icon: FileText },
-  { label: "Policy Distribution", href: "/zoiko-hr/documents/policy-distributions", icon: Archive },
-  { label: "Document Centre", href: "/zoiko-hr/documents/centre", icon: FolderOpen },
   { label: "Governance", href: "/zoiko-hr/documents/governance", icon: ShieldCheck },
 ];
 
@@ -21,15 +14,6 @@ const PAGE_OF_TITLE = {
   "Employee Documents": "Employee Documents",
   "Company Documents": "Company Documents",
   "Approval Workflow": "Approval Workflow",
-  "Document templates": "Templates",
-  "Template": "Templates",
-  "Template editor": "Templates",
-  "Clause library": "Clauses",
-  "Jurisdiction packs": "Jurisdiction Packs",
-  "Generated documents": "Generated Documents",
-  "Policy library": "Policy Library",
-  "Policy distributions": "Policy Distribution",
-  "Company Policies": "Policy Library",
   "Document governance": "Governance",
   Dashboard: "Dashboard",
 };

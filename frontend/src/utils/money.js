@@ -1,3 +1,4 @@
+import { getCurrentAppCurrency } from "./appCurrency";
 // Money shown the way its currency is written (₹1,20,000 · €45,000 · $90,000), with what kind of pay it is.
 
 export const REMUNERATION_TYPES = [
@@ -32,19 +33,28 @@ export function remunerationFor(employmentType, current) {
   return current === "stipend" ? "salary" : current || "salary";
 }
 
-export function formatMoney(amount, currency = "USD", { compact = false } = {}) {
+export function formatMoney(amount, currency, { compact = false } = {}) {
   if (amount === null || amount === undefined || amount === "") return "—";
   const n = Number(amount);
   if (Number.isNaN(n)) return String(amount);
+  // Resolve currency: explicit arg > app-wide user currency > "USD"
+  let code = currency;
+  if (!code) {
+    try {
+      code = getCurrentAppCurrency();
+    } catch {
+      code = "USD";
+    }
+  }
   try {
     return new Intl.NumberFormat(undefined, {
       style: "currency",
-      currency: currency || "USD",
+      currency: code || "USD",
       notation: compact ? "compact" : "standard",
       maximumFractionDigits: compact ? 1 : n % 1 === 0 ? 0 : 2,
     }).format(n);
   } catch {
-    return `${currency || ""} ${n.toLocaleString()}`.trim();
+    return `${code || ""} ${n.toLocaleString()}`.trim();
   }
 }
 

@@ -144,7 +144,7 @@ export default function HrAdminOrganizationPage() {
             <SummaryCard icon={Users} label="Total employees" value={organization.total_employees?.toLocaleString() ?? "—"} detail="Current workforce" tone="blue" />
             <SummaryCard icon={Users} label="Active employees" value={organization.active_employees?.toLocaleString() ?? "—"} detail="Currently active" tone="teal" />
             <SummaryCard icon={ShieldCheck} label="HR administrators" value={organization.hr_admins?.toLocaleString() ?? "—"} detail="People operations access" tone="violet" />
-            <SummaryCard icon={HardDrive} label="User capacity" value={organization.max_users?.toLocaleString() ?? "—"} detail="Maximum organization users" tone="amber" />
+            <SummaryCard icon={HardDrive} label="User capacity" value={organization.max_users != null ? organization.max_users.toLocaleString() : "Unlimited"} detail="Maximum organization users" tone="amber" />
           </section>
 
           <div className="grid grid-cols-1 gap-5 xl:grid-cols-2">

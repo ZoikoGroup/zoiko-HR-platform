@@ -45,12 +45,12 @@ export function RecruitmentLayout(props) {
  * The shared module shell (Recruitment, Onboarding, …): `items` are the section tabs ({label, href, icon}); the first one
  * is the module home. `pageOfTitle` maps a heading to the tab it belongs to when they differ.
  */
-export function ModuleLayout({ module, items = [], pageOfTitle = {}, title, subtitle, actions, children, variant = "default" }) {
+export function ModuleLayout({ module, items = [], pageOfTitle = {}, title, breadcrumbTitle, subtitle, actions, children, variant = "default" }) {
   const sectionItems = Array.isArray(items) ? items : [];
   const plain = variant === "plain";
   const rawPathname = typeof window !== "undefined" ? window.location.pathname : "/";
   const pathname = rawPathname.replace(/\/+$/, "") || "/";
-  const label = pageOfTitle[title] || title;
+  const label = pageOfTitle[title] || (breadcrumbTitle && pageOfTitle[breadcrumbTitle]) || breadcrumbTitle || title;
   const routePage = sectionItems
     .filter((item) => {
       const href = item.href.replace(/\/+$/, "") || "/";
@@ -62,27 +62,27 @@ export function ModuleLayout({ module, items = [], pageOfTitle = {}, title, subt
   const home = sectionItems[0]?.href;
   return (
     <div className="min-h-screen bg-slate-50">
-      <header className={`relative overflow-hidden rounded-b-3xl shadow-sm sm:rounded-3xl ${plain ? "border border-slate-200 bg-white text-slate-900" : "bg-gradient-to-r from-[#0A1128] via-[#0E1734] to-[#111A33] text-white shadow-[0_10px_30px_rgba(4,7,20,0.25)]"}`}>
+      <header className={`relative overflow-hidden rounded-b-3xl shadow-sm sm:rounded-3xl ${plain ? "border border-slate-200 bg-white text-slate-900" : "bg-gradient-to-r from-[#070D1E] via-[#0E1B38] to-[#142850] text-white shadow-[0_12px_36px_rgba(4,7,20,0.25)]"}`}>
         <div aria-hidden="true" className={`pointer-events-none absolute -right-24 -top-24 h-64 w-64 rounded-full blur-3xl ${plain ? "bg-blue-100/80" : "bg-blue-500/10"}`} />
-        <div className="relative mx-auto max-w-[1600px] px-4 pt-5 sm:px-6 lg:px-8">
+        <div className={`relative mx-auto max-w-[1600px] px-4 sm:px-6 lg:px-8 ${sectionItems.length > 0 ? "pt-5 pb-0" : "py-6 sm:py-8 flex flex-col justify-center min-h-[140px]"}`}>
           <nav aria-label="Breadcrumb" className={`flex items-center gap-1.5 text-xs ${plain ? "text-slate-500" : "text-slate-400"}`}>
             <span>Zoiko HR</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
             <span>{module}</span><ChevronRight className="h-3 w-3" aria-hidden="true" />
-            <span className={`font-medium ${plain ? "text-slate-700" : "text-slate-200"}`}>{title}</span>
+            <span className={`font-medium ${plain ? "text-slate-700" : "text-slate-200"}`}>{breadcrumbTitle || title}</span>
           </nav>
-          <div className="mt-3 flex flex-wrap items-start justify-between gap-4">
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-4">
             <div className="flex min-w-0 items-center gap-4">
               <span className={`hidden h-12 w-12 shrink-0 place-items-center rounded-2xl sm:grid ${plain ? "bg-blue-50 ring-1 ring-blue-100" : "bg-white/10 ring-1 ring-white/15"}`} aria-hidden="true">
                 <PageIcon className={`h-6 w-6 ${plain ? "text-blue-700" : "text-blue-300"}`} />
               </span>
               <div className="min-w-0">
                 <h1 className={`text-2xl font-bold tracking-tight sm:text-[28px] ${plain ? "text-slate-950" : "text-white"}`}>{title}</h1>
-                {subtitle && <p className={`mt-1 text-sm ${plain ? "text-slate-600" : "text-slate-300"}`}>{subtitle}</p>}
+                {subtitle && <div className={`mt-1 text-sm ${plain ? "text-slate-600" : "text-slate-300"}`}>{subtitle}</div>}
               </div>
             </div>
             {actions && <div className="flex flex-wrap items-center gap-2">{actions}</div>}
           </div>
-          {sectionItems.length > 0 && <nav aria-label={`${module} sections`} className={`mt-6 flex gap-1 overflow-x-auto ${plain ? "border-b border-slate-200" : ""}`}>
+          {sectionItems.length > 0 && <nav aria-label={`${module} sections`} className={`mt-6 flex flex-wrap gap-1 ${plain ? "border-b border-slate-200" : ""}`}>
             {sectionItems.map((item) => {
               const Icon = item.icon;
               return (
@@ -107,7 +107,7 @@ export function ModuleLayout({ module, items = [], pageOfTitle = {}, title, subt
 export function PrimaryButton({ icon: Icon, children, className = "", ...props }) {
   return (
     <button type="button" {...props}
-      className={`inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}>
+      className={`inline-flex items-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-blue-700 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:from-blue-700 hover:to-blue-800 hover:shadow-md hover:-translate-y-0.5 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}>
       {Icon && <Icon className="h-4 w-4" />}{children}
     </button>
   );
@@ -116,7 +116,7 @@ export function PrimaryButton({ icon: Icon, children, className = "", ...props }
 export function SecondaryButton({ icon: Icon, children, className = "", ...props }) {
   return (
     <button type="button" {...props}
-      className={`inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}>
+      className={`inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm hover:bg-slate-50 hover:border-slate-300 hover:-translate-y-0.5 transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${className}`}>
       {Icon && <Icon className="h-4 w-4" />}{children}
     </button>
   );
@@ -194,18 +194,23 @@ export function KpiCard({ label, icon: Icon, tone = "blue", kpi, format = (v) =>
   const t = TONES[tone] || TONES.blue;
   const value = kpi?.value;
   return (
-    <div className="flex min-w-0 flex-col rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm">
+    <div className="group relative overflow-hidden flex min-w-0 flex-col rounded-2xl border border-slate-200/80 bg-white p-4 shadow-[0_2px_10px_rgba(10,17,40,0.04)] hover:-translate-y-0.5 hover:shadow-[0_10px_24px_-8px_rgba(10,17,40,0.12)] hover:border-blue-200/70 transition-all duration-300">
+      <div className="absolute inset-x-0 top-0 h-1 transition-all duration-300 group-hover:h-1.5" style={{ background: t.line }} />
       <div className="flex items-start gap-3">
-        {Icon && <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${t.tile}`}><Icon className="h-5 w-5" /></div>}
+        {Icon && (
+          <div className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl shadow-xs transition-transform duration-300 group-hover:scale-105 ${t.tile}`}>
+            <Icon className="h-5 w-5" />
+          </div>
+        )}
         <div className="min-w-0">
-          <p className="text-xs font-medium leading-snug text-gray-500" title={label}>{label}</p>
-          <p className="mt-0.5 text-2xl font-bold text-gray-900">
-            {loading ? <span className="inline-block h-6 w-12 animate-pulse rounded bg-gray-100" /> : value == null ? "–" : format(value)}
+          <p className="text-xs font-medium leading-snug text-slate-500 truncate" title={label}>{label}</p>
+          <p className="mt-1 font-['Sora',system-ui,sans-serif] text-2xl font-bold tracking-tight text-slate-900">
+            {loading ? <span className="inline-block h-6 w-12 animate-pulse rounded bg-slate-100" /> : value == null ? "–" : format(value)}
           </p>
           {!loading && <Trend kpi={kpi} />}
         </div>
       </div>
-      <div className="mt-2"><Sparkline points={kpi?.series} color={t.line} /></div>
+      <div className="mt-2.5"><Sparkline points={kpi?.series} color={t.line} /></div>
     </div>
   );
 }
@@ -218,7 +223,7 @@ export function KpiGrid({ children, cols = 6 }) {
 // ── cards, pills, avatars ───────────────────────────────────────────────────────────────────────────────────────────
 export function Card({ title, action, children, className = "", bodyClass = "p-5" }) {
   return (
-    <section className={`rounded-2xl border border-gray-200/80 bg-white shadow-sm ${className}`}>
+    <section className={`rounded-2xl border border-slate-200/80 bg-white shadow-[0_2px_12px_rgba(10,17,40,0.04)] ${className}`}>
       {(title || action) && (
         <div className="flex items-center justify-between gap-3 px-5 pt-4">
           {title && <h2 className="text-base font-semibold text-gray-900">{title}</h2>}
@@ -233,7 +238,7 @@ export function Card({ title, action, children, className = "", bodyClass = "p-5
 export function StatusPill({ tone = "gray", icon: Icon, children }) {
   const t = TONES[tone] || TONES.gray;
   return (
-    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-medium ring-1 ring-inset ${t.pill}`}>
+    <span className={`inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset shadow-2xs ${t.pill}`}>
       {Icon && <Icon className="h-3.5 w-3.5" />}{children}
     </span>
   );

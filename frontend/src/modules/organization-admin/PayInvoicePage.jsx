@@ -85,13 +85,9 @@ export default function PayInvoicePage() {
       .finally(() => setPaying(false));
   };
 
-  const wrapperStyle = {
-    background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)",
-  };
-
   if (loading) {
     return (
-      <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={wrapperStyle}>
+      <div className="font-['Inter',system-ui,sans-serif] space-y-6">
         <div className="text-center py-20 text-[13px] flex items-center justify-center gap-2" style={{ color: INK_SOFT }}>
           <Loader2 className="w-4 h-4 animate-spin" /> Loading invoice...
         </div>
@@ -101,12 +97,12 @@ export default function PayInvoicePage() {
 
   if (error || !invoice) {
     return (
-      <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={wrapperStyle}>
-        <div className="max-w-md mx-auto mt-20 rounded-2xl border bg-white p-8 text-center" style={{ borderColor: LINE }}>
+      <div className="font-['Inter',system-ui,sans-serif] space-y-6">
+        <div className="max-w-md mx-auto mt-16 rounded-2xl bg-white border border-slate-200 p-8 text-center shadow-sm">
           <XCircle className="w-10 h-10 mx-auto mb-3" style={{ color: RED }} />
           <p className="text-[14px] font-semibold" style={{ color: INK }}>Unable to load invoice</p>
           <p className="text-[12.5px] mt-1" style={{ color: INK_SOFT }}>{error || "This invoice could not be found."}</p>
-          <button onClick={() => navigate("/organization-admin/dashboard")} className="mt-5 text-[12.5px] font-semibold cursor-pointer" style={{ color: BLUE }}>
+          <button onClick={() => navigate("/organization-admin/dashboard")} className="mt-5 text-[12.5px] font-semibold cursor-pointer text-blue-600 hover:text-blue-700">
             Back to Dashboard
           </button>
         </div>
@@ -117,7 +113,7 @@ export default function PayInvoicePage() {
   const alreadyAccepted = invoice.status === "accepted" || invoice.status === "ACCEPTED";
 
   return (
-    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={wrapperStyle}>
+    <div className="font-['Inter',system-ui,sans-serif] space-y-6">
       {toast ? (
         <div className="fixed top-4 right-4 z-50 rounded-xl px-4 py-3 text-[12.5px] font-semibold shadow-lg transition-all"
           style={{ background: toast.type === "error" ? RED : EMERALD, color: "#fff" }}>
@@ -125,22 +121,21 @@ export default function PayInvoicePage() {
         </div>
       ) : null}
 
-      <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-[12.5px] font-semibold mb-4 cursor-pointer" style={{ color: BLUE }}>
-        <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
-        Back to Dashboard
-      </button>
-
-      <div className="flex items-center gap-3 mb-6 pb-4" style={{ borderBottom: `1px solid ${LINE}` }}>
-        <div className="w-10 h-10 rounded-[12px] flex items-center justify-center flex-shrink-0 overflow-hidden">
-          <img src={zoikoIcon} className="w-10 h-10" alt="ZoikoHR" />
+      <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+        <button onClick={() => navigate("/organization-admin/dashboard")} className="flex items-center gap-1.5 text-xs font-semibold mb-4 cursor-pointer text-blue-600 hover:text-blue-700">
+          <ArrowLeft className="w-3.5 h-3.5" strokeWidth={2.5} />
+          Back to Dashboard
+        </button>
+        <div className="flex items-center gap-3.5">
+          <div className="w-11 h-11 rounded-2xl bg-blue-50 border border-blue-100 flex items-center justify-center flex-shrink-0">
+            <img src={zoikoIcon} className="w-7 h-7" alt="ZoikoHR" />
+          </div>
+          <div>
+            <h1 className="font-['Sora',system-ui,sans-serif] text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900">Pay Invoice</h1>
+            <p className="text-xs sm:text-[13px] text-slate-500 mt-1">Complete your payment securely via Stripe</p>
+          </div>
         </div>
-        <div>
-          <p className="font-['Sora',system-ui,sans-serif] text-lg font-bold" style={{ color: INK }}>Pay Invoice</p>
-          <p className="text-[12px] font-medium" style={{ color: INK_SOFT }}>
-            Complete your payment securely via Stripe
-          </p>
-        </div>
-      </div>
+      </header>
 
       <div className="max-w-lg mx-auto rounded-2xl border bg-white p-6 shadow-[0_1px_2px_rgba(10,17,40,0.04),0_8px_24px_-12px_rgba(10,17,40,0.10)]" style={{ borderColor: LINE }}>
         <div className="flex items-center gap-2 mb-5">

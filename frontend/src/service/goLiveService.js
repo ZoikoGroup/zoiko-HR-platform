@@ -31,6 +31,7 @@ export const addPipReviewNote = (id, note) => api.post(`${PRF}/pips/${id}/review
 export const closePip = (id, body) => api.post(`${PRF}/pips/${id}/outcome`, body);
 export const listMyProbationReviews = () => api.get("/hr/me/performance/probation-reviews");
 export const commentOnMyProbationReview = (id, comments) => api.post(`/hr/me/performance/probation-reviews/${id}/comments`, { comments });
+export const listMyAppraisals = () => api.get("/hr/me/performance/appraisals");
 export const submitSelfAssessment = (appraisalId, body) => api.post(`/hr/me/performance/appraisals/${appraisalId}/self-assessment`, body);
 export const commentOnMyAppraisal = (appraisalId, comments) => api.post(`/hr/me/performance/appraisals/${appraisalId}/comments`, { comments });
 

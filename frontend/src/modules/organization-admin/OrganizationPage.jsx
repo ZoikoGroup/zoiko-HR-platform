@@ -2,13 +2,14 @@ import { useState, useEffect } from "react";
 import { getOrganizationDetails, updateOrganizationDetails } from "../../service/orgAdminService";
 import { X, CheckCircle, AlertTriangle } from "lucide-react";
 import { formatDate } from "../../utils/dateTime";
+import { resolveCurrencyForCountry } from "../../utils/appCurrency";
 
 const styles = `
-  @import url('https://fonts.googleapis.com/css2?family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;0,9..144,600;0,9..144,700;1,9..144,500&family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=IBM+Plex+Mono:wght@400;500&family=Sora:wght@600;700&display=swap');
 
   .org-dash{
-    --bg:#F0F4F8;
-    --glass: rgba(255,255,255,0.72);
+    --bg:transparent;
+    --glass: rgba(255,255,255,0.85);
     --glass-solid:#FFFFFF;
     --glass-border: rgba(10,17,40,0.08);
     --ink:#0A1128;
@@ -24,15 +25,12 @@ const styles = `
     --success-soft:rgba(16,185,129,0.11);
     --danger:#EF4444;
     --danger-soft:rgba(239,68,68,0.10);
-    --radius:18px;
+    --radius:16px;
 
     position:relative;
-    background:var(--bg);
     color:var(--ink);
     font-family:'Inter', sans-serif;
     -webkit-font-smoothing:antialiased;
-    min-height:100vh;
-    overflow-x:clip;
     isolation:isolate;
   }
   .org-dash *{ box-sizing:border-box; }
@@ -45,7 +43,7 @@ const styles = `
     background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
-  .org-dash .page{ position:relative; z-index:2; max-width:1180px; margin:0 auto; padding:44px 32px 90px; }
+  .org-dash .page{ position:relative; z-index:2; width:100%; margin:0; padding:0 0 40px; }
 
   @keyframes org-rise{ from{ opacity:0; transform:translateY(14px);} to{ opacity:1; transform:translateY(0);} }
   .org-dash .rise{ animation:org-rise .6s cubic-bezier(.2,.7,.3,1) both; }
@@ -61,9 +59,9 @@ const styles = `
     width:32px; height:32px; border-radius:9px;
     background:linear-gradient(135deg, var(--violet), var(--amber));
     display:flex; align-items:center; justify-content:center;
-    font-family:'Fraunces', serif; color:#fff; font-weight:700; font-size:15px;
+    font-family:'Sora', sans-serif; color:#fff; font-weight:700; font-size:15px;
   }
-  .org-dash .brand-name{ font-family:'Fraunces', serif; font-weight:600; font-size:17px; color:var(--ink); }
+  .org-dash .brand-name{ font-family:'Sora', sans-serif; font-weight:600; font-size:17px; color:var(--ink); }
   .org-dash .role-chip{
     font-size:11px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase;
     color:var(--violet-deep); background:var(--violet-soft); border:1px solid rgba(59,130,246,0.22);
@@ -80,22 +78,20 @@ const styles = `
   .org-dash .user-meta .email{ font-size:11.5px; color:var(--ink-faint); }
 
   .org-dash .hero{
-    display:flex; align-items:center; justify-content:space-between; gap:24px;
-    margin-bottom:22px; flex-wrap:wrap;
+    display:flex; align-items:center; justify-content:space-between; gap:20px;
+    margin-bottom:24px; flex-wrap:wrap;
   }
   .org-dash .eyebrow{
-    font-size:11.5px; font-weight:600; letter-spacing:0.16em; text-transform:uppercase;
-    color:var(--violet-deep); margin:0 0 14px; display:flex; align-items:center; gap:8px;
+    font-size:11.5px; font-weight:700; letter-spacing:0.12em; text-transform:uppercase;
+    color:var(--violet-deep); margin:0 0 8px; display:flex; align-items:center; gap:8px;
   }
   .org-dash .eyebrow::before{ content:""; width:16px; height:1px; background:var(--violet-deep); display:inline-block; }
   .org-dash h1.title{
-    font-family:'Fraunces', serif; font-weight:600; font-size:52px; line-height:1.2;
-    margin:0 0 12px; letter-spacing:-0.015em;
-    background:linear-gradient(100deg, var(--ink) 25%, var(--violet) 62%, var(--violet-deep) 100%);
-    -webkit-background-clip:text; background-clip:text; color:transparent;
+    font-family:'Sora', system-ui, sans-serif; font-weight:700; font-size:26px; line-height:1.2;
+    margin:0 0 6px; letter-spacing:-0.01em; color:var(--ink);
   }
-  @media (max-width:640px){ .org-dash h1.title{ font-size:38px; } }
-  .org-dash .subtitle{ color:var(--ink-soft); font-size:15px; margin:0; max-width:520px; }
+  @media (max-width:640px){ .org-dash h1.title{ font-size:22px; } }
+  .org-dash .subtitle{ color:var(--ink-soft); font-size:13.5px; margin:0; max-width:520px; }
   .org-dash .head-actions{ display:flex; gap:10px; flex:none; }
 
   .org-dash .btn{
@@ -135,7 +131,7 @@ const styles = `
     box-shadow:0 0 0 1px rgba(255,255,255,0.4) inset, 0 12px 28px -10px rgba(59,130,246,0.45);
   }
   .org-dash .org-mark svg{ width:27px; height:27px; }
-  .org-dash .org-name{ font-family:'Fraunces', serif; font-weight:600; font-size:23px; margin:0 0 8px; color:var(--ink); }
+  .org-dash .org-name{ font-family:'Sora', sans-serif; font-weight:600; font-size:23px; margin:0 0 8px; color:var(--ink); }
   .org-dash .org-meta{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; font-size:13px; color:var(--ink-soft); }
   .org-dash .code-tag{
     font-family:'IBM Plex Mono', monospace; font-size:11.5px; letter-spacing:0.03em;
@@ -170,7 +166,7 @@ const styles = `
     top:-40px; right:-30px; opacity:0.28; pointer-events:none;
   }
   .org-dash .stat-label{ font-size:11.5px; letter-spacing:0.06em; text-transform:uppercase; color:var(--ink-faint); margin:0 0 12px; }
-  .org-dash .stat-value{ font-family:'Fraunces', serif; font-size:32px; font-weight:600; margin:0; line-height:1; color:var(--ink); }
+  .org-dash .stat-value{ font-family:'Sora', sans-serif; font-size:32px; font-weight:600; margin:0; line-height:1; color:var(--ink); }
   .org-dash .stat-sub{ font-size:12px; color:var(--ink-faint); margin-top:8px; }
 
   .org-dash .grid{ display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-bottom:16px; }
@@ -203,7 +199,7 @@ const styles = `
   .org-dash .workforce-body{ padding:26px 24px 30px; display:flex; align-items:center; gap:40px; flex-wrap:wrap; }
   .org-dash .ring-wrap{ position:relative; width:190px; height:190px; flex:none; }
   .org-dash .ring-center{ position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; }
-  .org-dash .ring-center .num{ font-family:'Fraunces', serif; font-size:38px; font-weight:600; line-height:1; color:var(--ink); }
+  .org-dash .ring-center .num{ font-family:'Sora', sans-serif; font-size:38px; font-weight:600; line-height:1; color:var(--ink); }
   .org-dash .ring-center .lbl{ font-size:11px; letter-spacing:0.08em; text-transform:uppercase; color:var(--ink-faint); margin-top:4px; }
 
   .org-dash .legend{ flex:1; min-width:230px; }
@@ -235,7 +231,7 @@ const styles = `
     display:flex; align-items:flex-start; justify-content:space-between; gap:12px;
     padding:22px 26px 18px; border-bottom:1px solid var(--glass-border);
   }
-  .org-dash .modal-title{ font-family:'Fraunces', serif; font-weight:600; font-size:20px; margin:0 0 3px; color:var(--ink); }
+  .org-dash .modal-title{ font-family:'Sora', sans-serif; font-weight:600; font-size:20px; margin:0 0 3px; color:var(--ink); }
   .org-dash .modal-sub{ font-size:12px; color:var(--ink-faint); margin:0; }
   .org-dash .modal-close{
     width:32px; height:32px; border-radius:10px; border:1px solid var(--glass-border);
@@ -311,7 +307,15 @@ const StatTile = ({ glowColor, label, value, sub, valueColor }) => (
   <div className="glass stat-tile">
     <div className="glow" style={{ background: glowColor }} />
     <p className="stat-label">{label}</p>
-    <p className="stat-value" style={valueColor ? { color: valueColor } : undefined}>{value}</p>
+    <p
+      className="stat-value"
+      style={{
+        ...(valueColor ? { color: valueColor } : {}),
+        ...(typeof value === "string" && value.length > 5 ? { fontSize: "24px", letterSpacing: "-0.01em" } : {}),
+      }}
+    >
+      {value}
+    </p>
     <p className="stat-sub">{sub}</p>
   </div>
 );
@@ -422,7 +426,7 @@ export default function OrgAdminOrganizationPage() {
 
   if (loading) {
     return (
-      <div className="org-dash -mx-4 sm:-mx-6 lg:-mx-8 mt-4">
+      <div className="org-dash">
         <style>{styles}</style>
         <div className="orb orb-1" />
         <div className="orb orb-2" />
@@ -438,7 +442,7 @@ export default function OrgAdminOrganizationPage() {
 
   if (error) {
     return (
-      <div className="org-dash -mx-4 sm:-mx-6 lg:-mx-8 mt-4">
+      <div className="org-dash">
         <style>{styles}</style>
         <div className="orb orb-1" />
         <div className="orb orb-2" />
@@ -456,10 +460,15 @@ export default function OrgAdminOrganizationPage() {
   const totalEmployees = org.total_employees || 0;
   const activeEmployees = org.active_employees || 0;
   const hrAdmins = org.hr_admins || 0;
-  const maxUsers = org.max_users;
-  const plan = org.subscription_plan || "FREE";
-  const currency = org.currency || "USD";
-  const seatsOver = maxUsers != null ? totalEmployees - maxUsers : 0;
+  const plan = org.subscription_plan || "STANDARD";
+  const currency = org.currency || resolveCurrencyForCountry(org.country) || "USD";
+  const maxUsers = org.max_users != null
+    ? org.max_users
+    : (plan.toUpperCase() === "ENTERPRISE" ? null : (plan.toUpperCase() === "CORE" ? 50 : (plan.toUpperCase() === "ADVANCED" ? 250 : 100)));
+  const isUnlimited = maxUsers == null;
+  const planLimitDisplay = isUnlimited ? "Unlimited" : Number(maxUsers).toLocaleString();
+  const seatsOver = isUnlimited ? 0 : Math.max(0, totalEmployees - maxUsers);
+  const seatsRemaining = isUnlimited ? "Unlimited" : Math.max(0, maxUsers - totalEmployees);
   const regDate = org.created_at ? formatDate(org.created_at) : "—";
 
   const EditField = ({ label, value, onChange, textarea, mono }) => {
@@ -479,7 +488,7 @@ export default function OrgAdminOrganizationPage() {
   };
 
   return (
-    <div className="org-dash -m-4 sm:-m-6 lg:-m-8">
+    <div className="org-dash">
       <style>{styles}</style>
       <div className="orb orb-1" />
       <div className="orb orb-2" />
@@ -523,7 +532,7 @@ export default function OrgAdminOrganizationPage() {
         <div className="stat-strip rise" style={{ animationDelay: ".2s" }}>
           <StatTile glowColor="var(--violet)" label="Total Employees" value={totalEmployees} sub="Across your organization" />
           <StatTile glowColor="var(--success)" label="Active" value={activeEmployees} sub={`${Math.round((activeEmployees / Math.max(totalEmployees, 1)) * 100)}% of workforce`} valueColor="var(--violet-deep)" />
-          <StatTile glowColor="var(--amber)" label="Plan Limit" value={maxUsers ?? "—"} sub={`${plan} plan · ${currency}`} valueColor="var(--amber-deep)" />
+          <StatTile glowColor="var(--amber)" label="Plan Limit" value={planLimitDisplay} sub={isUnlimited ? `${plan} plan · Unlimited seats` : `${totalEmployees} of ${maxUsers} seats used · ${plan} plan`} valueColor="var(--amber-deep)" />
           <StatTile glowColor="var(--danger)" label="Seats Over Limit" value={seatsOver > 0 ? `−${seatsOver}` : "0"} sub={seatsOver > 0 ? "Needs upgrade" : "Within limit"} valueColor="var(--danger)" />
         </div>
 
@@ -560,7 +569,7 @@ export default function OrgAdminOrganizationPage() {
             <div className="rows">
               <DetailRow label="Subscription Plan" value={plan} />
               <DetailRow label="Subscription Status" value={org.subscription_status} pill />
-              <DetailRow label="Max Users" value={maxUsers ?? "—"} mono />
+              <DetailRow label="Max Users" value={isUnlimited ? "Unlimited" : `${maxUsers} seats`} mono />
               <DetailRow label="Currency" value={currency} mono />
               <DetailRow label="Registration Date" value={regDate} mono />
             </div>
@@ -607,8 +616,10 @@ export default function OrgAdminOrganizationPage() {
             {seatsOver > 0 && (
               <span style={{ color: "var(--danger)" }}><b style={{ color: "var(--danger)" }}>−{seatsOver}</b> seats remaining on {plan} plan</span>
             )}
-            {seatsOver <= 0 && maxUsers != null && (
-              <span><b>{maxUsers - totalEmployees}</b> seats remaining on {plan} plan</span>
+            {isUnlimited ? (
+              <span><b>Unlimited</b> seats on {plan} plan</span>
+            ) : (
+              <span><b>{seatsRemaining}</b> seats remaining on {plan} plan</span>
             )}
           </div>
         </div>

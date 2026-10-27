@@ -956,6 +956,15 @@ def get_hr_dashboard_stats(db: Session, organization_id: Optional[int] = None) -
     }
 
 
+def _org_currency(db, organization_id):
+    """Resolve the currency for an organization from its stored currency or country."""
+    from app.core.regions import currency_for
+    org = db.query(Organization).filter(Organization.id == organization_id).first()
+    if not org:
+        return "USD"
+    return org.currency or currency_for(getattr(org, "country", None), "USD")
+
+
 def get_organization_details(db: Session, organization_id: int) -> dict:
     org = db.query(Organization).filter(Organization.id == organization_id).first()
     if not org:
@@ -967,15 +976,16 @@ def get_organization_details(db: Session, organization_id: int) -> dict:
         Employee.role == UserRole.ADMIN,
         Employee.is_active == True
     ).first()
-    # HR platform is a standalone subscription-free module
-    subscription_plan = "STANDARD"
-    subscription_status = "active"
-
     from app.modules.billing.models import OrganizationEvaluation
     active_evaluation = db.query(OrganizationEvaluation).filter(
         OrganizationEvaluation.organization_id == organization_id,
         OrganizationEvaluation.status == "active",
     ).first()
+
+    subscription_plan = "STANDARD"
+    if active_evaluation and active_evaluation.approved_package_scope:
+        subscription_plan = active_evaluation.approved_package_scope.upper()
+    subscription_status = "active"
 
     total_employees = db.query(Employee).filter(
         Employee.organization_id == organization_id,
@@ -1024,7 +1034,7 @@ def get_organization_details(db: Session, organization_id: int) -> dict:
         "subscription_plan": subscription_plan,
         "subscription_status": subscription_status,
         "subscription_end_date": None,
-        "max_users": None,
+        "max_users": {"core": 50, "advanced": 250, "standard": 100, "free": 25}.get(subscription_plan.lower(), 100),
         "total_employees": total_employees,
         "active_employees": active_employees,
         "hr_admins": hr_admins,
@@ -1047,6 +1057,10 @@ def update_organization(db: Session, organization_id: int, data) -> dict:
     if update_fields.get("country"):
         from app.modules.billing import country_policy
         country_policy.check_org_country_change(db, organization_id, update_fields["country"])
+        # Auto-update currency to match the new country unless explicitly overridden
+        if "currency" not in update_fields:
+            from app.core.regions import currency_for
+            update_fields["currency"] = currency_for(update_fields["country"], "USD")
 
     for field, value in update_fields.items():
         setattr(org, field, value)
@@ -1259,6 +1273,7 @@ def get_org_admin_dashboard_stats(db: Session, organization_id: int) -> dict:
         "average_attendance": average_attendance,
         "average_tenure_years": average_tenure_years,
         "open_positions": 0,
+        "currency": _org_currency(db, organization_id),
     }
 
 
@@ -1468,6 +1483,7 @@ def get_org_admin_detailed_metrics(db: Session, organization_id: int) -> dict:
         },
         "new_hires_30d": new_hires_30,
         "open_positions": 0,
+        "currency": _org_currency(db, organization_id),
     }
 
 

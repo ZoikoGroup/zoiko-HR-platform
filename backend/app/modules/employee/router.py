@@ -18,7 +18,7 @@ from app.database import get_db
 from app.core.client_ip import get_client_ip
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.rate_limiter import limiter
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, BadRequestException
 
 logger = logging.getLogger("zoiko.employee.router")
 
@@ -29,7 +29,7 @@ from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.employee.schema import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeListResponse,
-    LoginRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
+    LoginRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, SendRegistrationOtpRequest, VerifyRegistrationOtpRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
     UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
     PasswordResetResponse, PasswordResetRequest, ChangePasswordRequest, TokenPasswordRequest,
     ChangeManagerRequest, ConfirmProbationRequest,
@@ -240,6 +240,30 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     return service.register_enterprise(db, data)
 
 
+
+@auth_router.post(
+    "/send-registration-otp",
+    response_model=dict,
+    summary="Send an OTP to the organization's registered email address",
+)
+@limiter.limit("5/minute")
+def send_registration_otp(request: Request, data: SendRegistrationOtpRequest, db: Session = Depends(get_db)):
+    return service.generate_and_send_registration_otp(db, data.registered_email, data.org_name)
+
+
+@auth_router.post(
+    "/verify-registration-otp",
+    response_model=dict,
+    summary="Verify an OTP sent to the organization's registered email address",
+)
+@limiter.limit("15/minute")
+def verify_registration_otp(request: Request, data: VerifyRegistrationOtpRequest, db: Session = Depends(get_db)):
+    is_valid = service.verify_registration_otp(db, data.registered_email, data.otp, consume=False)
+    if not is_valid:
+        raise BadRequestException("Invalid or expired verification code.")
+    return {"valid": True, "message": "Verification code is valid."}
+
+
 @auth_router.get(
     "/products",
     response_model=list[dict],
@@ -264,6 +288,15 @@ def get_me(
     emp_data = EmpResp.model_validate(current_user).model_dump()
     if current_user.organization_id:
         emp_data["products"] = ["hr"]
+        from app.modules.hr.models import Organization
+        from app.core import regions
+        org = db.query(Organization).filter(Organization.id == current_user.organization_id).first()
+        if org:
+            emp_data["organization_country"] = org.country
+            effective_country = current_user.country or current_user.work_country or org.country
+            emp_data["currency"] = org.currency or regions.currency_for(effective_country, "USD")
+            if not emp_data.get("work_country") and effective_country:
+                emp_data["work_country"] = regions.country_code(effective_country)
         logger.debug("[PRODUCTS] GET /me: user=%s org_id=%s products=%s", current_user.email, current_user.organization_id, emp_data['products'])
     else:
         logger.debug("[PRODUCTS] GET /me: user=%s no organization, products=[]", current_user.email)

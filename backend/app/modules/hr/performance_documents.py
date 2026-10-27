@@ -757,6 +757,26 @@ def my_reviews(db: Session = Depends(get_db), user=Depends(get_current_user)):
     return {"items": [_ser_review(db, r) for r in rows]}
 
 
+@me_router.get("/appraisals")
+def my_appraisals(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """The employee's own appraisals — only those given/reviewed by the organization admin (admin_reviewer_id set)."""
+    rows = (db.query(Appraisal)
+            .filter(Appraisal.organization_id == user.organization_id,
+                    Appraisal.employee_id == user.id,
+                    Appraisal.admin_reviewer_id.isnot(None))
+            .order_by(Appraisal.id.desc()).all())
+    return {"items": [
+        {
+            "id": a.id, "employee_id": a.employee_id, "admin_reviewer_id": a.admin_reviewer_id,
+            "cycle": a.cycle, "status": a.status,
+            "self_score": a.self_score, "manager_score": a.manager_score, "final_score": a.final_score,
+            "recommendation": a.recommendation, "salary_hike": a.salary_hike, "comments": a.comments,
+            "created_at": a.created_at, "reviewed_at": a.reviewed_at,
+        }
+        for a in rows
+    ]}
+
+
 @me_router.post("/probation-reviews/{review_id}/comments")
 def my_review_comments(review_id: int, body: CommentIn, db: Session = Depends(get_db), user=Depends(get_current_user)):
     return _ser_review(db, employee_comment(db, user, _review(db, user, review_id), body.comments))

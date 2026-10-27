@@ -451,6 +451,16 @@ const organizationAdminDashboard = {
   ],
 };
 
+// Organization Admin — Working Time Requests (overtime + attendance corrections)
+// Organization admin is an HR role, so the API already scopes /hr/time/* to their
+// whole organization: they can view and decide every request, not just their own.
+const organizationAdminTimeRequests = {
+  title: "TIME REQUESTS",
+  items: [
+    { label: "Overtime & Corrections", href: "/organization-admin/time-requests", icon: Clock },
+  ],
+};
+
 export const sections = [
   superAdminCommandCenter,
   superAdminOrganizations,
@@ -459,6 +469,7 @@ export const sections = [
   superAdminAccessSecurity,
   superAdminPlatformAdministration,
   organizationAdminDashboard,
+  organizationAdminTimeRequests,
   hrAdminDashboard,
   platform,
   products,

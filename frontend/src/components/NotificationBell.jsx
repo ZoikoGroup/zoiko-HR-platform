@@ -3,14 +3,16 @@
  * -------------------------------
  * Header bell for the Organization and User portals (ZHR-20): unread badge
  * (capped at "99+"), a dropdown with the latest notifications, "Mark all as
- * read" and "View all". The badge follows the server's unread count: polled
- * (see useUnreadNotifications) and updated immediately after any read action.
+ * read", sound toggle, and "View all". The badge follows the server's unread
+ * count: polled (see useUnreadNotifications) and updated immediately after any read action.
+ * Plays a notification sound when new notifications arrive (see useNotificationSound).
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Bell } from "lucide-react";
+import { Bell, Volume2, VolumeX } from "lucide-react";
 import { notificationService } from "../service/notificationService";
 import { publishUnreadCount, useUnreadNotifications } from "../hooks/useUnreadNotifications";
+import { useNotificationSound } from "../hooks/useNotificationSound";
 import { formatBadge, relativeTime } from "../utils/notificationFormat";
 import NotificationDetailDialog from "./notifications/NotificationDetailDialog";
 
@@ -19,6 +21,7 @@ const LATEST = 5;
 
 export default function NotificationBell() {
   const { count, refresh } = useUnreadNotifications();
+  const { soundEnabled, toggleSound } = useNotificationSound(count);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -101,10 +104,29 @@ export default function NotificationBell() {
         >
           <div className="flex items-center justify-between border-b border-slate-100 px-4 py-3">
             <span className="text-sm font-bold text-slate-800">Notifications</span>
-            <button onClick={markAll} disabled={count === 0}
-              className="text-xs font-semibold text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline">
-              Mark all as read
-            </button>
+            <div className="flex items-center gap-2.5">
+              <button
+                type="button"
+                onClick={toggleSound}
+                title={soundEnabled ? "Mute notification sound" : "Unmute notification sound"}
+                aria-label={soundEnabled ? "Mute notification sound" : "Unmute notification sound"}
+                className="rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600 transition"
+              >
+                {soundEnabled ? (
+                  <Volume2 className="h-4 w-4 text-slate-600" />
+                ) : (
+                  <VolumeX className="h-4 w-4 text-slate-400" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={markAll}
+                disabled={count === 0}
+                className="text-xs font-semibold text-blue-600 hover:underline disabled:cursor-not-allowed disabled:text-slate-300 disabled:no-underline"
+              >
+                Mark all as read
+              </button>
+            </div>
           </div>
 
           <div className="max-h-96 overflow-y-auto">

@@ -736,6 +736,27 @@ def _send_approval_email_now(
 
 
 
+def send_org_registration_otp_email(
+    email: str,
+    org_name: str,
+    otp: str,
+    ttl_minutes: int = 10,
+    db=None,
+) -> bool:
+    """Send a 6-digit OTP to the organization's registered email during registration."""
+    return send_approval_email(
+        email,
+        "org_registration_otp.html",
+        {
+            "subject": f"{otp} is your Zoiko HR verification code",
+            "org_name": org_name or "your organization",
+            "code": otp,
+            "ttl_minutes": ttl_minutes,
+        },
+        db=db,
+    )
+
+
 def send_registration_received(email: str, org_name: str, login_url: str = None, db=None):
     return send_approval_email(email, "registration_received.html", {
         "subject": f"Welcome to Zoiko HR — {org_name}",

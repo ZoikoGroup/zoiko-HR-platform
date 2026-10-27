@@ -50,6 +50,7 @@ from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASH
 
 from app.modules.hr import service
 from app.modules.hr import file_storage
+from app.modules.super_admin.admin_notifications import notify_org_admins
 from app.modules.hr.models import LeaveType, RequestStatus, HrDocument, OnboardingNewHire, OnboardingDocument
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.schemas import (
@@ -732,7 +733,22 @@ def review_leave(
     db: Session = Depends(get_db),
     current_user = Depends(get_current_user),
 ):
-    return service.review_leave_request(db, leave_id, data, current_user.organization_id, current_user.id)
+    result = service.review_leave_request(db, leave_id, data, current_user.organization_id, current_user.id)
+    # Notify org admins about leave review decision
+    try:
+        status_label = (data.status or "reviewed").replace("_", " ").title()
+        emp = db.query(Employee).filter(Employee.id == result.employee_id).first()
+        emp_name = f"{emp.first_name} {emp.last_name}" if emp else f"Employee #{result.employee_id}"
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title=f"Leave Request {status_label}",
+            message=f"{emp_name}'s leave request has been {status_label.lower()} by {current_user.first_name} {current_user.last_name}.",
+            notification_type="leave",
+        )
+        db.commit()
+    except Exception:
+        pass  # notification failure must not break the action
+    return result
 
 
 # ── Compensation Endpoints (Expanded) ─────────────────────────────────────────
@@ -1779,6 +1795,17 @@ async def upload_onboarding_document(
         onboarding_new_hire_id=record_id,
         organization_id=current_user.organization_id,
     )
+    # Notify org admins about onboarding document upload
+    try:
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title="Onboarding Document Uploaded",
+            message=f'Onboarding document "{title}" ({category}) has been uploaded by {current_user.first_name} {current_user.last_name}.',
+            notification_type="onboarding",
+        )
+        db.commit()
+    except Exception:
+        pass
     return doc
 
 
@@ -1940,7 +1967,21 @@ def request_onboarding_documents(new_hire_id: int, data: OnboardingDocumentReque
     created = onboarding_flow.request_documents(db, hire, data.categories, notify=False)
     if created:
         onboarding_flow.notify_document_request(db, hire, [{"title": d.title, "note": "Requested"} for d in created])
-    return [service.get_onboarding_document_by_id(db, d.id, organization_id=current_user.organization_id) for d in created]
+    result = [service.get_onboarding_document_by_id(db, d.id, organization_id=current_user.organization_id) for d in created]
+    # Notify org admins about document request
+    if created:
+        try:
+            cats = ", ".join(d.category for d in created)
+            notify_org_admins(
+                db, org_id=current_user.organization_id,
+                title="Onboarding Documents Requested",
+                message=f"Documents ({cats}) have been requested for a new hire by {current_user.first_name} {current_user.last_name}.",
+                notification_type="onboarding",
+            )
+            db.commit()
+        except Exception:
+            pass
+    return result
 
 
 @hr_router.get("/onboarding/new-hires/{new_hire_id}/progress", summary="Checklist, document and orientation progress, and what blocks completion")
@@ -2502,7 +2543,22 @@ def update_travel_request(
             raise BadRequestException("You cannot approve or reject a travel request.")
         if "start_date" in changes or "end_date" in changes:
             service.check_travel_dates(changes.get("start_date", current.start_date), changes.get("end_date", current.end_date), allow_past=False)
-    return service.update_travel_request(db, travel_id, data, organization_id=current_user.organization_id)
+    result = service.update_travel_request(db, travel_id, data, organization_id=current_user.organization_id)
+    # Notify org admins about travel request updates (especially status changes)
+    try:
+        changes_dict = data.model_dump(exclude_unset=True)
+        if "status" in changes_dict and changes_dict["status"] is not None:
+            status_label = str(changes_dict["status"]).replace("_", " ").title()
+            notify_org_admins(
+                db, org_id=current_user.organization_id,
+                title=f"Travel Request {status_label}",
+                message=f"Travel request #{travel_id} has been {status_label.lower()} by {current_user.first_name} {current_user.last_name}.",
+                notification_type="travel",
+            )
+            db.commit()
+    except Exception:
+        pass
+    return result
 
 
 @hr_router.delete(
@@ -2562,7 +2618,20 @@ def review_travel_expense(
     changes = data.model_dump(exclude_unset=True)
     if set(changes) != {"status"} or changes["status"] is None:
         raise BadRequestException("Send the decision as a status: approved, rejected or completed.")
-    return service.review_travel_expense(db, expense_id, current_user.organization_id, changes["status"], current_user.id)
+    result = service.review_travel_expense(db, expense_id, current_user.organization_id, changes["status"], current_user.id)
+    # Notify org admins about expense review decision
+    try:
+        status_label = str(changes["status"]).replace("_", " ").title()
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title=f"Expense Claim {status_label}",
+            message=f"Expense claim #{expense_id} has been {status_label.lower()} by {current_user.first_name} {current_user.last_name}.",
+            notification_type="expense",
+        )
+        db.commit()
+    except Exception:
+        pass
+    return result
 
 
 @hr_router.post(
@@ -2818,6 +2887,17 @@ async def upload_hr_document_route(
         expiry_date=expiry_date,
         folder_id=folder_id,
     )
+    # Notify org admins about new document upload
+    try:
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title="New Document Uploaded",
+            message=f'"{resolved_title}" has been uploaded by {current_user.first_name} {current_user.last_name} and is pending review.',
+            notification_type="document",
+        )
+        db.commit()
+    except Exception:
+        pass
     return doc
 
 
@@ -2951,7 +3031,21 @@ def update_hr_document_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return service.update_hr_document_status(db, document_id, data, organization_id=current_user.organization_id)
+    result = service.update_hr_document_status(db, document_id, data, organization_id=current_user.organization_id)
+    # Notify org admins about document status change
+    try:
+        new_status = (data.status or "updated").replace("_", " ").title()
+        doc_title = result.get("title") if isinstance(result, dict) else getattr(result, "title", f"Document #{document_id}")
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title=f"Document {new_status}",
+            message=f'"{doc_title}" status has been changed to {new_status.lower()} by {current_user.first_name} {current_user.last_name}.',
+            notification_type="document",
+        )
+        db.commit()
+    except Exception:
+        pass
+    return result
 
 
 @hr_router.delete(
@@ -3029,7 +3123,7 @@ async def upload_document_version(
     with open(file_path, "wb") as fh:
         fh.write(contents)
 
-    return service.create_document_version(
+    version = service.create_document_version(
         db=db,
         document_id=document_id,
         file_path=file_path,
@@ -3040,6 +3134,18 @@ async def upload_document_version(
         organization_id=current_user.organization_id,
         change_notes=change_notes,
     )
+    # Notify org admins about new document version
+    try:
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title="New Document Version Uploaded",
+            message=f"A new version of document #{document_id} has been uploaded by {current_user.first_name} {current_user.last_name}.",
+            notification_type="document",
+        )
+        db.commit()
+    except Exception:
+        pass
+    return version
 
 
 @hr_router.get(
@@ -3111,7 +3217,20 @@ def approve_document(
     current_user=Depends(get_current_user),
 ):
     comment = data.comment if data else None
-    return service.approve_document(db, document_id, current_user, comment=comment)
+    result = service.approve_document(db, document_id, current_user, comment=comment)
+    # Notify org admins about document approval
+    try:
+        doc_title = result.get("title") if isinstance(result, dict) else getattr(result, "title", f"Document #{document_id}")
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title="Document Approved",
+            message=f'"{doc_title}" has been approved by {current_user.first_name} {current_user.last_name}.',
+            notification_type="document",
+        )
+        db.commit()
+    except Exception:
+        pass
+    return result
 
 
 @hr_router.post(
@@ -3126,7 +3245,20 @@ def reject_document(
     current_user=Depends(get_current_user),
 ):
     comment = data.comment if data else None
-    return service.reject_document(db, document_id, current_user, comment=comment)
+    result = service.reject_document(db, document_id, current_user, comment=comment)
+    # Notify org admins about document rejection
+    try:
+        doc_title = result.get("title") if isinstance(result, dict) else getattr(result, "title", f"Document #{document_id}")
+        notify_org_admins(
+            db, org_id=current_user.organization_id,
+            title="Document Rejected",
+            message=f'"{doc_title}" has been rejected by {current_user.first_name} {current_user.last_name}.',
+            notification_type="document",
+        )
+        db.commit()
+    except Exception:
+        pass
+    return result
 
 
 @hr_router.get(
