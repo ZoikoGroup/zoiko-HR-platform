@@ -11,6 +11,7 @@ APP = "https://app.zoikohr.com"
 SENDER_SAMPLES = [
     ("send_workflow_message", dict(email="sam@acme.test", subject="Welcome aboard", body="Hi Sam,\nYour laptop is ready.")),
     ("send_registration_received", dict(email="owner@acme.test", org_name="Acme Corp")),
+    ("send_org_registration_otp_email", dict(email="owner@acme.test", org_name="Acme Corp", otp="482913", ttl_minutes=10)),
     ("send_new_organization_created", dict(
         email="ops@zoikohr.test", recipient_first_name="Priya", organization_name="Acme Corp",
         created_at_local="Sep 25, 2026 10:30", timezone="UTC", creator_name="Jordan Lee",
