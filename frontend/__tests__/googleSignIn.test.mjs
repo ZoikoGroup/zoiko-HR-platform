@@ -60,6 +60,22 @@ test("when Google sign-in is not set up the button is disabled and the page says
   assert.match(document.body.textContent, /not set up for this site yet/);
 });
 
+test("when the server cannot be asked (starting up, offline) the button still works and nothing claims it is not set up", async (t) => {
+  await open(t, { enabled: null });
+  assert.equal(screen.getByRole("button", { name: /Continue with Google/ }).disabled, false);
+  assert.doesNotMatch(document.body.textContent, /not set up/);
+});
+
+test("coming back to the page with the Back button un-sticks the Google button", async (t) => {
+  await open(t);
+  fireEvent.click(screen.getByRole("button", { name: /Continue with Google/ }));   // jsdom does not leave the page
+  assert.ok(screen.getByRole("button", { name: /Connecting to Google/ }).disabled);
+  const restored = new window.Event("pageshow");
+  Object.defineProperty(restored, "persisted", { value: true });
+  await act(async () => { window.dispatchEvent(restored); });
+  assert.equal(screen.getByRole("button", { name: /Continue with Google/ }).disabled, false);
+});
+
 test("coming back with a ticket finishes the sign-in, goes to the person's home page and cleans the address", async (t) => {
   const calls = await open(t, { url: "/login?google_ticket=abc.def" });
   assert.deepEqual(calls.exchange, ["abc.def"]);

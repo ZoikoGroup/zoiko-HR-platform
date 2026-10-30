@@ -64,12 +64,14 @@ export async function resendVerification(email) {
 }
 
 /** Is Sign in with Google set up on this server? (false when the server cannot be reached: the button then says so) */
+/** true/false as the server says; null when the server could not be asked (starting up, offline), so a blip does not
+ *  switch the button off. If Google really is not set up, the server's /auth/google/login says so after the click. */
 export async function googleSignInEnabled() {
   try {
     const data = await api.get("/auth/google/status", { auth: false });
     return !!data?.enabled;
   } catch {
-    return false;
+    return null;
   }
 }
 
