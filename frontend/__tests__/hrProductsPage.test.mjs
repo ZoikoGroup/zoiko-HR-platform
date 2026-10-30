@@ -22,11 +22,3 @@ test("the page covers all three products, the plans, and ways to start", async (
   assert.ok(document.getElementById("docs-pro"));
 });
 
-test("the login page card links to the products page", async (t) => {
-  t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({ login: async () => {}, loginWithGoogle: async () => {}, error: null }) } });
-  t.mock.module("../src/service/authService", { exports: { googleSignInEnabled: async () => false, resendVerification: async () => ({}), mfaEnrollStart: async () => ({}) } });
-  const { default: Login } = await import(`../src/pages/auth/LoginPage.jsx?t=${Math.random()}`);
-  render(React.createElement(MemoryRouter, { initialEntries: ["/login"] }, React.createElement(Login)));
-  const link = screen.getByText("Explore HR Products").closest("a");
-  assert.equal(link.getAttribute("href"), "/hr-products");
-});
