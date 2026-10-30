@@ -102,11 +102,16 @@ test("Google is the only single sign-on option on the login page: no Microsoft a
   assert.doesNotMatch(document.body.textContent, /Microsoft|Continue with SSO/);
 });
 
-test("the login page's top bar is just the logo and Book a Demo: no menu links", async (t) => {
+test("the login page is the hero and the sign-in card: tabs, account links and legal links go to their pages", async (t) => {
   await open(t);
-  const header = document.querySelector("header");
-  assert.ok(header.querySelector("img[alt='Zoiko HR']"));
-  assert.equal(header.querySelector("nav"), null);
-  assert.doesNotMatch(header.textContent, /Platform|Solutions|Integrations|Resources|Company|Pricing/);
-  assert.match(header.textContent, /Book a Demo/);
+  assert.equal(document.querySelector("header"), null);
+  assert.ok(document.querySelector("img.login-hero-image").getAttribute("alt").startsWith("Zoiko HR"));
+  const tabs = document.querySelector("nav[aria-label='Account options']");
+  assert.deepEqual([...tabs.querySelectorAll("a")].map((a) => [a.textContent, a.getAttribute("href")]),
+    [["Login", "/login"], ["Register", "/register"], ["Reset Password", "/forgot-password"]]);
+  assert.equal(tabs.querySelector("[aria-current='page']").textContent, "Login");
+  assert.equal(screen.getByText("Forgot password?").getAttribute("href"), "/forgot-password");
+  assert.equal(document.querySelector(".register-prompt a").getAttribute("href"), "/register");
+  assert.equal(screen.getByText("Terms").getAttribute("href"), "/terms");
+  assert.match(document.querySelector(".login-footer").textContent, /© 2026 Zoiko Tech Inc\./);
 });
