@@ -4,7 +4,11 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
-    # Compress text responses (the JS/CSS bundle is ~2.4 MB raw).
+    # Compress text responses. The build also emits .gz (and .br) next to every
+    # text asset; gzip_static serves the precompressed file so no compression
+    # work happens per request, while the settings below remain the fallback for
+    # anything without a sidecar (or a client that only accepts identity).
+    gzip_static on;
     gzip on;
     gzip_comp_level 5;
     gzip_min_length 1024;
