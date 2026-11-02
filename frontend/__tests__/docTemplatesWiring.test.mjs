@@ -17,6 +17,7 @@ afterEach(() => cleanup());
 const here = path.dirname(fileURLToPath(import.meta.url));
 const read = (p) => fs.readFileSync(path.join(here, "..", p), "utf8");
 const app = read("src/App.jsx");
+const routes = `${app}\n${read("src/routes/PortalApp.jsx")}`;
 const nav = read("src/navigation.js");
 const roles = read("src/config/roles.js");
 
@@ -28,10 +29,10 @@ const HR_PAGES = [
 
 test("every template-engine page is registered as a route", () => {
   for (const p of [...HR_PAGES, "/employee/documents/signatory-queue"]) {
-    assert.ok(app.includes(`"${p}":`), `missing route ${p}`);
+    assert.ok(routes.includes(`"${p}":`), `missing route ${p}`);
   }
   // the organization-admin legal entities page was removed on request (2026-10-22)
-  assert.ok(!app.includes('"/organization-admin/legal-entities":'), "the legal entities page is gone");
+  assert.ok(!routes.includes('"/organization-admin/legal-entities":'), "the legal entities page is gone");
 });
 
 test("candidate signing and verification are public routes outside the app shell", () => {

@@ -12,6 +12,10 @@ import { filterSectionsForRole } from "../src/hooks/useFilteredNavigation.js";
 import { ROLE_ALLOWED_PREFIXES, ROLES } from "../src/config/roles.js";
 
 const appSource = fs.readFileSync(new URL("../src/App.jsx", import.meta.url), "utf8");
+// The signed-in route table (and its role guard) moved to PortalApp.jsx when the
+// public entry stopped importing the whole portal.
+const portalSource = fs.readFileSync(new URL("../src/routes/PortalApp.jsx", import.meta.url), "utf8");
+const routeSource = `${appSource}\n${portalSource}`;
 const protectedSource = fs.readFileSync(new URL("../src/components/ProtectedRoute.jsx", import.meta.url), "utf8");
 
 // Same list ProtectedRoute uses to bounce super_admin away.
@@ -33,7 +37,7 @@ const superAdminNav = filterSectionsForRole(sections, ROLES.SUPER_ADMIN)
 const allowed = (path) =>
   (ROLE_ALLOWED_PREFIXES[ROLES.SUPER_ADMIN] || []).some((p) => path === p || path.startsWith(p.endsWith("/") ? p : `${p}/`));
 const blocked = (path) => BLOCKED.some((p) => path === p.slice(0, -1) || path.startsWith(p));
-const registered = (path) => appSource.includes(`"${path}":`);
+const registered = (path) => routeSource.includes(`"${path}":`);
 
 test("the route guard really blocks super_admin from /hr-admin/ (the original cause)", () => {
   assert.ok(BLOCKED.includes("/hr-admin/"), `blocked prefixes: ${BLOCKED}`);
@@ -53,7 +57,7 @@ test("every link a super admin sees has a registered route and passes the guard"
 test("the platform has no Assistant Knowledge or Support Tickets page (tenant content and people's questions, ZHR-PRIV-001 A01)", () => {
   const labels = superAdminNav.map((i) => i.label);
   assert.ok(!labels.includes("Assistant Knowledge") && !labels.includes("Support Tickets"));
-  assert.doesNotMatch(appSource, /SuperAdminKnowledgePage|SuperAdminSupportTicketsPage/);
+  assert.doesNotMatch(routeSource, /SuperAdminKnowledgePage|SuperAdminSupportTicketsPage/);
   assert.ok(!allowed("/super-admin/support-tickets") && !allowed("/super-admin/assistant-knowledge"));
 });
 
@@ -72,7 +76,7 @@ test("organization admins keep their original /hr-admin/ links", () => {
 });
 
 test("super admin routes are guarded by role at the router level", () => {
-  assert.match(appSource, /getAllowedRolesForPath\(path\)/);
+  assert.match(portalSource, /getAllowedRolesForPath\(path\)/);
   for (const role of [ROLES.ADMIN, ROLES.HR_ADMIN, ROLES.EMPLOYEE]) {
     const prefixes = ROLE_ALLOWED_PREFIXES[role] || [];
     assert.equal(prefixes.some((p) => "/super-admin/dashboard".startsWith(p) && p !== "/"), false, role);

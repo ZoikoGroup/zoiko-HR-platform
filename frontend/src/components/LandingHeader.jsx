@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { Menu, X, ChevronDown } from "lucide-react";
 import logo from "../assets/zoikohr-logo-svg.svg";
 import { useAuth } from "../context/AuthContext";
+import { loginChunk } from "../lib/publicChunks";
 
 const productLinks = [
   { label: "Zoiko HR", href: "/products/zoiko-hr", desc: "People & lifecycle management", color: "#3B82F6" },
@@ -92,6 +93,9 @@ export default function LandingHeader() {
         <div className="hidden lg:flex items-center gap-3">
           <Link
             to="/login"
+            onMouseEnter={loginChunk}
+            onFocus={loginChunk}
+            onTouchStart={loginChunk}
             className="px-[18px] py-2 text-sm font-medium text-gray-700 border border-gray-300 rounded-lg bg-white no-underline hover:border-blue-500 hover:text-blue-500 transition-all duration-200"
           >
             {isAuthenticated ? "Dashboard" : "Sign In"}
@@ -133,7 +137,7 @@ export default function LandingHeader() {
                 className="text-sm text-gray-700 no-underline py-1.5">{l.label}</a>
             ))}
             <div className="h-px bg-gray-200 my-2" />
-            <Link to="/login" onClick={() => setMobileOpen(false)}
+            <Link to="/login" onClick={() => setMobileOpen(false)} onMouseEnter={loginChunk} onTouchStart={loginChunk}
               className="text-center py-2.5 rounded-lg border border-gray-300 text-sm font-medium text-gray-700 no-underline">
               Sign In
             </Link>

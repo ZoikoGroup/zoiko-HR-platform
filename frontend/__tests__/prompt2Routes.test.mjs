@@ -8,6 +8,8 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 const app = read("src/App.jsx");
+// Signed-in routes live in PortalApp.jsx since the entry stopped importing them.
+const routes = `${app}\n${read("src/routes/PortalApp.jsx")}`;
 const navigation = read("src/navigation.js");
 
 test("Prompt 2 workforce and payroll pages have routes and navigation entries", () => {
@@ -16,7 +18,7 @@ test("Prompt 2 workforce and payroll pages have routes and navigation entries", 
     "/zoiko-hr/workforce-planning/job-descriptions",
   ]) {
     assert.ok(navigation.includes(`"${route}"`), `missing navigation entry for ${route}`);
-    assert.ok(app.includes(`"${route}":`), `missing route override for ${route}`);
+    assert.ok(routes.includes(`"${route}":`), `missing route override for ${route}`);
   }
 });
 

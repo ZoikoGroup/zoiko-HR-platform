@@ -1,0 +1,9 @@
+/* Portal stylesheet, imported by routes/PortalApp.jsx.
+
+   The portal route table is a dynamic import, so Vite loads this file together
+   with it: public visitors never download the product's utility classes, and a
+   signed-in user gets them before the first portal paint (the module waits for
+   its CSS). It scans the whole source tree, so anything a portal page can
+   render — including shared components also used publicly — is covered. */
+@import "tailwindcss";
+@import "./styles/theme.css";

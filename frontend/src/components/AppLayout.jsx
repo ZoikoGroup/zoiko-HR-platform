@@ -25,13 +25,13 @@ export function RouteBoundary({ children }) {
   return <ErrorBoundary inline resetKey={pathname}>{children}</ErrorBoundary>;
 }
 
-export default function AppLayout() {
+export default function AppLayout({ children }) {
   return (
     <ProtectedRoute>
       <Suspense fallback={null}>
         <SuperAdminShell>
           <Suspense fallback={<PageFallback />}>
-            <Outlet />
+            {children ?? <Outlet />}
           </Suspense>
           <SupportSessionBanner />
         </SuperAdminShell>

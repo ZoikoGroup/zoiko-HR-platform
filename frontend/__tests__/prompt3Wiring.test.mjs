@@ -8,6 +8,7 @@ const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 
 const app = read("src/App.jsx");
+const routes = `${app}\n${read("src/routes/PortalApp.jsx")}`;
 const navigation = read("src/navigation.js");
 const roles = read("src/config/roles.js");
 const service = read("src/service/workDocumentsService.js");
@@ -21,10 +22,10 @@ test("Prompt 3 pages have routes and navigation entries", () => {
     "/employee/ess/time-requests",
   ]) {
     assert.ok(navigation.includes(`"${route}"`), `missing navigation entry for ${route}`);
-    assert.ok(app.includes(`"${route}":`), `missing route for ${route}`);
+    assert.ok(routes.includes(`"${route}":`), `missing route for ${route}`);
   }
   // the policy library stays routed but left the sidebar on request (2026-10-22)
-  assert.ok(app.includes('"/zoiko-hr/documents/policies":') && !navigation.includes('"/zoiko-hr/documents/policies"'));
+  assert.ok(routes.includes('"/zoiko-hr/documents/policies":') && !navigation.includes('"/zoiko-hr/documents/policies"'));
 });
 
 test("employees and managers can open their own policies and compensation", () => {

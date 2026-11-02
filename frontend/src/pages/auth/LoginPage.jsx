@@ -6,6 +6,7 @@ import { googleSignInEnabled, mfaEnrollStart, resendVerification } from "../../s
 import { API_BASE_URL } from "../../service/api";
 import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
 import { realEmailError } from "../../utils/realEmail";
+import "./LoginPage.css";
 
 export default function LoginPage() {
   const { login, loginWithGoogle, confirmMfaEnrollment, error: authError, defaultRedirect } = useAuth();
