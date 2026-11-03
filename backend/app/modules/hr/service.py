@@ -982,9 +982,16 @@ def get_organization_details(db: Session, organization_id: int) -> dict:
         OrganizationEvaluation.status == "active",
     ).first()
 
-    subscription_plan = "STANDARD"
-    if active_evaluation and active_evaluation.approved_package_scope:
+    from app.modules.billing import seat_policy
+    seats = seat_policy.usage(db, organization_id)
+    if seats["plan"] == "evaluation":
+        subscription_plan = "EVALUATION"
+    elif seats["plan"]:
+        subscription_plan = seats["plan"].upper()
+    elif active_evaluation and active_evaluation.approved_package_scope:
         subscription_plan = active_evaluation.approved_package_scope.upper()
+    else:
+        subscription_plan = "NO PLAN"
     subscription_status = "active"
 
     total_employees = db.query(Employee).filter(
@@ -1034,7 +1041,9 @@ def get_organization_details(db: Session, organization_id: int) -> dict:
         "subscription_plan": subscription_plan,
         "subscription_status": subscription_status,
         "subscription_end_date": None,
-        "max_users": {"core": 50, "advanced": 250, "standard": 100, "free": 25}.get(subscription_plan.lower(), 100),
+        "max_users": seats["seat_limit"],          # None = unlimited
+        "seats_used": seats["seats_used"],
+        "seats_remaining": seats["seats_remaining"],
         "total_employees": total_employees,
         "active_employees": active_employees,
         "hr_admins": hr_admins,

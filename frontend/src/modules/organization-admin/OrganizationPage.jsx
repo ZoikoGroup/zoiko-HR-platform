@@ -460,15 +460,15 @@ export default function OrgAdminOrganizationPage() {
   const totalEmployees = org.total_employees || 0;
   const activeEmployees = org.active_employees || 0;
   const hrAdmins = org.hr_admins || 0;
-  const plan = org.subscription_plan || "STANDARD";
+  const plan = org.subscription_plan || "NO PLAN";
   const currency = org.currency || resolveCurrencyForCountry(org.country) || "USD";
-  const maxUsers = org.max_users != null
-    ? org.max_users
-    : (plan.toUpperCase() === "ENTERPRISE" ? null : (plan.toUpperCase() === "CORE" ? 50 : (plan.toUpperCase() === "ADVANCED" ? 250 : 100)));
+  // The server enforces the plan's user limit (null = unlimited) and counts the seats in use the same way.
+  const maxUsers = org.max_users ?? null;
+  const seatsUsed = org.seats_used ?? totalEmployees;
   const isUnlimited = maxUsers == null;
   const planLimitDisplay = isUnlimited ? "Unlimited" : Number(maxUsers).toLocaleString();
-  const seatsOver = isUnlimited ? 0 : Math.max(0, totalEmployees - maxUsers);
-  const seatsRemaining = isUnlimited ? "Unlimited" : Math.max(0, maxUsers - totalEmployees);
+  const seatsOver = isUnlimited ? 0 : Math.max(0, seatsUsed - maxUsers);
+  const seatsRemaining = isUnlimited ? "Unlimited" : Math.max(0, maxUsers - seatsUsed);
   const regDate = org.created_at ? formatDate(org.created_at) : "—";
 
   const EditField = ({ label, value, onChange, textarea, mono }) => {
@@ -532,7 +532,7 @@ export default function OrgAdminOrganizationPage() {
         <div className="stat-strip rise" style={{ animationDelay: ".2s" }}>
           <StatTile glowColor="var(--violet)" label="Total Employees" value={totalEmployees} sub="Across your organization" />
           <StatTile glowColor="var(--success)" label="Active" value={activeEmployees} sub={`${Math.round((activeEmployees / Math.max(totalEmployees, 1)) * 100)}% of workforce`} valueColor="var(--violet-deep)" />
-          <StatTile glowColor="var(--amber)" label="Plan Limit" value={planLimitDisplay} sub={isUnlimited ? `${plan} plan · Unlimited seats` : `${totalEmployees} of ${maxUsers} seats used · ${plan} plan`} valueColor="var(--amber-deep)" />
+          <StatTile glowColor="var(--amber)" label="Plan Limit" value={planLimitDisplay} sub={isUnlimited ? `${plan} plan · Unlimited seats` : `${seatsUsed} of ${maxUsers} seats used · ${plan} plan`} valueColor="var(--amber-deep)" />
           <StatTile glowColor="var(--danger)" label="Seats Over Limit" value={seatsOver > 0 ? `−${seatsOver}` : "0"} sub={seatsOver > 0 ? "Needs upgrade" : "Within limit"} valueColor="var(--danger)" />
         </div>
 

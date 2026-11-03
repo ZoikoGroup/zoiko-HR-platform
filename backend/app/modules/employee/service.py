@@ -1144,6 +1144,9 @@ def create_organization_user(
         from app.modules.billing import country_policy
         country_policy.check_country(db, organization_id, extra.get("country"))
         status = EmployeeStatus(data.status) if data.status else EmployeeStatus.ACTIVE
+        from app.modules.billing import seat_policy
+        if seat_policy.occupies_seat(status, True):
+            seat_policy.check_can_add(db, organization_id)
         employee = Employee(
             email=data.email,
             hashed_password=hash_password(temp_password),
@@ -1398,6 +1401,9 @@ def activate_organization_user(
     skip_org_filter: bool = False,
 ) -> Employee:
     user = get_organization_user(db, user_id, organization_id, skip_org_filter)
+    from app.modules.billing import seat_policy
+    if not seat_policy.occupies_seat(user.status, user.is_active):
+        seat_policy.check_can_add(db, user.organization_id)
     user.is_active = True
     user.status = EmployeeStatus.ACTIVE
     user.updated_by = updated_by_id
@@ -1712,6 +1718,9 @@ def create_employee(
             raise BadRequestException("organization_id is required to create an employee")
         from app.modules.billing import country_policy
         country_policy.check_country(db, resolved_org_id, employee_data.get("work_country") or employee_data.get("country"))
+        from app.modules.billing import seat_policy
+        if seat_policy.occupies_seat(employee_data.get("status"), employee_data.get("is_active")):
+            seat_policy.check_can_add(db, resolved_org_id)
         generated = not data.password
         initial_password = data.password or _generate_temp_password()
         employee = Employee(
@@ -1981,6 +1990,10 @@ def _country_codes_match(a, b) -> bool:
     return code_of(a) is not None and code_of(a) == code_of(b)
 
 
+# Import statuses that leave the person able to sign in (is_active follows them), and so take a plan seat.
+_IMPORT_SIGN_IN_STATUSES = ("active", "pending", "on_leave", "password_reset_required")
+
+
 def import_employees_from_file(
     db: Session,
     file_bytes: bytes,
@@ -1994,6 +2007,8 @@ def import_employees_from_file(
     A 500-row import is one action by one person in one organization, so it is one
     event with success/failure counts — not 500 rows in the Super Admin's feed.
     """
+    from app.modules.billing import seat_policy
+
     result = {
         "total_rows": 0,
         "created": 0,
@@ -2176,6 +2191,20 @@ def import_employees_from_file(
                 result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "country", "error": refusal})
                 continue
 
+        # The plan's seats: a row that would add a person past the plan's user limit is reported, not imported
+        # (is_active follows the status below, so a row takes a seat when its status is one that can sign in)
+        if existing:
+            _adds_seat = (payload.get("status") in _IMPORT_SIGN_IN_STATUSES
+                          and not seat_policy.occupies_seat(existing.status, existing.is_active))
+        else:
+            _adds_seat = (payload.get("status") or "active") in _IMPORT_SIGN_IN_STATUSES
+        if _adds_seat:
+            refusal = seat_policy.seat_refusal(db, organization_id)
+            if refusal:
+                result["skipped"] += 1
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "status", "error": refusal})
+                continue
+
         # Resolve department by name – auto-create if not found
         dept_name = str(row_data.get("department_name", "")).strip()
         if dept_name:
@@ -2235,7 +2264,7 @@ def import_employees_from_file(
                             setattr(existing, field, value)
                     if payload.get("status"):
                         # The status shown in User Management and the ability to sign in move together.
-                        existing.is_active = payload["status"] in ("active", "pending", "on_leave", "password_reset_required")
+                        existing.is_active = payload["status"] in _IMPORT_SIGN_IN_STATUSES
                     existing.updated_by = current_user_id
                     employee = existing
                     result["updated"] += 1
@@ -2249,7 +2278,7 @@ def import_employees_from_file(
                         employee_code=generate_employee_code(db, organization_id=organization_id),
                         organization_id=organization_id,
                         role=UserRole.EMPLOYEE,
-                        is_active=emp_data.get("status", "active") in ("active", "pending", "on_leave", "password_reset_required"),
+                        is_active=emp_data.get("status", "active") in _IMPORT_SIGN_IN_STATUSES,
                         created_by=current_user_id,
                     )
                     db.add(employee)

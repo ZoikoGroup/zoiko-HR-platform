@@ -7,6 +7,7 @@ import { useAuth } from "../../../context/AuthContext";
 import { loadStates } from "../../../components/PlanGate";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
+import "./assistant-tokens.css";
 
 // Public, unauthenticated routes (kept in sync with the public <Route>
 // entries in App.jsx). AssistantContext's `isAuthenticated` is a raw

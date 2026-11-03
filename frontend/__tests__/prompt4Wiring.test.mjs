@@ -7,17 +7,18 @@ import { fileURLToPath } from "node:url";
 const root = path.join(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (file) => fs.readFileSync(path.join(root, file), "utf8");
 const app = read("src/App.jsx");
+const routes = `${app}\n${read("src/routes/PortalApp.jsx")}`;
 const navigation = read("src/navigation.js");
 const roles = read("src/config/roles.js");
 const service = read("src/service/goLiveService.js");
 
 test("Prompt 4 pages have routes and navigation entries", () => {
   // the documents centre stays routed but left the sidebar on request (2026-10-22)
-  assert.ok(app.includes('"/zoiko-hr/documents/centre":') && !navigation.includes('"/zoiko-hr/documents/centre"'));
+  assert.ok(routes.includes('"/zoiko-hr/documents/centre":') && !navigation.includes('"/zoiko-hr/documents/centre"'));
   for (const route of ["/zoiko-hr/performance/probation", "/zoiko-hr/employee-changes",
     "/employee/documents/to-action", "/employee/performance", "/super-admin/template-controls"]) {
     assert.ok(navigation.includes(`"${route}"`), `missing navigation entry for ${route}`);
-    assert.ok(app.includes(`"${route}":`), `missing route for ${route}`);
+    assert.ok(routes.includes(`"${route}":`), `missing route for ${route}`);
   }
   assert.match(roles, /"\/super-admin\/template-controls"/);
 });

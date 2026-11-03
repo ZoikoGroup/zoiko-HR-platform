@@ -1217,6 +1217,9 @@ def create_checkout(
         raise BadRequestException(
             f"Plan '{plan.name or plan.code}' is not available for purchase."
         )
+    # Refuse before taking money: a plan with fewer seats than the organization uses would strand people.
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, data.organization_id, plan.code)
 
     # Reconcile Stripe with the catalog rate BEFORE taking money. Without this,
     # editing a rate on the page would leave the old Stripe Price live and

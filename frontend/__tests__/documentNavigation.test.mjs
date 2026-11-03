@@ -19,7 +19,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const navSource = fs.readFileSync(path.join(here, "../src/navigation.js"), "utf8");
-const appSource = fs.readFileSync(path.join(here, "../src/App.jsx"), "utf8");
+const appSource = `${fs.readFileSync(path.join(here, "../src/App.jsx"), "utf8")}\n${fs.readFileSync(path.join(here, "../src/routes/PortalApp.jsx"), "utf8")}`;
 
 test("navigation.js no longer references the dead /zoiko-hr/ess/documents/* group", () => {
   // Matches an actual href value, not the removal comment that documents why

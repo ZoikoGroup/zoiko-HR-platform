@@ -51,13 +51,14 @@ function contrastRatio(hexA, hexB) {
   return (lighter + 0.05) / (darker + 0.05);
 }
 
-// ── Pull the actual token values out of src/index.css (single source of
-//    truth) rather than hardcoding them a second time here ─────────────────
+// ── Pull the actual token values out of src/styles/theme.css (single source of
+//    truth; it is imported by both the public and portal stylesheets) rather
+//    than hardcoding them a second time here ─────────────────────────────────
 
-const cssSource = fs.readFileSync(path.join(here, "../src/index.css"), "utf8");
+const cssSource = fs.readFileSync(path.join(here, "../src/styles/theme.css"), "utf8");
 function tokenValue(name) {
   const m = cssSource.match(new RegExp(`--color-doc-${name}:\\s*(#[0-9A-Fa-f]{6})`));
-  if (!m) throw new Error(`Token --color-doc-${name} not found in index.css`);
+  if (!m) throw new Error(`Token --color-doc-${name} not found in styles/theme.css`);
   return m[1];
 }
 

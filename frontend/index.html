@@ -5,10 +5,16 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
 <title>Zoiko HR — The connected business operations platform</title>
-<link rel="preconnect" href="https://fonts.googleapis.com" />
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" onload="this.onload=null;this.rel='stylesheet'" />
-<noscript><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" /></noscript>
+<!-- Inter is self-hosted as one variable woff2 (latin) plus latin-ext, so the first
+     paint no longer waits on a third-party CSS → font chain. font-display: swap
+     keeps text visible while the font is decoding. -->
+<link rel="preload" href="/fonts/inter-latin-var.woff2" as="font" type="font/woff2" crossorigin />
+<!-- The sign-in page is the default entry ("/" redirects to /login) and its
+     hero is the LCP element. Both breakpoints are declared statically so the
+     preload scanner sees them at parse time; the media query fetches only one.
+     Widths match the <picture> sources in LoginPage.jsx. -->
+<link rel="preload" as="image" href="/zoiko-login-hero-760.webp" media="(max-width: 900px)" fetchpriority="high" />
+<link rel="preload" as="image" href="/zoiko-login-hero.webp" media="(min-width: 901px)" fetchpriority="high" />
 </head>
 <body>
 <div id="root"></div>

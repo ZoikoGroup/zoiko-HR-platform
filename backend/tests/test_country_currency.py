@@ -140,6 +140,10 @@ def test_get_organization_details_plan_limit():
     query_mock.filter.return_value = filter_mock
     db.query.return_value = query_mock
 
-    res = get_organization_details(db, 1)
+    from unittest.mock import patch
+    seats = {"plan": "core", "seat_limit": 50, "seats_used": 5, "seats_remaining": 45}
+    with patch("app.modules.billing.seat_policy.usage", return_value=seats):
+        res = get_organization_details(db, 1)
     assert res["subscription_plan"] == "CORE"
     assert res["max_users"] == 50
+    assert res["seats_used"] == 5

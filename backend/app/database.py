@@ -164,6 +164,10 @@ import app.modules.support_access.audit  # noqa: F401,E402
 import app.modules.support_login.models  # noqa: F401,E402
 import app.modules.doc_templates.models  # noqa: F401,E402
 
+# Plan seat limits (Core 50, Advanced 250) hold on every write path, not only the routes that check them up front.
+from app.modules.billing import seat_policy as _seat_policy  # noqa: E402
+_seat_policy.install()
+
 
 # -- 4. Soft-deleted organizations are invisible by default (ZHR-35) ----------
 # One rule for the whole app instead of a filter in every query: every ORM
