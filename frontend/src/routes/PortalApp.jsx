@@ -173,6 +173,7 @@ const HrAdminOrganizationPage = lazyRoute(() => import("../modules/hr-admin/Orga
 const SuperAdminDashboardPage = lazyRoute(() => import("../modules/super-admin/DashboardPage"));
 const SuperAdminOrganizationsPage = lazyRoute(() => import("../modules/super-admin/OrganizationsPage"));
 const SuperAdminAuditLogsPage = lazyRoute(() => import("../modules/super-admin/AuditLogsPage"));
+const SuperAdminSalesRequestsPage = lazyRoute(() => import("../modules/super-admin/SalesRequestsPage"));
 const NotificationCenter = lazyRoute(() => import("../modules/super-admin/NotificationCenter"));
 const NotificationsPage = lazyRoute(() => import("../pages/NotificationsPage"));
 const OrganizationDetailPage = lazyRoute(() => import("../modules/super-admin/OrganizationDetailPage"));

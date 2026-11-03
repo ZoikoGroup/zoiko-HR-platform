@@ -53,7 +53,7 @@ export default function SalesRequestsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 -m-4 sm:-m-6 lg:-m-8">
+    <div className="min-h-screen bg-slate-50 -m-3 sm:-m-6 lg:-m-8">
       <header className="relative overflow-hidden bg-gradient-to-r from-[#0A192F] via-[#0F2942] to-[#1E3A8A] text-white">
         <div className="relative z-10 px-4 sm:px-6 lg:px-8 py-7 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div>
