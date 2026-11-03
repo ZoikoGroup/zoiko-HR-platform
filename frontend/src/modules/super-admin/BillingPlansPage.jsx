@@ -451,7 +451,7 @@ export default function BillingPlansPage() {
         title="Plans & Catalog"
         description={`${total} plan${total !== 1 ? "s" : ""} in catalog`}
         action={
-          <div className="flex items-center gap-2">
+          <div className="flex max-w-full flex-wrap items-center gap-2">
             <button
               onClick={loadPlans}
               className="p-2 rounded-xl border border-slate-200 hover:bg-blue-50 hover:text-blue-600 hover:border-blue-200 text-slate-500 transition"

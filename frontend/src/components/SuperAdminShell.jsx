@@ -17,9 +17,9 @@ export default function SuperAdminShell({ children }) {
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="lg:pl-72">
+      <div className="min-w-0 lg:pl-72">
         {!hideHeader && <Header onMenuClick={() => setSidebarOpen(true)} />}
-        <main className="mx-auto w-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">{children}</main>
+        <main className="portal-main mx-auto w-full min-w-0 max-w-7xl px-3 py-4 sm:px-6 sm:py-6 lg:px-8">{children}</main>
       </div>
     </div>
   );
