@@ -766,6 +766,8 @@ def convert_evaluation(
         )
 
     plan = get_plan_by_id(db, plan_id)
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, evaluation.organization_id, plan.code)
 
     # Back-billing rejection (Section 17): reject if commercial_effective_at
     # is earlier than now minus tolerance, unless signed agreement provided.
@@ -951,6 +953,8 @@ def upgrade_subscription(
 ) -> BillingSubscription:
     subscription = get_or_create_subscription(db, organization_id)
     plan = get_plan_by_id(db, plan_id)
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, organization_id, plan.code)
 
     before_plan_id = subscription.plan_id
     before_plan_code = role_value(subscription.plan_code) if subscription.plan_code else None
@@ -990,6 +994,8 @@ def schedule_downgrade(
 ) -> BillingSubscription:
     subscription = get_or_create_subscription(db, organization_id)
     plan = get_plan_by_id(db, plan_id)
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, organization_id, plan.code)
 
     # Downgrade only takes effect at renewal_anchor_date, never immediate
     target_date = effective_at or subscription.renewal_anchor_date

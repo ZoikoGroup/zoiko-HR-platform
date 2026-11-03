@@ -199,6 +199,21 @@ def check_country_blocker(db: Session, organization_id: int, target_plan_code) -
                     details={"in_use": sorted(country_policy.countries_in_use(db, organization_id)), "target_plan": target})]
 
 
+# ── 9. Seats Blocker ──────────────────────────────────────────────────────
+
+def check_seat_blocker(db: Session, organization_id: int, target_plan_code) -> list[Blocker]:
+    """Core includes 50 users and Advanced 250 (seat_policy): a move to a plan with fewer seats than the organization
+    uses is refused until people are removed or deactivated."""
+    from app.modules.billing import seat_policy
+    message = seat_policy.downgrade_refusal(db, organization_id, target_plan_code)
+    if not message:
+        return []
+    target = str(getattr(target_plan_code, "value", target_plan_code) or "").lower()
+    return [Blocker(category="seats", feature_key="plan.seats", message=message, severity="blocking",
+                    details={"in_use": seat_policy.seats_in_use(db, organization_id),
+                             "limit": seat_policy.seat_limit(db, organization_id, plan=target), "target_plan": target})]
+
+
 # ── Composite runner ──────────────────────────────────────────────────────
 
 ALL_CHECKS = [
@@ -210,6 +225,7 @@ ALL_CHECKS = [
     check_ai_blocker,
     check_governance_blocker,
     check_country_blocker,
+    check_seat_blocker,
 ]
 
 
