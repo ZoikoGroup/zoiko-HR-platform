@@ -5,6 +5,9 @@ on:
     workflows: ["CI"]
     branches: [main]
     types: [completed]
+  # Keep deployment recoverable from the Actions tab if a workflow_run was
+  # missed or its run was cancelled. Manual runs deploy the current main HEAD.
+  workflow_dispatch:
 
 jobs:
   # Optional: build the frontend on a CI runner instead of on the VM (faster, and a failed build can never leave
@@ -12,7 +15,7 @@ jobs:
   # set; without it this job is skipped and the VM builds the frontend exactly as before.
   prepare:
     runs-on: ubuntu-latest
-    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
     outputs:
       ci_build: ${{ steps.check.outputs.ci_build }}
     steps:
