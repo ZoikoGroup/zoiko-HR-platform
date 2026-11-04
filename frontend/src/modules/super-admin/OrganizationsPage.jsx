@@ -50,6 +50,7 @@ export default function SuperAdminOrganizationsPage() {
     queryKey: keys.superAdmin.organizations.list(params),
     queryFn: ({ signal }) => superAdminService.getOrganizations(params, { signal }),
     placeholderData: keepPreviousData,
+    refetchInterval: 30_000,
   });
   const organizations = orgsQuery.data?.organizations || [];
   const total = orgsQuery.data?.total || 0;

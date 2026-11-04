@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useParams } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
+import { keys } from "../../service/queryKeys";
 import {
   ArrowUpRight, ArrowDownRight, Calendar, Clock, CheckCircle, XCircle,
   AlertTriangle, Ban, ChevronRight, RefreshCcw, Search, Filter, Plus,
@@ -93,6 +95,7 @@ export default function BillingPlanChangesPage() {
   const { orgId } = useParams();
   const { role } = useAuth();
   const isAdmin = [ROLES.SUPER_ADMIN, ROLES.PLATFORM_ADMIN].includes(role);
+  const qc = useQueryClient();
 
   const [selectedOrg, setSelectedOrg] = useState(null);
   const activeOrgId = orgId || selectedOrg?.id;
@@ -195,6 +198,11 @@ export default function BillingPlanChangesPage() {
       setWizardOpen(false);
       setTargetPlanId("");
       setPreviewResult(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: keys.billing.all }),
+        qc.invalidateQueries({ queryKey: keys.superAdmin.organizations.all }),
+        qc.invalidateQueries({ queryKey: keys.superAdmin.commandCenter.all }),
+      ]);
       loadData();
     } catch (e) {
       setWizardError(e.message || "Scheduling plan change failed.");

@@ -99,7 +99,7 @@ async def lifespan(application: FastAPI):
         except Exception as e:
             logger.warning("[startup] Template catalogue sync could not run: %s", e)
 
-    # Background scheduler: plan-change execution (02:00) + delinquency walk (02:05).
+    # Background scheduler: plan-change execution (every minute) + daily billing walks.
     try:
         if _leader:
             from app.modules.billing.scheduler import start_scheduler

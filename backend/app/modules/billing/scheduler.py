@@ -3,13 +3,13 @@ modules/billing/scheduler.py
 -----------------------------
 APScheduler integration for periodic plan-change execution.
 
-Import and call setup_scheduler(app) from main.py to register a daily
+Import and call setup_scheduler(app) from main.py to register a recurring
 job that executes due plan changes. Falls back gracefully if APScheduler
 is not installed.
 
 Per Section 13/J3: downgrades take effect at renewal anchor date.
-This scheduler runs daily at 02:00 UTC to process any changes whose
-effective_at has arrived.
+This scheduler checks for due plan changes every minute so immediate
+changes are applied promptly while period-end changes run when due.
 """
 
 import logging
@@ -132,7 +132,7 @@ def setup_scheduler(app=None) -> bool:
     """Register the plan-change scheduler with the FastAPI app lifecycle.
 
     If APScheduler is not installed, logs a warning and returns False.
-    The scheduler runs daily at 02:00 UTC.
+    Due plan changes are checked every minute.
 
     Usage in main.py:
         from app.modules.billing.scheduler import setup_scheduler
@@ -163,7 +163,7 @@ def setup_scheduler(app=None) -> bool:
 
 
 def _ensure_scheduler():
-    """Lazily build the BackgroundScheduler and register all daily jobs."""
+    """Lazily build the BackgroundScheduler and register periodic jobs."""
     global _scheduler
     if _scheduler is not None and _scheduler.running:
         return _scheduler
@@ -172,11 +172,11 @@ def _ensure_scheduler():
 
     _scheduler.add_job(
         _execute_plan_changes_job,
-        CronTrigger(hour=2, minute=0),
+        CronTrigger(minute="*"),
         id="plan_change_execution",
         name="Execute due plan changes",
         replace_existing=True,
-        misfire_grace_time=3600,
+        misfire_grace_time=300,
     )
 
     _scheduler.add_job(
@@ -258,7 +258,7 @@ def start_scheduler() -> bool:
     _scheduler = _ensure_scheduler()
     if not _scheduler.running:
         _scheduler.start()
-    logger.info("[scheduler] Background scheduler started — plan changes 02:00, delinquency walk 02:05, evaluation expiry 02:10, evaluation reminders 02:15 UTC")
+    logger.info("[scheduler] Background scheduler started — plan changes every minute, delinquency walk 02:05, evaluation expiry 02:10, evaluation reminders 02:15 UTC")
     return True
 
 
