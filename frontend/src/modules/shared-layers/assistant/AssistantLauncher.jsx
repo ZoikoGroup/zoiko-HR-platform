@@ -4,6 +4,7 @@ import { useLocation } from "react-router-dom";
 import { X } from "lucide-react";
 import zoikoWaveGlyph from "../../../assets/zoikohr-wave-glyph.svg";
 import { useAuth } from "../../../context/AuthContext";
+import { ROLES } from "../../../config/roles";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
 
@@ -34,8 +35,25 @@ const FOCUSABLE =
  * composer.
  */
 export default function AssistantLauncher() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
   const location = useLocation();
+
+  if (!isAuthenticated || !user || PUBLIC_PATHS.has(location.pathname)) return null;
+
+  // Platform (super admin) accounts are refused on every /assistant route by
+  // the backend's trust boundary (core/privacy/routes.py lists /assistant as
+  // DATA_PLANE — tenant conversations), so a launcher here could only ever
+  // fail. Hide it rather than offer a broken chat.
+  if (user.role === ROLES.SUPER_ADMIN) return null;
+
+  // Keyed by identity: logout only clears AuthContext's user (no page
+  // reload), and this component lives at the app root, so without a fresh
+  // mount the next person to sign in on the same tab would inherit the
+  // previous user's loaded conversations from memory.
+  return <DockedAssistant key={`${user.organization_id ?? "none"}:${user.id ?? user.email}`} />;
+}
+
+function DockedAssistant() {
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const launcherRef = useRef(null);
@@ -81,8 +99,6 @@ export default function AssistantLauncher() {
       first.focus();
     }
   };
-
-  if (!isAuthenticated || PUBLIC_PATHS.has(location.pathname)) return null;
 
   return createPortal(
     <>
