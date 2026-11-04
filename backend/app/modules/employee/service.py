@@ -564,9 +564,28 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if support_login.is_support_username(str(data.email)):
         return support_login.sign_in(db, str(data.email), data.password)      # temporary read-only support sign-in
     _require_real_sign_in_address(str(data.email))
-    employee = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).first()
-    if not employee:
+    candidates = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).all()
+    if not candidates:
         raise UnauthorizedException("Invalid email or password.")
+
+    if len(candidates) == 1:
+        employee = candidates[0]
+    else:
+        from app.core import org_access
+        def _score(e):
+            if not e.is_active:
+                return -1
+            if e.organization_id:
+                try:
+                    oa = org_access.get_org_access(db, e.organization_id)
+                    if oa.deleted:
+                        return -2
+                    return 2 if oa.status in ("approved", "active") else 1
+                except Exception:
+                    return 0
+            return 1
+        candidates.sort(key=_score, reverse=True)
+        employee = candidates[0]
 
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
