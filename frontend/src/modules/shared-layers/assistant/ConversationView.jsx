@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  Loader2, X, ChevronRight, ArrowRight, ArrowDown, ShieldCheck,
+  Loader2, X, ChevronRight, ArrowRight, ArrowDown, ArrowLeft, ShieldCheck, LayoutGrid,
   CalendarDays, BookOpen, CalendarPlus, Clock, LifeBuoy,
 } from "lucide-react";
 import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
@@ -62,6 +62,11 @@ export default function ConversationView({
   const [myTicketsOpen, setMyTicketsOpen] = useState(false);
   const [showLatest, setShowLatest] = useState(false);
   const [sessionStartedAt] = useState(() => new Date());
+  // "Topics" (as on zoikopayroll.com): once a chat has started, the first-run
+  // menu is reachable again without starting a new conversation. The thread
+  // stays mounted underneath; only the scroll pane's content is swapped.
+  const [topicsOpen, setTopicsOpen] = useState(false);
+  const conversationScrollRef = useRef(0);
   const scrollRef = useRef(null);
   const stickToBottomRef = useRef(true);
 
@@ -76,10 +81,28 @@ export default function ConversationView({
   }, []);
 
   useEffect(() => {
-    if (turns.length === 0) return;
+    if (turns.length === 0 || topicsOpen) return;
     if (stickToBottomRef.current) scrollToBottom();
     else setShowLatest(true);
-  }, [turns, streamingText, scrollToBottom]);
+  }, [turns, streamingText, topicsOpen, scrollToBottom]);
+
+  const openTopics = () => {
+    conversationScrollRef.current = scrollRef.current?.scrollTop ?? 0;
+    setTopicsOpen(true);
+    setShowLatest(false);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: 0 });
+      scrollRef.current?.querySelector("[data-topics-back]")?.focus();
+    });
+  };
+
+  const backToConversation = () => {
+    setTopicsOpen(false);
+    requestAnimationFrame(() => {
+      scrollRef.current?.scrollTo({ top: conversationScrollRef.current });
+      document.getElementById("zhr-topics-toggle")?.focus();
+    });
+  };
 
   const onScroll = () => {
     const el = scrollRef.current;
@@ -92,12 +115,14 @@ export default function ConversationView({
   useEffect(() => {
     setSupportRequestOpen(false);
     setMyTicketsOpen(false);
+    setTopicsOpen(false);
   }, [conversationId]);
 
   const submit = (text) => {
     const value = text ?? input;
     if (!value.trim() || !conversationId || sending) return;
     if (text === undefined) setInput("");
+    setTopicsOpen(false);
     stickToBottomRef.current = true;
     onSend(value);
   };
@@ -130,10 +155,20 @@ export default function ConversationView({
   const generationOff = capabilities && !capabilities.generation_enabled;
   const ready = Boolean(conversationId) && !sending;
   const showFirstRun = !loadingConversation && turns.length === 0 && !degradedMessage && !supportRequestOpen && !myTicketsOpen;
+  const hasConversation = turns.length > 0;
+  const showMenu = showFirstRun || (topicsOpen && hasConversation);
   const gutter = compact ? "px-4 min-[601px]:px-5" : "px-5";
 
   return (
-    <div className="flex h-full min-h-0 flex-col text-[var(--zhr-chat-navy)]">
+    <div
+      className="flex h-full min-h-0 flex-col text-[var(--zhr-chat-navy)]"
+      onKeyDown={(e) => {
+        if (e.key === "Escape" && topicsOpen) {
+          e.stopPropagation();
+          backToConversation();
+        }
+      }}
+    >
       {/* CH-01 Branded header */}
       <header className={`flex min-h-[64px] shrink-0 items-center justify-between gap-2 border-b border-[var(--zhr-chat-border)] pt-[env(safe-area-inset-top)] ${gutter}`}>
         <h2 id="zhr-assistant-title" ref={headingRef} tabIndex={-1} className="min-w-0 outline-none">
@@ -196,9 +231,27 @@ export default function ConversationView({
             </div>
           )}
 
-          {showFirstRun && (
-            <div className="flex flex-col gap-5">
+          {showMenu && (
+            <div id="zhr-assistant-topics" className="flex flex-col gap-5">
+              {topicsOpen && (
+                <div className="flex flex-col gap-3">
+                  <button
+                    type="button"
+                    data-topics-back
+                    onClick={backToConversation}
+                    className={`inline-flex w-fit items-center gap-1.5 rounded-md text-[13px] font-semibold text-[var(--zhr-chat-blue)] hover:underline ${FOCUS_RING}`}
+                  >
+                    <ArrowLeft className="h-4 w-4" aria-hidden="true" /> Back to conversation
+                  </button>
+                  <div className="flex items-center gap-2.5 rounded-xl bg-[var(--zhr-chat-surface-alt)] px-3.5 py-2.5">
+                    <img src={zoikoHrIcon} alt="" className="h-6 w-6 shrink-0" />
+                    <p className="text-sm font-semibold">Choose a topic or a popular question.</p>
+                  </div>
+                </div>
+              )}
+
               {/* CH-02 Intro */}
+              {!topicsOpen && (
               <div className="flex items-start gap-3">
                 <img src={zoikoHrIcon} alt="" className="h-8 w-8 shrink-0" />
                 <div className="min-w-0">
@@ -210,6 +263,7 @@ export default function ConversationView({
                   </p>
                 </div>
               </div>
+              )}
 
               {/* CH-03 Task cards */}
               <ul className="grid grid-cols-2 gap-3 max-[360px]:grid-cols-1">
@@ -238,6 +292,7 @@ export default function ConversationView({
 
               {/* CH-04 Welcome + CH-05 starter prompts */}
               <div className="flex flex-col gap-3">
+                {!topicsOpen && (
                 <div className="flex items-start gap-2.5">
                   <img src={zoikoHrIcon} alt="" className="h-6 w-6 shrink-0" />
                   <div>
@@ -251,6 +306,7 @@ export default function ConversationView({
                     </time>
                   </div>
                 </div>
+                )}
 
                 <ul className="flex flex-col gap-2" aria-label="Popular questions">
                   {STARTER_PROMPTS.map((p) => (
@@ -281,7 +337,7 @@ export default function ConversationView({
                 </div>
                 <button
                   type="button"
-                  onClick={() => setSupportRequestOpen(true)}
+                  onClick={() => { setTopicsOpen(false); setSupportRequestOpen(true); }}
                   className="inline-flex min-h-[44px] items-center gap-1.5 rounded-full bg-white px-5 text-sm font-semibold text-[var(--zhr-chat-blue)] hover:bg-[#EEF4FC] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
                 >
                   Contact HR <ArrowRight className="h-4 w-4" aria-hidden="true" />
@@ -290,7 +346,7 @@ export default function ConversationView({
             </div>
           )}
 
-          <div role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation" className="space-y-4 text-[15px]">
+          <div role="log" aria-live="polite" aria-relevant="additions" aria-label="Conversation" hidden={topicsOpen} className="space-y-4 text-[15px]">
             {turns.map((turn) => (
               <div key={turn.id} className="space-y-3">
                 <UserMessage text={turn.user_input_text} />
@@ -321,6 +377,18 @@ export default function ConversationView({
       {/* CH-07 Composer + CH-08 trust footer — always visible. */}
       {!historyOpen && (
         <div className={`shrink-0 border-t border-[var(--zhr-chat-border)] bg-white pt-3 pb-[max(12px,env(safe-area-inset-bottom))] ${gutter}`}>
+          {hasConversation && (
+            <button
+              id="zhr-topics-toggle"
+              type="button"
+              onClick={topicsOpen ? backToConversation : openTopics}
+              aria-expanded={topicsOpen}
+              aria-controls="zhr-assistant-topics"
+              className={`mb-2 inline-flex min-h-[28px] items-center gap-1.5 rounded-md text-[13px] font-semibold text-[var(--zhr-chat-blue)] hover:underline ${FOCUS_RING}`}
+            >
+              <LayoutGrid className="h-4 w-4" aria-hidden="true" /> Topics
+            </button>
+          )}
           <Composer
             value={input}
             onChange={setInput}
