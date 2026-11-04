@@ -32,30 +32,21 @@ TOP_K = 5
 MIN_RELEVANCE_SCORE = 0.5
 
 
-def retrieve(
+def eligible_version_ids(
     db: Session,
     organization_id: int,
-    query_text: str,
     worker_type: str | None = None,
     audience_role: str | None = None,
     jurisdiction: str | None = None,
-    top_k: int = TOP_K,
-) -> list[dict]:
-    """Return up to top_k eligible fragments ranked by cosine similarity.
-    Each result: fragment_id, source_id, source_version_id, source_title, text, score.
-
-    Evidence comes from the caller's own tenant, plus any platform-public
-    content (KnowledgeSource.is_public == True) — the product/company FAQ that
-    is already served to anonymous visitors on zoikohr.com, so a signed-in
-    employee asking "what does Zoiko HR do?" is answered from the same
-    approved source instead of dead-ending on their tenant's empty KB.
-    Public content is global by design; this does NOT widen access to any
-    other tenant's private content."""
-    query_vector = embeddings.embed_text(query_text)
+    employee=None,
+) -> list[int]:
+    """Knowledge versions the asker may be answered from, resolved before any vector comparison: tenant (or platform-public),
+    PUBLISHED status, effective dates, applicability, and — for company policies published from the template engine — the
+    policy's distribution audience. A policy published to one department is never evidence for someone outside it; with no
+    employee to check, audience-restricted policies are excluded."""
     today = datetime.date.today()
-
-    eligible_version_ids = (
-        db.query(KnowledgeSourceVersion.id)
+    rows = (
+        db.query(KnowledgeSourceVersion.id, KnowledgeSource.policy_audience)
         .join(KnowledgeSource, KnowledgeSource.id == KnowledgeSourceVersion.knowledge_source_id)
         .outerjoin(KnowledgeApplicability,
                    KnowledgeApplicability.knowledge_source_version_id == KnowledgeSourceVersion.id)
@@ -82,9 +73,41 @@ def retrieve(
         .distinct()
         .all()
     )
-    version_ids = [row[0] for row in eligible_version_ids]
+    out = []
+    for version_id, audience in rows:
+        if audience and (audience.get("type") or "all") != "all":
+            from app.modules.hr.policy_documents import audience_includes
+            if employee is None or not audience_includes(employee, audience):
+                continue
+        out.append(version_id)
+    return out
+
+
+def retrieve(
+    db: Session,
+    organization_id: int,
+    query_text: str,
+    worker_type: str | None = None,
+    audience_role: str | None = None,
+    jurisdiction: str | None = None,
+    top_k: int = TOP_K,
+    employee=None,
+) -> list[dict]:
+    """Return up to top_k eligible fragments ranked by cosine similarity.
+    Each result: fragment_id, source_id, source_version_id, source_title, text, score.
+
+    Evidence comes from the caller's own tenant, plus any platform-public
+    content (KnowledgeSource.is_public == True) — the product/company FAQ that
+    is already served to anonymous visitors on zoikohr.com, so a signed-in
+    employee asking "what does Zoiko HR do?" is answered from the same
+    approved source instead of dead-ending on their tenant's empty KB.
+    Public content is global by design; this does NOT widen access to any
+    other tenant's private content. Company policies carry their version in the
+    source title, so a citation always names the version it came from."""
+    version_ids = eligible_version_ids(db, organization_id, worker_type, audience_role, jurisdiction, employee)
     if not version_ids:
         return []
+    query_vector = embeddings.embed_text(query_text)
 
     rows = (
         db.query(

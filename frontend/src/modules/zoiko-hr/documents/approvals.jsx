@@ -4,10 +4,10 @@ import {
   MessageSquare, Loader2, Search, Hash, Shield, UserCheck, History, SkipForward,
   FileText
 } from "lucide-react";
-import HRPage from "../../../components/HRPage";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import { fmtDate, fmtDateTime } from "../../../utils/documents";
+import { OrganizationDocumentsLayout } from "./ui";
 import {
   getDocuments, updateDocumentStatus,
   getPendingApprovals, approveDocument, rejectDocument,
@@ -240,18 +240,15 @@ export default function Approvals() {
   ];
 
   return (
-    <HRPage title="Document Approvals">
-      <div className="space-y-6 pb-10">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
-          <div>
-            <h2 className="text-xl font-bold text-slate-900">Document Approval Workflow</h2>
-            <p className="text-sm text-slate-500 mt-0.5">Multi-step approval chain. Org Admin / HR Admin approval skips remaining steps.</p>
-          </div>
-          <button onClick={load}
-            className="flex items-center gap-2 text-sm font-medium text-slate-600 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 transition-colors self-start sm:self-center">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
-        </div>
+    <OrganizationDocumentsLayout
+      title="Approval Workflow"
+      subtitle="Review submissions, track decisions and keep a clear approval history."
+      actions={<button onClick={load}
+        className="flex items-center gap-2 text-sm font-medium text-white border border-white/20 bg-white/10 px-4 py-2.5 rounded-xl hover:bg-white/15 transition-colors">
+        <RefreshCw className="w-4 h-4" /> Refresh
+      </button>}
+    >
+      <div className="space-y-5">
 
         {/* Workflow info banner */}
         <div className="bg-blue-50 border border-blue-200 rounded-xl p-4 flex items-start gap-3">
@@ -265,27 +262,29 @@ export default function Approvals() {
           </div>
         </div>
 
-        <div className="grid grid-cols-3 gap-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {[
             { label: "Awaiting Review", value: docsStats.pending, bg: "bg-amber-50", text: "text-amber-700", Icon: Clock },
             { label: "Approved", value: docsStats.approved, bg: "bg-emerald-50", text: "text-emerald-700", Icon: Check },
             { label: "Rejected", value: docsStats.rejected, bg: "bg-rose-50", text: "text-rose-700", Icon: X },
           ].map(s => (
-            <div key={s.label} className={`rounded-xl p-4 ${s.bg} flex items-center gap-3`}>
-              <s.Icon className={`w-5 h-5 ${s.text} shrink-0`} />
+            <div key={s.label} className="rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm flex items-center gap-3">
+              <span className={`grid h-11 w-11 place-items-center rounded-2xl ${s.bg}`}>
+                <s.Icon className={`w-5 h-5 ${s.text} shrink-0`} />
+              </span>
               <div>
-                <p className={`text-2xl font-bold ${s.text}`}>{s.value}</p>
-                <p className={`text-xs font-medium ${s.text} opacity-80`}>{s.label}</p>
+                <p className="text-2xl font-bold tracking-tight text-gray-900">{s.value}</p>
+                <p className="text-xs font-medium text-gray-500">{s.label}</p>
               </div>
             </div>
           ))}
         </div>
 
         {/* Tabs */}
-        <div className="flex gap-2 border-b border-gray-100 pb-2">
+        <div className="flex gap-2 overflow-x-auto rounded-2xl border border-gray-200/80 bg-white p-2 shadow-sm">
           {tabs.map(tab => (
             <button key={tab.key} onClick={() => setActiveTab(tab.key)}
-              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-semibold transition-colors ${
+              className={`flex items-center gap-1.5 whitespace-nowrap px-4 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
                 activeTab === tab.key ? "bg-blue-600 text-white shadow-sm" : "text-slate-600 hover:bg-slate-100"
               }`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
@@ -346,7 +345,7 @@ export default function Approvals() {
               const isPendingItem = isStep(d);
 
               return (
-                <div key={d.id + (d.step_order || "")} className="bg-white rounded-xl border border-gray-100 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 hover:shadow-md transition-shadow">
+                <div key={d.id + (d.step_order || "")} className="bg-white rounded-2xl border border-gray-200/80 shadow-sm p-5 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 hover:shadow-md transition-shadow">
                   <div className="flex items-start gap-4 min-w-0 flex-1">
                     <div className={`p-3 rounded-lg shrink-0 ${
                       d.status === "pending" || (isPendingItem && true) ? "bg-amber-50" :
@@ -510,6 +509,6 @@ export default function Approvals() {
       )}
 
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </HRPage>
+    </OrganizationDocumentsLayout>
   );
 }

@@ -7,13 +7,14 @@ import { test, afterEach } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
 afterEach(() => cleanup());
 
 async function flush(path) {
   const mod = await import(`${path}?t=${Date.now()}-${Math.random()}`);
-  render(React.createElement(mod.default));
+  render(React.createElement(MemoryRouter, null, React.createElement(mod.default)));
   for (let i = 0; i < 5; i++) await act(async () => { await new Promise((r) => setTimeout(r, 25)); });
 }
 

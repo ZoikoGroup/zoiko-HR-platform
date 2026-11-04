@@ -26,6 +26,7 @@ import "./support/setup-jsdom.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
 
 const PAGE = "../src/modules/organization-admin/EmployeeDocumentsPage.jsx";
@@ -111,7 +112,7 @@ async function settle(ms = 600) {
 
 async function renderPage(importSuffix) {
   const mod = await import(`${PAGE}?${importSuffix}=${Date.now()}-${Math.random()}`);
-  render(React.createElement(mod.default));
+  render(React.createElement(MemoryRouter, null, React.createElement(mod.default)));
   await settle();
 }
 
@@ -143,7 +144,7 @@ test("ZHR 43: a late response from a superseded search cannot win", async (t) =>
   });
 
   const mod = await import(`${PAGE}?race=${Date.now()}-${Math.random()}`);
-  render(React.createElement(mod.default));
+  render(React.createElement(MemoryRouter, null, React.createElement(mod.default)));
   await settle(60);
 
   await act(async () => {

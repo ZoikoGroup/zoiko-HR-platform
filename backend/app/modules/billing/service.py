@@ -766,6 +766,8 @@ def convert_evaluation(
         )
 
     plan = get_plan_by_id(db, plan_id)
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, evaluation.organization_id, plan.code)
 
     # Back-billing rejection (Section 17): reject if commercial_effective_at
     # is earlier than now minus tolerance, unless signed agreement provided.
@@ -951,6 +953,8 @@ def upgrade_subscription(
 ) -> BillingSubscription:
     subscription = get_or_create_subscription(db, organization_id)
     plan = get_plan_by_id(db, plan_id)
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, organization_id, plan.code)
 
     before_plan_id = subscription.plan_id
     before_plan_code = role_value(subscription.plan_code) if subscription.plan_code else None
@@ -990,6 +994,8 @@ def schedule_downgrade(
 ) -> BillingSubscription:
     subscription = get_or_create_subscription(db, organization_id)
     plan = get_plan_by_id(db, plan_id)
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, organization_id, plan.code)
 
     # Downgrade only takes effect at renewal_anchor_date, never immediate
     target_date = effective_at or subscription.renewal_anchor_date
@@ -1106,7 +1112,10 @@ def log_billing_audit(
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
-        actor_id=None if isinstance(actor, str) else getattr(actor, "id", None),
+        # Only a member of this organization is stored by id: a platform account (Super Admin, no organization) would break
+        # the tenant key on (actor_id, organization_id) still present on older databases; its email below records who acted.
+        actor_id=(None if isinstance(actor, str) or getattr(actor, "organization_id", None) != organization_id
+                  else getattr(actor, "id", None)),
         # Callers that only have an identity string (webhooks, services handed an
         # email) must still be attributed — getattr(str, "email") is None.
         actor_email=actor if isinstance(actor, str) else getattr(actor, "email", None),

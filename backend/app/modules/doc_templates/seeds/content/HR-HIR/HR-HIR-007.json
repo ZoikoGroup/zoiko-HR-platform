@@ -1,0 +1,89 @@
+{
+  "canonical_id": "HR-HIR-007",
+  "output_mode": "CHECKLIST_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "requisition.title",
+      "scorecard.scores",
+      "scorecard.weighted_total",
+      "scorecard.interviewer"
+    ],
+    "optional": [
+      "candidate.full_name",
+      "scorecard.submitted_at"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Interview Scorecard — {{requisition.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "candidate.full_name"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Score each criterion from 1 (no evidence) to 5 (strong evidence) using only what was demonstrated in the interview. Evidence is required for every score."
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Criterion",
+        "Weight",
+        "Score",
+        "Evidence"
+      ],
+      "rows_from": "scorecard.scores"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "scorecard.weighted_total",
+        "scorecard.interviewer",
+        "scorecard.submitted_at"
+      ]
+    },
+    {
+      "type": "checklist",
+      "id": "rights_fair_assessment",
+      "items": [
+        {
+          "key": "same_criteria",
+          "label": "Same criteria used for all candidates",
+          "mandatory": true
+        },
+        {
+          "key": "evidence_only",
+          "label": "Scores based on job-related evidence only",
+          "mandatory": true
+        },
+        {
+          "key": "no_protected",
+          "label": "No discussion of protected characteristics recorded",
+          "mandatory": true
+        },
+        {
+          "key": "adjustments",
+          "label": "Adjustments offered where requested",
+          "mandatory": true
+        }
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

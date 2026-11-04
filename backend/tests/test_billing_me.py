@@ -199,6 +199,17 @@ class TestMeEntitlements:
         assert body["states"]["hr.ai.autonomous_decision"] == "NOT_ENTITLED"
         assert body["states"]["hr.core.employees"] == "ENTITLED_AVAILABLE"
 
+    def test_employees_read_the_feature_states_but_not_the_contract_terms(self, db, client):
+        """Menus, upgrade notices and the assistant launcher read this for every member; it used to answer 403 to
+        employees and managers on every page."""
+        fx = tenants.core_tenant(db)
+        tenants.seed_entitlement_mappings(db, plan_codes=[PlanCode.CORE])
+        _as(client, "emp@z", fx.org.id, role="employee")
+        r = client.get("/billing/me/entitlements")
+        assert r.status_code == 200, r.text
+        assert set(r.json()["states"].keys()) == set(FEATURE_KEYS)
+        assert r.json()["contract_overrides"] == {}
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # /me/cancel

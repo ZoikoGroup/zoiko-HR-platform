@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Document completed" %}
+{% set preheader = "Every party has signed a document in Zoiko HR." %}
+{% set badge = "Completed" %}
+{% set badge_tone = "success" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Document completed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Every required party has now signed {{ document_label }}. The document is completed and the signed copy, with its electronic signature evidence certificate, is available in Zoiko HR.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{{ ui.detail_row("Completed", completed_at_local) }}
+{% endcall %}
+{{ ui.button(action_url, "View the signed document") }}
+{{ ui.signoff() }}
+{% endblock %}

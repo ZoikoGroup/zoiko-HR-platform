@@ -56,5 +56,12 @@ export async function load(url, context, nextLoad) {
     // ERR_UNKNOWN_FILE_EXTENSION before the file is ever read.
     return { format: "module", source: "export default '';", shortCircuit: true };
   }
+  if (pathname.endsWith(".css")) {
+    // A page may import a stylesheet next to it (LoginPage.css, portal.css).
+    // Styles do not affect component behaviour under jsdom, and Node has no
+    // loader for CSS, so treat the import as an empty module like Vite does
+    // for script consumers.
+    return { format: "module", source: "export default {};", shortCircuit: true };
+  }
   return nextLoad(url, context);
 }

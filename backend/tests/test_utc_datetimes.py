@@ -57,6 +57,19 @@ def test_aware_datetimes_and_plain_strings_untouched():
     assert append_utc_suffix(raw) is None
 
 
+def test_wall_clock_times_keep_no_suffix():
+    # Attendance check-in/out are wall-clock times: tagging them Z would shift them on display
+    # (midnight shows as 5:30 AM to a viewer in IST). Instant fields are still suffixed.
+    raw = b'{"check_in": "2026-10-16T00:00:00", "check_out": "2026-10-16T10:00:00", "created_at": "2026-10-16T00:00:00"}'
+    out = append_utc_suffix(raw)
+    assert out == b'{"check_in":"2026-10-16T00:00:00","check_out":"2026-10-16T10:00:00","created_at":"2026-10-16T00:00:00Z"}'
+
+
+def test_wall_clock_times_untouched_inside_lists():
+    raw = b'[{"check_in": "2026-10-16T12:00:00", "status": "present"}]'
+    assert append_utc_suffix(raw) is None
+
+
 def test_noop_when_no_timestamp_in_body():
     assert append_utc_suffix(b'{"status": "ok"}') is None
 

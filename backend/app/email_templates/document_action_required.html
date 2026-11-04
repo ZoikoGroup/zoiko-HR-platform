@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Document action required" %}
+{% set preheader = "A document is waiting for you in Zoiko HR." %}
+{% set badge = "Action required" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Document action required</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ document_label }} has been issued to you by {{ issuer_name }}. Action required: please {{ action_phrase }} it in Zoiko HR{% if due_at_local %} by {{ due_at_local }}{% endif %}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{{ ui.detail_row("Action", action_label) }}
+{% if due_at_local %}{{ ui.detail_row("Due by", due_at_local) }}{% endif %}
+{% endcall %}
+{{ ui.button(action_url, "Open the document") }}
+<p class="t-body dm-text-body" style="{{ S.p }}">For your privacy this e-mail does not contain the document itself. Sign in to read it.</p>
+{{ ui.signoff() }}
+{% endblock %}

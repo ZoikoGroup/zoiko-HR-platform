@@ -119,6 +119,7 @@ function ProgramForm({ title, form, setForm, errors, setErrors, instructors, edi
               <p id="p-status" className="px-3 py-2 text-sm text-gray-600 bg-gray-50 rounded-lg border border-gray-100">Planned</p>
             )}
             {editing && statusOptions(editing.status).length === 1 ? <p className="text-[11px] text-gray-400 mt-1">A completed program is final.</p> : null}
+            {editing && statusOptions(editing.status).length > 1 ? <p className="text-[11px] text-gray-400 mt-1">Completed is allowed only after the end date.</p> : null}
             {err("status")}
           </div>
 

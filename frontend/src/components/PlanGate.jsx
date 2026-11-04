@@ -7,7 +7,8 @@ import { feature_label_fallback } from "../config/planMatrix";
 // One short-lived copy of "what does my plan include" shared by every gate on the page.
 let cached = null;
 let cachedAt = 0;
-function loadStates() {
+/** { feature_key: state } for the signed-in organization, or null when it cannot be read (then the server decides). */
+export function loadStates() {
   if (cached && Date.now() - cachedAt < 30000) return cached;
   cachedAt = Date.now();
   cached = billingService.getMyEntitlements().then((res) => res?.states || {}).catch(() => {

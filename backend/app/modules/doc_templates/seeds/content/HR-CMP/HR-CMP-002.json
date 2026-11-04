@@ -1,0 +1,94 @@
+{
+  "canonical_id": "HR-CMP-002",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "comp.statement_period",
+      "comp.components"
+    ],
+    "optional": [
+      "comp.benefits",
+      "comp.total_value",
+      "document.date"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Your total reward statement — {{comp.statement_period}}",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "This statement summarises the value of your pay and benefits. It is for information only and does not change your contract."
+    },
+    {
+      "type": "heading",
+      "text": "Pay",
+      "level": 2
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Component",
+        "Amount",
+        "Frequency"
+      ],
+      "rows_from": "comp.components"
+    },
+    {
+      "type": "heading",
+      "text": "Benefits",
+      "level": 2,
+      "include_when": {
+        "field": "comp.benefits",
+        "op": "present"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Benefit",
+        "Provider/plan",
+        "Employer contribution",
+        "Your contribution"
+      ],
+      "rows_from": "comp.benefits",
+      "include_when": {
+        "field": "comp.benefits",
+        "op": "present"
+      }
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "comp.total_value"
+      ],
+      "labels": {
+        "comp.total_value": "Estimated total value"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Figures are estimates based on our records on {{document.date}} and may change. Your contract, plan rules and pay statements are the authoritative sources.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

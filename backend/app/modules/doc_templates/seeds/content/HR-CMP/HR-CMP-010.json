@@ -1,0 +1,80 @@
+{
+  "canonical_id": "HR-CMP-010",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "allowance.name",
+      "allowance.start_date",
+      "allowance.amount",
+      "allowance.currency",
+      "allowance.frequency_label",
+      "allowance.conditions"
+    ],
+    "optional": [
+      "allowance.amount_summary",
+      "allowance.end_or_review_date",
+      "allowance.eligibility_reason"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "allowance_tax_note"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Allowance award — {{allowance.name}}",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, we are pleased to confirm that you are eligible for the {{allowance.name}} from {{allowance.start_date}}."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "allowance.amount_summary",
+        "allowance.frequency_label",
+        "allowance.end_or_review_date",
+        "allowance.eligibility_reason"
+      ],
+      "labels": {
+        "allowance.amount_summary": "Amount",
+        "allowance.frequency_label": "Frequency",
+        "allowance.end_or_review_date": "End or review date",
+        "allowance.eligibility_reason": "Eligibility reason"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "This allowance is paid while you continue to meet the eligibility conditions: {{allowance.conditions}}. We will write to you before changing or ending it, in line with your contract and the law.",
+      "id": "rights_allowance_change"
+    },
+    {
+      "type": "clause",
+      "key": "allowance_tax_note",
+      "required": false
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

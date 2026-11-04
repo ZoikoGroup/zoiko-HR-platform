@@ -1,25 +1,35 @@
 export function downloadJSON(data, filename) {
-  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  downloadBlob(new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }), filename);
+}
+
+/** One CSV cell: quoted, and a leading = + - @ (or tab/CR) prefixed with ' so a spreadsheet does not run it as a formula.
+ * Plain numbers and phone numbers (+91 98765 43210, -5) cannot carry a formula and are left as they are. */
+export function csvCell(v) {
+  let s = String(v == null ? "" : v);
+  if (/^[=+\-@\t\r]/.test(s) && !/^[+-]?[\d\s().-]+$/.test(s)) s = `'${s}`;
+  return `"${s.replace(/"/g, '""')}"`;
+}
+
+export function toCSV(rows, headers) {
+  return [headers.map(csvCell).join(","), ...rows.map((r) => r.map(csvCell).join(","))].join("\r\n");
+}
+
+/** Saves a file. The link is attached to the page and the URL revoked later: Firefox ignores detached clicks and an early revoke can cancel the download. */
+export function downloadBlob(blob, filename) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = filename;
+  a.style.display = "none";
+  document.body.appendChild(a);
   a.click();
-  URL.revokeObjectURL(url);
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
 export function downloadCSV(rows, headers, filename) {
-  const csv = [
-    headers.join(","),
-    ...rows.map((r) => r.map((v) => `"${String(v == null ? "" : v).replace(/"/g, '""')}"`).join(",")),
-  ].join("\n");
-  const blob = new Blob([csv], { type: "text/csv" });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  // the BOM makes Excel read the file as UTF-8 (names with accents)
+  downloadBlob(new Blob(["﻿", toCSV(rows, headers)], { type: "text/csv;charset=utf-8;" }), filename);
 }
 
 export async function downloadExcel(rows, headers, filename, sheetName = "Sheet1") {

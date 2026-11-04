@@ -508,7 +508,10 @@ def test_events_endpoint_reports_real_history(world):
 def test_events_catalog_endpoint(world):
     keys = {e["key"] for e in world["client"].get("/super-admin/hub/events").json()["events"]}
     assert keys == {"organization.created", "organization.deleted", "user.created",
-                    "subscription.converted", "refund.created"}
+                    "subscription.converted", "refund.created",
+                    "document.generated", "document.issued", "document.executed", "document.acknowledged",
+                    "document.declined", "document.expired", "template.variant.released", "template.variant.suspended",
+                    "onboarding.payroll_details_verified", "attendance.overtime.approved", "compensation.change.approved"}
 
 
 # ───────────────────────── Zoiko Workflow ─────────────────────────

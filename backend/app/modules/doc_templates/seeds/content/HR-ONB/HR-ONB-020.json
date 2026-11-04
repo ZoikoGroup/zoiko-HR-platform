@@ -1,0 +1,91 @@
+{
+  "canonical_id": "HR-ONB-020",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "probation.start_date",
+      "probation.end_date"
+    ],
+    "optional": [
+      "probation.review_dates",
+      "probation.objectives_summary",
+      "probation.reviewer"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "probation_policy_reference"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Your probation period",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, your probation period runs from {{probation.start_date}} to {{probation.end_date}}."
+    },
+    {
+      "type": "heading",
+      "text": "Review meetings",
+      "level": 2,
+      "include_when": {
+        "field": "probation.review_dates",
+        "op": "present"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Review",
+        "Date",
+        "With"
+      ],
+      "rows_from": "probation.review_dates",
+      "include_when": {
+        "field": "probation.review_dates",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your initial objectives: {{probation.objectives_summary}}",
+      "include_when": {
+        "field": "probation.objectives_summary",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "At each review your manager will discuss your progress, any support or training you need, and any concerns, so that nothing at the end of your probation comes as a surprise.",
+      "id": "rights_probation_support"
+    },
+    {
+      "type": "clause",
+      "key": "probation_policy_reference",
+      "required": true
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this document.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

@@ -121,6 +121,7 @@ Two non-obvious things the Dockerfiles work around, in case either build ever br
 
 ## Deploying
 
+- **Generated documents** (document template engine) are written under `HR_GENERATED_DOCS_DIR` (default `$UPLOAD_BASE_DIR/generated_documents`). Like uploads, this directory **must** be on a persistent volume: it holds issued PDFs and electronic-signature evidence. See `docs/templates/operations.md`.
 - **File uploads land on local disk** (`HR_DOCUMENT_UPLOAD_DIR` / `UPLOAD_BASE_DIR`, default `/tmp/uploads/...`) — there is no S3/object-storage integration. Whatever container/host runs the backend **must** mount a persistent volume over that directory, or uploaded HR documents, onboarding files, and assistant attachments are lost on every redeploy/restart and invisible to any second instance.
 - Set `HR_DEBUG=false` (or omit it) in production — this disables the public `/docs`/`/redoc`/`/openapi.json` schema, skips the dev-only `create_all` boot path, and is required before running `alembic upgrade head` as described above.
 - `HR_SECRET_KEY` has no default — startup fails loudly if it's unset, rather than silently signing tokens with a value visible in this repo's source.

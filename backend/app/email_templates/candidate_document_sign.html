@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Document ready for your signature" %}
+{% set preheader = "A document is ready for you to review and sign." %}
+{% set badge = "Signature requested" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Document ready for your signature</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ organization_name }} has sent you a document to review. A signature requested by {{ organization_name }} is needed{% if due_at_local %} by {{ due_at_local }}{% endif %}. The secure link below opens only this document and stops working after {{ link_expires_local }} or once you have responded.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{{ ui.detail_row("Link valid until", link_expires_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Review and sign") }}
+{{ ui.link_fallback(action_url) }}
+<p class="t-body dm-text-body" style="{{ S.p }}">You will be asked for a one-time code that we send to this address before you sign. If you were not expecting this, you can ignore this e-mail.</p>
+{{ ui.signoff() }}
+{% endblock %}

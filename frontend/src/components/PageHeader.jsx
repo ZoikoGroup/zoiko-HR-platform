@@ -1,10 +1,10 @@
-export default function PageHeader({ title, description, action }) {
+export default function PageHeader({ title, description, action, className = "" }) {
   return (
-    <header className="mb-6 rounded-2xl border border-[#E2E8F0] bg-white p-6 shadow-[0_1px_3px_rgba(15,23,42,0.04),0_4px_16px_rgba(15,23,42,0.06)] font-sans">
+    <header className={`rounded-2xl border border-slate-200 bg-white p-6 shadow-sm font-sans ${className}`.trim()}>
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight text-[#0F172A]">{title}</h1>
-          {description ? <p className="mt-2 text-sm text-[#334155]">{description}</p> : null}
+          <h1 className="font-['Sora',system-ui,sans-serif] text-2xl sm:text-[26px] font-bold tracking-tight text-slate-900">{title}</h1>
+          {description ? <p className="mt-1.5 text-sm text-slate-500">{description}</p> : null}
         </div>
         {action ? <div>{action}</div> : null}
       </div>

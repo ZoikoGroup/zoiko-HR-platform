@@ -1,0 +1,174 @@
+{
+  "canonical_id": "HR-POL-026",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name",
+      "policy.self_certification_days"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "sickness_evidence_rules",
+      "sick_pay"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we support you when you are ill, and how we handle sickness absence fairly and privately."
+    },
+    {
+      "type": "heading",
+      "text": "2. Telling us",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Tell your manager on the first day of absence, as explained in our Attendance Policy. We will confirm that we have received your notification."
+    },
+    {
+      "type": "heading",
+      "text": "3. Evidence",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you are absent for more than {{policy.self_certification_days}} days we may ask for evidence as allowed by law."
+    },
+    {
+      "type": "clause",
+      "key": "sickness_evidence_rules",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "4. Sick pay",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "sick_pay",
+      "required": true
+    },
+    {
+      "type": "heading",
+      "text": "5. Keeping in touch",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Your manager may keep in reasonable contact while you are off, respecting your recovery."
+    },
+    {
+      "type": "heading",
+      "text": "6. Return to work",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "When you come back we will have a short conversation about how you are and whether any adjustments would help."
+    },
+    {
+      "type": "heading",
+      "text": "7. Privacy",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Health information is sensitive. Only the people who need it will see it, and we will not record diagnoses in your general HR file. Your manager sees only what is needed to plan work.",
+      "id": "privacy_health"
+    },
+    {
+      "type": "heading",
+      "text": "8. Long-term absence and adjustments",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you are absent for a long time, we will support you and, where available, seek occupational health advice about adjustments that could help you return."
+    },
+    {
+      "type": "heading",
+      "text": "9. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Attendance Policy; Annual Leave Policy; Employee Data Protection Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

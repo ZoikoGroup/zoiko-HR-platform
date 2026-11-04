@@ -1,0 +1,77 @@
+{
+  "canonical_id": "HR-HIR-019",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "CANDIDATE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "candidate.first_name",
+      "employment.position_title",
+      "offer.accepted_at",
+      "employment.start_date",
+      "employer.hr_contact_email"
+    ],
+    "optional": [
+      "employment.manager_name",
+      "offer.conditions",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Thank you for accepting our offer",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{candidate.first_name}}, we confirm that we received your acceptance of our offer for the position of {{employment.position_title}} on {{offer.accepted_at}}. A signed copy is available to you through the secure link you used to sign."
+    },
+    {
+      "type": "heading",
+      "text": "What happens next",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "You will receive an invitation to our onboarding portal to complete your new starter details."
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Your manager, {{employment.manager_name}}, will be in touch before your start date.",
+      "include_when": {
+        "field": "employment.manager_name",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "We will contact you about the remaining pre-employment checks.",
+      "include_when": {
+        "field": "offer.conditions",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your start date is {{employment.start_date}}. If anything changes, contact {{employer.hr_contact_email}}."
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": true,
+  "reminder_days": [],
+  "response_days": null
+}

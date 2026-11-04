@@ -3,7 +3,11 @@ import { NavLink } from "react-router-dom";
 import HRPage from "../../../components/HRPage";
 import { employeeList, employeeLabel } from "../../../utils/employeeOptions";
 import { getWfHeadcounts, createWfHeadcount, updateWfHeadcount, deleteWfHeadcount, getDepartments } from "../../../service/hrService";
-import { Plus, Search, Edit3, Trash2, X } from "lucide-react";
+import {
+  decideHeadcountAuthorization, getHeadcountAuthorization, submitHeadcountAuthorization,
+} from "../../../service/workforcePlanningService";
+import GenerateDocumentButton from "../../../components/documents/GenerateDocumentButton";
+import { Plus, Search, Edit3, Trash2, X, ClipboardCheck } from "lucide-react";
 import {
   EMPTY_HEADCOUNT, headcountToForm, validateHeadcount, headcountPayload, serverHeadcountErrors, headcountRefusalField, departmentText,
 } from "../../../utils/headcountForm";
@@ -12,6 +16,7 @@ const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/workforce-planning" },
   { label: "Plans", href: "/zoiko-hr/workforce-planning/plans" },
   { label: "Headcount", href: "/zoiko-hr/workforce-planning/headcount" },
+  { label: "Job descriptions", href: "/zoiko-hr/workforce-planning/job-descriptions" },
   { label: "Succession", href: "/zoiko-hr/workforce-planning/succession" },
   { label: "Reports", href: "/zoiko-hr/workforce-planning/reports" },
 ];
@@ -53,6 +58,12 @@ export default function HeadcountPlanning() {
   const [formErrors, setFormErrors] = useState({});
   const [departments, setDepartments] = useState([]);
   const [departmentsReady, setDepartmentsReady] = useState(false);
+  const [authorization, setAuthorization] = useState(null);
+  const [authorizationError, setAuthorizationError] = useState("");
+  const [authorizationBusy, setAuthorizationBusy] = useState(false);
+  const [rationale, setRationale] = useState("");
+  const [planId, setPlanId] = useState("");
+  const [decisionComment, setDecisionComment] = useState("");
 
   const fetchData = useCallback(async () => {
     setLoading(true); setError(null);
@@ -153,6 +164,40 @@ export default function HeadcountPlanning() {
     if (!window.confirm("Delete this headcount record?")) return;
     try { await deleteWfHeadcount(id); await fetchData(); }
     catch (err) { setError(err.message || "Failed to delete"); }
+  };
+
+  const openAuthorization = async (record) => {
+    setAuthorizationBusy(true); setAuthorizationError("");
+    try {
+      setAuthorization(await getHeadcountAuthorization(record.id));
+      setRationale(record.rationale || "");
+      setPlanId(record.plan_id ? String(record.plan_id) : "");
+      setDecisionComment("");
+    } catch (err) { setAuthorizationError(err.message || "Could not load the authorization record."); }
+    finally { setAuthorizationBusy(false); }
+  };
+
+  const submitAuthorization = async () => {
+    if (!authorization || !rationale.trim()) { setAuthorizationError("Enter a rationale before submitting."); return; }
+    setAuthorizationBusy(true); setAuthorizationError("");
+    try {
+      await submitHeadcountAuthorization(authorization.id, { rationale: rationale.trim(), plan_id: planId ? Number(planId) : null });
+      await openAuthorization({ id: authorization.id, rationale, plan_id: planId });
+      await fetchData();
+    } catch (err) { setAuthorizationError(err.message || "Could not submit the headcount request."); }
+    finally { setAuthorizationBusy(false); }
+  };
+
+  const decideAuthorization = async (approve) => {
+    if (!authorization) return;
+    if (!approve && !decisionComment.trim()) { setAuthorizationError("A comment is required when rejecting."); return; }
+    setAuthorizationBusy(true); setAuthorizationError("");
+    try {
+      await decideHeadcountAuthorization(authorization.id, { approve, comment: decisionComment.trim() || null });
+      await openAuthorization({ id: authorization.id });
+      await fetchData();
+    } catch (err) { setAuthorizationError(err.message || "Could not save the authorization decision."); }
+    finally { setAuthorizationBusy(false); }
   };
 
   const handleField = (field) => (e) => {
@@ -256,6 +301,7 @@ export default function HeadcountPlanning() {
                     <td className="px-4 py-3 text-sm text-gray-700 text-right font-medium">{formatCurrency(r.projected_cost)}</td>
                     <td className="px-4 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openAuthorization(r)} className="p-1.5 text-gray-400 hover:text-teal-600" title="Authorization" aria-label={`Authorization for ${departmentText(r, departments)} ${r.fiscal_year}`}><ClipboardCheck size={15} /></button>
                         <button onClick={() => openEdit(r)} className="p-1.5 text-gray-400 hover:text-teal-600" title="Edit"><Edit3 size={15} /></button>
                         <button onClick={() => handleDelete(r.id)} className="p-1.5 text-gray-400 hover:text-red-600" title="Delete"><Trash2 size={15} /></button>
                       </div>
@@ -282,6 +328,36 @@ export default function HeadcountPlanning() {
                   className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Next</button>
               </div>
             </div>
+          )}
+
+          {authorization && (
+            <section aria-label="Headcount authorization record" className="mt-5 rounded-xl border border-teal-200 bg-white p-5">
+              <div className="flex flex-wrap items-start justify-between gap-3">
+                <div><h2 className="font-semibold text-gray-900">Authorization record · Headcount #{authorization.id}</h2><p className="mt-1 text-sm text-gray-600">Status: <strong className="capitalize">{authorization.status}</strong></p></div>
+                <button type="button" onClick={() => setAuthorization(null)} className="text-sm text-gray-500 hover:text-gray-800">Close</button>
+              </div>
+              {authorizationError && <p role="alert" className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{authorizationError}</p>}
+              <dl className="mt-3 grid gap-2 text-sm sm:grid-cols-2">
+                <div><dt className="text-gray-500">Requested by</dt><dd>{authorization.requested_by || "—"}</dd></div>
+                <div><dt className="text-gray-500">Decided by</dt><dd>{authorization.decided_by || "—"}</dd></div>
+                <div><dt className="text-gray-500">Decision date</dt><dd>{authorization.decided_at || "—"}</dd></div>
+                <div><dt className="text-gray-500">Decision comment</dt><dd>{authorization.decision_comment || "—"}</dd></div>
+              </dl>
+              {(authorization.status === "draft" || authorization.status === "rejected") && <div className="mt-4 grid gap-3 md:grid-cols-[1fr_12rem_auto]">
+                <label className="text-sm font-medium text-gray-700">Rationale<textarea className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={2} maxLength={5000} value={rationale} onChange={(e) => setRationale(e.target.value)} /></label>
+                <label className="text-sm font-medium text-gray-700">Workforce plan ID (optional)<input className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" type="number" value={planId} onChange={(e) => setPlanId(e.target.value)} /></label>
+                <button type="button" disabled={authorizationBusy || !rationale.trim()} onClick={submitAuthorization} className="self-end rounded-lg bg-teal-600 px-4 py-2 text-sm font-medium text-white disabled:opacity-50">Submit request</button>
+              </div>}
+              {authorization.status === "submitted" && <div className="mt-4 flex flex-wrap items-end gap-3">
+                <label className="min-w-[16rem] flex-1 text-sm font-medium text-gray-700">Decision comment<textarea className="mt-1 w-full rounded-lg border border-gray-200 px-3 py-2 text-sm" rows={2} maxLength={2000} value={decisionComment} onChange={(e) => setDecisionComment(e.target.value)} /></label>
+                <button type="button" disabled={authorizationBusy} onClick={() => decideAuthorization(true)} className="rounded-lg bg-green-600 px-4 py-2 text-sm font-medium text-white">Approve</button>
+                <button type="button" disabled={authorizationBusy || !decisionComment.trim()} onClick={() => decideAuthorization(false)} className="rounded-lg border border-red-200 px-4 py-2 text-sm font-medium text-red-700 disabled:opacity-50">Reject</button>
+              </div>}
+              {authorization.status === "approved" && <div className="mt-4 flex flex-wrap items-center gap-3">
+                <span className="text-sm text-gray-600">Authorization is approved. Check document readiness; missing details include links to the relevant fix pages.</span>
+                <GenerateDocumentButton canonicalId="HR-ORG-003" subjectType="org" subjectId={authorization.id} sourceRef={`wf_headcount:${authorization.id}`} label="Check / generate authorization document" />
+              </div>}
+            </section>
           )}
         </div>
       )}

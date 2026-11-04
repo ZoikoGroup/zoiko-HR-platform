@@ -1,0 +1,152 @@
+{
+  "canonical_id": "HR-ONB-001",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name"
+    ],
+    "optional": [
+      "employment.start_date"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "New Starter Information",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Please check and complete your details. We use this information to set up your employment record. Fields marked * are required."
+    },
+    {
+      "type": "form_fields",
+      "id": "starter_fields",
+      "fields": [
+        {
+          "key": "legal_first_name",
+          "label": "Legal first name",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_BASIC"
+        },
+        {
+          "key": "legal_last_name",
+          "label": "Legal last name",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_BASIC"
+        },
+        {
+          "key": "preferred_name",
+          "label": "Preferred name",
+          "type": "text",
+          "classification": "PERSONAL_BASIC"
+        },
+        {
+          "key": "date_of_birth",
+          "label": "Date of birth",
+          "type": "date",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "personal_email",
+          "label": "Personal email",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "mobile_phone",
+          "label": "Mobile phone",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_BASIC"
+        },
+        {
+          "key": "address_line1",
+          "label": "Home address line 1",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "address_line2",
+          "label": "Home address line 2",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "city",
+          "label": "City",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "region",
+          "label": "Region / state",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "postal_code",
+          "label": "Postal code",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "country",
+          "label": "Country",
+          "type": "text",
+          "required": true,
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "nationality",
+          "label": "Nationality (only where the law requires it)",
+          "type": "text",
+          "classification": "PERSONAL_CONFIDENTIAL"
+        },
+        {
+          "key": "national_identifier",
+          "label": "National / tax identifier (only where required)",
+          "type": "text",
+          "classification": "FINANCIAL"
+        },
+        {
+          "key": "preferred_language",
+          "label": "Preferred language for communications",
+          "type": "text",
+          "classification": "PERSONAL_BASIC"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "We collect only the information needed to employ you and meet our legal obligations. Read our employee privacy notice for details of how we use it and your rights.",
+      "id": "privacy_onboarding",
+      "style": "notice"
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm that the information I have provided is accurate. I will tell HR if it changes.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

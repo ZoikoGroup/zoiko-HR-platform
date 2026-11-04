@@ -202,6 +202,12 @@ def update_enrollment(db: Session, enrollment_id: int, data: EnrollmentUpdate, o
         setattr(enrollment, field, value)
     db.commit()
     db.refresh(enrollment)
+    # a completed mandatory course gets its completion record (HR-PRF-018); never fails the update
+    try:
+        from app.modules.hr import learning_documents
+        learning_documents.on_enrollment_updated(db, enrollment)
+    except Exception:
+        db.rollback()
     return enrollment
 
 
@@ -315,6 +321,11 @@ def create_certification(db: Session, data: CertificationCreate, created_by: int
     db.add(cert)
     db.commit()
     db.refresh(cert)
+    try:
+        from app.modules.hr import learning_documents
+        learning_documents.on_certification_saved(db, cert)                    # HR-PRF-020
+    except Exception:
+        db.rollback()
     return cert
 
 
@@ -337,10 +348,17 @@ def get_certification_by_id(db: Session, cert_id: int) -> LearningCertification:
 def update_certification(db: Session, cert_id: int, data: CertificationUpdate, organization_id: Optional[int] = None) -> LearningCertification:
     cert = get_certification_by_id(db, cert_id)
     update_data = data.model_dump(exclude_unset=True)
+    previous_expiry = cert.expiry_date
     for field, value in update_data.items():
         setattr(cert, field, value)
     db.commit()
     db.refresh(cert)
+    if previous_expiry and cert.expiry_date and cert.expiry_date > previous_expiry:
+        try:
+            from app.modules.hr import learning_documents
+            learning_documents.on_certification_saved(db, cert, renewed_from=previous_expiry)     # renewal record
+        except Exception:
+            db.rollback()
     return cert
 
 
@@ -732,6 +750,12 @@ def check_program_transition(current: str, new: Optional[str]) -> None:
         raise BadRequestException(f"A program that is {current} cannot be changed to {new}.")
 
 
+def _reject_future_completion(status: Optional[str], end_date) -> None:
+    # A program that has not ended yet cannot be marked completed.
+    if status == "completed" and end_date is not None and end_date > date.today():
+        raise BadRequestException("A program cannot be marked completed before its end date.")
+
+
 def _program_row(db: Session, program_id: int, organization_id: Optional[int] = None) -> LearningTrainingProgram:
     query = db.query(LearningTrainingProgram).filter(LearningTrainingProgram.id == program_id)
     if organization_id is not None:
@@ -788,6 +812,7 @@ def _check_program(db: Session, organization_id, name=None, instructor_id=None, 
 
 def create_training_program(db: Session, data: TrainingProgramCreate, created_by: int, organization_id: Optional[int] = None) -> dict:
     _check_program(db, organization_id, data.name, data.instructor_id, data.start_date, data.end_date)
+    _reject_future_completion(data.status, data.end_date)
     program = LearningTrainingProgram(**data.model_dump(), created_by=created_by)
     if organization_id is not None:
         program.organization_id = organization_id
@@ -828,6 +853,9 @@ def update_training_program(db: Session, program_id: int, data: TrainingProgramU
     program = _program_row(db, program_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
     check_program_transition(program.status, update_data.get("status"))
+    effective_status = update_data.get("status", program.status)
+    effective_end = update_data.get("end_date", program.end_date)
+    _reject_future_completion(effective_status, effective_end)
     new_name = update_data.get("name")
     _check_program(
         db, organization_id,

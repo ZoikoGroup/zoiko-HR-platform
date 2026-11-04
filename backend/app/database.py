@@ -161,6 +161,12 @@ import app.modules.billing.feature_keys  # noqa: F401,E402
 import app.modules.sales_leads.models  # noqa: F401,E402
 import app.modules.support_access.models  # noqa: F401,E402
 import app.modules.support_access.audit  # noqa: F401,E402
+import app.modules.support_login.models  # noqa: F401,E402
+import app.modules.doc_templates.models  # noqa: F401,E402
+
+# Plan seat limits (Core 50, Advanced 250) hold on every write path, not only the routes that check them up front.
+from app.modules.billing import seat_policy as _seat_policy  # noqa: E402
+_seat_policy.install()
 
 
 # -- 4. Soft-deleted organizations are invisible by default (ZHR-35) ----------
@@ -199,6 +205,64 @@ def _schema_alterations_needed() -> bool:
         return False
     except exc.SQLAlchemyError:
         return True
+
+
+# Tables whose newer columns are added on a development boot when the database predates them (create_all never adds a
+# column to an existing table). Production gets the same columns from `alembic upgrade head`.
+_SELF_HEALED_TABLES = (
+    "recruitment_offers", "recruitment_requisitions", "recruitment_candidates", "recruitment_interviews",
+    "onboarding_new_hires", "onboarding_checklist_items",
+    # document template engine (migrations d7e1a0b2c3f4 … d7e1a0b2c3f8): every existing table those migrations add columns to
+    "employees", "security_action_tokens",
+    "recruitment_interview_feedback", "wf_headcounts", "wf_successions", "designations",
+    "attendance_records", "shifts", "shift_rosters", "leave_requests", "employee_compensations", "salary_revisions",
+    "allowances", "employee_benefits", "travel_expenses", "knowledge_sources",
+    "performance_appraisals", "learning_courses", "learning_enrollments", "learning_certifications", "employee_lifecycle",
+    "hr_documents",
+    "jurisdiction_packs", "template_variants", "template_clauses", "decision_receipts", "policy_distributions",
+    "doc_template_settings", "generated_documents",
+)
+
+
+def _ensure_model_columns(tables) -> None:
+    """Add any column the model has but the table lacks (nullable or with its server default). One reflection per table,
+    so it costs a few round trips and nothing when everything is present."""
+    from sqlalchemy.schema import CreateColumn
+    try:
+        with engine.connect() as conn:
+            insp = inspect(conn)
+            present = set(insp.get_table_names())
+            existing = {t: {c["name"] for c in insp.get_columns(t)} for t in tables if t in present}
+    except Exception as exc_info:                      # never block the boot over this check
+        logger.warning("Column check skipped: %s", exc_info)
+        return
+    statements = []
+    for table_name, have in existing.items():
+        table = Base.metadata.tables.get(table_name)
+        if table is None:
+            continue
+        for column in table.columns:
+            if column.name in have:
+                continue
+            ddl = str(CreateColumn(column).compile(dialect=engine.dialect))
+            if not column.nullable and column.server_default is None:
+                ddl = ddl.replace(" NOT NULL", "")            # an existing table has rows: a new column must allow NULL
+            for fk in column.foreign_keys:                    # CreateColumn renders no constraint; a later migration skips
+                ref = fk.column                               # the column as present, so the reference is added here
+                if ref.table.name in present:
+                    ddl += f" REFERENCES {ref.table.name}({ref.name})"
+                break
+            guard = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
+            statements.append(f"ALTER TABLE {table_name} ADD COLUMN {guard}{ddl}")
+    if not statements:
+        return
+    try:
+        with engine.begin() as conn:
+            for stmt in statements:
+                conn.execute(text(stmt))
+        logger.info("Added %d missing column(s): %s", len(statements), "; ".join(statements))
+    except exc.SQLAlchemyError as exc_info:
+        logger.warning("Adding missing columns failed (run `alembic upgrade head`): %s", exc_info)
 
 
 def initialize_database() -> None:
@@ -306,6 +370,8 @@ def initialize_database() -> None:
         # column nullable so log_billing_audit(organization_id=None) works.
         "ALTER TABLE billing_audit_logs ALTER COLUMN organization_id DROP NOT NULL",
     ]
+    _ensure_model_columns(_SELF_HEALED_TABLES)
+
     # Each ALTER is a network round trip (~15s for the full list), so probe the
     # newest sentinel columns first and skip the whole list once they exist.
     if not _schema_alterations_needed():
@@ -371,6 +437,16 @@ def initialize_database() -> None:
             db.add_all(plans)
             db.commit()
             logger.info("Billing plan catalog seeded: 3 plans (Core, Advanced, Enterprise).")
+            # Publish the freshly seeded catalog version: an unpublished catalog looks
+            # buyable on the Billing page but checkout refuses every plan ("not available
+            # for purchase"). Only a just-seeded (empty-table) catalog is published here;
+            # later versions stay under super-admin governance and are never auto-published.
+            try:
+                from app.modules.billing.catalog_service import publish_billing_plans
+                publish_billing_plans(db, "ZHR-COM-BILL-001-v1", actor_email="system-seed")
+                logger.info("Billing plan catalog published: ZHR-COM-BILL-001-v1.")
+            except Exception as pub_exc:
+                logger.warning("Billing catalog publish skipped: %s", pub_exc)
         # Auto-sync plans to Stripe so price IDs are populated (required for checkout)
         try:
             from app.modules.billing.stripe_sync_service import sync_plan_to_stripe, stripe_enabled as stripe_sync_enabled

@@ -50,12 +50,13 @@ test("the server's refusals become field messages, never a bare 'Field required'
 });
 
 async function load(t, over = {}) {
-  const calls = { create: [], update: [] };
+  const calls = { create: [], update: [], request: [] };
   const svc = {
     getOnboardingDocuments: async () => over.docs ?? [{ id: 1, title: "NDA copy", category: "nda", status: "pending", onboarding_new_hire_id: 7, file_url: "/hr/onboarding/documents/1/file", created_at: "2026-10-01T10:00:00Z" }],
-    getOnboardingRecords: async () => [{ id: 7, candidate_name: "Ann Lee" }],
+    getOnboardingRecords: async () => [{ id: 7, candidate_name: "Ann Lee", status: "pre_joining" }, { id: 8, candidate_name: "Old Hire", status: "completed" }],
     createOnboardingDocument: async (fd) => { calls.create.push(Object.fromEntries(fd.entries())); if (over.createError) throw over.createError; return {}; },
-    updateOnboardingDocument: async (id, p) => { calls.update.push([id, p]); return {}; },
+    updateOnboardingDocument: async (id, p) => { calls.update.push([id, p]); if (over.updateError) throw over.updateError; return {}; },
+    requestOnboardingDocuments: async (id, cats) => { calls.request.push([id, cats]); return cats.map((c, i) => ({ id: 100 + i, category: c, status: "requested" })); },
     deleteOnboardingDocument: async () => ({}),
     getOnboardingDocumentFile: async () => ({ blob: new Blob(["x"]), filename: "NDA copy.pdf" }),
   };
@@ -131,4 +132,58 @@ test("the list says who each document is for, and Reject needs a reason", async 
   fireEvent.click(screen.getAllByRole("button", { name: "Reject" }).at(-1));
   await settle();
   assert.deepEqual(calls.update, [[1, { status: "rejected", rejection_reason: "Blurry scan" }]]);
+});
+
+test("only pending documents can be approved; requested ones show 'Not uploaded' and no View/Download", async (t) => {
+  await load(t, { docs: [
+    { id: 1, title: "NDA copy", category: "nda", status: "pending", onboarding_new_hire_id: 7, file_url: "/f/1" },
+    { id: 2, title: "ID proof", category: "id_proof", status: "requested", onboarding_new_hire_id: 7, file_url: null },
+    { id: 3, title: "Offer", category: "offer_letter", status: "approved", onboarding_new_hire_id: 7, file_url: "/f/3" },
+  ] });
+  const rows = [...document.querySelectorAll("tbody tr")];
+  assert.match(rows[0].textContent, /Signed NDA/);
+  assert.match(rows[0].textContent, /Needs review/);
+  assert.match(rows[0].textContent, /Approve/);
+  assert.match(rows[1].textContent, /Not uploaded/);
+  assert.doesNotMatch(rows[1].textContent, /View|Download|Approve(?!d)|Reject/);
+  assert.doesNotMatch(rows[2].textContent, /Approve(?!d)/);
+  assert.match(rows[2].textContent, /Reject/);
+  assert.match(document.querySelector('[data-testid="count-requested"]').textContent, /1/);
+  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "requested" } });
+  assert.equal(document.querySelectorAll("tbody tr").length, 1);
+});
+
+test("an approve error is shown in a banner and the list stays", async (t) => {
+  await load(t, { updateError: new Error("This document has no file yet.") });
+  fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+  await settle();
+  assert.match(document.body.textContent, /This document has no file yet\./);
+  assert.ok(document.querySelector("tbody tr"), "the table is still there");
+});
+
+test("requesting documents from a new hire sends the categories and reports who was emailed", async (t) => {
+  const calls = await load(t);
+  fireEvent.click(screen.getByRole("button", { name: "Request documents from a new hire" }));
+  await settle();
+  const hireSelect = document.getElementById("req-hire");
+  assert.doesNotMatch(hireSelect.textContent, /Old Hire/, "completed hires are not offered");
+  fireEvent.change(hireSelect, { target: { value: "7" } });
+  fireEvent.click(screen.getByLabelText("ID proof"));
+  fireEvent.click(screen.getByLabelText("Bank details"));
+  fireEvent.click(screen.getByRole("button", { name: "Send request" }));
+  await settle();
+  assert.deepEqual(calls.request, [[7, ["id_proof", "bank_details"]]]);
+  assert.match(screen.getByRole("status").textContent, /Requested 2 document\(s\); Ann Lee was emailed/);
+});
+
+test("uploads outside pdf/jpg/png/doc/docx are refused before sending", async (t) => {
+  const calls = await load(t);
+  await open();
+  fireEvent.change(document.getElementById("od-title"), { target: { value: "Sheet" } });
+  fireEvent.change(document.getElementById("od-category"), { target: { value: "other" } });
+  choose(new File(["x"], "data.xlsx"));
+  fireEvent.click(screen.getByRole("button", { name: "Upload" }));
+  await settle();
+  assert.match(document.querySelector(".fixed").textContent, /\.xlsx file type is not allowed/);
+  assert.equal(calls.create.length, 0);
 });

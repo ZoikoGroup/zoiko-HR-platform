@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "A document from " ~ organization_name %}
+{% set preheader = "A document about your application is ready to read." %}
+{% set badge = "New document" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">A document from {{ organization_name }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">{{ organization_name }} has sent you a new document: {{ document_label }}. Open the secure link below to read it. The link works until {{ link_expires_local }}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{{ ui.detail_row("Link valid until", link_expires_local) }}
+{% endcall %}
+{{ ui.button(action_url, "Read the document") }}
+{{ ui.link_fallback(action_url) }}
+{{ ui.signoff() }}
+{% endblock %}

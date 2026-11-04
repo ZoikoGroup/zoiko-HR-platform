@@ -5,8 +5,10 @@ import { X } from "lucide-react";
 import zoikoWaveGlyph from "../../../assets/zoikohr-wave-glyph.svg";
 import { useAuth } from "../../../context/AuthContext";
 import { ROLES } from "../../../config/roles";
+import { loadStates } from "../../../components/PlanGate";
 import { useAssistantConversation } from "./useAssistantConversation";
 import ConversationView from "./ConversationView";
+import "./assistant-tokens.css";
 
 // Public, unauthenticated routes (kept in sync with the public <Route>
 // entries in App.jsx). AssistantContext's `isAuthenticated` is a raw
@@ -17,6 +19,9 @@ import ConversationView from "./ConversationView";
 // launcher is mounted once at the app root regardless of route, so it needs
 // its own route check rather than relying on the token check alone.
 const PUBLIC_PATHS = new Set(["/", "/login", "/forgot-password", "/reset-password", "/verify-email", "/terms", "/register", "/register/success"]);
+
+const CHAT_FEATURE_KEY = "hr.ai.navigation";
+const CHAT_BLOCKING_STATES = new Set(["NOT_ENTITLED", "DELINQUENCY_RESTRICTED"]);
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
@@ -38,7 +43,9 @@ export default function AssistantLauncher() {
   const { isAuthenticated, user } = useAuth();
   const location = useLocation();
 
-  if (!isAuthenticated || !user || PUBLIC_PATHS.has(location.pathname)) return null;
+  // The new hire's pre-onboarding page is public (reached from an email link) even if this browser holds a sign-in
+  // token, so hide the launcher there just like the other public routes.
+  if (!isAuthenticated || !user || PUBLIC_PATHS.has(location.pathname) || location.pathname.startsWith("/onboarding-portal/")) return null;
 
   // Platform (super admin) accounts are refused on every /assistant route by
   // the backend's trust boundary (core/privacy/routes.py lists /assistant as
@@ -54,6 +61,8 @@ export default function AssistantLauncher() {
 }
 
 function DockedAssistant() {
+  const { isAuthenticated } = useAuth();
+  const location = useLocation();
   const [open, setOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const launcherRef = useRef(null);
@@ -71,6 +80,51 @@ function DockedAssistant() {
       requestAnimationFrame(() => headingRef.current?.focus());
     }
   }, [open]);
+
+  // A page dialog (any full-screen overlay) owns the screen: the floating button would sit on its footer buttons on a
+  // phone, so it steps aside until the dialog closes. Visibility-filtered:
+  // always-mounted scrims (e.g. Sidebar backdrop with opacity-0) must not count.
+  const [pageDialogOpen, setPageDialogOpen] = useState(false);
+  useEffect(() => {
+    const isVisibleDialog = (el) => {
+      if (el.hasAttribute("data-assistant-panel")) return false;
+      if (el.hasAttribute("data-sidebar-backdrop")) return false;
+      if (el.classList.contains("hidden")) return false;
+      if (el.classList.contains("opacity-0") && el.classList.contains("pointer-events-none")) return false;
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 && rect.height === 0) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") return false;
+      return true;
+    };
+    const check = () => {
+      const candidates = document.querySelectorAll(
+        ".fixed.inset-0:not([data-assistant-panel]):not([data-sidebar-backdrop]), [aria-modal='true']:not([data-assistant-panel])"
+      );
+      setPageDialogOpen(Array.from(candidates).some(isVisibleDialog));
+    };
+    check();
+    const obs = new MutationObserver(check);
+    obs.observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+      attributeFilter: ["class", "style", "aria-modal", "aria-hidden"],
+    });
+    return () => obs.disconnect();
+  }, []);
+
+  // The chatbot is not in the Core plan: hide the launcher when the plan leaves it out (or access is paused for an
+  // overdue payment), the same states the server refuses (assistant/plan_gate.py). Any other answer, or none, keeps it.
+  const [planAllows, setPlanAllows] = useState(true);
+  useEffect(() => {
+    if (!isAuthenticated) return undefined;
+    let live = true;
+    loadStates().then((states) => {
+      if (live) setPlanAllows(!CHAT_BLOCKING_STATES.has(states?.[CHAT_FEATURE_KEY]));
+    });
+    return () => { live = false; };
+  }, [isAuthenticated, location.pathname]);
 
   const close = () => {
     setOpen(false);
@@ -100,6 +154,9 @@ function DockedAssistant() {
     }
   };
 
+  if (pageDialogOpen && !open) return null;
+  if (!planAllows) return null;
+
   return createPortal(
     <>
       <button
@@ -125,6 +182,7 @@ function DockedAssistant() {
           aria-modal="true"
           aria-labelledby="zhr-assistant-title"
           aria-label="Zoiko HR Assistant"
+          data-assistant-panel=""
           onKeyDown={onPanelKeyDown}
           className="fixed z-40 flex flex-col overflow-hidden bg-[var(--zhr-surface-overlay)]
             max-[600px]:inset-0 max-[600px]:h-[100dvh] max-[600px]:w-screen
@@ -149,4 +207,3 @@ function DockedAssistant() {
     document.body
   );
 }
-

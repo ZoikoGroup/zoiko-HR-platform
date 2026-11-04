@@ -1,0 +1,51 @@
+{
+  "canonical_id": "HR-ONB-011",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "policy.version"
+    ],
+    "optional": [
+      "policy.effective_from",
+      "policy.document_ref"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Employee Handbook — Acknowledgement",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Please read the Employee Handbook (version {{policy.version}}, effective {{policy.effective_from}}) before confirming."
+    },
+    {
+      "type": "paragraph",
+      "text": "The Employee Handbook is document {{policy.document_ref}} in your documents.",
+      "include_when": {
+        "field": "policy.document_ref",
+        "op": "present"
+      }
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm that I have received the Employee Handbook. I understand that the handbook explains our policies and procedures and, unless my contract says otherwise, it does not form part of my contract of employment. This acknowledgement does not take away any of my legal rights.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

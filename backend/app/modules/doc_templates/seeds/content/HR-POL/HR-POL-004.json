@@ -1,0 +1,167 @@
+{
+  "canonical_id": "HR-POL-004",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name",
+      "policy.absence_notification_rule"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "attendance_local_rules"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy supports reliable attendance and fair, consistent handling of absence."
+    },
+    {
+      "type": "heading",
+      "text": "2. Recording attendance",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Record your working time using {{org.display_name}}'s attendance system (check-in/check-out) unless your role is exempt. Do not record time for anyone else."
+    },
+    {
+      "type": "heading",
+      "text": "3. Lateness",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you will be late, tell your manager as early as possible and before your start time where you can."
+    },
+    {
+      "type": "heading",
+      "text": "4. Unplanned absence",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you cannot come to work, notify your manager {{policy.absence_notification_rule}}."
+    },
+    {
+      "type": "heading",
+      "text": "5. Unauthorised absence",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you are absent without telling us, we will try to contact you, including through your emergency contact if we are worried about your welfare."
+    },
+    {
+      "type": "heading",
+      "text": "6. Correcting records",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If your attendance record is wrong, use the attendance correction request in Zoiko HR. The original record is kept for audit purposes."
+    },
+    {
+      "type": "heading",
+      "text": "7. Absence review",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Patterns of absence are discussed supportively first, to understand what is happening and whether we can help. Adjustments for disability or health conditions are considered."
+    },
+    {
+      "type": "heading",
+      "text": "8. Local rules",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "attendance_local_rules",
+      "required": false
+    },
+    {
+      "type": "heading",
+      "text": "9. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Sick Leave Policy; Working Hours Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

@@ -1,0 +1,122 @@
+{
+  "canonical_id": "HR-LEV-001",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "leave.type_label",
+      "leave.start_date",
+      "leave.end_date",
+      "leave.days",
+      "leave.requested_at",
+      "leave.decision_status_label",
+      "leave.decided_by",
+      "leave.decided_at"
+    ],
+    "optional": [
+      "leave.balance_before",
+      "leave.balance_after",
+      "leave.decision_reason",
+      "leave.handover_note"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "leave_rights_statement"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Leave Request — {{leave.type_label}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "leave.start_date",
+        "leave.end_date",
+        "leave.days",
+        "leave.requested_at"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "leave.days": "Working days",
+        "leave.requested_at": "Requested on"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Balance",
+      "level": 2,
+      "include_when": {
+        "field": "leave.balance_before",
+        "op": "present"
+      }
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "leave.balance_before",
+        "leave.balance_after"
+      ],
+      "labels": {
+        "leave.balance_after": "Balance after (if approved)"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Cover and handover",
+      "level": 2,
+      "include_when": {
+        "field": "leave.handover_note",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "{{leave.handover_note}}",
+      "include_when": {
+        "field": "leave.handover_note",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Decision",
+      "level": 2
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "leave.decision_status_label",
+        "leave.decided_by",
+        "leave.decided_at",
+        "leave.decision_reason"
+      ],
+      "labels": {
+        "leave.decision_status_label": "Status",
+        "leave.decision_reason": "Reason"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "{{required_clause_block}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "A leave record cannot be closed while a legal eligibility question is unresolved.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

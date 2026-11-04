@@ -1,0 +1,85 @@
+{
+  "canonical_id": "HR-HIR-006",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "candidate.full_name",
+      "requisition.title",
+      "interview.date",
+      "interview.stage",
+      "interview.recommendation"
+    ],
+    "optional": [
+      "interview.mode",
+      "interview.panel",
+      "interview.questions_asked",
+      "interview.evidence_notes",
+      "interview.strengths",
+      "interview.concerns",
+      "interview.adjustments_provided",
+      "interview.recommendation_reason"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Interview Record — {{requisition.title}} — {{interview.stage}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "candidate.full_name",
+        "requisition.title",
+        "interview.date",
+        "interview.mode",
+        "interview.panel"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Record only job-related evidence. Do not record information about protected characteristics, health, family plans or other matters unrelated to the requirements of the role.",
+      "id": "rights_fair_assessment",
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "Questions asked",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "interview.questions_asked"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "interview.evidence_notes",
+        "interview.strengths",
+        "interview.concerns",
+        "interview.adjustments_provided",
+        "interview.recommendation",
+        "interview.recommendation_reason"
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm this record is accurate and based on the evidence from the interview.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

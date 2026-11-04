@@ -1,0 +1,59 @@
+{
+  "canonical_id": "HR-LEV-003",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "leave.start_date"
+    ],
+    "optional": [
+      "leave.return_date"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "sickness_evidence_reminder"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "We have received your sickness absence notification",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, thank you for letting us know that you are unwell. We have recorded your absence starting {{leave.start_date}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "You expect to return on {{leave.return_date}}.",
+      "include_when": {
+        "field": "leave.return_date",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Please keep your manager updated if anything changes. {{clause:sickness_evidence_reminder}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "You do not need to tell your manager your diagnosis. Any medical evidence you give us is stored securely and seen only by people who need it.",
+      "id": "privacy_health"
+    },
+    {
+      "type": "paragraph",
+      "text": "We wish you a speedy recovery."
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

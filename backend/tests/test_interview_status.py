@@ -1,6 +1,6 @@
 """An interview's status can only move forward: it can never flip between completed and cancelled."""
 
-from datetime import date
+from datetime import date, timedelta
 
 import pytest
 from fastapi.testclient import TestClient
@@ -48,7 +48,7 @@ def client():
 
 
 def _new(client):
-    r = client.post("/hr/recruitment/interviews", json={"candidate_name": "Ann", "position": "Dev", "interview_date": "2026-11-01"})
+    r = client.post("/hr/recruitment/interviews", json={"candidate_name": "Ann", "position": "Dev", "interview_date": (date.today() + timedelta(days=7)).isoformat()})
     assert r.status_code in (200, 201), r.text
     return r.json()["id"]
 

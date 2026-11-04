@@ -49,7 +49,8 @@ def _request(db, emp, kind, start=None, end=None, approve=True):
     rec = service.create_leave_request(db, LeaveRequestCreate(employee_id=emp.id, leave_type=kind, start_date=start, end_date=end,
                                                               reason="because the reason is long enough"), org_id=1)
     if approve:
-        service.review_leave_request(db, rec.id, LeaveRequestUpdate(status=RequestStatus.APPROVED), org_id=1, reviewer_id=emp.id)
+        # nobody decides their own leave (Prompt 3), so the employee is not the reviewer here
+        service.review_leave_request(db, rec.id, LeaveRequestUpdate(status=RequestStatus.APPROVED), org_id=1, reviewer_id=None)
     return rec
 
 
@@ -116,5 +117,5 @@ def test_other_organizations_are_not_counted(db):
     db.commit()
     rec = service.create_leave_request(db, LeaveRequestCreate(employee_id=other.id, leave_type="work_from_home", start_date=date.today(),
                                                               end_date=date.today(), reason="x" * 12), org_id=2)
-    service.review_leave_request(db, rec.id, LeaveRequestUpdate(status=RequestStatus.APPROVED), org_id=2, reviewer_id=other.id)
+    service.review_leave_request(db, rec.id, LeaveRequestUpdate(status=RequestStatus.APPROVED), org_id=2, reviewer_id=None)
     assert service.get_leave_dashboard(db, 1).wfh == 0

@@ -17,7 +17,7 @@ const mocked = new WeakSet();
 
 function register(t) {
   Object.assign(empSvc, {
-    importEmployees: async () => ({}), getEmployees: async () => ({ items: [], total: 0 }),
+    importEmployees: async () => ({}), downloadImportTemplate: async () => ({}), getImportTemplateCountries: async () => [{ name: "United States", currency: "USD", identifiers: ["SSN", "State payroll ID (optional)", "Routing number"] }, { name: "Germany", currency: "EUR", identifiers: ["Tax ID (Steuer-ID)", "Social insurance number (SV-Nummer)", "BIC (optional)"] }], getEmployees: async () => ({ items: [], total: 0 }),
     hardDeleteEmployee: async () => ({}), bulkHardDeleteEmployees: async () => ({}),
   });
   Object.assign(userSvc, {
@@ -51,7 +51,7 @@ test("Add User offers every field the import takes, with roles from the server",
   await open(t);
   for (const label of ["Date of joining", "Employment type", "Department", "Designation", "Company", "Business unit", "Division", "Team",
     "Date of birth", "Gender", "Work email", "Personal email", "Current address", "Permanent address", "City", "State", "Country", "Pincode",
-    "Basic salary", "CTC", "PAN", "UAN", "Bank account number", "IFSC code"]) {
+    "Basic salary", "CTC", "Tax identification number", "Social security", "Bank account number", "Bank branch"]) {
     assert.ok(screen.getByLabelText(new RegExp(`^${label}`)), label);
   }
   const roles = within(screen.getByLabelText(/^Role/)).getAllByRole("option").map((o) => o.textContent);
@@ -69,7 +69,9 @@ test("required fields are enforced and everything filled in is sent", async (t) 
 
   type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
   type(/^Department/, "Platform"); type(/^Designation/, "Senior Engineer"); type(/^Gender/, "male"); type(/^Employment type/, "contract");
-  type(/^City/, "Pune"); type(/^Basic salary/, "50000"); type(/^PAN/, "ABCDE1234F"); type(/^IFSC/, "HDFC0001234");
+  type(/^City/, "Pune"); type(/^Country/, "India");
+  // India's statutory fields appear once the country is entered
+  type(/^Basic salary/, "50000"); type(/^PAN/, "ABCDE1234F"); type(/^IFSC/, "HDFC0001234");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
   assert.equal(sent.length, 1);
@@ -121,7 +123,7 @@ test("Edit prefills and sends the complete employee details", async (t) => {
   userSvc.getUser = async () => ({
     id: 7, first_name: "Rahul", last_name: "Mehta", full_name: "Rahul Mehta", email: "rahul@gmail.com", role: "employee",
     phone: "9876543210", job_title: "Engineer", status: "active", department: "Platform", designation: "Senior Engineer",
-    pan_number: "ABCDE1234F", city: "Pune", work_email: "rahul@corp.com",
+    pan_number: "ABCDE1234F", city: "Pune", country: "India", work_email: "rahul@corp.com",
   });
   userSvc.updateUser = async (id, p) => { sent.push([id, p]); return {}; };
   const { default: Page } = await import("../src/modules/organization-admin/UserManagementPage.jsx");

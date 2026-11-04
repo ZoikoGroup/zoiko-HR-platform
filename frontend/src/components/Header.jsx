@@ -28,7 +28,7 @@ export default function Header({ onMenuClick, onSearch }) {
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 backdrop-blur-xl backdrop-saturate-150 rounded-b-xl">
-      <div className="mx-auto flex h-16 max-w-7xl items-center gap-4 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto flex h-16 min-w-0 max-w-7xl items-center gap-2 px-3 sm:gap-4 sm:px-6 lg:px-8">
         {/* Mobile menu button */}
         <button
           type="button"
@@ -40,9 +40,9 @@ export default function Header({ onMenuClick, onSearch }) {
         </button>
 
         {/* Branding */}
-        <div className="flex items-center space-x-2">
+        <div className="flex min-w-0 items-center gap-2">
           <Link to="/"><img src={logo} alt="Zoiko One" className="h-7 w-auto object-contain" /></Link>
-          <span className="ml-2 rounded-full bg-[#3B82F6]/10 border border-[#3B82F6]/25 px-2.5 py-0.5 text-xs font-semibold text-[#3B82F6]">
+          <span className="hidden rounded-full border border-[#3B82F6]/25 bg-[#3B82F6]/10 px-2.5 py-0.5 text-xs font-semibold text-[#3B82F6] sm:inline-flex">
             {ROLE_LABELS[role] ?? "Super Admin"}
           </span>
         </div>

@@ -1,0 +1,105 @@
+{
+  "canonical_id": "HR-CMP-001",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "employment.position_title",
+      "comp.effective_date",
+      "comp.base_amount",
+      "comp.currency",
+      "comp.pay_period_label",
+      "comp.pay_frequency_label"
+    ],
+    "optional": [
+      "comp.base_summary",
+      "comp.pay_grade",
+      "comp.components",
+      "comp.annual_total"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "pay_statement_notice"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Confirmation of your salary",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, this letter confirms your pay as {{employment.position_title}} from {{comp.effective_date}}."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "comp.base_summary",
+        "comp.pay_frequency_label",
+        "comp.pay_grade"
+      ],
+      "labels": {
+        "comp.base_summary": "Base pay",
+        "comp.pay_frequency_label": "Paid",
+        "comp.pay_grade": "Pay grade"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Component",
+        "Amount",
+        "Frequency"
+      ],
+      "rows_from": "comp.components",
+      "include_when": {
+        "field": "comp.components",
+        "op": "present"
+      }
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "comp.annual_total"
+      ],
+      "labels": {
+        "comp.annual_total": "Total annual value (estimated, before deductions)"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your pay is subject to the deductions required by law, such as tax and social security, and any deductions you have agreed to in writing.",
+      "id": "rights_pay_deductions"
+    },
+    {
+      "type": "clause",
+      "key": "pay_statement_notice",
+      "required": false
+    },
+    {
+      "type": "paragraph",
+      "text": "If anything in this letter does not match your contract, please contact HR."
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

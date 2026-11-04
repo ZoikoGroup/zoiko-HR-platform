@@ -20,6 +20,7 @@ frontend banners are informational, not authoritative (Section 10 G2).
 
 Timing is clock-injectable via `now_utc()` so tests can freeze the clock.
 """
+from typing import Optional
 
 import hashlib
 import logging
@@ -420,7 +421,8 @@ def mint_confirmation_token(
     return token, raw
 
 
-def confirm_token(db: Session, token_id: int, raw_token: str, purpose, actor_id: int) -> ConfirmationToken:
+def confirm_token(db: Session, token_id: int, raw_token: str, purpose, actor_id: int,
+                  actor_email: Optional[str] = None) -> ConfirmationToken:
     """Consume a confirmation token, enforcing one-time, binding-to-actor and
     expiry rules. Raises ValueError on any violation."""
     token = db.query(ConfirmationToken).filter(ConfirmationToken.id == token_id).first()
@@ -436,6 +438,9 @@ def confirm_token(db: Session, token_id: int, raw_token: str, purpose, actor_id:
         raise ValueError("confirmation_token_expired")
     # Binding: the token is scoped to the actor who minted it.
     if token.actor_id is not None and token.actor_id != actor_id:
+        raise ValueError("confirmation_token_actor_mismatch")
+    # A platform account is stored by email only (its id has no organization to pair with): bind on the email instead.
+    if token.actor_id is None and token.actor_email and (actor_email or "").lower() != token.actor_email.lower():
         raise ValueError("confirmation_token_actor_mismatch")
     if not secrets.compare_digest(token.token_hash, _hash_token(raw_token)):
         raise ValueError("confirmation_token_invalid")

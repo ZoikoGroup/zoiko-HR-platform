@@ -1,0 +1,20 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Zoiko support is asking for access" %}
+{% set preheader = "Zoiko support asked for " ~ duration_minutes ~ " minutes of read-only access to " ~ organization_name ~ ". Request " ~ reference ~ " needs your decision." %}
+{% set badge = "Approval needed" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because you are an admin for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Zoiko support is asking for access</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hi {{ admin_name }}, a Zoiko support engineer has asked for <strong class="dm-text-strong" style="{{ S.strong }}">{{ duration_minutes }} minutes of read-only access</strong> to {{ organization_name }}. Approval needed: nothing happens unless an admin approves it, and you can end the session at any time.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Request", reference, first=True, mono=True) }}
+{{ ui.detail_row("Requested by", operator_email) }}
+{{ ui.detail_row("Reason", justification) }}
+{{ ui.detail_row("Support ticket", ticket_reference) }}
+{{ ui.detail_row("Access", "Read-only, " ~ duration_minutes ~ " minutes") }}
+{% endcall %}
+{{ ui.button(review_url, "Review request") }}
+{{ ui.signoff() }}
+{% endblock %}

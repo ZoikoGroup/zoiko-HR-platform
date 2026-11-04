@@ -128,12 +128,12 @@ export default function PerformanceAnalytics() {
       <HRPage title="Performance Analytics" subtitle="Key performance metrics and trends">
         <SubNav />
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
               <h1 className="text-2xl font-bold text-gray-900">Performance Analytics</h1>
               <p className="text-sm text-gray-500 mt-1">Key performance metrics and trends</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <button onClick={printPage} className="flex items-center gap-2 px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 text-sm font-medium">
                 <Printer className="w-4 h-4" /> Print
               </button>

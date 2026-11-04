@@ -558,7 +558,14 @@ def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
     mixed = MIMEMultipart("mixed")
     mixed.attach(alternative)
     for filename, data in attachments:
-        part = MIMEApplication(data, _subtype="pdf")
+        if filename.lower().endswith(".ics"):
+            # a calendar invitation: mail clients offer "add to calendar" for text/calendar parts
+            text = data.decode("utf-8") if isinstance(data, bytes) else data
+            method = "CANCEL" if "METHOD:CANCEL" in text else "REQUEST"
+            part = MIMEText(text, "calendar", "utf-8")
+            part.set_param("method", method)
+        else:
+            part = MIMEApplication(data, _subtype="pdf")
         part.add_header("Content-Disposition", "attachment", filename=filename)
         mixed.attach(part)
     return mixed
@@ -729,6 +736,27 @@ def _send_approval_email_now(
 
 
 
+def send_org_registration_otp_email(
+    email: str,
+    org_name: str,
+    otp: str,
+    ttl_minutes: int = 10,
+    db=None,
+) -> bool:
+    """Send a 6-digit OTP to the organization's registered email during registration."""
+    return send_approval_email(
+        email,
+        "org_registration_otp.html",
+        {
+            "subject": f"{otp} is your Zoiko HR verification code",
+            "org_name": org_name or "your organization",
+            "code": otp,
+            "ttl_minutes": ttl_minutes,
+        },
+        db=db,
+    )
+
+
 def send_registration_received(email: str, org_name: str, login_url: str = None, db=None):
     return send_approval_email(email, "registration_received.html", {
         "subject": f"Welcome to Zoiko HR — {org_name}",
@@ -780,6 +808,191 @@ def send_hr_ticket_created(
         "issue_summary": issue_summary,
         "organization_name": organization_name,
         "tickets_url": tickets_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_support_login_requested(
+    email: str,
+    admin_name: str,
+    organization_name: str,
+    operator_email: str,
+    reference: str,
+    duration_minutes: int,
+    justification: str,
+    ticket_reference: str,
+    review_url: str,
+    db=None,
+    organization_id=None,
+):
+    """Ask one org admin to approve or reject a temporary read-only support sign-in."""
+    return send_approval_email(email, "support_login_requested.html", {
+        "subject": f"Support access request {reference} | Zoiko HR",
+        "admin_name": admin_name,
+        "organization_name": organization_name,
+        "operator_email": operator_email,
+        "reference": reference,
+        "duration_minutes": duration_minutes,
+        "justification": justification,
+        "ticket_reference": ticket_reference,
+        "review_url": review_url,
+    }, db=db, organization_id=organization_id)
+
+
+def _send_interview_email(template, subject_prefix, email, recipient_name, is_candidate, candidate_name, position,
+                          organization_name, date_display, time_display, interview_type_label, location, meeting_link,
+                          interviewer_name, previous_display=None, ics=None, db=None, organization_id=None):
+    return send_approval_email(email, template, {
+        "subject": f"{subject_prefix}: {position} | {organization_name}",
+        "recipient_name": recipient_name, "is_candidate": is_candidate, "candidate_name": candidate_name,
+        "position": position, "organization_name": organization_name, "date_display": date_display,
+        "time_display": time_display, "interview_type_label": interview_type_label, "location": location,
+        "meeting_link": _safe_https_url(meeting_link), "interviewer_name": interviewer_name,
+        "previous_display": previous_display,
+    }, db=db, organization_id=organization_id, attachments=[("interview.ics", ics)] if ics else None)
+
+
+def send_interview_scheduled(email, recipient_name, is_candidate, candidate_name, position, organization_name, date_display,
+                             time_display, interview_type_label, location=None, meeting_link=None, interviewer_name=None,
+                             ics=None, db=None, organization_id=None):
+    """Tell the candidate or the interviewer that an interview was booked (with a calendar invitation)."""
+    return _send_interview_email("interview_scheduled.html", "Interview scheduled", email, recipient_name, is_candidate,
+                                 candidate_name, position, organization_name, date_display, time_display,
+                                 interview_type_label, location, meeting_link, interviewer_name, ics=ics, db=db,
+                                 organization_id=organization_id)
+
+
+def send_interview_rescheduled(email, recipient_name, is_candidate, candidate_name, position, organization_name, date_display,
+                               time_display, interview_type_label, previous_display=None, location=None, meeting_link=None,
+                               interviewer_name=None, ics=None, db=None, organization_id=None):
+    """Tell the candidate or the interviewer that an interview moved (with the updated calendar invitation)."""
+    return _send_interview_email("interview_rescheduled.html", "Interview rescheduled", email, recipient_name, is_candidate,
+                                 candidate_name, position, organization_name, date_display, time_display,
+                                 interview_type_label, location, meeting_link, interviewer_name,
+                                 previous_display=previous_display, ics=ics, db=db, organization_id=organization_id)
+
+
+def send_interview_cancelled(email, recipient_name, is_candidate, candidate_name, position, organization_name, date_display,
+                             time_display=None, ics=None, db=None, organization_id=None):
+    """Tell the candidate or the interviewer that an interview was cancelled (the invitation is withdrawn)."""
+    return _send_interview_email("interview_cancelled.html", "Interview cancelled", email, recipient_name, is_candidate,
+                                 candidate_name, position, organization_name, date_display, time_display, None, None,
+                                 None, None, ics=ics, db=db, organization_id=organization_id)
+
+
+def send_candidate_status_update(email, candidate_name, position, organization_name, status_label, is_rejection=False,
+                                 db=None, organization_id=None):
+    """Tell a candidate their application moved to review, or was not taken forward."""
+    return send_approval_email(email, "candidate_status_update.html", {
+        "subject": f"Your application for {position} | {organization_name}",
+        "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
+        "status_label": status_label, "is_rejection": is_rejection,
+    }, db=db, organization_id=organization_id)
+
+
+def send_offer_letter(email, candidate_name, position, organization_name, employment_type_label, remuneration_label,
+                      remuneration_display, start_date_display=None, equity=None, entity_name=None, db=None,
+                      organization_id=None):
+    """Key terms of an offer by e-mail (legacy summary). Offer letters themselves are engine documents with a signing link;
+    a browser-made PDF is never attached any more."""
+    return send_approval_email(email, "offer_letter.html", {
+        "subject": f"Your offer for {position} | {organization_name}",
+        "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
+        "employment_type_label": employment_type_label, "remuneration_label": remuneration_label,
+        "remuneration_display": remuneration_display, "start_date_display": start_date_display, "equity": equity,
+        "entity_name": entity_name,
+    }, db=db, organization_id=organization_id)
+
+
+def send_offer_outcome(email, admin_name, candidate_name, position, organization_name, accepted, offers_url,
+                       start_date_display=None, db=None, organization_id=None):
+    """Tell the organization's admins that a candidate accepted or declined an offer."""
+    outcome = "Accepted" if accepted else "Declined"
+    return send_approval_email(email, "offer_outcome.html", {
+        "subject": f"Offer {outcome.lower()}: {candidate_name} ({position}) | Zoiko HR",
+        "admin_name": admin_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "accepted": accepted, "outcome_label": outcome,
+        "offers_url": offers_url, "start_date_display": start_date_display,
+    }, db=db, organization_id=organization_id)
+
+
+def send_requisition_approval_request(email, admin_name, requester_name, title_text, department, openings, priority,
+                                      organization_name, requisitions_url, location=None, db=None, organization_id=None):
+    """Ask an organization admin to approve a submitted job requisition."""
+    return send_approval_email(email, "requisition_approval_request.html", {
+        "subject": f"Requisition awaiting approval: {title_text} | Zoiko HR",
+        "admin_name": admin_name, "requester_name": requester_name, "title_text": title_text, "department": department,
+        "openings": openings, "priority": priority, "location": location, "organization_name": organization_name,
+        "requisitions_url": requisitions_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_requisition_decision(email, requester_name, title_text, department, approved, decider_name, requisitions_url,
+                              db=None, organization_id=None):
+    """Tell whoever submitted a job requisition that it was approved or rejected."""
+    decision = "Approved" if approved else "Rejected"
+    return send_approval_email(email, "requisition_decision.html", {
+        "subject": f"Requisition {decision.lower()}: {title_text} | Zoiko HR",
+        "requester_name": requester_name, "title_text": title_text, "department": department, "approved": approved,
+        "decision_label": decision, "decider_name": decider_name, "requisitions_url": requisitions_url,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_invite(email, first_name, organization_name, position, portal_url, expires_display,
+                           joining_date_display=None, manager_name=None, documents_requested=0, welcome_message=None,
+                           db=None, organization_id=None):
+    """Welcome a new hire and send their pre-onboarding link (no account needed)."""
+    return send_approval_email(email, "onboarding_invite.html", {
+        "subject": f"Welcome to {organization_name}: complete your pre-onboarding",
+        "first_name": first_name, "organization_name": organization_name, "position": position,
+        "portal_url": portal_url, "expires_display": expires_display, "joining_date_display": joining_date_display,
+        "manager_name": manager_name, "documents_requested": documents_requested, "welcome_message": welcome_message,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_document_request(email, first_name, organization_name, documents, portal_url, joining_date_display=None,
+                                     is_reminder=False, db=None, organization_id=None):
+    """Ask a new hire for documents (new requests, rejected uploads to redo, or a reminder). documents: [{title, note}]."""
+    return send_approval_email(email, "onboarding_document_request.html", {
+        "subject": f"{'Reminder: ' if is_reminder else ''}Documents needed for your onboarding | {organization_name}",
+        "first_name": first_name, "organization_name": organization_name, "documents": documents,
+        "portal_url": portal_url, "joining_date_display": joining_date_display, "is_reminder": is_reminder,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_task_assigned(email, assignee_name, candidate_name, position, organization_name, tasks, checklists_url,
+                                  joining_date_display=None, db=None, organization_id=None):
+    """Tell a colleague which onboarding tasks for a new hire are theirs. tasks: [{title, due}]."""
+    return send_approval_email(email, "onboarding_task_assigned.html", {
+        "subject": f"Onboarding tasks for {candidate_name} | Zoiko HR",
+        "assignee_name": assignee_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "tasks": tasks, "checklists_url": checklists_url,
+        "joining_date_display": joining_date_display,
+    }, db=db, organization_id=organization_id)
+
+
+def send_orientation_invite(email, first_name, organization_name, session_title, date_display, time_display=None,
+                            location=None, meeting_link=None, presenter=None, kind="invite", db=None, organization_id=None):
+    """Invite a new hire to an orientation session, or tell them it changed (kind=updated) or was cancelled."""
+    labels = {"invite": ("Invitation", "You're invited to orientation"), "updated": ("Updated", "Orientation session updated"),
+              "cancelled": ("Cancelled", "Orientation session cancelled")}
+    label, heading = labels.get(kind, labels["invite"])
+    return send_approval_email(email, "orientation_invite.html", {
+        "subject": f"{heading}: {session_title} | {organization_name}",
+        "first_name": first_name, "organization_name": organization_name, "session_title": session_title,
+        "date_display": date_display, "time_display": time_display, "location": location,
+        "meeting_link": _safe_https_url(meeting_link), "presenter": presenter, "kind_label": label, "heading": heading,
+        "cancelled": kind == "cancelled",
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_completed(email, recipient_name, candidate_name, employee_code, position, organization_name,
+                              employees_url, joining_date_display=None, db=None, organization_id=None):
+    """Tell admins and the manager that a new hire finished onboarding and became an employee."""
+    return send_approval_email(email, "onboarding_completed.html", {
+        "subject": f"Onboarding completed: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "employee_code": employee_code,
+        "position": position, "organization_name": organization_name, "employees_url": employees_url,
+        "joining_date_display": joining_date_display,
     }, db=db, organization_id=organization_id)
 
 
@@ -1757,6 +1970,147 @@ def send_performance_review_submitted_email(
         "action_url": action_url or _login_url(),
     }, db=db, organization_id=organization_id)
 
+
+
+# ── Generated documents (app/modules/doc_templates). No document contents, ever: number, label, dates, a link. ─────────
+
+def send_document_action_required_email(email, first_name, document_label, document_number, action_label, action_phrase,
+                                        issuer_name, due_at_local=None, action_url=None, db=None, organization_id=None):
+    return send_approval_email(email, "document_action_required.html", {
+        "subject": f"Action required: document {document_number}",
+        "first_name": first_name, "document_label": document_label, "document_number": document_number,
+        "action_label": action_label, "action_phrase": action_phrase, "issuer_name": issuer_name,
+        "due_at_local": due_at_local, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_reminder_email(email, first_name, document_label, document_number, action_phrase, due_at_local=None,
+                                 action_url=None, db=None, organization_id=None):
+    return send_approval_email(email, "document_reminder.html", {
+        "subject": f"Reminder: document {document_number} is waiting for you",
+        "first_name": first_name, "document_label": document_label, "document_number": document_number,
+        "action_phrase": action_phrase, "due_at_local": due_at_local, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_executed_email(email, first_name, document_label, document_number, completed_at_local, action_url=None,
+                                 db=None, organization_id=None):
+    return send_approval_email(email, "document_executed.html", {
+        "subject": f"Document {document_number} is completed",
+        "first_name": first_name, "document_label": document_label, "document_number": document_number,
+        "completed_at_local": completed_at_local, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_declined_email(email, first_name, document_label, document_number, declined_party, action_url=None,
+                                 db=None, organization_id=None):
+    return send_approval_email(email, "document_declined.html", {
+        "subject": f"Document {document_number} was declined",
+        "first_name": first_name, "document_label": document_label, "document_number": document_number,
+        "declined_party": declined_party, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_expired_email(email, first_name, document_label, document_number, expired_at_local, action_url=None,
+                                db=None, organization_id=None):
+    return send_approval_email(email, "document_expired.html", {
+        "subject": f"Document {document_number} expired",
+        "first_name": first_name, "document_label": document_label, "document_number": document_number,
+        "expired_at_local": expired_at_local, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_candidate_document_sign_email(email, first_name, organization_name, document_number, link_expires_local, action_url,
+                                       due_at_local=None, db=None, organization_id=None, wait=False, error_out=None):
+    return send_approval_email(email, "candidate_document_sign.html", {
+        "subject": f"{organization_name}: a document is ready for your signature",
+        "first_name": first_name, "organization_name": organization_name, "document_number": document_number,
+        "link_expires_local": link_expires_local, "due_at_local": due_at_local, "action_url": action_url,
+    }, db=db, organization_id=organization_id, wait=wait, error_out=error_out)
+
+
+
+def send_candidate_document_available_email(email, first_name, organization_name, document_label, document_number, link_expires_local,
+                                            action_url, attachment=None, db=None, organization_id=None):
+    return send_approval_email(email, "candidate_document_available.html", {
+        "subject": f"{organization_name}: {document_label}",
+        "first_name": first_name, "organization_name": organization_name, "document_label": document_label,
+        "document_number": document_number, "link_expires_local": link_expires_local, "action_url": action_url,
+    }, db=db, organization_id=organization_id, attachments=[attachment] if attachment else None)
+
+
+def send_bank_details_changed_email(email, first_name, changed_at_local, db=None, organization_id=None):
+    """Sent to the employee after any change of their bank details, so an unexpected change is noticed at once."""
+    return send_approval_email(email, "bank_details_changed.html", {
+        "subject": "Your bank details were changed",
+        "first_name": first_name, "changed_at_local": changed_at_local, "action_url": _login_url(),
+    }, db=db, organization_id=organization_id)
+
+def send_leave_decision_needed_email(email, first_name, request_reference, action_url=None, db=None, organization_id=None):
+    """Fast-track notice to the manager (bereavement): the reference only, never the type, dates or reason."""
+    return send_approval_email(email, "leave_decision_needed.html", {
+        "subject": f"Leave request {request_reference} needs your decision today",
+        "first_name": first_name, "request_reference": request_reference, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_compensation_document_available_email(email, first_name, document_number, action_url=None, db=None, organization_id=None):
+    """Compensation letters: no amounts, no title, only that a document is waiting in Zoiko HR."""
+    return send_approval_email(email, "compensation_document_available.html", {
+        "subject": "A compensation document is available in Zoiko HR",
+        "first_name": first_name, "document_number": document_number, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_reporting_line_changed_email(email, first_name, change_reference, action_url=None, db=None, organization_id=None):
+    """To the old and new manager when a reporting line changes: the reference only, never the person's other details."""
+    return send_approval_email(email, "reporting_line_changed.html", {
+        "subject": f"A reporting line changed ({change_reference})",
+        "first_name": first_name, "change_reference": change_reference, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_documents_to_action_email(email, first_name, pending_count, action_url=None, db=None, organization_id=None):
+    """Weekly nudge: how many documents wait for the person (a count only)."""
+    return send_approval_email(email, "documents_to_action.html", {
+        "subject": f"You have {pending_count} document{'s' if pending_count != 1 else ''} to action",
+        "first_name": first_name, "pending_count": pending_count, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_document_sign_code_email(email, first_name, document_number, code, ttl_minutes, db=None, organization_id=None):
+    return send_approval_email(email, "document_sign_code.html", {
+        "subject": f"Your code to sign document {document_number}",
+        "first_name": first_name, "document_number": document_number, "code": code, "ttl_minutes": ttl_minutes,
+    }, db=db, organization_id=organization_id)
+
+
+def send_policy_published_email(email, first_name, policy_title, document_number, action_phrase, due_at_local=None,
+                                action_url=None, db=None, organization_id=None):
+    return send_approval_email(email, "policy_published.html", {
+        "subject": f"New policy to review: {policy_title}",
+        "first_name": first_name, "policy_title": policy_title, "document_number": document_number,
+        "action_phrase": action_phrase, "due_at_local": due_at_local, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_template_variant_review_required_email(email, first_name, canonical_id, version, jurisdiction, author_name, step_label,
+                                                action_url=None, db=None, organization_id=None):
+    return send_approval_email(email, "template_variant_review_required.html", {
+        "subject": f"Template {canonical_id} v{version} needs your review",
+        "first_name": first_name, "canonical_id": canonical_id, "version": version, "jurisdiction": jurisdiction,
+        "author_name": author_name, "step_label": step_label, "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
+
+
+def send_documents_expiry_digest_email(email, first_name, window_days, documents_count, uploads_count, templates_count,
+                                       overdue_count, action_url=None, db=None, organization_id=None):
+    return send_approval_email(email, "documents_expiry_digest.html", {
+        "subject": "Documents expiring soon: weekly digest",
+        "first_name": first_name, "window_days": window_days, "documents_count": documents_count,
+        "uploads_count": uploads_count, "templates_count": templates_count, "overdue_count": overdue_count,
+        "action_url": action_url or _login_url(),
+    }, db=db, organization_id=organization_id)
 
 
 def send_plain_email(to_email: str, subject: str, body: str, db=None, organization_id=None):

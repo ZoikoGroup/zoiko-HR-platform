@@ -17,14 +17,16 @@ plans rather than silently locked: that is the customer-safe default until Produ
 from app.modules.billing.feature_keys import FEATURE_KEYS, canonical_feature_key as resolve_alias, canonical_feature_key
 
 # feature_key: (in Core, in Advanced)
+# The AI chatbot (hr.ai.* below) is Advanced only, a Product decision that overrides the section 5 spec row
+# that put help/navigation, policy Q&A and drafting into Core; the assistant routers enforce it (assistant/plan_gate.py).
 PLAN_BASELINE: dict[str, tuple[bool, bool]] = {
     "hr.admin.delegation": (True, True),
     "hr.ai.autonomous_decision": (False, False),
     "hr.ai.custom_sources": (False, True),
-    "hr.ai.draft_summary": (True, True),
-    "hr.ai.governance_admin": (True, True),
-    "hr.ai.navigation": (True, True),
-    "hr.ai.policy_qa": (True, True),
+    "hr.ai.draft_summary": (False, True),
+    "hr.ai.governance_admin": (False, True),
+    "hr.ai.navigation": (False, True),
+    "hr.ai.policy_qa": (False, True),
     "hr.ai.workflow_assist": (False, True),
     "hr.ai.workforce_query": (False, True),
     "hr.api.read": (False, True),
@@ -109,6 +111,8 @@ FEATURE_LABELS: dict[str, str] = {
     "hr.documents.core": "Documents & employee files",
     "hr.documents.policies": "Policies & acknowledgments",
     "hr.documents.workflow": "Advanced document workflows / e-sign orchestration",
+    "hr.documents.templates": "Document templates, generation and e-signature",
+    "hr.documents.tenant_attestation": "Organization-approved (tenant-attested) templates",
     "hr.enterprise.data_options": "Negotiated retention / residency options",
     "hr.enterprise.sandbox": "Customer sandbox / configuration promotion",
     "hr.identity.conditional_access": "IP allowlisting / advanced access conditions",

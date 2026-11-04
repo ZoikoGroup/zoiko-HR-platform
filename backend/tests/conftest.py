@@ -21,7 +21,7 @@ def _clear_caches():
         # With HR_REDIS_URL set (CI) the entitlement/org-access caches live in Redis, which clear_caches() leaves alone;
         # entries would leak between tests. Flush it only when it is a local instance.
         url = settings.REDIS_URL or ""
-        if url and any(h in url for h in ("localhost", "127.0.0.1", "redis://redis")):
+        if url and any(h in url for h in ("localhost", "127.0.0.1", "redis://redis", "host.docker.internal")):
             invalidate_cache("")
 
     _clear()

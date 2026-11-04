@@ -4,9 +4,10 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import scope_service
 
-scope_router = APIRouter(prefix="/assistant/scope", tags=["Assistant Scope"])
+scope_router = APIRouter(prefix="/assistant/scope", tags=["Assistant Scope"], dependencies=plan_gate.CHAT)
 
 
 @scope_router.get("/team")

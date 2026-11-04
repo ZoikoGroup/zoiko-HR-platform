@@ -1,0 +1,73 @@
+{
+  "canonical_id": "HR-PRF-020",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "cert.name",
+      "cert.issued_on"
+    ],
+    "optional": [
+      "cert.issuing_body",
+      "cert.number_masked",
+      "cert.expires_on",
+      "cert.renewal_requirements",
+      "cert.renewal_history"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Certification Record — {{cert.name}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "cert.name",
+        "cert.issuing_body",
+        "cert.number_masked",
+        "cert.issued_on",
+        "cert.expires_on",
+        "cert.renewal_requirements"
+      ],
+      "labels": {
+        "worker.full_name": "Holder",
+        "cert.number_masked": "Certificate number"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Renewed on",
+        "Evidence document"
+      ],
+      "rows_from": "cert.renewal_history",
+      "include_when": {
+        "field": "cert.renewal_history",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Renew before {{cert.expires_on}} to stay compliant with the requirements of your role.",
+      "include_when": {
+        "field": "cert.expires_on",
+        "op": "present"
+      }
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

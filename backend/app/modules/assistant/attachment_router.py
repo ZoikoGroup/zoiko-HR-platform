@@ -6,10 +6,11 @@ from app.core.dependencies import get_current_user, get_organization_id
 from app.core.rate_limiter import limiter
 from fastapi import Request
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import attachment_service, conversation_service, audit_service
 from app.modules.assistant.schemas import AttachmentResponse, SuccessResponse
 
-attachment_router = APIRouter(prefix="/assistant/attachments", tags=["Assistant Attachments"])
+attachment_router = APIRouter(prefix="/assistant/attachments", tags=["Assistant Attachments"], dependencies=plan_gate.CHAT)
 
 
 def _serialize(db: Session, attachment) -> dict:

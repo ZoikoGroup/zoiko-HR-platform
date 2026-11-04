@@ -27,11 +27,37 @@ from app.core.sanitize import sanitize_dict
 
 # ── DASHBOARD ─────────────────────────────────────────────────────────────────
 
-STANDARD_WORKDAY_HOURS = 8.0
+STANDARD_WORKDAY_HOURS = 8.0       # fallback only: organizations set attendance.standard_workday_hours, shifts may override it
+
+
+def standard_hours(db: Session, organization_id: Optional[int], shift=None) -> float:
+    """The standard working day for overtime: the shift's own value, else the organization setting, else 8 hours."""
+    if shift is not None and getattr(shift, "standard_hours", None) is not None:
+        return float(shift.standard_hours)
+    if organization_id:
+        from app.modules.hr import work_settings
+        v = work_settings.get(db, organization_id, "attendance.standard_workday_hours")
+        if v is not None:
+            return float(v)
+    return STANDARD_WORKDAY_HOURS
 ATTENDED_STATUSES = (AttendanceStatus.PRESENT, AttendanceStatus.LATE, AttendanceStatus.REMOTE, AttendanceStatus.HALF_DAY)
+# No time is ever worked on these days, so no check-in / check-out / hours may be kept or shown.
+NO_TIME_STATUSES = (AttendanceStatus.ABSENT, AttendanceStatus.ON_LEAVE, AttendanceStatus.HOLIDAY)
+
+
+def _strip_times_for_non_working_day(values: dict, status) -> dict:
+    """An absent / on-leave / holiday record keeps no times: stale check-in/out (e.g. left over
+    from when the record said present) are dropped so exports and analytics never show them."""
+    if status in NO_TIME_STATUSES:
+        values["check_in"] = None
+        values["check_out"] = None
+        values["total_hours"] = None
+    return values
 
 
 def _record_hours(rec) -> Optional[float]:
+    if rec.status in NO_TIME_STATUSES:
+        return None
     if rec.total_hours is not None:
         return float(rec.total_hours)
     if rec.check_in and rec.check_out and rec.check_out > rec.check_in:
@@ -117,7 +143,8 @@ def get_attendance_dashboard(db: Session, organization_id: Optional[int] = None,
             per_person[r.employee_id] = max(h, per_person.get(r.employee_id, 0.0))
     worked = list(per_person.values())
     avg_hours = round(sum(worked) / len(worked), 2) if worked else 0.0
-    overtime = round(sum(max(h - STANDARD_WORKDAY_HOURS, 0) for h in worked), 2)
+    std = standard_hours(db, organization_id)
+    overtime = round(sum(max(h - std, 0) for h in worked), 2)
 
     # per department: how many of its people are in today
     dept_rows = []
@@ -313,6 +340,7 @@ def get_attendance_record_by_id(db: Session, record_id: int, organization_id: Op
 def create_attendance_record(db: Session, data: AttendanceCreate, created_by: int = None, organization_id: int = None) -> AttendanceRecord:
     raw = data.model_dump()
     safe = sanitize_dict(raw)
+    _strip_times_for_non_working_day(safe, safe.get("status"))
     record = AttendanceRecord(**safe)
     if organization_id:
         record.organization_id = organization_id
@@ -325,8 +353,15 @@ def create_attendance_record(db: Session, data: AttendanceCreate, created_by: in
 def update_attendance_record(db: Session, record_id: int, data: AttendanceUpdate, organization_id: Optional[int] = None) -> AttendanceRecord:
     record = get_attendance_record_by_id(db, record_id, organization_id)
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    effective_status = update_data.get("status", record.status)
+    _strip_times_for_non_working_day(update_data, effective_status)
     for field, value in update_data.items():
         setattr(record, field, value)
+    if effective_status in NO_TIME_STATUSES:
+        # A status-only change (times not sent) must still drop the stored times.
+        record.check_in = None
+        record.check_out = None
+        record.total_hours = None
     db.commit()
     db.refresh(record)
     return record
@@ -590,12 +625,17 @@ def _range_records(db: Session, date_from: date, date_to: date, organization_id:
     return list(unique.values())
 
 
-def _overtime_hours(rec) -> float:
+def _overtime_hours(rec, standard: float = STANDARD_WORKDAY_HOURS) -> float:
     """Hours past the standard day, from the real check-in/out (0 when there is no check-out)."""
     if not rec.check_out:
         return 0.0
     hours = _record_hours(rec)
-    return max(hours - STANDARD_WORKDAY_HOURS, 0.0) if hours is not None else 0.0
+    return max(hours - standard, 0.0) if hours is not None else 0.0
+
+
+def _authorized(rec, extra: float) -> float:
+    """The part of a record's overtime that an approved overtime authorization (HR-TIM-007) covers."""
+    return min(float(rec.overtime_authorized_hours or 0), extra)
 
 
 def get_attendance_trends(db: Session, date_from: Optional[date] = None, date_to: Optional[date] = None, organization_id: Optional[int] = None) -> dict:
@@ -660,23 +700,29 @@ def get_overtime_analytics(db: Session, date_from: Optional[date] = None, date_t
         date_from = date(y, m, 1)
     date_from, date_to = _analytics_range(date_from, date_to, 180)
     monthly = {
-        (y, m): {"month": f"{y}-{m:02d}", "label": date(y, m, 1).strftime("%b %Y"), "hours": 0.0, "employees": set(), "record_count": 0}
+        (y, m): {"month": f"{y}-{m:02d}", "label": date(y, m, 1).strftime("%b %Y"), "hours": 0.0, "authorized": 0.0,
+                 "employees": set(), "record_count": 0}
         for y, m in _months_between(date_from, date_to)
     }
+    std = standard_hours(db, organization_id)
     for r in _range_records(db, date_from, date_to, organization_id):
         bucket = monthly.get((r.date.year, r.date.month))
-        extra = _overtime_hours(r)
+        extra = _overtime_hours(r, std)
         if bucket is not None and extra > 0:
             bucket["hours"] += extra
+            bucket["authorized"] += _authorized(r, extra)
             bucket["employees"].add(r.employee_id)
             bucket["record_count"] += 1
     rows = []
     for b in monthly.values():
-        hours = round(b["hours"], 2)
+        hours, auth = round(b["hours"], 2), round(b["authorized"], 2)
         rows.append({"month": b["month"], "label": b["label"], "hours": hours, "total_hours": hours,
+                     "authorized_hours": auth, "unauthorized_hours": round(hours - auth, 2),
                      "employees": len(b["employees"]), "record_count": b["record_count"]})
     return {"monthly_breakdown": rows, "total_months": len(rows), "total_hours": round(sum(r["hours"] for r in rows), 2),
-            "date_from": str(date_from), "date_to": str(date_to)}
+            "authorized_hours": round(sum(r["authorized_hours"] for r in rows), 2),
+            "unauthorized_hours": round(sum(r["unauthorized_hours"] for r in rows), 2),
+            "standard_workday_hours": std, "date_from": str(date_from), "date_to": str(date_to)}
 
 
 def _roster_outcomes(db: Session, date_from: date, date_to: date, organization_id: Optional[int]):
@@ -709,12 +755,12 @@ def _period_kpis(db: Session, date_from: date, date_to: date, organization_id: O
     records = _range_records(db, date_from, date_to, organization_id)
     attended = sum(1 for r in records if r.status in ATTENDED_STATUSES)
     absent = sum(1 for r in records if r.status == AttendanceStatus.ABSENT)
-    hours = [h for h in (_record_hours(r) for r in records if r.check_out) if h is not None]
+    hours = [h for h in (_record_hours(r) for r in records if r.check_out and r.status in ATTENDED_STATUSES) if h is not None]
     outcomes = _roster_outcomes(db, date_from, date_to, organization_id)
     return {
         "attendance_rate": round(attended / (attended + absent) * 100, 1) if attended + absent else None,
         "avg_work_hours": round(sum(hours) / len(hours), 2) if hours else None,
-        "total_overtime": round(sum(_overtime_hours(r) for r in records), 2),
+        "total_overtime": round(sum(_overtime_hours(r, standard_hours(db, organization_id)) for r in records), 2),
         "shift_efficiency": round(sum(1 for _, ok in outcomes if ok) / len(outcomes) * 100, 1) if outcomes else None,
         "records": len(records),
     }
@@ -782,6 +828,7 @@ def get_attendance_analytics(db: Session, date_from: Optional[date] = None, date
         )
     ).filter(
         AttendanceRecord.date == today,
+        AttendanceRecord.status.in_(ATTENDED_STATUSES),
         AttendanceRecord.check_in.isnot(None),
         AttendanceRecord.check_out.isnot(None),
         *org_filter,
@@ -918,7 +965,9 @@ def _leave_activity(db: Session, action_type: str, actor, leave: LeaveRequest, c
 def create_leave_request(db: Session, data: dict, created_by: int = None, organization_id: Optional[int] = None) -> LeaveRequest:
     if organization_id:
         data["organization_id"] = organization_id
+    from app.modules.hr import leave_documents
     leave = LeaveRequest(**data)  # LeaveRequest has no created_by column; created_by is the activity actor
+    leave_documents.protect_reason(leave)
     db.add(leave)
     db.commit()
     db.refresh(leave)
@@ -926,6 +975,7 @@ def create_leave_request(db: Session, data: dict, created_by: int = None, organi
         {"field": "days", "label": "Days", "before": None, "after": leave.days},
         {"field": "status", "label": "Status", "before": None, "after": getattr(leave.status, "value", leave.status)},
     ])
+    leave_documents.after_created(db, leave, created_by)
     return leave
 
 
@@ -958,12 +1008,25 @@ def delete_leave_request(db: Session, leave_id: int, organization_id: Optional[i
 
 
 def review_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: int = None, organization_id: Optional[int] = None) -> LeaveRequest:
+    from app.modules.hr import leave_documents
     leave = get_leave_request_by_id(db, leave_id, organization_id)
     before_status = getattr(leave.status, "value", leave.status)
+    update_data = {k: v for k, v in sanitize_dict(data).items()
+                   if k in ("status", "decision_reason", "alternative_dates", "reason")}
+    status = update_data.get("status")
+    status = RequestStatus(status) if isinstance(status, str) and status in {s.value for s in RequestStatus} else status
+    decided = status in (RequestStatus.APPROVED, RequestStatus.REJECTED)
+    if decided:
+        if leave.status not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
+            raise BadRequestException(f"This request is already {before_status}; it has been decided and cannot be decided again.")
+        leave_documents.record_decision(db, leave, reviewed_by, status,
+                                        update_data.pop("decision_reason", None) or update_data.pop("reason", None),
+                                        update_data.pop("alternative_dates", None))
+        update_data["status"] = status
+    update_data.pop("reason", None)          # a review never rewrites the employee's own reason
     if reviewed_by:
         leave.reviewed_by = reviewed_by
         leave.reviewed_at = func.now()
-    update_data = sanitize_dict(data)
     for field, value in update_data.items():
         setattr(leave, field, value)
     db.commit()
@@ -991,7 +1054,7 @@ def review_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: in
                         leave_period_display=(
                             f"{leave.start_date.strftime('%b %d, %Y')} – {leave.end_date.strftime('%b %d, %Y')}"
                         ),
-                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves",
+                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves?request={leave.id}",
                         workspace_name=(org.organization_name or org.display_name or "Your workspace") if org else "Your workspace",
                         db=db,
                         organization_id=leave.organization_id,
@@ -1001,13 +1064,15 @@ def review_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: in
                         email=employee.email,
                         first_name=employee.first_name or "there",
                         request_reference=f"LV-{leave.organization_id}-{leave.id:04d}",
-                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves",
+                        leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves?request={leave.id}",
                         db=db,
                         organization_id=leave.organization_id,
                     )
         except Exception as e:
             logger.warning(f"[email] Failed to notify employee about reviewed leave request {leave.id}: {e}")
 
+    if decided:
+        leave_documents.after_decided(db, leave, reviewed_by)
     return leave
 
 
@@ -1089,7 +1154,10 @@ EXPORT_COLUMNS = ["Employee Code", "Employee Name", "Department", "Date", "Check
 
 
 def _hours_worked(rec) -> Optional[float]:
-    """The stored total, or check-out minus check-in when the record has no stored total."""
+    """The stored total, or check-out minus check-in when the record has no stored total.
+    Absent / on-leave / holiday days never show hours, even for legacy rows that still store times."""
+    if rec.status in NO_TIME_STATUSES:
+        return None
     if rec.total_hours is not None:
         return float(rec.total_hours)
     if rec.check_in and rec.check_out and rec.check_out >= rec.check_in:
@@ -1116,13 +1184,14 @@ def _export_rows(db: Session, organization_id: Optional[int], date_from, date_to
         query = query.filter(AttendanceRecord.employee_id == employee_id)
     rows = []
     for rec, emp, dept in query.order_by(AttendanceRecord.date.desc(), Employee.first_name, Employee.last_name).all():
+        no_time = rec.status in NO_TIME_STATUSES  # legacy absent rows may still store times: never export them
         rows.append({
             "code": emp.employee_code or "",
             "name": f"{emp.first_name or ''} {emp.last_name or ''}".strip(),
             "department": (dept.name if dept else "") or "",
             "date": rec.date,
-            "check_in": rec.check_in,
-            "check_out": rec.check_out,
+            "check_in": None if no_time else rec.check_in,
+            "check_out": None if no_time else rec.check_out,
             "status": rec.status.value if rec.status else "",
             "hours": _hours_worked(rec),
             "notes": rec.notes or "",

@@ -232,6 +232,19 @@ def _ensure_scheduler():
         replace_existing=True,
         misfire_grace_time=3600,
     )
+    # Onboarding: remind new hires about documents they still owe (every Settings.reminder_days days).
+    from app.modules.hr.onboarding_flow import reminder_job as _onboarding_reminders
+    _scheduler.add_job(
+        _onboarding_reminders,
+        CronTrigger(hour=8, minute=0),
+        id="onboarding_document_reminders",
+        name="Remind new hires about outstanding onboarding documents",
+        replace_existing=True,
+        misfire_grace_time=3600,
+    )
+    # Generated documents: reminders, expiry, HR-DOC-016 expiry items and digest, retention flags, policies for new joiners.
+    from app.modules.doc_templates.jobs import register as _register_doc_template_jobs
+    _register_doc_template_jobs(_scheduler)
     return _scheduler
 
 

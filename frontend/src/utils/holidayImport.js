@@ -2,8 +2,36 @@
 // import endpoint understands, and checking each row so problems are shown BEFORE anything is sent.
 
 export const HOLIDAY_TYPES = { public: "Public", company: "Company", optional: "Optional" };
-export const TEMPLATE_CSV = "Name,Date,Type,Description,Recurring\nNew Year's Day,2027-01-01,Public,Office closed,yes\nFounders Day,2027-03-10,Company,,no\n";
 export const MAX_ROWS = 1000;
+
+/** Rows shipped inside the downloadable template (dates as plain YYYY-MM-DD text). */
+export const TEMPLATE_ROWS = [
+  ["Name", "Date", "Type", "Description", "Recurring"],
+  ["New Year's Day", "2027-01-01", "Public", "Office closed", "yes"],
+  ["Founders Day", "2027-03-10", "Company", "", "no"],
+];
+
+/** A real .xlsx template: columns are sized so Excel shows every date in full instead of
+ *  "########" (a CSV cannot carry widths, so Excel opens it at the narrow default width and the
+ *  date column it auto-detects no longer fits). Dates stay plain YYYY-MM-DD text, exactly what
+ *  the import accepts, and an auto-filter is set on the header row. */
+export async function downloadHolidayTemplate() {
+  const XLSX = await import("xlsx");
+  const ws = XLSX.utils.aoa_to_sheet(TEMPLATE_ROWS);
+  ws["!cols"] = [{ wch: 28 }, { wch: 14 }, { wch: 12 }, { wch: 42 }, { wch: 12 }];
+  if (ws["!ref"]) ws["!autofilter"] = { ref: ws["!ref"] };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Holidays");
+  const bytes = XLSX.write(wb, { bookType: "xlsx", type: "array" });
+  const url = URL.createObjectURL(new Blob([bytes], { type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "holiday_import_template.xlsx";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
 
 const KEY_ALIASES = {
   name: ["name", "holiday", "holiday name", "title", "occasion"],

@@ -1,0 +1,56 @@
+{
+  "canonical_id": "HR-PRF-004",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "employment.position_title",
+      "probation.confirmation_date"
+    ],
+    "optional": []
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "post_probation_terms"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Confirmation of your employment",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, we are pleased to confirm that you have successfully completed your probation period. Your employment as {{employment.position_title}} is confirmed with effect from {{probation.confirmation_date}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "Thank you for your work during your first months with us. Your manager will continue to meet with you regularly to agree objectives and development."
+    },
+    {
+      "type": "clause",
+      "key": "post_probation_terms",
+      "required": false
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

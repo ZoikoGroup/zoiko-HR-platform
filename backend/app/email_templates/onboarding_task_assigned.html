@@ -1,0 +1,16 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Onboarding tasks assigned to you" %}
+{% set preheader = tasks|length ~ " onboarding task(s) for " ~ candidate_name ~ " are assigned to you." %}
+{% set badge = "Task assigned" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because you work at {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Onboarding tasks assigned to you</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ assignee_name }}</strong>, a task assigned to you is part of getting <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong> ({{ position }}) ready{% if joining_date_display %} for their start on {{ joining_date_display }}{% endif %}.</p>
+{% call ui.details() %}
+{% for t in tasks %}{{ ui.detail_row(t.title, "Due " ~ (t.due or "no date set"), first=loop.first) }}{% endfor %}
+{% endcall %}
+{{ ui.button(checklists_url, "Open checklists") }}
+{{ ui.signoff() }}
+{% endblock %}

@@ -1,0 +1,211 @@
+{
+  "canonical_id": "HR-ONB-004",
+  "output_mode": "CHECKLIST_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "employment.start_date",
+      "employer.legal_name"
+    ],
+    "optional": [
+      "employment.department",
+      "employment.manager_name",
+      "onboarding.owner",
+      "onboarding.checklist_items",
+      "onboarding.exceptions",
+      "employment.work_country_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Onboarding Checklist — {{worker.full_name}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "employment.start_date",
+        "employer.legal_name",
+        "employment.department",
+        "employment.manager_name",
+        "onboarding.owner"
+      ],
+      "labels": {
+        "onboarding.owner": "HR owner"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Legal onboarding",
+      "level": 2
+    },
+    {
+      "type": "checklist",
+      "id": "legal_items",
+      "items": [
+        {
+          "key": "legal_terms",
+          "label": "Signed offer/contract or written statement of terms where required",
+          "owner_role": "hr_admin",
+          "mandatory": true
+        },
+        {
+          "key": "legal_right_to_work",
+          "label": "Right-to-work or eligibility check where required by the jurisdiction pack",
+          "owner_role": "hr_admin",
+          "mandatory": true
+        },
+        {
+          "key": "legal_tax_handoff",
+          "label": "Statutory starter information and tax / social security hand-off",
+          "owner_role": "hr_admin",
+          "mandatory": true
+        },
+        {
+          "key": "legal_notices",
+          "label": "Required local notices delivered",
+          "owner_role": "hr_admin",
+          "mandatory": true
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "People, policy and access",
+      "level": 2
+    },
+    {
+      "type": "checklist",
+      "id": "people_items",
+      "items": [
+        {
+          "key": "onb001",
+          "label": "New starter information verified (HR-ONB-001)",
+          "owner_role": "hr_admin",
+          "mandatory": true
+        },
+        {
+          "key": "onb003",
+          "label": "Emergency contacts recorded (HR-ONB-003)",
+          "owner_role": "employee",
+          "mandatory": true
+        },
+        {
+          "key": "onb011",
+          "label": "Employee handbook acknowledged (HR-ONB-011)",
+          "owner_role": "employee",
+          "mandatory": true
+        },
+        {
+          "key": "onb010",
+          "label": "Code of conduct acknowledged (HR-ONB-010)",
+          "owner_role": "employee",
+          "mandatory": true
+        },
+        {
+          "key": "onb005",
+          "label": "Manager induction scheduled (HR-ONB-005)",
+          "owner_role": "manager",
+          "mandatory": true
+        },
+        {
+          "key": "hs_induction",
+          "label": "Health and safety induction completed",
+          "owner_role": "manager",
+          "mandatory": true
+        },
+        {
+          "key": "it_accounts",
+          "label": "IT accounts created",
+          "owner_role": "hr_admin",
+          "mandatory": false
+        },
+        {
+          "key": "onb015",
+          "label": "Equipment issued (HR-ONB-015)",
+          "owner_role": "hr_admin",
+          "mandatory": false
+        },
+        {
+          "key": "onb017",
+          "label": "Payroll / bank details submitted (HR-ONB-017)",
+          "owner_role": "employee",
+          "mandatory": true
+        },
+        {
+          "key": "onb020",
+          "label": "Probation schedule set (HR-ONB-020)",
+          "owner_role": "manager",
+          "mandatory": false
+        },
+        {
+          "key": "benefits",
+          "label": "Benefits enrolment started where applicable",
+          "owner_role": "hr_admin",
+          "mandatory": false
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "Organization checklist",
+      "level": 2,
+      "include_when": {
+        "field": "onboarding.checklist_items",
+        "op": "present"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Item",
+        "Owner",
+        "Status",
+        "Completed on"
+      ],
+      "rows_from": "onboarding.checklist_items",
+      "include_when": {
+        "field": "onboarding.checklist_items",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Exceptions: for every mandatory item not completed, record the reason, the owner, the due date and what is blocked until it is complete."
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Item",
+        "Reason",
+        "Owner",
+        "Due date",
+        "Blocked until complete"
+      ],
+      "rows_from": "onboarding.exceptions",
+      "include_when": {
+        "field": "onboarding.exceptions",
+        "op": "present"
+      }
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm the onboarding checklist is complete or that all exceptions are recorded with an owner and due date.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

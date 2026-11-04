@@ -59,6 +59,7 @@ const EXPECTED_GROUPS = [
     items: [
       { label: "Notifications", href: "/super-admin/notifications" },
       { label: "Demo Requests", href: "/super-admin/demo-requests" },
+      { label: "Template Controls", href: "/super-admin/template-controls" },
       { label: "Pricing Requests", href: "/super-admin/pricing-requests" },
     ],
   },

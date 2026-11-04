@@ -257,7 +257,8 @@ class TestRequestValidation:
         assert row.requested_by == "root@zoiko.test" and row.currency == "USD"
         log = client.db.query(BillingAuditLog).filter_by(
             action=BillingAuditAction.REFUND_REQUESTED).one()
-        assert log.actor_email == "root@zoiko.test" and log.actor_id == 1
+        # a platform account is recorded by email only (its id has no organization to pair with)
+        assert log.actor_email == "root@zoiko.test" and log.actor_id is None
         assert log.before["refundable_balance_cents"] == 50_000
         assert log.after["refundable_balance_cents"] == 49_000
 

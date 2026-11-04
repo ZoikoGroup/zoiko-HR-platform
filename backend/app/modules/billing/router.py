@@ -336,15 +336,20 @@ def get_audit_logs(
 @billing_router.get(
     "/plans",
     response_model=PlanListResponse,
-    summary="List plan catalog (Super Admin: all; Org Admin: active only)",
+    summary="List plan catalog (Super Admin: all; Org Admin: latest published only)",
 )
 def list_plans(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_billing_viewer),
 ):
     role = _get_billing_role(current_user)
-    active_only = role in ("admin", "hr_admin")
-    plans = service.get_plans(db, active_only=active_only)
+    if role == "super_admin":
+        plans = service.get_plans(db, active_only=False)
+    else:
+        # Customers must never see draft/unpublished versions: an unpublished plan
+        # looks buyable on the Billing page but checkout refuses it ("not available
+        # for purchase"). Serve the latest published catalog instead.
+        plans = catalog_service.get_customer_visible_plans(db)
     return PlanListResponse(
         list=[service.plan_to_dict(p) for p in plans],
         total=len(plans),
@@ -922,23 +927,32 @@ def downgrade_subscription(
         effective_at=data.effective_at,
         requested_by=current_user,
     )
-
-    service.log_billing_audit(
-        db,
-        actor=current_user,
-        organization_id=org_id,
-        action=BillingAuditAction.SUBSCRIPTION_DOWNGRADED,
-        entity_type="BillingPlanChange",
-        entity_id=change.id,
-        before=None,
-        after={
-            "change_type": change.change_type.value if change.change_type else None,
-            "to_plan_id": change.to_plan_id,
-            "effective_at": change.effective_at.isoformat() if change.effective_at else None,
-            "status": change.status.value if change.status else None,
-        },
-    )
+    _audit_scheduled_change(db, current_user, org_id, change, BillingAuditAction.SUBSCRIPTION_DOWNGRADED)
     return change
+
+
+def _audit_scheduled_change(db: Session, actor, org_id: int, change, action) -> None:
+    """Audit a plan change that schedule_plan_change has already committed. A failure here is logged and rolled back,
+    not raised: answering 500 for a change that is saved told the admin it failed, and a retry scheduled it twice."""
+    try:
+        service.log_billing_audit(
+            db,
+            actor=actor,
+            organization_id=org_id,
+            action=action,
+            entity_type="BillingPlanChange",
+            entity_id=change.id,
+            before=None,
+            after={
+                "change_type": change.change_type.value if change.change_type else None,
+                "to_plan_id": change.to_plan_id,
+                "effective_at": change.effective_at.isoformat() if change.effective_at else None,
+                "status": change.status.value if change.status else None,
+            },
+        )
+    except Exception:
+        db.rollback()
+        logger.exception("[plan_change] audit row for scheduled change %s could not be written", change.id)
 
 
 @billing_router.post(
@@ -1203,6 +1217,9 @@ def create_checkout(
         raise BadRequestException(
             f"Plan '{plan.name or plan.code}' is not available for purchase."
         )
+    # Refuse before taking money: a plan with fewer seats than the organization uses would strand people.
+    from app.modules.billing import seat_policy
+    seat_policy.check_plan_fits(db, data.organization_id, plan.code)
 
     # Reconcile Stripe with the catalog rate BEFORE taking money. Without this,
     # editing a rate on the page would leave the old Stripe Price live and
@@ -2004,20 +2021,7 @@ def schedule_plan_change(
         effective_at=data.effective_at,
         requested_by=current_user,
     )
-
-    service.log_billing_audit(
-        db,
-        actor=current_user,
-        organization_id=org_id,
-        action=BillingAuditAction.PLAN_CHANGE_SCHEDULED,
-        entity_type="BillingPlanChange",
-        entity_id=change.id,
-        after={
-            "change_type": change.change_type.value if change.change_type else None,
-            "to_plan_id": change.to_plan_id,
-            "status": change.status.value if change.status else None,
-        },
-    )
+    _audit_scheduled_change(db, current_user, org_id, change, BillingAuditAction.PLAN_CHANGE_SCHEDULED)
     return change
 
 
@@ -2387,15 +2391,19 @@ def get_me_subscription(
 )
 def get_me_entitlements(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_billing_viewer),
+    current_user=Depends(get_current_user),
 ):
+    """Every member of the organization may read which features its plan includes: the menus, upgrade notices and the
+    assistant launcher depend on it for employees and managers too (a 403 here hid nothing and filled their consoles).
+    The contract overrides are commercial terms and stay with the billing roles."""
     org_id = _me_org_id(current_user)
     snapshot = compute_entitlement_snapshot(db, org_id)
+    billing_viewer = service.role_value(current_user.role) in ("super_admin", "billing_admin", "admin", "hr_admin")
     return MeEntitlementsResponse(
         organization_id=org_id,
         catalog_version=snapshot["catalog_version"],
         states=snapshot["feature_states"],
-        contract_overrides=snapshot["contract_overrides"],
+        contract_overrides=snapshot["contract_overrides"] if billing_viewer else {},
     )
 
 

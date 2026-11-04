@@ -1,0 +1,223 @@
+{
+  "canonical_id": "HR-POL-001",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "handbook_local_annex"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Welcome",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Welcome to {{org.display_name}}. This handbook brings together the main things you need to know about working here and points you to our detailed policies."
+    },
+    {
+      "type": "heading",
+      "text": "2. How to use this handbook",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "The handbook is a guide. Where a separate policy exists, that policy contains the full rules. If anything in this handbook conflicts with your contract, a collective agreement or the law, the contract, agreement or law applies."
+    },
+    {
+      "type": "heading",
+      "text": "3. Our values and standards",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "We expect everyone to act honestly, treat colleagues, customers and partners with respect, follow the law and our policies, and speak up when something is wrong. Our Code of Conduct sets out these standards in full."
+    },
+    {
+      "type": "heading",
+      "text": "4. Your employment",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Your contract or written statement sets out your main terms of employment.",
+        "New employees normally complete a probation period, explained in our Probation Policy.",
+        "Your working hours and pattern are covered by our Working Hours Policy.",
+        "Recording attendance and reporting absence are covered by our Attendance Policy.",
+        "Remote and hybrid working are covered by our Remote Work Policy."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "5. Pay and benefits",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "You will receive pay statements as required by law through our payroll provider. Questions about pay go to {{policy.contact}}."
+    },
+    {
+      "type": "heading",
+      "text": "6. Time off",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Annual leave: see our Annual Leave Policy and your leave balance in Zoiko HR.",
+        "Sickness absence: see our Sick Leave Policy.",
+        "Maternity, paternity, adoption and parental leave: see our Family and Parental Leave Policy."
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "We observe the public holidays listed in the holiday calendar for your work location."
+    },
+    {
+      "type": "heading",
+      "text": "7. Conduct, concerns and complaints",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Our Code of Conduct explains the behaviour we expect. If you have a concern or a complaint about your work, raise it with your manager or HR so that it can be looked at fairly and promptly. You can raise a concern without fear of being treated unfairly."
+    },
+    {
+      "type": "heading",
+      "text": "8. Equality and respect",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "We do not tolerate discrimination, harassment, bullying or victimisation."
+    },
+    {
+      "type": "heading",
+      "text": "9. Health, safety and wellbeing",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Report accidents, near misses and hazards to your manager straight away."
+    },
+    {
+      "type": "paragraph",
+      "text": "If you need support with your health or wellbeing at work, talk to your manager or HR."
+    },
+    {
+      "type": "heading",
+      "text": "10. Information, privacy and security",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Handle personal data in line with our Employee Data Protection Policy.",
+        "Use company systems and devices in line with our Acceptable Use Policy.",
+        "Look after company equipment in line with our Company Property Policy."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "11. Travel and expenses",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Business travel and expense claims are covered by our Business Travel Policy and our Expenses and Reimbursement Policy."
+    },
+    {
+      "type": "heading",
+      "text": "12. Leaving us",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Give notice as set out in your contract and return company property before your last day."
+    },
+    {
+      "type": "heading",
+      "text": "13. Jurisdiction annex",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "handbook_local_annex",
+      "required": false
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

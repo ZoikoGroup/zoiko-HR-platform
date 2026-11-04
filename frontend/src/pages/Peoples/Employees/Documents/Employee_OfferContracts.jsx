@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
 import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
@@ -87,7 +87,7 @@ export default function OfferContracts() {
   }, [docs]);
 
   return (
-    <EmployeePageShell title="Offer & Contracts" subtitle="Your employment agreements, offer letters, and legal documents.">
+    <EmployeeDocumentsLayout title="Offer & Contracts" subtitle="Your employment agreements, offer letters, and legal documents.">
       {loading && (
         <div className="flex justify-center items-center py-20">
           <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-doc-primary" />
@@ -137,6 +137,6 @@ export default function OfferContracts() {
         </div>
       )}
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }

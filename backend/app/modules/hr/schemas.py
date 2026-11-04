@@ -110,7 +110,7 @@ class DepartmentResponse(BaseModel):
     is_active:          bool
     created_at:         Optional[datetime] = None
     organization_id:    Optional[int] = None
-    
+
     # ── Return fields for UI visibility ──
     head:               Optional[str] = None
     budget:             Optional[Decimal] = None
@@ -120,6 +120,52 @@ class DepartmentResponse(BaseModel):
     employee_count:     Optional[int] = 0
 
     model_config = {"from_attributes": True}
+
+
+class DepartmentNotificationPrefs(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    created: bool = True
+    updated: bool = True
+    head_changed: bool = True
+    budget_updated: bool = True
+    status_changed: bool = True
+    added_under_hierarchy: bool = True
+    deletion_requested: bool = True
+
+
+class DepartmentSettingsData(BaseModel):
+    """Everything on the Department Settings page. Unknown keys are rejected so a typo can never be saved
+    silently; every field has a default, so an organization that never saved settings gets these."""
+    model_config = ConfigDict(extra="forbid")
+
+    # General
+    code_prefix: str = "DEPT"
+    default_status: Literal["active", "inactive"] = "active"
+    auto_generate_codes: bool = True
+    enforce_unique_codes: bool = True
+    # Hierarchy
+    max_hierarchy_depth: int = Field(5, ge=1, le=10)
+    allow_cross_heads: bool = True
+    require_parent: bool = False
+    enforce_single_parent: bool = True
+    # Notifications
+    notifications: DepartmentNotificationPrefs = Field(default_factory=DepartmentNotificationPrefs)
+    # Display
+    show_budget: bool = True
+    show_employee_count: bool = True
+    default_sort_field: Literal["name", "code", "employee_count", "budget", "created_at"] = "name"
+    default_sort_direction: Literal["asc", "desc"] = "asc"
+    items_per_page: Literal[5, 10, 15, 25, 50] = 10
+    compact_mode: bool = False
+
+    @field_validator("code_prefix", mode="before")
+    @classmethod
+    def _clean_prefix(cls, v):
+        v = str(v or "").strip().upper()
+        if not re.fullmatch(r"[A-Z0-9]{2,6}", v):
+            raise ValueError("The code prefix must be 2 to 6 letters or digits (for example DEPT).")
+        return v
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -704,12 +750,31 @@ class AttendanceReportResponse(BaseModel):
     attendance_percentage: float = 0.0
 
 
+class LeaveDetails(BaseModel):
+    """Structured answers for family and bereavement leave. Never medical detail: there is no field for it."""
+    model_config = {"extra": "forbid"}
+    parental_type: Optional[str] = Field(None, pattern="^(maternity|paternity_partner|adoption|shared_parental)$")
+    expected_date: Optional[date] = None
+    pay_option: Optional[str] = Field(None, max_length=200)
+    kit_days_interest: Optional[bool] = None
+    relationship: Optional[str] = Field(None, max_length=60)
+    travel_needed: Optional[bool] = None
+    message: Optional[str] = Field(None, max_length=1000)
+
+
 class LeaveRequestCreate(BaseModel):
     employee_id: Optional[int] = None
     leave_type: LeaveType
     start_date: date
     end_date: date
     reason: Optional[str] = None
+    handover_note: Optional[str] = Field(None, max_length=2000)
+    details: Optional[LeaveDetails] = None
+
+    @field_validator("details", mode="after")
+    @classmethod
+    def details_json(cls, v):
+        return v.model_dump(mode="json", exclude_none=True) if v is not None else None
 
     @field_validator("leave_type", mode="before")
     @classmethod
@@ -748,6 +813,8 @@ class LeaveRequestUpdate(BaseModel):
     reason: Optional[str] = None
     start_date: Optional[date] = None
     end_date: Optional[date] = None
+    decision_reason: Optional[str] = Field(None, max_length=2000)      # required when refusing
+    alternative_dates: Optional[str] = Field(None, max_length=500)
 
     @field_validator("status", mode="before")
     @classmethod
@@ -783,6 +850,17 @@ class LeaveRequestResponse(BaseModel):
     reviewer_name: Optional[str] = None     # who decided it (None while nobody has)
     approval_date: Optional[datetime] = None
     approval_comments: Optional[str] = None
+    decision_reason: Optional[str] = None
+    decided_by: Optional[int] = None
+    decided_at: Optional[datetime] = None
+    handover_note: Optional[str] = None
+    alternative_dates: Optional[str] = None
+    balance_before: Optional[float] = None
+    balance_after: Optional[float] = None
+    document_id: Optional[int] = None
+    details: Optional[dict] = None
+    confirmation: Optional[dict] = None
+    has_sensitive_reason: Optional[bool] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -1633,6 +1711,10 @@ class CourseCreate(_CourseChecks):
     resource_link: Optional[str] = None
     cost: Optional[Decimal] = Field(None, ge=0)
     status: str = "active"
+    is_mandatory: bool = False
+    mandatory_audience: Optional[dict] = None       # policy-style audience: {"type": "all"|"departments"|..., "ids": [...]}
+    renewal_months: Optional[int] = Field(None, ge=1, le=120)
+    version: Optional[str] = Field(None, max_length=40)
 
 
 class CourseUpdate(_CourseChecks):
@@ -1648,6 +1730,10 @@ class CourseUpdate(_CourseChecks):
     resource_link: Optional[str] = None
     cost: Optional[Decimal] = Field(None, ge=0)
     status: Optional[str] = None
+    is_mandatory: Optional[bool] = None
+    mandatory_audience: Optional[dict] = None
+    renewal_months: Optional[int] = Field(None, ge=1, le=120)
+    version: Optional[str] = Field(None, max_length=40)
 
 
 class CourseResponse(BaseModel):
@@ -1758,6 +1844,8 @@ class CertificationCreate(BaseModel):
     credential_url: Optional[str] = Field(None, max_length=500)
     status: str = "active"
     created_by: Optional[int] = None
+    certificate_number: Optional[str] = Field(None, max_length=120)
+    renewal_requirements: Optional[str] = Field(None, max_length=1000)
 
 
 class CertificationUpdate(BaseModel):
@@ -1767,6 +1855,8 @@ class CertificationUpdate(BaseModel):
     expiry_date: Optional[date] = None
     credential_url: Optional[str] = None
     status: Optional[str] = None
+    certificate_number: Optional[str] = Field(None, max_length=120)
+    renewal_requirements: Optional[str] = Field(None, max_length=1000)
 
 
 class CertificationResponse(BaseModel):
@@ -1818,15 +1908,22 @@ def _whole(label, v, low, high, required=True, what=None):
         if required:
             raise ValueError(f"{label} is required.")
         return None
-    try:
-        n = float(v)
-    except (TypeError, ValueError):
+    if isinstance(v, bool):
         raise ValueError(f"{label} must be a whole number.")
-    if n != int(n):
+    if isinstance(v, int):
+        n = v
+    elif isinstance(v, float):
+        # Reject floats (even whole-valued ones like 3.0): the field takes whole numbers only.
         raise ValueError(f"{label} must be a whole number.")
-    if not low <= int(n) <= high:
+    else:
+        text = str(v).strip()
+        # Match the frontend: digits only (no decimals, exponents, signs, or letters).
+        if not re.fullmatch(r"\d+", text):
+            raise ValueError(f"{label} must be a whole number.")
+        n = int(text)
+    if not low <= n <= high:
         raise ValueError(f"{label} must be between {low} and {high}{what or ''}.")
-    return int(n)
+    return n
 
 
 class _AssessmentChecks(BaseModel):
@@ -2170,6 +2267,8 @@ class _ProgramChecks(BaseModel):
         start, end = getattr(self, "start_date", None), getattr(self, "end_date", None)
         if start and end and end < start:
             raise ValueError("The end date cannot be before the start date.")
+        if getattr(self, "status", None) == "completed" and end is not None and end > date.today():
+            raise ValueError("A program cannot be marked completed before its end date.")
         return self
 
 
@@ -2308,14 +2407,16 @@ class OnboardingNewHireCreate(BaseModel):
         from app.core.email_quality import check_real_email
         return check_real_email(v)
 
-    phone: Optional[str] = None
+    phone: Optional[str] = Field(None, max_length=50)
     position: str = Field(..., min_length=1, max_length=150)
     department_id: Optional[int] = None
     manager_id: Optional[int] = None
     joining_date: Optional[date] = None
-    notes: Optional[str] = None
-    status: Optional[str] = "offer_sent"
-    joining_status: Optional[str] = "not_joined"
+    notes: Optional[str] = Field(None, max_length=5000)
+    employment_type: Optional[Literal["full_time", "part_time", "contract", "internship", "freelance"]] = None
+    status: Optional[Literal["offer_sent", "offer_accepted", "pre_joining", "in_progress"]] = "offer_accepted"
+    joining_status: Optional[Literal["not_joined", "joined", "no_show", "deferred"]] = "not_joined"
+    start_onboarding: bool = True        # apply Settings: checklists, document requests, pre-onboarding invite
     tenant_id: Optional[str] = None
 
 class OnboardingNewHireUpdate(BaseModel):
@@ -2328,15 +2429,16 @@ class OnboardingNewHireUpdate(BaseModel):
         from app.core.email_quality import check_real_email
         return check_real_email(v)
 
-    phone: Optional[str] = None
+    phone: Optional[str] = Field(None, max_length=50)
     position: Optional[str] = Field(None, min_length=1, max_length=150)
     department_id: Optional[int] = None
     manager_id: Optional[int] = None
     joining_date: Optional[date] = None
-    notes: Optional[str] = None
-    status: Optional[str] = None
-    joining_status: Optional[str] = None
-    employee_id: Optional[int] = None
+    notes: Optional[str] = Field(None, max_length=5000)
+    employment_type: Optional[Literal["full_time", "part_time", "contract", "internship", "freelance"]] = None
+    status: Optional[Literal["offer_sent", "offer_accepted", "pre_joining", "in_progress", "completed", "cancelled"]] = None
+    joining_status: Optional[Literal["not_joined", "joined", "no_show", "deferred"]] = None
+    force_complete: bool = False          # complete even with open checklist items / unapproved documents
     tenant_id: Optional[str] = None
 
 class OnboardingNewHireResponse(BaseModel):
@@ -2354,11 +2456,15 @@ class OnboardingNewHireResponse(BaseModel):
     status: str
     joining_status: str
     notes: Optional[str] = None
+    employment_type: Optional[str] = None
+    completed_at: Optional[datetime] = None
+    portal_invited_at: Optional[datetime] = None
+    portal_expires_at: Optional[datetime] = None
+    profile_details: Optional[dict] = None
     tenant_id: Optional[str] = None
     created_by: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
-    temp_password: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -2411,8 +2517,8 @@ class OnboardingDocumentUpdate(BaseModel):
         if v is None:
             return v
         v = str(v).strip().lower()
-        if v not in ("pending", "approved", "rejected"):
-            raise ValueError("Status must be pending, approved or rejected.")
+        if v not in ("requested", "pending", "approved", "rejected"):
+            raise ValueError("Status must be requested, pending, approved or rejected.")
         return v
 
     @field_validator("title")
@@ -2448,6 +2554,8 @@ class OnboardingChecklistItemCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     due_date: Optional[date] = None
+    due_offset_days: Optional[int] = Field(None, ge=-365, le=365)   # templates: days from the joining date
+    assignee_employee_id: Optional[int] = None
 
 class OnboardingChecklistCreate(BaseModel):
     onboarding_new_hire_id: Optional[int] = None
@@ -2463,12 +2571,14 @@ class OnboardingChecklistItemUpdate(BaseModel):
     description: Optional[str] = None
     completed: bool = False
     due_date: Optional[date] = None
+    due_offset_days: Optional[int] = Field(None, ge=-365, le=365)
+    assignee_employee_id: Optional[int] = None
 
 class OnboardingChecklistUpdate(BaseModel):
-    name: Optional[str] = None
+    name: Optional[str] = Field(None, min_length=1, max_length=200)
     description: Optional[str] = None
-    category: Optional[str] = None
-    status: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=100)
+    status: Optional[Literal["pending", "in_progress", "completed"]] = None
     items: Optional[list[OnboardingChecklistItemUpdate]] = None
     tenant_id: Optional[str] = None
 
@@ -2480,6 +2590,9 @@ class OnboardingChecklistItemResponse(BaseModel):
     completed: bool
     completed_at: Optional[datetime] = None
     due_date: Optional[date] = None
+    due_offset_days: Optional[int] = None
+    assignee_employee_id: Optional[int] = None
+    assignee_name: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -2617,10 +2730,51 @@ class OnboardingOrientationUpdate(_OrientationChecks):
 class OnboardingOrientationAttendeeCreate(BaseModel):
     session_id: int
     onboarding_record_id: int
-    status: Optional[str] = "pending"
+    status: Optional[Literal["pending", "attended", "absent", "excused"]] = "pending"
+    notify: bool = True
 
 class OnboardingOrientationAttendeeUpdate(BaseModel):
-    status: str
+    status: Literal["pending", "attended", "absent", "excused"]
+
+
+class OnboardingSettingsUpdate(BaseModel):
+    auto_template_ids: Optional[list[int]] = None
+    required_document_categories: Optional[list[str]] = None
+    auto_send_portal_invite: Optional[bool] = None
+    portal_link_days: Optional[int] = Field(None, ge=1, le=180)
+    reminder_days: Optional[int] = Field(None, ge=0, le=30)
+    require_checklists_complete: Optional[bool] = None
+    require_documents_approved: Optional[bool] = None
+    welcome_message: Optional[str] = Field(None, max_length=2000)
+
+
+class OnboardingSettingsResponse(BaseModel):
+    auto_template_ids: list[int] = []
+    required_document_categories: list[str] = []
+    auto_send_portal_invite: bool
+    portal_link_days: int
+    reminder_days: int
+    require_checklists_complete: bool
+    require_documents_approved: bool
+    welcome_message: Optional[str] = None
+
+    model_config = {"from_attributes": True}
+
+
+class OnboardingDocumentRequest(BaseModel):
+    categories: list[str] = Field(..., min_length=1)
+
+
+class OnboardingPortalDetails(BaseModel):
+    phone: Optional[str] = Field(None, max_length=50)
+    address: Optional[str] = Field(None, max_length=300)
+    city: Optional[str] = Field(None, max_length=100)
+    state: Optional[str] = Field(None, max_length=100)
+    country: Optional[str] = Field(None, max_length=100)
+    postal_code: Optional[str] = Field(None, max_length=20)
+    emergency_contact_name: Optional[str] = Field(None, max_length=150)
+    emergency_contact_relation: Optional[str] = Field(None, max_length=60)
+    emergency_contact_phone: Optional[str] = Field(None, max_length=50)
 
 class OnboardingOrientationAttendeeResponse(BaseModel):
     id: int
@@ -2670,6 +2824,7 @@ class OnboardingDashboardResponse(BaseModel):
     departmentWise: list[dict]
     completionStatus: dict
     upcomingJoiners: list[dict]
+    upcomingJoinersTotal: int = 0
     recentActivities: list[dict]
 
 class OnboardingAnalyticsResponse(BaseModel):
@@ -3683,30 +3838,69 @@ class RecruitmentDashboardResponse(BaseModel):
     scheduled_interviews: int = 0
     offers_extended: int = 0
     offers_accepted: int = 0
-    time_to_hire: float = 0.0
+    time_to_hire: Optional[float] = None
+    open_requisitions: int = 0
+    hires_measured: int = 0
     hiring_funnel: list[dict] = []
     recent_activity: list[dict] = []
 
 
+RequisitionPriority = Literal["low", "medium", "high", "urgent"]
+OfferEmploymentTypeReq = Literal["full_time", "part_time", "contract", "internship", "freelance"]
+
+
+class ScorecardCriterion(BaseModel):
+    key: str = Field(..., pattern=r"^[a-z][a-z0-9_]{0,59}$")
+    label: str = Field(..., min_length=1, max_length=200)
+    description: Optional[str] = Field(None, max_length=1000)
+    weight: Decimal = Field(default=Decimal(1), gt=0, le=10, max_digits=4, decimal_places=2)
+
+
 class RequisitionCreate(BaseModel):
+    """A new requisition is saved as a draft or submitted for approval; it opens only when an admin approves it."""
     title: str = Field(..., min_length=1, max_length=200)
     department: str = Field(..., min_length=1, max_length=100)
     location: Optional[str] = Field(None, max_length=150)
-    openings: int = Field(default=1, ge=1)
-    priority: str = "medium"
-    status: Optional[RequisitionStatus] = None
-    description: Optional[str] = None
+    openings: int = Field(default=1, ge=1, le=1000)
+    priority: RequisitionPriority = "medium"
+    status: Optional[Literal["draft", "pending"]] = None
+    description: Optional[str] = Field(None, max_length=10000)
+    requirements: Optional[str] = Field(None, max_length=10000)
+    hiring_manager_id: Optional[int] = None
+    employment_type: Optional[OfferEmploymentTypeReq] = None
+    reason: Optional[Literal["new_role", "replacement", "backfill", "growth"]] = None
+    replaces_employee_id: Optional[int] = None
+    budget_min: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
+    budget_max: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    target_start_date: Optional[date] = None
+    headcount_id: Optional[int] = None
+    justification: Optional[str] = Field(None, max_length=5000)
+    job_description_id: Optional[int] = None
+    scorecard_criteria: Optional[list[ScorecardCriterion]] = Field(None, max_length=20)
 
 
 class RequisitionUpdate(BaseModel):
+    """Details only: status moves through submit / approve / reject / hold / resume / close."""
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     department: Optional[str] = Field(None, min_length=1, max_length=100)
     location: Optional[str] = Field(None, max_length=150)
-    openings: Optional[int] = Field(None, ge=1)
-    filled: Optional[int] = Field(None, ge=0)
-    priority: Optional[str] = None
-    status: Optional[RequisitionStatus] = None
-    description: Optional[str] = None
+    openings: Optional[int] = Field(None, ge=1, le=1000)
+    priority: Optional[RequisitionPriority] = None
+    description: Optional[str] = Field(None, max_length=10000)
+    requirements: Optional[str] = Field(None, max_length=10000)
+    hiring_manager_id: Optional[int] = None
+    employment_type: Optional[OfferEmploymentTypeReq] = None
+    reason: Optional[Literal["new_role", "replacement", "backfill", "growth"]] = None
+    replaces_employee_id: Optional[int] = None
+    budget_min: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
+    budget_max: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    target_start_date: Optional[date] = None
+    headcount_id: Optional[int] = None
+    justification: Optional[str] = Field(None, max_length=5000)
+    job_description_id: Optional[int] = None
+    scorecard_criteria: Optional[list[ScorecardCriterion]] = Field(None, max_length=20)
 
 
 class RequisitionResponse(BaseModel):
@@ -3720,8 +3914,25 @@ class RequisitionResponse(BaseModel):
     priority: str
     status: RequisitionStatus
     description: Optional[str]
+    requirements: Optional[str] = None
+    created_by: Optional[int] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
+    hiring_manager_id: Optional[int] = None
+    employment_type: Optional[str] = None
+    reason: Optional[str] = None
+    replaces_employee_id: Optional[int] = None
+    budget_min: Optional[Decimal] = None
+    budget_max: Optional[Decimal] = None
+    currency: Optional[str] = None
+    target_start_date: Optional[date] = None
+    headcount_id: Optional[int] = None
+    justification: Optional[str] = None
+    job_description_id: Optional[int] = None
+    scorecard_criteria: Optional[list] = None
+    decided_by: Optional[int] = None
+    decided_at: Optional[datetime] = None
+    decision_comment: Optional[str] = None
 
     model_config = {"from_attributes": True}
 
@@ -3865,6 +4076,7 @@ class CandidateResponse(BaseModel):
     onboarding_new_hire_id: Optional[int] = None
     requisition_id: Optional[int] = None
     requisition_title: Optional[str] = None
+    hired_at: Optional[datetime] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -3879,33 +4091,93 @@ class CandidateListResponse(BaseModel):
     items: list[CandidateResponse]
 
 
-class InterviewCreate(BaseModel):
+InterviewType = Literal["phone", "video", "in_person", "technical", "panel", "hr"]
+_HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
+
+
+class _InterviewFields(BaseModel):
+    """Times are HH:MM (24h) in `timezone`; a meeting link must be https; the end comes after the start."""
+    @field_validator("start_time", "end_time", mode="before", check_fields=False)
+    @classmethod
+    def _v_time(cls, v):
+        if v in (None, ""):
+            return None
+        v = str(v).strip()[:5]
+        if not _HHMM.match(v):
+            raise ValueError("Use a 24-hour time like 09:30.")
+        return v
+
+    @field_validator("timezone", mode="before", check_fields=False)
+    @classmethod
+    def _v_tz(cls, v):
+        if v in (None, ""):
+            return None
+        from zoneinfo import ZoneInfo
+        try:
+            ZoneInfo(str(v))
+        except Exception:
+            raise ValueError("Unknown time zone.")
+        return str(v)
+
+    @field_validator("meeting_link", mode="before", check_fields=False)
+    @classmethod
+    def _v_link(cls, v):
+        if v in (None, ""):
+            return None
+        v = str(v).strip()
+        if not v.lower().startswith("https://") or " " in v or len(v) > 500:
+            raise ValueError("The meeting link must be a full https:// address.")
+        return v
+
+    @model_validator(mode="after")
+    def _v_order(self):
+        s, e = getattr(self, "start_time", None), getattr(self, "end_time", None)
+        if s and e and e <= s:
+            raise ValueError("The end time must be after the start time.")
+        return self
+
+
+class InterviewCreate(_InterviewFields):
     candidate_id: Optional[int] = None
-    candidate_name: str = Field(..., min_length=1, max_length=150)
-    position: str = Field(..., min_length=1, max_length=150)
-    interview_type: str = "in_person"
+    candidate_name: Optional[str] = Field(None, min_length=1, max_length=150)   # filled from the linked candidate
+    position: Optional[str] = Field(None, min_length=1, max_length=150)
+    interview_type: InterviewType = "in_person"
     interview_date: date
-    start_time: Optional[str] = Field(None, max_length=10)
-    end_time: Optional[str] = Field(None, max_length=10)
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    timezone: Optional[str] = None
+    meeting_link: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=255)
     interviewer: Optional[str] = Field(None, max_length=150)
     interviewer_id: Optional[int] = None
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=5000)
+    notify: bool = True
+
+    @model_validator(mode="after")
+    def _v_who(self):
+        if not self.candidate_id and not (self.candidate_name and self.position):
+            raise ValueError("Choose a candidate, or enter the candidate's name and the position.")
+        return self
 
 
-class InterviewUpdate(BaseModel):
+class InterviewUpdate(_InterviewFields):
     candidate_id: Optional[int] = None
     candidate_name: Optional[str] = Field(None, min_length=1, max_length=150)
     position: Optional[str] = Field(None, min_length=1, max_length=150)
-    interview_type: Optional[str] = None
+    interview_type: Optional[InterviewType] = None
     interview_date: Optional[date] = None
-    start_time: Optional[str] = Field(None, max_length=10)
-    end_time: Optional[str] = Field(None, max_length=10)
+    start_time: Optional[str] = None
+    end_time: Optional[str] = None
+    timezone: Optional[str] = None
+    meeting_link: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=255)
     interviewer: Optional[str] = Field(None, max_length=150)
     interviewer_id: Optional[int] = None
     status: Optional[InterviewStatus] = None
-    feedback: Optional[str] = None
+    feedback: Optional[str] = Field(None, max_length=5000)
     rating: Optional[int] = Field(None, ge=1, le=5)
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=5000)
+    notify: bool = True
 
 
 class InterviewFeedback(BaseModel):
@@ -3925,6 +4197,10 @@ class InterviewResponse(BaseModel):
     end_time: Optional[str]
     interviewer: Optional[str]
     interviewer_id: Optional[int]
+    timezone: Optional[str] = None
+    meeting_link: Optional[str] = None
+    location: Optional[str] = None
+    emails_sent: Optional[int] = None
     status: InterviewStatus
     feedback: Optional[str]
     rating: Optional[int]
@@ -3943,21 +4219,78 @@ class InterviewListResponse(BaseModel):
     items: list[InterviewResponse]
 
 
-class OfferCreate(BaseModel):
+RemunerationType = Literal["salary", "stipend", "fee"]
+PayPeriod = Literal["annual", "monthly", "weekly", "hourly", "one_time"]
+OfferEmploymentType = Literal["full_time", "part_time", "contract", "internship", "freelance"]
+
+
+class OfferCondition(BaseModel):
+    type: Literal["reference_check", "background_check", "right_to_work", "qualification_verification", "medical_where_lawful",
+                  "licence_verification", "other"]
+    description: str = Field(..., min_length=1, max_length=300)
+    due_by: Optional[date] = None
+    status: Literal["open", "cleared"] = "open"
+
+
+class OfferComponent(BaseModel):
+    label: str = Field(..., min_length=1, max_length=120)
+    amount: Decimal = Field(..., ge=0, max_digits=12, decimal_places=2)
+    frequency: PayPeriod = "annual"
+
+
+class _OfferPayFields(BaseModel):
+    """How an offer is paid. An internship pays a stipend, never a salary; the currency follows the work country unless set."""
+    remuneration_type: Optional[RemunerationType] = None
+    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    pay_period: Optional[PayPeriod] = None
+    employment_type: Optional[OfferEmploymentType] = None
+    work_country: Optional[str] = Field(None, min_length=2, max_length=2)
+    entity_name: Optional[str] = Field(None, max_length=200)
+    entity_tax_id: Optional[str] = Field(None, max_length=40)
+    entity_id_type: Optional[str] = Field(None, max_length=30)
+    entity_country: Optional[str] = Field(None, min_length=2, max_length=2)
+    entity_address: Optional[str] = Field(None, max_length=1000)
+    entity_city: Optional[str] = Field(None, max_length=120)
+    entity_region: Optional[str] = Field(None, max_length=120)
+    entity_postal_code: Optional[str] = Field(None, max_length=20)
+    # offer letter terms (doc_templates)
+    department_id: Optional[int] = None
+    reporting_manager_id: Optional[int] = None
+    employer_entity_id: Optional[int] = None
+    work_location: Optional[str] = Field(None, max_length=200)
+    work_region: Optional[str] = Field(None, max_length=100)
+    work_arrangement: Optional[Literal["onsite", "hybrid", "remote"]] = None
+    hours_per_week: Optional[Decimal] = Field(None, gt=0, le=80, max_digits=5, decimal_places=2)
+    work_pattern: Optional[str] = Field(None, max_length=200)
+    contract_end_date: Optional[date] = None
+    internship_end_date: Optional[date] = None
+    fixed_term_reason: Optional[str] = Field(None, max_length=300)
+    probation_months: Optional[int] = Field(None, ge=0, le=36)
+    response_deadline: Optional[date] = None
+    conditions: Optional[list[OfferCondition]] = Field(None, max_length=20)
+    benefits_summary: Optional[str] = Field(None, max_length=2000)
+    components: Optional[list[OfferComponent]] = Field(None, max_length=20)
+    learning_objectives: Optional[list[str]] = Field(None, max_length=20)
+    mentor_id: Optional[int] = None
+    academic_institution: Optional[str] = Field(None, max_length=200)
+
+
+class OfferCreate(_OfferPayFields):
     candidate_id: Optional[int] = None
     candidate_name: str = Field(..., min_length=1, max_length=150)
     position: str = Field(..., min_length=1, max_length=150)
-    salary: Optional[Decimal] = Field(None, ge=0)
+    salary: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     equity: Optional[str] = Field(None, max_length=50)
     joining_date: Optional[date] = None
+    status: Optional[OfferStatus] = None
     notes: Optional[str] = None
 
 
-class OfferUpdate(BaseModel):
+class OfferUpdate(_OfferPayFields):
     candidate_id: Optional[int] = None
     candidate_name: Optional[str] = Field(None, min_length=1, max_length=150)
     position: Optional[str] = Field(None, min_length=1, max_length=150)
-    salary: Optional[Decimal] = Field(None, ge=0)
+    salary: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
     equity: Optional[str] = Field(None, max_length=50)
     joining_date: Optional[date] = None
     status: Optional[OfferStatus] = None
@@ -3974,8 +4307,50 @@ class OfferResponse(BaseModel):
     candidate_name: str
     position: str
     salary: Optional[Decimal]
+    remuneration_type: Optional[str] = "salary"
+    currency: Optional[str] = None
+    pay_period: Optional[str] = None
+    employment_type: Optional[str] = None
+    work_country: Optional[str] = None
+    entity_name: Optional[str] = None
+    entity_tax_id: Optional[str] = None
+    entity_country: Optional[str] = None
+    entity_address: Optional[str] = None
+    entity_id_type: Optional[str] = None
+    entity_city: Optional[str] = None
+    entity_region: Optional[str] = None
+    entity_postal_code: Optional[str] = None
+    email_sent: Optional[bool] = None
     equity: Optional[str]
     joining_date: Optional[date]
+    department_id: Optional[int] = None
+    reporting_manager_id: Optional[int] = None
+    employer_entity_id: Optional[int] = None
+    work_location: Optional[str] = None
+    work_region: Optional[str] = None
+    work_arrangement: Optional[str] = None
+    hours_per_week: Optional[Decimal] = None
+    work_pattern: Optional[str] = None
+    contract_end_date: Optional[date] = None
+    internship_end_date: Optional[date] = None
+    fixed_term_reason: Optional[str] = None
+    probation_months: Optional[int] = None
+    response_deadline: Optional[date] = None
+    conditions: Optional[list] = None
+    benefits_summary: Optional[str] = None
+    components: Optional[list] = None
+    learning_objectives: Optional[list] = None
+    mentor_id: Optional[int] = None
+    academic_institution: Optional[str] = None
+    created_by: Optional[int] = None
+    approved_by: Optional[int] = None
+    approved_at: Optional[datetime] = None
+    issued_at: Optional[datetime] = None
+    accepted_at: Optional[datetime] = None
+    decline_reason: Optional[str] = None
+    document_id: Optional[int] = None
+    amends_offer_id: Optional[int] = None
+    withdrawal_reason_category: Optional[str] = None
     status: OfferStatus
     notes: Optional[str]
     created_at: Optional[datetime]
@@ -4176,6 +4551,8 @@ class DesignationSettingsData(BaseModel):
     # General
     code_prefix: str = "DES"
     default_status: Literal["active", "inactive"] = "active"
+    # A new designation needs an approved position request (HR-ORG-004) before it can be used
+    require_position_approval: bool = False
     auto_generate_codes: bool = True
     enforce_unique_codes: bool = True
     # Hierarchy

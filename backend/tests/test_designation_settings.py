@@ -152,6 +152,21 @@ def test_with_auto_codes_off_a_manual_code_is_required_and_unique(client):
     assert client.db.query(Designation).count() == 1
 
 
+def test_unique_code_enforcement_can_be_turned_off_and_is_per_organization(client):
+    d = client.get(URL).json()
+    d.update(auto_generate_codes=False, enforce_unique_codes=False)
+    assert client.put(URL, json=d).status_code == 200
+    assert client.post("/hr/designations", json=_new(designation_code="SHARED")).status_code == 201
+    again = client.post("/hr/designations", json=_new(title="Other", designation_code="shared"))
+    assert again.status_code == 201, again.text   # same code reused once enforcement is off
+    d = client.get(URL).json()
+    d["enforce_unique_codes"] = True
+    assert client.put(URL, json=d).status_code == 200
+    assert client.post("/hr/designations", json=_new(title="Third", designation_code="SHARED")).status_code in (400, 409)
+    client.box["user"] = client.people["other"]   # another organization may still use the code
+    assert client.post("/hr/designations", json=_new(designation_code="SHARED")).status_code == 201
+
+
 def test_a_manual_code_is_ignored_while_auto_generation_is_on(client):
     r = client.post("/hr/designations", json=_new(designation_code="HACK1"))
     assert r.status_code == 201 and r.json()["designation_code"].startswith("ACMDES")

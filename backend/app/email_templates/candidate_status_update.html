@@ -1,0 +1,21 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Update on your application" %}
+{% set preheader = "An update on your application for " ~ position ~ " at " ~ organization_name ~ "." %}
+{% set badge = status_label %}
+{% set badge_tone = "neutral" if is_rejection else "info" %}
+{% set footer_reason %}You are receiving this because you applied to {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Update on your application</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong>, thank you for applying for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role at {{ organization_name }}.</p>
+{% if is_rejection %}
+<p class="t-body dm-text-body" style="{{ S.p }}">After careful consideration, we will not be moving forward with your application at this time. We appreciate the time you invested and wish you every success.</p>
+{% else %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Our team is now reviewing your profile and will contact you about the next steps.</p>
+{% endif %}
+{% call ui.details() %}
+{{ ui.detail_row("Position", position, first=True) }}
+{{ ui.detail_row("Status", status_label) }}
+{% endcall %}
+{{ ui.signoff(organization_name) }}
+{% endblock %}

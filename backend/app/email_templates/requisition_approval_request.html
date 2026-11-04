@@ -1,0 +1,20 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Job requisition awaiting approval" %}
+{% set preheader = requester_name ~ " asked to open " ~ openings ~ " position(s) for " ~ title_text ~ "." %}
+{% set badge = "Approval needed" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because you are an admin for {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Job requisition awaiting approval</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ admin_name }}</strong>, approval needed: {{ requester_name }} submitted a job requisition. Approve it to start accepting candidates.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Role", title_text, first=True) }}
+{{ ui.detail_row("Department", department) }}
+{{ ui.detail_row("Openings", openings|string) }}
+{{ ui.detail_row("Priority", priority) }}
+{% if location %}{{ ui.detail_row("Location", location) }}{% endif %}
+{% endcall %}
+{{ ui.button(requisitions_url, "Review requisition") }}
+{{ ui.signoff() }}
+{% endblock %}

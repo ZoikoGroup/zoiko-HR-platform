@@ -1,0 +1,13 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "A reporting line changed" %}
+{% set preheader = "Change " ~ change_reference ~ " moves a reporting line to or from you." %}
+{% set badge = "Update" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">A reporting line changed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Update: an approved change ({{ change_reference }}) moves a team member's reporting line to or from you. Sign in to Zoiko HR to see your team.</p>
+{{ ui.button(action_url, "Open Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

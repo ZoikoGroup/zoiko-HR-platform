@@ -1,0 +1,164 @@
+{
+  "canonical_id": "HR-ONB-005",
+  "output_mode": "CHECKLIST_RECORD",
+  "execution_mode": "NONE",
+  "audience": "MANAGER",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name"
+    ],
+    "optional": [
+      "employment.start_date"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Manager Onboarding Checklist — {{worker.full_name}}",
+      "level": 1
+    },
+    {
+      "type": "heading",
+      "text": "Before day 1",
+      "level": 2
+    },
+    {
+      "type": "checklist",
+      "id": "before",
+      "items": [
+        {
+          "key": "workspace",
+          "label": "Confirm workspace or remote set-up",
+          "owner_role": "manager",
+          "due_offset_days": -5,
+          "mandatory": true
+        },
+        {
+          "key": "equipment",
+          "label": "Request equipment and system access",
+          "owner_role": "manager",
+          "due_offset_days": -5,
+          "mandatory": true
+        },
+        {
+          "key": "first_week",
+          "label": "Plan the first-week schedule",
+          "owner_role": "manager",
+          "due_offset_days": -2,
+          "mandatory": true
+        },
+        {
+          "key": "buddy",
+          "label": "Assign a buddy",
+          "owner_role": "manager",
+          "due_offset_days": -2,
+          "mandatory": false
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "Day 1",
+      "level": 2
+    },
+    {
+      "type": "checklist",
+      "id": "day1",
+      "items": [
+        {
+          "key": "welcome",
+          "label": "Welcome and team introductions",
+          "owner_role": "manager",
+          "due_offset_days": 0,
+          "mandatory": true
+        },
+        {
+          "key": "expectations",
+          "label": "Explain the role and expectations",
+          "owner_role": "manager",
+          "due_offset_days": 0,
+          "mandatory": true
+        },
+        {
+          "key": "safety",
+          "label": "Walk through health and safety arrangements for the workplace",
+          "owner_role": "manager",
+          "due_offset_days": 0,
+          "mandatory": true
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "Week 1",
+      "level": 2
+    },
+    {
+      "type": "checklist",
+      "id": "week1",
+      "items": [
+        {
+          "key": "objectives",
+          "label": "Agree initial objectives",
+          "owner_role": "manager",
+          "due_offset_days": 5,
+          "mandatory": true
+        },
+        {
+          "key": "one_to_ones",
+          "label": "Schedule regular one-to-ones",
+          "owner_role": "manager",
+          "due_offset_days": 5,
+          "mandatory": true
+        },
+        {
+          "key": "access_check",
+          "label": "Check access and equipment work",
+          "owner_role": "manager",
+          "due_offset_days": 5,
+          "mandatory": true
+        }
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "Month 1",
+      "level": 2
+    },
+    {
+      "type": "checklist",
+      "id": "month1",
+      "items": [
+        {
+          "key": "progress",
+          "label": "Review progress",
+          "owner_role": "manager",
+          "due_offset_days": 30,
+          "mandatory": true
+        },
+        {
+          "key": "probation",
+          "label": "Confirm probation objectives and review dates (HR-ONB-020)",
+          "owner_role": "manager",
+          "due_offset_days": 30,
+          "mandatory": true
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Ask your new team member if they need any adjustments to do their job well and tell HR about any agreed adjustments.",
+      "id": "rights_adjustments"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

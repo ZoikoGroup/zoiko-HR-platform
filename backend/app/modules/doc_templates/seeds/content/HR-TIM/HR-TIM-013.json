@@ -1,0 +1,128 @@
+{
+  "canonical_id": "HR-TIM-013",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "correction.status_label",
+      "correction.decided_by",
+      "correction.decided_at"
+    ],
+    "optional": [
+      "correction.decision_reason"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Attendance Correction Request",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name"
+      ],
+      "labels": {
+        "worker.full_name": "Employee"
+      }
+    },
+    {
+      "type": "form_fields",
+      "id": "correction_fields",
+      "fields": [
+        {
+          "key": "date",
+          "label": "Date",
+          "type": "date",
+          "required": true
+        },
+        {
+          "key": "recorded_check_in",
+          "label": "Recorded check-in",
+          "type": "text"
+        },
+        {
+          "key": "recorded_check_out",
+          "label": "Recorded check-out",
+          "type": "text"
+        },
+        {
+          "key": "requested_check_in",
+          "label": "Requested check-in",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "requested_check_out",
+          "label": "Requested check-out",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "select",
+          "required": true,
+          "options": [
+            "Forgot to check in/out",
+            "System issue",
+            "Working off-site",
+            "Other"
+          ]
+        },
+        {
+          "key": "reason_detail",
+          "label": "Details",
+          "type": "textarea"
+        },
+        {
+          "key": "evidence",
+          "label": "Evidence attached",
+          "type": "checkbox"
+        }
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm the corrected times are accurate.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    },
+    {
+      "type": "heading",
+      "text": "Decision",
+      "level": 2
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "correction.status_label",
+        "correction.decided_by",
+        "correction.decided_at",
+        "correction.decision_reason"
+      ],
+      "labels": {
+        "correction.status_label": "Status",
+        "correction.decision_reason": "Reason"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "The original record is kept for audit purposes.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

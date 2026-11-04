@@ -1,0 +1,99 @@
+{
+  "canonical_id": "HR-ONB-022",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "employment.start_date",
+      "onboarding.completed_on",
+      "onboarding.closed_by_name"
+    ],
+    "optional": [
+      "onboarding.owner",
+      "employment.manager_name",
+      "onboarding.checklist_items",
+      "onboarding.exceptions"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Onboarding Completion Record — {{worker.full_name}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "employment.start_date",
+        "onboarding.completed_on",
+        "onboarding.owner",
+        "employment.manager_name"
+      ],
+      "labels": {
+        "onboarding.owner": "HR owner"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Item",
+        "Owner",
+        "Status",
+        "Completed on"
+      ],
+      "rows_from": "onboarding.checklist_items",
+      "include_when": {
+        "field": "onboarding.checklist_items",
+        "op": "present"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Item",
+        "Reason",
+        "Owner",
+        "Due date",
+        "Blocked until complete"
+      ],
+      "rows_from": "onboarding.exceptions",
+      "include_when": {
+        "field": "onboarding.exceptions",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "This record confirms that onboarding has been completed or that all outstanding items are recorded as exceptions with an owner and due date."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "onboarding.closed_by_name",
+        "onboarding.completed_on"
+      ],
+      "labels": {
+        "onboarding.closed_by_name": "Closed by (HR approver)",
+        "onboarding.completed_on": "Closed on"
+      }
+    },
+    {
+      "type": "signature_block",
+      "parties": [
+        "employer"
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

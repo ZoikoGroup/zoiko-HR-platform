@@ -32,6 +32,7 @@ def pg():
 
     admin = create_engine(ADMIN_URL, isolation_level="AUTOCOMMIT")
     db = "zhr_priv_" + uuid.uuid4().hex[:8]
+    engines = []
     with admin.connect() as c:
         c.execute(text(f'CREATE DATABASE "{db}"'))
     from sqlalchemy.engine import make_url
@@ -66,6 +67,7 @@ def pg():
             c.execute(text("ALTER SCHEMA public OWNER TO zhr_migrator"))
 
         mig = create_engine(_url("zhr_migrator", PW["migrator"], db))
+        engines.append(mig)
         Base.metadata.create_all(mig)
         plan = rls.policy_plan(Base.metadata)
         with mig.begin() as conn:
@@ -74,13 +76,20 @@ def pg():
             major = int(conn.exec_driver_sql("SHOW server_version_num").scalar()) // 10000
             for s in rls.composite_fk_sql(rls.tenant_fk_pairs(Base.metadata), pg_major=major):
                 conn.exec_driver_sql(s)
-        yield {"db": db, "plan": plan, "mig": mig,
-               "tenant": create_engine(_url("zhr_app_tenant", PW["tenant"], db)),
-               "platform": create_engine(_url("zhr_app_platform", PW["platform"], db)),
-               "bi": create_engine(_url("zhr_bi_readonly", PW["bi"], db)),
-               "jobs": create_engine(_url("zhr_jobs", PW["jobs"], db)),
+        tenant = create_engine(_url("zhr_app_tenant", PW["tenant"], db))
+        platform = create_engine(_url("zhr_app_platform", PW["platform"], db))
+        bi = create_engine(_url("zhr_bi_readonly", PW["bi"], db))
+        jobs = create_engine(_url("zhr_jobs", PW["jobs"], db))
+        engines.extend((tenant, platform, bi, jobs))
+        yield {"db": db, "plan": plan, "mig": mig, "tenant": tenant,
+               "platform": platform, "bi": bi, "jobs": jobs,
                "rls": rls, "Base": Base}
     finally:
+        # Close the role-specific pools before dropping the temporary database.
+        # DROP DATABASE ... WITH (FORCE) otherwise terminates live connections
+        # and produces misleading FATAL messages in CI service logs.
+        for engine in engines:
+            engine.dispose()
         su.dispose()
         with admin.connect() as c:
             c.execute(text(f'DROP DATABASE IF EXISTS "{db}" WITH (FORCE)'))
@@ -139,6 +148,12 @@ def test_every_tenant_table_has_the_isolation_policy_and_every_tenant_table_is_i
     assert wanted <= with_policy, sorted(wanted - with_policy)
 
 
+def test_owner_scoped_template_tables_do_not_recurse_through_self_foreign_keys(pg):
+    """Template variants and clauses have self-referencing version links and owner_organization_id scope."""
+    assert _rows(pg["tenant"], "SELECT count(*) FROM template_variants", tenant=1) == [(0,)]
+    assert _rows(pg["tenant"], "SELECT count(*) FROM template_clauses", tenant=1) == [(0,)]
+
+
 def test_T14_the_tenant_role_sees_only_its_own_tenant_and_nothing_without_a_tenant(pg, seeded):
     own = _rows(pg["tenant"], "SELECT email FROM employees ORDER BY email", tenant=1)
     assert [r[0] for r in own] == ["a1@tenant-a.example.com", "a2@tenant-a.example.com"]
@@ -165,19 +180,13 @@ def test_C03_a_tenant_cannot_write_or_move_a_row_into_another_tenant(pg, seeded)
 
 def test_T14_the_platform_role_is_denied_every_tenant_data_table(pg, seeded):
     from sqlalchemy import text
-    from sqlalchemy.exc import DBAPIError
     data_tables = [p["table"] for p in pg["plan"] if p["kind"] == "DATA"]
     assert "employees" in data_tables and "employee_profiles" in data_tables and "hr_documents" in data_tables
-    denied = 0
-    for t in data_tables:
-        try:
-            with pg["platform"].begin() as conn:
-                conn.execute(text("SELECT set_config('app.plane', 'PLATFORM', true)"))
-                conn.execute(text(f'SELECT 1 FROM "{t}" LIMIT 1'))
-        except DBAPIError as e:
-            assert "permission denied" in str(e).lower(), (t, str(e)[:120])
-            denied += 1
-    assert denied == len(data_tables), "permission denied on every tenant data table, whatever the session claims"
+    with pg["mig"].connect() as conn:
+        denied = [t for t in data_tables
+                  if not conn.execute(text("SELECT has_table_privilege(:role, :table, 'SELECT')"),
+                                      {"role": "zhr_app_platform", "table": f"public.{t}"}).scalar()]
+    assert denied == data_tables, "the platform role has no SELECT grant on tenant data, whatever its session claims"
 
 
 def test_the_platform_role_reads_control_plane_records_across_tenants_only_as_the_platform(pg, seeded):
@@ -191,11 +200,11 @@ def test_the_platform_role_reads_control_plane_records_across_tenants_only_as_th
 
 def test_C04_the_bi_role_has_no_access_to_raw_tenant_tables(pg, seeded):
     from sqlalchemy import text
-    from sqlalchemy.exc import DBAPIError
     for t in ("employees", "employee_profiles", "hr_documents", "recruitment_candidates"):
-        with pytest.raises(DBAPIError):
-            with pg["bi"].begin() as conn:
-                conn.execute(text(f'SELECT * FROM "{t}" LIMIT 1'))
+        with pg["mig"].connect() as conn:
+            allowed = conn.execute(text("SELECT has_table_privilege(:role, :table, 'SELECT')"),
+                                   {"role": "zhr_bi_readonly", "table": f"public.{t}"}).scalar()
+        assert not allowed, f"BI role must not have raw SELECT access to {t}"
 
 
 def test_set_local_does_not_leak_into_the_next_transaction_on_a_pooled_connection(pg, seeded):
@@ -228,12 +237,8 @@ def test_force_binds_the_table_owner_too(pg, seeded):
 
 
 def test_the_policy_expression_fails_closed_when_the_setting_is_garbage(pg, seeded):
-    from sqlalchemy.exc import DBAPIError
-    try:
-        rows = _rows(pg["tenant"], "SELECT email FROM employees", tenant="not-a-number")
-        assert rows == []
-    except DBAPIError:
-        pass                                      # an error is also a refusal: it never returns another tenant's rows
+    rows = _rows(pg["tenant"], "SELECT email FROM employees", tenant="not-a-number")
+    assert rows == [], "malformed tenant context should fail closed without a cast error"
 
 
 def test_C03_the_database_refuses_a_row_that_points_into_another_tenant(pg, seeded):

@@ -4,6 +4,7 @@ import { Calendar, Clock, CheckCircle, XCircle, Search, Trash2, Filter, AlertCir
 import HRPage from "../../../components/HRPage";
 import { getLeaveRequests, reviewLeaveRequest, getLeaveDashboard, getHrEmployees, deleteLeaveRequest } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import { ConfirmFamilyLeaveModal, FAMILY_TYPES, LeaveRecordsModal, RefuseLeaveModal } from "./LeaveDecisionTools";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/leave" },
@@ -194,12 +195,17 @@ export default function LeaveRequests() {
       setMessage({ type: 'success', text: `Request ${status} successfully` });
       setReloadKey((k) => k + 1);
       setTimeout(() => setMessage(null), 3000);
-    } catch {
-      setMessage({ type: 'error', text: `Failed to ${status} request` });
+    } catch (e) {
+      setMessage({ type: 'error', text: e?.message || `Failed to ${status} request` });
     } finally {
       setSubmitting(false);
     }
   };
+
+  const [refusing, setRefusing] = useState(null);
+  const [confirming, setConfirming] = useState(null);
+  const [viewing, setViewing] = useState(null);
+  const decided = (text) => { setRefusing(null); setConfirming(null); setMessage({ type: 'success', text }); setReloadKey((k) => k + 1); };
 
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this leave request permanently?")) return;
@@ -328,20 +334,33 @@ export default function LeaveRequests() {
                       <td className="px-4 py-3 text-right">
                         {row.status === "pending" ? (
                           <div className="flex items-center justify-end gap-2">
-                            <button onClick={() => handleReview(row.id, "approved")} disabled={submitting}
-                              className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors disabled:opacity-50">
-                              <CheckCircle className="w-3.5 h-3.5" /> Approve
-                            </button>
-                            <button onClick={() => handleReview(row.id, "rejected")} disabled={submitting}
+                            {FAMILY_TYPES.includes(row.leave_type) ? (
+                              <button onClick={() => setConfirming(row)} disabled={submitting}
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors disabled:opacity-50">
+                                <CheckCircle className="w-3.5 h-3.5" /> Confirm
+                              </button>
+                            ) : (
+                              <button onClick={() => handleReview(row.id, "approved")} disabled={submitting}
+                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-lg hover:bg-emerald-100 hover:border-emerald-300 transition-colors disabled:opacity-50">
+                                <CheckCircle className="w-3.5 h-3.5" /> Approve
+                              </button>
+                            )}
+                            <button onClick={() => setRefusing(row)} disabled={submitting}
                               className="flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-red-50 text-red-700 border border-red-200 rounded-lg hover:bg-red-100 hover:border-red-300 transition-colors disabled:opacity-50">
                               <XCircle className="w-3.5 h-3.5" /> Reject
                             </button>
                           </div>
                         ) : (
+                          <div className="flex items-center justify-end gap-1">
+                          <button onClick={() => setViewing(row)} aria-label="Leave records"
+                            className="p-2 text-gray-500 hover:text-teal-700 hover:bg-teal-50 rounded-lg transition-colors">
+                            <FileText className="w-4 h-4" />
+                          </button>
                           <button onClick={() => handleDelete(row.id)}
                             className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors opacity-0 group-hover:opacity-100">
                             <Trash2 className="w-4 h-4" />
                           </button>
+                          </div>
                         )}
                       </td>
                     </tr>
@@ -368,6 +387,9 @@ export default function LeaveRequests() {
         </div>
 
       </div>
+      <RefuseLeaveModal leave={refusing} onClose={() => setRefusing(null)} onDone={decided} />
+      <ConfirmFamilyLeaveModal leave={confirming} onClose={() => setConfirming(null)} onDone={decided} />
+      <LeaveRecordsModal leave={viewing} isHr onClose={() => setViewing(null)} />
     </HRPage>
   );
 }

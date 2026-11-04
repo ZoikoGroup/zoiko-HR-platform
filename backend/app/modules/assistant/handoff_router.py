@@ -6,11 +6,12 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_organization_id, get_scoped_organization_id
 
+from app.modules.assistant import plan_gate
 from app.modules.assistant import handoff_service
 from app.modules.assistant.schemas import HandoffCreate, HandoffResponse, HandoffAdminResponse, HandoffResolve
 
-handoff_router = APIRouter(prefix="/assistant/handoffs", tags=["Assistant Handoff"])
-handoff_admin_router = APIRouter(prefix="/assistant/admin/handoffs", tags=["Assistant Handoff Admin"])
+handoff_router = APIRouter(prefix="/assistant/handoffs", tags=["Assistant Handoff"], dependencies=plan_gate.CHAT)
+handoff_admin_router = APIRouter(prefix="/assistant/admin/handoffs", tags=["Assistant Handoff Admin"], dependencies=plan_gate.HANDOFF_ADMIN)
 
 
 def _to_handoff_response(handoff, already_open: bool = False) -> dict:

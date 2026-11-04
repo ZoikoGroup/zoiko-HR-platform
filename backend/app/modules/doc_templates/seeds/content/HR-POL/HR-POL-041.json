@@ -1,0 +1,164 @@
+{
+  "canonical_id": "HR-POL-041",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name",
+      "policy.travel_class_rules"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name",
+      "policy.travel_assistance_contact"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how business travel is approved, booked and kept safe."
+    },
+    {
+      "type": "heading",
+      "text": "2. Approval before travel",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Submit a travel request in Zoiko HR and wait for approval before booking."
+    },
+    {
+      "type": "heading",
+      "text": "3. Booking",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Class of travel and accommodation: {{policy.travel_class_rules}}"
+    },
+    {
+      "type": "heading",
+      "text": "4. Safety and insurance",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Check official travel advice before you go and carry your emergency contacts."
+    },
+    {
+      "type": "paragraph",
+      "text": "Travel assistance: {{policy.travel_assistance_contact}}",
+      "include_when": {
+        "field": "policy.travel_assistance_contact",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "5. International travel",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "You are responsible for a valid passport and any visa you need. Working while abroad may need approval under our Remote Work Policy."
+    },
+    {
+      "type": "heading",
+      "text": "6. Expenses",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Claim expenses in line with our Expenses and Reimbursement Policy."
+    },
+    {
+      "type": "heading",
+      "text": "7. Duty of care",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Tell us if you feel unsafe. You may decline travel to high-risk areas without penalty where reasonable."
+    },
+    {
+      "type": "heading",
+      "text": "8. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Expenses and Reimbursement Policy; Remote Work Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

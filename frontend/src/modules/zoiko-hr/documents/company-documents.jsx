@@ -1,14 +1,14 @@
 import { useState, useEffect, useMemo } from "react";
 import {
-  Search, Hash, Building2, RefreshCw, Lock, Unlock, Eye, Shield, Users,
+  Search, Hash, RefreshCw, Lock, Unlock, Eye, Shield, Users,
   UserPlus, X, Loader2, Trash2, Check, Upload, Download,
   FolderPlus, Folder, ChevronRight, Home
 } from "lucide-react";
-import HRPage from "../../../components/HRPage";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
 import { useAuth } from "../../../context/AuthContext";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import { fileTypeIcon, fmtDate } from "../../../utils/documents";
+import { OrganizationDocumentsLayout } from "./ui";
 import {
   getDocuments, getHrEmployees, assignDocumentToEmployees,
   getDocumentAssignments, removeDocumentAssignment, uploadDocument,
@@ -272,34 +272,28 @@ export default function CompanyDocuments() {
   };
 
   return (
-    <HRPage title="Company Documents">
-      <div className="space-y-6 pb-10">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 border-b border-gray-100 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-blue-50 rounded-xl"><Building2 className="w-5 h-5 text-blue-600" /></div>
-            <div>
-              <h2 className="text-xl font-bold text-slate-900">Company Documents</h2>
-              <p className="text-sm text-slate-500">Policies, handbooks, and official company files. Assign to employees.</p>
-            </div>
-          </div>
-          <div className="flex items-center gap-2">
+    <OrganizationDocumentsLayout
+      title="Company Documents"
+      subtitle="Keep policies, handbooks and official files organised and easy to share."
+      actions={<>
             {isAdmin && (
               <>
                 <button onClick={() => setFolderModal(true)}
-                  className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
+                  className="flex items-center gap-2 text-sm font-semibold text-slate-700 border border-white/20 bg-white px-4 py-2.5 rounded-xl hover:bg-slate-100 transition-colors">
                   <FolderPlus className="w-4 h-4" /> New Folder
                 </button>
                 <button onClick={() => setUploadModal(true)}
-                  className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2 rounded-lg hover:bg-blue-700 self-start sm:self-center">
+                  className="flex items-center gap-2 text-sm font-semibold text-white bg-blue-600 px-4 py-2.5 rounded-xl hover:bg-blue-700 shadow-sm transition-colors">
                   <Upload className="w-4 h-4" /> Upload
                 </button>
               </>
             )}
-            <button onClick={load} className="flex items-center gap-2 text-sm font-medium text-slate-600 border border-gray-200 bg-white px-4 py-2 rounded-lg hover:bg-gray-50 self-start sm:self-center">
+            <button onClick={load} className="flex items-center gap-2 text-sm font-medium text-white border border-white/20 bg-white/10 px-4 py-2.5 rounded-xl hover:bg-white/15 transition-colors">
               <RefreshCw className="w-4 h-4" /> Refresh
             </button>
-          </div>
-        </div>
+      </>}
+    >
+      <div className="space-y-5">
 
         {/* Breadcrumb */}
         {(currentFolderId || breadcrumb.length > 0) && (
@@ -749,6 +743,6 @@ export default function CompanyDocuments() {
       )}
 
       <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
-    </HRPage>
+    </OrganizationDocumentsLayout>
   );
 }

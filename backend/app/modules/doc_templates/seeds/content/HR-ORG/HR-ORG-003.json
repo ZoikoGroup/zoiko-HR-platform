@@ -1,0 +1,70 @@
+{
+  "canonical_id": "HR-ORG-003",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "headcount.department",
+      "headcount.period",
+      "headcount.current",
+      "headcount.requested",
+      "headcount.rationale",
+      "approval.decision",
+      "approval.approver_name",
+      "approval.decided_at"
+    ],
+    "optional": [
+      "headcount.plan_name",
+      "headcount.change",
+      "headcount.cost_estimate",
+      "approval.comment"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Headcount Authorization — {{headcount.department}} — {{headcount.period}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "headcount.plan_name",
+        "headcount.department",
+        "headcount.current",
+        "headcount.requested",
+        "headcount.change",
+        "headcount.cost_estimate"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Rationale: {{headcount.rationale}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "Approval authorises recruitment up to the approved headcount within the budget stated. Each hire still requires a hiring requisition.",
+      "style": "notice"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "approval.decision",
+        "approval.approver_name",
+        "approval.decided_at",
+        "approval.comment"
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

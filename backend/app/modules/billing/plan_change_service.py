@@ -209,6 +209,14 @@ def schedule_plan_change(
     if subscription.plan_id == plan_id:
         raise BadRequestException("Target plan is the same as current plan")
 
+    # a retry (or double submit) must not leave two open changes to the same plan
+    duplicate = next((c for c in get_pending_changes(db, organization_id) if c.to_plan_id == plan_id), None)
+    if duplicate is not None:
+        raise BadRequestException(
+            f"A change to the {target_plan.name or target_plan.code.value} plan is already {duplicate.status.value} for this "
+            f"organization (change #{duplicate.id}). Cancel it before scheduling another."
+        )
+
     is_downgrade_change = _is_downgrade(
         subscription.plan_code.value if subscription.plan_code else "FREE",
         target_plan.code.value,
@@ -300,11 +308,7 @@ def schedule_plan_change(
 
     db.refresh(change)
 
-    try:
-        _sync_impact_items(db, change, blockers)
-    except Exception as e:
-        # Non-fatal: impact items are a best-effort mirror; continue if possible.
-        logger.warning("[plan_change] Impact sync failed: %s", e)
+    _safe_sync_impact_items(db, change, blockers)
 
     try:
         _invalidate_entitlement_cache(organization_id)
@@ -348,6 +352,17 @@ def _sync_impact_items(db: Session, change: BillingPlanChange, blockers) -> None
             remediation=b.message,
         ))
     db.commit()
+
+
+def _safe_sync_impact_items(db: Session, change: BillingPlanChange, blockers) -> None:
+    """The impact rows are a mirror of blockers_snapshot (already committed on the change), so a failure here must not
+    fail the request. It must roll back, though: a failed flush leaves the session unusable, and the next write on it
+    (the audit row) would then raise and turn an already-saved change into a 500."""
+    try:
+        _sync_impact_items(db, change, blockers)
+    except Exception:
+        db.rollback()
+        logger.exception("[plan_change] Impact sync failed for change %s", change.id)
 
 
 def _resolve_impact_items(db: Session, change: BillingPlanChange) -> None:
@@ -474,7 +489,7 @@ def execute_due_changes(db: Session) -> dict:
                 change.status = PlanChangeStatus.BLOCKED
                 change.blockers_snapshot = blockers_to_dict(blockers)
                 db.commit()
-                _sync_impact_items(db, change, blockers)
+                _safe_sync_impact_items(db, change, blockers)
                 blocked += 1
                 results.append({
                     "change_id": change.id,

@@ -1,0 +1,87 @@
+{
+  "canonical_id": "HR-PRF-011",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "appraisal.period_label",
+      "appraisal.manager_goal_rows"
+    ],
+    "optional": [
+      "appraisal.manager_competency_rows"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Manager Assessment — {{worker.full_name}} — {{appraisal.period_label}}",
+      "level": 1
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Goal",
+        "Rating",
+        "Evidence"
+      ],
+      "rows_from": "appraisal.manager_goal_rows"
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Competency",
+        "Rating",
+        "Evidence"
+      ],
+      "rows_from": "appraisal.manager_competency_rows",
+      "include_when": {
+        "field": "appraisal.manager_competency_rows",
+        "op": "present"
+      }
+    },
+    {
+      "type": "form_fields",
+      "id": "manager_assessment",
+      "fields": [
+        {
+          "key": "overall_recommendation",
+          "label": "Overall recommendation",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "strengths",
+          "label": "Strengths",
+          "type": "textarea"
+        },
+        {
+          "key": "development_needs",
+          "label": "Development needs",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Base ratings on observed, job-related evidence across the whole period. Consider the impact of absence, adjustments and workload changes. Do not refer to protected characteristics.",
+      "id": "rights_fair_assessment"
+    },
+    {
+      "type": "paragraph",
+      "text": "This assessment is shared with the employee when the appraisal is finalised.",
+      "style": "small"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

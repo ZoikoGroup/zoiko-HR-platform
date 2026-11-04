@@ -7,6 +7,7 @@ import { useAuth } from "../../../context/AuthContext";
 import { useDocumentFile } from "../../../hooks/useDocumentFile";
 import DocumentPreviewModal from "../../../components/DocumentPreviewModal";
 import { fileTypeIcon, fmtDate } from "../../../utils/documents";
+import IssuedDocumentsSection, { PendingDocumentsBadge } from "../../../components/documents/IssuedDocumentsSection";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/ess" },
@@ -212,6 +213,7 @@ export default function EssMyDocuments() {
   const [search, setSearch] = useState("");
   const [showUpload, setShowUpload] = useState(false);
   const [toast, setToast] = useState(null);
+  const [pendingIssued, setPendingIssued] = useState(0);
 
   const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
 
@@ -294,7 +296,7 @@ export default function EssMyDocuments() {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">My Documents</h1>
+            <h1 className="flex items-center gap-2 text-2xl font-bold text-gray-900">My Documents <PendingDocumentsBadge count={pendingIssued} /></h1>
             <p className="text-sm text-gray-500 mt-1">Access your payslips, tax forms, certificates and more</p>
           </div>
           <button
@@ -305,6 +307,8 @@ export default function EssMyDocuments() {
             Upload Document
           </button>
         </div>
+
+        <IssuedDocumentsSection onPendingCount={setPendingIssued} />
 
         <div className="relative max-w-sm">
           <div className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400">

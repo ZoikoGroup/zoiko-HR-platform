@@ -43,7 +43,8 @@ test("the form needs a real employee, allows no successor yet, and never a perso
 });
 
 async function load(t, { employeesResponse, items = [], createError } = {}) {
-  const calls = { create: [], update: [] };
+  const calls = { create: [], update: [], authorizationSubmit: [] };
+  let authorization = { id: 22, status: "draft", owner_id: null };
   const svc = {
     getWfSuccessions: async () => ({ items }),
     createWfSuccession: async (p) => { calls.create.push(p); if (createError) throw createError; return {}; },
@@ -53,7 +54,17 @@ async function load(t, { employeesResponse, items = [], createError } = {}) {
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+  t.mock.module("../src/components/documents/GenerateDocumentButton.jsx", { exports: { default: () => null } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
+  t.mock.module("../src/service/workforcePlanningService.js", { exports: {
+    getSuccessionPlanDocument: async (id) => ({ ...authorization, id }),
+    submitSuccessionAuthorization: async (id, payload) => {
+      calls.authorizationSubmit.push([id, payload]);
+      authorization = { ...authorization, ...payload, id, status: "submitted" };
+      return authorization;
+    },
+    decideSuccessionAuthorization: async () => ({}),
+  } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/workforce-planning/succession.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
   await settle();
@@ -122,4 +133,16 @@ test("Edit opens with the current employee and successor selected", async (t) =>
   fireEvent.click(screen.getByTitle("Edit"));
   assert.equal(document.getElementById("sc-employee").value, "5");
   assert.equal(document.getElementById("sc-successor").value, "6");
+});
+
+test("succession authorization submits an optional owner and development actions", async (t) => {
+  const calls = await load(t, { employeesResponse: PEOPLE, items: [{ id: 22, employee_id: 5, employee_name: "Ann Lee", status: "draft" }] });
+  fireEvent.click(screen.getByRole("button", { name: "Authorization for Ann Lee" }));
+  await settle();
+  fireEvent.change(screen.getByLabelText("Plan owner (optional)"), { target: { value: "7" } });
+  fireEvent.change(screen.getByLabelText("Development actions"), { target: { value: "Complete leadership coaching." } });
+  fireEvent.click(screen.getByRole("button", { name: "Submit plan" }));
+  await settle();
+  assert.deepEqual(calls.authorizationSubmit, [[22, { owner_id: 7, development_actions: "Complete leadership coaching." }]]);
+  assert.match(screen.getByLabelText("Succession authorization record").textContent, /submitted/);
 });

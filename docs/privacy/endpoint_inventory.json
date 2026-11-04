@@ -1113,6 +1113,21 @@
   ]
  },
  {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.current_support_session",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/auth/support-session",
+  "privacy_class": "AUTH",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
   "authenticated": false,
   "handler": "app.modules.employee.router.verify_email",
   "methods": [
@@ -2205,72 +2220,6 @@
   "privacy_class": "CONTROL_PLANE",
   "role_guards": [
    "get_current_billing_owner"
-  ],
-  "roles": [
-   "super_admin"
-  ]
- },
- {
-  "authenticated": true,
-  "handler": "app.modules.billing.router.list_support_access",
-  "methods": [
-   "GET"
-  ],
-  "module": "app.modules.billing.router",
-  "org_scoped_dependency": [],
-  "path": "/billing/support-access",
-  "privacy_class": "CONTROL_PLANE",
-  "role_guards": [
-   "get_current_super_admin"
-  ],
-  "roles": [
-   "super_admin"
-  ]
- },
- {
-  "authenticated": true,
-  "handler": "app.modules.billing.router.create_support_access",
-  "methods": [
-   "POST"
-  ],
-  "module": "app.modules.billing.router",
-  "org_scoped_dependency": [],
-  "path": "/billing/support-access",
-  "privacy_class": "CONTROL_PLANE",
-  "role_guards": [
-   "get_current_super_admin"
-  ],
-  "roles": [
-   "super_admin"
-  ]
- },
- {
-  "authenticated": false,
-  "handler": "app.modules.billing.router.validate_support_access_endpoint",
-  "methods": [
-   "POST"
-  ],
-  "module": "app.modules.billing.router",
-  "org_scoped_dependency": [],
-  "path": "/billing/support-access/validate",
-  "privacy_class": "CONTROL_PLANE",
-  "role_guards": [],
-  "roles": [
-   "public"
-  ]
- },
- {
-  "authenticated": true,
-  "handler": "app.modules.billing.router.revoke_support_access_endpoint",
-  "methods": [
-   "POST"
-  ],
-  "module": "app.modules.billing.router",
-  "org_scoped_dependency": [],
-  "path": "/billing/support-access/{grant_id}/revoke",
-  "privacy_class": "CONTROL_PLANE",
-  "role_guards": [
-   "get_current_super_admin"
   ],
   "roles": [
    "super_admin"
@@ -5150,6 +5099,41 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.hr.router.get_department_settings_endpoint",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/departments/settings",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.router.save_department_settings_endpoint",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/departments/settings",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin",
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.hr.router.delete_department",
   "methods": [
    "DELETE"
@@ -7883,9 +7867,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/checklist-assignments",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -7936,9 +7924,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/checklist-assignments/{checklist_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -7951,9 +7943,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/checklist-templates",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8004,9 +8000,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/checklist-templates/{checklist_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8258,6 +8258,63 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.hr.router.request_onboarding_documents",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/onboarding/new-hires/{new_hire_id}/document-requests",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.router.send_portal_invite",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/onboarding/new-hires/{new_hire_id}/portal-invite",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.router.new_hire_progress",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/onboarding/new-hires/{new_hire_id}/progress",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.hr.router.list_orientation_attendees",
   "methods": [
    "GET"
@@ -8266,9 +8323,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/orientation-attendees",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8319,9 +8380,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/orientation-attendees/{attendee_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8334,9 +8399,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/orientation-sessions",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8387,9 +8456,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/orientation-sessions/{session_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8421,9 +8494,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/preboarding-tasks",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8474,9 +8551,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/preboarding-tasks/{task_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -8583,6 +8664,44 @@
   "module": "app.modules.hr.router",
   "org_scoped_dependency": [],
   "path": "/hr/onboarding/reports/joining",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.router.get_onboarding_settings",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/onboarding/settings",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.router.save_onboarding_settings",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.router",
+  "org_scoped_dependency": [],
+  "path": "/hr/onboarding/settings",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
    "get_current_admin"
@@ -9303,9 +9422,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/applications",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9318,9 +9441,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/applications/{application_id}/status",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9368,6 +9495,7 @@
   "path": "/hr/recruitment/candidates/{candidate_id}",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
@@ -9401,9 +9529,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/candidates/{candidate_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9431,9 +9563,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/candidates/{candidate_id}/status",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9462,6 +9598,7 @@
   "path": "/hr/recruitment/documents/{document_id}",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
@@ -9480,9 +9617,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/interview-feedback",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9530,6 +9671,7 @@
   "path": "/hr/recruitment/interviews/{interview_id}",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
@@ -9563,9 +9705,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/interviews/{interview_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9593,9 +9739,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/interviews/{interview_id}/feedback",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9608,9 +9758,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/offer-approvals",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9658,6 +9812,7 @@
   "path": "/hr/recruitment/offers/{offer_id}",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
@@ -9691,9 +9846,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/offers/{offer_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9706,9 +9865,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/offers/{offer_id}/accept",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9736,9 +9899,32 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/offers/{offer_id}/reject",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.recruitment_router.send_offer",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.recruitment_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/recruitment/offers/{offer_id}/send",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9752,6 +9938,7 @@
   "path": "/hr/recruitment/offers/{offer_id}/withdraw",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
@@ -9805,6 +9992,7 @@
   "path": "/hr/recruitment/requisitions/{req_id}",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
@@ -9838,9 +10026,13 @@
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/requisitions/{req_id}",
   "privacy_class": "DATA_PLANE",
-  "role_guards": [],
+  "role_guards": [
+   "get_current_admin"
+  ],
   "roles": [
-   "any signed-in user"
+   "admin",
+   "hr_admin",
+   "super_admin"
   ]
  },
  {
@@ -9852,6 +10044,45 @@
   "module": "app.modules.hr.recruitment_router",
   "org_scoped_dependency": [],
   "path": "/hr/recruitment/requisitions/{req_id}/approve",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin",
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.recruitment_router.close_requisition",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.recruitment_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/recruitment/requisitions/{req_id}/close",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.recruitment_router.hold_requisition",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.recruitment_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/recruitment/requisitions/{req_id}/hold",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
    "get_current_admin"
@@ -9873,12 +10104,85 @@
   "path": "/hr/recruitment/requisitions/{req_id}/reject",
   "privacy_class": "DATA_PLANE",
   "role_guards": [
+   "get_current_admin",
    "get_current_admin"
   ],
   "roles": [
    "admin",
    "hr_admin",
    "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.recruitment_router.resume_requisition",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.recruitment_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/recruitment/requisitions/{req_id}/resume",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.recruitment_router.submit_requisition",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.recruitment_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/recruitment/requisitions/{req_id}/submit",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.reference_router.business_lookup",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.hr.reference_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/reference/business-lookup",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_admin"
+  ],
+  "roles": [
+   "admin",
+   "hr_admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.hr.reference_router.get_regions",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.hr.reference_router",
+  "org_scoped_dependency": [],
+  "path": "/hr/reference/regions",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [],
+  "roles": [
+   "any signed-in user"
   ]
  },
  {
@@ -10735,6 +11039,96 @@
   ]
  },
  {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.tenant_requests",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/org/me/support-access/requests",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_org_admin"
+  ],
+  "roles": [
+   "admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.tenant_activity",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/org/me/support-access/requests/{request_id}/activity",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_org_admin"
+  ],
+  "roles": [
+   "admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.tenant_approve",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/org/me/support-access/requests/{request_id}/approve",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_org_admin"
+  ],
+  "roles": [
+   "admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.tenant_reject",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/org/me/support-access/requests/{request_id}/reject",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_org_admin"
+  ],
+  "roles": [
+   "admin",
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.tenant_revoke",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/org/me/support-access/requests/{request_id}/revoke",
+  "privacy_class": "DATA_PLANE",
+  "role_guards": [
+   "get_current_org_admin"
+  ],
+  "roles": [
+   "admin",
+   "super_admin"
+  ]
+ },
+ {
   "authenticated": false,
   "handler": "app.modules.sales_leads.demo.request_demo",
   "methods": [
@@ -10743,6 +11137,51 @@
   "module": "app.modules.sales_leads.demo",
   "org_scoped_dependency": [],
   "path": "/public/demo-requests",
+  "privacy_class": "PUBLIC",
+  "role_guards": [],
+  "roles": [
+   "public"
+  ]
+ },
+ {
+  "authenticated": false,
+  "handler": "app.modules.hr.onboarding_portal_router.portal_view",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.hr.onboarding_portal_router",
+  "org_scoped_dependency": [],
+  "path": "/public/onboarding/{token}",
+  "privacy_class": "PUBLIC",
+  "role_guards": [],
+  "roles": [
+   "public"
+  ]
+ },
+ {
+  "authenticated": false,
+  "handler": "app.modules.hr.onboarding_portal_router.portal_details",
+  "methods": [
+   "PUT"
+  ],
+  "module": "app.modules.hr.onboarding_portal_router",
+  "org_scoped_dependency": [],
+  "path": "/public/onboarding/{token}/details",
+  "privacy_class": "PUBLIC",
+  "role_guards": [],
+  "roles": [
+   "public"
+  ]
+ },
+ {
+  "authenticated": false,
+  "handler": "app.modules.hr.onboarding_portal_router.portal_upload",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.hr.onboarding_portal_router",
+  "org_scoped_dependency": [],
+  "path": "/public/onboarding/{token}/documents/{document_id}",
   "privacy_class": "PUBLIC",
   "role_guards": [],
   "roles": [
@@ -12005,6 +12444,23 @@
  },
  {
   "authenticated": true,
+  "handler": "app.modules.support_access.router.platform_catalog",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/catalog",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
   "handler": "app.modules.support_access.router.platform_detections",
   "methods": [
    "GET"
@@ -12131,6 +12587,23 @@
   "module": "app.modules.support_access.router",
   "org_scoped_dependency": [],
   "path": "/super-admin/support-access/requests",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_access.router.awaiting_independent",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_access.router",
+  "org_scoped_dependency": [],
+  "path": "/super-admin/support-access/requests/awaiting-independent",
   "privacy_class": "CONTROL_PLANE",
   "role_guards": [
    "get_current_super_admin"
@@ -12553,6 +13026,91 @@
   "privacy_class": "CONTROL_PLANE",
   "role_guards": [
    "get_current_super_admin",
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.list_requests",
+  "methods": [
+   "GET"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/support-access/requests",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.create_request",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/support-access/requests",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.cancel_request",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/support-access/requests/{request_id}/cancel",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.issue_credentials",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/support-access/requests/{request_id}/credentials",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
+   "get_current_super_admin"
+  ],
+  "roles": [
+   "super_admin"
+  ]
+ },
+ {
+  "authenticated": true,
+  "handler": "app.modules.support_login.router.end_session",
+  "methods": [
+   "POST"
+  ],
+  "module": "app.modules.support_login.router",
+  "org_scoped_dependency": [],
+  "path": "/support-access/requests/{request_id}/end",
+  "privacy_class": "CONTROL_PLANE",
+  "role_guards": [
    "get_current_super_admin"
   ],
   "roles": [

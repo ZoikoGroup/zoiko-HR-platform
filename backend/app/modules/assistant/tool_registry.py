@@ -36,11 +36,15 @@ TOOLS: dict[str, Tool] = {t.intent: t for t in (
     Tool("employee_roster", "employee_roster", "employees", "list", ("first_name", "last_name", "job_title", "designation_id"), False),
     Tool("book_leave", "book_leave", "leave_requests", "create", ("leave_type", "start_date", "end_date", "days"), True),
     Tool("policy_qa", "policy_qa", "knowledge_sources", "read", ("title",), False),
+    # the caller's own pending documents: number, title (C2 only), status and due date — never the document contents
+    Tool("document_actions", "document_actions", "generated_documents", "read", ("document_number", "title", "status", "due_by"), True),
 )}
 
 # intents that call no tool (no tenant data): greetings, the hand-off prompt,
 # and product-navigation guidance (a static screen map, no tenant record read)
-NO_DATA_INTENTS = ("chitchat:greeting", "chitchat:thanks", "chitchat:farewell", "chitchat:ack", "handoff_request", "navigation_help")
+NO_DATA_INTENTS = ("chitchat:greeting", "chitchat:thanks", "chitchat:farewell", "chitchat:ack", "handoff_request", "navigation_help",
+                   # a fixed refusal of any document operation, and catalogue metadata (platform data, no tenant record)
+                   "document_refused", "template_explain")
 
 
 def tool_for(intent: str) -> Optional[Tool]:

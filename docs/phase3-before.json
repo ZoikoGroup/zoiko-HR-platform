@@ -1,0 +1,702 @@
+{
+ "org": {
+  "trivial /auth/me": {
+   "status": 200,
+   "total_ms": 78.65649997256696,
+   "queries": 4,
+   "db_ms": 3.7,
+   "checkouts": 1
+  },
+  "notifications unread": {
+   "status": 200,
+   "total_ms": 36.63280000910163,
+   "queries": 2,
+   "db_ms": 2.4,
+   "checkouts": 1
+  },
+  "employees list(10)": {
+   "status": 200,
+   "total_ms": 69.5420999545604,
+   "queries": 5,
+   "db_ms": 5.1,
+   "checkouts": 2
+  },
+  "employees list(200)": {
+   "status": 200,
+   "total_ms": 135.33139997161925,
+   "queries": 5,
+   "db_ms": 6.9,
+   "checkouts": 2
+  },
+  "employee profile": {
+   "status": 200,
+   "total_ms": 102.2902000695467,
+   "queries": 7,
+   "db_ms": 4.6,
+   "checkouts": 2
+  },
+  "hr employees picker(200)": {
+   "status": 200,
+   "total_ms": 102.01709996908903,
+   "queries": 5,
+   "db_ms": 4.7,
+   "checkouts": 2
+  },
+  "hr departments": {
+   "status": 200,
+   "total_ms": 63.209999818354845,
+   "queries": 5,
+   "db_ms": 3.4,
+   "checkouts": 2
+  },
+  "hr designations": {
+   "status": 200,
+   "total_ms": 54.52620005235076,
+   "queries": 5,
+   "db_ms": 3.6,
+   "checkouts": 2
+  },
+  "hr leaves": {
+   "status": 200,
+   "total_ms": 224.96300004422665,
+   "queries": 4,
+   "db_ms": 5.5,
+   "checkouts": 2
+  },
+  "hr attendance records": {
+   "status": 200,
+   "total_ms": 91.9987999368459,
+   "queries": 6,
+   "db_ms": 5.3,
+   "checkouts": 2
+  },
+  "hr attendance (all)": {
+   "status": 200,
+   "total_ms": 207.8170001041144,
+   "queries": 6,
+   "db_ms": 8.8,
+   "checkouts": 2
+  },
+  "hr assets": {
+   "status": 200,
+   "total_ms": 59.255799977108836,
+   "queries": 5,
+   "db_ms": 3.0,
+   "checkouts": 2
+  },
+  "hr documents": {
+   "status": 200,
+   "total_ms": 64.2117999959737,
+   "queries": 4,
+   "db_ms": 2.8,
+   "checkouts": 2
+  },
+  "hr users": {
+   "status": 200,
+   "total_ms": 60.11889991350472,
+   "queries": 5,
+   "db_ms": 4.9,
+   "checkouts": 2
+  },
+  "hr dashboard stats": {
+   "status": 200,
+   "total_ms": 170.60569999739528,
+   "queries": 11,
+   "db_ms": 16.7,
+   "checkouts": 1
+  },
+  "hr organization dashboard": {
+   "status": 200,
+   "total_ms": 216.60140017047524,
+   "queries": 13,
+   "db_ms": 17.7,
+   "checkouts": 1
+  },
+  "hr attendance dashboard": {
+   "status": 200,
+   "total_ms": 308.6233001668006,
+   "queries": 14,
+   "db_ms": 18.5,
+   "checkouts": 2
+  },
+  "hr leaves dashboard": {
+   "status": 200,
+   "total_ms": 137.98020011745393,
+   "queries": 10,
+   "db_ms": 8.3,
+   "checkouts": 1
+  },
+  "hr compensation dashboard": {
+   "status": 200,
+   "total_ms": 136.37219998054206,
+   "queries": 10,
+   "db_ms": 6.6,
+   "checkouts": 1
+  },
+  "hr performance dashboard": {
+   "status": 200,
+   "total_ms": 158.51099998690188,
+   "queries": 12,
+   "db_ms": 7.3,
+   "checkouts": 2
+  },
+  "hr learning dashboard": {
+   "status": 200,
+   "total_ms": 190.10020000860095,
+   "queries": 13,
+   "db_ms": 8.9,
+   "checkouts": 1
+  },
+  "hr recruitment dashboard": {
+   "status": 200,
+   "total_ms": 125.1471999567002,
+   "queries": 9,
+   "db_ms": 5.7,
+   "checkouts": 1
+  },
+  "hr organization": {
+   "status": 200,
+   "total_ms": 107.46149998158216,
+   "queries": 7,
+   "db_ms": 5.6,
+   "checkouts": 1
+  },
+  "hr travel": {
+   "status": 200,
+   "total_ms": 56.8786000367254,
+   "queries": 5,
+   "db_ms": 3.0,
+   "checkouts": 2
+  },
+  "hr performance list": {
+   "status": 200,
+   "total_ms": 61.258000088855624,
+   "queries": 4,
+   "db_ms": 3.0,
+   "checkouts": 2
+  }
+ },
+ "sa": {
+  "command-center overview": {
+   "status": 200,
+   "total_ms": 57.109600165858865,
+   "queries": 23,
+   "db_ms": 14.9,
+   "checkouts": 2
+  },
+  "command-center attention": {
+   "status": 200,
+   "total_ms": 34.578399965539575,
+   "queries": 10,
+   "db_ms": 5.8,
+   "checkouts": 1
+  },
+  "command-center customer-health": {
+   "status": 200,
+   "total_ms": 40.52169993519783,
+   "queries": 6,
+   "db_ms": 4.0,
+   "checkouts": 1
+  },
+  "command-center commercial-health": {
+   "status": 200,
+   "total_ms": 33.591599902138114,
+   "queries": 14,
+   "db_ms": 9.6,
+   "checkouts": 2
+  },
+  "command-center lifecycle": {
+   "status": 200,
+   "total_ms": 16.499999910593033,
+   "queries": 5,
+   "db_ms": 3.0,
+   "checkouts": 1
+  },
+  "command-center platform-health": {
+   "status": 200,
+   "total_ms": 28.7858999799937,
+   "queries": 3,
+   "db_ms": 2.9,
+   "checkouts": 1
+  },
+  "command-center security": {
+   "status": 200,
+   "total_ms": 43.096700217574835,
+   "queries": 7,
+   "db_ms": 13.9,
+   "checkouts": 1
+  },
+  "command-center audit-logs(8)": {
+   "status": 200,
+   "total_ms": 23.890799842774868,
+   "queries": 3,
+   "db_ms": 4.4,
+   "checkouts": 1
+  },
+  "org list": {
+   "status": 200,
+   "total_ms": 38.77829993143678,
+   "queries": 7,
+   "db_ms": 7.1,
+   "checkouts": 1
+  },
+  "org detail": {
+   "status": 200,
+   "total_ms": 29.983900021761656,
+   "queries": 5,
+   "db_ms": 3.4,
+   "checkouts": 1
+  },
+  "org detail audit-logs": {
+   "status": 200,
+   "total_ms": 21.842600079253316,
+   "queries": 4,
+   "db_ms": 1.8,
+   "checkouts": 1
+  },
+  "org detail subscription": {
+   "status": 200,
+   "total_ms": 24.56410019658506,
+   "queries": 2,
+   "db_ms": 1.3,
+   "checkouts": 1
+  },
+  "org detail evaluations": {
+   "status": 200,
+   "total_ms": 24.124100105836987,
+   "queries": 2,
+   "db_ms": 1.3,
+   "checkouts": 1
+  },
+  "org detail delinquency": {
+   "status": 200,
+   "total_ms": 28.978500049561262,
+   "queries": 3,
+   "db_ms": 2.0,
+   "checkouts": 1
+  },
+  "users list": {
+   "status": 200,
+   "total_ms": 21.445400081574917,
+   "queries": 3,
+   "db_ms": 4.0,
+   "checkouts": 1
+  },
+  "audit-log filters": {
+   "status": 200,
+   "total_ms": 26.62770007736981,
+   "queries": 2,
+   "db_ms": 5.4,
+   "checkouts": 1
+  },
+  "audit-log list(50)": {
+   "status": 200,
+   "total_ms": 36.56699997372925,
+   "queries": 3,
+   "db_ms": 4.1,
+   "checkouts": 1
+  },
+  "notifications": {
+   "status": 200,
+   "total_ms": 27.14119991287589,
+   "queries": 3,
+   "db_ms": 2.0,
+   "checkouts": 1
+  },
+  "support access": {
+   "status": 404,
+   "total_ms": 24.333300068974495,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "support tickets": {
+   "status": 404,
+   "total_ms": 3.511599963530898,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "support assignees": {
+   "status": 404,
+   "total_ms": 2.0994001533836126,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "documents organizations": {
+   "status": 404,
+   "total_ms": 2.801099792122841,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "platform documents": {
+   "status": 404,
+   "total_ms": 3.174500074237585,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "billing plans": {
+   "status": 200,
+   "total_ms": 24.491999996826053,
+   "queries": 2,
+   "db_ms": 1.3,
+   "checkouts": 1
+  },
+  "billing discounts": {
+   "status": 200,
+   "total_ms": 27.857299894094467,
+   "queries": 2,
+   "db_ms": 1.7,
+   "checkouts": 1
+  },
+  "billing delinquency": {
+   "status": 200,
+   "total_ms": 35.52480018697679,
+   "queries": 2,
+   "db_ms": 2.1,
+   "checkouts": 1
+  },
+  "billing plan-changes": {
+   "status": 200,
+   "total_ms": 32.83359995111823,
+   "queries": 3,
+   "db_ms": 3.6,
+   "checkouts": 1
+  },
+  "billing evaluations": {
+   "status": 200,
+   "total_ms": 40.63080018386245,
+   "queries": 4,
+   "db_ms": 3.9,
+   "checkouts": 1
+  },
+  "billing invoices": {
+   "status": 200,
+   "total_ms": 36.95420012809336,
+   "queries": 4,
+   "db_ms": 5.5,
+   "checkouts": 1
+  },
+  "billing webhook-events": {
+   "status": 200,
+   "total_ms": 28.16400001756847,
+   "queries": 2,
+   "db_ms": 2.3,
+   "checkouts": 1
+  },
+  "billing reconciliation": {
+   "status": 200,
+   "total_ms": 29.637800063937902,
+   "queries": 3,
+   "db_ms": 2.4,
+   "checkouts": 1
+  },
+  "refunds list": {
+   "status": 200,
+   "total_ms": 24.573700036853552,
+   "queries": 3,
+   "db_ms": 1.9,
+   "checkouts": 1
+  },
+  "refunds summary": {
+   "status": 200,
+   "total_ms": 26.552299968898296,
+   "queries": 5,
+   "db_ms": 2.1,
+   "checkouts": 1
+  },
+  "org picker (200)": {
+   "status": 200,
+   "total_ms": 37.596600130200386,
+   "queries": 7,
+   "db_ms": 6.0,
+   "checkouts": 1
+  },
+  "expenses categories": {
+   "status": 404,
+   "total_ms": 1.0419997852295637,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "expenses summary": {
+   "status": 404,
+   "total_ms": 1.1432000901550055,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "expenses by-organization": {
+   "status": 404,
+   "total_ms": 2.3949001915752888,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "expenses claims": {
+   "status": 404,
+   "total_ms": 0.9697999339550734,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "expenses budgets": {
+   "status": 404,
+   "total_ms": 1.630599843338132,
+   "queries": 0,
+   "db_ms": 0.0,
+   "checkouts": 0
+  },
+  "activity": {
+   "status": 200,
+   "total_ms": 31.13140002824366,
+   "queries": 4,
+   "db_ms": 7.0,
+   "checkouts": 1
+  },
+  "hub applications": {
+   "status": 200,
+   "total_ms": 31.367599964141846,
+   "queries": 18,
+   "db_ms": 6.0,
+   "checkouts": 1
+  },
+  "hub webhooks": {
+   "status": 200,
+   "total_ms": 17.378399847075343,
+   "queries": 2,
+   "db_ms": 1.2,
+   "checkouts": 1
+  },
+  "hub events": {
+   "status": 200,
+   "total_ms": 21.802099887281656,
+   "queries": 3,
+   "db_ms": 1.9,
+   "checkouts": 1
+  },
+  "demo requests": {
+   "status": 200,
+   "total_ms": 23.700200021266937,
+   "queries": 3,
+   "db_ms": 2.2,
+   "checkouts": 1
+  },
+  "pricing requests": {
+   "status": 200,
+   "total_ms": 23.561199894174933,
+   "queries": 3,
+   "db_ms": 1.5,
+   "checkouts": 1
+  }
+ },
+ "scaling": {
+  "employees list": {
+   "small": {
+    "status": 200,
+    "total_ms": 75.0144999474287,
+    "queries": 5,
+    "db_ms": 4.5,
+    "checkouts": 2
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 92.16969995759428,
+    "queries": 5,
+    "db_ms": 4.8,
+    "checkouts": 2
+   },
+   "grows": 0
+  },
+  "hr employees": {
+   "small": {
+    "status": 200,
+    "total_ms": 63.73939989134669,
+    "queries": 5,
+    "db_ms": 4.5,
+    "checkouts": 2
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 93.41209987178445,
+    "queries": 5,
+    "db_ms": 4.5,
+    "checkouts": 2
+   },
+   "grows": 0
+  },
+  "hr attendance records": {
+   "small": {
+    "status": 200,
+    "total_ms": 77.71899993531406,
+    "queries": 6,
+    "db_ms": 4.3,
+    "checkouts": 2
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 112.78790002688766,
+    "queries": 6,
+    "db_ms": 5.0,
+    "checkouts": 2
+   },
+   "grows": 0
+  },
+  "hr users": {
+   "small": {
+    "status": 200,
+    "total_ms": 66.16370007395744,
+    "queries": 5,
+    "db_ms": 4.4,
+    "checkouts": 2
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 69.91599989123642,
+    "queries": 5,
+    "db_ms": 4.6,
+    "checkouts": 2
+   },
+   "grows": 0
+  },
+  "hr travel": {
+   "small": {
+    "status": 200,
+    "total_ms": 62.80449987389147,
+    "queries": 5,
+    "db_ms": 3.5,
+    "checkouts": 2
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 67.09520006552339,
+    "queries": 5,
+    "db_ms": 3.0,
+    "checkouts": 2
+   },
+   "grows": 0
+  },
+  "org list": {
+   "small": {
+    "status": 200,
+    "total_ms": 26.61959989927709,
+    "queries": 7,
+    "db_ms": 3.7,
+    "checkouts": 1
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 37.38699993118644,
+    "queries": 7,
+    "db_ms": 5.5,
+    "checkouts": 1
+   },
+   "grows": 0
+  },
+  "users list": {
+   "small": {
+    "status": 200,
+    "total_ms": 15.862199943512678,
+    "queries": 3,
+    "db_ms": 3.6,
+    "checkouts": 1
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 24.339199997484684,
+    "queries": 3,
+    "db_ms": 3.1,
+    "checkouts": 1
+   },
+   "grows": 0
+  },
+  "audit-log list": {
+   "small": {
+    "status": 200,
+    "total_ms": 24.041600059717894,
+    "queries": 3,
+    "db_ms": 3.4,
+    "checkouts": 1
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 35.27610003948212,
+    "queries": 3,
+    "db_ms": 3.7,
+    "checkouts": 1
+   },
+   "grows": 0
+  },
+  "refunds list": {
+   "small": {
+    "status": 200,
+    "total_ms": 23.92680011689663,
+    "queries": 3,
+    "db_ms": 1.8,
+    "checkouts": 1
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 34.89250014536083,
+    "queries": 3,
+    "db_ms": 2.2,
+    "checkouts": 1
+   },
+   "grows": 0
+  },
+  "billing invoices": {
+   "small": {
+    "status": 200,
+    "total_ms": 23.398299934342504,
+    "queries": 4,
+    "db_ms": 1.6,
+    "checkouts": 1
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 25.72969999164343,
+    "queries": 4,
+    "db_ms": 2.0,
+    "checkouts": 1
+   },
+   "grows": 0
+  },
+  "expenses claims": {
+   "small": {
+    "status": 404,
+    "total_ms": 1.4134000521153212,
+    "queries": 0,
+    "db_ms": 0.0,
+    "checkouts": 0
+   },
+   "large": {
+    "status": 404,
+    "total_ms": 1.3264999724924564,
+    "queries": 0,
+    "db_ms": 0.0,
+    "checkouts": 0
+   },
+   "grows": 0
+  },
+  "activity": {
+   "small": {
+    "status": 200,
+    "total_ms": 29.241899959743023,
+    "queries": 4,
+    "db_ms": 6.1,
+    "checkouts": 1
+   },
+   "large": {
+    "status": 200,
+    "total_ms": 39.25120015628636,
+    "queries": 4,
+    "db_ms": 6.7,
+    "checkouts": 1
+   },
+   "grows": 0
+  }
+ }
+}

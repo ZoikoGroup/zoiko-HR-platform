@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
-import { entitlementService } from "../service/entitlementService";
-import { getStoredUser } from "../service/api";
+import { billingService } from "../service/billingService";
+import { getStoredUser, organizationIdOf } from "../service/api";
 
 export const GRANTED_STATES = new Set(["ENTITLED_AVAILABLE", "READ_ONLY"]);
 
@@ -11,7 +11,6 @@ export const GRANTED_STATES = new Set(["ENTITLED_AVAILABLE", "READ_ONLY"]);
  * Returns:
  *   entitlements — { featureKey: { state, granted } } for every resolved key
  *   granted(key) — helper: true when the key resolves to a granted state
- *   allowed(key) — raw boolean decision (false for any grantable state)
  *   loading, error, refetch
  *
  * Fails closed: any orgId/transport error -> loading=false, empty map.
@@ -25,7 +24,7 @@ export function useEntitlements() {
 
   const fetchAll = useCallback(async () => {
     const user = getStoredUser();
-    const orgId = user?.organization_id;
+    const orgId = organizationIdOf(user);
     if (!orgId) {
       setEntitlements({});
       setLoading(false);
@@ -35,15 +34,19 @@ export function useEntitlements() {
     try {
       setLoading(true);
       setError(null);
-      const snapshot = await entitlementService.getSnapshot(orgId);
-      const states = snapshot?.feature_states || {};
+      // the self-serve read works for every member of the organization (the per-org snapshot is for billing roles)
+      const mine = await billingService.getMyEntitlements();
+      const states = mine?.states || {};
       const mapped = {};
       Object.entries(states).forEach(([key, state]) => {
         mapped[key] = { state, granted: GRANTED_STATES.has(state) };
       });
       setEntitlements(mapped);
     } catch (err) {
-      setError(err.message);
+      // Fail closed per the hook's contract: transport/API errors leave an empty
+      // entitlement map so restricted links are simply hidden. Don't surface a
+      // sidebar alert — a down/slow backend shouldn't pepper the UI with error
+      // banners; the empty map is the graceful degradation.
       setEntitlements({});
     } finally {
       setLoading(false);

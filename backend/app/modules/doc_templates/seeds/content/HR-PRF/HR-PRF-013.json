@@ -1,0 +1,173 @@
+{
+  "canonical_id": "HR-PRF-013",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "employment.position_title",
+      "employment.manager_name",
+      "pip.hr_contact",
+      "pip.start_date",
+      "pip.end_date",
+      "pip.objectives"
+    ],
+    "optional": [
+      "pip.support",
+      "pip.adjustments_considered",
+      "pip.review_dates"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "pip_outcomes"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Performance Improvement Plan",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name",
+        "employment.position_title",
+        "employment.manager_name",
+        "pip.hr_contact",
+        "pip.start_date",
+        "pip.end_date"
+      ],
+      "labels": {
+        "worker.full_name": "Employee",
+        "employment.position_title": "Role",
+        "employment.manager_name": "Manager",
+        "pip.hr_contact": "HR contact",
+        "pip.start_date": "Plan start",
+        "pip.end_date": "Plan end"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This plan sets out clearly where your performance needs to improve, the support we will give you, and how we will measure progress. It is not a decision to end your employment.",
+      "id": "rights_pip_purpose"
+    },
+    {
+      "type": "heading",
+      "text": "Standards and evidence",
+      "level": 2
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Objective",
+        "Expected standard",
+        "Current performance (with examples)",
+        "How success will be measured"
+      ],
+      "rows_from": "pip.objectives"
+    },
+    {
+      "type": "heading",
+      "text": "Support and adjustments",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items_from": "pip.support",
+      "include_when": {
+        "field": "pip.support",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Reasonable adjustments considered: {{pip.adjustments_considered}}",
+      "include_when": {
+        "field": "pip.adjustments_considered",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Review meetings",
+      "level": 2,
+      "include_when": {
+        "field": "pip.review_dates",
+        "op": "present"
+      }
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Date",
+        "With"
+      ],
+      "rows_from": "pip.review_dates",
+      "include_when": {
+        "field": "pip.review_dates",
+        "op": "present"
+      }
+    },
+    {
+      "type": "heading",
+      "text": "Possible outcomes",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "pip_outcomes",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "No outcome has been decided. We will consider your progress and your comments at each review."
+    },
+    {
+      "type": "heading",
+      "text": "Your comments",
+      "level": 2
+    },
+    {
+      "type": "form_fields",
+      "id": "employee_comments",
+      "fields": [
+        {
+          "key": "employee_comments",
+          "label": "Your comments",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "You may be accompanied or represented at review meetings where our policy or the law allows.",
+      "id": "rights_pip_companion"
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received this plan. This does not mean I agree with the concerns described.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

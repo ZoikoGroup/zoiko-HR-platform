@@ -185,6 +185,35 @@ def check_governance_blocker(db: Session, organization_id: int, target_plan_code
     return _check_feature_blocks_downgrade(db, organization_id, "hr.compliance.core", "governance", target_plan_code)
 
 
+# ── 8. Countries Blocker ──────────────────────────────────────────────────
+
+def check_country_blocker(db: Session, organization_id: int, target_plan_code) -> list[Blocker]:
+    """Core covers one country and Advanced the five configured ones (country_policy): a move to a plan that does not
+    cover every country the organization uses would strand those people, so it is refused until they are moved."""
+    from app.modules.billing import country_policy
+    target = str(getattr(target_plan_code, "value", target_plan_code) or "").lower()
+    message = country_policy.downgrade_refusal(db, organization_id, target)
+    if not message:
+        return []
+    return [Blocker(category="countries", feature_key="plan.countries", message=message, severity="blocking",
+                    details={"in_use": sorted(country_policy.countries_in_use(db, organization_id)), "target_plan": target})]
+
+
+# ── 9. Seats Blocker ──────────────────────────────────────────────────────
+
+def check_seat_blocker(db: Session, organization_id: int, target_plan_code) -> list[Blocker]:
+    """Core includes 50 users and Advanced 250 (seat_policy): a move to a plan with fewer seats than the organization
+    uses is refused until people are removed or deactivated."""
+    from app.modules.billing import seat_policy
+    message = seat_policy.downgrade_refusal(db, organization_id, target_plan_code)
+    if not message:
+        return []
+    target = str(getattr(target_plan_code, "value", target_plan_code) or "").lower()
+    return [Blocker(category="seats", feature_key="plan.seats", message=message, severity="blocking",
+                    details={"in_use": seat_policy.seats_in_use(db, organization_id),
+                             "limit": seat_policy.seat_limit(db, organization_id, plan=target), "target_plan": target})]
+
+
 # ── Composite runner ──────────────────────────────────────────────────────
 
 ALL_CHECKS = [
@@ -195,6 +224,8 @@ ALL_CHECKS = [
     check_workflow_blocker,
     check_ai_blocker,
     check_governance_blocker,
+    check_country_blocker,
+    check_seat_blocker,
 ]
 
 
@@ -203,7 +234,7 @@ def detect_all_blockers(
     organization_id: int,
     target_plan_code: str,
 ) -> list[Blocker]:
-    """Run all seven blocker checks and return aggregated results."""
+    """Run every blocker check (ALL_CHECKS) and return aggregated results."""
     all_blockers: list[Blocker] = []
     for check_fn in ALL_CHECKS:
         try:
@@ -224,8 +255,12 @@ def detect_all_blockers(
 
 
 def has_blocking_blockers(blockers: list[Blocker]) -> bool:
-    """True if any blocker has severity 'blocking' (not 'warning' or 'error')."""
-    return any(b.severity == "blocking" for b in blockers)
+    """True if a downgrade blocker exists or a required check failed.
+
+    Warnings are informational, but errors mean eligibility could not be
+    established and must fail closed.
+    """
+    return any(b.severity in {"blocking", "error"} for b in blockers)
 
 
 def blockers_to_dict(blockers: list[Blocker]) -> list[dict]:

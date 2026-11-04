@@ -5,6 +5,7 @@ import {
   loginWithGoogleTicket as googleTicketRequest,
   mfaEnrollConfirm as mfaEnrollConfirmRequest,
   register as registerRequest,
+  sendRegistrationOtp as sendRegistrationOtpRequest,
   logout as logoutRequest,
   fetchCurrentUser,
   getCachedUser,
@@ -26,8 +27,8 @@ export const AuthContext = createContext(null);
 export function AuthProvider({ children }) {
   // Render the shell from the cached user and refresh /auth/me in the
   // background; blocking on it left a blank "Checking your session…" screen.
-  const [user, setUser] = useState(() => getCachedUser());
-  const [loading, setLoading] = useState(() => !getCachedUser());
+  const [user, setUser] = useState(() => isAuthenticated() ? getCachedUser() : null);
+  const [loading, setLoading] = useState(() => isAuthenticated() && !getCachedUser());
   const [error, setError] = useState(null);
 
 
@@ -112,6 +113,10 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  const sendRegistrationOtp = useCallback(async (payload) => {
+    return await sendRegistrationOtpRequest(payload);
   }, []);
 
   const products = Array.isArray(user?.products) ? user.products : [];
@@ -206,13 +211,14 @@ export function AuthProvider({ children }) {
     role,
     product,
     products,
-    isAuthenticated: Boolean(user) || isAuthenticated(),
+    isAuthenticated: Boolean(user) && isAuthenticated(),
     loading,
     error,
     login,
     loginWithGoogle,
     confirmMfaEnrollment,
     register,
+    sendRegistrationOtp,
     logout,
     hasRole,
     canAccess,

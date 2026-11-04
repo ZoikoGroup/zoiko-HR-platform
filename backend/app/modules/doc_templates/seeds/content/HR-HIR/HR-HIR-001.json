@@ -1,0 +1,88 @@
+{
+  "canonical_id": "HR-HIR-001",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "HR_INTERNAL",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "requisition.reference",
+      "requisition.title",
+      "requisition.department",
+      "requisition.headcount",
+      "requisition.reason",
+      "requisition.justification",
+      "approval.decision",
+      "approval.approver_name",
+      "approval.decided_at"
+    ],
+    "optional": [
+      "requisition.hiring_manager",
+      "requisition.employment_type_label",
+      "requisition.work_location",
+      "requisition.target_start_date",
+      "requisition.budget_range",
+      "requisition.currency",
+      "requisition.headcount_plan_ref",
+      "requisition.replaces_employee_ref",
+      "approval.comment"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Hiring Requisition Authorization — {{requisition.reference}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "requisition.title",
+        "requisition.department",
+        "requisition.hiring_manager",
+        "requisition.headcount",
+        "requisition.employment_type_label",
+        "requisition.work_location",
+        "requisition.reason",
+        "requisition.replaces_employee_ref",
+        "requisition.target_start_date",
+        "requisition.headcount_plan_ref"
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Budget range: {{requisition.budget_range}} {{requisition.currency}}",
+      "include_when": {
+        "field": "requisition.budget_range",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Business justification: {{requisition.justification}}"
+    },
+    {
+      "type": "paragraph",
+      "text": "Approval confirms that the role is budgeted and may be advertised. It does not approve any individual candidate or offer.",
+      "style": "notice"
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "approval.decision",
+        "approval.approver_name",
+        "approval.decided_at",
+        "approval.comment"
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

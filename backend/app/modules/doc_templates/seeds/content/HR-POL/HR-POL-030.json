@@ -1,0 +1,182 @@
+{
+  "canonical_id": "HR-POL-030",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name",
+      "policy.privacy_contact"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [
+      "data_transfers"
+    ],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how you must handle the personal data of colleagues, candidates and customers. A separate employee privacy notice explains how we handle your own data."
+    },
+    {
+      "type": "heading",
+      "text": "2. Principles",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Lawful, fair and transparent.",
+        "Used only for specified purposes.",
+        "Limited to what is needed.",
+        "Accurate.",
+        "Kept no longer than needed.",
+        "Kept secure."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "3. Your responsibilities",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Access only the personal data you need for your work.",
+        "Never share your passwords.",
+        "Do not put personal data in personal e-mail or chat tools.",
+        "Lock your screen when you step away.",
+        "Report incidents straight away."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "4. AI tools",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Do not paste personal or confidential data into tools that are not approved by {{org.display_name}}."
+    },
+    {
+      "type": "heading",
+      "text": "5. Data breaches",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Report any actual or suspected data breach immediately to {{policy.privacy_contact}}. Do not try to investigate yourself."
+    },
+    {
+      "type": "heading",
+      "text": "6. Requests from individuals",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Forward access, correction or deletion requests to {{policy.privacy_contact}} the same day."
+    },
+    {
+      "type": "heading",
+      "text": "7. International transfers",
+      "level": 2
+    },
+    {
+      "type": "clause",
+      "key": "data_transfers",
+      "required": false
+    },
+    {
+      "type": "heading",
+      "text": "8. Breaches of this policy",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Breaches may be dealt with under our disciplinary procedure, following a fair process."
+    },
+    {
+      "type": "heading",
+      "text": "9. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Acceptable Use Policy; Code of Conduct."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

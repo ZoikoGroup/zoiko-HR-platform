@@ -8,6 +8,7 @@ import { collectNavMatches } from "../utils/navigationSearch";
 import { ROLE_LABELS } from "../config/roles";
 import { useAuth } from "../context/AuthContext";
 import { prefetchRoute } from "../lib/prefetch";
+import { useEntitlements } from "../hooks/useEntitlements";
 
 import SearchBar from "./SearchBar.jsx";
 import logo from "../assets/zoikohr-icon-svg.svg";
@@ -49,6 +50,7 @@ function MenuItem({ item, pathname, search }) {
       <div className="space-y-2">
         <button
           type="button"
+          aria-expanded={expanded}
           onClick={() => setExpanded(!expanded)}
           className={`group flex w-full items-center justify-between gap-3 rounded-[14px] border px-4 py-3 text-left text-sm transition duration-200 ${
             active
@@ -102,7 +104,8 @@ function MenuItem({ item, pathname, search }) {
 export default function Sidebar({ open, onClose }) {
   const { pathname, search } = useLocation();
   const { role, product, products } = useAuth();
-  const filteredSections = useFilteredNavigation(role, product, products);
+  const { entitlements, loading: entitlementsLoading, error: entitlementsError, refetch: refetchEntitlements } = useEntitlements();
+  const filteredSections = useFilteredNavigation(role, product, products, entitlementsLoading ? null : entitlements);
   const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
@@ -118,7 +121,7 @@ export default function Sidebar({ open, onClose }) {
 
   return (
     <div>
-      <div className={`fixed inset-0 z-30 bg-slate-950/40 transition-opacity ${open ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
+      <div data-sidebar-backdrop="" aria-hidden={!open} className={`fixed inset-0 z-30 bg-slate-950/40 transition-opacity ${open ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
 
       <aside
         className={`fixed inset-y-0 left-0 z-40 w-72 overflow-y-auto border-r border-white/10 bg-gradient-to-b from-[#0A1128] to-[#111A33] px-4 py-6 shadow-[0_24px_80px_rgba(4,7,20,0.42)] transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
@@ -149,6 +152,14 @@ export default function Sidebar({ open, onClose }) {
         <div className="mb-6">
           <SearchBar value={searchQuery} onChange={setSearchQuery} />
         </div>
+        {entitlementsError && (
+          <div role="alert" className="mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-100">
+            <p>Feature access could not be loaded. Restricted links are hidden.</p>
+            <button type="button" onClick={refetchEntitlements} className="mt-2 font-semibold underline underline-offset-2">
+              Retry
+            </button>
+          </div>
+        )}
 
         {searching ? (
           <div className="pb-8">

@@ -98,7 +98,9 @@ def test_an_edit_can_never_blank_those_details_and_updating_works_at_all(env):
 
 
 def test_status_moves_forward_only(env):
-    pid = env.post(URL, json=good(env)).json()["id"]
+    past_start = (date.today() - timedelta(days=10)).isoformat()
+    past_end = (date.today() - timedelta(days=5)).isoformat()
+    pid = env.post(URL, json=good(env, start_date=past_start, end_date=past_end)).json()["id"]
     assert env.put(f"{URL}/{pid}", json={"status": "completed"}).status_code == 200
     for target in ("cancelled", "planned", "active"):
         assert env.put(f"{URL}/{pid}", json={"status": target}).status_code == 400
@@ -106,6 +108,30 @@ def test_status_moves_forward_only(env):
     assert env.put(f"{URL}/{other}", json={"status": "cancelled"}).status_code == 200
     assert env.put(f"{URL}/{other}", json={"status": "completed"}).status_code == 400
     assert env.put(f"{URL}/{other}", json={"status": "planned"}).status_code == 200
+
+
+def test_a_program_cannot_be_completed_before_its_end_date(env):
+    future = good(env)  # starts in 7 days, ends in 8 days
+    pid = env.post(URL, json=future).json()["id"]
+    r = env.put(f"{URL}/{pid}", json={"status": "completed"})
+    assert r.status_code in (400, 422) and "before its end date" in r.text
+    # moving the end date into the future is also refused, even with the status left alone
+    assert env.put(f"{URL}/{pid}", json={"status": "active"}).status_code == 200
+    aid = env.post(URL, json=good(env, name="Active one")).json()["id"]
+    env.put(f"{URL}/{aid}", json={"status": "active"})
+    r = env.put(f"{URL}/{aid}", json={"status": "completed"})
+    assert r.status_code in (400, 422) and "before its end date" in r.text
+    # a program that has ended (or ends today) can be completed
+    past_start = (date.today() - timedelta(days=10)).isoformat()
+    past_end = (date.today() - timedelta(days=1)).isoformat()
+    done = env.post(URL, json=good(env, name="Past one", start_date=past_start, end_date=past_end)).json()["id"]
+    assert env.put(f"{URL}/{done}", json={"status": "completed"}).status_code == 200
+    today = date.today().isoformat()
+    today_id = env.post(URL, json=good(env, name="Ends today", start_date=today, end_date=today)).json()["id"]
+    assert env.put(f"{URL}/{today_id}", json={"status": "completed"}).status_code == 200
+    # creating one already completed with future dates is refused too
+    r = env.post(URL, json=good(env, name="Future done", status="completed"))
+    assert r.status_code in (400, 422) and "before its end date" in r.text
 
 
 def test_names_are_unique_per_organization_and_other_organizations_cannot_touch_a_program(env):

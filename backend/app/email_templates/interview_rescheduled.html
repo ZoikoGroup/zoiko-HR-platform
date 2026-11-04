@@ -1,0 +1,20 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Interview rescheduled" %}
+{% set preheader = "The interview for " ~ position ~ " moved to " ~ date_display ~ (" at " ~ time_display if time_display else "") ~ "." %}
+{% set badge = "Rescheduled" %}
+{% set badge_tone = "warning" %}
+{% set footer_reason %}You are receiving this because an interview with {{ organization_name }} changed on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Interview rescheduled</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, the interview {% if is_candidate %}for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role{% else %}with <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong>{% endif %} has been rescheduled. The updated calendar invitation is attached.</p>
+{% call ui.details() %}
+{{ ui.detail_row("New date", date_display, first=True) }}
+{{ ui.detail_row("New time", time_display or "To be confirmed") }}
+{% if previous_display %}{{ ui.detail_row("Previously", previous_display) }}{% endif %}
+{{ ui.detail_row("Format", interview_type_label) }}
+{% if location %}{{ ui.detail_row("Location", location) }}{% endif %}
+{% endcall %}
+{% if meeting_link %}{{ ui.button(meeting_link, "Join the meeting") }}{% endif %}
+{{ ui.signoff(organization_name) }}
+{% endblock %}

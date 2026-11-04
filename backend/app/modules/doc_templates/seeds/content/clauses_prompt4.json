@@ -1,0 +1,16 @@
+{
+  "starter_text": {
+    "change_terms_statement": {
+      "title": "Employment changes: other terms unchanged",
+      "text": "All other terms and conditions of your employment remain unchanged."
+    }
+  },
+  "no_starter_text": [
+    "probation_extension_rules",
+    "probation_termination_notice",
+    "appeal_rights",
+    "pip_outcomes",
+    "post_probation_terms"
+  ],
+  "_note": "Prompt 4 clauses. `probation_extension_rules` may carry the parameter max_probation_months, set by whoever releases it."
+}

@@ -68,16 +68,18 @@ def test_B02_enrolment_returns_the_secret_once_stores_it_encrypted_and_signs_in(
 def test_B02_once_enrolled_every_sign_in_needs_a_fresh_code_and_a_code_works_once(world):
     secret = _enroll(world)
     user = world.u["platform"]
-    world.client.post("/auth/mfa/enroll/confirm", json={"email": user.email, "password": PW, "code": _code(secret)})
+    enrollment_code = _code(secret)
+    world.client.post("/auth/mfa/enroll/confirm", json={"email": user.email, "password": PW, "code": enrollment_code})
     login = lambda **kw: world.client.post("/auth/login", json={"email": user.email, "password": PW, **kw})
     no_code = login()
     assert no_code.status_code == 401 and no_code.json()["error"] == mfa.MFA_REQUIRED_CODE
     assert login(mfa_code="123456").status_code == 401
     # the enrolment code is spent: replaying it fails even though it is still inside its time window
-    assert login(mfa_code=_code(secret)).status_code == 401
-    good = login(mfa_code=_code(secret, offset=1))
+    assert login(mfa_code=enrollment_code).status_code == 401
+    fresh_code = _code(secret, offset=1)
+    good = login(mfa_code=fresh_code)
     assert good.status_code == 200, good.text
-    assert login(mfa_code=_code(secret, offset=1)).status_code == 401, "the same code cannot be used twice"
+    assert login(mfa_code=fresh_code).status_code == 401, "the same code cannot be used twice"
     claims = decode_access_token(good.json()["access_token"])
     assert claims["role"] == "super_admin" and claims["aud"] == "zoiko-hr" and claims["mfa_at"]
 

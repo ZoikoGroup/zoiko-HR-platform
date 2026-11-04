@@ -1,0 +1,87 @@
+{
+  "canonical_id": "HR-PRF-005",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L3",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "probation.final_meeting_date",
+      "probation.decision_reasons",
+      "employer.signatory_name"
+    ],
+    "optional": [
+      "policy.eap_contact"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "probation_termination_notice",
+      "appeal_rights"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "paragraph",
+      "text": "Private and confidential",
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "Outcome of your probation period",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, thank you for attending the probation review meeting on {{probation.final_meeting_date}}, where we discussed your performance against the objectives set for your probation."
+    },
+    {
+      "type": "heading",
+      "text": "Decision",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "After considering the information discussed, including your comments, we have decided not to confirm your employment. {{probation.decision_reasons}}"
+    },
+    {
+      "type": "clause",
+      "key": "probation_termination_notice",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "Arrangements for your final pay, any holiday entitlement and the return of company property will be confirmed separately through our normal processes."
+    },
+    {
+      "type": "clause",
+      "key": "appeal_rights",
+      "required": true
+    },
+    {
+      "type": "paragraph",
+      "text": "If you would like support, you can contact {{policy.eap_contact}}.",
+      "include_when": {
+        "field": "policy.eap_contact",
+        "op": "present"
+      }
+    },
+    {
+      "type": "signature_block",
+      "parties": [
+        "employer"
+      ]
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

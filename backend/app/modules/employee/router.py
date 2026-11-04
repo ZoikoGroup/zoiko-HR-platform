@@ -2,6 +2,7 @@ import io
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import datetime
 from typing import Optional, List
@@ -17,7 +18,7 @@ from app.database import get_db
 from app.core.client_ip import get_client_ip
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.rate_limiter import limiter
-from app.core.exceptions import NotFoundException
+from app.core.exceptions import NotFoundException, BadRequestException
 
 logger = logging.getLogger("zoiko.employee.router")
 
@@ -28,7 +29,7 @@ from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.employee.schema import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeListResponse,
-    LoginRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
+    LoginRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, SendRegistrationOtpRequest, VerifyRegistrationOtpRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
     UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
     PasswordResetResponse, PasswordResetRequest, ChangePasswordRequest, TokenPasswordRequest,
     ChangeManagerRequest, ConfirmProbationRequest,
@@ -93,6 +94,8 @@ def _audit_user_action(db, actor, action, target, details: dict) -> None:
 
 def _record_sign_in(request: Request, db: Session, result: dict, method: str = "password") -> dict:
     employee = result.get("employee")
+    if result.pop("support_session", False):
+        return result                       # a temporary support sign-in is recorded on its own session, not as the admin's login
     if employee:
         ip = get_client_ip(request)
         ua = request.headers.get("user-agent")
@@ -237,6 +240,30 @@ def register(request: Request, data: RegisterRequest, db: Session = Depends(get_
     return service.register_enterprise(db, data)
 
 
+
+@auth_router.post(
+    "/send-registration-otp",
+    response_model=dict,
+    summary="Send an OTP to the organization's registered email address",
+)
+@limiter.limit("5/minute")
+def send_registration_otp(request: Request, data: SendRegistrationOtpRequest, db: Session = Depends(get_db)):
+    return service.generate_and_send_registration_otp(db, data.registered_email, data.org_name)
+
+
+@auth_router.post(
+    "/verify-registration-otp",
+    response_model=dict,
+    summary="Verify an OTP sent to the organization's registered email address",
+)
+@limiter.limit("15/minute")
+def verify_registration_otp(request: Request, data: VerifyRegistrationOtpRequest, db: Session = Depends(get_db)):
+    is_valid = service.verify_registration_otp(db, data.registered_email, data.otp, consume=False)
+    if not is_valid:
+        raise BadRequestException("Invalid or expired verification code.")
+    return {"valid": True, "message": "Verification code is valid."}
+
+
 @auth_router.get(
     "/products",
     response_model=list[dict],
@@ -261,6 +288,15 @@ def get_me(
     emp_data = EmpResp.model_validate(current_user).model_dump()
     if current_user.organization_id:
         emp_data["products"] = ["hr"]
+        from app.modules.hr.models import Organization
+        from app.core import regions
+        org = db.query(Organization).filter(Organization.id == current_user.organization_id).first()
+        if org:
+            emp_data["organization_country"] = org.country
+            effective_country = current_user.country or current_user.work_country or org.country
+            emp_data["currency"] = org.currency or regions.currency_for(effective_country, "USD")
+            if not emp_data.get("work_country") and effective_country:
+                emp_data["work_country"] = regions.country_code(effective_country)
         logger.debug("[PRODUCTS] GET /me: user=%s org_id=%s products=%s", current_user.email, current_user.organization_id, emp_data['products'])
     else:
         logger.debug("[PRODUCTS] GET /me: user=%s no organization, products=[]", current_user.email)
@@ -368,6 +404,9 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         raise UnauthorizedException("Invalid or expired refresh token.")
     if "role" in payload:                         # an access token is not a refresh token
         raise UnauthorizedException("Invalid or expired refresh token.")
+    if payload.get("sls"):                        # temporary support sign-in: only while its session is still live
+        from app.modules.support_login import service as support_login
+        return support_login.refresh(db, payload, data.refresh_token)
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
     if employee and employee.organization_id:
@@ -1257,16 +1296,30 @@ async def import_employees_mgmt(
 
 
 @employee_router.get(
-    "/employee-management/employees/import/template",
-    summary="Download sample import template",
+    "/employee-management/employees/import/template-countries",
+    summary="Countries with their own import template (currency and identifiers)",
 )
-def download_import_template(db: Session = Depends(get_db), current_user=Depends(get_current_user)):
+def list_import_template_countries(current_user=Depends(get_current_user)):
+    from app.modules.employee import import_countries
+    return import_countries.summary()
+
+
+@employee_router.get(
+    "/employee-management/employees/import/template",
+    summary="Download sample import template (optionally localised for a country)",
+)
+def download_import_template(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user),
+    country: Optional[str] = Query(None, description="Localise ID headers and the sample row, e.g. India, United States"),
+):
     from fastapi.responses import StreamingResponse
-    data = service._generate_import_template_bytes()
+    data = service._generate_import_template_bytes(country=country)
+    slug = re.sub(r"[^a-z0-9]+", "-", str(country or "").strip().lower()).strip("-") or "default"
     return StreamingResponse(
         io.BytesIO(data),
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": "attachment; filename=employee-import-template.xlsx"},
+        headers={"Content-Disposition": f"attachment; filename=employee-import-template-{slug}.xlsx"},
     )
 
 
@@ -1572,7 +1625,10 @@ def get_employee_reports_mgmt(
 ):
     filters = {}
     if department_id: filters["department_id"] = department_id
-    if status: filters["status"] = status
+    if status:
+        if status not in {s.value for s in EmployeeStatus}:
+            raise HTTPException(status_code=422, detail=f"Invalid status: {status}")
+        filters["status"] = status
     if search: filters["search"] = search
     if report_type: filters["report_type"] = report_type
     return service.get_employee_reports(db, filters or None, current_user.organization_id)

@@ -1,0 +1,102 @@
+{
+  "canonical_id": "HR-CHG-001",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name"
+    ],
+    "optional": []
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Internal Transfer Request",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "worker.full_name"
+      ],
+      "labels": {
+        "worker.full_name": "Employee"
+      }
+    },
+    {
+      "type": "form_fields",
+      "id": "transfer_request",
+      "fields": [
+        {
+          "key": "current_role",
+          "label": "Current role",
+          "type": "text"
+        },
+        {
+          "key": "current_department",
+          "label": "Current department",
+          "type": "text"
+        },
+        {
+          "key": "requested_department",
+          "label": "Requested department",
+          "type": "text",
+          "required": true
+        },
+        {
+          "key": "requested_role",
+          "label": "Requested role (optional)",
+          "type": "text"
+        },
+        {
+          "key": "requested_location",
+          "label": "Requested location (same country only)",
+          "type": "text"
+        },
+        {
+          "key": "preferred_start",
+          "label": "Preferred start date",
+          "type": "date"
+        },
+        {
+          "key": "reason",
+          "label": "Reason",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "manager_informed",
+          "label": "Current manager informed",
+          "type": "checkbox"
+        },
+        {
+          "key": "supporting_information",
+          "label": "Supporting information",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "type": "paragraph",
+      "text": "Requesting a transfer will not affect how you are treated in your current role.",
+      "id": "rights_transfer"
+    },
+    {
+      "type": "declaration",
+      "text": "The information in this request is accurate.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

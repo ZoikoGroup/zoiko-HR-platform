@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "New policy to review" %}
+{% set preheader = "A policy has been published to you in Zoiko HR." %}
+{% set badge = "New policy" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">New policy to review</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A new policy has been published to you: {{ policy_title }}. Please read it and {{ action_phrase }} it{% if due_at_local %} by {{ due_at_local }}{% endif %}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{% if due_at_local %}{{ ui.detail_row("Due by", due_at_local) }}{% endif %}
+{% endcall %}
+{{ ui.button(action_url, "Read the policy") }}
+{{ ui.signoff() }}
+{% endblock %}

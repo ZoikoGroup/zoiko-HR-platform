@@ -1,0 +1,13 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "A leave request needs your decision today" %}
+{% set preheader = "Leave request " ~ request_reference ~ " is waiting for a same-day decision." %}
+{% set badge = "Action needed" %}
+{% set badge_tone = "warning" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">A leave request needs your decision today</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Action needed: leave request {{ request_reference }} has been marked for a same-day decision. Please open it in Zoiko HR and decide it as soon as you can. This e-mail does not include any details of the request.</p>
+{{ ui.button(action_url, "Open the request") }}
+{{ ui.signoff() }}
+{% endblock %}

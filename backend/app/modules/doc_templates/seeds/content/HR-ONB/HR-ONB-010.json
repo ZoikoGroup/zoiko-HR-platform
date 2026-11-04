@@ -1,0 +1,51 @@
+{
+  "canonical_id": "HR-ONB-010",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "policy.version"
+    ],
+    "optional": [
+      "policy.effective_from",
+      "policy.document_ref"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Code of Conduct — Acknowledgement",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Please read the Code of Conduct (version {{policy.version}}, effective {{policy.effective_from}}) before confirming."
+    },
+    {
+      "type": "paragraph",
+      "text": "The Code of Conduct is document {{policy.document_ref}} in your documents.",
+      "include_when": {
+        "field": "policy.document_ref",
+        "op": "present"
+      }
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm that I have received and read the Code of Conduct. I understand that I can ask HR or my manager if anything is unclear. This acknowledgement confirms receipt; it does not take away any of my legal rights.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

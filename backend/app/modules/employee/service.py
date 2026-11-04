@@ -560,6 +560,9 @@ def _require_real_sign_in_address(email: str) -> None:
 
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
+    from app.modules.support_login import service as support_login
+    if support_login.is_support_username(str(data.email)):
+        return support_login.sign_in(db, str(data.email), data.password)      # temporary read-only support sign-in
     _require_real_sign_in_address(str(data.email))
     employee = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).first()
     if not employee:
@@ -578,8 +581,20 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
     Organization state comes from the cached org-access decision (app/core/org_access.py):
     one query for the employee, zero for the org on a cache hit."""
     from app.core import org_access
+    from app.config import settings
 
     _require_real_sign_in_address(employee.email)       # an older account saved with a placeholder address can no longer sign in
+
+    # Self-serve workspace registrations must prove the admin inbox before
+    # activating the workspace. Employee accounts added by HR may sign in with
+    # their issued credentials while their confirmation link remains available.
+    if (settings.REQUIRE_EMAIL_VERIFICATION and not employee.email_verified
+            and employee.organization_id is not None and employee.role == UserRole.ADMIN):
+        raise ZoikoException(
+            403,
+            EMAIL_NOT_VERIFIED_CODE,
+            "Please confirm your email address before signing in. Request a new confirmation link if needed.",
+        )
 
     if employee.organization_id:
         oa = org_access.get_org_access(db, employee.organization_id)
@@ -621,13 +636,6 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
     if employee.status == EmployeeStatus.DEACTIVATED:
         raise UnauthorizedException("Your account has been deactivated.")
 
-    if not employee.email_verified:
-        raise ZoikoException(
-            403, EMAIL_NOT_VERIFIED_CODE,
-            f"Please confirm your email address before signing in. We sent a confirmation link to {_mask_email(employee.email)}. "
-            "Open it, then sign in. You can ask for a new link below.",
-        )
-
     org_code = None
     if employee.organization_id:
         oa_code = org_access.get_org_access(db, employee.organization_id)
@@ -666,6 +674,16 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
     emp_data = EmployeeResponse.model_validate(employee).model_dump()
     # The standalone HR platform exposes a single product module.
     emp_data["products"] = ["hr"]
+    if employee.organization_id:
+        from app.modules.hr.models import Organization
+        from app.core import regions
+        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
+        if org:
+            emp_data["organization_country"] = org.country
+            effective_country = employee.country or employee.work_country or org.country
+            emp_data["currency"] = org.currency or regions.currency_for(effective_country, "USD")
+            if not emp_data.get("work_country") and effective_country:
+                emp_data["work_country"] = regions.country_code(effective_country)
     employee_serialized = EmployeeResponse.model_validate(emp_data)
 
     return {
@@ -678,10 +696,125 @@ def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None,
 
 # TODO: This function is duplicated in hr/service.py.  Changes here must be
 # mirrored there, or the two copies should be consolidated into one.
+REGISTRATION_OTP_TTL_MINUTES = 10
+
+
+def generate_and_send_registration_otp(db: Session, registered_email: str, org_name: Optional[str] = None) -> dict:
+    from app.core.email_quality import check_real_email
+    clean_email = check_real_email(registered_email, label="Registered email").strip().lower()
+
+    # Generate 6-digit cryptographically secure OTP
+    otp = f"{secrets.randbelow(900000) + 100000:06d}"
+    token_hash = _token_hash(f"{clean_email}:{otp}")
+    now = datetime.utcnow()
+    expires_at = now + timedelta(minutes=REGISTRATION_OTP_TTL_MINUTES)
+
+    # Invalidate any existing unused OTPs for this email
+    _revoke_outstanding_tokens(db, clean_email, SecurityActionPurpose.ORG_REGISTRATION_OTP)
+
+    token = SecurityActionToken(
+        email=clean_email,
+        organization_id=None,
+        purpose=SecurityActionPurpose.ORG_REGISTRATION_OTP,
+        token_hash=token_hash,
+        expires_at=expires_at,
+    )
+    db.add(token)
+    db.commit()
+
+    # Dispatch email
+    from app.services import email_service
+    email_service.send_org_registration_otp_email(
+        email=clean_email,
+        org_name=org_name or "your organization",
+        otp=otp,
+        ttl_minutes=REGISTRATION_OTP_TTL_MINUTES,
+        db=db,
+    )
+
+    return {
+        "success": True,
+        "message": f"Verification code sent to {clean_email}.",
+        "expires_in_seconds": REGISTRATION_OTP_TTL_MINUTES * 60,
+    }
+
+
+def verify_registration_otp(db: Session, registered_email: str, otp: str, consume: bool = False) -> bool:
+    if not registered_email or not otp:
+        return False
+    clean_email = registered_email.strip().lower()
+    clean_otp = str(otp).strip()
+    token_hash = _token_hash(f"{clean_email}:{clean_otp}")
+    now = datetime.utcnow()
+
+    if consume:
+        row = db.execute(
+            text(
+                """
+                UPDATE security_action_tokens
+                SET used_at = :now
+                WHERE token_hash = :hash
+                  AND purpose = :purpose
+                  AND email = :email
+                  AND used_at IS NULL
+                  AND expires_at > :now
+                RETURNING id, email
+                """
+            ),
+            {
+                "hash": token_hash,
+                "purpose": SecurityActionPurpose.ORG_REGISTRATION_OTP.name,
+                "email": clean_email,
+                "now": now,
+            },
+        ).fetchone()
+        if row:
+            db.commit()
+            return True
+        return False
+    else:
+        row = db.execute(
+            text(
+                """
+                SELECT id FROM security_action_tokens
+                WHERE token_hash = :hash
+                  AND purpose = :purpose
+                  AND email = :email
+                  AND used_at IS NULL
+                  AND expires_at > :now
+                """
+            ),
+            {
+                "hash": token_hash,
+                "purpose": SecurityActionPurpose.ORG_REGISTRATION_OTP.name,
+                "email": clean_email,
+                "now": now,
+            },
+        ).fetchone()
+        return row is not None
+
+
 DEFAULT_EVALUATION_DAYS = 14
 
 
 def register_enterprise(db: Session, data: RegisterRequest) -> dict:
+    from app.modules.employee import google_auth
+
+    google_proof_valid = bool(
+        data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email)
+    )
+    google_confirms_registered_email = bool(
+        google_proof_valid
+        and data.registered_email
+        and data.registered_email.strip().casefold() == data.email.strip().casefold()
+    )
+
+    if data.registered_email and not google_confirms_registered_email:
+        if not data.otp or not str(data.otp).strip():
+            raise BadRequestException("Verification code (OTP) is required for the organization's registered email.")
+        if not verify_registration_otp(db, data.registered_email, data.otp, consume=True):
+            raise BadRequestException("Invalid or expired verification code. Please check your code or request a new one.")
+
     existing = _identity_query(db).filter(Employee.email == data.email).first()
     if existing:
         raise AlreadyExistsException("Employee", "email")
@@ -694,9 +827,12 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     # Also ensure legacy `code` is set (backward compat)
     legacy_code = data.organization[:50].upper().replace(" ", "_")
     suffix = 1
-    while db.query(Organization).filter(Organization.organization_code == legacy_code).first():
+    while db.query(Organization).filter(Organization.organization_code == legacy_code).execution_options(include_deleted=True).first():
         legacy_code = f"{data.organization[:45].upper().replace(' ', '_')}_{suffix}"
         suffix += 1
+
+    from app.core.regions import currency_for, country_code as _cc
+    _emp_work_country = _cc(data.country)
 
     org = Organization(
         name=data.organization,
@@ -710,6 +846,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         city=data.city,
         state=data.state,
         country=data.country,
+        currency=currency_for(data.country, "USD"),
         timezone=data.timezone or "UTC",
         industry=data.industry,
         org_type=data.org_type,
@@ -751,12 +888,13 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         date_of_joining=date.today(),
         department_id=dept.id,
         organization_id=org.id,
+        country=data.country,
+        work_country=_emp_work_country,
     )
     db.add(employee)
     db.commit()
     db.refresh(employee)
-    from app.modules.employee import google_auth
-    if data.google_proof and google_auth.signup_proof_matches(data.google_proof, data.email):
+    if google_proof_valid:
         employee.email_verified = True             # Google has already confirmed this person controls the address
         employee.email_verified_at = datetime.utcnow()
         db.commit()
@@ -1003,7 +1141,12 @@ def create_organization_user(
 
         extra = _import_style_fields(db, data, organization_id, created_by=created_by_id)
         profile_fields = extra.pop("_profile", {})
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, organization_id, extra.get("country"))
         status = EmployeeStatus(data.status) if data.status else EmployeeStatus.ACTIVE
+        from app.modules.billing import seat_policy
+        if seat_policy.occupies_seat(status, True):
+            seat_policy.check_can_add(db, organization_id)
         employee = Employee(
             email=data.email,
             hashed_password=hash_password(temp_password),
@@ -1169,6 +1312,9 @@ def update_organization_user(
     # Extra import-style fields (plain columns plus department/designation by name), same as create.
     extra = _import_style_fields(db, data, user.organization_id, created_by=updated_by_id)
     profile_fields = extra.pop("_profile", {})
+    if extra.get("country"):
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, user.organization_id, extra["country"], previous=user.country)
     for field, value in extra.items():
         setattr(user, field, value)
 
@@ -1255,6 +1401,9 @@ def activate_organization_user(
     skip_org_filter: bool = False,
 ) -> Employee:
     user = get_organization_user(db, user_id, organization_id, skip_org_filter)
+    from app.modules.billing import seat_policy
+    if not seat_policy.occupies_seat(user.status, user.is_active):
+        seat_policy.check_can_add(db, user.organization_id)
     user.is_active = True
     user.status = EmployeeStatus.ACTIVE
     user.updated_by = updated_by_id
@@ -1567,6 +1716,11 @@ def create_employee(
         employee_data.pop("organization_id", None)
         if not resolved_org_id:
             raise BadRequestException("organization_id is required to create an employee")
+        from app.modules.billing import country_policy
+        country_policy.check_country(db, resolved_org_id, employee_data.get("work_country") or employee_data.get("country"))
+        from app.modules.billing import seat_policy
+        if seat_policy.occupies_seat(employee_data.get("status"), employee_data.get("is_active")):
+            seat_policy.check_can_add(db, resolved_org_id)
         generated = not data.password
         initial_password = data.password or _generate_temp_password()
         employee = Employee(
@@ -1665,16 +1819,40 @@ _COLUMN_MAP = {
     "pan number": "pan_number",
     "pan_number": "pan_number",
     "pan": "pan_number",
+    "ssn": "pan_number",
+    "social security number": "pan_number",
+    "national insurance number": "pan_number",
+    "sin": "pan_number",
+    "tfn": "pan_number",
+    "emirates id": "pan_number",
+    "nric": "pan_number",
+    "tax id": "pan_number",
+    "tax identification number": "pan_number",
     "uan": "uan_number",
     "uan number": "uan_number",
     "uan_number": "uan_number",
+    "state payroll id": "uan_number",
+    "payroll reference": "uan_number",
+    "super reference": "uan_number",
     "bank account number": "bank_account",
     "bank account": "bank_account",
     "bank_account": "bank_account",
     "bank_account_number": "bank_account",
+    "iban": "bank_account",
     "ifsc code": "bank_ifsc",
     "ifsc_code": "bank_ifsc",
     "ifsc": "bank_ifsc",
+    "routing number": "bank_ifsc",
+    "routing_number": "bank_ifsc",
+    "routing": "bank_ifsc",
+    "sort code": "bank_ifsc",
+    "sort_code": "bank_ifsc",
+    "bsb": "bank_ifsc",
+    "transit number": "bank_ifsc",
+    "transit_number": "bank_ifsc",
+    "bic": "bank_ifsc",
+    "swift code": "bank_ifsc",
+    "currency": "currency",
 }
 
 _DATE_FIELDS = {"date_of_joining", "date_of_birth", "confirmation_date"}
@@ -1718,6 +1896,12 @@ def _clean_header(h) -> str:
 
 _CLEAN_MAP = {_clean_header(k): v for k, v in _COLUMN_MAP.items()}
 _CLEAN_MAP.update({_clean_header(k): v for k, v in _HEADER_ALIASES.items()})
+from app.modules.employee import import_countries as _import_countries  # noqa: E402
+_import_countries.register_headers(_clean_header, _CLEAN_MAP)
+for _h in ("PIN Code", "ZIP Code", "Postcode", "Postal Code", "Eircode", "CEP"):
+    _CLEAN_MAP.setdefault(_clean_header(_h), "pincode")
+for _h in ("Province", "Emirate", "County", "Prefecture", "Region"):
+    _CLEAN_MAP.setdefault(_clean_header(_h), "state")
 _KNOWN_FIELDS = set(_CLEAN_MAP.values())
 
 
@@ -1801,6 +1985,15 @@ def _parse_enum(val, field: str):
     return None
 
 
+def _country_codes_match(a, b) -> bool:
+    from app.modules.billing.country_policy import code_of
+    return code_of(a) is not None and code_of(a) == code_of(b)
+
+
+# Import statuses that leave the person able to sign in (is_active follows them), and so take a plan seat.
+_IMPORT_SIGN_IN_STATUSES = ("active", "pending", "on_leave", "password_reset_required")
+
+
 def import_employees_from_file(
     db: Session,
     file_bytes: bytes,
@@ -1814,6 +2007,8 @@ def import_employees_from_file(
     A 500-row import is one action by one person in one organization, so it is one
     event with success/failure counts — not 500 rows in the Super Admin's feed.
     """
+    from app.modules.billing import seat_policy
+
     result = {
         "total_rows": 0,
         "created": 0,
@@ -1987,6 +2182,29 @@ def import_employees_from_file(
         if row_invalid:
             continue
 
+        # The plan's countries: a row that would put someone in a country the plan does not cover is reported, not imported
+        if payload.get("country") and not (existing and _country_codes_match(existing.country, payload["country"])):
+            from app.modules.billing import country_policy
+            refusal = country_policy.country_refusal(db, organization_id, payload["country"], what="Country")
+            if refusal:
+                result["skipped"] += 1
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "country", "error": refusal})
+                continue
+
+        # The plan's seats: a row that would add a person past the plan's user limit is reported, not imported
+        # (is_active follows the status below, so a row takes a seat when its status is one that can sign in)
+        if existing:
+            _adds_seat = (payload.get("status") in _IMPORT_SIGN_IN_STATUSES
+                          and not seat_policy.occupies_seat(existing.status, existing.is_active))
+        else:
+            _adds_seat = (payload.get("status") or "active") in _IMPORT_SIGN_IN_STATUSES
+        if _adds_seat:
+            refusal = seat_policy.seat_refusal(db, organization_id)
+            if refusal:
+                result["skipped"] += 1
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "status", "error": refusal})
+                continue
+
         # Resolve department by name – auto-create if not found
         dept_name = str(row_data.get("department_name", "")).strip()
         if dept_name:
@@ -2046,7 +2264,7 @@ def import_employees_from_file(
                             setattr(existing, field, value)
                     if payload.get("status"):
                         # The status shown in User Management and the ability to sign in move together.
-                        existing.is_active = payload["status"] in ("active", "pending", "on_leave", "password_reset_required")
+                        existing.is_active = payload["status"] in _IMPORT_SIGN_IN_STATUSES
                     existing.updated_by = current_user_id
                     employee = existing
                     result["updated"] += 1
@@ -2060,7 +2278,7 @@ def import_employees_from_file(
                         employee_code=generate_employee_code(db, organization_id=organization_id),
                         organization_id=organization_id,
                         role=UserRole.EMPLOYEE,
-                        is_active=emp_data.get("status", "active") in ("active", "pending", "on_leave", "password_reset_required"),
+                        is_active=emp_data.get("status", "active") in _IMPORT_SIGN_IN_STATUSES,
                         created_by=current_user_id,
                     )
                     db.add(employee)
@@ -2105,6 +2323,7 @@ def import_employees_from_file(
         result["errors"].append({"row": 0, "employee_id": "", "email": "", "field": "general", "error": f"Bulk commit failed: {str(e)[:300]}"})
 
     if import_committed:
+        result["linked_onboarding"] = _link_imported_to_onboarding(db, organization_id, rows)
         workspace_name = _org_workspace_name(db, organization_id)
         for item in created_for_email:
             new_person = db.query(Employee).filter(Employee.email == item["email"], Employee.organization_id == organization_id).first()
@@ -2127,6 +2346,43 @@ def import_employees_from_file(
     # whether the transaction committed at all.
     _record_import_summary(db, actor, organization_id, result, filename, import_committed)
     return result
+
+
+def _link_imported_to_onboarding(db: Session, organization_id: int, rows) -> int:
+    """People in the file who are being onboarded (added through Recruitment) are the same person: point their onboarding
+    record at the imported employee, so completing onboarding later links to this account instead of making a second one."""
+    try:
+        from app.modules.hr.models import OnboardingNewHire, OnboardingActivity
+        emails = set()
+        for r in rows:                                  # raw file rows: the column is whatever the heading said ("Email", "E-mail"...)
+            if isinstance(r, dict):
+                for k, v in r.items():
+                    if k != "__row" and _normalise_header(k) == "email" and v:
+                        emails.add(str(v).strip().lower())
+        emails.discard("")
+        if not emails:
+            return 0
+        hires = db.query(OnboardingNewHire).filter(
+            OnboardingNewHire.organization_id == organization_id, OnboardingNewHire.is_deleted == False,  # noqa: E712
+            OnboardingNewHire.employee_id.is_(None), func.lower(OnboardingNewHire.email).in_(emails),
+            OnboardingNewHire.status.notin_(["completed", "cancelled"])).all()
+        linked = 0
+        for hire in hires:
+            emp = db.query(Employee).filter(func.lower(Employee.email) == hire.email.lower(),
+                                            Employee.organization_id == organization_id).first()
+            if emp is None:
+                continue
+            hire.employee_id = emp.id
+            db.add(OnboardingActivity(onboarding_new_hire_id=hire.id, organization_id=organization_id, action="Linked to imported employee",
+                                      description=f"{hire.candidate_name} was imported in User Management ({emp.employee_code}); "
+                                                  "completing onboarding will use this employee account."))
+            linked += 1
+        db.commit()
+        return linked
+    except Exception:
+        db.rollback()
+        logger.warning("linking imported employees to onboarding failed", exc_info=True)
+        return 0
 
 
 def _record_import_summary(db: Session, actor, organization_id: int, result: dict,
@@ -2252,10 +2508,34 @@ def _parse_csv(file_bytes: bytes, result: dict) -> list[dict]:
     return parsed
 
 
-def _generate_import_template_bytes() -> dict:
-    """Generate sample import file bytes (.xlsx) and return as bytes."""
+_POSTAL_HEADER = {"India": "PIN Code", "United States": "ZIP Code", "United Kingdom": "Postcode", "Canada": "Postal Code",
+                  "Australia": "Postcode", "Ireland": "Eircode", "Brazil": "CEP", "New Zealand": "Postcode"}
+_REGION_HEADER = {"India": "State", "United States": "State", "Canada": "Province", "Australia": "State",
+                  "United Arab Emirates": "Emirate", "Ireland": "County", "Japan": "Prefecture", "China": "Province",
+                  "United Kingdom": "County", "Italy": "Region", "Spain": "Province", "Netherlands": "Province"}
+
+
+def _generate_import_template_bytes(country: str | None = None) -> dict:
+    """Generate the sample import file (.xlsx).
+
+    The identifier columns, address labels, currency and sample row follow the requested country (one of the 20 in
+    import_countries.py: PAN/UAN/IFSC for India, SSN/Routing number for the US, Steuer-ID/SV-Nummer/IBAN/BIC for
+    Germany, ...). No country keeps the original India template; any other country gets international headings.
+    Every heading reads back into the right employee field on import. A second sheet explains each column.
+    """
     import openpyxl
     from openpyxl.styles import Font, PatternFill, Alignment
+    from app.modules.employee import import_countries
+
+    cfg = import_countries.for_country(country)
+    ids = cfg["ids"]
+    name = cfg["name"]
+    first, last, phone = cfg["person"]
+    basic, hra, ctc = cfg["money"]
+    street, city, region, postal = cfg["place"]
+    slug = (first or "alex").lower()
+    postal_header = _POSTAL_HEADER.get(name, "Postal Code")
+    region_header = _REGION_HEADER.get(name, "State")
 
     wb = openpyxl.Workbook()
     ws = wb.active
@@ -2265,10 +2545,10 @@ def _generate_import_template_bytes() -> dict:
         "First Name", "Last Name", "Email", "Password",
         "Phone", "Job Title", "Department", "Designation", "Reporting Manager",
         "Employment Type", "Status", "Date of Joining", "Date of Birth",
-        "Gender", "Basic Salary", "HRA", "CTC", "Work Email", "Personal Email",
+        "Gender", "Basic Salary", "HRA", "CTC", "Currency", "Work Email", "Personal Email",
         "Company", "Division", "Team",
-        "Current Address", "Permanent Address", "City", "State", "Country",
-        "Pincode", "PAN Number", "UAN", "Bank Account Number", "IFSC Code",
+        "Current Address", "Permanent Address", "City", region_header, "Country",
+        postal_header, ids["pan_number"][0], ids["uan_number"][0], ids["bank_account"][0], ids["bank_ifsc"][0],
     ]
 
     header_font = Font(bold=True, color="FFFFFF")
@@ -2280,21 +2560,19 @@ def _generate_import_template_bytes() -> dict:
         cell.fill = header_fill
         cell.alignment = Alignment(horizontal="center")
 
-    # Sample data row
     sample = [
-        "John", "Doe", "john.doe@example.com", "Pass@1234",
-        "+91-9876543210", "Software Engineer", "Engineering", "Senior Developer", "Jane Smith",
+        first, last, f"{slug}.{(last or 'doe').lower().replace(' ', '')}@example.com", "Pass@1234",
+        phone, "Software Engineer", "Engineering", "Senior Developer", "Jane Smith",
         "Full Time", "Active", "2024-01-15", "1995-06-15",
-        "Male", "75000", "180000", "1200000", "john@company.com", "john@gmail.com",
+        "Male", basic, hra, ctc, cfg["currency"], f"{slug}@company.com", f"{slug}@gmail.com",
         "ZoikoOne", "Engineering", "Frontend",
-        "123 Main St, Mumbai", "456 Oak Ave, Mumbai", "Mumbai", "Maharashtra", "India",
-        "400001", "ABCDE1234F", "101234567890", "12345678901", "SBIN0001234",
+        street, street, city, region, name,
+        postal, ids["pan_number"][2], ids["uan_number"][2], ids["bank_account"][2], ids["bank_ifsc"][2],
     ]
 
     for col_idx, val in enumerate(sample, start=1):
         ws.cell(row=2, column=col_idx, value=val)
 
-    # Column widths
     for col in ws.columns:
         max_len = 0
         col_letter = col[0].column_letter
@@ -2302,6 +2580,30 @@ def _generate_import_template_bytes() -> dict:
             if cell.value:
                 max_len = max(max_len, len(str(cell.value)))
         ws.column_dimensions[col_letter].width = min(max_len + 3, 40)
+
+    # how to fill it in, for this country
+    guide = wb.create_sheet("How to fill")
+    guide.append(["Column", "What to enter"])
+    for c in guide[1]:
+        c.font = header_font
+        c.fill = header_fill
+    country_label = name or "the employee's country"
+    rows = [
+        ("Required", "First Name, Last Name, Email, Job Title and Date of Joining. Leave Password blank to email a temporary one."),
+        ("Date of Joining / Date of Birth", "YYYY-MM-DD, e.g. 2024-01-15."),
+        ("Basic Salary / HRA", "Monthly amounts in the currency below."),
+        ("CTC", "Total yearly cost to company in the currency below."),
+        ("Currency", f"{cfg['currency'] or 'ISO code, e.g. USD'}: salaries are shown in the currency of the employee's Country."),
+        ("Country", f"{country_label}. It decides which currency and identifiers the employee's record uses."),
+    ]
+    for field in import_countries.FIELDS:
+        header, label, example = ids[field]
+        rows.append((header, f"{label}" + (f", e.g. {example}" if example else "") + "."))
+    rows.append((postal_header, f"e.g. {postal}" if postal else "The postal code, if the country uses one."))
+    for r in rows:
+        guide.append(list(r))
+    guide.column_dimensions["A"].width = 34
+    guide.column_dimensions["B"].width = 100
 
     buf = io.BytesIO()
     wb.save(buf)
@@ -2446,6 +2748,10 @@ def update_employee(
                 raise NotFoundException("Department", data.department_id)
 
         update_data = data.model_dump(exclude_unset=True)
+        from app.modules.billing import country_policy
+        for key in ("work_country", "country"):
+            if update_data.get(key):
+                country_policy.check_country(db, org_id, update_data[key], previous=getattr(employee, key, None))
         from app.modules.super_admin.activity_service import changes_from, snapshot
 
         before = snapshot(employee, update_data.keys())
@@ -2953,6 +3259,11 @@ def update_employee_profile(db: Session, employee_id: int, data, organization_id
         _record(db, "employee.updated", actor, employee.organization_id,
                 **_employee_target(employee), changes=changes_from(before, update_data),
                 details={"section": "profile"})
+        bank_changed = any(k in update_data and before.get(k) != update_data[k] for k in ("bank_name", "bank_account", "bank_ifsc"))
+        if bank_changed and any(update_data.get(k) for k in ("bank_name", "bank_account", "bank_ifsc")):
+            # fraud protection: the employee is told about every change, and payroll waits for finance re-verification
+            from app.modules.hr import onboarding_documents
+            onboarding_documents.bank_change_requested(db, employee, actor)
     return profile
 
 
@@ -3040,8 +3351,11 @@ def create_employee_history_entry(
     changed_by: Optional[int] = None,
     change_reason: Optional[str] = None,
 ) -> EmployeeHistory:
+    # organization_id is NOT NULL on employee_history: take it from the employee (it was never set before).
+    organization_id = db.query(Employee.organization_id).filter(Employee.id == employee_id).scalar()
     history = EmployeeHistory(
         employee_id=employee_id,
+        organization_id=organization_id,
         field_name=field_name,
         old_value=old_value,
         new_value=new_value,
@@ -3366,6 +3680,9 @@ def create_employee_compensation(db: Session, data: EmployeeCompensationCreate, 
         **_compensation_target(db, comp),
         changes=activity_diff_object(comp),
     )
+    # The first compensation record produces the initial salary confirmation (HR-CMP-001, L2: a second person approves it).
+    from app.modules.hr import compensation_documents
+    compensation_documents.after_compensation_created(db, actor, comp)
     return comp
 
 def get_employee_compensations(db: Session, org_id: int, employee_id: Optional[int] = None) -> list[EmployeeCompensation]:
@@ -3624,6 +3941,15 @@ def hard_delete_employee(db: Session, employee_id: int, organization_id: int = N
     employee = q.first()
     if not employee:
         raise NotFoundException("Employee", employee_id)
+
+    # Generated-document evidence is under retention: the FK purge below would delete it. Deactivate such a person instead.
+    from app.modules.doc_templates.retention import employee_document_references
+    refs = employee_document_references(db, employee_id)
+    if refs:
+        from app.core.exceptions import BadRequestException
+        raise BadRequestException(
+            "This person cannot be permanently deleted because they appear in document records that must be kept ("
+            + ", ".join(refs) + "). Deactivate the account instead.")
 
     # Reassign reportees to NULL
     rpt_q = db.query(Employee).filter(Employee.reporting_manager_id == employee_id)

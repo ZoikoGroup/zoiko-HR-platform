@@ -1,0 +1,42 @@
+{
+  "canonical_id": "HR-CHG-008",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "change.effective_date",
+      "change.new_manager"
+    ],
+    "optional": [
+      "change.new_manager_title",
+      "change.previous_manager"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Your new manager",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, from {{change.effective_date}} you will report to {{change.new_manager}} ({{change.new_manager_title}}) instead of {{change.previous_manager}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "Your role, terms and conditions are unchanged. Open leave requests, objectives and reviews will move to your new manager, who will be in touch to arrange a first meeting."
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

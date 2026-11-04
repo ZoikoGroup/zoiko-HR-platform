@@ -1,0 +1,219 @@
+{
+ "countries": {
+  "IN": {
+   "region_label": "State / UT",
+   "postal_label": "PIN code",
+   "postal_pattern": "^\\d{6}$",
+   "postal_placeholder": "400001",
+   "ids": [
+    {
+     "key": "gstin",
+     "label": "GSTIN",
+     "placeholder": "27AAPFU0939F1ZV",
+     "pattern": "^\\d{2}[A-Z]{5}\\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]$",
+     "hint": "15 characters: state code, PAN, entity code, Z, check digit.",
+     "lookup": false
+    },
+    {
+     "key": "cin",
+     "label": "CIN (company)",
+     "placeholder": "L17110MH1973PLC019786",
+     "pattern": "^[LU]\\d{5}[A-Z]{2}\\d{4}[A-Z]{3}\\d{6}$",
+     "hint": "21 characters from the MCA certificate of incorporation.",
+     "lookup": false
+    },
+    {
+     "key": "pan",
+     "label": "PAN",
+     "placeholder": "AAPFU0939F",
+     "pattern": "^[A-Z]{5}\\d{4}[A-Z]$",
+     "hint": "10 characters: 5 letters, 4 digits, 1 letter.",
+     "lookup": false
+    },
+    {
+     "key": "llpin",
+     "label": "LLPIN (LLP)",
+     "placeholder": "AAA-1234",
+     "pattern": "^[A-Z]{3}\\d{4}$",
+     "hint": "LLP identification number.",
+     "lookup": false
+    }
+   ],
+   "regions": [
+    "Andaman and Nicobar Islands",
+    "Andhra Pradesh",
+    "Arunachal Pradesh",
+    "Assam",
+    "Bihar",
+    "Chandigarh",
+    "Chhattisgarh",
+    "Dadra and Nagar Haveli and Daman and Diu",
+    "Delhi",
+    "Goa",
+    "Gujarat",
+    "Haryana",
+    "Himachal Pradesh",
+    "Jammu and Kashmir",
+    "Jharkhand",
+    "Karnataka",
+    "Kerala",
+    "Ladakh",
+    "Lakshadweep",
+    "Madhya Pradesh",
+    "Maharashtra",
+    "Manipur",
+    "Meghalaya",
+    "Mizoram",
+    "Nagaland",
+    "Odisha",
+    "Puducherry",
+    "Punjab",
+    "Rajasthan",
+    "Sikkim",
+    "Tamil Nadu",
+    "Telangana",
+    "Tripura",
+    "Uttar Pradesh",
+    "Uttarakhand",
+    "West Bengal"
+   ]
+  },
+  "US": {
+   "region_label": "State",
+   "postal_label": "ZIP code",
+   "postal_pattern": "^\\d{5}(-\\d{4})?$",
+   "postal_placeholder": "94105",
+   "ids": [
+    {
+     "key": "ein",
+     "label": "EIN",
+     "placeholder": "12-3456789",
+     "pattern": "^\\d{9}$",
+     "hint": "Employer Identification Number (9 digits, written 12-3456789).",
+     "lookup": false
+    }
+   ],
+   "regions": [
+    "Alabama",
+    "Alaska",
+    "Arizona",
+    "Arkansas",
+    "California",
+    "Colorado",
+    "Connecticut",
+    "Delaware",
+    "District of Columbia",
+    "Florida",
+    "Georgia",
+    "Hawaii",
+    "Idaho",
+    "Illinois",
+    "Indiana",
+    "Iowa",
+    "Kansas",
+    "Kentucky",
+    "Louisiana",
+    "Maine",
+    "Maryland",
+    "Massachusetts",
+    "Michigan",
+    "Minnesota",
+    "Mississippi",
+    "Missouri",
+    "Montana",
+    "Nebraska",
+    "Nevada",
+    "New Hampshire",
+    "New Jersey",
+    "New Mexico",
+    "New York",
+    "North Carolina",
+    "North Dakota",
+    "Ohio",
+    "Oklahoma",
+    "Oregon",
+    "Pennsylvania",
+    "Rhode Island",
+    "South Carolina",
+    "South Dakota",
+    "Tennessee",
+    "Texas",
+    "Utah",
+    "Vermont",
+    "Virginia",
+    "Washington",
+    "West Virginia",
+    "Wisconsin",
+    "Wyoming"
+   ]
+  },
+  "DE": {
+   "region_label": "Region",
+   "postal_label": "Postal code",
+   "postal_pattern": "^\\d{5}$",
+   "postal_placeholder": null,
+   "ids": [
+    {
+     "key": "vat",
+     "label": "VAT number",
+     "placeholder": "DE123456789",
+     "pattern": "^[A-Z0-9]{2,14}$",
+     "hint": "EU VAT number; the DE prefix is added for you. Verified with the EU VIES register.",
+     "lookup": "vies"
+    }
+   ],
+   "regions": null
+  },
+  "AU": {
+   "region_label": "State / territory",
+   "postal_label": "Postcode",
+   "postal_pattern": "^\\d{4}$",
+   "postal_placeholder": "2000",
+   "ids": [
+    {
+     "key": "abn",
+     "label": "ABN",
+     "placeholder": "51 824 753 556",
+     "pattern": "^\\d{11}$",
+     "hint": "11-digit Australian Business Number.",
+     "lookup": "abn"
+    },
+    {
+     "key": "acn",
+     "label": "ACN",
+     "placeholder": "004 085 616",
+     "pattern": "^\\d{9}$",
+     "hint": "9-digit Australian Company Number.",
+     "lookup": false
+    }
+   ],
+   "regions": [
+    "Australian Capital Territory",
+    "New South Wales",
+    "Northern Territory",
+    "Queensland",
+    "South Australia",
+    "Tasmania",
+    "Victoria",
+    "Western Australia"
+   ]
+  }
+ },
+ "default": {
+  "region_label": "State / region",
+  "postal_label": "Postal code",
+  "postal_pattern": null,
+  "postal_placeholder": null,
+  "ids": [
+   {
+    "key": "tax_id",
+    "label": "Tax / registration number",
+    "placeholder": "",
+    "pattern": "^[A-Z0-9]{4,30}$",
+    "hint": "The business's tax or company registration number.",
+    "lookup": false
+   }
+  ],
+  "regions": null
+ }
+}

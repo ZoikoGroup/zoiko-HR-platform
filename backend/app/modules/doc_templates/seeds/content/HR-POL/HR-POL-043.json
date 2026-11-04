@@ -1,0 +1,155 @@
+{
+  "canonical_id": "HR-POL-043",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how company property is issued, looked after and returned."
+    },
+    {
+      "type": "heading",
+      "text": "2. What counts as company property",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Equipment, devices, ID cards, keys, vehicles, documents and data."
+    },
+    {
+      "type": "heading",
+      "text": "3. Issue and records",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Equipment is issued with an equipment issuance form and recorded in our asset register."
+    },
+    {
+      "type": "heading",
+      "text": "4. Care and security",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Keep company property safe and do not lend it to anyone. Report loss, theft or damage immediately."
+    },
+    {
+      "type": "heading",
+      "text": "5. Personal use",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Limited personal use is allowed as set out in our Acceptable Use Policy."
+    },
+    {
+      "type": "heading",
+      "text": "6. Return",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Return company property when we ask, when it is replaced, and before your last day."
+    },
+    {
+      "type": "heading",
+      "text": "7. Deductions",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "We will not deduct money from your pay for lost or damaged property unless the law allows it and you have agreed in writing where required.",
+      "id": "rights_deductions"
+    },
+    {
+      "type": "heading",
+      "text": "8. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Acceptable Use Policy; Remote Work Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

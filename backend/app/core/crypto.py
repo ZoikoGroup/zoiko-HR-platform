@@ -51,3 +51,12 @@ def decrypt_secret(token: str) -> str:
         return _fernet.decrypt(token.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError):
         return None
+
+
+def fernet_for(purpose: bytes) -> Fernet:
+    """A Fernet keyed for one purpose (HKDF info), independent of every other use of SECRET_KEY.
+
+    Used by the document engine to encrypt C3/C4 field snapshots and rendered files at rest."""
+    prk = hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
+    okm = hashlib.sha256(prk + purpose + b"\x01").digest()
+    return Fernet(base64.urlsafe_b64encode(okm))

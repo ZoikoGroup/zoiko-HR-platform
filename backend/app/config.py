@@ -164,7 +164,7 @@ class Settings(BaseSettings):
     # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────
     # EMAIL_REAL_ONLY refuses placeholder and disposable addresses wherever an account or contact address is entered.
     # EMAIL_DNS_CHECK also asks DNS whether the domain can receive mail (an inconclusive lookup never blocks anyone).
-    # REQUIRE_EMAIL_VERIFICATION makes every NEW account confirm its address from a link before it can sign in.
+    # REQUIRE_EMAIL_VERIFICATION requires a self-serve workspace admin to confirm the registered address before signing in.
     EMAIL_REAL_ONLY: bool = True
     EMAIL_DNS_CHECK: bool = True
     REQUIRE_EMAIL_VERIFICATION: bool = True
@@ -184,6 +184,21 @@ class Settings(BaseSettings):
     DUAL_CONTROL_HIGH_IMPACT: bool = Field(default=False, validation_alias="HR_DUAL_CONTROL_HIGH_IMPACT")
     DUAL_CONTROL_BULK_THRESHOLD: int = Field(default=5, validation_alias="HR_DUAL_CONTROL_BULK_THRESHOLD")
     PLATFORM_MFA_REQUIRED: bool = Field(default=False, validation_alias="HR_PLATFORM_MFA_REQUIRED")
+
+    # ── Document templates (app/modules/doc_templates, ZHR-ELT-TPL-001) ──────────────────────────────────────
+    # Where generated PDFs/HTML are written. Like every upload root it MUST be on persistent storage (see README).
+    # Blank = $UPLOAD_BASE_DIR/generated_documents.
+    GENERATED_DOCS_DIR: str = Field(default="", validation_alias="HR_GENERATED_DOCS_DIR")
+    # TENANT_ATTESTED release mode: a tenant releases Zoiko's starter content under its own legal responsibility
+    # (docs/templates/release_modes.md). The plan must also include hr.documents.tenant_attestation. L3 templates stay
+    # off unless explicitly enabled here, and then still need the tenant's named legal counsel on the release.
+    TEMPLATES_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_ENABLED")   # release gate R6: off = no new documents
+    TEMPLATES_TENANT_ATTESTATION_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_ENABLED")
+    TEMPLATES_TENANT_ATTESTATION_L3_ENABLED: bool = Field(default=False, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED")
+    # Candidate e-signature links and the e-mail one-time codes that guard every signature.
+    DOC_SIGN_LINK_TTL_DAYS: int = Field(default=7, validation_alias="HR_DOC_SIGN_LINK_TTL_DAYS")
+    DOC_SIGN_OTP_TTL_MINUTES: int = Field(default=10, validation_alias="HR_DOC_SIGN_OTP_TTL_MINUTES")
+    DOC_SIGN_OTP_MAX_ATTEMPTS: int = Field(default=5, validation_alias="HR_DOC_SIGN_OTP_MAX_ATTEMPTS")
 
     # ── Sign in with Google (app/modules/employee/google_auth.py) ───────────────
     # Blank = the "Continue with Google" button says it is not set up. Register {API_BASE_URL}/auth/google/callback as an

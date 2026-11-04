@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from "react";
 import { entitlementService } from "../service/entitlementService";
-import { getStoredUser } from "../service/api";
+import { getStoredUser, organizationIdOf } from "../service/api";
 
 export const ENTITLED_AVAILABLE = "ENTITLED_AVAILABLE";
 export const READ_ONLY = "READ_ONLY";
@@ -42,7 +42,7 @@ export function useEntitlement(featureKey) {
     }
 
     const user = getStoredUser();
-    const orgId = user?.organization_id;
+    const orgId = organizationIdOf(user);
     if (!orgId) {
       setState("NOT_ENTITLED");
       setLoading(false);

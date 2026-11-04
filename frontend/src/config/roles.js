@@ -10,6 +10,8 @@ export const ROLE_LABELS = {
   [ROLES.SUPER_ADMIN]: "Super Admin",
   [ROLES.ADMIN]: "Organization Admin",
   [ROLES.HR_ADMIN]: "HR Admin",
+  billing_admin: "Billing Admin",
+  [ROLES.MANAGER]: "Manager",
   [ROLES.EMPLOYEE]: "Employee",
 };
 
@@ -55,6 +57,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/super-admin/jit-support-access",
     "/super-admin/audit-logs",
     "/super-admin/demo-requests",
+    "/super-admin/template-controls",
     "/super-admin/pricing-requests",
     "/super-admin/notifications",
     // ── Shared & platform ──
@@ -81,6 +84,12 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/organization-admin/billing-and-plan",
     "/organization-admin/pay-invoice",
     "/organization-admin/support-access",
+    // documents issued to them and documents waiting for them as an authorised signatory (doc_templates)
+    "/employee/documents/company",
+    "/employee/documents/policies",
+    "/employee/documents/to-action",
+    "/employee/documents/signatory-queue",
+    "/employee/compensation",
     // ── HR Assistant admin tools (knowledge base + support tickets) ──
     "/hr-admin/assistant-knowledge",
     "/hr-admin/assistant-handoffs",
@@ -120,6 +129,13 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/organization-admin/billing-and-plan",
     "/organization-admin/pay-invoice",
     "/organization-admin/support-access",
+    // documents issued to them and documents waiting for them as an authorised signatory (doc_templates)
+    "/employee/documents/company",
+    "/employee/documents/policies",
+    "/employee/documents/to-action",
+    "/employee/documents/signatory-queue",
+    "/employee/compensation",
+    "/employee/performance",
     // ── All product paths ──
     "/zoiko-hr",
     "/zoikotime",
@@ -143,6 +159,7 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/leaves",
     "/employee/documents",
     "/employee/travel",
+    "/employee/compensation",
     // ── All product paths ──
     "/zoikotime",
     "/payroll",
@@ -170,6 +187,9 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/ess/attendance",
     "/employee/ess/requests",
     "/employee/ess/settings",
+    "/employee/ess/time-requests",
+    "/employee/compensation",
+    "/employee/performance",
 
     // ── Learning ─────────────────────────────────────────────
     "/employee/learning",
@@ -207,6 +227,14 @@ export const ROLE_ALLOWED_PREFIXES = {
 export const ROLE_DISALLOWED_PREFIXES = {
   [ROLES.ADMIN]: ["/zoiko-hr/ess", "/zoiko-hr/employee-management"],
   [ROLES.HR_ADMIN]: ["/zoiko-hr/employee-management"],
+  // HR-only areas the API refuses a manager: hidden from the menu and the router instead of opening onto errors.
+  // (A manager's own onboarding tasks are on their dashboard, not under /zoiko-hr/onboarding.)
+  [ROLES.MANAGER]: [
+    "/zoiko-hr/onboarding",
+    "/zoiko-hr/workforce-planning/job-descriptions",
+    "/zoiko-hr/compensation/approvals",
+    "/zoiko-hr/employee-management/reports",
+  ],
 };
 
 export const VALID_ROLES = Object.values(ROLES);

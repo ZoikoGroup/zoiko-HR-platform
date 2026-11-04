@@ -14,6 +14,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.security import create_access_token, hash_password
 from app.database import Base, get_db
+from app.modules.billing.models import BillingSubscription  # noqa: F401 — register the entitlement middleware's table in Base.metadata
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.hr.models import EmployeeProfile, Organization, OrganizationStatus
 from app.modules.super_admin.models import AuditAction, AuditLog
@@ -61,6 +62,16 @@ def world(monkeypatch):
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
     Base.metadata.create_all(engine)
     db = sessionmaker(bind=engine, expire_on_commit=False)()
+    # The entitlement ASGI middleware opens its own sessions, outside FastAPI dependency_overrides.
+    # Keep those reads on the same isolated fixture database instead of the process-level DB URL.
+    from app.modules.billing.entitlement_middleware import EntitlementMiddleware
+    isolated_sessions = sessionmaker(bind=engine, expire_on_commit=False)
+    for middleware in app.user_middleware:
+        if middleware.cls is EntitlementMiddleware:
+            middleware.kwargs["db_session_factory"] = isolated_sessions
+    # FastAPI caches the built middleware chain after the first TestClient is
+    # created; rebuild it so the isolated session factory takes effect.
+    app.middleware_stack = None
     db.add_all([
         Organization(id=1, name="TENANT-A", organization_name="TENANT-A", status=OrganizationStatus.ACTIVE),
         Organization(id=2, name="TENANT-B", organization_name="TENANT-B", status=OrganizationStatus.ACTIVE),

@@ -93,3 +93,72 @@ test("the summary tiles count every session's attendees without opening any", as
   assert.match(tile("Attended"), /1/);
   assert.match(tile("Pending"), /1/);
 });
+
+async function loadWith(t, sessions, attendees, records, over = {}) {
+  const calls = { update: [], attendee: [], add: [] };
+  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
+  t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+  t.mock.module("../src/service/hrService.js", { exports: {
+    getOnboardingOrientationSessions: async () => { if (over.fail) throw new Error("Server down"); return sessions; },
+    getOnboardingOrientationAttendees: async () => attendees,
+    getOnboardingRecords: async () => records,
+    createOnboardingOrientationSession: async () => ({}),
+    updateOnboardingOrientationSession: async (id, p) => { calls.update.push([id, p]); return {}; },
+    deleteOnboardingOrientationSession: async () => ({}),
+    createOnboardingOrientationAttendee: async (p) => { calls.add.push(p); return {}; },
+    updateOnboardingOrientationAttendee: async (id, p) => { calls.attendee.push([id, p]); return {}; },
+    deleteOnboardingOrientationAttendee: async () => ({}),
+  } });
+  const { default: Page } = await import(`../src/modules/zoiko-hr/onboarding/orientation.jsx?t=${Math.random()}`);
+  render(React.createElement(Page));
+  await settle();
+  return calls;
+}
+
+test("sessions split into Upcoming and Past, and a past scheduled session offers Mark completed", async (t) => {
+  const calls = await loadWith(t, [
+    { id: 1, title: "Future one", date: iso(5), status: "scheduled" },
+    { id: 2, title: "Old one", date: iso(-5), status: "scheduled" },
+  ], [], []);
+  assert.ok(screen.getByText("Upcoming (1)"));
+  assert.ok(screen.getByText("Past (1)"));
+  fireEvent.click(screen.getByRole("button", { name: "Mark completed" }));
+  await settle();
+  assert.deepEqual(calls.update, [[2, { status: "completed" }]]);
+  assert.match(screen.getByRole("status").textContent, /marked completed/);
+});
+
+test("attended/absent wait for the session date; only active new hires not on the session are offered", async (t) => {
+  const calls = await loadWith(t, [{ id: 1, title: "Future one", date: iso(5), status: "scheduled" }],
+    [{ id: 9, session_id: 1, onboarding_new_hire_id: 7, status: "pending" }],
+    [{ id: 7, candidate_name: "Ann", status: "in_progress" }, { id: 8, candidate_name: "Bob", status: "offer_accepted" },
+     { id: 10, candidate_name: "Cat", status: "completed" }, { id: 11, candidate_name: "Dan", status: "cancelled" }]);
+  fireEvent.click(screen.getByRole("button", { name: "Show attendees" }));
+  const attended = screen.getByRole("button", { name: "Mark Attended" });
+  assert.equal(attended.disabled, true);
+  assert.match(attended.getAttribute("title"), /on or after/);
+  assert.equal(screen.getByRole("button", { name: "Excuse" }).disabled, false);
+  const options = [...screen.getByRole("combobox", { name: "New hire to add" }).options].map((o) => o.textContent);
+  assert.deepEqual(options, ["Add attendee...", "Bob"]);
+  fireEvent.change(screen.getByRole("combobox", { name: "New hire to add" }), { target: { value: "8" } });
+  fireEvent.click(screen.getByRole("button", { name: "Add" }));
+  await settle();
+  assert.deepEqual(calls.add, [{ session_id: 1, onboarding_record_id: 8, notify: true }]);
+  assert.match(screen.getByRole("status").textContent, /Bob was added and emailed an invitation/);
+});
+
+test("moving a session with attendees says the attendees were emailed", async (t) => {
+  await loadWith(t, [{ id: 1, title: "Future one", date: iso(5), time: "10:00", status: "scheduled" }],
+    [{ id: 9, session_id: 1, onboarding_new_hire_id: 7, status: "pending" }], []);
+  fireEvent.click(screen.getByRole("button", { name: "Edit" }));
+  fireEvent.change(document.getElementById("os-time"), { target: { value: "11:00" } });
+  fireEvent.click(screen.getByRole("button", { name: "Update Session" }));
+  await settle();
+  assert.match(screen.getByRole("status").textContent, /Attendees were emailed/);
+});
+
+test("a failed load shows the error with Retry", async (t) => {
+  await loadWith(t, [], [], [], { fail: true });
+  assert.match(screen.getByRole("alert").textContent, /Server down/);
+  assert.ok(screen.getByRole("button", { name: "Retry" }));
+});

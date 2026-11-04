@@ -384,7 +384,7 @@ def test_paying_subscription_is_scheduled_to_cancel_and_restore_puts_it_back(wor
     snap = db.query(Organization).execution_options(include_deleted=True).filter_by(id=1).one().deletion_snapshot
     assert snap["subscription"]["previous_status"] == before
     audit = db.query(BillingAuditLog).filter_by(organization_id=1).all()
-    assert [a.reason for a in audit] == ["Organization deleted"] and audit[0].actor_id == p["sa"].id
+    assert [a.reason for a in audit] == ["Organization deleted"] and audit[0].actor_id is None and audit[0].actor_email == p["sa"].email
     assert c.post("/super-admin/organizations/1/restore", headers=_token(p["sa"])).status_code == 200
     assert _sub_status(db, 1) == before
     assert [a.reason for a in db.query(BillingAuditLog).filter_by(organization_id=1).all()] == ["Organization deleted", "Organization restored"]

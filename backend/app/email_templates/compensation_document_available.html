@@ -1,0 +1,13 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "A compensation document is available" %}
+{% set preheader = "A compensation document is available in Zoiko HR." %}
+{% set badge = "Confidential" %}
+{% set badge_tone = "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">A compensation document is available</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">A confidential compensation document ({{ document_number }}) is available in Zoiko HR. For your privacy this e-mail does not include any amounts or details. Sign in to read it.</p>
+{{ ui.button(action_url, "Sign in to Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

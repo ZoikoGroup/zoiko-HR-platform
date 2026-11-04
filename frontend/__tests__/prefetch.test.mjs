@@ -19,7 +19,7 @@ mock.module("../src/service/superAdminService.js", { exports: { superAdminServic
 mock.module("../src/service/employee.js", { exports: {
   getEmployees: async (p) => { if (p.page === 1 && p.per_page === 10) calls.emps += 1; return { items: [{ id: 1, first_name: "Prefetched", last_name: "Person", email: "p@x.com", status: "active" }], total: 1 }; },
   getDepartments: async () => [], getDesignations: async () => [], createEmployee: async () => ({}), updateEmployee: async () => ({}), deleteEmployee: async () => ({}),
-  getEmployeeById: async () => ({}), importEmployees: async () => ({}), downloadImportTemplate: async () => ({}),
+  getEmployeeById: async () => ({}), importEmployees: async () => ({}), downloadImportTemplate: async () => ({}), getImportTemplateCountries: async () => [{ name: "United States", currency: "USD", identifiers: ["SSN", "State payroll ID (optional)", "Routing number"] }, { name: "Germany", currency: "EUR", identifiers: ["Tax ID (Steuer-ID)", "Social insurance number (SV-Nummer)", "BIC (optional)"] }],
 } });
 mock.module("../src/components/EmployeeBulkActions.jsx", { exports: { default: () => h("div") } });
 mock.module("../src/service/userService.js", { exports: { resetPassword: async () => ({}) } });

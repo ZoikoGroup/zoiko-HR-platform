@@ -1,0 +1,82 @@
+{
+  "canonical_id": "HR-PRF-010",
+  "output_mode": "FORM_RECORD",
+  "execution_mode": "NONE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.full_name",
+      "appraisal.period_label"
+    ],
+    "optional": [
+      "appraisal.self_goal_rows"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Self-Assessment — {{appraisal.period_label}}",
+      "level": 1
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Goal",
+        "What I achieved"
+      ],
+      "rows_from": "appraisal.self_goal_rows",
+      "include_when": {
+        "field": "appraisal.self_goal_rows",
+        "op": "present"
+      }
+    },
+    {
+      "type": "form_fields",
+      "id": "self_assessment",
+      "fields": [
+        {
+          "key": "went_well",
+          "label": "What went well",
+          "type": "textarea",
+          "required": true
+        },
+        {
+          "key": "difficult",
+          "label": "What was difficult, and why",
+          "type": "textarea"
+        },
+        {
+          "key": "support",
+          "label": "Support that would help",
+          "type": "textarea"
+        },
+        {
+          "key": "development",
+          "label": "Development interests",
+          "type": "textarea"
+        },
+        {
+          "key": "wellbeing",
+          "label": "Wellbeing and workload (optional, seen by your manager and HR only)",
+          "type": "textarea"
+        }
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "This is my own assessment of my performance.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

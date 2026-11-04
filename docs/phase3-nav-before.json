@@ -1,0 +1,83 @@
+{
+ "build": {
+  "initialGzipKb": 115.7,
+  "preloaded": [
+   "api-CLjJrvON.js (9.3 KB gz)",
+   "createLucideIcon-CDcNrgYs.js (0.8 KB gz)",
+   "index-5WCp9TPL.js (12.6 KB gz)",
+   "index-BdVkfNKz.css (18.9 KB gz)",
+   "queryKeys-BEV0OCP3.js (0.6 KB gz)",
+   "rolldown-runtime-aKtaBQYM.js (0.6 KB gz)",
+   "vendor-react-2Zwg-L3c.js (2.9 KB gz)",
+   "vendor-react-dom-CiE-YRJf.js (55.2 KB gz)",
+   "vendor-router-D4vuNLvZ.js (14.8 KB gz)"
+  ],
+  "largest": [
+   {
+    "file": "vendor-xlsx-m86LLJ0k.js",
+    "kb": 414.9,
+    "gzipKb": 137.1
+   },
+   {
+    "file": "vendor-recharts-BS2lBB1M.js",
+    "kb": 428.8,
+    "gzipKb": 118.6
+   },
+   {
+    "file": "vendor-docs-YFl1SHFW.js",
+    "kb": 385.5,
+    "gzipKb": 112.7
+   },
+   {
+    "file": "vendor-react-dom-CiE-YRJf.js",
+    "kb": 177.5,
+    "gzipKb": 55.2
+   },
+   {
+    "file": "PortalApp-BPh_AKVu.css",
+    "kb": 218.2,
+    "gzipKb": 30.8
+   },
+   {
+    "file": "offers-CQzaPnzE.js",
+    "kb": 93,
+    "gzipKb": 23.8
+   },
+   {
+    "file": "interviews-CFNcLUcT.js",
+    "kb": 72.4,
+    "gzipKb": 19.6
+   },
+   {
+    "file": "index-BdVkfNKz.css",
+    "kb": 109.2,
+    "gzipKb": 18.9
+   },
+   {
+    "file": "learning-BfwAvJVf.js",
+    "kb": 97.4,
+    "gzipKb": 17.9
+   },
+   {
+    "file": "PayrollGuidancePage-BymktRay.js",
+    "kb": 55,
+    "gzipKb": 17.6
+   },
+   {
+    "file": "new-hires-Bq_TsxEB.js",
+    "kb": 62.3,
+    "gzipKb": 17.2
+   },
+   {
+    "file": "job-requisitions-DlhqZ0sc.js",
+    "kb": 53.3,
+    "gzipKb": 15.6
+   }
+  ],
+  "totalChunks": 420
+ },
+ "baseUrl": "http://localhost:4173",
+ "runs": 3,
+ "latencyMs": 100,
+ "scenarios": {}
+}

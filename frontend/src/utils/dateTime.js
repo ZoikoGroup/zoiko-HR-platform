@@ -1,5 +1,13 @@
+// A date-only value ("2026-10-22") is a calendar day, not an instant: `new Date()` would read it as UTC midnight and
+// show the day before anywhere west of UTC. Build it in local time instead.
+export function parseDateOnly(value) {
+  const m = typeof value === "string" && /^(\d{4})-(\d{2})-(\d{2})$/.exec(value);
+  return m ? new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3])) : null;
+}
+
 export function formatDate(value) {
-  const d = new Date(value);
+  if (value === null || value === undefined || value === "") return "";
+  const d = parseDateOnly(value) || new Date(value);
   if (isNaN(d.getTime())) return value ?? "";
   return d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" });
 }

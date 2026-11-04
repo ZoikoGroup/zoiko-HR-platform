@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Onboarding completed" %}
+{% set preheader = candidate_name ~ " has completed onboarding and now has an employee account." %}
+{% set badge = "Completed" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this because you are an admin or the manager at {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Onboarding completed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong> has completed onboarding and is now an employee. Their sign-in details were emailed to them.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Employee", candidate_name, first=True) }}
+{{ ui.detail_row("Employee code", employee_code, mono=True) }}
+{{ ui.detail_row("Position", position) }}
+{{ ui.detail_row("Start date", joining_date_display or "Not set") }}
+{% endcall %}
+{{ ui.button(employees_url, "View employee") }}
+{{ ui.signoff() }}
+{% endblock %}

@@ -175,12 +175,12 @@ export default function AssetsDashboard() {
         <p className="text-sm text-gray-500 mt-1">Overview of company asset inventory and status</p>
       </div>
 
-      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit">
+      <div className="flex gap-1 bg-gray-100 p-1 rounded-lg w-fit max-w-full overflow-x-auto">
         {TABS.map((tab) => (
           <button
             key={tab.key}
             onClick={() => setActiveTab(tab.key)}
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2 text-sm font-medium rounded-md transition-colors ${
               activeTab === tab.key
                 ? "bg-white text-gray-900 shadow-sm"
                 : "text-gray-500 hover:text-gray-700"

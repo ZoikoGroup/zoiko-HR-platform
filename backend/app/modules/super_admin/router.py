@@ -584,6 +584,7 @@ def _consume_confirmation(db: Session, current_user, org_id: int, purpose, confi
             raw_token=confirmation_token,
             purpose=ConfirmationTokenPurpose(purpose),
             actor_id=current_user.id,
+            actor_email=current_user.email,
         )
     except ValueError as e:
         raise BadRequestException(str(e))
@@ -610,7 +611,8 @@ def mint_confirmation_token_endpoint(
         db,
         organization_id=org_id,
         purpose=purpose_enum,
-        actor_id=current_user.id,
+        # stored by id only for a member of that organization (tenant key on actor_id, organization_id); otherwise by email
+        actor_id=current_user.id if current_user.organization_id == org_id else None,
         actor_email=current_user.email,
         token_ttl_hours=24,
         token_metadata={"purpose": purpose},

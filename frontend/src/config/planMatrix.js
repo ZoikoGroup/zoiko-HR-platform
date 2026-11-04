@@ -11,6 +11,7 @@ export const PLAN_MATRIX = [
       { feature: "Employee directory & org chart", core: true, advanced: true },
       { feature: "Locations, departments & teams", core: true, advanced: true },
       { feature: "Employee & manager self-service, mobile access", core: true, advanced: true },
+      { feature: "Countries", core: "1 country (your registered country)", advanced: "US, UK, India, Canada & Australia" },
       { feature: "Legal entities", core: "1 active legal entity", advanced: "Multiple entities" },
       { feature: "Position management", core: false, advanced: true },
       { feature: "Custom HR fields", core: "Standard set", advanced: "Expanded" },
@@ -53,10 +54,10 @@ export const PLAN_MATRIX = [
   {
     section: "AI assistance",
     rows: [
-      { feature: "Product help & navigation assistant", core: "Fair-use limits", advanced: true },
-      { feature: "Policy & document Q&A", core: "Standard sources", advanced: "Expanded sources" },
+      { feature: "AI assistant (help & navigation chatbot)", core: false, advanced: true },
+      { feature: "Policy & document Q&A", core: false, advanced: true },
       { feature: "Workforce-data questions", core: false, advanced: true },
-      { feature: "Summaries & drafting help", core: "Limited to admin-safe content", advanced: true },
+      { feature: "Summaries & drafting help", core: false, advanced: true },
       { feature: "Workflow assistance", core: false, advanced: true },
     ],
   },

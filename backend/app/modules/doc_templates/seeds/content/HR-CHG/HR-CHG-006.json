@@ -1,0 +1,78 @@
+{
+  "canonical_id": "HR-CHG-006",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "change.previous_title",
+      "change.new_title",
+      "change.effective_date"
+    ],
+    "optional": [
+      "change.reason_statement",
+      "change.duties_changed"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "change_terms_statement"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "Change to your job title",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, your job title will change from {{change.previous_title}} to {{change.new_title}} from {{change.effective_date}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "Reason: {{change.reason_statement}}",
+      "include_when": {
+        "field": "change.reason_statement",
+        "op": "present"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your duties remain substantially the same.",
+      "include_when": {
+        "field": "change.duties_changed",
+        "op": "eq",
+        "value": false
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your updated job description is attached.",
+      "include_when": {
+        "field": "change.duties_changed",
+        "op": "eq",
+        "value": true
+      }
+    },
+    {
+      "type": "clause",
+      "key": "change_terms_statement",
+      "required": true
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this notice.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

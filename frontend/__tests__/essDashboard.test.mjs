@@ -85,6 +85,7 @@ async function open(t, over = {}) {
   };
   t.mock.module("../src/service/employee", { exports: svc });
   t.mock.module("../src/service/api", { exports: { getStoredUser: () => ({ id: 7 }) } });
+  t.mock.module("../src/service/goLiveService", { exports: { getMyDocumentActions: async () => ({ items: [], overdue: 0 }) } });
   const { default: Page } = await import(`../src/pages/Peoples/Employees/ESS/Employee_EssDashboard.jsx?t=${Math.random()}`);
   render(React.createElement(MemoryRouter, { initialEntries: ["/employee/ess"] }, React.createElement(Routes, null,
     React.createElement(Route, { path: "/employee/ess", element: React.createElement(Page) }),

@@ -14,7 +14,10 @@ const svc = {};
 function register(t) {
   if (mocked.has(t)) return;
   mocked.add(t);
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
+  t.mock.module("react-router-dom", { exports: {
+    NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
+    Link: ({ children, to }) => React.createElement("a", { href: to }, children),
+  } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getDesignationSettings: (...a) => svc.get(...a), saveDesignationSettings: (...a) => svc.save(...a),
@@ -99,6 +102,20 @@ test("Discard puts back what was saved", async (t) => {
   fireEvent.click(sw("Auto-generate Designation Codes"));
   fireEvent.click(screen.getByRole("button", { name: /Discard/ }));
   assert.equal(sw("Auto-generate Designation Codes").getAttribute("aria-checked"), "false");
+});
+
+test("the unique-codes switch is live: it shows what is saved, toggles, and saves", async (t) => {
+  const sent = await openSettings(t, { ...SAVED, enforce_unique_codes: true });
+  const unique = sw("Enforce Unique Designation Codes");
+  assert.equal(unique.disabled, false, "the switch can be enabled and disabled");
+  assert.equal(unique.getAttribute("aria-checked"), "true");
+  fireEvent.click(unique);
+  assert.equal(unique.getAttribute("aria-checked"), "false");
+  fireEvent.click(screen.getByRole("button", { name: /Save Changes/ }));
+  await settle();
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].enforce_unique_codes, false);
+  assert.ok(screen.getByText("Settings saved"));
 });
 
 test("when the settings cannot be loaded the page says so instead of showing defaults as if saved", async (t) => {

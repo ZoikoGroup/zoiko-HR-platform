@@ -1,0 +1,21 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Your offer from " ~ organization_name %}
+{% set preheader = organization_name ~ " is pleased to offer you the " ~ position ~ " role." %}
+{% set badge = "Offer" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this because {{ organization_name }} made you an offer on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Congratulations, {{ candidate_name }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">We are delighted to make you an offer for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role at {{ organization_name }}. The key terms of the offer are below.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Position", position, first=True) }}
+{{ ui.detail_row("Engagement", employment_type_label) }}
+{{ ui.detail_row(remuneration_label, remuneration_display) }}
+{% if equity %}{{ ui.detail_row("Equity", equity ~ "%") }}{% endif %}
+{{ ui.detail_row("Start date", start_date_display or "To be agreed") }}
+{% if entity_name %}{{ ui.detail_row("Contracting entity", entity_name) }}{% endif %}
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Please reply to this email to accept the offer or to discuss any questions. The hiring team will follow up with the formal paperwork.</p>
+{{ ui.signoff(organization_name) }}
+{% endblock %}

@@ -1,0 +1,124 @@
+/* Self-hosted Inter (variable, weights 100–900). One 48 kB latin file covers
+   the UI; latin-ext is only downloaded for characters that need it. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-var.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/fonts/inter-latin-ext-var.woff2") format("woff2");
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme inline {
+  --color-primary-dark: #0A1128;
+  --color-primary-light: #3B82F6;
+  --color-primary: #3B82F6;
+  --color-primary-hover: #2563EB;
+  --color-accent: #10B981;
+  --color-accent-hover: #059669;
+  --color-secondary: #3B82F6;
+  /* Zoiko brand — the single enterprise accent for Billing */
+  --color-brand: #FF7A00;
+  --color-brand-hover: #FF5500;
+  --color-brand-soft: #FFF4E8;
+  --color-brand-50: #FFF7ED;
+  --color-brand-100: #FFEDD5;
+  --color-brand-200: #FED7AA;
+  --color-brand-300: #FDBA74;
+  --color-brand-400: #FB923C;
+  --color-brand-500: #F97316;
+  --color-brand-600: #EA580C;
+  --color-brand-700: #C2410C;
+  --color-bg-lavender: #F8F7FC;
+  --color-card-bg: #F1F0F6;
+  --color-muted-text: #6B7280;
+  --color-surface: #ffffff;
+  --color-surface-hover: #F8F7FC;
+  --color-border-light: #E5E7EB;
+  --color-border-default: #D1D5DB;
+  --color-text-primary: #111827;
+  --color-text-secondary: #4B5563;
+  --font-sans: "Inter", system-ui, -apple-system, sans-serif;
+  --color-success: #10b981;
+  --color-warning: #f59e0b;
+  --color-danger: #ef4444;
+  --color-info: #3B82F6;
+  --radius-card: 1rem;
+  --radius-pill: 9999px;
+  --radius-button: 0.75rem;
+  --radius-input: 0.75rem;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-card-hover: 0 4px 12px rgba(0,0,0,0.08);
+  --shadow-dropdown: 0 4px 16px rgba(0,0,0,0.1);
+
+  /* ── Document section tokens ────────────────────────────────────────────
+     A compact blue-and-white system for the org-admin + employee document
+     pages (frontend/src/components/documents/, EmployeeDocumentsPage.jsx,
+     Employee_*.jsx under Peoples/Employees/Documents/). Dark-mode is handled
+     via explicit `dark:` classes at each call site (this codebase's existing
+     convention — see dark:bg-[#1e293b] etc. throughout), not via overriding
+     these variables under .dark, so these are light-mode values only. Status
+     (approved/pending/rejected) stays on the existing EmployeeStatusBadge
+     component's semantic colors — never blue-washed. */
+  --color-doc-primary: #1D4ED8;
+  --color-doc-primary-deep: #1E3A8A;
+  --color-doc-surface: #FFFFFF;
+  --color-doc-surface-soft: #F8FAFC;
+  --color-doc-border: #E2E8F0;
+  --color-doc-ink: #0F172A;
+  --color-doc-ink-soft: #64748B;
+}
+
+:root {
+  --background: #ffffff;
+  --foreground: #111827;
+}
+
+.dark {
+  --background: #0f172a;
+  --foreground: #f1f5f9;
+}
+
+html {
+  scroll-behavior: smooth;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: "Inter", system-ui, -apple-system, sans-serif;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+/* Native <input type="date"/"time"/"datetime-local"> calendar/clock picker
+   icons are drawn by the browser itself and default to a dark glyph — with
+   the OS in light mode (its actual source of truth for native controls)
+   that glyph disappears against our manually-toggled dark theme. Setting
+   color-scheme tells the browser to draw the icon (and other native chrome
+   like the picker popup) in a light variant that's visible on dark
+   backgrounds, independent of the OS-level preference. */
+.dark input[type="date"],
+.dark input[type="time"],
+.dark input[type="datetime-local"],
+.dark input[type="month"],
+.dark input[type="week"] {
+  color-scheme: dark;
+}

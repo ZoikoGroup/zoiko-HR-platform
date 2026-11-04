@@ -172,10 +172,10 @@ export default function DesignationSettings() {
 
         {saveError && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-700">{saveError}</div>}
 
-        <div className="flex gap-1 border-b border-gray-200" role="tablist">
+        <div className="flex gap-1 overflow-x-auto border-b border-gray-200" role="tablist">
           {tabs.map((tab) => (
             <button key={tab.id} type="button" role="tab" aria-selected={activeTab === tab.id} onClick={() => setActiveTab(tab.id)}
-              className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
                 activeTab === tab.id ? "border-orange-500 text-orange-600" : "border-transparent text-gray-500 hover:text-gray-700"
               }`}>
               <tab.icon className="w-4 h-4" /> {tab.label}
@@ -199,8 +199,8 @@ export default function DesignationSettings() {
               </Field>
               <Switch label="Auto-generate Designation Codes" hint="Automatically generate codes for new designations. Turn off to type each code yourself."
                 checked={form.auto_generate_codes} onChange={(v) => set("auto_generate_codes", v)} />
-              <Switch label="Enforce Unique Designation Codes" hint="Duplicate designation codes are always refused by the system."
-                checked disabled onChange={() => {}} />
+              <Switch label="Enforce Unique Designation Codes" hint="When on, duplicate designation codes are refused. Turn off to allow reusing a code."
+                checked={form.enforce_unique_codes} onChange={(v) => set("enforce_unique_codes", v)} />
             </div>
           </div>
         )}

@@ -1,0 +1,49 @@
+/* Portal stylesheet, imported by routes/PortalApp.jsx.
+
+   The portal route table is a dynamic import, so Vite loads this file together
+   with it: public visitors never download the product's utility classes, and a
+   signed-in user gets them before the first portal paint (the module waits for
+   its CSS). It scans the whole source tree, so anything a portal page can
+   render — including shared components also used publicly — is covered. */
+@import "tailwindcss";
+@import "./styles/theme.css";
+
+/* Keep wide admin content inside the available viewport on phones and tablets. */
+.portal-main,
+.portal-main > * {
+  min-width: 0;
+}
+
+.portal-main .overflow-x-auto {
+  max-width: 100%;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
+
+@media (max-width: 639px) {
+  /* A few legacy admin forms and metric panels use fixed 4–8 column grids. */
+  .portal-main .grid-cols-4,
+  .portal-main .grid-cols-5,
+  .portal-main .grid-cols-6,
+  .portal-main .grid-cols-7,
+  .portal-main .grid-cols-8 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-main .grid-cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .portal-main input,
+  .portal-main select,
+  .portal-main textarea {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 379px) {
+  .portal-main {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+}

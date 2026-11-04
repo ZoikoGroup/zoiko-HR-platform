@@ -44,7 +44,7 @@ function TreeNode({ node, allDepts, depth, onSelect }) {
         className="flex items-center justify-between py-2 px-3 hover:bg-rose-50/40 rounded-lg cursor-pointer transition-colors border border-transparent hover:border-rose-100/50"
         style={{ paddingLeft: `${depth * 20 + 12}px` }}
       >
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {hasChildren ? (
             <button
               onClick={(e) => {
@@ -66,7 +66,7 @@ function TreeNode({ node, allDepts, depth, onSelect }) {
           )}
         </div>
 
-        <div className="flex items-center gap-4 text-xs pr-2 text-gray-500 invisible sm:flex">
+        <div className="flex flex-wrap items-center justify-end gap-x-4 gap-y-1 text-xs pr-2 text-gray-500 invisible sm:flex">
           {Number(node.employee_count) > 0 && (
             <div className="flex items-center gap-1 bg-blue-50/60 px-2 py-0.5 rounded border border-blue-100/40 text-blue-700">
               <Users size={12} />

@@ -19,6 +19,7 @@ import "./support/setup-jsdom.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
+import { MemoryRouter } from "react-router-dom";
 import { render, screen, cleanup, act } from "@testing-library/react";
 
 // @testing-library/react's own `waitFor` (MutationObserver-based) never
@@ -65,7 +66,7 @@ async function renderPayslipsWithDocs(t, docs) {
   );
   const Payslips = mod.default;
 
-  render(React.createElement(Payslips));
+  render(React.createElement(MemoryRouter, null, React.createElement(Payslips)));
   await waitForCondition(() => screen.queryByText(/Loading payslips/i) === null);
 }
 

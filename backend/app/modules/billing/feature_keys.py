@@ -124,6 +124,8 @@ _LEGACY_KEYS: frozenset[str] = frozenset({
     "hr.travel.core",
     "hr.learning.core",
     "hr.documents.bulk_distribution",
+    "hr.documents.templates",             # document template engine: generate, approve, issue (doc_templates)
+    "hr.documents.tenant_attestation",    # TENANT_ATTESTED release of organization-approved templates
     "hr.workforce_planning.core",
     "hr.identity.sso",                    # dup — matches Appendix A exactly
     "hr.identity.scim",                   # dup — matches Appendix A exactly

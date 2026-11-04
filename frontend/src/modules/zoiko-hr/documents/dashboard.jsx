@@ -4,7 +4,7 @@ import {
   RefreshCw, CalendarClock, Users, Ban
 } from "lucide-react";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
-import HRPage from "../../../components/HRPage";
+import { OrganizationDocumentsLayout } from "./ui";
 import { getDocuments, getDocumentDashboardStats } from "../../../service/hrService";
 import { formatDate } from "../../../utils/dateTime";
 
@@ -100,24 +100,16 @@ export default function DocumentsDashboard() {
   ];
 
   return (
-    <HRPage title="Documents Overview">
+    <OrganizationDocumentsLayout
+      title="Dashboard"
+      subtitle="Document readiness, review activity and expiry tracking across your organization."
+      actions={
+        <button onClick={load} className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300">
+          <RefreshCw className="h-4 w-4" /> Refresh
+        </button>
+      }
+    >
       <div className="space-y-8 pb-10">
-        <div className="bg-gradient-to-r from-[#0A1128] to-[#111A33] rounded-2xl p-6 text-white flex items-center justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-widest text-blue-300 mb-1">Document Control</p>
-            <h2 className="text-2xl font-bold">Documents Overview</h2>
-            <p className="text-sm text-blue-200 mt-1">
-              {total} documents across {categories.length} {categories.length === 1 ? "category" : "categories"}.
-              {pending > 0 && (
-                <span className="ml-2 bg-white/20 rounded px-2 py-0.5 text-xs font-semibold">{pending} awaiting approval</span>
-              )}
-            </p>
-          </div>
-          <button onClick={load} className="flex items-center gap-2 text-xs font-semibold bg-white/20 hover:bg-white/30 px-3 py-2 rounded-lg transition-colors">
-            <RefreshCw className="w-4 h-4" /> Refresh
-          </button>
-        </div>
-
         {loading ? (
           <div className="flex flex-col items-center justify-center py-20 gap-3 text-slate-400">
             <svg className="animate-spin h-8 w-8 text-blue-500" viewBox="0 0 24 24" fill="none">
@@ -255,6 +247,6 @@ export default function DocumentsDashboard() {
           </>
         )}
       </div>
-    </HRPage>
+    </OrganizationDocumentsLayout>
   );
 }

@@ -1,0 +1,17 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Reminder: document waiting" %}
+{% set preheader = "A document in Zoiko HR still needs your action." %}
+{% set badge = "Reminder" %}
+{% set badge_tone = "warning" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Reminder: document waiting</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">This is a reminder that {{ document_label }} still needs you to {{ action_phrase }} it{% if due_at_local %} by {{ due_at_local }}{% endif %}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Document number", document_number, first=True, mono=True) }}
+{% if due_at_local %}{{ ui.detail_row("Due by", due_at_local) }}{% endif %}
+{% endcall %}
+{{ ui.button(action_url, "Open the document") }}
+{{ ui.signoff() }}
+{% endblock %}

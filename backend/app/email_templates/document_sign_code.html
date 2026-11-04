@@ -1,0 +1,16 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Your signing code" %}
+{% set preheader = "Your one-time code to sign a document." %}
+{% set badge = "Verification code" %}
+{% set badge_tone = "neutral" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Your signing code</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">Use this verification code to confirm your electronic signature on document {{ document_number }}. It expires in {{ ttl_minutes }} minutes and can be used once.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Code", code, first=True, mono=True) }}
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">If you did not ask to sign a document, do not share this code and tell your HR team.</p>
+{{ ui.signoff() }}
+{% endblock %}

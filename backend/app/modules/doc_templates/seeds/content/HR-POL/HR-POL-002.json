@@ -1,0 +1,203 @@
+{
+  "canonical_id": "HR-POL-002",
+  "output_mode": "POLICY",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "policy.title",
+      "policy.version",
+      "policy.effective_from",
+      "policy.owner_name",
+      "policy.contact",
+      "org.display_name"
+    ],
+    "optional": [
+      "policy.review_due",
+      "policy.scope_statement",
+      "policy.change_summary",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "heading",
+      "text": "{{policy.title}}",
+      "level": 1
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "policy.owner_name",
+        "policy.version",
+        "policy.effective_from",
+        "policy.review_due",
+        "policy.scope_statement"
+      ],
+      "labels": {
+        "policy.owner_name": "Policy owner",
+        "policy.version": "Version",
+        "policy.effective_from": "Effective from",
+        "policy.review_due": "Next review",
+        "policy.scope_statement": "Applies to"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "What changed in this version: {{policy.change_summary}}",
+      "include_when": {
+        "field": "policy.change_summary",
+        "op": "present"
+      },
+      "style": "notice"
+    },
+    {
+      "type": "heading",
+      "text": "1. Purpose",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "This code sets the standards of behaviour we expect from everyone who works for or on behalf of {{org.display_name}}."
+    },
+    {
+      "type": "heading",
+      "text": "2. Who it applies to",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Employees, interns, contractors and agency workers while working with us."
+    },
+    {
+      "type": "heading",
+      "text": "3. Our standards",
+      "level": 2
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Act honestly and with integrity.",
+        "Treat everyone with dignity and respect.",
+        "Follow the law and our policies.",
+        "Avoid conflicts of interest and declare them when they arise.",
+        "Protect confidential information and personal data.",
+        "Use company property and systems properly.",
+        "Never offer or accept bribes.",
+        "Keep accurate records.",
+        "Speak up about wrongdoing."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "4. Respect at work",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "We do not tolerate discrimination, harassment, bullying or victimisation, whether in person, in writing or online, at work or at work-related events."
+    },
+    {
+      "type": "list",
+      "style": "bullet",
+      "items": [
+        "Offensive jokes, comments or images.",
+        "Unwanted physical contact or sexual attention.",
+        "Intimidating, excluding or undermining someone.",
+        "Treating someone less favourably because of who they are.",
+        "Retaliating against someone who has raised a concern."
+      ]
+    },
+    {
+      "type": "heading",
+      "text": "5. Conflicts of interest",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Declare any outside work, close personal relationship, investment or other interest that may conflict, or appear to conflict, with your work for us. Tell your manager or HR in writing as soon as it arises so that it can be managed. Declaring a conflict is not wrongdoing; hiding one may be."
+    },
+    {
+      "type": "heading",
+      "text": "6. Gifts and hospitality",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Gifts and hospitality must be reasonable, proportionate and transparent, and must never be intended to influence a business decision. Never give or accept cash or cash equivalents. If in doubt, ask before accepting and record what you received."
+    },
+    {
+      "type": "heading",
+      "text": "7. Confidentiality and data",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Keep confidential information and personal data secure, use it only for the purpose it was given for, and share it only with people who need it. See our Employee Data Protection Policy."
+    },
+    {
+      "type": "heading",
+      "text": "8. Use of social media in a personal capacity",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "When using social media personally, do not disclose confidential information and do not harass or abuse colleagues, customers or partners. Make clear that your views are your own."
+    },
+    {
+      "type": "heading",
+      "text": "9. Speaking up",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "If you see or suspect wrongdoing, report it to your manager, HR or {{policy.contact}}. We will look into genuine concerns and will not tolerate retaliation against anyone who speaks up."
+    },
+    {
+      "type": "heading",
+      "text": "10. Breaches",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Breaches may be dealt with under our disciplinary procedure, following a fair process."
+    },
+    {
+      "type": "heading",
+      "text": "11. Related policies and contact",
+      "level": 2
+    },
+    {
+      "type": "paragraph",
+      "text": "Employee Handbook; Employee Data Protection Policy; Acceptable Use Policy; Company Property Policy."
+    },
+    {
+      "type": "paragraph",
+      "text": "Questions about this policy go to {{policy.contact}}."
+    },
+    {
+      "type": "paragraph",
+      "text": "This policy explains how we work. Unless your contract says otherwise, it does not form part of your contract of employment and we may update it from time to time, following any consultation the law requires. Nothing in this policy reduces your rights under the law or any applicable collective agreement.",
+      "id": "rights_policy_status"
+    },
+    {
+      "type": "paragraph",
+      "text": "If you have questions or concerns about this policy, speak to your manager or {{policy.contact}}. You will not be treated unfairly for raising a genuine concern.",
+      "id": "rights_speak_up"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    7,
+    1
+  ],
+  "response_days": 14
+}

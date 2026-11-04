@@ -33,7 +33,10 @@ jobs:
           --health-timeout 5s
           --health-retries 5
     env:
-      HR_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/zoiko_hr_test
+      # Use the same non-superuser role for Alembic and the application/tests.
+      # This role owns migrated tables, so CI exercises the actual runtime
+      # privilege model instead of relying on the postgres superuser.
+      HR_DATABASE_URL: postgresql://zhr_ci:zhr_ci@localhost:5432/zoiko_hr_test
       HR_SECRET_KEY: ci-test-secret-key-not-for-production
       HR_DEBUG: "true"
       SUPER_ADMIN_SETUP_KEY: ci-test-setup-key
@@ -53,7 +56,7 @@ jobs:
           pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Create 'root' DB role and grant privileges
+      - name: Create the CI database role
         env:
           PGPASSWORD: postgres
         run: |
@@ -71,22 +74,39 @@ jobs:
             exit 1
           fi
           psql -h localhost -U postgres -d zoiko_hr_test <<'SQL'
-            DO $$
-            BEGIN
-              IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'root') THEN
-                CREATE ROLE root WITH LOGIN PASSWORD 'root';
-              END IF;
-            END $$;
-            GRANT ALL PRIVILEGES ON DATABASE zoiko_hr_test TO root;
-            GRANT USAGE ON SCHEMA public TO root;
-            GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO root;
-            ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO root;
+            CREATE ROLE zhr_ci WITH LOGIN PASSWORD 'zhr_ci'
+              NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS;
+            GRANT CONNECT, TEMPORARY ON DATABASE zoiko_hr_test TO zhr_ci;
+            GRANT USAGE, CREATE ON SCHEMA public TO zhr_ci;
           SQL
           psql -h localhost -U postgres -d zoiko_hr_test -c "CREATE EXTENSION IF NOT EXISTS vector;"
 
       - name: Run DB migrations
         working-directory: backend
         run: python -m alembic upgrade head
+
+      - name: Verify migrated schema and CI privileges
+        env:
+          PGPASSWORD: zhr_ci
+        run: |
+          psql -h localhost -U zhr_ci -d zoiko_hr_test -v ON_ERROR_STOP=1 <<'SQL'
+            DO $$
+            BEGIN
+              IF current_user <> 'zhr_ci' THEN
+                RAISE EXCEPTION 'CI connected as %, expected zhr_ci', current_user;
+              END IF;
+              IF NOT has_table_privilege('zhr_ci', 'employees', 'SELECT,INSERT,UPDATE,DELETE') THEN
+                RAISE EXCEPTION 'CI role is missing employee table privileges';
+              END IF;
+              IF NOT has_sequence_privilege('zhr_ci', pg_get_serial_sequence('employees', 'id'), 'USAGE,SELECT') THEN
+                RAISE EXCEPTION 'CI role is missing employee ID sequence privileges';
+              END IF;
+            END $$;
+            SELECT count(*) AS alembic_versions FROM alembic_version;
+            SELECT tablename, tableowner FROM pg_tables
+              WHERE schemaname = 'public' AND tablename IN ('employees','organizations','leave_requests')
+              ORDER BY tablename;
+          SQL
 
       - name: Run backend tests
         working-directory: backend

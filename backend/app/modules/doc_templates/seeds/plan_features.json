@@ -1,0 +1,15 @@
+{
+  "_note": "Which billing feature a template needs (Prompt 4 §C6). Configuration, not code: Product confirms the pricing. Every template needs `default`; the other keys add requirements by family, by execution mode, or for module automation and bulk runs. Keys must exist in app/modules/billing/feature_keys.py. SIGN_CANDIDATE (offer letters) needs only the default key since 2026-10-22: offer letters are part of recruitment on every plan.",
+  "default": "hr.documents.templates",
+  "families": {
+    "HR-CMP": "hr.documents.workflow"
+  },
+  "execution_modes": {
+    "SIGN_EMPLOYEE": "hr.documents.workflow",
+    "SIGN_BOTH": "hr.documents.workflow"
+  },
+  "features": {
+    "automation": "hr.documents.workflow",
+    "bulk_generation": "hr.documents.bulk"
+  }
+}

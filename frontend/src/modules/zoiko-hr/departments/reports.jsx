@@ -183,17 +183,17 @@ export default function DepartmentReports() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm">
-          <div className="flex items-center justify-between p-4 border-b border-gray-100">
+          <div className="flex flex-wrap items-center justify-between gap-3 p-4 border-b border-gray-100">
             <h2 className="text-lg font-semibold text-gray-900">Department Data Report</h2>
-            <div className="flex items-center gap-3">
-              <div className="relative">
+            <div className="flex flex-wrap items-center gap-3 min-w-0">
+              <div className="relative min-w-0">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
                 <input
                   type="text"
                   placeholder="Search departments..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 w-64"
+                  className="pl-9 pr-4 py-2 text-sm border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-rose-500 focus:border-rose-500 w-full sm:w-64"
                 />
               </div>
               <button

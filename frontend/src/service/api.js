@@ -26,6 +26,11 @@ export function getStoredUser() {
   return raw ? JSON.parse(raw) : null;
 }
 
+// The signed-in person as the API sends it is camelCase (`organizationId`); older stored copies may be snake_case.
+export function organizationIdOf(user) {
+  return user?.organizationId ?? user?.organization_id ?? null;
+}
+
 export function setSession({ accessToken, refreshToken, user } = {}) {
   sharedGets.clear();
   // A different person signing in must not see the previous person's cached data. A token refresh for the same
@@ -70,7 +75,8 @@ function createApiError(message, status, extra = {}) {
  * Automatically attaches the bearer token (if present) and JSON headers,
  * and attempts a single silent refresh on a 401 response.
  */
-export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params, signal, credentials } = {}) {
+export async function apiRequest(path, { method = "GET", body, headers = {}, auth = true, retry = true, params, signal, credentials,
+  timeoutMs = REQUEST_TIMEOUT_MS } = {}) {
   let url = path.startsWith("http") ? path : `${API_BASE_URL}${path}`;
   if (params) {
     const query = Object.entries(params)
@@ -93,7 +99,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
 
   // A caller-supplied signal cancels a superseded request (newer search,
   // filter or page); the timeout keeps a stalled call from hanging forever.
-  const timeoutSignal = AbortSignal.timeout(REQUEST_TIMEOUT_MS);
+  const timeoutSignal = AbortSignal.timeout(timeoutMs);
   const finalSignal =
     signal && typeof AbortSignal.any === "function" ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
@@ -112,7 +118,7 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
   if (res.status === 401 && auth && retry) {
     const refreshResult = await tryRefreshToken();
     if (refreshResult.ok) {
-      return apiRequest(path, { method, body, headers, auth, retry: false, params, signal, credentials });
+      return apiRequest(path, { method, body, headers, auth, retry: false, params, signal, credentials, timeoutMs });
     }
     if (refreshResult.invalidSession) {
       clearSession();
@@ -138,7 +144,9 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
       } else if (typeof detail === "object" && detail !== null) {
         // A feature the plan does not include comes back as an object with a ready-to-show message.
         if (detail.entitlement_state) extra = { entitlement: detail };
-        detail = detail.message || JSON.stringify(detail);
+        // Keep the structured body too (document engine: preflight reasons, missing fields, validation problems, codes).
+        extra = { ...extra, detail, ...(typeof detail.code === "string" ? { code: detail.code } : {}) };
+        detail = detail.message || (Array.isArray(detail.problems) ? detail.problems.join("; ") : JSON.stringify(detail));
       }
       if (typeof data?.error === "string") extra = { ...extra, code: data.error };
       if (data?.feature_key && data?.upgrade_url) {

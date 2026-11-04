@@ -45,11 +45,22 @@ Endpoints:
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Body, status, Request
+from fastapi import APIRouter, Depends, Query, Body, status, Request, UploadFile, File, HTTPException
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
+from app.core.exceptions import ForbiddenException
+
+
+def get_recruitment_reader(current_user=Depends(get_current_user)):
+    """Recruitment holds candidates' personal details: admins, HR admins and managers (who interview) may read it;
+    every change still needs an admin (get_current_admin)."""
+    role = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+    if role not in ("super_admin", "admin", "hr_admin", "manager"):
+        raise ForbiddenException("Recruitment is available to admins, HR admins and managers.")
+    return current_user
 from app.core.pagination import Page
 from app.core.rate_limiter import limiter
 
@@ -86,7 +97,7 @@ recruitment_router = APIRouter(prefix="/hr/recruitment", tags=["Recruitment"])
 )
 def recruitment_dashboard(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_recruitment_dashboard(db, current_user.organization_id)
 
@@ -103,7 +114,7 @@ def recruitment_dashboard(
 )
 def list_requisitions(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     search: Optional[str] = Query(None, description="Search by title or department"),
@@ -124,7 +135,7 @@ def create_requisition(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.create_requisition(db, data, current_user.organization_id)
+    return recruitment_service.create_requisition(db, data, current_user.organization_id, actor=current_user)
 
 
 @recruitment_router.get(
@@ -135,7 +146,7 @@ def create_requisition(
 def get_requisition(
     req_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_requisition_by_id(db, req_id, current_user.organization_id)
 
@@ -149,7 +160,7 @@ def update_requisition(
     req_id: int,
     data: RequisitionUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.update_requisition(db, req_id, data, current_user.organization_id)
 
@@ -163,7 +174,7 @@ def update_requisition(
 def delete_requisition(
     req_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     recruitment_service.delete_requisition(db, req_id, current_user.organization_id)
     return {"message": f"Requisition {req_id} has been deleted successfully."}
@@ -178,9 +189,9 @@ def delete_requisition(
 def approve_requisition(
     req_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.approve_requisition(db, req_id, current_user.organization_id)
+    return recruitment_service.approve_requisition(db, req_id, current_user.organization_id, actor=current_user)
 
 
 @recruitment_router.put(
@@ -192,9 +203,45 @@ def approve_requisition(
 def reject_requisition(
     req_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.reject_requisition(db, req_id, current_user.organization_id)
+    return recruitment_service.reject_requisition(db, req_id, current_user.organization_id, actor=current_user)
+
+
+@recruitment_router.put(
+    "/requisitions/{req_id}/submit",
+    response_model=RequisitionResponse,
+    summary="Submit a draft requisition for approval",
+)
+def submit_requisition(req_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return recruitment_service.submit_requisition(db, req_id, current_user.organization_id, actor=current_user)
+
+
+@recruitment_router.put(
+    "/requisitions/{req_id}/hold",
+    response_model=RequisitionResponse,
+    summary="Put an open requisition on hold",
+)
+def hold_requisition(req_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return recruitment_service.hold_requisition(db, req_id, current_user.organization_id)
+
+
+@recruitment_router.put(
+    "/requisitions/{req_id}/resume",
+    response_model=RequisitionResponse,
+    summary="Reopen a requisition that is on hold",
+)
+def resume_requisition(req_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return recruitment_service.resume_requisition(db, req_id, current_user.organization_id)
+
+
+@recruitment_router.put(
+    "/requisitions/{req_id}/close",
+    response_model=RequisitionResponse,
+    summary="Close an open or on-hold requisition",
+)
+def close_requisition(req_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return recruitment_service.close_requisition(db, req_id, current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -209,7 +256,7 @@ def reject_requisition(
 )
 def list_candidates(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     search: Optional[str] = Query(None, description="Search by name, email, or position"),
@@ -231,7 +278,26 @@ def create_candidate(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.create_candidate(db, data, current_user.organization_id)
+    return recruitment_service.create_candidate(db, data, current_user.organization_id, actor=current_user)
+
+
+@recruitment_router.post(
+    "/candidates/parse-cv",
+    summary="Parse a CV/resume file and extract candidate details",
+)
+async def parse_cv(
+    file: UploadFile = File(..., description="CV/resume file (PDF, DOCX, or TXT)"),
+    current_user=Depends(get_current_admin),
+):
+    """Upload a CV/resume file and extract candidate fields (name, email, phone, position, experience, location)."""
+    from app.modules.hr.cv_parser import parse_cv as _parse_cv
+
+    file_bytes = await file.read()
+    if not file_bytes:
+        raise HTTPException(status_code=400, detail="Empty file uploaded.")
+
+    parsed = _parse_cv(file_bytes, file.filename or "resume.pdf")
+    return parsed
 
 
 @recruitment_router.get(
@@ -242,7 +308,7 @@ def create_candidate(
 def get_candidate(
     candidate_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_candidate_by_id(db, candidate_id, current_user.organization_id)
 
@@ -256,7 +322,7 @@ def update_candidate(
     candidate_id: int,
     data: CandidateUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.update_candidate(db, candidate_id, data, current_user.organization_id)
 
@@ -270,7 +336,7 @@ def update_candidate(
 def delete_candidate(
     candidate_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     recruitment_service.delete_candidate(db, candidate_id, current_user.organization_id)
     return {"message": f"Candidate {candidate_id} has been deleted successfully."}
@@ -285,9 +351,9 @@ def update_candidate_status(
     candidate_id: int,
     data: CandidateStatusUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.update_candidate_status(db, candidate_id, data, current_user.organization_id)
+    return recruitment_service.update_candidate_status(db, candidate_id, data, current_user.organization_id, actor=current_user)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -302,7 +368,7 @@ def update_candidate_status(
 )
 def list_interviews(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     candidate_id: Optional[int] = Query(None, description="Filter by candidate ID"),
@@ -333,7 +399,7 @@ def create_interview(
 def get_interview(
     interview_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_interview_by_id(db, interview_id, current_user.organization_id)
 
@@ -347,7 +413,7 @@ def update_interview(
     interview_id: int,
     data: InterviewUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.update_interview(db, interview_id, data, current_user.organization_id)
 
@@ -361,7 +427,7 @@ def update_interview(
 def delete_interview(
     interview_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     recruitment_service.delete_interview(db, interview_id, current_user.organization_id)
     return {"message": f"Interview {interview_id} has been deleted successfully."}
@@ -376,7 +442,7 @@ def add_interview_feedback(
     interview_id: int,
     data: InterviewFeedback,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.update_interview_feedback(db, interview_id, data, current_user.organization_id)
 
@@ -393,7 +459,7 @@ def add_interview_feedback(
 )
 def list_offers(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=200, description="Results per page"),
     candidate_id: Optional[int] = Query(None, description="Filter by candidate ID"),
@@ -413,7 +479,12 @@ def create_offer(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.create_offer(db, data, current_user.organization_id)
+    offer = recruitment_service.create_offer(db, data, current_user.organization_id, actor=current_user)
+    _auto_offer_letter(db, current_user, offer.id)
+    from app.modules.hr.recruitment_documents import auto_generate_offer_draft_on_create
+    offer = recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
+    auto_generate_offer_draft_on_create(db, current_user, offer)
+    return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
 
 
 @recruitment_router.get(
@@ -424,7 +495,7 @@ def create_offer(
 def get_offer(
     offer_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_offer_by_id(db, offer_id, current_user.organization_id)
 
@@ -438,9 +509,17 @@ def update_offer(
     offer_id: int,
     data: OfferUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.update_offer(db, offer_id, data, current_user.organization_id)
+    offer = recruitment_service.update_offer(db, offer_id, data, current_user.organization_id, actor=current_user)
+    _auto_offer_letter(db, current_user, offer.id)
+    return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
+
+
+def _auto_offer_letter(db, user, offer_id: int) -> None:
+    """'Offer letters without approval' (recruitment settings): approve the saved offer and generate its letter at once."""
+    from app.modules.hr.recruitment_documents import auto_prepare_offer_letter
+    auto_prepare_offer_letter(db, user, offer_id)
 
 
 @recruitment_router.delete(
@@ -452,7 +531,7 @@ def update_offer(
 def delete_offer(
     offer_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     recruitment_service.delete_offer(db, offer_id, current_user.organization_id)
     return {"message": f"Offer {offer_id} has been deleted successfully."}
@@ -466,7 +545,7 @@ def delete_offer(
 def accept_offer(
     offer_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.accept_offer(db, offer_id, current_user.organization_id)
 
@@ -479,7 +558,7 @@ def accept_offer(
 def reject_offer(
     offer_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.reject_offer(db, offer_id, current_user.organization_id)
 
@@ -493,9 +572,18 @@ def reject_offer(
 def withdraw_offer(
     offer_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.withdraw_offer(db, offer_id, current_user.organization_id)
+
+
+@recruitment_router.put(
+    "/offers/{offer_id}/send",
+    response_model=OfferResponse,
+    summary="Retired: offer letters are generated and sent through the documents workflow",
+)
+def send_offer(offer_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    return recruitment_service.send_offer(db, offer_id, current_user.organization_id)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -510,7 +598,7 @@ def withdraw_offer(
 def list_candidate_documents(
     candidate_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_candidate_documents(db, candidate_id, current_user.organization_id)
 
@@ -524,7 +612,7 @@ def list_candidate_documents(
 def delete_document(
     document_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     recruitment_service.delete_document(db, document_id, current_user.organization_id)
     return {"message": f"Document {document_id} deleted successfully."}
@@ -543,7 +631,7 @@ def delete_document(
 def create_application(
     data: ApplicationCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.create_application(db, data, current_user.organization_id)
 
@@ -559,7 +647,7 @@ def list_applications(
     candidate_id: Optional[int] = Query(None, description="Filter by candidate ID"),
     requisition_id: Optional[int] = Query(None, description="Filter by requisition ID"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_applications(db, current_user.organization_id, candidate_id, requisition_id,
                                                 page=page, per_page=per_page)
@@ -574,7 +662,7 @@ def update_application_status(
     application_id: int,
     data: CandidateStatusUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.update_application_status(db, application_id, data.status.value, current_user.organization_id)
 
@@ -592,7 +680,7 @@ def update_application_status(
 def create_interview_feedback(
     data: InterviewFeedbackCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.create_interview_feedback(db, data, current_user.organization_id)
 
@@ -605,7 +693,7 @@ def create_interview_feedback(
 def list_interview_feedback(
     interview_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_interview_feedback_list(db, interview_id, current_user.organization_id)
 
@@ -623,7 +711,7 @@ def list_interview_feedback(
 def create_offer_approval(
     data: OfferApprovalCreate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return recruitment_service.create_offer_approval(db, data, current_user.organization_id)
 
@@ -636,7 +724,7 @@ def create_offer_approval(
 def list_offer_approvals(
     offer_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_offer_approvals(db, offer_id, current_user.organization_id)
 
@@ -651,6 +739,6 @@ def list_offer_approvals(
 )
 def get_recruitment_analytics_summary(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_recruitment_reader),
 ):
     return recruitment_service.get_recruitment_analytics_summary(db, current_user.organization_id)

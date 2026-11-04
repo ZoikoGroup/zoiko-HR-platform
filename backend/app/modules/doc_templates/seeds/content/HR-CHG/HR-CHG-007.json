@@ -1,0 +1,81 @@
+{
+  "canonical_id": "HR-CHG-007",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "ACKNOWLEDGE",
+  "audience": "EMPLOYEE",
+  "approval_policy": "L1",
+  "field_contract": {
+    "required": [
+      "worker.first_name",
+      "change.previous_department",
+      "change.new_department",
+      "change.effective_date"
+    ],
+    "optional": [
+      "employment.position_title",
+      "change.new_manager",
+      "change.work_location",
+      "change.working_pattern"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [
+      "change_terms_statement"
+    ],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Your transfer to {{change.new_department}}",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{worker.first_name}}, we confirm your transfer from {{change.previous_department}} to {{change.new_department}} with effect from {{change.effective_date}}."
+    },
+    {
+      "type": "field_group",
+      "fields": [
+        "employment.position_title",
+        "change.new_manager",
+        "change.work_location",
+        "change.working_pattern"
+      ],
+      "labels": {
+        "employment.position_title": "Role",
+        "change.new_manager": "Reporting to",
+        "change.work_location": "Work location",
+        "change.working_pattern": "Working pattern"
+      }
+    },
+    {
+      "type": "paragraph",
+      "text": "Your new manager, {{change.new_manager}}, will arrange a handover and an introduction to the team.",
+      "include_when": {
+        "field": "change.new_manager",
+        "op": "present"
+      }
+    },
+    {
+      "type": "clause",
+      "key": "change_terms_statement",
+      "required": true
+    },
+    {
+      "type": "declaration",
+      "text": "I confirm I have received and read this letter.",
+      "mode": "acknowledge",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [],
+  "response_days": null
+}

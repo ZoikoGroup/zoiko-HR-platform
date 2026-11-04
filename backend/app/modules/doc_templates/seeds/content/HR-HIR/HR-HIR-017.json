@@ -1,0 +1,78 @@
+{
+  "canonical_id": "HR-HIR-017",
+  "output_mode": "DOCUMENT",
+  "execution_mode": "SIGN_CANDIDATE",
+  "audience": "CANDIDATE",
+  "approval_policy": "L2",
+  "field_contract": {
+    "required": [
+      "candidate.first_name",
+      "offer.previous_reference",
+      "offer.previous_date",
+      "offer.changes",
+      "offer.response_deadline"
+    ],
+    "optional": [
+      "candidate.full_name",
+      "document.date",
+      "employer.legal_name"
+    ]
+  },
+  "clause_rules": {
+    "mandatory": [],
+    "optional": [],
+    "prohibited": []
+  },
+  "blocks": [
+    {
+      "type": "letterhead",
+      "id": "letterhead"
+    },
+    {
+      "type": "heading",
+      "text": "Amendment to your offer of employment",
+      "level": 1
+    },
+    {
+      "type": "paragraph",
+      "text": "Dear {{candidate.first_name}}, further to our offer dated {{offer.previous_date}} (reference {{offer.previous_reference}}), we have made the following changes:"
+    },
+    {
+      "type": "table",
+      "columns": [
+        "Term",
+        "Previous",
+        "Revised"
+      ],
+      "rows_from": "offer.changes"
+    },
+    {
+      "type": "paragraph",
+      "text": "All other terms of the original offer remain unchanged."
+    },
+    {
+      "type": "paragraph",
+      "text": "Please confirm whether you accept the revised offer by {{offer.response_deadline}}."
+    },
+    {
+      "type": "signature_block",
+      "parties": [
+        "employer",
+        "candidate"
+      ]
+    },
+    {
+      "type": "declaration",
+      "text": "I accept the offer as amended.",
+      "mode": "sign",
+      "id": "declaration"
+    }
+  ],
+  "locked_block_ids": [],
+  "email_attachment_allowed": false,
+  "reminder_days": [
+    3,
+    1
+  ],
+  "response_days": 7
+}

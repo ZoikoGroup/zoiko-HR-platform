@@ -1,5 +1,5 @@
 import { useMemo, useState, useEffect } from "react";
-import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
+import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
 import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
@@ -8,6 +8,7 @@ import { useDocumentFile } from "../../../../hooks/useDocumentFile";
 import { getMyAssignedDocuments } from "../../../../service/hrService";
 import { Search, FileText, ShieldCheck, BookOpen, RefreshCw, MessageSquareText, ListChecks, Compass, ClipboardList } from "lucide-react";
 import { formatDate as formatDateUtil } from "../../../../utils/dateTime";
+import IssuedDocumentsSection from "../../../../components/documents/IssuedDocumentsSection";
 
 // Mirrors the seven assistant knowledge categories (Policy, FAQs, SOPs,
 // Compliance, Handbook, Guide, Forms) so the people who only have the
@@ -92,11 +93,13 @@ export default function CompanyDocuments() {
   const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
 
   return (
-    <EmployeePageShell
+    <EmployeeDocumentsLayout
       title="Company documents"
       subtitle="Documents shared with you by the company"
     >
       <div className="space-y-6">
+
+        <IssuedDocumentsSection />
 
         {/* Toolbar */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -186,6 +189,6 @@ export default function CompanyDocuments() {
 
         <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
       </div>
-    </EmployeePageShell>
+    </EmployeeDocumentsLayout>
   );
 }

@@ -39,7 +39,8 @@ def generate_organization_code(name: str, db: Session) -> str:
     from app.modules.hr.models import Organization
     code = base_code
     suffix = 1
-    while db.query(Organization).filter(Organization.organization_code == code).first():
+    # soft-deleted organizations keep their code (restorable for 90 days) and the unique index still covers them
+    while db.query(Organization).filter(Organization.organization_code == code).execution_options(include_deleted=True).first():
         code = f"{base_code}{suffix}"
         suffix += 1
 

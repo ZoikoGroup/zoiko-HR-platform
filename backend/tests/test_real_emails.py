@@ -1,4 +1,4 @@
-"""Only real e-mail addresses can be used, and a new account can sign in only after its owner confirms the address."""
+"""Real addresses are required; self-serve workspace admins confirm before sign-in, while HR-added employees can sign in immediately."""
 
 from datetime import date, datetime, timedelta
 
@@ -124,7 +124,7 @@ def test_a_dummy_or_disposable_address_cannot_be_used_to_add_a_person(env):
     assert env.db.query(Employee).count() == 1, "nobody was created"
 
 
-def test_a_new_person_is_unconfirmed_gets_a_confirmation_email_and_cannot_sign_in_yet(env):
+def test_a_new_person_can_sign_in_immediately_without_confirming_email(env):
     r = env.post(ADD, json=_new())
     assert r.status_code == 201, r.text
     mails = _verification_mails(env)
@@ -132,10 +132,9 @@ def test_a_new_person_is_unconfirmed_gets_a_confirmation_email_and_cannot_sign_i
     from app.modules.employee.models import Employee
     person = env.db.query(Employee).filter_by(email="new.hire@gmail.com").one()
     assert person.email_verified is False
-    refused = env.post("/auth/login", json={"email": "new.hire@gmail.com", "password": "Passw0rd1"})
-    assert refused.status_code == 403, refused.text
-    assert refused.json()["error"] == "EMAIL_NOT_VERIFIED" and "confirm your email" in refused.json()["message"].lower()
-    assert "access_token" not in refused.text
+    login = env.post("/auth/login", json={"email": "new.hire@gmail.com", "password": "Passw0rd1"})
+    assert login.status_code == 200, login.text
+    assert login.json()["access_token"]
 
 
 def test_the_confirmation_link_lets_them_in_once(env):
@@ -339,12 +338,23 @@ def test_registering_after_google_sign_in_starts_confirmed_and_a_wrong_proof_doe
     monkeypatch.setattr("app.services.email_service.send_registration_received", lambda *a, **k: True)
     monkeypatch.setattr("app.services.email_service.send_new_organization_created", lambda *a, **k: True)
     proof = google_auth.make_signup_proof("via.google@gmail.com")
-    ok = env.post("/auth/register", json={**REGISTER, "email": "via.google@gmail.com", "organization": "Google Co", "google_proof": proof})
+    ok = env.post("/auth/register", json={**REGISTER, "email": "via.google@gmail.com", "registered_email": "via.google@gmail.com", "organization": "Google Co", "google_proof": proof})
     assert ok.status_code in (200, 201), ok.text
     person = env.db.query(Employee).filter_by(email="via.google@gmail.com").one()
     assert person.email_verified is True and person.email_verified_at is not None
     assert not [m for m in _verification_mails(env) if m["email"] == "via.google@gmail.com"], "no confirmation email: Google already did that"
     assert env.post("/auth/login", json={"email": "via.google@gmail.com", "password": "Passw0rd1"}).status_code == 200
+    wrong_proof = env.post(
+        "/auth/register",
+        json={
+            **REGISTER,
+            "email": "someone.else@gmail.com",
+            "registered_email": "someone.else@gmail.com",
+            "organization": "Else Co",
+            "google_proof": proof,
+        },
+    )
+    assert wrong_proof.status_code == 400
     # a proof for another address, or none, still needs the confirmation link
     other = env.post("/auth/register", json={**REGISTER, "email": "someone.else@gmail.com", "organization": "Else Co", "google_proof": proof})
     assert other.status_code in (200, 201)

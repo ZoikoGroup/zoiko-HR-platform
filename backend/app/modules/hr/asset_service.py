@@ -257,6 +257,14 @@ def assign_asset(db: Session, asset_id: int, employee_id: int, assigned_by: int,
     asset.updated_by = assigned_by
     db.commit()
     db.refresh(asset)
+    try:
+        from app.modules.employee.models import Employee
+        from app.modules.hr import onboarding_documents
+        actor = db.get(Employee, assigned_by) if assigned_by else None
+        onboarding_documents.on_asset_assigned(db, asset, actor)          # HR-ONB-015 equipment issuance form
+        db.refresh(asset)
+    except Exception:
+        db.rollback()
     return asset
 
 

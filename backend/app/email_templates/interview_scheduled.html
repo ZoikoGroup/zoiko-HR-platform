@@ -1,0 +1,24 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Interview scheduled" %}
+{% set preheader = "Interview for " ~ position ~ " on " ~ date_display ~ (" at " ~ time_display if time_display else "") ~ "." %}
+{% set badge = "Scheduled" %}
+{% set badge_tone = "info" %}
+{% set footer_reason %}You are receiving this because an interview with {{ organization_name }} was scheduled on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Interview scheduled</h1>
+{% if is_candidate %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, your interview for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role at {{ organization_name }} has been scheduled. A calendar invitation is attached.</p>
+{% else %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, you have been scheduled to interview <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong> for the {{ position }} role. A calendar invitation is attached.</p>
+{% endif %}
+{% call ui.details() %}
+{{ ui.detail_row("Date", date_display, first=True) }}
+{{ ui.detail_row("Time", time_display or "To be confirmed") }}
+{{ ui.detail_row("Format", interview_type_label) }}
+{% if location %}{{ ui.detail_row("Location", location) }}{% endif %}
+{% if interviewer_name and is_candidate %}{{ ui.detail_row("Interviewer", interviewer_name) }}{% endif %}
+{% endcall %}
+{% if meeting_link %}{{ ui.button(meeting_link, "Join the meeting") }}{% endif %}
+{{ ui.signoff(organization_name) }}
+{% endblock %}
