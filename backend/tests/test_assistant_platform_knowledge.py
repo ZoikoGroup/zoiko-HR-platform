@@ -64,7 +64,14 @@ def test_platform_knowledge_off_by_default_setting(monkeypatch):
 
 
 def test_every_seeded_title_has_a_replacement_rule_where_one_exists():
-    from scripts.seed_real_policy_docs import REAL_DOCUMENTS
+    # Read the list from the script's source rather than importing it: the script needs python-docx, a
+    # seeding-only tool that isn't installed in CI.
+    import ast
+    import pathlib
+    source = (pathlib.Path(__file__).resolve().parents[1] / "scripts" / "seed_real_policy_docs.py").read_text(encoding="utf-8")
+    assign = next(n for n in ast.parse(source).body
+                  if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", None) == "REAL_DOCUMENTS")
+    REAL_DOCUMENTS = ast.literal_eval(assign.value)
     seeded = {d["title"] for d in REAL_DOCUMENTS}
     assert set(LEGACY_KB_TITLES) <= seeded
     assert all(d["path"].startswith("docs/new_docs/") for d in REAL_DOCUMENTS)
