@@ -34,6 +34,8 @@ ALLOWED_SYSTEM_MODULES = (
     "app.modules.super_admin",               # platform control-plane code
     "app.modules.billing",                   # subscription billing, webhooks, schedulers
     "app.modules.integrations",
+    # knowledge eligibility: the tenant's own sources PLUS platform-wide and public ones, filtered explicitly in the query
+    "app.modules.assistant.retrieval_service",
     "app.core.dependencies",
     "app.core.org_access",
     "app.core.privacy",

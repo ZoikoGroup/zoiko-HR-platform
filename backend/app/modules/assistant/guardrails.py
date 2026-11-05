@@ -158,6 +158,8 @@ _SECRET_PATTERNS = (
 # model leaked its own instructions.
 _PROMPT_LEAK_MARKERS = (
     "[TRUST AND AUTHORITY]", "[GROUNDING]", "[RESTRICTED CONTENT]", "[CONFIDENTIALITY]", "[OUTPUT]",
+    # policy_domains.prompt_clause() sections
+    "[POLICY DOMAIN:", "[PROTECTED RIGHTS]", "[DISPUTE BOUNDARY]", "[GENERAL GUIDANCE MODE]",
 )
 
 

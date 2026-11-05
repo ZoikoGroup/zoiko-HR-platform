@@ -199,15 +199,19 @@ def test_tenant_retrieval_also_includes_platform_public_content():
     import inspect
     from app.modules.assistant import retrieval_service
 
-    src = inspect.getsource(retrieval_service.retrieve)
-    assert "KnowledgeSource.organization_id == organization_id" in src, "still tenant-scoped"
+    # Tenant scoping happens in the eligibility filter retrieve() runs first.
+    assert "eligible_version_ids(" in inspect.getsource(retrieval_service.retrieve)
+    src = inspect.getsource(retrieval_service.eligible_version_ids)
+    assert "visible_orgs = {organization_id} |" in src, "still tenant-scoped (plus the optional platform org)"
+    assert "KnowledgeSource.organization_id.in_(visible_orgs)" in src
     assert "KnowledgeSource.is_public.is_(True)" in src, "plus platform-public content"
     assert "or_" in src, "the two are combined, not narrowed"
 
-    # source titles are resolved across both sets, or a public hit would be
-    # labelled "Unknown source" in the citation.
-    titles_src = src.split("source_titles", 1)[1]
-    assert "KnowledgeSource.is_public.is_(True)" in titles_src
+    # Source titles are looked up by the ids of the hits themselves, so a
+    # public hit is never labelled "Unknown source" in the citation.
+    titles_src = inspect.getsource(retrieval_service._titles)
+    assert "KnowledgeSource.id.in_(ids)" in titles_src
+    assert "organization_id" not in titles_src
 
 
 def test_product_questions_route_to_retrieval_not_a_special_intent():

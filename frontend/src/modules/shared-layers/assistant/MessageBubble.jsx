@@ -3,6 +3,7 @@ import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
 import SourceChip from "./SourceChip";
 import FeedbackControl from "./FeedbackControl";
 import WorkflowPanel from "./WorkflowPanel";
+import AnswerText from "./AnswerText";
 import HandoffPanel from "./HandoffPanel";
 
 // Wireframe CH-04: a small 24px inline identity mark beside bot messages.
@@ -60,7 +61,7 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
         )}
         <div
           style={{ background: bubbleTone.bg, borderColor: bubbleTone.border, color: bubbleTone.text }}
-          className="px-4 py-3 rounded-2xl rounded-tl-md border leading-relaxed whitespace-pre-wrap break-words"
+          className="px-4 py-3 rounded-2xl rounded-tl-md border leading-relaxed break-words"
         >
           <span className="sr-only">Zoiko HR Assistant (AI) said: </span>
           {isConflict && (
@@ -78,7 +79,9 @@ export default function AssistantAnswer({ turn, streamingText, isStreaming, conv
               <ShieldAlert className="h-3.5 w-3.5" /> Restricted
             </p>
           )}
-          {turn.status === "failed" ? (turn.error_message || "The assistant hit an error. Please try again.") : displayText}
+          {turn.status === "failed"
+            ? (turn.error_message || "The assistant hit an error. Please try again.")
+            : <AnswerText text={displayText} />}
         </div>
 
         {turn.sources?.length > 0 && !isStreaming && (

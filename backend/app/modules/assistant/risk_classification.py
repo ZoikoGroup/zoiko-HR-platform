@@ -40,7 +40,10 @@ ADVERSE_EMPLOYMENT_RE = re.compile(
     re.IGNORECASE,
 )
 MEDICAL_INFERENCE_RE = re.compile(
-    r"\b(does .*(have|has) (a |an )?(disability|medical condition|mental illness|illness|condition)|diagnos\w*|"
+    # Diagnosis wording only counts about SOMEONE ELSE ("his diagnosis", "diagnose her"); the employee's own privacy
+    # question ("can my manager see my diagnosis?") is a policy question, not inference.
+    r"\b(does .*(have|has) (a |an )?(disability|medical condition|mental illness|illness|condition)|"
+    r"(his|her|their|\w+'s) (medical )?diagnos\w*|diagnos(e|ing) (him|her|them|someone|an? (employee|colleague|coworker|team ?member))|"
     r"why is .*(always|often|constantly) (absent|sick|out)|"
     r"(infer|guess|figure out) .*(condition|illness|disability))\b",
     re.IGNORECASE,

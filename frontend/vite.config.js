@@ -48,6 +48,11 @@ export default defineConfig({
       'xlsx',
       'pdfmake/build/pdfmake',
       'pdfmake/build/vfs_fonts',
+      // recharts imports the CommonJS use-sync-external-store/shim/with-selector;
+      // pre-bundling recharts converts it (and its other deps) to ESM. Without
+      // this the dev server serves it raw: "does not provide an export named
+      // 'useSyncExternalStoreWithSelector'" on any page with a chart.
+      'recharts',
     ],
   },
   build: {

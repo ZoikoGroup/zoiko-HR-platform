@@ -36,6 +36,14 @@ TOOLS: dict[str, Tool] = {t.intent: t for t in (
     Tool("employee_roster", "employee_roster", "employees", "list", ("first_name", "last_name", "job_title", "designation_id"), False),
     Tool("book_leave", "book_leave", "leave_requests", "create", ("leave_type", "start_date", "end_date", "days"), True),
     Tool("policy_qa", "policy_qa", "knowledge_sources", "read", ("title",), False),
+    # the caller's (or an authorized report's) own leave requests: type, dates, length and status — never the reason
+    Tool("leave_status", "leave_status", "leave_requests", "read", ("leave_type", "start_date", "end_date", "days", "status"), True),
+    # the caller's (or an authorized report's) own work profile facts
+    Tool("my_profile", "my_profile", "employees", "read",
+         ("job_title", "designation_id", "department_id", "reporting_manager_id", "employee_code", "date_of_joining",
+          "employment_type", "work_email"), True),
+    # the organization's holiday list (org-wide reference data)
+    Tool("holidays", "holidays", "holidays", "list", ("name", "date"), False),
     # the caller's own pending documents: number, title (C2 only), status and due date — never the document contents
     Tool("document_actions", "document_actions", "generated_documents", "read", ("document_number", "title", "status", "due_by"), True),
 )}
