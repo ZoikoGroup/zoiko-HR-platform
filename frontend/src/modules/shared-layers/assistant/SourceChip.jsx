@@ -54,7 +54,7 @@ export default function SourceChip({ source }) {
         {source.label}
       </button>
       {open && (
-        <div className="absolute z-10 mt-1 w-72 rounded-xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] p-3 shadow-[var(--zhr-elevation-panel)]">
+        <div className="absolute z-10 mt-1 w-72 max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--zhr-border-default)] bg-[var(--zhr-surface-overlay)] p-3 shadow-[var(--zhr-elevation-panel)]">
           <SourceDetail source={source} />
         </div>
       )}

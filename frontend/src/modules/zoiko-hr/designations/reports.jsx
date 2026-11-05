@@ -185,11 +185,11 @@ export default function DesignationReports() {
           <div className="bg-white rounded-xl border border-gray-200 p-5">
             <h2 className="text-lg font-semibold text-gray-900">Headcount Trend</h2>
             <p className="text-xs text-gray-400 mb-4">Active employees holding a designation, by joining date (cumulative)</p>
-            <div className="flex items-end gap-2 h-48" role="img" aria-label="Headcount by month">
+            <div className="flex items-end gap-1 sm:gap-2 h-48" role="img" aria-label="Headcount by month">
               {trend.map((h) => {
                 const pct = (h.count / maxHeadcount) * 100;
                 return (
-                  <div key={h.month} className="flex-1 flex flex-col items-center gap-1 h-full justify-end" data-testid={`trend-${h.month}`}>
+                  <div key={h.month} className="min-w-0 flex-1 flex flex-col items-center gap-1 h-full justify-end" data-testid={`trend-${h.month}`}>
                     <span className="text-[10px] text-gray-500 font-medium">{h.count}</span>
                     <div className="w-full bg-orange-200 rounded-t" style={{ height: h.count ? `${Math.max(pct, 4)}%` : "2px" }}
                       title={`${h.label}: ${h.count} (${h.joined} joined)`} />

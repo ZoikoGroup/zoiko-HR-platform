@@ -107,6 +107,38 @@ test("HR review keeps payroll values masked until explicit reveal and handles fi
   assert.equal(verifyCount, 0);
 });
 
+// The payroll queue is a separate component that used to read the parent's noFinancePermission state without being
+// given it, so /zoiko-hr/onboarding/payroll-verifications crashed with a ReferenceError for every user.
+for (const [name, getPayrollVerifications, expected] of [
+  ["renders the queue for a finance viewer", async () => ({ items: [] }), /Payroll Verifications/],
+  ["explains finance access instead of crashing for someone who is not a finance viewer",
+    async () => { throw Object.assign(new Error("Finance only"), { code: "FINANCE_PERMISSION_REQUIRED", status: 403 }); }, /Payroll Verifications/],
+]) {
+  test(`payroll verification queue ${name}`, async (t) => {
+    t.mock.module("../src/service/onboardingPrompt2Service.js", { exports: {
+      getPayrollVerifications,
+      getNewHireForms: async () => ({ items: [] }),
+      revealOnboardingForm: async () => ({}),
+      verifyOnboardingForm: async () => ({}),
+      returnOnboardingForm: async () => ({}),
+      errorMessage: (error) => error.message,
+    } });
+    const { MemoryRouter } = await import("react-router-dom");
+    const { default: OnboardingFormsReview } = await import(`../src/modules/zoiko-hr/onboarding/OnboardingFormsReview.jsx?t=${Math.random()}`);
+    const errors = [];
+    const onError = (e) => { errors.push(e.error || e.message); e.preventDefault?.(); };
+    window.addEventListener("error", onError);
+    try {
+      render(React.createElement(MemoryRouter, null, React.createElement(OnboardingFormsReview, { payrollQueue: true })));
+      await settle();
+    } finally {
+      window.removeEventListener("error", onError);
+    }
+    assert.deepEqual(errors, []);
+    assert.match(document.body.textContent, expected);
+  });
+}
+
 test("manager can complete an assigned onboarding task and gets a clear permission error", async (t) => {
   const calls = [];
   t.mock.module("../src/service/onboardingPrompt2Service.js", { exports: {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "react-router-dom";
 import Header from "./Header";
 import Sidebar from "./Sidebar";
@@ -13,6 +13,18 @@ export default function SuperAdminShell({ children }) {
   const hideHeader = HIDE_HEADER_PREFIXES.some(
     (prefix) => location.pathname === prefix || location.pathname.startsWith(prefix + "/")
   );
+
+  // On phones and tablets the sidebar is a drawer over the page: tapping a link must reveal the page it opened.
+  useEffect(() => {
+    setSidebarOpen(false);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (!sidebarOpen) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setSidebarOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sidebarOpen]);
 
   return (
     <div className="min-h-screen bg-white text-slate-900 font-sans">

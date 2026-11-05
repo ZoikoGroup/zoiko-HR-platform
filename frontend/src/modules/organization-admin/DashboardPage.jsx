@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo, useCallback, lazy, Suspense } from
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../context/AuthContext";
 import { getOrganizationDashboardStats, getOrganizationDetails } from "../../service/orgAdminService";
+import { billingService } from "../../service/billingService";
 import {
   Users, Building2, BadgeInfo, CalendarCheck, Activity, Wrench, Sparkles,
   TrendingUp, TrendingDown, Minus, CreditCard, ArrowUpRight, ShieldCheck, CheckCircle2, ChevronRight
@@ -85,11 +86,29 @@ const StatCard = React.memo(({ icon: Icon, iconBg, iconColor, label, value, sub,
   );
 });
 
+// The header shows the organization's real plan and subscription status (it used to say "Enterprise Edition" and
+// "Active" for everyone). Statuses other than these two are shown by name.
+const SUBSCRIPTION_BADGE = {
+  active: { label: "Active", className: "bg-emerald-50 text-emerald-700 border-emerald-200", icon: "text-emerald-600" },
+  evaluation: { label: "Evaluation", className: "bg-amber-50 text-amber-700 border-amber-200", icon: "text-amber-600" },
+};
+
+function subscriptionBadge(status) {
+  if (!status) return null;
+  const key = String(status).toLowerCase();
+  return SUBSCRIPTION_BADGE[key] || {
+    label: key.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase()),
+    className: "bg-slate-50 text-slate-600 border-slate-200",
+    icon: "text-slate-500",
+  };
+}
+
 export default function OrgAdminDashboardPage() {
   const { user } = useAuth();
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [org, setOrg] = useState(null);
+  const [subscription, setSubscription] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -98,11 +117,13 @@ export default function OrgAdminDashboardPage() {
     Promise.all([
       getOrganizationDashboardStats().catch(() => null),
       getOrganizationDetails().catch(() => null),
+      billingService.getMySubscription().catch(() => null),
     ])
-      .then(([s, o]) => {
+      .then(([s, o, sub]) => {
         if (cancelled) return;
         if (s) setStats(s);
         if (o) setOrg(o);
+        if (sub) setSubscription(sub);
       })
       .catch(err => { if (!cancelled) setError(err?.message); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -114,6 +135,8 @@ export default function OrgAdminDashboardPage() {
   const displayName = user?.name || user?.full_name || "Organization Admin";
   const orgName = org?.name || user?.organization_name || "Your Organization";
   const orgId = org?.org_code || org?.code || "ZK-0192";
+  const planName = subscription?.plan_name || null;
+  const badge = subscriptionBadge(subscription?.status);
 
   const totalEmployees = stats?.total_employees ?? 21;
   const activeEmployees = stats?.active_employees ?? 20;
@@ -256,13 +279,16 @@ export default function OrgAdminDashboardPage() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="font-['Sora',system-ui,sans-serif] text-lg font-bold text-slate-900 tracking-tight">{orgName}</h2>
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
-                <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-                Active
-              </span>
+              {badge && (
+                <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${badge.className}`}>
+                  <CheckCircle2 className={`w-3 h-3 ${badge.icon}`} />
+                  {badge.label}
+                </span>
+              )}
             </div>
             <p className="text-xs font-medium text-slate-500 mt-0.5">
-              Organization Code: <span className="font-semibold text-slate-700">{orgId}</span> · Enterprise Edition
+              Organization Code: <span className="font-semibold text-slate-700">{orgId}</span>
+              {planName && <> · {planName} plan</>}
             </p>
           </div>
         </div>

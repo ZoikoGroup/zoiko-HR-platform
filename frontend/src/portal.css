@@ -14,10 +14,31 @@
   min-width: 0;
 }
 
+/* Grid items default to min-width:auto, so a wide child (a table inside an overflow-x-auto wrapper, a long unbroken
+   string) widens its whole column — and with it the page — instead of scrolling inside its own box. Letting grid items
+   shrink keeps every column inside the screen; the wrapper then scrolls as intended. */
+.portal-main .grid > * {
+  min-width: 0;
+}
+
+/* A table placed straight inside a rounded overflow-hidden card would have its right-hand columns cut off on a phone
+   with no way to reach them. Scrolling still clips to the rounded corners, so the card looks the same on desktop. */
+.portal-main .overflow-hidden:has(> table) {
+  overflow-x: auto;
+}
+
 .portal-main .overflow-x-auto {
   max-width: 100%;
   overscroll-behavior-x: contain;
   -webkit-overflow-scrolling: touch;
+}
+
+/* A scroll box only clips absolutely positioned children it is the containing block for. Without a position, the
+   `sr-only` labels and popovers inside a wide table are placed against the page instead, so the right-hand column's
+   hidden text widens the whole document even though the table itself scrolls. Making the scroll box positioned keeps
+   everything inside it. Elements that already carry a position of their own keep it. */
+.portal-main :is(.overflow-x-auto, .overflow-auto, .overflow-x-scroll, .overflow-hidden:has(> table)):not(.absolute, .fixed, .sticky) {
+  position: relative;
 }
 
 @media (max-width: 639px) {

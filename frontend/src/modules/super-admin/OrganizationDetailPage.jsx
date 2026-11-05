@@ -250,9 +250,9 @@ export default function OrganizationDetailPage() {
       {org && (
         <>
           <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-            <div className="flex items-start justify-between">
-              <div className="flex items-center gap-4">
-                <div className="h-16 w-16 bg-blue-50 rounded-xl flex items-center justify-center">
+            <div className="flex flex-wrap items-start justify-between gap-4">
+              <div className="flex min-w-0 items-center gap-4">
+                <div className="h-16 w-16 shrink-0 bg-blue-50 rounded-xl flex items-center justify-center">
                   <Building className="h-8 w-8 text-blue-600" />
                 </div>
                 <div>
@@ -261,7 +261,7 @@ export default function OrganizationDetailPage() {
                     <span className="text-xs text-slate-400 font-mono">{org.organization_code}</span>
                     <StatusBadge status={org.status} />
                   </div>
-                  <div className="flex items-center gap-4 mt-2 text-xs text-slate-500">
+                  <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-500">
                     <span className="flex items-center gap-1"><Calendar className="h-3 w-3" /> Created {org.created_at ? formatDate(org.created_at) : "—"}</span>
                     <span className="flex items-center gap-1"><Users className="h-3 w-3" /> {org.total_employees} employees</span>
                     {org.subscription_plan && (
@@ -278,7 +278,7 @@ export default function OrganizationDetailPage() {
             {/* Quick Actions for PENDING orgs */}
             {org.status === "pending" && (
               <div className="mt-4 p-4 rounded-xl bg-amber-50 border border-amber-200">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-3">
                   <div>
                     <h4 className="text-sm font-bold text-amber-800">Pending Approval</h4>
                     <p className="text-xs text-amber-600 mt-1">This organization is waiting for admin approval before users can sign in.</p>

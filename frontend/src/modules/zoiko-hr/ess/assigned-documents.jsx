@@ -105,19 +105,19 @@ export default function AssignedDocuments() {
       <SubNav />
       <IssuedDocumentsSection className="mb-6" />
       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
           <div>
             <h2 className="text-xl font-bold text-slate-800">Assigned Documents</h2>
             <p className="text-sm text-slate-500 mt-1">Documents assigned to you by HR</p>
           </div>
-          <div className="relative">
+          <div className="relative w-full sm:w-auto">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={16} />
             <input
               type="text"
               placeholder="Search documents..."
               value={search}
               onChange={e => setSearch(e.target.value)}
-              className="pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none w-64"
+              className="pl-9 pr-4 py-2 text-sm border border-slate-300 rounded-xl focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 outline-none w-full sm:w-64"
             />
           </div>
         </div>
