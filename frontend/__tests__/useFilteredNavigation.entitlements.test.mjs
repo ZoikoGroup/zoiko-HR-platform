@@ -66,3 +66,27 @@ test("snapshot entries from useEntitlements keep granted items and fail closed o
   const hrefs = filtered[0].items.map((i) => i.href);
   assert.deepEqual(hrefs, ["/super-admin/dashboard", "/super-admin/audit-logs", undefined]);
 });
+
+// Assistant Knowledge and Support Tickets follow the server's gate (assistant/plan_gate.py): the organization admin
+// and HR admin see them in every plan state the admin API accepts — an evaluation included — and lose them only
+// when the plan leaves the chatbot out or access is paused for an overdue payment.
+test("Assistant Knowledge and Support Tickets show for org and HR admins in every state the server allows", async () => {
+  const { sections: realSections } = await import("../src/navigation.js");
+  const { GRANTED_STATES } = await import("../src/hooks/useEntitlements.js");
+  const assistantItems = (role, state) => {
+    const ent = state === undefined ? {} : Object.fromEntries(["hr.ai.policy_qa", "hr.ai.workflow_assist"]
+      .map((key) => [key, { state, granted: GRANTED_STATES.has(state) }]));
+    return filterSectionsForRole(realSections, role, ["hr"], "standard", ent)
+      .flatMap((section) => section.items)
+      .map((item) => item.label)
+      .filter((label) => label === "Assistant Knowledge" || label === "Support Tickets");
+  };
+  for (const role of [ROLES.ADMIN, ROLES.HR_ADMIN]) {
+    for (const state of ["ENTITLED_AVAILABLE", "READ_ONLY", "TRIAL_RESTRICTED", "ENTITLED_NOT_CONFIGURED"]) {
+      assert.deepEqual(assistantItems(role, state), ["Assistant Knowledge", "Support Tickets"], `${role} / ${state}`);
+    }
+    for (const state of ["NOT_ENTITLED", "DELINQUENCY_RESTRICTED", undefined]) {
+      assert.deepEqual(assistantItems(role, state), [], `${role} / ${state ?? "unknown"}`);
+    }
+  }
+});

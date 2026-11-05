@@ -122,7 +122,7 @@ export default function WorkforceReports() {
         <h3 className="text-sm font-semibold text-gray-800 mb-4">Quick Export</h3>
         <div className="flex flex-wrap gap-3">
           {Object.entries(REPORT_TYPES).map(([type, label]) => (
-            <div key={type} className="flex items-center gap-1">
+            <div key={type} className="flex flex-wrap items-center gap-1">
               <span className="text-xs text-gray-500 mr-1">{label}:</span>
               {["csv", "excel", "pdf"].map((fmt) => (
                 <button key={fmt} onClick={() => handleExport(type, fmt)} disabled={exporting === `${type}-${fmt}`}

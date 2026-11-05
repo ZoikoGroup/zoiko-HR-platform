@@ -121,10 +121,12 @@ export default function Sidebar({ open, onClose }) {
 
   return (
     <div>
-      <div data-sidebar-backdrop="" aria-hidden={!open} className={`fixed inset-0 z-30 bg-slate-950/40 transition-opacity ${open ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
+      <div data-sidebar-backdrop="" aria-hidden={!open} className={`fixed inset-0 z-30 bg-slate-950/40 transition-opacity lg:hidden ${open ? "opacity-100" : "pointer-events-none opacity-0"}`} onClick={onClose} />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-40 w-72 overflow-y-auto border-r border-white/10 bg-gradient-to-b from-[#0A1128] to-[#111A33] px-4 py-6 shadow-[0_24px_80px_rgba(4,7,20,0.42)] transition-transform lg:translate-x-0 ${open ? "translate-x-0" : "-translate-x-full"}`}
+        // Closed on a phone/tablet: off-canvas, without its shadow (an 80px blur would still bleed onto the page edge)
+        // and invisible, so its links are not reachable with Tab while it cannot be seen. Docked from lg up.
+        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] overflow-y-auto border-r border-white/10 bg-gradient-to-b from-[#0A1128] to-[#111A33] px-4 py-6 transition-[transform,visibility] lg:visible lg:max-w-none lg:translate-x-0 lg:shadow-[0_24px_80px_rgba(4,7,20,0.42)] ${open ? "visible translate-x-0 shadow-[0_24px_80px_rgba(4,7,20,0.42)]" : "invisible -translate-x-full"}`}
       >
         <div className="mb-8 flex items-center justify-between gap-3">
           <div className="flex flex-col gap-2">

@@ -389,8 +389,10 @@ const userManagement = {
   title: "USER MANAGEMENT",
   items: [
     { label: "User Management", href: "/hr-admin/settings", icon: Users },
-    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen, featureKey: "hr.ai.policy_qa" },
-    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy, featureKey: "hr.ai.workflow_assist" },
+    // Organization admins and HR admins. Shown in every plan state the assistant's admin API accepts (evaluations
+    // included), hidden only when the plan leaves the chatbot out or access is paused — see hideOnlyWhenBlocked.
+    { label: "Assistant Knowledge", href: "/hr-admin/assistant-knowledge", icon: BookOpen, featureKey: "hr.ai.policy_qa", hideOnlyWhenBlocked: true },
+    { label: "Support Tickets", href: "/hr-admin/assistant-handoffs", icon: LifeBuoy, featureKey: "hr.ai.workflow_assist", hideOnlyWhenBlocked: true },
   ],
 };
 

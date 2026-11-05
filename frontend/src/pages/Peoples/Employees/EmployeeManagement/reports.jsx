@@ -170,9 +170,9 @@ export default function EmployeeReports() {
         </div>
 
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
             <h2 className="text-lg font-semibold text-gray-900 flex items-center gap-2">
-              <FileText className="w-5 h-5 text-blue-600" />
+              <FileText className="w-5 h-5 shrink-0 text-blue-600" />
               {formatReportType(reportType)} - Export Options
             </h2>
             <div className="flex gap-2">

@@ -73,9 +73,21 @@ const SUPER_ADMIN_HREF_OVERRIDES = {
 // keeps the layout identical until a sidebar container hydrates the snapshot.
 const GRANTED_STATES = new Set(["ENTITLED_AVAILABLE", "READ_ONLY"]);
 
+// Items marked `hideOnlyWhenBlocked` follow the server's own gate instead (backend assistant/plan_gate.py, and
+// PlanGate.jsx on the client): they are hidden only when the plan leaves the feature out or access is paused for an
+// overdue payment. Evaluations (TRIAL_RESTRICTED), Enterprise without contract rows and organizations without a plan
+// (ENTITLED_NOT_CONFIGURED) can use those pages, so the sidebar must offer them too. An unknown state (the map failed
+// to load or lacks the key) still hides the item, as everywhere else.
+const BLOCKING_STATES = new Set(["NOT_ENTITLED", "DELINQUENCY_RESTRICTED"]);
+
 function isEntitledFeature(item, entitlements) {
   if (!item.featureKey || !entitlements) return true;
   const granted = entitlements[item.featureKey];
+  if (item.hideOnlyWhenBlocked) {
+    const state = granted && typeof granted === "object" ? granted.state : granted;
+    if (typeof state === "boolean") return state;
+    return typeof state === "string" && !BLOCKING_STATES.has(state);
+  }
   if (typeof granted === "boolean") return granted;
   if (granted && typeof granted === "object") {
     if (typeof granted.granted === "boolean") return granted.granted;

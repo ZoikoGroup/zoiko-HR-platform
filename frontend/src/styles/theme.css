@@ -108,6 +108,26 @@ body {
   box-sizing: border-box;
 }
 
+/* Centred dialogs (`fixed inset-0 flex items-center justify-center` overlays) on small or short screens.
+   With align-items:center a dialog taller than the screen overflows upwards as well as downwards, and the top half —
+   usually the title and close button — cannot be scrolled to. Letting the overlay scroll and centring the dialog with
+   auto margins instead keeps it centred when it fits and starts it at the top when it does not. The padding keeps a
+   gutter so a dialog never touches the screen edges on a phone. Looks the same as before on a normal screen. */
+.fixed.inset-0.flex.items-center.justify-center {
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem 0.75rem;
+}
+.fixed.inset-0.flex.items-center.justify-center > * {
+  margin-top: auto;
+  margin-bottom: auto;
+}
+/* A dialog that already keeps its own side margin (mx-4 and friends) does not need the overlay's gutter as well. */
+.fixed.inset-0.flex.items-center.justify-center:has(> :is(.mx-2, .mx-3, .mx-4, .mx-5, .mx-6, .mx-8)) {
+  padding-left: 0;
+  padding-right: 0;
+}
+
 /* Native <input type="date"/"time"/"datetime-local"> calendar/clock picker
    icons are drawn by the browser itself and default to a dark glyph — with
    the OS in light mode (its actual source of truth for native controls)

@@ -222,7 +222,7 @@ export default function AccessPage() {
         )}
 
         {/* Tabs */}
-        <div className="flex gap-2 bg-white border border-slate-200/80 rounded-2xl p-1.5 shadow-sm w-fit">
+        <div className="flex max-w-full gap-2 overflow-x-auto bg-white border border-slate-200/80 rounded-2xl p-1.5 shadow-sm w-fit">
           {[
             { key: "organizations", label: "Organizations", icon: Building2 },
             { key: "admins", label: "Organization admins", icon: Users },
@@ -230,7 +230,7 @@ export default function AccessPage() {
             <button
               key={tab.key}
               onClick={() => switchTab(tab.key)}
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
+              className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-2.5 rounded-xl text-sm font-semibold transition-all ${
                 activeTab === tab.key
                   ? "bg-slate-900 text-white shadow-sm"
                   : "text-slate-500 hover:text-slate-700 hover:bg-slate-50"

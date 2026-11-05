@@ -29,13 +29,13 @@ function StatCard({ label, value, icon: Icon, iconBg, sub, onClick }) {
   return (
     <div
       onClick={onClick}
-      className={`rounded-2xl border border-slate-200 bg-white p-5 shadow-sm hover:shadow-md transition ${onClick ? "cursor-pointer group hover:border-[#3B82F6]/40" : ""}`}
+      className={`rounded-2xl border border-slate-200 bg-white p-4 sm:p-5 shadow-sm hover:shadow-md transition ${onClick ? "cursor-pointer group hover:border-[#3B82F6]/40" : ""}`}
     >
-      <div className="flex items-center justify-between mb-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
         <div className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-105" style={{ backgroundColor: iconBg }}>
           <Icon className="w-5 h-5 text-white" />
         </div>
-        <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">{label}</span>
+        <span className="min-w-0 break-words text-[11px] font-semibold uppercase tracking-wider text-slate-400 sm:text-right">{label}</span>
       </div>
       <p className="text-2xl sm:text-3xl font-extrabold text-slate-900 leading-none">{value ?? "—"}</p>
       {sub && <p className="mt-1 text-xs text-slate-400 font-medium flex items-center justify-between">{sub} {onClick && <ArrowRight className="h-3 w-3 text-slate-300 opacity-0 group-hover:opacity-100 transition" />}</p>}
@@ -91,9 +91,9 @@ export default function BillingOverviewPage() {
     return (
       <div className="space-y-6 font-sans">
         <div className="flex items-center justify-between">
-          <div>
+          <div className="w-full">
             <div className="h-8 w-52 bg-slate-100 rounded-xl animate-pulse mb-2" />
-            <div className="h-4 w-80 bg-slate-100 rounded-lg animate-pulse" />
+            <div className="h-4 w-80 max-w-full bg-slate-100 rounded-lg animate-pulse" />
           </div>
         </div>
         <div className="grid gap-4 grid-cols-2 lg:grid-cols-5">
@@ -194,7 +194,7 @@ export default function BillingOverviewPage() {
 
         {/* Plan Catalog Card */}
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 sm:px-6 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-orange-50 flex items-center justify-center">
                 <Package className="h-4 w-4 text-orange-500" />
@@ -217,9 +217,9 @@ export default function BillingOverviewPage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {plans.map((plan) => (
-                <div key={plan.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition">
-                  <div className="flex items-center gap-3">
-                    <div className={`w-9 h-9 rounded-xl flex items-center justify-center text-xs font-bold ${
+                <div key={plan.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 sm:px-6 py-4 hover:bg-slate-50/60 transition">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <div className={`w-9 h-9 shrink-0 rounded-xl flex items-center justify-center text-xs font-bold ${
                       plan.is_contract_priced ? "bg-amber-50 text-amber-600" : "bg-orange-50 text-orange-500"
                     }`}>
                       {plan.code?.charAt(0)?.toUpperCase() || "?"}
@@ -251,7 +251,7 @@ export default function BillingOverviewPage() {
 
         {/* Recent Discounts Card */}
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 sm:px-6 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-blue-50 flex items-center justify-center">
                 <Percent className="h-4 w-4 text-blue-500" />
@@ -274,7 +274,7 @@ export default function BillingOverviewPage() {
           ) : (
             <div className="divide-y divide-slate-100">
               {discounts.slice(0, 5).map((d) => (
-                <div key={d.id} className="flex items-center justify-between px-6 py-4 hover:bg-slate-50/60 transition">
+                <div key={d.id} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 sm:px-6 py-4 hover:bg-slate-50/60 transition">
                   <div>
                     <div className="text-sm font-semibold text-slate-700 truncate max-w-[180px]">{d.campaign_or_contract_id}</div>
                     <div className="flex items-center gap-2 mt-0.5">
@@ -313,7 +313,7 @@ export default function BillingOverviewPage() {
       {/* Recent Organizations */}
       {orgs.length > 0 && (
         <div className="rounded-3xl border border-slate-200 bg-white shadow-sm overflow-hidden">
-          <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 px-4 sm:px-6 py-4 border-b border-slate-100">
             <div className="flex items-center gap-2">
               <div className="w-8 h-8 rounded-xl bg-slate-100 flex items-center justify-center">
                 <Building2 className="h-4 w-4 text-slate-500" />
