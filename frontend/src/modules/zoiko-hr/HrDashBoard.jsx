@@ -458,7 +458,7 @@ export default function HrDashBoard() {
   }, [employees]);
 
   return (
-    <div className="font-['Inter',system-ui,sans-serif] -m-4 sm:-m-6 lg:-m-8 p-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
+    <div className="font-['Inter',system-ui,sans-serif] -mx-3 -my-4 sm:-m-6 lg:-m-8 px-3 py-4 sm:p-6 lg:p-8" style={{ background: "#F0F4F8", color: INK, minHeight: "calc(100vh - 4rem)" }}>
       {role === ROLES.MANAGER && <div className="mb-5"><MyOnboardingTasks /></div>}
       {error && (
         <div className="mb-4 rounded-[14px] border p-4 text-sm" style={{ background: RED_100, borderColor: RED, color: RED }}>

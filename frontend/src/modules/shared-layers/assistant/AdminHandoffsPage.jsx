@@ -98,8 +98,8 @@ export default function AdminHandoffsPage() {
           <h3 className="flex items-center gap-2 text-lg font-bold text-slate-800">
             <LifeBuoy className="h-5 w-5 text-[var(--zhr-action-primary)]" /> Tickets
           </h3>
-          <div className="flex gap-2">
-            <div className="relative">
+          <div className="flex flex-wrap gap-2">
+            <div className="relative min-w-0 flex-1 sm:flex-none">
               <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-slate-400" />
               <input
                 placeholder="Search tickets..."

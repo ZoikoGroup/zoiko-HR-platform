@@ -116,10 +116,10 @@ export default function AssetSettings() {
         </button>
       </div>
 
-      <div className="flex gap-1 border-b border-gray-200">
+      <div className="flex gap-1 overflow-x-auto border-b border-gray-200">
         {tabs.map((tab) => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
-            className={`flex items-center gap-2 px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
+            className={`flex shrink-0 items-center gap-2 whitespace-nowrap px-4 py-3 text-sm font-medium border-b-2 transition-colors ${
               activeTab === tab.id ? "border-amber-500 text-amber-600" : "border-transparent text-gray-500 hover:text-gray-700"
             }`}>
             <tab.icon className="w-4 h-4" /> {tab.label}
@@ -136,7 +136,7 @@ export default function AssetSettings() {
           <div className="flex items-center gap-2 mb-4">
             <input type="text" value={newCategory} onChange={(e) => { setNewCategory(e.target.value); setCategoryError(""); }}
               placeholder="New category name..."
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500" />
+              className="min-w-0 flex-1 px-3 py-2 border border-gray-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-amber-500/20 focus:border-amber-500" />
             <button onClick={async () => {
               const name = newCategory.trim();
               if (!name) return;
@@ -148,7 +148,7 @@ export default function AssetSettings() {
                 setCategoryError(err.message || "Failed to create category");
               }
             }} disabled={!newCategory.trim()}
-              className="flex items-center gap-1 px-3 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:bg-amber-400 font-medium transition-colors">
+              className="flex shrink-0 items-center gap-1 px-3 py-2 text-sm bg-amber-600 text-white rounded-lg hover:bg-amber-700 disabled:bg-amber-400 font-medium transition-colors">
               <Plus className="w-4 h-4" /> Add
             </button>
           </div>

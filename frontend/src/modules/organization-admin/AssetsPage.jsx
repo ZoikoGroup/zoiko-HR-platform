@@ -564,7 +564,7 @@ function AssignDropdown({ employees, asset, onAssign }) {
         Assign
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-72 bg-white rounded-xl border border-slate-200 shadow-lg p-3">
+        <div className="absolute right-0 top-full mt-1 z-50 w-72 max-w-[calc(100vw-2rem)] bg-white rounded-xl border border-slate-200 shadow-lg p-3">
           <p className="text-xs font-semibold text-slate-500 mb-2">Search Employee</p>
           <div className="relative mb-2">
             <input

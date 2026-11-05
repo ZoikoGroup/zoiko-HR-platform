@@ -699,7 +699,7 @@ export default function UserManagementPage() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
           <div className="animate-pulse">
             <div className="h-8 bg-gray-200 rounded-lg w-56 mb-2"></div>
-            <div className="h-4 bg-gray-200 rounded-lg w-80 mb-8"></div>
+            <div className="h-4 bg-gray-200 rounded-lg w-80 max-w-full mb-8"></div>
             <div className={`grid gap-4 mb-6 ${isSuperAdmin ? "grid-cols-1 sm:grid-cols-3" : "grid-cols-1 sm:grid-cols-3"}`}>
               {[...Array(3)].map((_, i) => <div key={i} className="h-24 bg-gray-100 rounded-xl"></div>)}
             </div>
@@ -718,7 +718,7 @@ export default function UserManagementPage() {
 
       <header className="bg-white border-b border-gray-200">
         <div className="px-4 sm:px-6">
-          <div className="py-4 flex items-center justify-between">
+          <div className="py-4 flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
             <button type="button" onClick={() => (selectedOrg ? closeOrganization() : navigate(-1))}
               aria-label={selectedOrg ? "Back to all organizations" : "Back to previous page"}
@@ -733,7 +733,7 @@ export default function UserManagementPage() {
               </p>
             </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               {isSuperAdmin && (
                 <button onClick={() => setShowCreateOrg(true)} className="bg-white hover:bg-gray-50 text-blue-700 border border-blue-200 text-sm font-semibold px-4 py-2.5 rounded-xl transition-all flex items-center gap-2">
                   <Building2 className="w-4 h-4" /> Add Organization

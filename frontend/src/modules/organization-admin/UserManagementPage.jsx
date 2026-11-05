@@ -853,7 +853,9 @@ export default function OrgAdminUserManagementPage() {
       {/* Table */}
       <div style={{
         background:'#fff', border:'1px solid rgba(10,17,40,0.08)', borderRadius:20,
-        boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)', overflow:'hidden'
+        boxShadow:'0 1px 2px rgba(10,17,40,0.04), 0 8px 24px -12px rgba(10,17,40,0.10)',
+        // scrolls sideways on a phone instead of cutting off the CTC / status / actions columns
+        overflowX:'auto', position:'relative'
       }}>
         <table style={{ width:'100%', borderCollapse:'collapse' }}>
           <thead>

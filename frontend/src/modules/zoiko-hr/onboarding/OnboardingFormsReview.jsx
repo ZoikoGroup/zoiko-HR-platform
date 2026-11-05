@@ -249,10 +249,10 @@ export default function OnboardingFormsReview({ hireId, payrollQueue = false }) 
   }
 
   // ── routed Payroll Verifications queue ───────────────────────────────────────────────────────────────────────────
-  return <PayrollQueue {...{ forms, loading, banners, retry, hireNames, tab, setTab, search, setSearch, selectedId, setSelectedId, bodyProps, load }} />;
+  return <PayrollQueue {...{ forms, loading, banners, retry, hireNames, tab, setTab, search, setSearch, selectedId, setSelectedId, bodyProps, load, noFinancePermission }} />;
 }
 
-function PayrollQueue({ forms, loading, banners, retry, hireNames, tab, setTab, search, setSearch, selectedId, setSelectedId, bodyProps, load }) {
+function PayrollQueue({ forms, loading, banners, retry, hireNames, tab, setTab, search, setSearch, selectedId, setSelectedId, bodyProps, load, noFinancePermission }) {
   const nameOf = (form) => form.new_hire_name || hireNames[form.new_hire_id]
     || (form.new_hire_id ? `New hire #${form.new_hire_id}` : form.employee_id ? `Employee #${form.employee_id}` : "—");
   const counts = useMemo(() => {
