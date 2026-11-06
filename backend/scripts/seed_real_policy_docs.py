@@ -1,11 +1,20 @@
 """
 scripts/seed_real_policy_docs.py
 ------------------------------------
-Ingests the real, HR-provided policy documents from docs/ into the knowledge
+Ingests the HR standard documents from docs/new_docs into the knowledge
 base, extracting full text (paragraphs + tables) via python-docx. Idempotent
 by title — safe to re-run; already-published titles are skipped.
 
-Run: `python scripts/seed_real_policy_docs.py <organization_id> <owner_employee_id>`
+These documents apply to every organization, so they are loaded ONCE into the
+platform knowledge organization (HR_PLATFORM_KNOWLEDGE_ORG_ID), which every
+organization's assistant reads from (retrieval_service.eligible_version_ids).
+An organization that publishes its own policy for a topic replaces the
+platform document for that topic automatically.
+
+Run: `python scripts/seed_real_policy_docs.py <owner_employee_id>`
+     (loads into HR_PLATFORM_KNOWLEDGE_ORG_ID; the owner must belong to it)
+ or: `python scripts/seed_real_policy_docs.py <organization_id> <owner_employee_id>`
+     (one organization only)
 """
 
 import datetime
@@ -28,37 +37,37 @@ REAL_DOCUMENTS = [
     {
         "title": "Employee Handbook & Code of Conduct",
         "source_type": "handbook",
-        "path": "docs/HR_Chatbot_Employee_Handbook_Code_of_Conduct_Engineering_Wireframe.docx",
+        "path": "docs/new_docs/HR_Chatbot_Employee_Handbook_Code_of_Conduct_Engineering_Wireframe.docx",
     },
     {
         "title": "Attendance & Leave Policy",
         "source_type": "policy",
-        "path": "docs/Zoiko_HR_Chatbot_Attendance_Leave_Policy_Engineering_Wireframe_v2.0.docx",
+        "path": "docs/new_docs/Zoiko_HR_Chatbot_Attendance_Leave_Policy_Engineering_Wireframe_v2.0.docx",
     },
     {
         "title": "Expense & Reimbursement Policy",
         "source_type": "policy",
-        "path": "docs/Zoiko_HR_Chatbot_Expense_Reimbursement_Policy_Engineering_Wireframe_v2.0.docx",
+        "path": "docs/new_docs/Zoiko_HR_Chatbot_Expense_Reimbursement_Policy_Engineering_Wireframe_v2.0.docx",
     },
     {
         "title": "Remote Work & WFH Policy",
         "source_type": "policy",
-        "path": "docs/Zoiko_HR_Chatbot_Remote_Work_WFH_Policy_Engineering_Wireframe_v2.0.docx",
+        "path": "docs/new_docs/Zoiko_HR_Chatbot_Remote_Work_WFH_Policy_Engineering_Wireframe_v2.0.docx",
     },
     {
         "title": "Benefits & Compensation Policy",
         "source_type": "policy",
-        "path": "docs/Zoiko_HR_Chatbot_Benefits_Compensation_Policy_Engineering_Wireframe_v2.0.docx",
+        "path": "docs/new_docs/Zoiko_HR_Chatbot_Benefits_Compensation_Policy_Engineering_Wireframe_v2.0.docx",
     },
     {
         "title": "Onboarding & Offboarding Procedures",
         "source_type": "sop",
-        "path": "docs/Zoiko_HR_Chatbot_Onboarding_Offboarding_Procedures_Engineering_Wireframe_v2.0.docx",
+        "path": "docs/new_docs/Zoiko_HR_Chatbot_Onboarding_Offboarding_Procedures_Engineering_Wireframe_v2.0.docx",
     },
     {
         "title": "Compliance & Jurisdiction Policy Documents",
         "source_type": "compliance",
-        "path": "docs/Zoiko_HR_Chatbot_Compliance_Jurisdiction_Policy_Documents_Engineering_Wireframe_v2.0.docx",
+        "path": "docs/new_docs/Zoiko_HR_Chatbot_Compliance_Jurisdiction_Policy_Documents_Engineering_Wireframe_v2.0.docx",
     },
 ]
 
@@ -81,11 +90,18 @@ def extract_docx_text(path: str) -> str:
 
 
 def main():
-    if len(sys.argv) != 3:
-        print("Usage: python scripts/seed_real_policy_docs.py <organization_id> <owner_employee_id>")
+    from app.config import settings
+    if len(sys.argv) == 2 and settings.PLATFORM_KNOWLEDGE_ORG_ID:
+        organization_id = settings.PLATFORM_KNOWLEDGE_ORG_ID
+        owner_employee_id = int(sys.argv[1])
+    elif len(sys.argv) == 3:
+        organization_id = int(sys.argv[1])
+        owner_employee_id = int(sys.argv[2])
+    else:
+        print("Usage: python scripts/seed_real_policy_docs.py <owner_employee_id>   (needs HR_PLATFORM_KNOWLEDGE_ORG_ID)\n"
+              "   or: python scripts/seed_real_policy_docs.py <organization_id> <owner_employee_id>")
         sys.exit(1)
-    organization_id = int(sys.argv[1])
-    owner_employee_id = int(sys.argv[2])
+    print(f"Loading into organization {organization_id}")
 
     db = SessionLocal()
     try:

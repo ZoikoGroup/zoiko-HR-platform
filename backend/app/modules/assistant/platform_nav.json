@@ -1,0 +1,1656 @@
+{
+ "generated_from": "frontend/src/navigation.js",
+ "screens": [
+  {
+   "section": "ORGANIZATION ADMIN",
+   "path": [
+    "Dashboard"
+   ],
+   "href": "/organization-admin/dashboard",
+   "roles": [
+    "admin"
+   ]
+  },
+  {
+   "section": "ORGANIZATION ADMIN",
+   "path": [
+    "My Organization"
+   ],
+   "href": "/organization-admin/organization",
+   "roles": [
+    "admin"
+   ]
+  },
+  {
+   "section": "ORGANIZATION ADMIN",
+   "path": [
+    "Payroll Guidance"
+   ],
+   "href": "/organization-admin/payroll-guidance",
+   "roles": [
+    "admin"
+   ]
+  },
+  {
+   "section": "ORGANIZATION ADMIN",
+   "path": [
+    "Billing & Plan"
+   ],
+   "href": "/organization-admin/billing-and-plan",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "ORGANIZATION ADMIN",
+   "path": [
+    "Support Access"
+   ],
+   "href": "/organization-admin/support-access",
+   "roles": [
+    "admin"
+   ]
+  },
+  {
+   "section": "HR ADMIN",
+   "path": [
+    "Dashboard"
+   ],
+   "href": "/hr-admin/dashboard",
+   "roles": [
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "HR ADMIN",
+   "path": [
+    "My Organization"
+   ],
+   "href": "/hr-admin/my-organization",
+   "roles": [
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "HR ADMIN",
+   "path": [
+    "Documents"
+   ],
+   "href": "/hr-admin/documents",
+   "roles": [
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Documents",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/documents",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Documents",
+    "Employee Documents"
+   ],
+   "href": "/zoiko-hr/documents/employee-upload",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Documents",
+    "Company Documents"
+   ],
+   "href": "/zoiko-hr/documents/company-documents",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Documents",
+    "Approval Workflow"
+   ],
+   "href": "/zoiko-hr/documents/approvals",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Departments",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/departments",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Departments",
+    "Department List"
+   ],
+   "href": "/zoiko-hr/departments/list",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Departments",
+    "Structure"
+   ],
+   "href": "/zoiko-hr/departments/structure",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Departments",
+    "Reports"
+   ],
+   "href": "/zoiko-hr/departments/reports",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Departments",
+    "Settings"
+   ],
+   "href": "/zoiko-hr/departments/settings",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Designations",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/designations",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Designations",
+    "Designation List"
+   ],
+   "href": "/zoiko-hr/designations/list",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Designations",
+    "Level Matrix"
+   ],
+   "href": "/zoiko-hr/designations/levels",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Designations",
+    "Reports"
+   ],
+   "href": "/zoiko-hr/designations/reports",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Designations",
+    "Settings"
+   ],
+   "href": "/zoiko-hr/designations/settings",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Leave",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/leave",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Leave",
+    "Leave Requests"
+   ],
+   "href": "/zoiko-hr/leave/requests",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Leave",
+    "Calendar"
+   ],
+   "href": "/zoiko-hr/leave/calendar",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Leave",
+    "Reports"
+   ],
+   "href": "/zoiko-hr/leave/reports",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Attendance",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/attendance",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Attendance",
+    "Attendance Records"
+   ],
+   "href": "/zoiko-hr/attendance/daily",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Attendance",
+    "Holiday Calendar"
+   ],
+   "href": "/zoiko-hr/attendance/holidays",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Attendance",
+    "Attendance Analytics"
+   ],
+   "href": "/zoiko-hr/attendance/analytics",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Attendance",
+    "Time Requests"
+   ],
+   "href": "/zoiko-hr/attendance/time-requests",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/performance",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Goals & OKRs"
+   ],
+   "href": "/zoiko-hr/performance/goals",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Performance Reviews"
+   ],
+   "href": "/zoiko-hr/performance/reviews",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Appraisals"
+   ],
+   "href": "/zoiko-hr/performance/appraisals",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Performance Analytics"
+   ],
+   "href": "/zoiko-hr/performance/analytics",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Probation & PIPs"
+   ],
+   "href": "/zoiko-hr/performance/probation",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Performance",
+    "Employment Changes"
+   ],
+   "href": "/zoiko-hr/employee-changes",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/recruitment",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Job Requisitions"
+   ],
+   "href": "/zoiko-hr/recruitment/job-requisitions",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Candidates"
+   ],
+   "href": "/zoiko-hr/recruitment/candidates",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Interviews"
+   ],
+   "href": "/zoiko-hr/recruitment/interviews",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Offer Management"
+   ],
+   "href": "/zoiko-hr/recruitment/offers",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Recruitment",
+    "Offers Issued"
+   ],
+   "href": "/zoiko-hr/recruitment/offers-issued",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/onboarding",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "New Hires"
+   ],
+   "href": "/zoiko-hr/onboarding/new-hires",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Pre-Onboarding"
+   ],
+   "href": "/zoiko-hr/onboarding/pre-onboarding",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Documents"
+   ],
+   "href": "/zoiko-hr/onboarding/documents",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Checklists"
+   ],
+   "href": "/zoiko-hr/onboarding/checklists",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Orientation"
+   ],
+   "href": "/zoiko-hr/onboarding/orientation",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Reports"
+   ],
+   "href": "/zoiko-hr/onboarding/reports",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Payroll Verification"
+   ],
+   "href": "/zoiko-hr/onboarding/payroll-verifications",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Onboarding",
+    "Settings"
+   ],
+   "href": "/zoiko-hr/onboarding/settings",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Employee Management",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/employee-management",
+   "roles": [
+    "manager"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Employee Management",
+    "Employees"
+   ],
+   "href": "/zoiko-hr/employee-management/employees",
+   "roles": [
+    "manager"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Employee Management",
+    "Organization"
+   ],
+   "href": "/zoiko-hr/employee-management/organization",
+   "roles": [
+    "manager"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Employee Management",
+    "Lifecycle"
+   ],
+   "href": "/zoiko-hr/employee-management/lifecycle",
+   "roles": [
+    "manager"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Assets",
+    "Assets"
+   ],
+   "href": "/organization-admin/assets",
+   "roles": [
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Assets",
+    "Asset Requests"
+   ],
+   "href": "/organization-admin/assets/requests",
+   "roles": [
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Learning",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/learning",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Learning",
+    "Courses"
+   ],
+   "href": "/zoiko-hr/learning/courses",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Learning",
+    "Training Programs"
+   ],
+   "href": "/zoiko-hr/learning/training-programs",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Learning",
+    "Assessments"
+   ],
+   "href": "/zoiko-hr/learning/assessments",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Learning",
+    "Reports"
+   ],
+   "href": "/zoiko-hr/learning/reports",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/compensation",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Salary Structures"
+   ],
+   "href": "/zoiko-hr/compensation/salary-structures",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Pay Grades"
+   ],
+   "href": "/zoiko-hr/compensation/pay-grades",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Salary Components"
+   ],
+   "href": "/zoiko-hr/compensation/salary-components",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Compensation Bands"
+   ],
+   "href": "/zoiko-hr/compensation/bands",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Salary Revisions"
+   ],
+   "href": "/zoiko-hr/compensation/revisions",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Approvals & Letters"
+   ],
+   "href": "/zoiko-hr/compensation/approvals",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Allowances"
+   ],
+   "href": "/zoiko-hr/compensation/allowances",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Compensation",
+    "Benefits"
+   ],
+   "href": "/zoiko-hr/compensation/benefits",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "ESS",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/ess",
+   "roles": [
+    "manager",
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "ESS",
+    "Profile"
+   ],
+   "href": "/zoiko-hr/ess/profile",
+   "roles": [
+    "manager",
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "ESS",
+    "Leave Management"
+   ],
+   "href": "/zoiko-hr/ess/leave",
+   "roles": [
+    "manager",
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "ESS",
+    "Attendance"
+   ],
+   "href": "/zoiko-hr/ess/attendance",
+   "roles": [
+    "manager",
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "ESS",
+    "Learning"
+   ],
+   "href": "/zoiko-hr/ess/requests",
+   "roles": [
+    "manager",
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "ESS",
+    "Settings"
+   ],
+   "href": "/zoiko-hr/ess/settings",
+   "roles": [
+    "manager",
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Travel",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/travel",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Travel",
+    "Travel Requests"
+   ],
+   "href": "/zoiko-hr/travel/requests",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Travel",
+    "Approvals"
+   ],
+   "href": "/zoiko-hr/travel/approvals",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Travel",
+    "Expenses"
+   ],
+   "href": "/zoiko-hr/travel/expenses",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Travel",
+    "Settings"
+   ],
+   "href": "/zoiko-hr/travel/settings",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Dashboard"
+   ],
+   "href": "/zoiko-hr/workforce-planning",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Plans"
+   ],
+   "href": "/zoiko-hr/workforce-planning/plans",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Headcount"
+   ],
+   "href": "/zoiko-hr/workforce-planning/headcount",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Succession"
+   ],
+   "href": "/zoiko-hr/workforce-planning/succession",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Job Descriptions"
+   ],
+   "href": "/zoiko-hr/workforce-planning/job-descriptions",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "PRODUCTS",
+   "path": [
+    "Zoiko HR",
+    "Workforce Planning",
+    "Reports"
+   ],
+   "href": "/zoiko-hr/workforce-planning/reports",
+   "roles": [
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Profile",
+    "My Profile"
+   ],
+   "href": "/employee/profile",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Profile",
+    "Bank Details"
+   ],
+   "href": "/employee/profile/bank-details",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Profile",
+    "Asset Details"
+   ],
+   "href": "/employee/profile/assets",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Profile",
+    "Emergency Contacts"
+   ],
+   "href": "/employee/profile/emergency-contacts",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Profile",
+    "Security Settings"
+   ],
+   "href": "/employee/profile/settings",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "ESS",
+    "Dashboard"
+   ],
+   "href": "/employee/ess",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "ESS",
+    "Attendance"
+   ],
+   "href": "/employee/ess/attendance",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "ESS",
+    "Time Requests"
+   ],
+   "href": "/employee/ess/time-requests",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "ESS",
+    "My Compensation"
+   ],
+   "href": "/employee/compensation",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "ESS",
+    "My Performance"
+   ],
+   "href": "/employee/performance",
+   "roles": [
+    "employee"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "ESS",
+    "Settings"
+   ],
+   "href": "/employee/ess/settings",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Learning",
+    "Dashboard"
+   ],
+   "href": "/employee/learning",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Learning",
+    "Courses"
+   ],
+   "href": "/employee/learning/courses",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Learning",
+    "Training Programs"
+   ],
+   "href": "/employee/learning/training-programs",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Learning",
+    "Assessments"
+   ],
+   "href": "/employee/learning/assessments",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Leaves",
+    "My Leave"
+   ],
+   "href": "/employee/leaves",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Leaves",
+    "Apply Leave"
+   ],
+   "href": "/employee/leaves/apply",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Leaves",
+    "Leave Calendar"
+   ],
+   "href": "/employee/leaves/calendar",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Leaves",
+    "Leave History"
+   ],
+   "href": "/employee/leaves/history",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Company Documents"
+   ],
+   "href": "/employee/documents/company",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Documents to Action"
+   ],
+   "href": "/employee/documents/to-action",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Company Policies"
+   ],
+   "href": "/employee/documents/policies",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Awaiting My Signature"
+   ],
+   "href": "/employee/documents/signatory-queue",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "My Files"
+   ],
+   "href": "/employee/documents/my-files",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Payslips"
+   ],
+   "href": "/employee/documents/payslips",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Offer & Contracts"
+   ],
+   "href": "/employee/documents/contracts",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Documents",
+    "Tax & Compliance"
+   ],
+   "href": "/employee/documents/tax",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Travel",
+    "Dashboard"
+   ],
+   "href": "/employee/travel",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Travel",
+    "Travel Requests"
+   ],
+   "href": "/employee/travel/requests",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Travel",
+    "Approvals"
+   ],
+   "href": "/employee/travel/approvals",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Travel",
+    "Expenses"
+   ],
+   "href": "/employee/travel/expenses",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "MY WORKSPACE",
+   "path": [
+    "Travel",
+    "Settings"
+   ],
+   "href": "/employee/travel/settings",
+   "roles": [
+    "employee",
+    "manager"
+   ]
+  },
+  {
+   "section": "NOTIFICATIONS",
+   "path": [
+    "Notifications"
+   ],
+   "href": "/shared/notifications",
+   "roles": [
+    "employee",
+    "manager",
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "USER MANAGEMENT",
+   "path": [
+    "User Management"
+   ],
+   "href": "/hr-admin/settings",
+   "roles": [
+    "hr_admin"
+   ]
+  },
+  {
+   "section": "USER MANAGEMENT",
+   "path": [
+    "Assistant Knowledge"
+   ],
+   "href": "/hr-admin/assistant-knowledge",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "USER MANAGEMENT",
+   "path": [
+    "Support Tickets"
+   ],
+   "href": "/hr-admin/assistant-handoffs",
+   "roles": [
+    "hr_admin",
+    "admin"
+   ]
+  },
+  {
+   "section": "ADMINISTRATION",
+   "path": [
+    "User Management"
+   ],
+   "href": "/organization-admin/users",
+   "roles": [
+    "admin"
+   ]
+  }
+ ]
+}

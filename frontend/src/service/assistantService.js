@@ -9,10 +9,14 @@ export const deleteConversation = (id) => api.delete(`/assistant/conversations/$
 export const listTurns = (conversationId) => api.get(`/assistant/conversations/${conversationId}/turns`);
 
 // ── Turns ─────────────────────────────────────────────────────────────────
+// Creating a turn runs routing, the follow-up rewrite and retrieval before it
+// returns, so it gets more than the default 20s request budget.
+const TURN_TIMEOUT_MS = 60000;
+
 export const createTurn = (conversationId, text, subjectEmployeeId, attachmentId) =>
   api.post(`/assistant/conversations/${conversationId}/turns`, {
     text, subject_employee_id: subjectEmployeeId || undefined, attachment_id: attachmentId || undefined,
-  });
+  }, { timeoutMs: TURN_TIMEOUT_MS });
 export const getTurn = (turnId) => api.get(`/assistant/turns/${turnId}`);
 
 // ── Manager/delegated scope ──────────────────────────────────────────────────

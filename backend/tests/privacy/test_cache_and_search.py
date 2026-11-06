@@ -48,13 +48,16 @@ def test_T12_replaying_one_tenants_request_as_another_returns_that_tenants_data(
 
 
 def test_T12_assistant_retrieval_is_limited_to_the_callers_tenant():
-    """Retrieval is the caller's own tenant, plus platform-PUBLIC content only
-    (the product/company FAQ, which is already served to anonymous visitors on
-    zoikohr.com). It must never widen to another tenant's private content."""
+    """Retrieval is the caller's own tenant, plus the platform knowledge organization (the shared HR standard,
+    HR_PLATFORM_KNOWLEDGE_ORG_ID) and platform-PUBLIC content (the product/company FAQ, already served to anonymous
+    visitors on zoikohr.com). It must never widen to another tenant's private content."""
     import inspect
     from app.modules.assistant import retrieval_service
-    src = inspect.getsource(retrieval_service.retrieve)
-    assert "KnowledgeSource.organization_id == organization_id" in src
+    assert "eligible_version_ids(" in inspect.getsource(retrieval_service.retrieve)
+    src = inspect.getsource(retrieval_service.eligible_version_ids)
+    # exactly the caller's organization plus the one configured platform organization
+    assert "visible_orgs = {organization_id} | ({platform_org} if platform_org else set())" in src
+    assert "KnowledgeSource.organization_id.in_(visible_orgs)" in src
     # the only other evidence source is explicitly public content
     assert "KnowledgeSource.is_public.is_(True)" in src
 

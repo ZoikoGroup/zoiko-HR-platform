@@ -36,27 +36,59 @@ def _get_client() -> Groq:
 
 
 class ModelRunResult:
-    def __init__(self, text: str, prompt_tokens: int | None, completion_tokens: int | None, latency_ms: int):
+    def __init__(self, text: str, prompt_tokens: int | None, completion_tokens: int | None, latency_ms: int,
+                 model: str | None = None):
         self.text = text
         self.prompt_tokens = prompt_tokens
         self.completion_tokens = completion_tokens
         self.latency_ms = latency_ms
+        self.model = model or settings.GROQ_MODEL
 
 
-def generate(messages: list[dict], json_mode: bool = False, temperature: float = 0.2) -> ModelRunResult:
+def _model_kwargs(model: str) -> dict:
+    """Per-model request options. gpt-oss models reason before their first
+    visible token; a low effort keeps time-to-first-token inside the
+    architecture spec's 2.5s budget."""
+    if model.startswith("openai/gpt-oss") and settings.GROQ_REASONING_EFFORT:
+        return {"reasoning_effort": settings.GROQ_REASONING_EFFORT}
+    return {}
+
+
+def _create_with_fallback(kwargs: dict):
+    """Model gateway retry (architecture spec: approved model routing,
+    timeout/retry, provider fallback): one retry on the fallback model when
+    the main model fails before any output. Returns (completion, model)."""
+    client = _get_client()
+    model = kwargs["model"]
+    try:
+        return client.chat.completions.create(**kwargs, **_model_kwargs(model)), model
+    except Exception as e:
+        fallback = settings.GROQ_FALLBACK_MODEL
+        if not fallback or fallback == model:
+            raise
+        logger.warning("Model %s failed (%s); retrying on %s", model, e, fallback)
+        return client.chat.completions.create(**{**kwargs, "model": fallback}, **_model_kwargs(fallback)), fallback
+
+
+def generate(messages: list[dict], json_mode: bool = False, temperature: float = 0.2,
+             model: str | None = None, max_tokens: int | None = None,
+             timeout: float | None = None) -> ModelRunResult:
     """Single non-streaming completion. Raises on any provider failure —
     callers must catch and degrade (never fabricate an answer on error)."""
-    client = _get_client()
     start = time.monotonic()
     kwargs = {
-        "model": settings.GROQ_MODEL,
+        "model": model or settings.GROQ_MODEL,
         "messages": scrub_messages(messages),          # ZHR-PRIV-001 D07: tokens, e-mail and bank / tax / national ids never reach the provider
         "temperature": temperature,
     }
     if json_mode:
         kwargs["response_format"] = {"type": "json_object"}
+    if max_tokens is not None:
+        kwargs["max_tokens"] = max_tokens
+    if timeout is not None:
+        kwargs["timeout"] = timeout
 
-    completion = client.chat.completions.create(**kwargs)
+    completion, used_model = _create_with_fallback(kwargs)
     latency_ms = int((time.monotonic() - start) * 1000)
 
     choice = completion.choices[0]
@@ -66,6 +98,7 @@ def generate(messages: list[dict], json_mode: bool = False, temperature: float =
         prompt_tokens=getattr(usage, "prompt_tokens", None) if usage else None,
         completion_tokens=getattr(usage, "completion_tokens", None) if usage else None,
         latency_ms=latency_ms,
+        model=used_model,
     )
 
 
@@ -94,13 +127,12 @@ def generate_json(messages: list[dict], temperature: float = 0.2) -> tuple[dict,
 def stream(messages: list[dict], temperature: float = 0.2):
     """Yield text deltas as they arrive. Caller is responsible for persisting
     the final assembled text once the stream ends."""
-    client = _get_client()
-    completion = client.chat.completions.create(
-        model=settings.GROQ_MODEL,
-        messages=scrub_messages(messages),
-        temperature=temperature,
-        stream=True,
-    )
+    completion, _ = _create_with_fallback({
+        "model": settings.GROQ_MODEL,
+        "messages": scrub_messages(messages),
+        "temperature": temperature,
+        "stream": True,
+    })
     for chunk in completion:
         delta = chunk.choices[0].delta
         if delta and delta.content:
@@ -131,7 +163,6 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
     max_tokens defaults to None (no cap, matching prior behavior for the
     authenticated flow) — the public assistant passes an explicit cap since
     it's reachable by anyone on the internet, not just logged-in employees."""
-    client = _get_client()
     start = time.monotonic()
     kwargs = {
         "model": settings.GROQ_MODEL,
@@ -141,7 +172,7 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    completion = client.chat.completions.create(**kwargs)
+    completion, used_model = _create_with_fallback(kwargs)
 
     raw = ""
     emitted_len = 0
@@ -172,7 +203,8 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
             emitted_len = delim_idx
 
     latency_ms = int((time.monotonic() - start) * 1000)
-    result = ModelRunResult(text=raw, prompt_tokens=None, completion_tokens=None, latency_ms=latency_ms)
+    result = ModelRunResult(text=raw, prompt_tokens=None, completion_tokens=None, latency_ms=latency_ms,
+                            model=used_model)
 
     if delim_idx is not None:
         answer_text = raw[:delim_idx].strip()

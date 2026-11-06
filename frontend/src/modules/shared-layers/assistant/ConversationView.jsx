@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Loader2, X, ChevronRight, ArrowRight, ArrowDown, ArrowLeft, ShieldCheck, LayoutGrid,
-  CalendarDays, BookOpen, CalendarPlus, Clock, LifeBuoy,
+  CalendarDays, BookOpen, CalendarPlus, Clock, LifeBuoy, Wallet, Receipt, Laptop, UserPlus, Globe,
 } from "lucide-react";
 import zoikoHrIcon from "../../../assets/zoikohr-icon-svg.svg";
 import zoikoHrLogo from "../../../assets/zoikohr-logo-svg.svg";
@@ -25,6 +25,19 @@ const TASK_CARDS = [
   { id: "TC-02", title: "HR Policies", subtext: "Ask about approved company policies", query: "What is the annual leave policy?", Icon: BookOpen, tone: "bg-[#E4F5EC] text-[#15803D]" },
   { id: "TC-03", title: "Request Time Off", subtext: "Book leave in a few guided steps", query: "I want to request annual leave", Icon: CalendarPlus, tone: "bg-[#F1EAFE] text-[#7C3AED]" },
   { id: "TC-04", title: "My Attendance", subtext: "See today's clock-in status", query: "Have I clocked in today?", Icon: Clock, tone: "bg-[#FFEFE3] text-[#C2410C]" },
+];
+
+// One entry per HR policy domain the backend classifies
+// (assistant/policy_domains.py). Each question routes to policy_qa and is
+// answered from the organization's approved knowledge sources.
+const POLICY_TOPICS = [
+  { id: "leave", label: "Leave & Attendance", query: "What is the sick leave policy?", Icon: CalendarDays },
+  { id: "benefits", label: "Benefits & Pay", query: "What benefits am I eligible for?", Icon: Wallet },
+  { id: "expenses", label: "Expenses", query: "What receipts do I need for an expense claim?", Icon: Receipt },
+  { id: "remote", label: "Remote Work", query: "What is the work from home policy?", Icon: Laptop },
+  { id: "lifecycle", label: "Joining & Leaving", query: "What is the notice period if I resign?", Icon: UserPlus },
+  { id: "conduct", label: "Code of Conduct", query: "What does the code of conduct say about gifts?", Icon: BookOpen },
+  { id: "compliance", label: "Local Rules", query: "Which workplace policies apply to my location?", Icon: Globe },
 ];
 
 const STARTER_PROMPTS = [
@@ -259,7 +272,7 @@ export default function ConversationView({
                     Hi! I’m the Zoiko HR Assistant.
                   </h3>
                   <p className="mt-2 text-[15px] leading-relaxed text-[var(--zhr-text-secondary)]">
-                    I can help you with leave, attendance, company policies and HR requests — or connect you with your HR team.
+                    I can help with leave, benefits, expenses, remote work, joining and leaving, conduct and other company policies — or connect you with your HR team.
                   </p>
                 </div>
               </div>
@@ -289,6 +302,28 @@ export default function ConversationView({
                   </li>
                 ))}
               </ul>
+
+              {/* HR policy domains */}
+              <section aria-labelledby="zhr-policy-topics-heading" className="flex flex-col gap-2">
+                <h4 id="zhr-policy-topics-heading" className="text-[13px] font-semibold text-[var(--zhr-text-secondary)]">
+                  Browse policies by topic
+                </h4>
+                <ul className="flex flex-wrap gap-2">
+                  {POLICY_TOPICS.map(({ id, label, query, Icon }) => (
+                    <li key={id}>
+                      <button
+                        type="button"
+                        disabled={!ready}
+                        onClick={() => submit(query)}
+                        className={`inline-flex min-h-[36px] items-center gap-1.5 rounded-full border border-[var(--zhr-chat-border)] bg-white px-3.5 text-[13px] font-semibold text-[var(--zhr-chat-navy)] transition-colors hover:border-[var(--zhr-chat-blue)] hover:bg-[var(--zhr-chat-surface-alt)] disabled:cursor-wait disabled:opacity-60 ${FOCUS_RING}`}
+                      >
+                        <Icon className="h-4 w-4 text-[var(--zhr-chat-blue)]" aria-hidden="true" />
+                        {label}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
 
               {/* CH-04 Welcome + CH-05 starter prompts */}
               <div className="flex flex-col gap-3">

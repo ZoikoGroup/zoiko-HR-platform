@@ -159,6 +159,22 @@ class Settings(BaseSettings):
     # is the current flagship general-purpose chat model with reliable JSON
     # mode. Re-verify against `client.models.list()` before changing this.
     GROQ_MODEL: str = Field(default="openai/gpt-oss-120b", validation_alias="HR_GROQ_MODEL")
+    # Small model for bounded helper calls (follow-up query rewrite) and the
+    # fallback when the main model errors before streaming starts.
+    GROQ_FAST_MODEL: str = Field(default="openai/gpt-oss-20b", validation_alias="HR_GROQ_FAST_MODEL")
+    GROQ_FALLBACK_MODEL: str = Field(default="openai/gpt-oss-20b", validation_alias="HR_GROQ_FALLBACK_MODEL")
+    # gpt-oss models think before their first visible token; "low" measured
+    # ~0.17s to first token vs ~0.75s at the provider default. Ignored for
+    # models without reasoning.
+    GROQ_REASONING_EFFORT: str = Field(default="low", validation_alias="HR_GROQ_REASONING_EFFORT")
+    # Prior turns sent to the model as conversation context (Prompt/Guardrail
+    # spec: bounded, delimited as data). 0 disables memory.
+    ASSISTANT_CONTEXT_TURNS: int = Field(default=4, validation_alias="HR_ASSISTANT_CONTEXT_TURNS")
+    # When the organization has no approved content for an HR question, answer
+    # with clearly labelled general HR guidance (never stated as company
+    # policy) instead of only "no reliable answer". False restores strict
+    # evidence-only answering.
+    ASSISTANT_GENERAL_GUIDANCE: bool = Field(default=True, validation_alias="HR_ASSISTANT_GENERAL_GUIDANCE")
     EMBEDDING_MODEL: str = Field(default="BAAI/bge-small-en-v1.5", validation_alias="HR_EMBEDDING_MODEL")
 
     # ── Real e-mail addresses only (app/core/email_quality.py, employee/service verification) ─────────
@@ -284,6 +300,11 @@ class Settings(BaseSettings):
     # to (both organization_id columns are NOT NULL). Set after running
     # scripts/seed_public_assistant.py. 0 disables the public endpoint.
     PUBLIC_ORG_ID: int = Field(default=0, validation_alias="HR_PUBLIC_ORG_ID")
+    # Organization whose PUBLISHED knowledge is the platform-wide HR standard
+    # every organization's assistant answers from (scripts/seed_real_policy_docs.py
+    # loads docs/new_docs there once). Not public: never served to the
+    # zoikohr.com visitor assistant. 0 disables platform-wide knowledge.
+    PLATFORM_KNOWLEDGE_ORG_ID: int = Field(default=0, validation_alias="HR_PLATFORM_KNOWLEDGE_ORG_ID")
 
 
 settings = Settings()

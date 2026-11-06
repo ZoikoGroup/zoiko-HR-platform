@@ -14,14 +14,17 @@ import re
 from sqlalchemy.orm import Session, joinedload
 
 from app.config import settings
-from app.modules.assistant import llm_client, retrieval_service, guardrails, audit_service, safety_service, risk_classification
+from app.modules.assistant import (
+    llm_client, retrieval_service, guardrails, audit_service, safety_service, risk_classification, policy_domains,
+    context_service, platform_guide,
+)
 from app.modules.assistant.models import (
     ChatTurn, ChatResponse, ChatModelRun, ChatRetrievalRun, ChatRetrievalHit,
     ChatResponseProvenance, TurnStatus, AnswerType, ConfidenceState,
     ProvenanceSourceType, EligibilityState,
 )
 from app.modules.hr import attendance_service
-from app.modules.hr.models import Employee, EmployeeStatus, Department
+from app.modules.hr.models import Employee, EmployeeStatus, Department, Holiday, LeaveRequest
 
 logger = logging.getLogger("zoiko.assistant")
 
@@ -30,7 +33,14 @@ logger = logging.getLogger("zoiko.assistant")
 # production configuration). Stamped onto every safety/audit event for
 # observability, not stored per-turn (no schema change to already-live
 # tables required for that).
-PROMPT_VERSION = "zhr-system-1.1.0"
+PROMPT_VERSION = "zhr-system-1.4.0"
+
+# Intents a rewritten follow-up may be re-routed to. Only handlers that don't
+# read the message text — the rewrite decides WHICH record is read, never
+# what the handler is told. ("how many do I have left?" after a leave
+# question → leave_balance.)
+_CONTEXT_REROUTABLE_INTENTS = frozenset({"leave_balance", "attendance_status", "org_headcount", "leave_status",
+                                         "my_profile", "holidays"})
 
 # See _answer_policy_qa: once an uploaded attachment exists in the
 # conversation, a KB match has to clear this (materially higher than
@@ -46,7 +56,9 @@ _LEAVE_BOOKING_ACTION_RE = re.compile(r"\b(book|request|apply for)\b.*\bleave\b"
 _LEAVE_TAKE_RE = re.compile(r"\btake\b.*\bleave\b", re.IGNORECASE)
 _LEAVE_POLICY_QUESTION_RE = re.compile(
     r"\b(can|could|may)\s+i\b|\bam\s+i\s+(able|allowed|eligible)\b|\bis\s+it\s+possible\b"
-    r"|\bduring\s+(my|the)\b|\bprobation\b",
+    r"|\bduring\s+(my|the)\b|\bprobation\b"
+    # a question about someone else ("Can my manager see ... when I take sick leave?") is never a booking
+    r"|^\s*(can|could|may|will|does|do|is|are|what|how|who)\s+(my|the|a|an|our|your|he|she|they|someone|anyone|hr)\b",
     re.IGNORECASE,
 )
 
@@ -62,6 +74,9 @@ _LEAVE_TIME_OFF_RE = re.compile(
 
 
 def _is_leave_booking(text: str) -> bool:
+    # "Where do I apply for leave?" asks for a screen, not to start a booking.
+    if _NAV_WHERE_RE.search(text):
+        return False
     if _LEAVE_BOOKING_ACTION_RE.search(text):
         return True
     if _LEAVE_TIME_OFF_RE.search(text) and not _LEAVE_POLICY_QUESTION_RE.search(text):
@@ -94,7 +109,9 @@ _LEAVE_BALANCE_RE = re.compile(
 # treat it as a policy question even though _LEAVE_BALANCE_RE also matched.
 _LEAVE_POLICY_OVERRIDE_RE = re.compile(
     r"\bpolicy\b|\baccrue\w*\b|\bcarr(?:y|ied)\s+forward\b|\ballowed for\b"
-    r"|\b(do|does|are)\s+employees\b|\bemployees\s+(accrue|receive|get)\b",
+    r"|\b(do|does|are)\s+employees\b|\bemployees\s+(accrue|receive|get)\b"
+    # "I have no sick days left, can I still take time off?" asks what is allowed, not for the balance
+    r"|\bcan\s+i\s+(still\s+)?(take|get|use|have)\b|\b(no|zero)\s+(\w+\s+)?(days?|leaves?|balance)\s+left\b",
     re.IGNORECASE,
 )
 _ATTENDANCE_RE = re.compile(
@@ -102,6 +119,28 @@ _ATTENDANCE_RE = re.compile(
     r"|\blate\s+marks?\b|\blate\s+comings?\b|\btardiness\b|\bam i late\b|\bwas i late\b",
     re.IGNORECASE,
 )
+# The organization's holiday list ("upcoming holidays", "when is the next holiday?"), not the holiday POLICY.
+_HOLIDAYS_RE = re.compile(
+    r"\b(upcoming|next|list|show|remaining|when\s+is|when\s+are|what\s+are|which\s+are|any)\b.{0,30}\b(public\s+)?holidays?\b"
+    r"|\bholidays?\b.{0,20}\b(this|next)\s+(year|month|week)\b|\bholiday\s+(list|calendar)\b",
+    re.IGNORECASE,
+)
+# The status of the asker's own leave requests (not booking, not the balance).
+_LEAVE_STATUS_RE = re.compile(
+    r"\b(is|has|was|were|are)\s+my\b.{0,30}\bleaves?\b.{0,20}\b(approved|rejected|declined|pending|accepted|cancell?ed)\b"
+    r"|\bstatus\s+of\s+my\b.{0,20}\bleaves?\b|\bmy\s+leave\s+(request\s+)?status\b|\bmy\s+(pending|recent|past|previous)\s+leaves?\b"
+    r"|\bmy\s+leave\s+requests?\b",
+    re.IGNORECASE,
+)
+# The asker's own work profile facts.
+_MY_PROFILE_RE = re.compile(
+    r"\bwho\s+is\s+my\s+(reporting\s+)?(manager|supervisor|boss|team\s+lead|lead)\b"
+    r"|\bmy\s+(department|designation|job\s+title|employee\s+(id|code|number)|joining\s+date|date\s+of\s+joining|"
+    r"reporting\s+manager|work\s+email|employment\s+type)\b"
+    r"|\bwhen\s+did\s+i\s+join\b|\bwhat\s+is\s+my\s+(role|position|title)\b",
+    re.IGNORECASE,
+)
+
 _HANDOFF_RE = re.compile(
     r"\bspeak (to|with)\b.*\bhr\b|\btalk to a human\b|\bcontact hr\b"
     r"|\b(connect|transfer|put)\s+me\s+(to|with|through to)\b.*\bhr\b"
@@ -195,7 +234,11 @@ _ROSTER_LIMIT = 100
 
 
 def _nav_destination(text: str):
-    """First (menu, route) whose cue appears in `text`, or None."""
+    """(menu, route) for `text`: the platform's real menu first (any role —
+    routing only needs to know a screen exists), then the curated cues."""
+    screen, _ = platform_guide.find_screen(text)
+    if screen:
+        return " → ".join(screen["path"]), screen["href"]
     for pattern, menu, route in _NAV_DESTINATIONS:
         if pattern.search(text):
             return menu, route
@@ -227,7 +270,9 @@ _ACK_RE = re.compile(r"^\s*(ok(ay)?|cool|great|nice|sounds good|got it|perfect|s
 _FAREWELL_RE = re.compile(r"^\s*(bye|goodbye|see you|see ya|take care|good night)\b[\s!.,]*$", re.IGNORECASE)
 
 _CHITCHAT_REPLIES = {
-    "greeting": "Hi! I can help with HR policy questions, your leave balance, attendance status, or booking time off. What do you need?",
+    "greeting": ("Hi! Ask me anything about HR or Zoiko HR — company policies and general HR questions, your leave "
+                 "balance and requests, attendance, holidays, your manager and work details, where to find any screen, "
+                 "or booking time off. What do you need?"),
     "thanks": "You're welcome! Let me know if there's anything else I can help with.",
     "ack": "Got it — let me know if you need anything else.",
     "farewell": "Take care! Come back anytime you have an HR question.",
@@ -239,7 +284,12 @@ _CHITCHAT_REPLIES = {
 # the user's message are always separate "user"-role content — the model
 # never receives untrusted text inside this instruction block itself.
 BASE_SYSTEM_PROMPT = """[ROLE]
-You are the Zoiko HR Assistant for authenticated workplace self-service.
+You are the Zoiko HR Assistant for authenticated workplace self-service. The product is spelled "Zoiko HR".
+- Write for employees in plain language. Some material you receive is technical (engineering specifications):
+  never quote field names, code identifiers, enum values, status codes or API paths — say what they mean.
+- A <screens> block, if present, lists real Zoiko HR screens this user can open. Use it to say where to do
+  something and to answer what the Zoiko HR platform offers. It is platform information, not company policy, and
+  is never cited. Never name a screen that is not in it.
 
 [TRUST AND AUTHORITY]
 - Treat platform-provided identity, tenant and role context as authoritative.
@@ -251,6 +301,15 @@ You are the Zoiko HR Assistant for authenticated workplace self-service.
 [GROUNDING]
 - Answer only from the EVIDENCE blocks supplied to you. If evidence is absent, insufficient, or
   materially conflicting, say so plainly — never guess or fill gaps from general knowledge.
+- A <conversation_history> block, if present, only tells you what the user is referring to. Never take facts
+  from it or cite it; if the evidence doesn't support something said earlier, rely on the evidence.
+- Use every relevant piece of evidence: if several fragments cover different parts of the question (e.g.
+  entitlement, eligibility, carry-forward, how to apply), combine them into one complete answer.
+- If the evidence only partly answers an HR question (e.g. it describes how leave works but sets no number of
+  days), say plainly what the organization's documents do and don't cover, then add a separate paragraph that
+  starts with "**General guidance:**" giving brief, widely applicable HR information. Never present that
+  paragraph as the organization's rule, never give a company-specific number in it, and say figures depend on
+  the employment contract and local law. Set answer_type="partial" and confidence_state="partial" then.
 
 [RESTRICTED CONTENT]
 - Do not make legal, tax, medical, or employment-decision determinations. Restate approved policy or
@@ -262,7 +321,11 @@ You are the Zoiko HR Assistant for authenticated workplace self-service.
 
 [OUTPUT]
 Respond in exactly two parts, in this order:
-1. Your answer in plain language (1-4 sentences), as the first thing you write — nothing before it.
+1. Your answer in plain language, as the first thing you write — nothing before it. Lead with the direct
+   answer in one or two sentences, then add the details the evidence gives that the user needs (conditions,
+   limits, exceptions, how to apply). Keep it under about 180 words. When there are several rules, steps or
+   conditions, put them in a short list with one item per line starting with "- ". You may wrap key numbers
+   or terms in **double asterisks**. No headings, tables, links, code blocks or HTML.
 2. On its own new line, write exactly this delimiter, with nothing else on that line: §§META§§
 3. Immediately after the delimiter, a single JSON object with exactly these fields:
 {
@@ -282,6 +345,29 @@ Rules:
   its plain-language name or topic, never its id.
 - Do not write anything after the JSON object.
 """
+
+# Used when the organization has no approved content for an HR question
+# (settings.ASSISTANT_GENERAL_GUIDANCE). Same trust, confidentiality and output
+# contract as BASE_SYSTEM_PROMPT; only the grounding section differs.
+GENERAL_GUIDANCE_PROMPT = BASE_SYSTEM_PROMPT.split("[GROUNDING]")[0] + """[GENERAL GUIDANCE MODE]
+- The organization has not published any policy or knowledge that covers this question, so there is no evidence.
+  Help with general, widely applicable HR and workplace information, and how-to help with the Zoiko HR platform.
+- Start your answer with: "Your organization hasn't published a policy on this, so here's general guidance:" —
+  then answer. Never present anything as this organization's rule, entitlement or decision.
+- Don't state company-specific numbers (days, amounts, deadlines). Where law sets figures, say they depend on the
+  country/state and the employment contract, give at most a clearly-labelled common example, and recommend
+  confirming with HR.
+- Name Zoiko HR screens only from the <screens> block; if none fits, suggest the left menu or 'Talk to HR'.
+- If the question is not about HR, work, employment or the Zoiko HR platform, don't use the opening sentence above:
+  just say briefly that you can help with HR and Zoiko HR questions only, and set answer_type="no_answer".
+- If an <already_said> block is present, the user has just been given that answer. Add the general guidance it
+  doesn't already contain. If it only says the information isn't available, you MUST give general guidance. Write
+  exactly NONE only when it already explains the topic fully in general terms.
+- End with one short next step (a screen from <screens>, or 'Talk to HR' to confirm the company's position).
+""" + "\n[CONFIDENTIALITY]" + BASE_SYSTEM_PROMPT.split("[CONFIDENTIALITY]")[1].replace(
+    "cited_fragment_ids must only contain ids that appear in the <evidence id=\"...\"> tags given to you.",
+    "cited_fragment_ids must be [] — there is no evidence in this mode.",
+)
 
 _SENSITIVE_CASE_CLAUSE = """
 [SENSITIVE CASE HANDLING]
@@ -317,8 +403,14 @@ def classify_intent(text: str) -> str:
     doc_intent = document_intents.classify(text)
     if doc_intent:
         return doc_intent
+    if _LEAVE_STATUS_RE.search(text):
+        return "leave_status"
     if _is_leave_booking(text):
         return "book_leave"
+    if _MY_PROFILE_RE.search(text):
+        return "my_profile"
+    if _HOLIDAYS_RE.search(text) and not re.search(r"\bpolicy\b", text, re.IGNORECASE):
+        return "holidays"
     if _LEAVE_BALANCE_RE.search(text) and not _LEAVE_POLICY_OVERRIDE_RE.search(text):
         return "leave_balance"
     if _ATTENDANCE_RE.search(text):
@@ -342,17 +434,31 @@ def apply_hard_block_if_needed(db: Session, turn: ChatTurn, employee) -> bool:
     an adverse-employment recommendation request, or third-party medical/
     disability inference — the turn is finalized with a fixed safe response
     and generation never runs. Returns True if the turn was finalized."""
-    risk = risk_classification.classify(turn.user_input_text)
-    if not risk or risk.mode != risk_classification.HARD_BLOCK:
+    block = _restricted_category(turn.user_input_text)
+    if not block:
         return False
-
-    turn.status = TurnStatus.CLASSIFYING
-    turn.intent = f"restricted:{risk.category}"
-    db.flush()
-    safety_service.record(db, turn.organization_id, f"restricted_category:{risk.category}",
-                           turn_id=turn.id, employee_id=employee.id)
-    _finalize(db, turn, risk.safe_message, AnswerType.RESTRICTED, ConfidenceState.RESTRICTED)
+    _finalize_restricted(db, turn, employee, *block)
     return True
+
+
+def _restricted_category(text: str) -> tuple[str, str] | None:
+    """(category, fixed safe message) if `text` hits a hard-block category."""
+    risk = risk_classification.classify(text)
+    if risk and risk.mode == risk_classification.HARD_BLOCK:
+        return risk.category, risk.safe_message
+    # Decision requests the HR policy-domain specs reserve to authorized
+    # human workflows (dismissal, leave denial, pay awards, claim approval,
+    # concealing a work location, covert monitoring).
+    return policy_domains.decision_block(text)
+
+
+def _finalize_restricted(db: Session, turn: ChatTurn, employee, category: str, safe_message: str) -> ChatTurn:
+    turn.status = TurnStatus.CLASSIFYING
+    turn.intent = f"restricted:{category}"
+    db.flush()
+    safety_service.record(db, turn.organization_id, f"restricted_category:{category}",
+                           turn_id=turn.id, employee_id=employee.id)
+    return _finalize(db, turn, safe_message, AnswerType.RESTRICTED, ConfidenceState.RESTRICTED)
 
 
 def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTurn:
@@ -371,6 +477,23 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
     db.flush()
 
     intent = classify_intent(turn.user_input_text)
+
+    # Follow-ups ("what about part-timers?", "and for sick leave?") only make
+    # sense with the earlier turns: resolve them into a standalone question
+    # before routing and retrieval (architecture spec: "user question + safe
+    # rewrite"). The rewrite is re-checked against every hard block, so a
+    # restricted request can't be assembled across turns.
+    query = turn.user_input_text
+    if intent == "policy_qa":
+        query = context_service.standalone_query(query, context_service.recent_history(db, turn))
+        if query != turn.user_input_text:
+            block = _restricted_category(query)
+            if block:
+                return _finalize_restricted(db, turn, employee, *block)
+            rerouted = classify_intent(query)
+            if rerouted in _CONTEXT_REROUTABLE_INTENTS:
+                intent = rerouted
+
     turn.intent = intent
     db.flush()
 
@@ -398,6 +521,12 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
         return _answer_leave_balance(db, turn, subject)
     if intent == "attendance_status":
         return _answer_attendance_status(db, turn, subject)
+    if intent == "leave_status":
+        return _answer_leave_status(db, turn, subject)
+    if intent == "my_profile":
+        return _answer_my_profile(db, turn, subject)
+    if intent == "holidays":
+        return _answer_holidays(db, turn)
     if intent == "handoff_request":
         return _answer_handoff_prompt(db, turn)
     if intent == "org_headcount":
@@ -407,12 +536,28 @@ def process_turn(db: Session, turn: ChatTurn, employee, subject=None) -> ChatTur
     if intent == "department_directory":
         return _answer_department_directory(db, turn)
     if intent == "navigation_help":
-        return _answer_navigation_help(db, turn)
+        return _answer_navigation_help(db, turn, employee)
+
+    # Policy questions are tagged with their HR domain (leave, benefits,
+    # expenses, remote work, onboarding/offboarding, handbook, compliance) for
+    # analytics; tool authorization above already ran against "policy_qa".
+    assessment = policy_domains.assess(query)
+    if assessment.domain:
+        turn.intent = f"policy_qa:{assessment.domain.key}"
+        db.flush()
+    if assessment.tier == policy_domains.PERSONAL:
+        # The employee's own pay/claim/onboarding record: point to the screen
+        # that holds it rather than guessing from policy text.
+        return _finalize(db, turn, assessment.personal_answer, AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
+    if assessment.tier == policy_domains.DISPUTE:
+        safety_service.record(db, turn.organization_id, "policy_dispute", turn_id=turn.id, employee_id=employee.id,
+                               detail={"domain": assessment.domain.key if assessment.domain else None})
 
     risk = risk_classification.classify(turn.user_input_text)
     sensitive = bool(risk and risk.category == "sensitive_case")
     professional = bool(risk and risk.category == "professional_advice")
-    return _answer_policy_qa(db, turn, employee, sensitive=sensitive, professional=professional)
+    return _answer_policy_qa(db, turn, employee, sensitive=sensitive, professional=professional,
+                             assessment=assessment, query=query)
 
 
 def _finalize(db: Session, turn: ChatTurn, answer_text: str, answer_type: AnswerType,
@@ -496,6 +641,89 @@ def _answer_attendance_status(db: Session, turn: ChatTurn, subject) -> ChatTurn:
     return _finalize(db, turn, answer, AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
                       provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
                                    "hr_record_ref": f"attendance_records:employee_id={subject.id}"}])
+
+
+def _answer_leave_status(db: Session, turn: ChatTurn, subject) -> ChatTurn:
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+    is_self = subject.id == turn.employee_id
+    requests = (
+        db.query(LeaveRequest)
+        .filter(LeaveRequest.organization_id == turn.organization_id, LeaveRequest.employee_id == subject.id)
+        .order_by(LeaveRequest.created_at.desc())
+        .limit(5)
+        .all()
+    )
+    if not requests:
+        who = "You haven't" if is_self else f"{subject.full_name} hasn't"
+        return _finalize(db, turn, f"{who} made any leave requests yet. You can apply under Leaves → Apply Leave.",
+                          AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
+
+    def _val(v):
+        return str(getattr(v, "value", v) or "").replace("_", " ")
+
+    lines = [
+        f"- {_val(r.leave_type).title()} leave, {r.start_date:%d %b %Y}"
+        + (f" – {r.end_date:%d %b %Y}" if r.end_date and r.end_date != r.start_date else "")
+        + (f" ({r.days:g} day{'s' if r.days != 1 else ''})" if r.days else "")
+        + f": **{_val(r.status).title()}**"
+        for r in requests
+    ]
+    lead = "Your most recent leave requests:" if is_self else f"{subject.full_name}'s most recent leave requests:"
+    return _finalize(db, turn, f"{lead}\n" + "\n".join(lines), AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+                      provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
+                                   "hr_record_ref": f"leave_requests:employee_id={subject.id}"}])
+
+
+def _answer_my_profile(db: Session, turn: ChatTurn, subject) -> ChatTurn:
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+    is_self = subject.id == turn.employee_id
+    department = db.get(Department, subject.department_id) if subject.department_id else None
+    manager = db.get(Employee, subject.reporting_manager_id) if subject.reporting_manager_id else None
+    designation = getattr(subject, "designation", None)
+    facts = [
+        ("Job title", getattr(designation, "title", None) or subject.job_title),
+        ("Department", getattr(department, "name", None)),
+        ("Reporting manager", getattr(manager, "full_name", None)),
+        ("Employee code", subject.employee_code),
+        ("Date of joining", f"{subject.date_of_joining:%d %b %Y}" if subject.date_of_joining else None),
+        ("Employment type", str(getattr(subject.employment_type, "value", subject.employment_type) or "").replace("_", " ").title() or None),
+        ("Work email", subject.work_email),
+    ]
+    known = [f"- {label}: {value}" for label, value in facts if value]
+    if not known:
+        who = "Your" if is_self else f"{subject.full_name}'s"
+        return _finalize(db, turn, f"{who} work profile has no details filled in yet — HR can update it.",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+    lead = "Here are your work details:" if is_self else f"Here are {subject.full_name}'s work details:"
+    tail = "\nTo correct anything, see Profile → My Profile or contact HR." if is_self else ""
+    return _finalize(db, turn, f"{lead}\n" + "\n".join(known) + tail, AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+                      provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
+                                   "hr_record_ref": f"employees:id={subject.id}"}])
+
+
+def _answer_holidays(db: Session, turn: ChatTurn) -> ChatTurn:
+    """The organization's upcoming holidays — org-wide reference data, like the directory."""
+    import datetime
+    turn.status = TurnStatus.RETRIEVING
+    db.flush()
+    holidays = (
+        db.query(Holiday)
+        .filter(Holiday.organization_id == turn.organization_id, Holiday.is_active.is_(True),
+                Holiday.date >= datetime.date.today())
+        .order_by(Holiday.date)
+        .limit(10)
+        .all()
+    )
+    if not holidays:
+        return _finalize(db, turn, "Your organization hasn't added any upcoming holidays in Zoiko HR yet — HR can add "
+                                   "them under Attendance → Holiday Calendar.",
+                          AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER)
+    lines = [f"- {h.date:%a %d %b %Y}: {h.name}" for h in holidays]
+    return _finalize(db, turn, "Upcoming holidays:\n" + "\n".join(lines), AnswerType.GROUNDED, ConfidenceState.SUPPORTED,
+                      provenance=[{"source_type": ProvenanceSourceType.HR_RECORD,
+                                   "hr_record_ref": f"holidays:organization_id={turn.organization_id}"}])
 
 
 def _answer_org_headcount(db: Session, turn: ChatTurn) -> ChatTurn:
@@ -595,10 +823,15 @@ def _answer_employee_roster(db: Session, turn: ChatTurn) -> ChatTurn:
                                    "hr_record_ref": f"employees:organization_id={turn.organization_id}"}])
 
 
-def _answer_navigation_help(db: Session, turn: ChatTurn) -> ChatTurn:
+def _answer_navigation_help(db: Session, turn: ChatTurn, employee=None) -> ChatTurn:
     """Product-navigation answer ("where do I go to X?"). Deterministic and
     knowledge-base independent: a brand-new tenant whose KB is still empty can
-    still be told which screen does what."""
+    still be told which screen does what. Uses the platform's real menu and
+    the asker's role, so nobody is sent to a screen their menu doesn't show."""
+    role = getattr(getattr(employee, "role", None), "value", getattr(employee, "role", None))
+    screen, visible = platform_guide.find_screen(turn.user_input_text, role)
+    if screen:
+        return _finalize(db, turn, platform_guide.describe(screen, visible), AnswerType.GROUNDED, ConfidenceState.SUPPORTED)
     dest = _nav_destination(turn.user_input_text)
     if dest:
         menu, route = dest
@@ -632,7 +865,9 @@ def _answer_handoff_prompt(db: Session, turn: ChatTurn) -> ChatTurn:
     )
 
 
-def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = False, professional: bool = False) -> ChatTurn:
+def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = False, professional: bool = False,
+                      assessment: "policy_domains.Assessment | None" = None, query: str | None = None) -> ChatTurn:
+    query = query or turn.user_input_text
     if not guardrails.is_generation_enabled(db, turn.organization_id, employee_id=employee.id):
         if guardrails.is_employee_processing_restricted(db, employee.id):
             return _fail(db, turn, "Assistant processing is restricted for your account per a data-privacy request you submitted.")
@@ -643,11 +878,11 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
 
     role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
     fragments = retrieval_service.retrieve(
-        db, turn.organization_id, turn.user_input_text, audience_role=role_val,
+        db, turn.organization_id, query, audience_role=role_val,
         jurisdiction=getattr(employee, "country", None), employee=employee,
     )
 
-    retrieval_run = ChatRetrievalRun(turn_id=turn.id, query_text=turn.user_input_text)
+    retrieval_run = ChatRetrievalRun(turn_id=turn.id, query_text=query)
     db.add(retrieval_run)
     db.flush()
     for rank, f in enumerate(fragments, start=1):
@@ -685,8 +920,19 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
     if not kb_confident and recent_attachment:
         return answer_attachment_qa(db, turn, employee, recent_attachment)
 
+    if not fragments and settings.ASSISTANT_GENERAL_GUIDANCE:
+        # No approved content: the streaming step answers with labelled
+        # general HR guidance (the persisted retrieval run with no hits tells
+        # it which mode to use).
+        turn.status = TurnStatus.GENERATING
+        db.commit()
+        db.refresh(turn)
+        return turn
+
     if not fragments:
+        domain_message = policy_domains.no_content_message(assessment) if assessment else None
         return _finalize(db, turn,
+                          domain_message or
                           "I don't have approved policy content that answers this yet. "
                           "I can help right now with your leave balance, attendance, the company "
                           "directory or headcount, and booking leave — or choose 'Talk to HR' and "
@@ -704,53 +950,101 @@ def _answer_policy_qa(db: Session, turn: ChatTurn, employee, sensitive: bool = F
     return turn
 
 
+# snake_case identifiers copied from technical evidence ("notice_given_at"), but not inside a path ("/a_b/").
+_IDENTIFIER_RE = re.compile(r"(?<![/\w])([a-z][a-z0-9]*(?:_[a-z0-9]+)+)(?![/\w])")
+
+
+def _plain_identifiers(text: str | None) -> str | None:
+    """Turns code identifiers into words ("notice_given_at" -> "notice given at"). The prompt asks for plain
+    language, but the knowledge base includes engineering specs and the model sometimes quotes their field names."""
+    return _IDENTIFIER_RE.sub(lambda m: m.group(1).replace("_", " "), text) if text else text
+
+
+def _screens_block(query: str, role: str | None) -> str:
+    screens = platform_guide.screens_for_prompt(query, role, limit=5)
+    return ("<screens>\nZoiko HR screens this user can open that relate to the question:\n"
+            + ("\n".join(f"- {s}" for s in screens) if screens else "(none)") + "\n</screens>")
+
+
+def _stream_answer(messages: list[dict]):
+    """Streams one model answer: yields ("delta", text) events and returns
+    (answer_text, metadata, model_run). Provider errors propagate."""
+    answer_text, metadata, model_run = None, None, None
+    for event in llm_client.stream_text_and_metadata(messages):
+        if event[0] == "delta":
+            yield ("delta", event[1])
+        else:
+            _, answer_text, metadata, model_run = event
+    return answer_text, metadata, model_run
+
+
+def _record_model_run(db: Session, turn: ChatTurn, model_run) -> None:
+    db.add(ChatModelRun(
+        turn_id=turn.id, provider="groq", model_name=model_run.model,
+        purpose="generate", prompt_tokens=model_run.prompt_tokens, completion_tokens=model_run.completion_tokens,
+        latency_ms=model_run.latency_ms,
+    ))
+    db.flush()
+
+
 def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
-    """The generation half of policy_qa, run from the SSE endpoint. Recomputes
-    retrieval fresh (deterministic and cheap — local embeddings, no reason to
-    persist/replay the prepare step's fragments) and streams the model's
-    plain-text answer, then validates exactly as the old synchronous path
-    did: citation check, disclosure check, answer_type/confidence parsing."""
-    risk = risk_classification.classify(turn.user_input_text)
+    """The generation half of policy_qa, run from the SSE endpoint. Uses the
+    evidence the prepare step retrieved and persisted for this turn (one
+    retrieval per turn, and exactly the recorded evidence), adds bounded
+    conversation context, streams the model's plain-text answer, then
+    validates: citation check, disclosure check, answer_type/confidence."""
+    query, fragments = retrieval_service.fragments_for_turn(db, turn.id)
+    role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
+    if query is None:
+        # no persisted retrieval run (older turn): retrieve now
+        query = turn.user_input_text
+        fragments = retrieval_service.retrieve(
+            db, turn.organization_id, query, audience_role=role_val,
+            jurisdiction=getattr(employee, "country", None), employee=employee,
+        )
+    # The prepare step found no approved content and deferred to general guidance.
+    general = not fragments and settings.ASSISTANT_GENERAL_GUIDANCE
+    retrieved_ids = {f["fragment_id"] for f in fragments}
+
+    # Classified on the question as written AND its standalone form, so a
+    # follow-up inherits the sensitivity of what it refers to.
+    risk = risk_classification.classify(turn.user_input_text) or risk_classification.classify(query)
     sensitive = bool(risk and risk.category == "sensitive_case")
     professional = bool(risk and risk.category == "professional_advice")
 
-    role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
-    fragments = retrieval_service.retrieve(
-        db, turn.organization_id, turn.user_input_text, audience_role=role_val,
-        jurisdiction=getattr(employee, "country", None), employee=employee,
-    )
-    retrieved_ids = {f["fragment_id"] for f in fragments}
-
-    system_prompt = BASE_SYSTEM_PROMPT
+    system_prompt = GENERAL_GUIDANCE_PROMPT if general else BASE_SYSTEM_PROMPT
     if sensitive:
         system_prompt += _SENSITIVE_CASE_CLAUSE
     if professional:
         system_prompt += _PROFESSIONAL_ADVICE_CLAUSE
+    # Recomputed like `risk` above — deterministic, and the prepare step's
+    # assessment isn't persisted between the two requests.
+    system_prompt += policy_domains.prompt_clause(policy_domains.assess(query))
 
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": f"{guardrails.wrap_evidence_as_data(fragments)}\n\nQuestion: {turn.user_input_text}"},
-    ]
+    history = context_service.history_block(context_service.recent_history(db, turn))
+    question = f"Question: {turn.user_input_text}"
+    if query != turn.user_input_text:
+        question += f"\n(Read in context, this asks: {query})"
+    screens = _screens_block(query, role_val)
+    general_clauses = system_prompt[len(BASE_SYSTEM_PROMPT):] if not general else system_prompt[len(GENERAL_GUIDANCE_PROMPT):]
 
-    answer_text, metadata, model_run = None, None, None
+    def _messages(prompt: str, *parts: str) -> list[dict]:
+        return [{"role": "system", "content": prompt},
+                {"role": "user", "content": "\n\n".join(p for p in (history, *parts, question) if p)}]
+
+    if general:
+        messages = _messages(system_prompt, screens)
+    else:
+        messages = _messages(system_prompt, guardrails.wrap_evidence_as_data(fragments), screens)
+
     try:
-        for event in llm_client.stream_text_and_metadata(messages):
-            if event[0] == "delta":
-                yield ("delta", event[1])
-            else:
-                _, answer_text, metadata, model_run = event
+        answer_text, metadata, model_run = yield from _stream_answer(messages)
     except Exception as e:
         # A genuine provider/network failure — the service really is down.
         logger.warning("Generation failed for turn %s: %s", turn.id, e)
         yield ("done", _fail(db, turn, "The assistant is temporarily unavailable. Please try again shortly."))
         return
-
-    db.add(ChatModelRun(
-        turn_id=turn.id, provider="groq", model_name=settings.GROQ_MODEL,
-        purpose="generate", prompt_tokens=model_run.prompt_tokens, completion_tokens=model_run.completion_tokens,
-        latency_ms=model_run.latency_ms,
-    ))
-    db.flush()
+    _record_model_run(db, turn, model_run)
 
     turn.status = TurnStatus.VALIDATING
     db.flush()
@@ -798,6 +1092,35 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
                           AnswerType.NO_ANSWER, ConfidenceState.NO_RELIABLE_ANSWER))
         return
 
+    if general and answer_type != AnswerType.NO_ANSWER:
+        # general guidance is never presented as a grounded company answer
+        answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
+
+    if not general and answer_type == AnswerType.NO_ANSWER and "general guidance" in (answer_text or "").lower():
+        # the model already added labelled general guidance: an answer, not a dead end
+        answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
+    elif (not general and answer_type == AnswerType.NO_ANSWER and settings.ASSISTANT_GENERAL_GUIDANCE):
+        # The organization's documents touch the topic but don't answer it (e.g. how leave works, but no number
+        # of days): follow the "not covered" answer with labelled general guidance in the same reply. Collected
+        # before showing (a short Groq call) so a "nothing to add" reply never flashes on screen.
+        extra_text, extra_meta = None, None
+        try:
+            gen = _stream_answer(_messages(GENERAL_GUIDANCE_PROMPT + general_clauses,
+                                           f"<already_said>\n{answer_text}\n</already_said>", screens))
+            while True:
+                next(gen)
+        except StopIteration as done:
+            extra_text, extra_meta, extra_run = done.value
+            _record_model_run(db, turn, extra_run)
+        except Exception as e:
+            logger.warning("General guidance follow-up failed for turn %s: %s", turn.id, e)
+        extra_text = (extra_text or "").strip()
+        if (extra_text and extra_meta is not None and extra_meta.get("answer_type") != "no_answer"
+                and not extra_text.upper().startswith("NONE") and not guardrails.check_output_disclosure(extra_text)):
+            yield ("delta", f"\n\n{extra_text}")
+            answer_text = f"{answer_text}\n\n{extra_text}"
+            answer_type, confidence_state = AnswerType.PARTIAL, ConfidenceState.PARTIAL
+
     if confidence_state == ConfidenceState.CONFLICT:
         safety_service.record(db, turn.organization_id, "source_conflict", turn_id=turn.id, employee_id=employee.id,
                                detail={"cited_ids": cited_ids})
@@ -807,7 +1130,7 @@ def _stream_policy_qa(db: Session, turn: ChatTurn, employee):
          "knowledge_source_version_id": next(f["source_version_id"] for f in fragments if f["fragment_id"] == fid)}
         for fid in cited_ids
     ]
-    yield ("done", _finalize(db, turn, answer_text, answer_type, confidence_state, provenance))
+    yield ("done", _finalize(db, turn, _plain_identifiers(answer_text), answer_type, confidence_state, provenance))
 
 
 _ATTACHMENT_QA_CLAUSE = """
@@ -890,7 +1213,7 @@ def _stream_attachment_qa(db: Session, turn: ChatTurn, employee):
         return
 
     db.add(ChatModelRun(
-        turn_id=turn.id, provider="groq", model_name=settings.GROQ_MODEL,
+        turn_id=turn.id, provider="groq", model_name=model_run.model,
         purpose="generate", prompt_tokens=model_run.prompt_tokens, completion_tokens=model_run.completion_tokens,
         latency_ms=model_run.latency_ms,
     ))
