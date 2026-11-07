@@ -8,9 +8,19 @@ import { PrimaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 
 const DOCUMENT_CATEGORIES = [
+  // ── 10 Standard Onboarding Package Documents ──
+  { value: "offer_letter", label: "Offer Letter" },
+  { value: "job_description", label: "Job Description" },
+  { value: "daily_kpi", label: "Daily Key Performance Indicators (KPIs)" },
+  { value: "nda", label: "Non-Disclosure Agreement (NDA)" },
+  { value: "employment_contract", label: "Employment Contract" },
+  { value: "exclusivity_affidavit", label: "Affidavit of Employment Exclusivity" },
+  { value: "self_disclosure", label: "Voluntary Self-Disclosure Form" },
+  { value: "job_application", label: "Job Application Form" },
+  { value: "daily_work_report", label: "Daily Work Report (DWR) Template" },
+  { value: "velocity_report", label: "Zoiko Group Project Velocity Report Template" },
+  // ── Employee Upload Documents ──
   { value: "id_proof", label: "ID proof" },
-  { value: "offer_letter", label: "Signed offer letter" },
-  { value: "nda", label: "Signed NDA" },
   { value: "education_certificates", label: "Education certificates" },
   { value: "experience_letters", label: "Experience letters" },
   { value: "bank_details", label: "Bank details" },

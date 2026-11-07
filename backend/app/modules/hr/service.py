@@ -3576,6 +3576,19 @@ def get_checklists(db: Session, organization_id: Optional[int] = None, is_templa
     if is_template:
         query = query.filter(OnboardingChecklist.onboarding_new_hire_id == None)
     else:
+        try:
+            from app.modules.hr import onboarding_package
+            from app.modules.hr.models import OnboardingNewHire
+            if new_hire_id:
+                h = db.get(OnboardingNewHire, new_hire_id)
+                if h:
+                    onboarding_package.sync_onboarding_document_checklist(db, h)
+            else:
+                for h in db.query(OnboardingNewHire).filter(OnboardingNewHire.organization_id == organization_id, OnboardingNewHire.is_deleted == False).all():
+                    if h.documents:
+                        onboarding_package.sync_onboarding_document_checklist(db, h)
+        except Exception:
+            pass
         query = query.filter(OnboardingChecklist.onboarding_new_hire_id != None)
         if new_hire_id:
             query = query.filter(OnboardingChecklist.onboarding_new_hire_id == new_hire_id)
@@ -3948,11 +3961,26 @@ def get_onboarding_documents(
 def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
     # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
     file_url = f"/hr/onboarding/documents/{doc.id}/file" if doc.file_path else None
+    requires_signature = bool(doc.document_id) or doc.category in (
+        "offer_letter", "nda", "employment_contract", "exclusivity_affidavit", "self_disclosure"
+    )
+    signing_status = None
+    if doc.document_id:
+        try:
+            gen = getattr(doc, "document", None)
+            if gen is not None:
+                signing_status = gen.status
+        except Exception:
+            pass
+
     return {
         "id": doc.id,
         "onboarding_new_hire_id": doc.onboarding_new_hire_id,
         "title": doc.title,
         "category": doc.category,
+        "document_id": doc.document_id,
+        "requires_signature": requires_signature,
+        "signing_status": signing_status or ("EXECUTED" if doc.status == "approved" and requires_signature else None),
         "file_path": doc.file_path,
         "file_url": file_url,
         "status": doc.status,

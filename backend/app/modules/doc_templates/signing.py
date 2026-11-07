@@ -39,8 +39,8 @@ class SignatureProvider(Protocol):
 # ── who must sign ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def required_parties(doc: GeneratedDocument) -> list[str]:
-    counterparty = "candidate" if doc.subject_type == "candidate" else "employee"
-    return {"SIGN_EMPLOYEE": ["employee"], "SIGN_CANDIDATE": ["candidate"],
+    counterparty = "candidate" if doc.subject_type in ("candidate", "new_hire") else "employee"
+    return {"SIGN_EMPLOYEE": [counterparty], "SIGN_CANDIDATE": [counterparty],
             "SIGN_BOTH": [counterparty, "employer"]}.get(doc.execution_mode, [])
 
 
@@ -90,17 +90,19 @@ def revoke_candidate_tokens(db, doc: GeneratedDocument) -> None:
         .update({SecurityActionToken.used_at: datetime.utcnow()}, synchronize_session=False)
 
 
-def resolve_candidate_token(db, raw: str):
-    """(document, token) for a live link, or 404. Viewing does not use the link up; signing or declining does."""
+def resolve_candidate_token(db, raw: str, allow_used: bool = False):
+    """(document, token) for a live link, or 404. Viewing does not use the link up; signing or declining does.
+    When allow_used=True, already signed documents can be reviewed, downloaded, or submitted to admin."""
     from app.modules.employee.models import SecurityActionPurpose, SecurityActionToken
     if not raw or len(raw) > 200:
         raise HTTPException(404, "This link is not valid.")
     tok = db.query(SecurityActionToken).filter(SecurityActionToken.token_hash == _token_hash(raw)).first()
-    if tok is None or tok.purpose != SecurityActionPurpose.DOCUMENT_SIGN or tok.used_at is not None \
+    if tok is None or tok.purpose != SecurityActionPurpose.DOCUMENT_SIGN \
+            or (tok.used_at is not None and not allow_used) \
             or tok.expires_at <= datetime.utcnow() or not (tok.reference or "").startswith("generated_document:"):
         raise HTTPException(404, "This link is not valid or has expired.")
     doc = db.get(GeneratedDocument, int(tok.reference.split(":", 1)[1]))
-    if doc is None or doc.organization_id != tok.organization_id or doc.subject_type != "candidate" \
+    if doc is None or doc.organization_id != tok.organization_id or doc.subject_type not in ("candidate", "new_hire") \
             or (doc.recipient_email or "").lower() != (tok.email or "").lower():
         raise HTTPException(404, "This link is not valid or has expired.")
     return doc, tok
@@ -320,6 +322,25 @@ def _finalize(db, doc: GeneratedDocument) -> None:
     doc.executed_pdf_sha256 = digest
     state.transition(db, doc, "EXECUTED", actor_type="system", detail={"executed_sha256": digest})
     _point_hr_document(db, doc, len(executed))
+    try:
+        from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
+        from app.modules.hr import onboarding_package
+        from app.modules.hr.service import log_onboarding_activity
+        for onb_doc in db.query(OnboardingDocument).filter(OnboardingDocument.document_id == doc.id).all():
+            onb_doc.status = "approved"
+            if doc.executed_pdf_path:
+                onb_doc.file_path = doc.executed_pdf_path
+            if onb_doc.onboarding_new_hire_id:
+                hire = db.get(OnboardingNewHire, onb_doc.onboarding_new_hire_id)
+                if hire:
+                    onboarding_package.sync_onboarding_document_checklist(db, hire)
+                    log_onboarding_activity(
+                        db, hire.id, "Document Signed",
+                        f"{hire.candidate_name} electronically signed '{doc.title}'.",
+                        hire.organization_id
+                    )
+    except Exception:
+        pass
 
 
 def _point_hr_document(db, doc, size) -> None:

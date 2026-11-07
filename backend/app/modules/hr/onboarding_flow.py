@@ -44,9 +44,23 @@ ACTIVE_STATUSES = ("offer_sent", "offer_accepted", "pre_joining", "in_progress")
 JOINING_STATUSES = ("not_joined", "joined", "no_show", "deferred")
 ATTENDEE_STATUSES = ("pending", "attended", "absent", "excused")
 DOCUMENT_LABELS = {
-    "id_proof": "ID proof", "offer_letter": "Signed offer letter", "nda": "Signed NDA",
-    "education_certificates": "Education certificates", "experience_letters": "Experience letters",
-    "bank_details": "Bank details", "other": "Other document",
+    # ── legacy upload categories ──
+    "id_proof": "ID proof",
+    "education_certificates": "Education certificates",
+    "experience_letters": "Experience letters",
+    "bank_details": "Bank details",
+    "other": "Other document",
+    # ── 10 standard onboarding package documents ──
+    "offer_letter": "Offer Letter",
+    "job_description": "Job Description",
+    "daily_kpi": "Daily Key Performance Indicators (KPIs)",
+    "nda": "Non-Disclosure Agreement (NDA)",
+    "employment_contract": "Employment Contract",
+    "exclusivity_affidavit": "Affidavit of Employment Exclusivity",
+    "self_disclosure": "Voluntary Self-Disclosure Form",
+    "job_application": "Job Application Form",
+    "daily_work_report": "Daily Work Report (DWR) Template",
+    "velocity_report": "Zoiko Group Project Velocity Report Template",
 }
 
 
@@ -137,7 +151,7 @@ def portal_url(token: str) -> str:
 
 
 def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -> dict:
-    """A fresh link (any older one stops working). Emails it to the new hire when send=True."""
+    """A fresh link. Older valid links remain active until expired. Emails it to the new hire when send=True."""
     if hire.status not in ACTIVE_STATUSES:
         raise BadRequestException("A pre-onboarding link can only be sent while onboarding is active.")
     settings = get_settings(db, hire.organization_id)
@@ -146,7 +160,19 @@ def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -
     expires = datetime.utcnow() + timedelta(days=days)
     if hire.joining_date:
         expires = max(expires, datetime.combine(hire.joining_date, datetime.min.time()) + timedelta(days=7))
-    hire.portal_token_hash = _hash(token)
+
+    # Preserve previous token hash so any already emailed links continue working
+    new_hash = _hash(token)
+    details = dict(hire.profile_details or {})
+    token_hashes = list(details.get("_token_hashes") or [])
+    if hire.portal_token_hash and hire.portal_token_hash not in token_hashes:
+        token_hashes.append(hire.portal_token_hash)
+    if new_hash not in token_hashes:
+        token_hashes.append(new_hash)
+    details["_token_hashes"] = token_hashes
+    hire.profile_details = details
+
+    hire.portal_token_hash = new_hash
     try:
         from app.core.crypto import encrypt_secret
         hire.portal_token_enc = encrypt_secret(token)
@@ -178,9 +204,21 @@ def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -
 def hire_for_token(db: Session, token: str) -> OnboardingNewHire:
     if not token or len(token) < 20:
         raise NotFoundException("Pre-onboarding link")
+    target_hash = _hash(token)
     hire = (db.query(OnboardingNewHire)
-            .filter(OnboardingNewHire.portal_token_hash == _hash(token), OnboardingNewHire.is_deleted == False)  # noqa: E712
+            .filter(OnboardingNewHire.portal_token_hash == target_hash, OnboardingNewHire.is_deleted == False)  # noqa: E712
             .first())
+    if hire is None:
+        # Check active new hires for token hash in history list
+        active_candidates = (db.query(OnboardingNewHire)
+                             .filter(OnboardingNewHire.is_deleted == False, OnboardingNewHire.status.in_(ACTIVE_STATUSES))
+                             .all())
+        for candidate in active_candidates:
+            token_list = (candidate.profile_details or {}).get("_token_hashes") or []
+            if target_hash in token_list:
+                hire = candidate
+                break
+
     if hire is None or hire.portal_expires_at is None or hire.portal_expires_at < datetime.utcnow() \
             or hire.status not in ACTIVE_STATUSES:
         raise NotFoundException("Pre-onboarding link")
@@ -188,6 +226,8 @@ def hire_for_token(db: Session, token: str) -> OnboardingNewHire:
 
 
 def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
+    from app.modules.hr.onboarding_package import SIGNABLE_CATEGORIES, get_signing_token_for_onboarding_doc
+
     docs = (db.query(OnboardingDocument)
             .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
             .order_by(OnboardingDocument.id).all())
@@ -196,6 +236,32 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
                 .filter(OnboardingOrientationAttendee.onboarding_new_hire_id == hire.id,
                         OnboardingOrientationAttendee.is_deleted == False, OnboardingOrientation.is_deleted == False,  # noqa: E712
                         OnboardingOrientation.status != "cancelled").all())
+
+    base = app_base()
+    doc_items = []
+    for d in docs:
+        is_signable = d.category in SIGNABLE_CATEGORIES or bool(d.document_id)
+        sign_url = None
+        if is_signable and d.status != "approved":
+            try:
+                raw_token = get_signing_token_for_onboarding_doc(db, d)
+                if raw_token:
+                    sign_url = f"{base}/sign/{raw_token}"
+            except Exception:
+                logger.warning("Could not issue signing link for onboarding doc %s", d.id)
+
+        doc_items.append({
+            "id": d.id,
+            "title": d.title,
+            "category": d.category,
+            "status": d.status,
+            "rejection_reason": d.rejection_reason,
+            "uploaded": bool(d.file_path),
+            "document_id": d.document_id,
+            "requires_signature": is_signable,
+            "sign_url": sign_url,
+        })
+
     return {
         "candidate_name": hire.candidate_name,
         "position": hire.position,
@@ -207,8 +273,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "expires_at": hire.portal_expires_at,
         "details": hire.profile_details or {},
         "phone": hire.phone,
-        "documents": [{"id": d.id, "title": d.title, "category": d.category, "status": d.status,
-                       "rejection_reason": d.rejection_reason, "uploaded": bool(d.file_path)} for d in docs],
+        "documents": doc_items,
         "orientation": [{"title": s.title, "date": s.date, "time": s.time, "location": s.location,
                          "meeting_link": s.meeting_link} for s in sessions],
     }
@@ -271,6 +336,12 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
     except Exception:
         db.rollback()
         logger.exception("starting onboarding failed for new hire %s", hire.id)
+    try:
+        from app.modules.hr import onboarding_package
+        onboarding_package.generate_onboarding_package(db, hire, actor=None)
+    except Exception:
+        db.rollback()
+        logger.exception("onboarding package generation failed for new hire %s", hire.id)
     try:
         from app.modules.hr import onboarding_documents
         onboarding_documents.on_onboarding_started(db, hire)        # HR-ONB-005: manager checklist and its record

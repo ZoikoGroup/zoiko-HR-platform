@@ -131,6 +131,7 @@ export const getPublicSigning = (token) => api.get(`/public/documents/sign/${enc
 export const publicSigningPdfUrl = (token) => `${API_BASE_URL}/public/documents/sign/${enc(token)}/pdf`;
 export const requestPublicSignOtp = (token) => api.post(`/public/documents/sign/${enc(token)}/otp`, {}, { auth: false });
 export const publicSign = (token, body) => api.post(`/public/documents/sign/${enc(token)}/sign`, body, { auth: false });
+export const submitSignToAdmin = (token) => api.post(`/public/documents/sign/${enc(token)}/submit-to-admin`, {}, { auth: false });
 export const publicDecline = (token, reason) => api.post(`/public/documents/sign/${enc(token)}/decline`, { reason }, { auth: false });
 export const verifyDocument = (documentNumber, hash16) =>
   api.get(`/public/documents/verify/${enc(documentNumber)}${q({ h: hash16 })}`, { auth: false });

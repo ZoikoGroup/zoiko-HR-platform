@@ -20,13 +20,24 @@ import {
   getOnboardingRecords,
   getOnboardingDocumentFile,
   requestOnboardingDocuments,
+  sendOnboardingPackage,
 } from "../../../service/hrService";
 import { MAX_FILE_MB, validateUploadForm, serverUploadErrors, fileSizeText, extensionOf } from "../../../utils/onboardingDocForm";
 
 export const CATEGORIES = [
+  // ── 10 Standard Onboarding Package Documents ──
+  { value: "offer_letter", label: "Offer Letter" },
+  { value: "job_description", label: "Job Description" },
+  { value: "daily_kpi", label: "Daily Key Performance Indicators (KPIs)" },
+  { value: "nda", label: "Non-Disclosure Agreement (NDA)" },
+  { value: "employment_contract", label: "Employment Contract" },
+  { value: "exclusivity_affidavit", label: "Affidavit of Employment Exclusivity" },
+  { value: "self_disclosure", label: "Voluntary Self-Disclosure Form" },
+  { value: "job_application", label: "Job Application Form" },
+  { value: "daily_work_report", label: "Daily Work Report (DWR) Template" },
+  { value: "velocity_report", label: "Zoiko Group Project Velocity Report Template" },
+  // ── Employee Upload Documents ──
   { value: "id_proof", label: "ID proof" },
-  { value: "offer_letter", label: "Signed offer letter" },
-  { value: "nda", label: "Signed NDA" },
   { value: "education_certificates", label: "Education certificates" },
   { value: "experience_letters", label: "Experience letters" },
   { value: "bank_details", label: "Bank details" },
@@ -52,8 +63,21 @@ export function validateHrUpload(form) {
 }
 
 const CATEGORY_TONE = {
-  id_proof: "blue", offer_letter: "violet", nda: "amber", education_certificates: "teal", experience_letters: "teal",
-  bank_details: "green", other: "gray",
+  offer_letter: "violet",
+  job_description: "sky",
+  daily_kpi: "indigo",
+  nda: "amber",
+  employment_contract: "purple",
+  exclusivity_affidavit: "rose",
+  self_disclosure: "orange",
+  job_application: "cyan",
+  daily_work_report: "emerald",
+  velocity_report: "blue",
+  id_proof: "blue",
+  education_certificates: "teal",
+  experience_letters: "teal",
+  bank_details: "green",
+  other: "gray",
 };
 
 const INACTIVE_HIRE_STATUSES = ["completed", "cancelled"];
@@ -66,7 +90,15 @@ const fieldCls = (bad) => `w-full rounded-xl border ${bad ? "border-rose-300" : 
 const statusOf = (doc) => doc.status || "pending";
 const categoryLabel = (value) => CATEGORIES.find((c) => c.value === value)?.label || value || "—";
 
-function DocStatus({ status }) {
+function DocStatus({ status, doc }) {
+  if (doc?.requires_signature) {
+    if (status === "approved" || doc.signing_status === "EXECUTED") {
+      return <StatusPill tone="green" icon={CheckCircle2}>E-Signed</StatusPill>;
+    }
+    if (status === "requested") {
+      return <StatusPill tone="blue" icon={Hourglass}>Awaiting signature</StatusPill>;
+    }
+  }
   const st = STATUSES.find((s) => s.value === status);
   return <StatusPill tone={st?.tone || "gray"} icon={STATUS_ICON[status]}>{st?.short || status}</StatusPill>;
 }
@@ -162,6 +194,12 @@ export default function OnboardingDocuments() {
   const [rejectError, setRejectError] = useState("");
   const [fileInputKey, setFileInputKey] = useState(0);   // changing it empties the file box
   const [busyId, setBusyId] = useState(null);
+  const [busyHireId, setBusyHireId] = useState(null);
+
+  const [showPackageModal, setShowPackageModal] = useState(false);
+  const [packageHireId, setPackageHireId] = useState("");
+  const [packageError, setPackageError] = useState("");
+  const [sendingPackage, setSendingPackage] = useState(false);
 
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestHire, setRequestHire] = useState("");
@@ -389,6 +427,51 @@ export default function OnboardingDocuments() {
     }
   };
 
+  const handleSendPackage = async (hireId) => {
+    if (!hireId) return;
+    const hire = recordOf(hireId);
+    const hireName = hire?.candidate_name || `New hire #${hireId}`;
+    if (!window.confirm(`Generate and send all 10 onboarding documents to ${hireName}?\n\n• 5 Signable Documents (Offer Letter, NDA, Employment Contract, Exclusivity Affidavit, Self-Disclosure Form) will be generated and issued for electronic signature.\n• 5 Operational Templates (Job Description, Daily KPIs, Job Application, DWR, Velocity Report) will be generated and made available.`)) {
+      return;
+    }
+    setBusyHireId(hireId);
+    try {
+      const res = await sendOnboardingPackage(Number(hireId));
+      showSuccess(res?.message || `All 10 onboarding documents generated and sent to ${hireName}.`);
+      await refresh();
+    } catch (err) {
+      showError(err?.message || `Failed to send onboarding package to ${hireName}.`);
+    } finally {
+      setBusyHireId(null);
+    }
+  };
+
+  const openSendPackageModal = (prefillHire = "") => {
+    const hire = prefillHire || recordFilter;
+    setPackageHireId(hire && activeHires.some((r) => String(r.id) === String(hire)) ? String(hire) : (activeHires[0]?.id ? String(activeHires[0].id) : ""));
+    setPackageError("");
+    setShowPackageModal(true);
+  };
+
+  const submitSendPackageModal = async (e) => {
+    e.preventDefault();
+    if (!packageHireId) { setPackageError("Please choose an employee / new hire."); return; }
+    const hire = recordOf(packageHireId);
+    const hireName = hire?.candidate_name || `New hire #${packageHireId}`;
+    setSendingPackage(true);
+    setPackageError("");
+    try {
+      const res = await sendOnboardingPackage(Number(packageHireId));
+      setShowPackageModal(false);
+      showSuccess(res?.message || `All 10 onboarding documents generated and sent to ${hireName}.`);
+      await refresh();
+    } catch (err) {
+      setPackageError(err?.message || `Failed to send onboarding package.`);
+    } finally {
+      setSendingPackage(false);
+    }
+  };
+
   const openRequestModal = (prefillHire) => {
     const hire = prefillHire || recordFilter;
     setRequestHire(hire && activeHires.some((r) => String(r.id) === String(hire)) ? String(hire) : "");
@@ -429,7 +512,8 @@ export default function OnboardingDocuments() {
     <OnboardingLayout title="Onboarding Documents" subtitle="Request, collect and review new hires' onboarding documents."
       actions={(
         <>
-          <SecondaryButton icon={Send} onClick={() => openRequestModal()}>Request documents from a new hire</SecondaryButton>
+          <SecondaryButton icon={Send} onClick={() => openSendPackageModal()}>Send 10 Onboarding Docs</SecondaryButton>
+          <SecondaryButton icon={Send} onClick={() => openRequestModal()}>Request documents</SecondaryButton>
           <PrimaryButton icon={Upload} onClick={() => openUpload()}>Upload Document</PrimaryButton>
         </>
       )}>
@@ -490,8 +574,13 @@ export default function OnboardingDocuments() {
             <div className="min-w-0">
               <h2 className="break-words text-base font-semibold text-gray-900">{selected.title}</h2>
               <div className="mt-1 flex flex-wrap items-center gap-2">
-                <DocStatus status={status} />
+                <DocStatus status={status} doc={selected} />
                 <StatusPill tone={CATEGORY_TONE[selected.category] || "gray"}>{categoryLabel(selected.category)}</StatusPill>
+                {selected.requires_signature && (
+                  <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20">
+                    E-Signature
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -502,6 +591,9 @@ export default function OnboardingDocuments() {
             <QuickAction icon={Download} label="Download" disabled={!selected.file_url || busy} onClick={() => handleDownload(selected)} />
             <QuickAction icon={ThumbsUp} label="Approve" tone="primary" disabled={status !== "pending" || busy} onClick={() => handleApprove(selected)} />
             <QuickAction icon={FileX2} label="Reject" tone="danger" disabled={!(status === "pending" || status === "approved") || busy} onClick={() => openRejectModal(selected)} />
+            {selected.onboarding_new_hire_id && activeHires.some((r) => String(r.id) === String(selected.onboarding_new_hire_id)) && (
+              <QuickAction icon={Send} label="Send 10 Docs" tone="primary" disabled={busyHireId === selected.onboarding_new_hire_id} onClick={() => handleSendPackage(selected.onboarding_new_hire_id)} />
+            )}
           </div>
         </DetailSection>
 
@@ -522,7 +614,23 @@ export default function OnboardingDocuments() {
         <DetailSection title="Details">
           <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
             <dt className="text-gray-500">New hire</dt>
-            <dd className="min-w-0">{hireName ? <PersonCell name={hireName} sub={[hire?.position, hire?.email].filter(Boolean).join(" · ") || undefined} /> : "—"}</dd>
+            <dd className="min-w-0">
+              {hireName ? (
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <PersonCell name={hireName} sub={[hire?.position, hire?.email].filter(Boolean).join(" · ") || undefined} />
+                  {activeHires.some((r) => String(r.id) === String(selected.onboarding_new_hire_id)) && (
+                    <button
+                      type="button"
+                      onClick={() => handleSendPackage(selected.onboarding_new_hire_id)}
+                      disabled={busyHireId === selected.onboarding_new_hire_id}
+                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition"
+                    >
+                      <Send className="h-3 w-3" /> Send 10 Docs
+                    </button>
+                  )}
+                </div>
+              ) : "—"}
+            </dd>
             <dt className="text-gray-500">Category</dt><dd className="text-gray-800">{categoryLabel(selected.category)}</dd>
             <dt className="text-gray-500">Created</dt><dd className="text-gray-800">{shortDate(selected.created_at)}</dd>
             <dt className="text-gray-500">Last updated</dt>
@@ -541,7 +649,7 @@ export default function OnboardingDocuments() {
                   <li key={d.id}>
                     <button type="button" onClick={() => setSelectedId(d.id)} className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-gray-50">
                       <span className="min-w-0 truncate text-gray-800">{d.title}</span>
-                      <DocStatus status={statusOf(d)} />
+                      <DocStatus status={statusOf(d)} doc={d} />
                     </button>
                   </li>
                 ))}
@@ -591,6 +699,17 @@ export default function OnboardingDocuments() {
                 <SearchInput value={search} onChange={setSearch} placeholder="Search title, category or new hire…" label="Search documents" />
                 <FilterSelect label="New hire" value={recordFilter} onChange={setRecordFilter} allLabel="All new hires"
                   options={records.map((r) => ({ value: String(r.id), label: r.candidate_name || `New hire #${r.id}` }))} />
+                {recordFilter && activeHires.some((r) => String(r.id) === String(recordFilter)) && (
+                  <button
+                    type="button"
+                    onClick={() => handleSendPackage(recordFilter)}
+                    disabled={busyHireId === recordFilter}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition"
+                  >
+                    <Send className="h-3.5 w-3.5" />
+                    <span>Send 10 Onboarding Docs to {recordName(recordFilter)}</span>
+                  </button>
+                )}
                 <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} allLabel="All categories" options={CATEGORIES} />
                 <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} allLabel="All statuses"
                   options={STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
@@ -621,7 +740,27 @@ export default function OnboardingDocuments() {
                         <td className={td}><StatusPill tone={CATEGORY_TONE[doc.category] || "gray"}>{categoryLabel(doc.category)}</StatusPill></td>
                         <td className={td}>
                           {hireName ? (
-                            <div className="flex items-center gap-2"><Avatar name={hireName} size="sm" /><span className="truncate">{hireName}</span></div>
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Avatar name={hireName} size="sm" />
+                                <span className="truncate">{hireName}</span>
+                              </div>
+                              {activeHires.some((r) => String(r.id) === String(doc.onboarding_new_hire_id)) && (
+                                <button
+                                  type="button"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    handleSendPackage(doc.onboarding_new_hire_id);
+                                  }}
+                                  disabled={busyHireId === doc.onboarding_new_hire_id}
+                                  title={`Generate and send all 10 onboarding documents to ${hireName}`}
+                                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-blue-200/80 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 hover:text-blue-800 disabled:opacity-50 transition shadow-xs"
+                                >
+                                  <Send className="h-3 w-3" />
+                                  <span>Send Docs</span>
+                                </button>
+                              )}
+                            </div>
                           ) : <span className="text-gray-400">—</span>}
                         </td>
                         <td className={`${td} whitespace-nowrap`}>
@@ -630,7 +769,7 @@ export default function OnboardingDocuments() {
                           ) : <span className="text-gray-400">Not uploaded</span>}
                         </td>
                         <td className={td}>
-                          <DocStatus status={status} />
+                          <DocStatus status={status} doc={doc} />
                           {status === "rejected" && doc.rejection_reason ? (
                             <p className="mt-1 max-w-[220px] break-words text-xs text-gray-500">{doc.rejection_reason}</p>
                           ) : null}
@@ -761,6 +900,76 @@ export default function OnboardingDocuments() {
               Reject
             </button>
           </SlideOverFooter>
+        </SlideOver>
+      )}
+
+      {/* Send 10 Onboarding Documents Package Modal */}
+      {showPackageModal && (
+        <SlideOver
+          title="Send Onboarding Documents"
+          subtitle="Generate and email all 10 standard employment & onboarding package documents to the new hire."
+          icon={Send}
+          onClose={() => setShowPackageModal(false)}
+        >
+          <form noValidate onSubmit={submitSendPackageModal} className="flex min-h-0 flex-1 flex-col">
+            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
+              {packageError && (
+                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-2.5 text-sm text-red-600">
+                  {packageError}
+                </div>
+              )}
+              <div>
+                <label htmlFor="pkg-hire" className={labelCls}>
+                  Select Employee / New Hire <span className="text-rose-500">*</span>
+                </label>
+                <select
+                  id="pkg-hire"
+                  value={packageHireId}
+                  onChange={(e) => {
+                    setPackageHireId(e.target.value);
+                    setPackageError("");
+                  }}
+                  className={fieldCls(false)}
+                >
+                  <option value="">Choose an employee...</option>
+                  {activeHires.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.candidate_name || `New hire #${r.id}`}{r.position ? ` — ${r.position}` : ""}{r.email ? ` (${r.email})` : ""}
+                    </option>
+                  ))}
+                </select>
+                {activeHires.length === 0 && <p className="mt-1 text-xs text-gray-500">There are no active new hires.</p>}
+              </div>
+
+              <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
+                <h3 className="text-sm font-semibold text-slate-900 mb-2">10 Documents Included in Package:</h3>
+                <div className="space-y-1.5 text-xs text-slate-700">
+                  <div className="font-medium text-blue-900 pb-1">5 Signable Documents (Issued for E-Signature):</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 1. Offer Letter</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 2. Non-Disclosure Agreement (NDA)</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 3. Employment Contract</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 4. Affidavit of Employment Exclusivity</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 5. Voluntary Self-Disclosure Form</div>
+
+                  <div className="font-medium text-slate-900 pt-2 pb-1">5 Operational & Template Documents:</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 6. Job Description</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 7. Daily Key Performance Indicators (KPIs)</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 8. Job Application Form</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 9. Daily Work Report (DWR) Template</div>
+                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 10. Zoiko Group Project Velocity Report Template</div>
+                </div>
+                <p className="mt-3 text-xs text-slate-500 border-t border-blue-200/50 pt-2">
+                  All 10 documents are automatically filled with employee details (position, salary, department, dates) and the new hire will be emailed a link to sign required documents online.
+                </p>
+              </div>
+            </div>
+            <SlideOverFooter>
+              <SecondaryButton onClick={() => setShowPackageModal(false)}>Cancel</SecondaryButton>
+              <PrimaryButton type="submit" disabled={sendingPackage || !packageHireId}>
+                {sendingPackage ? "Generating & Sending..." : "Generate & Send 10 Documents"}
+              </PrimaryButton>
+            </SlideOverFooter>
+          </form>
         </SlideOver>
       )}
     </>
