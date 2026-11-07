@@ -33,7 +33,7 @@ from app.modules.hr.recruitment_documents import _try_generate, documents_for_so
 
 logger = logging.getLogger("zoiko.onboarding.documents")
 
-FORMS = {"HR-ONB-001": "New starter information", "HR-ONB-017": "Bank and payroll details"}
+FORMS = {"HR-ONB-001": "New starter information", "HR-ONB-003": "Emergency contacts", "HR-ONB-017": "Bank and payroll details"}
 BANK_FORM = "HR-ONB-017"
 OPTIONAL_BY_PACK = {"nationality": "collect_nationality", "national_identifier": "collect_national_identifier",
                     "tax_identifier": "collect_tax_identifier", "social_security_number": "collect_social_security_number"}

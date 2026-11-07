@@ -1144,7 +1144,7 @@ def _public_view(db, doc: GeneratedDocument) -> dict:
 @public_router.get("/sign/{token}")
 @limiter.limit("30/minute")
 def public_sign_view(request: Request, token: str, db: Session = Depends(get_db)):
-    doc, _ = signing.resolve_candidate_token(db, token, allow_used=True)
+    doc, _ = signing.resolve_candidate_token(db, token)
     html = ""
     if doc.rendered_html_path:
         try:
