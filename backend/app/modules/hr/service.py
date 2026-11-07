@@ -3576,25 +3576,13 @@ def get_checklists(db: Session, organization_id: Optional[int] = None, is_templa
     if is_template:
         query = query.filter(OnboardingChecklist.onboarding_new_hire_id == None)
     else:
-        try:
-            from app.modules.hr import onboarding_package
-            from app.modules.hr.models import OnboardingNewHire
-            if new_hire_id:
-                h = db.get(OnboardingNewHire, new_hire_id)
-                if h:
-                    onboarding_package.sync_onboarding_document_checklist(db, h)
-            else:
-                for h in db.query(OnboardingNewHire).filter(OnboardingNewHire.organization_id == organization_id, OnboardingNewHire.is_deleted == False).all():
-                    if h.documents:
-                        onboarding_package.sync_onboarding_document_checklist(db, h)
-        except Exception:
-            pass
         query = query.filter(OnboardingChecklist.onboarding_new_hire_id != None)
         if new_hire_id:
             query = query.filter(OnboardingChecklist.onboarding_new_hire_id == new_hire_id)
     if category:
         query = query.filter(OnboardingChecklist.category == category)
-    return list_or_page(query.order_by(OnboardingChecklist.created_at.desc()), page, per_page, label="/onboarding/checklist-assignments")
+    order_col = OnboardingChecklist.created_at.desc() if is_template else OnboardingChecklist.id.asc()
+    return list_or_page(query.order_by(order_col), page, per_page, label="/onboarding/checklist-assignments")
 
 def _check_assignees(db: Session, items, organization_id: int) -> None:
     from app.modules.employee.models import Employee as EmpModel

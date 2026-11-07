@@ -587,7 +587,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `onboarding_documents` (default TENANT_FILE; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `onboarding_new_hire_id`, `created_by`
+- **PERSONAL_BASIC**: `onboarding_new_hire_id`, `document_id`, `created_by`
 - **TENANT_FILE**: `title`, `category`, `file_path`, `status`
 - **SPECIAL_CATEGORY**: `rejection_reason`
 

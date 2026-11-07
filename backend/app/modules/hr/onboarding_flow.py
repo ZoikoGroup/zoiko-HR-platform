@@ -337,12 +337,6 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
         db.rollback()
         logger.exception("starting onboarding failed for new hire %s", hire.id)
     try:
-        from app.modules.hr import onboarding_package
-        onboarding_package.generate_onboarding_package(db, hire, actor=None)
-    except Exception:
-        db.rollback()
-        logger.exception("onboarding package generation failed for new hire %s", hire.id)
-    try:
         from app.modules.hr import onboarding_documents
         onboarding_documents.on_onboarding_started(db, hire)        # HR-ONB-005: manager checklist and its record
     except Exception:
