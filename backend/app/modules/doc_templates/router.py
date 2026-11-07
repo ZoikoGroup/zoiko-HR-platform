@@ -1144,18 +1144,51 @@ def _public_view(db, doc: GeneratedDocument) -> dict:
 @public_router.get("/sign/{token}")
 @limiter.limit("30/minute")
 def public_sign_view(request: Request, token: str, db: Session = Depends(get_db)):
-    doc, _ = signing.resolve_candidate_token(db, token)
-    html = service.file_bytes(doc, "html").decode("utf-8")
+    doc, _ = signing.resolve_candidate_token(db, token, allow_used=True)
+    html = ""
+    if doc.rendered_html_path:
+        try:
+            html = service.file_bytes(doc, "html").decode("utf-8")
+        except Exception:
+            html = ""
+    if not html:
+        from app.modules.hr import onboarding_package
+        html = onboarding_package.generate_html_for_doc(doc)
     signing.mark_viewed(db, doc, None, actor_type="candidate")
     return {**_public_view(db, doc), "html": html}
+
+
+@public_router.post("/sign/{token}/submit-to-admin", summary="Candidate submits signed document to Org Admin")
+@limiter.limit("20/minute")
+def public_submit_to_admin(request: Request, token: str, db: Session = Depends(get_db)):
+    doc, tok = signing.resolve_candidate_token(db, token, allow_used=True)
+    from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
+    from app.modules.hr.service import log_onboarding_activity
+    from app.modules.hr import onboarding_package
+
+    onb_doc = db.query(OnboardingDocument).filter(OnboardingDocument.document_id == doc.id).first()
+    if onb_doc and onb_doc.onboarding_new_hire_id:
+        hire = db.get(OnboardingNewHire, onb_doc.onboarding_new_hire_id)
+        if hire:
+            onboarding_package.sync_onboarding_document_checklist(db, hire)
+            log_onboarding_activity(
+                db, hire.id, "Document Submitted to Admin",
+                f"{hire.candidate_name} submitted signed '{doc.title}' to Org Admin.",
+                hire.organization_id
+            )
+    return {"success": True, "message": f"'{doc.title}' submitted to Org Admin."}
 
 
 @public_router.get("/sign/{token}/pdf")
 @limiter.limit("30/minute")
 def public_sign_pdf(request: Request, token: str, db: Session = Depends(get_db)):
-    doc, _ = signing.resolve_candidate_token(db, token)
-    data = service.file_bytes(doc, "original")
-    state.add_event(db, doc, "downloaded", actor_type="candidate", detail={"file": "original"})
+    doc, _ = signing.resolve_candidate_token(db, token, allow_used=True)
+    target = "executed" if doc.status == "EXECUTED" else "original"
+    try:
+        data = service.file_bytes(doc, target)
+    except Exception:
+        data = service.file_bytes(doc, "original")
+    state.add_event(db, doc, "downloaded", actor_type="candidate", detail={"file": target})
     db.commit()
     return _file_response(data, f"{doc.document_number}.pdf", inline=False)
 

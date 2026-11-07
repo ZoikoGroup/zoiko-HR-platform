@@ -2541,6 +2541,9 @@ class OnboardingDocumentResponse(BaseModel):
     onboarding_new_hire_id: Optional[int] = None
     title: str
     category: str
+    document_id: Optional[int] = None
+    requires_signature: Optional[bool] = None
+    signing_status: Optional[str] = None
     file_path: Optional[str] = None
     file_url: Optional[str] = None
     status: str

@@ -239,16 +239,34 @@ export const getOnboardingJoiningReport = () => api.get("/hr/onboarding/reports/
 export const getOnboardingSettings = () => api.get("/hr/onboarding/settings");
 export const saveOnboardingSettings = (payload) => api.put("/hr/onboarding/settings", payload);
 export const sendOnboardingPortalInvite = (newHireId) => api.post(`/hr/onboarding/new-hires/${newHireId}/portal-invite`);
+export const sendOnboardingPackage = (newHireId) => api.post(`/hr/onboarding/new-hires/${newHireId}/send-package`);
 export const requestOnboardingDocuments = (newHireId, categories) => api.post(`/hr/onboarding/new-hires/${newHireId}/document-requests`, { categories });
 export const getOnboardingProgress = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/progress`);
 
 // ── The new hire's own pre-onboarding page (public: the link token is the credential) ──
 export const getPortal = (token) => api.get(`/public/onboarding/${encodeURIComponent(token)}`, { auth: false });
+export const submitSignedPackage = (token) => api.post(`/public/onboarding/${encodeURIComponent(token)}/submit-signed-package`, {}, { auth: false });
 export const savePortalDetails = (token, payload) => api.put(`/public/onboarding/${encodeURIComponent(token)}/details`, payload, { auth: false });
 export const uploadPortalDocument = (token, docId, file) => {
   const fd = new FormData();
   fd.append("file", file);
   return api.post(`/public/onboarding/${encodeURIComponent(token)}/documents/${docId}`, fd, { auth: false });
+};
+export const getPortalDocumentFile = async (token, docId) => {
+  const res = await fetch(`${API_BASE_URL}/public/onboarding/${encodeURIComponent(token)}/documents/${docId}/file`);
+  if (!res.ok) {
+    let detail = null;
+    try {
+      const body = await res.json();
+      detail = body?.detail;
+    } catch {}
+    throw new Error(detail || `Failed to download file (${res.status})`);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const match = /filename\*?=['"]?(?:UTF-8'')?([^'";\n]+)['"]?/i.exec(cd);
+  const filename = match ? decodeURIComponent(match[1]) : `document-${docId}.pdf`;
+  return { blob, filename };
 };
 
 

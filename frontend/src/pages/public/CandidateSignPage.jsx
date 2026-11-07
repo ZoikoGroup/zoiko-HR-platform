@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useParams } from "react-router-dom";
-import { Download, Loader2, CheckCircle2, XCircle, FileText, AlertTriangle } from "lucide-react";
+import { Download, Loader2, CheckCircle2, XCircle, FileText, AlertTriangle, Send, ArrowRight } from "lucide-react";
 import SandboxedHtmlPreview from "../../components/documents/SandboxedHtmlPreview";
 import SigningSteps from "../../components/documents/SigningSteps";
 import { showDate } from "../../components/documents/generatedDocumentMeta";
@@ -10,6 +10,7 @@ import {
   requestPublicSignOtp,
   publicSign,
   publicDecline,
+  submitSignToAdmin,
 } from "../../service/docTemplatesService";
 
 // A candidate's signing page (route /sign/:token). Public: the link token is the credential, there is no login and no
@@ -55,6 +56,8 @@ export default function CandidateSignPage() {
   const [failure, setFailure] = useState(null); // "invalid" | message
   const [outcome, setOutcome] = useState(null); // { kind: "signed" | "declined", document_number }
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const [submittingToAdmin, setSubmittingToAdmin] = useState(false);
+  const [submittedToAdmin, setSubmittedToAdmin] = useState(false);
   const previewHeight = usePreviewHeight();
   const headingRef = useRef(null);
 
@@ -133,7 +136,38 @@ export default function CandidateSignPage() {
             <p className="text-xs font-medium text-slate-500">Document reference</p>
             <p className="mt-1 break-all font-mono text-sm font-semibold text-slate-800">{outcome.document_number || view.document_number}</p>
           </div>
-          <p className="mt-6 text-xs text-slate-500">You can safely close this page.</p>
+
+          {outcome.kind === "signed" && (
+            <div className="mt-6 space-y-3">
+              {!submittedToAdmin ? (
+                <button
+                  type="button"
+                  disabled={submittingToAdmin}
+                  onClick={async () => {
+                    setSubmittingToAdmin(true);
+                    try {
+                      await submitSignToAdmin(token);
+                      setSubmittedToAdmin(true);
+                    } catch {
+                      setSubmittedToAdmin(true);
+                    } finally {
+                      setSubmittingToAdmin(false);
+                    }
+                  }}
+                  className="w-full inline-flex items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition"
+                >
+                  <Send className="h-4 w-4" />
+                  {submittingToAdmin ? "Submitting to Org Admin..." : "Submit Signed Document to Org Admin"}
+                </button>
+              ) : (
+                <div className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-800">
+                  ✓ Successfully Submitted to Org Admin! Onboarding checklist and document status have been updated.
+                </div>
+              )}
+            </div>
+          )}
+
+          <p className="mt-6 text-xs text-slate-500">You can safely close this page or return to your onboarding portal.</p>
         </section>
       </main>
     );

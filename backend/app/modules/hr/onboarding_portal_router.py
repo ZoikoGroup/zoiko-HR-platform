@@ -67,3 +67,53 @@ async def portal_upload(request: Request, token: str, document_id: int, file: Up
     db.commit()
     log_onboarding_activity(db, hire.id, "Document Submitted", f"{hire.candidate_name} uploaded '{doc.title}' for review.", hire.organization_id)
     return onboarding_flow.portal_view(db, hire)
+
+
+@portal_router.get("/{token}/documents/{document_id}/file", summary="View or download an onboarding document")
+@limiter.limit("60/minute")
+def portal_download_document(request: Request, token: str, document_id: int, db: Session = Depends(get_db)):
+    from fastapi.responses import FileResponse
+    from app.modules.hr import file_storage
+    from app.core.privacy.files import belongs_to_tenant
+
+    hire = onboarding_flow.hire_for_token(db, token)
+    doc = db.query(OnboardingDocument).filter(
+        OnboardingDocument.id == document_id,
+        OnboardingDocument.onboarding_new_hire_id == hire.id,
+        OnboardingDocument.is_deleted == False,
+    ).first()
+    if doc is None or not doc.file_path:
+        raise HTTPException(status_code=404, detail="Document not found or no file uploaded yet.")
+
+    resolved = file_storage.resolve_stored_file(doc.file_path) if belongs_to_tenant(doc.file_path, hire.organization_id) else None
+    if not resolved:
+        raise HTTPException(status_code=410, detail="The file for this document is not available.")
+
+    name = os.path.basename(resolved)
+    ext = os.path.splitext(name)[1]
+    download_name = f"{doc.title or 'document'}{ext}"
+    return FileResponse(
+        path=resolved,
+        media_type=file_storage.effective_media_type(download_name, None),
+        filename=download_name.replace("/", "-").replace("\\", "-"),
+    )
+
+
+@portal_router.post("/{token}/submit-signed-package", summary="Candidate submits all signed documents to Org Admin")
+@limiter.limit("20/minute")
+def submit_signed_package(request: Request, token: str, db: Session = Depends(get_db)):
+    from app.modules.hr.service import log_onboarding_activity
+    from app.modules.hr import onboarding_package
+    hire = onboarding_flow.hire_for_token(db, token)
+    onboarding_package.sync_onboarding_document_checklist(db, hire)
+    log_onboarding_activity(
+        db, hire.id, "Signed Documents Submitted",
+        f"{hire.candidate_name} submitted their signed onboarding documents package to Org Admin.",
+        hire.organization_id
+    )
+    return {
+        "success": True,
+        "message": "All signed onboarding documents have been submitted to Org Admin.",
+        "view": onboarding_flow.portal_view(db, hire)
+    }
+

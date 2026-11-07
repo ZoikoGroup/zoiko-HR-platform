@@ -936,6 +936,7 @@ class OnboardingDocument(Base):
     title                   = Column(String(200), nullable=False)
     category                = Column(String(100), nullable=False)
     file_path               = Column(String(500), nullable=True)
+    document_id             = Column(Integer, ForeignKey("generated_documents.id"), nullable=True)
     status                  = Column(String(50), default="pending", nullable=False)
     rejection_reason        = Column(Text, nullable=True)
     is_deleted              = Column(Boolean, default=False, nullable=False)
