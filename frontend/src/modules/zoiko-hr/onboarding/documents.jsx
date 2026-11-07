@@ -513,7 +513,7 @@ export default function OnboardingDocuments() {
       actions={(
         <>
           <SecondaryButton icon={Send} onClick={() => openSendPackageModal()}>Send 10 Onboarding Docs</SecondaryButton>
-          <SecondaryButton icon={Send} onClick={() => openRequestModal()}>Request documents</SecondaryButton>
+          <SecondaryButton icon={Send} onClick={() => openRequestModal()}>Request documents from a new hire</SecondaryButton>
           <PrimaryButton icon={Upload} onClick={() => openUpload()}>Upload Document</PrimaryButton>
         </>
       )}>

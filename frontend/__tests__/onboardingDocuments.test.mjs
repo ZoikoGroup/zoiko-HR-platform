@@ -50,7 +50,7 @@ test("the server's refusals become field messages, never a bare 'Field required'
 });
 
 async function load(t, over = {}) {
-  const calls = { create: [], update: [], request: [] };
+  const calls = { create: [], update: [], request: [], sendPackage: [] };
   const svc = {
     getOnboardingDocuments: async () => over.docs ?? [{ id: 1, title: "NDA copy", category: "nda", status: "pending", onboarding_new_hire_id: 7, file_url: "/hr/onboarding/documents/1/file", created_at: "2026-10-01T10:00:00Z" }],
     getOnboardingRecords: async () => [{ id: 7, candidate_name: "Ann Lee", status: "pre_joining" }, { id: 8, candidate_name: "Old Hire", status: "completed" }],
@@ -59,6 +59,7 @@ async function load(t, over = {}) {
     requestOnboardingDocuments: async (id, cats) => { calls.request.push([id, cats]); return cats.map((c, i) => ({ id: 100 + i, category: c, status: "requested" })); },
     deleteOnboardingDocument: async () => ({}),
     getOnboardingDocumentFile: async () => ({ blob: new Blob(["x"]), filename: "NDA copy.pdf" }),
+    sendOnboardingPackage: async (id) => { calls.sendPackage.push(id); return { success: true, message: "Package sent" }; },
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -141,7 +142,7 @@ test("only pending documents can be approved; requested ones show 'Not uploaded'
     { id: 3, title: "Offer", category: "offer_letter", status: "approved", onboarding_new_hire_id: 7, file_url: "/f/3" },
   ] });
   const rows = [...document.querySelectorAll("tbody tr")];
-  assert.match(rows[0].textContent, /Signed NDA/);
+  assert.match(rows[0].textContent, /Non-Disclosure Agreement|Signed NDA/);
   assert.match(rows[0].textContent, /Needs review/);
   assert.match(rows[0].textContent, /Approve/);
   assert.match(rows[1].textContent, /Not uploaded/);
