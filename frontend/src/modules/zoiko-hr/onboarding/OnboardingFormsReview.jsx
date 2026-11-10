@@ -1,13 +1,12 @@
 /*
- * Submitted onboarding forms: verify, return with a reason, reveal masked financial values (finance permission only).
- * Two uses: embedded on a new hire's record (`hireId`), and the routed Payroll Verifications queue (`payrollQueue`), which
- * gets the Onboarding module shell, KPI row, status chips, a table and a detail panel.
+ * Submitted onboarding forms of one new hire (shown on their record in New Hires): verify, return with a reason, reveal masked
+ * financial values (finance permission only).
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { AlertCircle, CheckCircle2, Eye, EyeOff, FileText, Loader2, RotateCcw, ShieldCheck, Undo2, WalletCards } from "lucide-react";
 import {
-  errorMessage, getNewHireForms, getPayrollVerifications, returnOnboardingForm,
+  errorMessage, getNewHireForms, returnOnboardingForm,
   revealOnboardingForm, verifyOnboardingForm,
 } from "../../../service/onboardingPrompt2Service";
 import {
@@ -96,56 +95,33 @@ function FormBody({ form, visible, busy, mayVerify, allowReturn, returning, reas
   );
 }
 
-export default function OnboardingFormsReview({ hireId, payrollQueue = false }) {
+export default function OnboardingFormsReview({ hireId }) {
   const [forms, setForms] = useState([]);
   const [financePermitted, setFinancePermitted] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [noFinancePermission, setNoFinancePermission] = useState(false);
   const [notice, setNotice] = useState("");
   const [busyId, setBusyId] = useState(null);
   const [revealed, setRevealed] = useState({});
   const [returnReasons, setReturnReasons] = useState({});
   const [returningId, setReturningId] = useState(null);
-  // queue view only
-  const [hireNames, setHireNames] = useState({});
-  const [tab, setTab] = useState("ALL");
-  const [search, setSearch] = useState("");
-  const [selectedId, setSelectedId] = useState(null);
 
   const load = async () => {
     setLoading(true);
     setError("");
     setNotice("");
-    setNoFinancePermission(false);
     try {
-      const result = payrollQueue ? await getPayrollVerifications() : await getNewHireForms(hireId);
+      const result = await getNewHireForms(hireId);
       setForms(Array.isArray(result?.items) ? result.items : []);
-      setFinancePermitted(!!result?.finance_permitted || payrollQueue);
+      setFinancePermitted(!!result?.finance_permitted);
     } catch (err) {
-      // not an error: bank details are for the finance viewers the organization admin chose, and nobody is one by default
-      if (payrollQueue && err?.code === "FINANCE_PERMISSION_REQUIRED") setNoFinancePermission(true);
-      else setError(errorMessage(err, "Onboarding forms could not be loaded."));
+      setError(errorMessage(err, "Onboarding forms could not be loaded."));
     } finally {
       setLoading(false);
     }
   };
-  useEffect(() => { load(); }, [hireId, payrollQueue]);
+  useEffect(() => { load(); }, [hireId]);
 
-  // the queue rows carry only new_hire_id; names come from the onboarding records when this user may read them
-  useEffect(() => {
-    if (!payrollQueue) return undefined;
-    let live = true;
-    import("../../../service/hrService")
-      .then((m) => (typeof m.getOnboardingRecords === "function" ? m.getOnboardingRecords() : null))
-      .then((recs) => {
-        if (!live) return;
-        const list = Array.isArray(recs) ? recs : Array.isArray(recs?.items) ? recs.items : [];
-        setHireNames(Object.fromEntries(list.map((r) => [r.id, r.candidate_name || r.name]).filter(([, n]) => n)));
-      })
-      .catch(() => {});
-    return () => { live = false; };
-  }, [payrollQueue]);
 
   const actOn = async (form, action) => {
     setBusyId(form.id);
@@ -216,149 +192,32 @@ export default function OnboardingFormsReview({ hireId, payrollQueue = false }) 
   );
   const retry = error ? <SecondaryButton icon={RotateCcw} onClick={load}>Try again</SecondaryButton> : null;
 
-  // ── embedded on a new hire's record ──────────────────────────────────────────────────────────────────────────────
-  if (!payrollQueue) {
-    if (loading) return <section className="rounded-2xl border border-gray-200/80 bg-white p-5 text-sm text-gray-500 shadow-sm">Loading forms…</section>;
-    return (
-      <section className="space-y-4" aria-label="New hire forms">
-        <header>
-          <h2 className="text-lg font-semibold text-gray-900">New hire forms</h2>
-          <p className="mt-1 text-sm text-gray-500">Review submitted onboarding forms. Financial details remain masked unless you explicitly reveal them.</p>
-        </header>
-        {banners}
-        {forms.length === 0 ? (
-          <Card><EmptyState icon={FileText} title="No forms have been started." /></Card>
-        ) : forms.map((form) => (
-          <article key={form.id || form.canonical_id} className="rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm sm:p-5">
-            <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
-              <div className="min-w-0">
-                <h3 className="font-semibold text-gray-900">{form.title || form.canonical_id}</h3>
-                <p className="mt-1 text-xs text-gray-500">
-                  {form.new_hire_name ? `For ${form.new_hire_name} · ` : ""}
-                  {form.submitted_at ? `Submitted ${shortDate(form.submitted_at)}` : "Not submitted yet"}
-                </p>
-              </div>
-              <FormStatus form={form} />
-            </div>
-            <FormBody {...bodyProps(form)} />
-          </article>
-        ))}
-        {retry}
-      </section>
-    );
-  }
-
-  // ── routed Payroll Verifications queue ───────────────────────────────────────────────────────────────────────────
-  return <PayrollQueue {...{ forms, loading, banners, retry, hireNames, tab, setTab, search, setSearch, selectedId, setSelectedId, bodyProps, load, noFinancePermission }} />;
-}
-
-function PayrollQueue({ forms, loading, banners, retry, hireNames, tab, setTab, search, setSearch, selectedId, setSelectedId, bodyProps, load, noFinancePermission }) {
-  const nameOf = (form) => form.new_hire_name || hireNames[form.new_hire_id]
-    || (form.new_hire_id ? `New hire #${form.new_hire_id}` : form.employee_id ? `Employee #${form.employee_id}` : "—");
-  const counts = useMemo(() => {
-    const c = { ALL: forms.length, SUBMITTED: 0, VERIFIED: 0, RETURNED: 0 };
-    forms.forEach((f) => { const s = statusOf(f); if (s in c) c[s] += 1; });
-    return c;
-  }, [forms]);
-  const q = search.trim().toLowerCase();
-  const rows = forms.filter((f) => (tab === "ALL" || statusOf(f) === tab)
-    && (!q || `${nameOf(f)} ${f.title || ""} ${f.canonical_id || ""}`.toLowerCase().includes(q)));
-  const selected = forms.find((f) => f.id === selectedId) || null;
-
-  const detail = selected ? (
-    <DetailPanel title="Payroll submission" onClose={() => setSelectedId(null)}
-      header={
-        <div className="min-w-0">
-          <PersonCell name={nameOf(selected)} sub={selected.title || selected.canonical_id} />
-          <div className="mt-2"><FormStatus form={selected} /></div>
-        </div>
-      }>
-      <DetailSection title="Submission">
-        <dl className="mb-4 grid grid-cols-2 gap-3 text-sm">
-          <div><dt className="text-xs text-gray-500">Submitted</dt><dd className="text-gray-900">{shortDate(selected.submitted_at)}</dd></div>
-          <div><dt className="text-xs text-gray-500">Verified</dt><dd className="text-gray-900">{shortDate(selected.verified_at)}</dd></div>
-        </dl>
-      </DetailSection>
-      <DetailSection title="Details">
-        <FormBody {...bodyProps(selected)} />
-      </DetailSection>
-    </DetailPanel>
-  ) : null;
-
-  const tabs = [
-    { value: "ALL", label: "All", count: counts.ALL },
-    { value: "SUBMITTED", label: "To verify", count: counts.SUBMITTED },
-    { value: "VERIFIED", label: "Verified", count: counts.VERIFIED },
-    { value: "RETURNED", label: "Returned", count: counts.RETURNED },
-  ];
-
-  if (noFinancePermission) {
-    return (
-      <OnboardingLayout title="Payroll Verifications" subtitle="Submitted bank and payroll forms awaiting finance verification.">
-        <Card>
-          <div className="flex flex-col items-center gap-3 px-4 py-10 text-center">
-            <span className="grid h-12 w-12 place-items-center rounded-full bg-blue-50 text-blue-600" aria-hidden="true"><ShieldCheck className="h-6 w-6" /></span>
-            <h2 className="text-base font-semibold text-gray-900">Finance permission needed</h2>
-            <p className="max-w-md text-sm text-gray-600">
-              Bank and payroll details are shown only to the finance viewers your organization admin has chosen. An organization admin can
-              add you under Onboarding settings, in Finance viewers.
-            </p>
-            <Link to="/zoiko-hr/onboarding/settings" className="text-sm font-semibold text-blue-600 hover:underline">Go to Onboarding settings</Link>
-          </div>
-        </Card>
-      </OnboardingLayout>
-    );
-  }
-
+  if (loading) return <section className="rounded-2xl border border-gray-200/80 bg-white p-5 text-sm text-gray-500 shadow-sm">Loading forms…</section>;
   return (
-    <OnboardingLayout title="Payroll Verifications" subtitle="Submitted bank and payroll forms awaiting finance verification."
-      actions={<SecondaryButton icon={RotateCcw} onClick={load} disabled={loading}>Refresh</SecondaryButton>}>
-      <section className="space-y-6" aria-label="Payroll verification queue">
-        <h2 className="sr-only">Payroll verification queue</h2>
-        {banners}
-        <KpiGrid cols={3}>
-          <KpiCard label="To Verify" icon={WalletCards} tone="amber" kpi={{ value: loading ? null : counts.SUBMITTED }} loading={loading} />
-          <KpiCard label="Verified This Session" icon={CheckCircle2} tone="green" kpi={{ value: loading ? null : counts.VERIFIED }} loading={loading} />
-          <KpiCard label="Returned This Session" icon={Undo2} tone="red" kpi={{ value: loading ? null : counts.RETURNED }} loading={loading} />
-        </KpiGrid>
-        <p className="-mt-3 text-[11px] text-gray-400">The queue lists submitted forms; verified and returned counts are the ones actioned since this page was opened.</p>
-
-        <WithDetail detail={detail}>
-          <Card bodyClass="pt-4">
-            <div className="flex flex-wrap items-center justify-between gap-3 px-5 pb-4">
-              <ChipTabs label="Verification status" value={tab} onChange={setTab} tabs={tabs} />
-              <div className="w-full sm:w-72"><SearchInput value={search} onChange={setSearch} placeholder="Search new hire or form…" label="Search payroll forms" /></div>
+    <section className="space-y-4" aria-label="New hire forms">
+      <header>
+        <h2 className="text-lg font-semibold text-gray-900">New hire forms</h2>
+        <p className="mt-1 text-sm text-gray-500">Review submitted onboarding forms. Financial details remain masked unless you explicitly reveal them.</p>
+      </header>
+      {banners}
+      {forms.length === 0 ? (
+        <Card><EmptyState icon={FileText} title="No forms have been started." /></Card>
+      ) : forms.map((form) => (
+        <article key={form.id || form.canonical_id} className="rounded-2xl border border-gray-200/80 bg-white p-4 shadow-sm sm:p-5">
+          <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h3 className="font-semibold text-gray-900">{form.title || form.canonical_id}</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                {form.new_hire_name ? `For ${form.new_hire_name} · ` : ""}
+                {form.submitted_at ? `Submitted ${shortDate(form.submitted_at)}` : "Not submitted yet"}
+              </p>
             </div>
-            {loading ? (
-              <div className="flex items-center gap-2 px-5 pb-6 text-sm text-gray-500"><Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />Loading forms…</div>
-            ) : (
-              <Table columns={[{ label: "New hire" }, { label: "Form" }, { label: "Submitted" }, { label: "Status" }, { label: "Actions", className: "text-right" }]}
-                empty={rows.length === 0 ? (
-                  <EmptyState icon={WalletCards} title={forms.length ? "No forms match" : "No payroll forms are waiting for verification."}>
-                    {forms.length ? "Try another status or search." : null}
-                  </EmptyState>
-                ) : null}>
-                {rows.map((form) => (
-                  <tr key={form.id || form.canonical_id} className={`hover:bg-gray-50/60 ${selectedId === form.id ? "bg-blue-50/40" : ""}`}>
-                    <td className={`${td} min-w-[12rem]`}><PersonCell name={nameOf(form)} sub={form.employee_id ? `Employee #${form.employee_id}` : null} /></td>
-                    <td className={td}>{form.title || form.canonical_id || "—"}</td>
-                    <td className={td}>
-                      <p className="text-gray-800">{shortDate(form.submitted_at)}</p>
-                      {form.submitted_at && <p className="text-xs text-gray-500">{relativeTime(form.submitted_at)}</p>}
-                    </td>
-                    <td className={td}><FormStatus form={form} /></td>
-                    <td className={`${td} text-right`}>
-                      <button type="button" onClick={() => setSelectedId(form.id)} aria-label={`Review ${form.title || "form"} for ${nameOf(form)}`}
-                        className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">Review</button>
-                    </td>
-                  </tr>
-                ))}
-              </Table>
-            )}
-          </Card>
-        </WithDetail>
-        {retry}
-      </section>
-    </OnboardingLayout>
+            <FormStatus form={form} />
+          </div>
+          <FormBody {...bodyProps(form)} />
+        </article>
+      ))}
+      {retry}
+    </section>
   );
 }

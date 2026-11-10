@@ -18,9 +18,9 @@ import {
   AlertCircle,
   FileCheck2,
   Lock,
-  Send,
 } from "lucide-react";
-import { getPortal, getPortalDocumentFile, savePortalDetails, uploadPortalDocument, submitSignedPackage } from "../service/hrService";
+import { getPortal, getPortalDocumentFile, savePortalDetails, uploadPortalDocument, acknowledgePortalDocument,
+  savePortalOutsideActivities, portalPackageFileUrl } from "../service/hrService";
 import { formatDate } from "../utils/dateTime";
 import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructuredForms";
 
@@ -167,7 +167,9 @@ function SignableDocCard({ doc, token, onUpdated, onError }) {
             <p className="mt-1 text-xs text-slate-500">
               {isSigned
                 ? "This document has been electronically signed and approved."
-                : "Legally binding agreement. Please review the clauses and apply your electronic signature."}
+                : doc.needs_declaration
+                  ? "Before signing, complete Schedule A: declare your outside activities (or confirm you have none) below."
+                  : "Legally binding agreement. Please review the clauses and apply your electronic signature."}
             </p>
           </div>
         </div>
@@ -265,7 +267,11 @@ function OperationalDocRow({ doc, token, onError }) {
         </span>
         <div className="min-w-0">
           <span className="text-sm font-medium text-slate-800 break-words">{doc.title}</span>
-          <p className="text-[11px] text-slate-400">Corporate Guide / Standard Operating Template</p>
+          <p className="text-[11px] text-slate-400">
+            {doc.package_mode === "VOLUNTARY"
+              ? "Optional and entirely voluntary. Return it to HR only if you wish; it is never added to your personnel file."
+              : doc.package_mode === "INFO" ? "Template you will use after you join" : "Reference document"}
+          </p>
         </div>
       </div>
 
@@ -325,6 +331,12 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
         <StatusBadge status={doc.status} requiresSignature={false} />
       </div>
 
+      {doc.package_mode === "COMPLETE" && doc.has_package_file && (doc.status === "requested" || doc.status === "rejected") && (
+        <p className="mt-2 text-xs text-slate-600">
+          <a href={portalPackageFileUrl(token, doc.category)} className="font-semibold text-blue-600 hover:underline">Download the form</a>,
+          complete and sign it, then upload it here.
+        </p>
+      )}
       {doc.status === "rejected" && doc.rejection_reason && (
         <p className="mt-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 break-words">
           Revision requested: {doc.rejection_reason}
@@ -358,6 +370,139 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
   );
 }
 
+function AcknowledgeDocCard({ doc, token, ack, onUpdated, onError }) {
+  const [busy, setBusy] = useState(false);
+  const [checked, setChecked] = useState(false);
+  const done = doc.status === "approved";
+
+  const open = async () => {
+    try {
+      const res = await getPortalDocumentFile(token, doc.id);
+      const url = URL.createObjectURL(res.blob);
+      if (!window.open(url, "_blank", "noopener")) {
+        const a = document.createElement("a");
+        a.href = url;
+        a.download = res.filename || `${doc.title}.pdf`;
+        a.click();
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      onError(err.message || "Could not open the document.");
+    }
+  };
+
+  const submit = async () => {
+    setBusy(true);
+    try {
+      const view = await acknowledgePortalDocument(token, doc.id, ack?.ack_text_version);
+      onUpdated(view, `Thank you. Your acknowledgement of the ${doc.title} has been recorded.`);
+    } catch (err) {
+      onError(err.message || "Could not record your acknowledgement.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className={`rounded-2xl border p-4 sm:p-5 ${done ? "border-emerald-100 bg-white" : "border-sky-200 bg-sky-50/40"}`}>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className={`grid h-10 w-10 shrink-0 place-items-center rounded-xl ${done ? "bg-emerald-50 text-emerald-600" : "bg-sky-600 text-white"}`}>
+            {done ? <FileCheck2 className="h-5 w-5" /> : <FileText className="h-5 w-5" />}
+          </span>
+          <div className="min-w-0">
+            <h4 className="break-words text-sm font-semibold text-slate-900">{doc.title}</h4>
+            <p className="mt-1 text-xs text-slate-500">
+              {done ? `Receipt acknowledged${doc.acknowledged_at ? ` on ${formatDate(doc.acknowledged_at)}` : ""}.`
+                : "Please read this document and confirm you have received it. This is not a signature."}
+            </p>
+          </div>
+        </div>
+        <button type="button" onClick={open}
+          className="inline-flex shrink-0 items-center gap-1.5 self-end rounded-xl border border-slate-200 bg-white px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50 sm:self-start">
+          <Eye className="h-3.5 w-3.5 text-slate-500" />Read document
+        </button>
+      </div>
+      {!done && (
+        <div className="mt-3 flex flex-col gap-2 border-t border-sky-100 pt-3 sm:flex-row sm:items-center sm:justify-between">
+          <label className="flex items-start gap-2 text-xs text-slate-700">
+            <input type="checkbox" checked={checked} onChange={(e) => setChecked(e.target.checked)} className="mt-0.5 rounded border-slate-300" />
+            <span>{ack?.ack_text || "I confirm that I have received and read this document."}</span>
+          </label>
+          <button type="button" onClick={submit} disabled={!checked || busy}
+            className="inline-flex shrink-0 items-center justify-center gap-1.5 rounded-xl bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50">
+            <CheckCircle2 className="h-3.5 w-3.5" />{busy ? "Saving…" : "Acknowledge receipt"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+const EMPTY_ACTIVITY = { organisation: "", role: "", hours: "", paid: "unpaid" };
+
+function OutsideActivitiesCard({ token, onUpdated, onError }) {
+  const [none, setNone] = useState(false);
+  const [rows, setRows] = useState([{ ...EMPTY_ACTIVITY }]);
+  const [busy, setBusy] = useState(false);
+  const set = (i, patch) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+  const cls = "w-full min-w-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm";
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      const view = await savePortalOutsideActivities(token, {
+        none, rows: none ? [] : rows.filter((r) => r.organisation.trim()).map((r) => ({ ...r, hours: Number(r.hours) || 0 })),
+      });
+      onUpdated(view, "Thank you. Schedule A is complete; you can now sign your Affidavit of Employment Exclusivity.");
+    } catch (err) {
+      onError(err.message || "Could not save your declaration.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-4">
+      <h4 className="text-sm font-semibold text-slate-900">Outside activities</h4>
+      <p className="mt-1 text-xs text-slate-500">
+        Schedule A of your Affidavit of Employment Exclusivity: list any other employment, consultancy, directorship or business
+        activity, paid or unpaid, or confirm you have none. It is attached to the affidavit when you sign it.
+      </p>
+      <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
+        <input type="checkbox" checked={none} onChange={(e) => setNone(e.target.checked)} className="rounded border-slate-300" />
+        I have no outside activities
+      </label>
+      {!none && (
+        <div className="mt-3 space-y-2">
+          {rows.map((r, i) => (
+            <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-[2fr_1.5fr_1fr_1fr_auto]">
+              <input aria-label="Organisation" placeholder="Organisation" className={cls} value={r.organisation} onChange={(e) => set(i, { organisation: e.target.value })} />
+              <input aria-label="Role" placeholder="Role" className={cls} value={r.role} onChange={(e) => set(i, { role: e.target.value })} />
+              <input aria-label="Hours per week" type="number" min={0} max={168} placeholder="Hours / week" className={cls} value={r.hours} onChange={(e) => set(i, { hours: e.target.value })} />
+              <select aria-label="Paid or unpaid" className={cls} value={r.paid} onChange={(e) => set(i, { paid: e.target.value })}>
+                <option value="unpaid">Unpaid</option><option value="paid">Paid</option>
+              </select>
+              <button type="button" onClick={() => setRows((x) => (x.length > 1 ? x.filter((_, j) => j !== i) : [{ ...EMPTY_ACTIVITY }]))}
+                className="rounded-lg px-2 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-rose-600">Remove</button>
+            </div>
+          ))}
+          <button type="button" onClick={() => setRows((x) => [...x, { ...EMPTY_ACTIVITY }])} className="text-xs font-semibold text-blue-600 hover:underline">
+            + Add another activity
+          </button>
+        </div>
+      )}
+      <div className="mt-3 flex justify-end">
+        <button type="submit" disabled={busy || (!none && !rows.some((r) => r.organisation.trim()))}
+          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
+          {busy ? "Saving…" : "Save declaration"}
+        </button>
+      </div>
+    </form>
+  );
+}
+
 export default function OnboardingPortalPage() {
   const { token } = useParams();
   const [view, setView] = useState(null);
@@ -366,27 +511,7 @@ export default function OnboardingPortalPage() {
   const [loadError, setLoadError] = useState(null);
   const [details, setDetails] = useState(detailsFromView(null));
   const [saving, setSaving] = useState(false);
-  const [submittingPackage, setSubmittingPackage] = useState(false);
   const [banner, setBanner] = useState({ type: "", text: "" });
-
-  const handleSubmitSignedPackage = async () => {
-    setSubmittingPackage(true);
-    try {
-      const res = await submitSignedPackage(token);
-      if (res?.view) setView(res.view);
-      setBanner({
-        type: "success",
-        text: res?.message || "Signed onboarding documents have been submitted to Org Admin.",
-      });
-    } catch (err) {
-      setBanner({
-        type: "error",
-        text: err?.message || "Could not submit documents to Org Admin. Please try again.",
-      });
-    } finally {
-      setSubmittingPackage(false);
-    }
-  };
 
   const load = async () => {
     setLoading(true);
@@ -436,42 +561,44 @@ export default function OnboardingPortalPage() {
     }
   };
 
-  // Group documents into Signable vs Operational vs Uploadable
+  // Group documents by what the new hire must do: sign, acknowledge, upload/complete, or nothing (for information / voluntary)
   const documents = view?.documents || [];
-  const { signableDocs, operationalDocs, uploadableDocs, progress } = useMemo(() => {
+  const { signableDocs, ackDocs, operationalDocs, uploadableDocs, progress } = useMemo(() => {
     const signable = [];
+    const acks = [];
     const operational = [];
     const uploadable = [];
-    let completedCount = 0;
+    let completed = 0;
+    let total = 0;
 
     documents.forEach((d) => {
+      const mode = d.package_mode;
       if (d.requires_signature) {
         signable.push(d);
-        if (d.status === "approved") completedCount++;
-      } else if (d.uploaded && d.status === "approved") {
+      } else if (mode === "ACKNOWLEDGE") {
+        acks.push(d);
+      } else if (mode === "INFO" || mode === "VOLUNTARY" || (!mode && d.uploaded && d.status === "approved")) {
         operational.push(d);
-        completedCount++;
+        return;                                   // optional / informational: not counted in progress
       } else {
         uploadable.push(d);
-        if (d.status === "pending" || d.status === "approved") completedCount++;
       }
+      total++;
+      if (d.status === "approved" || (!d.requires_signature && mode !== "ACKNOWLEDGE" && d.status === "pending")) completed++;
     });
 
-    const percent = documents.length > 0 ? Math.round((completedCount / documents.length) * 100) : 0;
     return {
       signableDocs: signable,
+      ackDocs: acks,
       operationalDocs: operational,
       uploadableDocs: uploadable,
-      progress: {
-        completed: completedCount,
-        total: documents.length,
-        percent,
-      },
+      progress: { completed, total, percent: total ? Math.round((completed / total) * 100) : 0 },
     };
   }, [documents]);
+  const needs = view?.package?.needs || [];
 
   const overallStatus = useMemo(() => {
-    if (!documents.length) return { label: "Not started", tone: "amber" };
+    if (!progress.total) return { label: "Not started", tone: "amber" };
     if (progress.completed === progress.total) return { label: "Completed", tone: "emerald" };
     if (progress.completed > 0) return { label: "In progress", tone: "blue" };
     return { label: "Not started", tone: "amber" };
@@ -661,7 +788,7 @@ export default function OnboardingPortalPage() {
           </div>
 
           {/* Progress Overview */}
-          {documents.length > 0 && (
+          {progress.total > 0 && (
             <div className="mt-6 pt-5 border-t border-slate-100">
               <div className="flex items-center justify-between gap-2 text-xs font-medium mb-2">
                 <span className="text-slate-600 font-semibold">Onboarding Completion Progress</span>
@@ -713,32 +840,45 @@ export default function OnboardingPortalPage() {
               ))}
             </div>
 
-            {/* Submit signed package to Org Admin */}
-            {signableDocs.some((d) => d.status === "approved") && (
-              <div className="pt-2">
-                <div className="rounded-2xl border border-blue-200/80 bg-gradient-to-br from-blue-50/70 to-indigo-50/70 p-4 sm:p-5 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                      <h4 className="text-sm font-semibold text-slate-900">
-                        Ready to submit signed documents?
-                      </h4>
-                      <p className="text-xs text-slate-600 mt-0.5">
-                        Notify the HR Organization Admin that you have signed your onboarding documents.
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={handleSubmitSignedPackage}
-                      disabled={submittingPackage}
-                      className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-5 py-2.5 text-xs font-semibold text-white shadow-xs hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition"
-                    >
-                      <Send className="h-3.5 w-3.5" />
-                      {submittingPackage ? "Submitting to Org Admin..." : "Submit Signed Documents to Org Admin"}
-                    </button>
-                  </div>
-                </div>
-              </div>
+            <p className="flex items-center gap-1.5 px-1 text-xs text-slate-500">
+              <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
+              HR is told automatically as soon as you sign; there is nothing else to submit.
+            </p>
+          </section>
+        )}
+
+        {needs.length > 0 && (
+          <section className="space-y-3 rounded-3xl border border-amber-200 bg-amber-50/50 p-5 sm:p-6">
+            <div className="flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 text-amber-600" />
+              <h2 className="text-base font-bold tracking-tight text-slate-900">Still needed from you</h2>
+            </div>
+            <p className="text-xs text-slate-600">
+              Some of your agreements are prepared as soon as you give these details. They appear above for signing straight away.
+            </p>
+            {needs.includes("address") && (
+              <a href="#portal-details" className="block rounded-2xl border border-slate-200 bg-white p-4 text-sm font-medium text-blue-700 hover:bg-blue-50/40">
+                Add your residential address below – it is printed in your Non-Disclosure Agreement and Employment Contract. →
+              </a>
             )}
+            {needs.includes("outside_activities") && (
+              <OutsideActivitiesCard token={token} onUpdated={applyView} onError={(text) => setBanner({ type: "error", text })} />
+            )}
+          </section>
+        )}
+
+        {ackDocs.length > 0 && (
+          <section className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="grid h-6 w-6 place-items-center rounded-lg bg-sky-600 text-white shadow-xs"><FileText className="h-3.5 w-3.5" /></span>
+              <h2 className="text-base font-bold tracking-tight text-slate-900">
+                To read and acknowledge ({ackDocs.filter((d) => d.status === "approved").length} of {ackDocs.length})
+              </h2>
+            </div>
+            {ackDocs.map((doc) => (
+              <AcknowledgeDocCard key={doc.id} doc={doc} token={token} ack={view.package}
+                onUpdated={applyView} onError={(text) => setBanner({ type: "error", text })} />
+            ))}
           </section>
         )}
 
@@ -754,7 +894,7 @@ export default function OnboardingPortalPage() {
                   <FileText className="h-3.5 w-3.5" />
                 </span>
                 <h2 className="text-base font-bold text-slate-900 tracking-tight">
-                  Role Guidelines & Operational Briefs
+                  For information (no action needed)
                 </h2>
               </div>
               <span className="text-xs text-slate-400 font-medium">{operationalDocs.length} documents</span>
@@ -801,7 +941,7 @@ export default function OnboardingPortalPage() {
         )}
 
         {/* Section 5: Personal Details (Emergency Contacts Excluded) */}
-        <section className="rounded-3xl border border-blue-100/90 bg-white p-5 sm:p-7 shadow-sm">
+        <section id="portal-details" className="scroll-mt-20 rounded-3xl border border-blue-100/90 bg-white p-5 sm:p-7 shadow-sm">
           <div className="border-b border-slate-100 pb-4 mb-5">
             <div className="flex items-center gap-2">
               <span className="grid h-6 w-6 place-items-center rounded-lg bg-indigo-50 text-indigo-600">

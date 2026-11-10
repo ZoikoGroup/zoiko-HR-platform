@@ -23,7 +23,6 @@ test("Prompt 2 service calls use the mounted API prefixes and exact request bodi
   await svc.verifyOnboardingForm(9);
   await svc.returnOnboardingForm(9, "Please correct");
   await svc.revealOnboardingForm(9);
-  await svc.getPayrollVerifications();
   await svc.getFinanceViewers();
   await svc.setFinanceViewers([2, 3]);
   await svc.setChecklistException(7, { reason: "Waived", owner_id: 3, due_date: "2026-12-01", blocked_action: null });
@@ -37,14 +36,14 @@ test("Prompt 2 service calls use the mounted API prefixes and exact request bodi
     { values: { contact1_name: "Sam" }, declaration_accepted: true }, { auth: false }]);
   assert.deepEqual(calls.slice(3).map((call) => call[1]), [
     "/hr/onboarding/new-hires/42/forms", "/hr/onboarding/forms/9/verify", "/hr/onboarding/forms/9/return",
-    "/hr/onboarding/forms/9/reveal", "/hr/onboarding/payroll-verifications", "/hr/onboarding/finance-viewers",
+    "/hr/onboarding/forms/9/reveal", "/hr/onboarding/finance-viewers",
     "/hr/onboarding/finance-viewers", "/hr/onboarding/checklist-items/7/exception", "/hr/onboarding/my-tasks",
     "/hr/onboarding/my-tasks/8", "/hr/onboarding/probation/11",
   ]);
   assert.deepEqual(calls[5][2], { reason: "Please correct" });
-  assert.deepEqual(calls[9][2], { employee_ids: [2, 3] });
-  assert.deepEqual(calls[10][2], { reason: "Waived", owner_id: 3, due_date: "2026-12-01", blocked_action: null });
-  assert.deepEqual(calls[12][2], { completed: true });
+  assert.deepEqual(calls[8][2], { employee_ids: [2, 3] });
+  assert.deepEqual(calls[9][2], { reason: "Waived", owner_id: 3, due_date: "2026-12-01", blocked_action: null });
+  assert.deepEqual(calls[11][2], { completed: true });
 });
 
 test("portal forms save drafts, submit with declaration, and keep masked values out of follow-up payloads", async (t) => {
@@ -107,37 +106,6 @@ test("HR review keeps payroll values masked until explicit reveal and handles fi
   assert.equal(verifyCount, 0);
 });
 
-// The payroll queue is a separate component that used to read the parent's noFinancePermission state without being
-// given it, so /zoiko-hr/onboarding/payroll-verifications crashed with a ReferenceError for every user.
-for (const [name, getPayrollVerifications, expected] of [
-  ["renders the queue for a finance viewer", async () => ({ items: [] }), /Payroll Verifications/],
-  ["explains finance access instead of crashing for someone who is not a finance viewer",
-    async () => { throw Object.assign(new Error("Finance only"), { code: "FINANCE_PERMISSION_REQUIRED", status: 403 }); }, /Payroll Verifications/],
-]) {
-  test(`payroll verification queue ${name}`, async (t) => {
-    t.mock.module("../src/service/onboardingPrompt2Service.js", { exports: {
-      getPayrollVerifications,
-      getNewHireForms: async () => ({ items: [] }),
-      revealOnboardingForm: async () => ({}),
-      verifyOnboardingForm: async () => ({}),
-      returnOnboardingForm: async () => ({}),
-      errorMessage: (error) => error.message,
-    } });
-    const { MemoryRouter } = await import("react-router-dom");
-    const { default: OnboardingFormsReview } = await import(`../src/modules/zoiko-hr/onboarding/OnboardingFormsReview.jsx?t=${Math.random()}`);
-    const errors = [];
-    const onError = (e) => { errors.push(e.error || e.message); e.preventDefault?.(); };
-    window.addEventListener("error", onError);
-    try {
-      render(React.createElement(MemoryRouter, null, React.createElement(OnboardingFormsReview, { payrollQueue: true })));
-      await settle();
-    } finally {
-      window.removeEventListener("error", onError);
-    }
-    assert.deepEqual(errors, []);
-    assert.match(document.body.textContent, expected);
-  });
-}
 
 test("manager can complete an assigned onboarding task and gets a clear permission error", async (t) => {
   const calls = [];

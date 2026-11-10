@@ -49,8 +49,28 @@ test("the server's refusals become field messages, never a bare 'Field required'
   assert.equal(out.file, "File is required.");
 });
 
+const PKG_DOC = (category, title, mode, extra = {}) => ({ category, title, mode, mode_label: mode, template_id: "HR-X", doc_type: "FORM",
+  risk: "L1", sensitivity: "C2", orientation: "portrait", signers: "Employee", state: "not_sent", ready: false, missing_fields: [],
+  missing_clauses: [], ...extra });
+const PACKAGE = (id) => ({
+  new_hire_id: id, candidate_name: "Ann Lee", documents: [
+    PKG_DOC("offer_letter", "Offer Letter", "SIGN", { missing_clauses: [{ key: "probation", title: "Probation" }],
+      missing_fields: [{ key: "employment.base_pay", meaning: "Base pay amount and currency", source: "Payroll", editable: true }] }),
+    PKG_DOC("nda", "Non-Disclosure Agreement", "SIGN", { missing_fields: [{ key: "worker.postal_address", meaning: "Postal address",
+      source: "Zoiko HR", editable: true, candidate_provides: true, hr_may_enter: true }] }),
+    PKG_DOC("daily_kpi", "Daily Key Performance Indicators", "ACKNOWLEDGE", { ready: true }),
+    PKG_DOC("daily_work_report", "Daily Work Report (DWR)", "INFO", { ready: true, state: "available" }),
+  ], ready_to_send: ["daily_kpi"], inputs: {}, input_fields: [],
+});
+
+// OfferPackagePanel is imported statically by documents.jsx, so the module cache keeps the first test's service mock;
+// the package mocks therefore report to whichever test is running now.
+const CURRENT = { calls: null, over: {} };
+
 async function load(t, over = {}) {
   const calls = { create: [], update: [], request: [], sendPackage: [] };
+  CURRENT.calls = calls;
+  CURRENT.over = over;
   const svc = {
     getOnboardingDocuments: async () => over.docs ?? [{ id: 1, title: "NDA copy", category: "nda", status: "pending", onboarding_new_hire_id: 7, file_url: "/hr/onboarding/documents/1/file", created_at: "2026-10-01T10:00:00Z" }],
     getOnboardingRecords: async () => [{ id: 7, candidate_name: "Ann Lee", status: "pre_joining" }, { id: 8, candidate_name: "Old Hire", status: "completed" }],
@@ -59,9 +79,15 @@ async function load(t, over = {}) {
     requestOnboardingDocuments: async (id, cats) => { calls.request.push([id, cats]); return cats.map((c, i) => ({ id: 100 + i, category: c, status: "requested" })); },
     deleteOnboardingDocument: async () => ({}),
     getOnboardingDocumentFile: async () => ({ blob: new Blob(["x"]), filename: "NDA copy.pdf" }),
-    sendOnboardingPackage: async (id) => { calls.sendPackage.push(id); return { success: true, message: "Package sent" }; },
+    sendOnboardingPackage: async (id) => { CURRENT.calls.sendPackage.push(id); return CURRENT.over.sendResult ?? { success: true, message: "1 document(s) sent to Ann Lee.", issued: [{ category: "daily_kpi", title: "Daily Key Performance Indicators", mode: "ACKNOWLEDGE" }], held: [], email_sent: true }; },
+    getHirePackage: async (id) => CURRENT.over.pkg ?? PACKAGE(id),
+    saveHirePackageInputs: async (id, values) => { CURRENT.calls.inputs = values; return PACKAGE(id); },
+    getHirePackagePreview: async () => ({ blob: new Blob(["%PDF"]), filename: "preview.pdf" }),
+    sendOnboardingPortalInvite: async () => ({ email_sent: true }),
+    getOfferPackageTemplateSet: async () => ({ blob: new Blob(["%PDF"]), filename: "set.pdf" }),
   };
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
+  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
+    Link: ({ children }) => React.createElement("a", null, children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
   const { default: Page } = await import(`../src/modules/zoiko-hr/onboarding/documents.jsx?t=${Math.random()}`);
@@ -70,6 +96,11 @@ async function load(t, over = {}) {
   return calls;
 }
 
+const openEmployee = async (name = "Ann Lee") => {
+  fireEvent.click(screen.getByRole("button", { name: `View documents of ${name}` }));
+  await settle();
+};
+const docRow = (re) => [...document.querySelectorAll('[data-testid="doc-row"]')].find((r) => re.test(r.textContent));
 const open = async () => { fireEvent.click(screen.getByRole("button", { name: /Upload Document/ })); await settle(); };
 const choose = (f) => fireEvent.change(document.getElementById("od-file"), { target: { files: [f] } });
 
@@ -120,16 +151,20 @@ test("a server refusal is shown under its field", async (t) => {
   assert.match(document.querySelector(".fixed").textContent, /File too large/);
 });
 
-test("the list says who each document is for, and Reject needs a reason", async (t) => {
+test("the page lists employees; their documents open on click, and Reject needs a reason", async (t) => {
   const calls = await load(t);
-  assert.match(document.querySelector("tbody tr").textContent, /Ann Lee/);
+  const rows = [...document.querySelectorAll('[data-testid="employee-row"]')];
+  assert.equal(rows.length, 1, "one row per employee, not per document");
+  assert.match(rows[0].textContent, /Ann Lee/);
+  assert.equal(document.querySelector('[data-testid="doc-row"]'), null, "documents are not listed until an employee is opened");
+  await openEmployee();
   fireEvent.click(screen.getByRole("button", { name: "Reject" }));
   await settle();
   fireEvent.click(screen.getAllByRole("button", { name: "Reject" }).at(-1));
   await settle();
   assert.match(screen.getByRole("alert").textContent, /Enter a reason/);
   assert.equal(calls.update.length, 0);
-  fireEvent.change(document.querySelector(".fixed textarea"), { target: { value: "Blurry scan" } });
+  fireEvent.change(document.querySelector('[aria-label="Reject Document"] textarea'), { target: { value: "Blurry scan" } });
   fireEvent.click(screen.getAllByRole("button", { name: "Reject" }).at(-1));
   await settle();
   assert.deepEqual(calls.update, [[1, { status: "rejected", rejection_reason: "Blurry scan" }]]);
@@ -141,25 +176,26 @@ test("only pending documents can be approved; requested ones show 'Not uploaded'
     { id: 2, title: "ID proof", category: "id_proof", status: "requested", onboarding_new_hire_id: 7, file_url: null },
     { id: 3, title: "Offer", category: "offer_letter", status: "approved", onboarding_new_hire_id: 7, file_url: "/f/3" },
   ] });
-  const rows = [...document.querySelectorAll("tbody tr")];
-  assert.match(rows[0].textContent, /Non-Disclosure Agreement|Signed NDA/);
-  assert.match(rows[0].textContent, /Needs review/);
-  assert.match(rows[0].textContent, /Approve/);
-  assert.match(rows[1].textContent, /Not uploaded/);
-  assert.doesNotMatch(rows[1].textContent, /View|Download|Approve(?!d)|Reject/);
-  assert.doesNotMatch(rows[2].textContent, /Approve(?!d)/);
-  assert.match(rows[2].textContent, /Reject/);
+  assert.match(document.querySelector('[data-testid="employee-row"]').textContent, /1 to review/);
+  await openEmployee();
+  const nda = docRow(/NDA copy/), id = docRow(/ID proof/), offer = docRow(/^Offer/);
+  assert.match(nda.textContent, /Needs review/);
+  assert.match(nda.textContent, /Approve/);
+  assert.match(id.textContent, /Not uploaded/);
+  assert.doesNotMatch(id.textContent, /View|Download|Approve(?!d)|Reject/);
+  assert.doesNotMatch(offer.textContent, /Approve(?!d)/);
+  assert.match(offer.textContent, /Reject/);
+  assert.match(document.body.textContent, /2 of 10 sent/);
   assert.match(document.querySelector('[data-testid="count-requested"]').textContent, /1/);
-  fireEvent.change(screen.getByLabelText("Status"), { target: { value: "requested" } });
-  assert.equal(document.querySelectorAll("tbody tr").length, 1);
 });
 
 test("an approve error is shown in a banner and the list stays", async (t) => {
   await load(t, { updateError: new Error("This document has no file yet.") });
+  await openEmployee();
   fireEvent.click(screen.getByRole("button", { name: "Approve" }));
   await settle();
   assert.match(document.body.textContent, /This document has no file yet\./);
-  assert.ok(document.querySelector("tbody tr"), "the table is still there");
+  assert.ok(document.querySelector('[data-testid="employee-row"]'), "the list is still there");
 });
 
 test("requesting documents from a new hire sends the categories and reports who was emailed", async (t) => {
@@ -187,4 +223,76 @@ test("uploads outside pdf/jpg/png/doc/docx are refused before sending", async (t
   await settle();
   assert.match(document.querySelector(".fixed").textContent, /\.xlsx file type is not allowed/);
   assert.equal(calls.create.length, 0);
+});
+
+test("the offer package panel shows readiness, takes missing data, and sends only ready documents", async (t) => {
+  const calls = await load(t);
+  fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+  await settle();
+  const panel = document.querySelector(".fixed").textContent;
+  assert.match(panel, /Counsel wording needed/);
+  assert.match(panel, /Counsel wording: Probation/);
+  assert.match(panel, /sent automatically once the new hire enters it in their portal/);
+  assert.match(panel, /Ready to send/);
+  assert.ok(document.getElementById("pkg-in-worker.postal_address"), "HR may type the address when they have it");
+  fireEvent.change(document.getElementById("pkg-in-employment.base_pay"), { target: { value: "GBP 40,000 per year" } });
+  fireEvent.click(screen.getByRole("button", { name: "Save details" }));
+  await settle();
+  assert.deepEqual(calls.inputs, { "employment.base_pay": "GBP 40,000 per year" });
+  fireEvent.click(screen.getByRole("button", { name: /Send 1 ready document/ }));
+  await settle();
+  assert.deepEqual(calls.sendPackage, [7]);
+  assert.match(document.body.textContent, /Sent: Daily Key Performance Indicators/);
+});
+
+test("the upload request lists only upload categories, never package documents", async (t) => {
+  await load(t);
+  fireEvent.click(screen.getByRole("button", { name: "Request documents from a new hire" }));
+  await settle();
+  const text = document.querySelector(".fixed").textContent;
+  assert.match(text, /ID proof/);
+  assert.doesNotMatch(text, /Non-Disclosure Agreement|Employment Contract/);
+});
+
+test("signed package agreements offer no Approve or Reject; HR reviews only uploads", async (t) => {
+  await load(t, { docs: [
+    { id: 1, title: "Employment Contract", category: "employment_contract", status: "approved", package_mode: "SIGN", requires_signature: true,
+      signing_status: "EXECUTED", onboarding_new_hire_id: 7, file_url: "/f/1", created_at: "2026-10-01T10:00:00Z" },
+    { id: 2, title: "ID proof", category: "id_proof", status: "pending", onboarding_new_hire_id: 7, file_url: "/f/2", created_at: "2026-10-01T10:00:00Z" },
+  ] });
+  await openEmployee();
+  const contract = docRow(/Employment Contract/), idRow = docRow(/ID proof/);
+  assert.doesNotMatch(contract.textContent, /Approve|Reject/);
+  assert.match(contract.textContent, /E-Signed/);
+  assert.match(idRow.textContent, /Approve/);
+});
+
+test("an employee's panel shows all 10 package documents in order, including ones not sent yet", async (t) => {
+  await load(t, { docs: [
+    { id: 5, title: "Job Description", category: "job_description", status: "requested", package_mode: "ACKNOWLEDGE", onboarding_new_hire_id: 7, file_url: "/f/5" },
+  ] });
+  await openEmployee();
+  const panel = document.querySelector('[role="dialog"]').textContent;
+  assert.match(panel, /Onboarding package \(1 of 10 sent\)/);
+  assert.equal((panel.match(/Not sent yet/g) || []).length, 9);
+  assert.match(docRow(/Job Description/).textContent, /Awaiting acknowledgement/);
+  assert.ok([...document.querySelectorAll('[role="dialog"] button')].some((b) => b.textContent.includes("Send 10 Onboarding Docs")),
+    "the employee's panel offers the package");
+});
+
+test("when nothing can be sent the panel says why, and offers to re-send the portal link", async (t) => {
+  const pkg = { new_hire_id: 7, candidate_name: "Ann Lee", email: "ann@x.com", inputs: {}, input_fields: [], ready_to_send: [], documents: [
+    PKG_DOC("offer_letter", "Offer Letter", "SIGN", { state: "completed" }),
+    PKG_DOC("job_description", "Job Description", "ACKNOWLEDGE", { state: "awaiting_acknowledgement" }),
+    PKG_DOC("nda", "Non-Disclosure Agreement", "SIGN", { missing_fields: [{ key: "worker.postal_address", meaning: "Postal address",
+      source: "Zoiko HR", editable: true, candidate_provides: true }] }),
+  ] };
+  await load(t, { pkg });
+  fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+  await settle();
+  const text = document.querySelector("[role=dialog]").textContent;
+  assert.match(text, /Nothing new to send for Ann Lee right now/);
+  assert.match(text, /2 of 3 documents are already sent/);
+  assert.match(text, /Non-Disclosure Agreement is waiting for Ann Lee to enter their postal address/);
+  assert.ok(screen.getByRole("button", { name: /Re-send the portal link to Ann Lee/ }));
 });

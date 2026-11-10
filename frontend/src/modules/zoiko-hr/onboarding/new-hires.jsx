@@ -1456,10 +1456,9 @@ export default function NewHires() {
           {completion.error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-600">{completion.error}</div>}
           {completion.loading ? <p role="status" className="text-sm text-gray-400">Checking progress...</p> : progress && (
             <>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-2 gap-2 text-center">
                 <Stat label="Checklist" value={`${progress.checklist_done}/${progress.checklist_total}`} />
                 <Stat label="Docs approved" value={`${progress.documents_approved}/${progress.documents_total}`} />
-                <Stat label="Orientation" value={`${progress.orientation_attended}/${progress.orientation_sessions}`} />
               </div>
               {progress.blockers?.length > 0 ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

@@ -191,7 +191,7 @@ def test_rules_and_tenant_boundaries(env):
     assert env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"manager_id": env.stranger.id}).status_code == 400
     # forced completion is possible when HR decides so
     _ok(env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "in_progress"}))
-    _ok(env.c.post(f"/hr/onboarding/new-hires/{hire['id']}/document-requests", json={"categories": ["nda"]}))
+    _ok(env.c.post(f"/hr/onboarding/new-hires/{hire['id']}/document-requests", json={"categories": ["id_proof"]}))
     assert env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "completed"}).status_code == 400
     assert _ok(env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "completed", "force_complete": True}))["status"] == "completed"
     # tasks belong to a new hire of this organization

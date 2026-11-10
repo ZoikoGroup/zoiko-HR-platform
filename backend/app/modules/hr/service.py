@@ -3478,6 +3478,8 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
         blockers = onboarding_flow.completion_blockers(db, new_hire)
         if blockers:
             raise BadRequestException("Onboarding cannot be completed yet: " + "; ".join(blockers) + ".")
+    restore = {f: getattr(new_hire, f) for f in set(update_data) | {"completed_at", "joining_status", "portal_token_hash",
+                                                                     "portal_token_enc"} if hasattr(new_hire, f)}
     for field, value in update_data.items():
         setattr(new_hire, field, value)
     if completing:
@@ -3490,7 +3492,18 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
 
     temp_password = None
     if completing and not new_hire.employee_id:
-        employee, temp_password = _create_employee_from_onboarding(db, new_hire, organization_id)
+        try:
+            employee, temp_password = _create_employee_from_onboarding(db, new_hire, organization_id)
+        except Exception:
+            # the employee account could not be created (seat limit, duplicate e-mail ...): put the hire back exactly as it
+            # was, so HR can fix the cause and complete again instead of being left with a "completed" hire and no account
+            db.rollback()
+            hire = get_new_hire_by_id(db, new_hire_id, organization_id)
+            for field, value in restore.items():
+                setattr(hire, field, value)
+            db.commit()
+            raise
+        new_hire = get_new_hire_by_id(db, new_hire_id, organization_id)
         log_onboarding_activity(
             db, new_hire.id, "Employee Created",
             f"Employee record created for {new_hire.candidate_name} (code: {employee.employee_code}).",
@@ -3498,10 +3511,18 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
         )
         onboarding_flow.notify_completed(db, new_hire, employee)
         try:
+            from app.modules.hr import onboarding_package
+            onboarding_package.link_documents_to_employee(db, new_hire, employee)   # their signed documents, in self-service
+        except Exception:
+            db.rollback()
+            logger.exception("linking onboarding documents to employee %s failed", employee.id)
+        try:
             from app.modules.hr import onboarding_documents
             onboarding_documents.on_onboarding_completed(db, new_hire, employee, actor)   # HR-ONB-004/-022, -020, -010/-011
         except Exception:
             db.rollback()
+    if completing:
+        pass                                            # the account and its records were created above
     elif update_data.get("status") and update_data["status"] != previous_status:
         log_onboarding_activity(db, new_hire.id, "Status Changed",
                                 f"{new_hire.candidate_name}: {previous_status.replace('_', ' ')} -> {new_hire.status.replace('_', ' ')}.", organization_id)
@@ -3949,9 +3970,9 @@ def get_onboarding_documents(
 def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
     # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
     file_url = f"/hr/onboarding/documents/{doc.id}/file" if doc.file_path else None
-    requires_signature = bool(doc.document_id) or doc.category in (
-        "offer_letter", "nda", "employment_contract", "exclusivity_affidavit", "self_disclosure"
-    )
+    from app.modules.hr.onboarding_package import mode_of
+    package_mode = mode_of(doc.category)
+    requires_signature = package_mode == "SIGN" or (package_mode is None and bool(doc.document_id))
     signing_status = None
     if doc.document_id:
         try:
@@ -3968,6 +3989,7 @@ def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
         "category": doc.category,
         "document_id": doc.document_id,
         "requires_signature": requires_signature,
+        "package_mode": package_mode,
         "signing_status": signing_status or ("EXECUTED" if doc.status == "approved" and requires_signature else None),
         "file_path": doc.file_path,
         "file_url": file_url,
@@ -4001,6 +4023,7 @@ def create_onboarding_document(
 
     if onboarding_new_hire_id:
         log_onboarding_activity(db, onboarding_new_hire_id, "Document Uploaded", f"'{doc.title}' uploaded by HR.", organization_id)
+        _sync_document_checklist(db, doc.new_hire)
     return _onboarding_doc_to_dict(doc)
 
 
@@ -4026,6 +4049,13 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
         update_data["rejection_reason"] = None          # a reason only belongs to a rejection
     if update_data.get("status") == "approved" and not doc.file_path:
         raise BadRequestException("Nothing has been uploaded for this document yet.")
+    from app.modules.hr.onboarding_package import mode_of
+    package_mode = mode_of(doc.category)
+    if "status" in update_data and update_data["status"] != doc.status and package_mode in ("SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"):
+        # these package documents change state only through the new hire's signature or acknowledgement
+        raise BadRequestException({"SIGN": "This agreement is completed by the new hire's electronic signature.",
+                                   "ACKNOWLEDGE": "This document is completed when the new hire acknowledges receipt."}
+                                  .get(package_mode, "This document needs no review."))
     newly_rejected = update_data.get("status") == "rejected" and doc.status != "rejected"
     for field, value in update_data.items():
         setattr(doc, field, value)
@@ -4034,7 +4064,21 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
     if newly_rejected and doc.new_hire is not None:
         from app.modules.hr import onboarding_flow
         onboarding_flow.notify_document_request(db, doc.new_hire, [{"title": doc.title, "note": f"Rejected: {doc.rejection_reason}"}])
+    _sync_document_checklist(db, doc.new_hire)
     return _onboarding_doc_to_dict(doc)
+
+
+def _sync_document_checklist(db: Session, hire) -> None:
+    """Keep the new hire's 'Onboarding Documents & Agreements' checklist in step with every document change."""
+    if hire is None:
+        return
+    try:
+        from app.modules.hr import onboarding_package
+        onboarding_package.sync_onboarding_document_checklist(db, hire)
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger("zoiko.onboarding").exception("document checklist sync failed for new hire %s", hire.id)
 
 
 def delete_onboarding_document(db: Session, document_id: int, organization_id: Optional[int] = None) -> None:
@@ -4049,7 +4093,14 @@ def delete_onboarding_document(db: Session, document_id: int, organization_id: O
         from app.core.exceptions import NotFoundException
         raise NotFoundException("OnboardingDocument", document_id)
     doc.is_deleted = True
+    if doc.document_id:      # an unsigned package agreement: its e-mailed signing link must stop working
+        from app.modules.doc_templates import signing
+        from app.modules.doc_templates.models import GeneratedDocument
+        gen = db.get(GeneratedDocument, doc.document_id)
+        if gen is not None and gen.status == "ISSUED":
+            signing.revoke_candidate_tokens(db, gen)
     db.commit()
+    _sync_document_checklist(db, doc.new_hire)
 
 
 def get_onboarding_document_by_id(db: Session, document_id: int, organization_id: Optional[int] = None) -> dict:

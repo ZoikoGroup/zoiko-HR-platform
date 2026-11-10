@@ -500,9 +500,9 @@ function SummaryTab({ doc, isHr, hasSignatures, onOpenDoc, showToast }) {
 function GovRecord({ label, report, doc, path, filename, showToast }) {
   return (
     <li className="flex flex-wrap items-center justify-between gap-2">
-      <Link to={`/zoiko-hr/documents/governance?report=${report}&document=${doc.id}`} className="inline-flex items-center gap-1.5 font-semibold text-blue-700 underline-offset-2 hover:underline">
-        <ShieldCheck className="h-4 w-4" aria-hidden="true" /> {label}
-      </Link>
+      <span className="inline-flex items-center gap-1.5 font-semibold text-gray-800">
+        <ShieldCheck className="h-4 w-4 text-gray-500" aria-hidden="true" /> {label}
+      </span>
       <ExportButtons path={path} filename={filename} formats={["pdf"]} size="sm" onError={(m) => showToast("error", m)} />
     </li>
   );

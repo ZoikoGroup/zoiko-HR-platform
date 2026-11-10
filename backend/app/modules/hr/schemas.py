@@ -2543,6 +2543,7 @@ class OnboardingDocumentResponse(BaseModel):
     category: str
     document_id: Optional[int] = None
     requires_signature: Optional[bool] = None
+    package_mode: Optional[str] = None          # SIGN | ACKNOWLEDGE | COMPLETE | VOLUNTARY | INFO for offer-package documents
     signing_status: Optional[str] = None
     file_path: Optional[str] = None
     file_url: Optional[str] = None

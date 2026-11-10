@@ -1,1045 +1,938 @@
-"""Zoiko Onboarding Package Generator.
+"""Zoiko offer package: the 10 standard onboarding documents for a new hire.
 
-Handles the 10 standard employment and onboarding package documents:
-1. Offer Letter (signable)
-2. Job Description (operational template)
-3. Daily Key Performance Indicators (KPIs) (operational framework)
-4. Non-Disclosure Agreement (NDA) (signable)
-5. Employment Contract (signable)
-6. Affidavit of Employment Exclusivity (signable)
-7. Voluntary Self-Disclosure Form (signable declaration)
-8. Job Application Form (candidate application record)
-9. Daily Work Report (DWR) Template (operational report template)
-10. Zoiko Group Project Velocity Report Template (sprint/velocity template)
+Content lives in `onboarding_package_content` (one structured source per document) and is rendered by
+`onboarding_package_render` to the PDF and to the HTML the candidate reads before signing.
 
-Generates professional PDFs populated with employee and employer details,
-wires electronic signatures (with single-use token links and audit evidence certificates),
-and connects seamlessly to both the Candidate Onboarding Portal and Org Admin Onboarding management.
+Flow (Org Admin › Onboarding › Documents):
+1. Settings › Offer package: employer particulars, branding, signatory, and the counsel clause library. Every {{clause:…}} hook
+   prints counsel's wording; until a required hook has wording, the documents that use it stay drafts (watermarked, never sent).
+2. Per new hire, the package panel shows each document's readiness: missing HR data (HR can type it in) and missing clauses.
+   HR can preview any document, ready or not.
+3. "Send" issues the ready documents and e-mails the portal link. Each document has an action mode:
+   SIGN (e-signature, with OTP and an execution certificate), ACKNOWLEDGE (receipt, in the portal), COMPLETE (download, complete,
+   upload for HR review), VOLUNTARY (optional, never blocks onboarding, never filed), INFO (reference template, no action).
+4. Documents held only for candidate data (postal address, outside activities) are issued automatically when the candidate
+   enters it in the portal.
 """
 from __future__ import annotations
 
-import io
+import hashlib
+import json
 import logging
-import os
+import re
 import secrets
 from datetime import date, datetime, timedelta
 from typing import Optional
 
-from reportlab.lib import colors
-from reportlab.lib.pagesizes import letter
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
-from reportlab.platypus import HRFlowable, KeepTogether, PageBreak, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from fastapi import HTTPException
 from sqlalchemy.orm import Session
 
-from app.modules.doc_templates import governance, signing, state, storage
+from app.modules.doc_templates import signing, state, storage
 from app.modules.doc_templates.models import GeneratedDocument, TemplateDefinition
-from app.modules.hr.models import (
-    OnboardingActivity,
-    OnboardingDocument,
-    OnboardingNewHire,
-    Organization,
-    RecruitmentCandidate,
-    RecruitmentOffer,
-)
+from app.modules.hr import onboarding_package_content as C
+from app.modules.hr import onboarding_package_render as R
+from app.modules.hr.models import (OnboardingDocument, OnboardingNewHire, Organization, OrganizationConfig, RecruitmentCandidate,
+                                   RecruitmentOffer)
 
 logger = logging.getLogger("zoiko.onboarding.package")
 
-# ── 10 standard package documents specification ────────────────────────────────────────────────────────
-ONBOARDING_PACKAGE_SPEC = [
-    {
-        "category": "offer_letter",
-        "title": "Offer Letter",
-        "canonical_id": "HR-HIR-011",
-        "family_id": "HR-HIR",
-        "requires_signature": True,
-        "description": "Formal offer of employment outlining position, compensation, benefits, and key terms.",
-    },
-    {
-        "category": "job_description",
-        "title": "Job Description",
-        "canonical_id": "HR-ORG-005",
-        "family_id": "HR-ORG",
-        "requires_signature": False,
-        "description": "Comprehensive role specifications, key responsibilities, competencies, and reporting structure.",
-    },
-    {
-        "category": "daily_kpi",
-        "title": "Daily Key Performance Indicators (KPIs)",
-        "canonical_id": "HR-PRF-002",
-        "family_id": "HR-PRF",
-        "requires_signature": False,
-        "description": "Daily operational performance standards, task targets, quality benchmarks, and reporting cadence.",
-    },
-    {
-        "category": "nda",
-        "title": "Non-Disclosure Agreement (NDA)",
-        "canonical_id": "HR-CON-017",
-        "family_id": "HR-CON",
-        "requires_signature": True,
-        "description": "Confidentiality and proprietary information protection agreement with trade secrets safeguards.",
-    },
-    {
-        "category": "employment_contract",
-        "title": "Employment Contract",
-        "canonical_id": "HR-CON-001",
-        "family_id": "HR-CON",
-        "requires_signature": True,
-        "description": "Comprehensive employment agreement defining terms of service, remuneration, IP assignment, and policies.",
-    },
-    {
-        "category": "exclusivity_affidavit",
-        "title": "Affidavit of Employment Exclusivity",
-        "canonical_id": "HR-CON-025",
-        "family_id": "HR-CON",
-        "requires_signature": True,
-        "description": "Solemn declaration affirming full-time exclusive commitment and strict non-moonlighting covenant.",
-    },
-    {
-        "category": "self_disclosure",
-        "title": "Voluntary Self-Disclosure Form",
-        "canonical_id": "HR-ONB-025",
-        "family_id": "HR-ONB",
-        "requires_signature": True,
-        "description": "Compliance self-disclosure covering background disclosures, conflicts of interest, and certifications.",
-    },
-    {
-        "category": "job_application",
-        "title": "Job Application Form",
-        "canonical_id": "HR-HIR-005",
-        "family_id": "HR-HIR",
-        "requires_signature": False,
-        "description": "Official candidate job application record summarizing personal details, history, and verified qualifications.",
-    },
-    {
-        "category": "daily_work_report",
-        "title": "Daily Work Report (DWR) Template",
-        "canonical_id": "HR-OPS-DWR",
-        "family_id": "HR-TIM",
-        "requires_signature": False,
-        "description": "Operational daily task logging template for tracking deliverables, hours, blockers, and next-day plans.",
-    },
-    {
-        "category": "velocity_report",
-        "title": "Zoiko Group Project Velocity Report Template",
-        "canonical_id": "HR-OPS-VEL",
-        "family_id": "HR-PRF",
-        "requires_signature": False,
-        "description": "Sprint and milestone velocity tracking protocol for project milestones, burn-up, and deliverables.",
-    },
-]
-
-PACKAGE_CATEGORIES = [item["category"] for item in ONBOARDING_PACKAGE_SPEC]
-SIGNABLE_CATEGORIES = {item["category"] for item in ONBOARDING_PACKAGE_SPEC if item["requires_signature"]}
-SPEC_BY_CATEGORY = {item["category"]: item for item in ONBOARDING_PACKAGE_SPEC}
+# ── public constants (other modules import these) ────────────────────────────────────────────────────────────────────
+ONBOARDING_PACKAGE_SPEC = [{"category": d["category"], "title": d["title"], "canonical_id": d["template_id"],
+                            "family_id": d["family_id"], "mode": d["mode"], "requires_signature": d["mode"] == "SIGN",
+                            "description": C.MODE_LABELS[d["mode"]]} for d in C.documents()]
+PACKAGE_CATEGORIES = C.CATEGORIES
+SPEC_BY_CATEGORY = {s["category"]: s for s in ONBOARDING_PACKAGE_SPEC}
+SIGNABLE_CATEGORIES = {s["category"] for s in ONBOARDING_PACKAGE_SPEC if s["mode"] == "SIGN"}
+NO_ACTION_STATUS = "available"        # VOLUNTARY / INFO documents: issued, nothing to approve, never block completion
+ACK_TEXT_VERSION = "ONB-ACK-1.0"
+ACK_TEXT = "I confirm that I have received and read this document. This is an acknowledgement of receipt only."
 
 
-# ── PDF Generation Helpers ───────────────────────────────────────────────────────────────────────────
-def _get_styles():
-    base = getSampleStyleSheet()
-    primary = colors.HexColor("#0A1128")
-    accent = colors.HexColor("#2563EB")
-    dark = colors.HexColor("#1E293B")
-    muted = colors.HexColor("#64748B")
+def mode_of(category: Optional[str]) -> Optional[str]:
+    d = C.DOCS.get(category or "")
+    return d["mode"] if d else None
 
+
+def is_blocking(doc: OnboardingDocument) -> bool:
+    """Does this document hold up completion while it is not approved?"""
+    return doc.status != NO_ACTION_STATUS and mode_of(doc.category) not in ("VOLUNTARY", "INFO")
+
+
+# ── organisation settings (organization_configs, one JSON row) ──────────────────────────────────────────────────────
+CONFIG_KEY = "onboarding_package.config"
+HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
+TEXT_SETTINGS = {"legal_name": 200, "registered_address": 500, "header_label": 60, "jurisdiction": 120, "signatory_name": 200,
+                 "signatory_title": 200, "hr_contact_name": 200, "hr_contact_email": 255, "leave_entitlement": 300,
+                 "post_employment_period": 200, "pay_frequency": 60, "kpi_review_cycle": 120, "benefits_reference": 300,
+                 "effective_date": 40}
+
+
+def _org(db, organization_id) -> Optional[Organization]:
+    return db.get(Organization, organization_id)
+
+
+def _is_us(org) -> bool:
+    c = (getattr(org, "country", "") or "").strip().lower()
+    return c in ("us", "usa", "united states", "united states of america")
+
+
+def _defaults(org) -> dict:
+    name = (getattr(org, "organization_name", None) or getattr(org, "display_name", None) or "").strip()
+    addr = ", ".join(p for p in [getattr(org, "address", None), getattr(org, "city", None), getattr(org, "state", None),
+                                 getattr(org, "country", None)] if p and str(p).strip())
+    us = _is_us(org)
     return {
-        "title": ParagraphStyle("DocTitle", parent=base["Heading1"], fontSize=18, leading=22, textColor=primary, fontName="Helvetica-Bold", spaceAfter=4),
-        "subtitle": ParagraphStyle("DocSubtitle", parent=base["Normal"], fontSize=10, leading=14, textColor=muted, spaceAfter=14),
-        "h2": ParagraphStyle("DocH2", parent=base["Heading2"], fontSize=12, leading=16, textColor=primary, fontName="Helvetica-Bold", spaceBefore=12, spaceAfter=6),
-        "h3": ParagraphStyle("DocH3", parent=base["Heading3"], fontSize=10, leading=14, textColor=accent, fontName="Helvetica-Bold", spaceBefore=8, spaceAfter=4),
-        "body": ParagraphStyle("DocBody", parent=base["Normal"], fontSize=9, leading=13, textColor=dark, spaceAfter=6),
-        "body_bold": ParagraphStyle("DocBodyBold", parent=base["Normal"], fontSize=9, leading=13, textColor=dark, fontName="Helvetica-Bold"),
-        "table_header": ParagraphStyle("DocTh", parent=base["Normal"], fontSize=8.5, leading=11, textColor=colors.white, fontName="Helvetica-Bold"),
-        "table_cell": ParagraphStyle("DocTd", parent=base["Normal"], fontSize=8.5, leading=11, textColor=dark),
-        "legal": ParagraphStyle("DocLegal", parent=base["Normal"], fontSize=8, leading=11, textColor=muted, spaceBefore=4),
-        "callout": ParagraphStyle("DocCallout", parent=base["Normal"], fontSize=9, leading=13, textColor=primary, fontName="Helvetica-Oblique"),
+        "legal_name": name, "registered_address": addr,
+        "header_label": ((getattr(org, "display_name", None) or name) or "ZOIKO GROUP").upper()[:60],
+        "brand_primary": "#0B3D91", "brand_accent": "#00A3E0",
+        "paper": "LETTER" if us else "A4", "spelling": "US" if us else "UK", "date_format": "MDY" if us else "DMY",
+        "jurisdiction": getattr(org, "country", None) or "",
+        "signatory_name": "", "signatory_title": "", "hr_contact_name": "",
+        "hr_contact_email": getattr(org, "registered_email", None) or "",
+        "response_days": 7, "leave_entitlement": "", "post_employment_period": "", "pay_frequency": "",
+        "kpi_review_cycle": "", "benefits_reference": "", "effective_date": "", "clauses": {}, "logo_key": "",
     }
 
 
-def _header_table(org_name: str, doc_title: str, doc_num: str, s: dict) -> Table:
-    data = [
-        [
-            Paragraph(f"<b>{org_name.upper()}</b><br/><font color='#64748B' size='8'>HUMAN RESOURCES & TALENT MANAGEMENT</font>", s["body"]),
-            Paragraph(f"<b>{doc_title.upper()}</b><br/><font color='#64748B' size='8'>DOC REF: {doc_num}</font>", ParagraphStyle("RAlign", parent=s["body"], alignment=2)),
-        ]
-    ]
-    t = Table(data, colWidths=[300, 230])
-    t.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LINEBELOW", (0, 0), (-1, -1), 1.5, colors.HexColor("#0A1128")),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    return t
+def _row(db, organization_id):
+    return db.query(OrganizationConfig).filter(OrganizationConfig.organization_id == organization_id,
+                                               OrganizationConfig.key == CONFIG_KEY).first()
 
 
-def _meta_box(items: list[tuple[str, str]], s: dict) -> Table:
-    rows = []
-    for label, val in items:
-        rows.append([Paragraph(f"<b>{label}:</b>", s["body_bold"]), Paragraph(str(val or "—"), s["body"])])
-    t = Table(rows, colWidths=[140, 390])
-    t.setStyle(TableStyle([
-        ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor("#F8FAFC")),
-        ("BOX", (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
-        ("INNERGRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#F1F5F9")),
-        ("TOPPADDING", (0, 0), (-1, -1), 3),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
-        ("LEFTPADDING", (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-    ]))
-    return t
+def get_config(db, organization_id: int) -> dict:
+    cfg = _defaults(_org(db, organization_id))
+    row = _row(db, organization_id)
+    if row and row.value:
+        try:
+            stored = json.loads(row.value)
+            if isinstance(stored, dict):
+                cfg.update({k: v for k, v in stored.items() if k in cfg and v not in (None,)})
+        except json.JSONDecodeError:
+            logger.warning("offer package settings for org %s are not valid JSON", organization_id)
+    return cfg
 
 
-def _signature_block(candidate_name: str, org_name: str, s: dict, is_signable: bool = True) -> Table:
-    c_title = "CANDIDATE / EMPLOYEE SIGNATURE" if is_signable else "EMPLOYEE ACKNOWLEDGEMENT"
-    data = [
-        [
-            Paragraph(f"<b>FOR AND ON BEHALF OF:</b><br/>{org_name}", s["body"]),
-            Paragraph(f"<b>{c_title}:</b><br/>{candidate_name}", s["body"]),
-        ],
-        [
-            Paragraph("<br/><br/>________________________________________<br/>Authorized Signatory<br/>Zoiko Human Resources", s["body"]),
-            Paragraph(f"<br/><br/>________________________________________<br/>{candidate_name}<br/>{'Electronically Signed via Zoiko HR' if is_signable else 'Received & Acknowledged'}", s["body"]),
-        ],
-        [
-            Paragraph(f"Date: {date.today().strftime('%b %d, %Y')}", s["legal"]),
-            Paragraph(f"Date: {date.today().strftime('%b %d, %Y')}", s["legal"]),
-        ],
-    ]
-    t = Table(data, colWidths=[265, 265])
-    t.setStyle(TableStyle([
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("LINEABOVE", (0, 0), (-1, 0), 0.5, colors.HexColor("#CBD5E1")),
-        ("TOPPADDING", (0, 0), (-1, -1), 6),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
-    ]))
-    return t
+def save_config(db, actor, data: dict) -> dict:
+    cfg = get_config(db, actor.organization_id)
+    data = data or {}
+    for key, limit in TEXT_SETTINGS.items():
+        if key in data:
+            cfg[key] = str(data[key] or "").strip()[:limit]
+    for key in ("brand_primary", "brand_accent"):
+        if key in data:
+            v = str(data[key] or "").strip()
+            if not HEX.match(v):
+                raise HTTPException(422, f"{key} must be a hex colour such as #0B3D91.")
+            cfg[key] = v.upper()
+    for key, allowed in (("paper", ("A4", "LETTER")), ("spelling", ("UK", "US")), ("date_format", ("DMY", "MDY"))):
+        if key in data:
+            v = str(data[key] or "").upper()
+            if v not in allowed:
+                raise HTTPException(422, f"{key} must be one of {', '.join(allowed)}.")
+            cfg[key] = v
+    if "response_days" in data:
+        try:
+            n = int(data["response_days"])
+        except (TypeError, ValueError):
+            n = -1
+        if not 1 <= n <= 60:
+            raise HTTPException(422, "response_days must be between 1 and 60.")
+        cfg["response_days"] = n
+    if cfg.get("hr_contact_email") and not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", cfg["hr_contact_email"]):
+        raise HTTPException(422, "hr_contact_email is not a valid e-mail address.")
+    if "clauses" in data:
+        if not isinstance(data["clauses"], dict):
+            raise HTTPException(422, "clauses must be an object.")
+        clauses = dict(cfg.get("clauses") or {})
+        for key, val in data["clauses"].items():
+            if key not in C.CLAUSES:
+                raise HTTPException(422, f"Unknown clause {key}.")
+            val = val or {}
+            text = str(val.get("text") or "").strip()
+            if len(text) > 20000:
+                raise HTTPException(422, f"The wording for {key} is too long.")
+            na = bool(val.get("not_applicable"))
+            prev = clauses.get(key) or {}
+            if text or na:
+                changed = text != (prev.get("text") or "") or na != bool(prev.get("not_applicable"))
+                clauses[key] = {"text": text, "not_applicable": na,
+                                "counsel_reference": str(val.get("counsel_reference") or "").strip()[:200],
+                                "updated_by": actor.id if changed else prev.get("updated_by"),
+                                "updated_at": datetime.utcnow().isoformat() if changed else prev.get("updated_at")}
+            else:
+                clauses.pop(key, None)
+        cfg["clauses"] = clauses
+    _write_config(db, actor.organization_id, cfg)
+    return cfg
 
 
-# ── Individual Document PDF Builders ──────────────────────────────────────────────────────────────────
-def build_document_pdf(category: str, hire_ctx: dict) -> bytes:
-    """Generates the official PDF for any of the 10 documents populated with candidate & employer details."""
-    buf = io.BytesIO()
-    doc = SimpleDocTemplate(buf, pagesize=letter, leftMargin=36, rightMargin=36, topMargin=36, bottomMargin=36)
-    s = _get_styles()
-    story = []
-
-    c_name = hire_ctx.get("candidate_name") or "New Hire"
-    org_name = hire_ctx.get("org_name") or "Zoiko Enterprises"
-    position = hire_ctx.get("position") or "Team Member"
-    dept = hire_ctx.get("department") or "Operations"
-    manager = hire_ctx.get("manager") or "Department Manager"
-    join_date = hire_ctx.get("joining_date") or date.today().strftime("%b %d, %Y")
-    emp_type = hire_ctx.get("employment_type") or "Full-Time"
-    salary = hire_ctx.get("salary") or "As per offer schedule"
-    doc_ref = f"ZKO-{category.upper()[:6]}-{datetime.utcnow().strftime('%Y%m%d%H%M')}"
-
-    # Header
-    spec = SPEC_BY_CATEGORY.get(category, {"title": category.replace("_", " ").title()})
-    story.append(_header_table(org_name, spec["title"], doc_ref, s))
-    story.append(Spacer(1, 12))
-
-    if category == "offer_letter":
-        story.append(Paragraph("<b>FORMAL OFFER OF EMPLOYMENT</b>", s["title"]))
-        story.append(Paragraph(f"Dear <b>{c_name}</b>,", s["body"]))
-        story.append(Paragraph(
-            f"On behalf of <b>{org_name}</b>, we are delighted to offer you the position of <b>{position}</b>. "
-            f"We were impressed by your background, professional accomplishments, and the energy you bring. "
-            f"We are confident you will make a substantial contribution to our continued growth and culture of excellence.",
-            s["body"]
-        ))
-        story.append(Spacer(1, 8))
-        story.append(_meta_box([
-            ("Candidate Name", c_name),
-            ("Position / Designation", position),
-            ("Department", dept),
-            ("Reporting Manager", manager),
-            ("Proposed Start Date", join_date),
-            ("Employment Type", emp_type),
-            ("Remuneration / Compensation", salary),
-            ("Probationary Period", "90 Days from Start Date"),
-        ], s))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("<b>Terms & Conditions of Employment:</b>", s["h2"]))
-        story.append(Paragraph(
-            "1. <b>Duties & Responsibilities:</b> You shall devote your entire time, attention, and abilities to the performance of your duties.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "2. <b>Exclusivity & Non-Moonlighting:</b> This position is full-time and exclusive. You agree not to engage in secondary employment without express written approval.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "3. <b>Confidentiality:</b> You agree to protect all company confidential information and trade secrets in accordance with the Non-Disclosure Agreement.",
-            s["body"]
-        ))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=True)]))
-
-    elif category == "job_description":
-        story.append(Paragraph("<b>JOB SPECIFICATION & ROLE DESCRIPTION</b>", s["title"]))
-        story.append(_meta_box([
-            ("Role Title", position),
-            ("Department", dept),
-            ("Reports To", manager),
-            ("Employment Category", emp_type),
-            ("Effective Date", join_date),
-        ], s))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("<b>Role Overview & Strategic Purpose</b>", s["h2"]))
-        story.append(Paragraph(
-            f"The <b>{position}</b> plays a central role within the <b>{dept}</b> division, responsible for driving operational excellence, "
-            f"delivering high-caliber outcomes, adhering to established KPIs, and collaborating cross-functionally across Zoiko teams.",
-            s["body"]
-        ))
-        story.append(Paragraph("<b>Key Responsibilities & Accountabilities</b>", s["h2"]))
-        story.append(Paragraph("• Execute assigned operational and technical deliverables in alignment with sprint cycles and company standards.", s["body"]))
-        story.append(Paragraph("• Maintain high data integrity, task velocity, and meticulous quality assurance across all workstreams.", s["body"]))
-        story.append(Paragraph("• Participate actively in daily standups, sprint retrospectives, and cross-team knowledge transfers.", s["body"]))
-        story.append(Paragraph("• Submit daily work reports (DWR) outlining task status, achievements, and blockers to reporting management.", s["body"]))
-        story.append(Paragraph("• Proactively identify process optimizations, performance bottlenecks, and automation opportunities.", s["body"]))
-        story.append(Paragraph("<b>Core Competencies & Requirements</b>", s["h2"]))
-        story.append(Paragraph("• Strong analytical, problem-solving, and communication skills.", s["body"]))
-        story.append(Paragraph("• Demonstrated proficiency in modern enterprise tooling, collaborative platforms, and agile workflows.", s["body"]))
-        story.append(Paragraph("• High level of professionalism, integrity, and adherence to company policies.", s["body"]))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=False)]))
-
-    elif category == "daily_kpi":
-        story.append(Paragraph("<b>DAILY KEY PERFORMANCE INDICATORS (KPIs)</b>", s["title"]))
-        story.append(Paragraph("Operational Performance Benchmarks & Daily Accountability Matrix", s["subtitle"]))
-        story.append(_meta_box([
-            ("Employee Name", c_name),
-            ("Position", position),
-            ("Department", dept),
-            ("Supervisor / Reviewer", manager),
-            ("Evaluation Cadence", "Daily Logging / Weekly Review"),
-        ], s))
-        story.append(Spacer(1, 10))
-        kpi_table_data = [
-            [Paragraph("<b>KPI Metric</b>", s["table_header"]), Paragraph("<b>Daily Target / Standard</b>", s["table_header"]), Paragraph("<b>Measurement Method</b>", s["table_header"])],
-            [Paragraph("Task Completion Rate", s["table_cell"]), Paragraph("100% of planned daily sprint items completed or updated with clear status.", s["table_cell"]), Paragraph("Sprint Board / Jira / Task Tracker", s["table_cell"])],
-            [Paragraph("Quality & Accuracy", s["table_cell"]), Paragraph("Zero critical defects; >98% first-pass review acceptance.", s["table_cell"]), Paragraph("Peer Review / QA Audit", s["table_cell"])],
-            [Paragraph("Turnaround Time (TAT)", s["table_cell"]), Paragraph("Standard requests resolved within SLA (<4 business hours).", s["table_cell"]), Paragraph("Ticketing / Incident Log", s["table_cell"])],
-            [Paragraph("Daily Standup Attendance", s["table_cell"]), Paragraph("Punctual attendance and clear 3-bullet progress report.", s["table_cell"]), Paragraph("Daily Meeting Roster", s["table_cell"])],
-            [Paragraph("Daily Work Report (DWR)", s["table_cell"]), Paragraph("Logged and submitted by 6:00 PM local time daily.", s["table_cell"]), Paragraph("Zoiko HR DWR Portal", s["table_cell"])],
-        ]
-        t = Table(kpi_table_data, colWidths=[150, 230, 150])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A1128")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=False)]))
-
-    elif category == "nda":
-        story.append(Paragraph("<b>CONFIDENTIALITY & NON-DISCLOSURE AGREEMENT</b>", s["title"]))
-        story.append(Paragraph(
-            f"This Confidentiality and Non-Disclosure Agreement (\"Agreement\") is entered into on <b>{date.today().strftime('%B %d, %Y')}</b>, "
-            f"between <b>{org_name}</b> (\"Company\") and <b>{c_name}</b> (\"Employee\").",
-            s["body"]
-        ))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("<b>1. Confidential Information Defined</b>", s["h3"]))
-        story.append(Paragraph(
-            "\"Confidential Information\" includes all technical, business, financial, customer, employee, and operational data, source code, "
-            "product roadmaps, trade secrets, architecture designs, and strategic plans disclosed to or accessed by Employee.",
-            s["body"]
-        ))
-        story.append(Paragraph("<b>2. Non-Disclosure & Duty of Care</b>", s["h3"]))
-        story.append(Paragraph(
-            "Employee agrees to hold all Confidential Information in the strictest confidence, not to disclose or publish any part thereof "
-            "to any third party without prior written authorization, and to use such information solely in performance of official duties.",
-            s["body"]
-        ))
-        story.append(Paragraph("<b>3. Return of Materials & Term</b>", s["h3"]))
-        story.append(Paragraph(
-            "Upon termination of employment or request by Company, Employee shall immediately surrender all documents, devices, digital keys, "
-            "and files containing Company information. This confidentiality obligation endures during employment and survives indefinitely.",
-            s["body"]
-        ))
-        story.append(Paragraph("<b>4. Injunctive Relief & Remedies</b>", s["h3"]))
-        story.append(Paragraph(
-            "Employee acknowledges that breach of this Agreement causes irreparable harm for which monetary damages alone are insufficient, "
-            "entitling the Company to seek immediate injunctive relief and recovery of legal fees.",
-            s["body"]
-        ))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=True)]))
-
-    elif category == "employment_contract":
-        story.append(Paragraph("<b>EMPLOYMENT AGREEMENT & CONTRACT OF SERVICE</b>", s["title"]))
-        story.append(Paragraph(
-            f"This Employment Agreement is entered into between <b>{org_name}</b> (\"Employer\") and <b>{c_name}</b> (\"Employee\").",
-            s["body"]
-        ))
-        story.append(Spacer(1, 6))
-        story.append(_meta_box([
-            ("Employee Name", c_name),
-            ("Designation", position),
-            ("Department", dept),
-            ("Commencement Date", join_date),
-            ("Classification", emp_type),
-            ("Remuneration", salary),
-        ], s))
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("<b>Key Contractual Clauses:</b>", s["h2"]))
-        story.append(Paragraph(
-            "<b>1. Appointment:</b> Employer engages Employee to perform the duties of <b>" + position + "</b> reporting to " + manager + ".",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "<b>2. Probationary Period:</b> Initial service is subject to a 90-day probationary review during which performance will be evaluated.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "<b>3. Intellectual Property Assignment:</b> All inventions, software, documentation, designs, and work products conceived or developed "
-            "during employment belong exclusively and perpetually to Employer.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "<b>4. Exclusivity & Devotion of Time:</b> Employee shall devote full business time and best efforts exclusively to Employer and shall not "
-            "undertake any outside business or secondary employment.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "<b>5. Termination & Notice:</b> Either party may terminate with 30 days written notice or pay in lieu thereof, subject to statutory minimums. "
-            "Employer reserves the right of summary dismissal for gross misconduct.",
-            s["body"]
-        ))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=True)]))
-
-    elif category == "exclusivity_affidavit":
-        story.append(Paragraph("<b>AFFIDAVIT OF EMPLOYMENT EXCLUSIVITY</b>", s["title"]))
-        story.append(Paragraph("Solemn Declaration & Non-Moonlighting Undertaking", s["subtitle"]))
-        story.append(Paragraph(
-            f"I, <b>{c_name}</b>, residing at the address provided in my onboarding records, being of sound mind, do hereby solemnly declare, "
-            f"affirm, and undertake under oath as follows:",
-            s["body"]
-        ))
-        story.append(Spacer(1, 6))
-        story.append(Paragraph(
-            "1. <b>Exclusive Full-Time Service:</b> I acknowledge that my engagement as <b>" + position + "</b> with <b>" + org_name + "</b> "
-            "is full-time and exclusive. I covenant that I will devote my entire productive time, energy, and attention exclusively to the business of the Company.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "2. <b>Non-Moonlighting Prohibition:</b> I affirm that I do not currently hold, nor will I undertake during my tenure, any secondary employment, "
-            "freelance contracts, advisory roles, directorships, commercial partnerships, or consulting engagements, paid or unpaid, without prior written approval from Executive Management.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "3. <b>Conflict of Interest:</b> I confirm that I have no personal, commercial, or financial affiliations that compete directly or indirectly with the Company.",
-            s["body"]
-        ))
-        story.append(Paragraph(
-            "4. <b>Consequences of Breach:</b> I understand that violation of this undertaking constitutes willful breach of trust and gross misconduct, "
-            "resulting in immediate termination of employment for cause, forfeiture of benefits, and potential recovery of liquidated damages.",
-            s["body"]
-        ))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=True)]))
-
-    elif category == "self_disclosure":
-        story.append(Paragraph("<b>VOLUNTARY SELF-DISCLOSURE FORM</b>", s["title"]))
-        story.append(Paragraph("Compliance, Conflict of Interest & Background Affirmation", s["subtitle"]))
-        story.append(_meta_box([
-            ("Candidate Full Name", c_name),
-            ("Position Applied For", position),
-            ("Department", dept),
-            ("Submission Date", date.today().strftime("%B %d, %Y")),
-        ], s))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("<b>Disclosure Statements:</b>", s["h2"]))
-        disclosure_rows = [
-            [Paragraph("<b>Question</b>", s["table_header"]), Paragraph("<b>Declaration</b>", s["table_header"])],
-            [Paragraph("1. Do you have any commercial directorships, outside business interests, or side businesses?", s["table_cell"]), Paragraph("NONE / DISCLOSED IN ESS", s["table_cell"])],
-            [Paragraph("2. Do you have any relatives or personal affiliations currently employed at this organization?", s["table_cell"]), Paragraph("NONE / DISCLOSED IN ESS", s["table_cell"])],
-            [Paragraph("3. Are you bound by any non-compete or restrictive covenants from previous employers?", s["table_cell"]), Paragraph("NO / ALL CLEARED", s["table_cell"])],
-            [Paragraph("4. Have you ever been convicted of a criminal offense involving fraud or financial misconduct?", s["table_cell"]), Paragraph("NO", s["table_cell"])],
-            [Paragraph("5. Are all credentials, educational degrees, and employment histories accurate and complete?", s["table_cell"]), Paragraph("YES - VERIFIED", s["table_cell"])],
-        ]
-        t = Table(disclosure_rows, colWidths=[360, 170])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A1128")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 6),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 6),
-            ("LEFTPADDING", (0, 0), (-1, -1), 8),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 10))
-        story.append(Paragraph(
-            "<b>Affirmation:</b> I certify that the statements provided above are true, complete, and correct to the best of my knowledge. "
-            "I understand that any misstatement or omission may result in disqualification or dismissal.",
-            s["legal"]
-        ))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=True)]))
-
-    elif category == "job_application":
-        story.append(Paragraph("<b>OFFICIAL JOB APPLICATION RECORD</b>", s["title"]))
-        story.append(Paragraph("Candidate Profile & Application Information Form", s["subtitle"]))
-        story.append(_meta_box([
-            ("Applicant Name", c_name),
-            ("Position Applied For", position),
-            ("Department", dept),
-            ("Email Address", hire_ctx.get("email") or "—"),
-            ("Phone Number", hire_ctx.get("phone") or "—"),
-            ("Available Start Date", join_date),
-            ("Status", "HIRED & ONBOARDING STARTED"),
-        ], s))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("<b>Profile Summary & Application History</b>", s["h2"]))
-        story.append(Paragraph(
-            f"The candidate <b>{c_name}</b> successfully completed all recruitment evaluations, technical interviews, and reference screenings "
-            f"for the position of <b>{position}</b>. This application record archives candidate submission data and consent for onboarding verification.",
-            s["body"]
-        ))
-        story.append(Paragraph("<b>Verification & Authorizations:</b>", s["h2"]))
-        story.append(Paragraph("• Candidate authorized background checks, credential verifications, and professional reference reviews.", s["body"]))
-        story.append(Paragraph("• Privacy notice (HR-HIR-004) acknowledged and GDPR/DPDP compliant retention policy applied.", s["body"]))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=False)]))
-
-    elif category == "daily_work_report":
-        story.append(Paragraph("<b>DAILY WORK REPORT (DWR) TEMPLATE</b>", s["title"]))
-        story.append(Paragraph("Zoiko Standard Operational Daily Activity & Deliverable Log", s["subtitle"]))
-        story.append(_meta_box([
-            ("Employee Name", c_name),
-            ("Position", position),
-            ("Department", dept),
-            ("Reporting Manager", manager),
-            ("Report Date", date.today().strftime("%Y-%m-%d")),
-            ("Work Location", "Office / Remote Hybrid"),
-        ], s))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("<b>1. Daily Task Breakdown Matrix</b>", s["h2"]))
-        dwr_table = [
-            [Paragraph("<b>Time</b>", s["table_header"]), Paragraph("<b>Task Description / JIRA Ticket</b>", s["table_header"]), Paragraph("<b>Deliverable Output</b>", s["table_header"]), Paragraph("<b>Status</b>", s["table_header"])],
-            [Paragraph("09:00 - 10:00", s["table_cell"]), Paragraph("Daily Standup & Sprint Planning", s["table_cell"]), Paragraph("Sprint task alignment", s["table_cell"]), Paragraph("Completed", s["table_cell"])],
-            [Paragraph("10:00 - 13:00", s["table_cell"]), Paragraph("Core Task Execution (Item #1)", s["table_cell"]), Paragraph("Code / Deliverable Draft", s["table_cell"]), Paragraph("Completed", s["table_cell"])],
-            [Paragraph("14:00 - 16:30", s["table_cell"]), Paragraph("Cross-Functional Review & QA", s["table_cell"]), Paragraph("Test logs / Peer Sign-off", s["table_cell"]), Paragraph("In Progress", s["table_cell"])],
-            [Paragraph("16:30 - 18:00", s["table_cell"]), Paragraph("Documentation & DWR Submission", s["table_cell"]), Paragraph("Daily report filed in portal", s["table_cell"]), Paragraph("Completed", s["table_cell"])],
-        ]
-        t = Table(dwr_table, colWidths=[80, 210, 160, 80])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A1128")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 5),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 5),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("<b>2. Key Accomplishments Today:</b>", s["h3"]))
-        story.append(Paragraph("• Documented and achieved daily deliverables in accordance with sprint goals.", s["body"]))
-        story.append(Paragraph("<b>3. Blockers / Dependencies:</b>", s["h3"]))
-        story.append(Paragraph("• None reported / Escalated to manager if any.", s["body"]))
-        story.append(Paragraph("<b>4. Planned Deliverables for Tomorrow:</b>", s["h3"]))
-        story.append(Paragraph("• Continue scheduled sprint backlog execution and milestone validation.", s["body"]))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=False)]))
-
-    elif category == "velocity_report":
-        story.append(Paragraph("<b>ZOIKO GROUP PROJECT VELOCITY REPORT TEMPLATE</b>", s["title"]))
-        story.append(Paragraph("Sprint Cadence, Task Burn-Up & Velocity Performance Framework", s["subtitle"]))
-        story.append(_meta_box([
-            ("Project / Product", f"{dept} Strategic Initiatives"),
-            ("Prepared By", c_name),
-            ("Designation", position),
-            ("Sprint / Cycle", "Cycle 2026-Q4 Sprint #2"),
-            ("Reviewing Manager", manager),
-        ], s))
-        story.append(Spacer(1, 10))
-        story.append(Paragraph("<b>1. Sprint Velocity & Commitment Summary</b>", s["h2"]))
-        vel_table = [
-            [Paragraph("<b>Metric Dimension</b>", s["table_header"]), Paragraph("<b>Planned Target</b>", s["table_header"]), Paragraph("<b>Actual Achieved</b>", s["table_header"]), Paragraph("<b>Variance / Notes</b>", s["table_header"])],
-            [Paragraph("Committed Story Points", s["table_cell"]), Paragraph("45 Points", s["table_cell"]), Paragraph("44 Points", s["table_cell"]), Paragraph("97.8% Completion", s["table_cell"])],
-            [Paragraph("Planned Engineering Hours", s["table_cell"]), Paragraph("160 Hours", s["table_cell"]), Paragraph("158 Hours", s["table_cell"]), Paragraph("On Budget", s["table_cell"])],
-            [Paragraph("Delivered Epics / Features", s["table_cell"]), Paragraph("6 Items", s["table_cell"]), Paragraph("6 Items", s["table_cell"]), Paragraph("100% Milestone Fit", s["table_cell"])],
-            [Paragraph("Defect Escape Rate", s["table_cell"]), Paragraph("< 2 Defects", s["table_cell"]), Paragraph("0 Defects", s["table_cell"]), Paragraph("Passed Strict QA", s["table_cell"])],
-            [Paragraph("Rolling 3-Sprint Velocity", s["table_cell"]), Paragraph("42.0 Avg", s["table_cell"]), Paragraph("43.5 Avg", s["table_cell"]), Paragraph("+3.5% Velocity Growth", s["table_cell"])],
-        ]
-        t = Table(vel_table, colWidths=[160, 110, 110, 150])
-        t.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#0A1128")),
-            ("GRID", (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E1")),
-            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F8FAFC")]),
-            ("TOPPADDING", (0, 0), (-1, -1), 5),
-            ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
-            ("LEFTPADDING", (0, 0), (-1, -1), 6),
-            ("RIGHTPADDING", (0, 0), (-1, -1), 6),
-        ]))
-        story.append(t)
-        story.append(Spacer(1, 8))
-        story.append(Paragraph("<b>2. Key Milestones Completed:</b>", s["h3"]))
-        story.append(Paragraph("• Core architecture and functional test passes verified and merged.", s["body"]))
-        story.append(Paragraph("<b>3. Velocity Impediments & Lessons Learned:</b>", s["h3"]))
-        story.append(Paragraph("• Optimized asynchronous API testing; reduced CI pipeline build duration by 15%.", s["body"]))
-        story.append(Spacer(1, 16))
-        story.append(KeepTogether([_signature_block(c_name, org_name, s, is_signable=False)]))
-
-    doc.build(story)
-    return buf.getvalue()
+# ── company logo (printed in every document's header and the offer letterhead) ──────────────────────────────────────
+LOGO_MAX_BYTES = 2 * 1024 * 1024
+LOGO_MAX_PX = (900, 300)
 
 
-# ── Core Orchestrator: Generate Full Onboarding Package ──────────────────────────────────────────────
-def generate_onboarding_package(
-    db: Session,
-    hire: OnboardingNewHire,
-    categories: Optional[list[str]] = None,
-    actor=None,
-) -> list[OnboardingDocument]:
-    """Generates all requested or default 10 onboarding documents for a new hire.
-    Populates them with hire & org details, generates PDFs, configures e-signing where required,
-    and returns the created/updated OnboardingDocument records.
-    """
-    categories_to_generate = categories or PACKAGE_CATEGORIES
-    org = db.get(Organization, hire.organization_id)
-    org_name = getattr(org, "name", None) or getattr(org, "display_name", None) or "Zoiko Enterprises"
-
-    # Resolve recruitment offer details if available
-    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.onboarding_new_hire_id == hire.id).first()
-    offer = (
-        db.query(RecruitmentOffer)
-        .filter(RecruitmentOffer.candidate_id == cand.id)
-        .order_by(RecruitmentOffer.id.desc())
-        .first()
-        if cand
-        else None
-    )
-
-    hire_ctx = {
-        "candidate_name": hire.candidate_name,
-        "email": hire.email,
-        "phone": hire.phone,
-        "position": hire.position or (offer.position if offer else "Team Member"),
-        "department": hire.department_name or "Operations",
-        "manager": hire.manager_name or "Department Manager",
-        "joining_date": hire.joining_date.strftime("%b %d, %Y") if hire.joining_date else date.today().strftime("%b %d, %Y"),
-        "employment_type": hire.employment_type or (offer.employment_type if offer else "Full-Time"),
-        "salary": f"${offer.salary:,.2f} per annum" if (offer and offer.salary) else "As per offer schedule",
-        "org_name": org_name,
-    }
-
-    created_or_updated = []
-    store = storage.get_store()
-
-    for cat in categories_to_generate:
-        spec = SPEC_BY_CATEGORY.get(cat)
-        if not spec:
-            continue
-
-        existing_doc = (
-            db.query(OnboardingDocument)
-            .filter(
-                OnboardingDocument.onboarding_new_hire_id == hire.id,
-                OnboardingDocument.category == cat,
-                OnboardingDocument.is_deleted == False,  # noqa: E712
-            )
-            .first()
-        )
-
-        # If document already exists and is already approved / signed, keep it
-        if existing_doc and existing_doc.status == "approved":
-            created_or_updated.append(existing_doc)
-            continue
-
-        # If document already has an active signable GeneratedDocument, keep it
-        if existing_doc and existing_doc.document_id and spec["requires_signature"]:
-            existing_gen = db.get(GeneratedDocument, existing_doc.document_id)
-            if existing_gen and existing_gen.status in ("ISSUED", "EXECUTED"):
-                created_or_updated.append(existing_doc)
-                continue
-
-        # If offer letter already exists and was executed from recruitment offer
-        if cat == "offer_letter" and offer and offer.document_id:
-            gen_offer = db.get(GeneratedDocument, offer.document_id)
-            if gen_offer and gen_offer.status == "EXECUTED":
-                if not existing_doc:
-                    existing_doc = OnboardingDocument(
-                        organization_id=hire.organization_id,
-                        onboarding_new_hire_id=hire.id,
-                        title=spec["title"],
-                        category=cat,
-                        document_id=gen_offer.id,
-                        file_path=gen_offer.executed_pdf_path or gen_offer.pdf_path,
-                        status="approved",
-                        created_by="system",
-                    )
-                    db.add(existing_doc)
-                else:
-                    existing_doc.document_id = gen_offer.id
-                    existing_doc.file_path = gen_offer.executed_pdf_path or gen_offer.pdf_path
-                    existing_doc.status = "approved"
-                db.commit()
-                created_or_updated.append(existing_doc)
-                continue
-
-        # Generate standard styled PDF for this document
-        pdf_bytes = build_document_pdf(cat, hire_ctx)
-        pdf_filename = f"onb-{hire.id}-{cat}-{secrets.token_hex(4)}.pdf"
-        stored_key = store.put(hire.organization_id, pdf_filename, pdf_bytes)
-
-        gen_doc_id = None
-        if spec["requires_signature"]:
-            # Create a GeneratedDocument so candidate can sign electronically
-            now = datetime.utcnow()
-            doc_num = f"ONB-{cat.upper()[:4]}-{hire.id}-{secrets.token_hex(3).upper()}"
-
-            # Check if template definition exists, otherwise use a valid existing canonical ID
-            canonical_id = spec["canonical_id"]
-            t_def = db.get(TemplateDefinition, canonical_id)
-            if not t_def:
-                fallback_map = {
-                    "self_disclosure": "HR-VER-002",
-                    "exclusivity_affidavit": "HR-CON-025",
-                    "offer_letter": "HR-HIR-011",
-                    "nda": "HR-CON-017",
-                    "employment_contract": "HR-CON-001",
-                }
-                canonical_id = fallback_map.get(cat, "HR-CON-001")
-                t_def = db.get(TemplateDefinition, canonical_id)
-
-            family_id = t_def.family_id if t_def else spec["family_id"]
-            kind = t_def.kind if t_def else "AGREEMENT"
-
-            # Create the GeneratedDocument record
-            gen_doc = GeneratedDocument(
-                document_number=doc_num,
-                organization_id=hire.organization_id,
-                canonical_id=canonical_id,
-                family_id=family_id,
-                title=spec["title"],
-                kind=kind,
-                legal_risk="L1",
-                sensitivity="C2",
-                output_mode="DOCUMENT",
-                execution_mode="SIGN_EMPLOYEE",
-                audience="COUNTERPARTY",
-                approval_policy="L1",
-                subject_type="new_hire",
-                subject_id=hire.id,
-                source_ref=f"onboarding_new_hire:{hire.id}",
-                language="en",
-                pdf_path=stored_key,
-                pdf_sha256=storage.fernet_for(b"zoiko-hr-generated-document-v1").digest() if hasattr(storage, "digest") else "sha256",
-                recipient_name=hire.candidate_name,
-                recipient_email=hire.email,
-                requested_by=actor.id if actor else 1,
-                issued_at=now,
-                due_by=now + timedelta(days=14),
-                expires_at=now + timedelta(days=30),
-            )
-            state._set(gen_doc, "ISSUED")
-            # Recompute exact SHA-256 for integrity check
-            import hashlib
-            gen_doc.pdf_sha256 = hashlib.sha256(pdf_bytes).hexdigest()
-            db.add(gen_doc)
-            db.flush()
-
-            # Issue candidate signing token and cache in hire profile details
-            raw_token, _ = signing.issue_candidate_token(db, gen_doc)
-            details = dict(hire.profile_details or {})
-            signing_tokens = dict(details.get("_signing_tokens") or {})
-            signing_tokens[str(gen_doc.id)] = raw_token
-            details["_signing_tokens"] = signing_tokens
-            hire.profile_details = details
-            gen_doc_id = gen_doc.id
-
-        if not existing_doc:
-            doc_status = "requested" if spec["requires_signature"] else "approved"
-            existing_doc = OnboardingDocument(
-                organization_id=hire.organization_id,
-                onboarding_new_hire_id=hire.id,
-                title=spec["title"],
-                category=cat,
-                file_path=stored_key,
-                document_id=gen_doc_id,
-                status=doc_status,
-                created_by="system",
-            )
-            db.add(existing_doc)
-        else:
-            existing_doc.file_path = stored_key
-            if gen_doc_id:
-                existing_doc.document_id = gen_doc_id
-                if existing_doc.status != "approved":
-                    existing_doc.status = "requested"
-        db.commit()
-        db.refresh(existing_doc)
-        created_or_updated.append(existing_doc)
-
-    try:
-        sync_onboarding_document_checklist(db, hire)
-    except Exception:
-        pass
-
-    return created_or_updated
-
-
-def generate_html_for_doc(doc: GeneratedDocument) -> str:
-    """Generates an executive, corporate-styled HTML agreement for document signing and browser viewing."""
-    return f"""<!DOCTYPE html>
-<html>
-<head>
-<meta charset="utf-8" />
-<style>
-  body {{
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-    color: #0f172a;
-    line-height: 1.6;
-    margin: 0;
-    padding: 24px;
-    background: #ffffff;
-  }}
-  .contract-header {{
-    border-bottom: 3px solid #0A1128;
-    padding-bottom: 20px;
-    margin-bottom: 24px;
-  }}
-  .brand-badge {{
-    display: inline-block;
-    background: #0A1128;
-    color: #ffffff;
-    font-size: 11px;
-    font-weight: 700;
-    letter-spacing: 0.1em;
-    padding: 4px 10px;
-    border-radius: 6px;
-    text-transform: uppercase;
-  }}
-  h1 {{
-    font-size: 22px;
-    color: #0A1128;
-    margin: 12px 0 4px 0;
-    font-weight: 700;
-  }}
-  .meta-grid {{
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 12px;
-    background: #f8fafc;
-    border: 1px solid #e2e8f0;
-    border-radius: 12px;
-    padding: 16px;
-    margin-bottom: 24px;
-    font-size: 13px;
-  }}
-  .meta-item strong {{
-    color: #475569;
-    display: block;
-    font-size: 11px;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-  }}
-  .meta-item span {{
-    color: #0f172a;
-    font-weight: 600;
-  }}
-  .section-title {{
-    font-size: 14px;
-    font-weight: 700;
-    color: #0A1128;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    margin-top: 24px;
-    margin-bottom: 8px;
-    border-left: 3px solid #2563EB;
-    padding-left: 8px;
-  }}
-  p, li {{
-    font-size: 14px;
-    color: #334155;
-    margin: 6px 0;
-  }}
-  ul {{
-    padding-left: 20px;
-  }}
-  .sig-notice {{
-    margin-top: 32px;
-    padding: 16px;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    border-radius: 12px;
-    font-size: 13px;
-    color: #1e40af;
-  }}
-</style>
-</head>
-<body>
-  <div class="contract-header">
-    <span class="brand-badge">Zoiko HR · Official Employment Agreement</span>
-    <h1>{doc.title}</h1>
-    <p style="color: #64748b; font-size: 13px; margin: 4px 0 0 0;">Document Ref: {doc.document_number}</p>
-  </div>
-
-  <div class="meta-grid">
-    <div class="meta-item">
-      <strong>Recipient / Signer</strong>
-      <span>{doc.recipient_name or 'New Hire'}</span>
-    </div>
-    <div class="meta-item">
-      <strong>Email Address</strong>
-      <span>{doc.recipient_email or '—'}</span>
-    </div>
-    <div class="meta-item">
-      <strong>Document Status</strong>
-      <span>{doc.status}</span>
-    </div>
-    <div class="meta-item">
-      <strong>Security & Legal Policy</strong>
-      <span>L1 Binding / Electronic Consent</span>
-    </div>
-  </div>
-
-  <div class="section-title">1. Purpose & Scope</div>
-  <p>This official agreement governs the operational and contractual obligations between the Employer and <strong>{doc.recipient_name or 'the Employee'}</strong>. The terms set forth herein have been issued pursuant to corporate governance standards and regulatory compliance policies.</p>
-
-  <div class="section-title">2. Terms & Conditions</div>
-  <p>The undersigned candidate hereby agrees to the comprehensive stipulations, responsibilities, confidentiality covenants, and performance metrics designated under this {doc.title}.</p>
-  <ul>
-    <li>Compliance with all company directives, statutory guidelines, and workplace policies.</li>
-    <li>Protection and non-disclosure of proprietary trade secrets, intellectual property, and client records.</li>
-    <li>Timely submission of reports, deliverables, and operational requirements.</li>
-  </ul>
-
-  <div class="section-title">3. Execution & Electronic Signature</div>
-  <p>By signing below using the authorized Zoiko HR electronic signature interface, the counterparty affirms understanding of and agreement with all incorporated terms.</p>
-
-  <div class="sig-notice">
-    <strong>Electronic Signature Notice:</strong> Applying your signature below creates a legally binding electronic execution record compliant with the Electronic Signatures in Global and National Commerce Act (E-SIGN) and uniform commercial standards.
-  </div>
-</body>
-</html>"""
-
-
-def sync_onboarding_document_checklist(db: Session, hire: OnboardingNewHire) -> None:
-    """Syncs the new hire's onboarding documents into their Onboarding Checklist.
-    Until documents are signed, they show as pending; once signed, they show as completed with the signed doc.
-    """
-    from app.modules.hr.models import OnboardingChecklist, OnboardingChecklistItem
-    # Look for or create the dedicated documents checklist
-    checklist = (
-        db.query(OnboardingChecklist)
-        .filter(
-            OnboardingChecklist.onboarding_new_hire_id == hire.id,
-            OnboardingChecklist.name == "Onboarding Documents & Agreements",
-            OnboardingChecklist.is_deleted == False,
-        )
-        .first()
-    )
-    if not checklist:
-        checklist = OnboardingChecklist(
-            organization_id=hire.organization_id,
-            onboarding_new_hire_id=hire.id,
-            name="Onboarding Documents & Agreements",
-            description="Review and electronically sign official onboarding agreements, operational templates, and compliance documents.",
-            category="HR",
-            status="pending",
-        )
-        db.add(checklist)
-        db.flush()
-
-    # Sync all documents
-    docs = (
-        db.query(OnboardingDocument)
-        .filter(
-            OnboardingDocument.onboarding_new_hire_id == hire.id,
-            OnboardingDocument.is_deleted == False,
-        )
-        .order_by(OnboardingDocument.id)
-        .all()
-    )
-
-    existing_items = {
-        item.item_key: item
-        for item in checklist.items
-        if item.item_key and not item.is_deleted
-    }
-
-    for d in docs:
-        key = f"doc_{d.id}"
-        is_signed = (d.status == "approved")
-        is_signable = bool(d.document_id) or d.category in SIGNABLE_CATEGORIES
-        item_title = f"Sign {d.title}" if is_signable else f"Review {d.title}"
-
-        if key in existing_items:
-            it = existing_items[key]
-            it.title = item_title
-            it.completed = is_signed
-            it.completed_at = d.updated_at if is_signed else None
-            it.description = f"✓ Signed & Approved · {d.title}" if is_signed else f"Pending electronic signature · {d.title}"
-        else:
-            it = OnboardingChecklistItem(
-                organization_id=hire.organization_id,
-                checklist_id=checklist.id,
-                title=item_title,
-                description=f"✓ Signed & Approved · {d.title}" if is_signed else f"Pending electronic signature · {d.title}",
-                completed=is_signed,
-                completed_at=d.updated_at if is_signed else None,
-                mandatory=is_signable,
-                item_key=key,
-                due_date=hire.joining_date or date.today(),
-            )
-            db.add(it)
-
-    # Recompute checklist status
-    db.flush()
-    live = [i for i in checklist.items if not i.is_deleted]
-    if live:
-        done = sum(1 for i in live if i.completed)
-        checklist.status = "completed" if done == len(live) else ("in_progress" if done else "pending")
+def _write_config(db, organization_id: int, cfg: dict) -> None:
+    row = _row(db, organization_id)
+    if row is None:
+        row = OrganizationConfig(organization_id=organization_id, key=CONFIG_KEY, category="onboarding_package",
+                                 description="Offer package documents: employer particulars, branding and counsel clauses")
+        db.add(row)
+    row.value = json.dumps(cfg)
     db.commit()
 
 
+def save_logo(db, actor, data: bytes) -> dict:
+    """Validate an uploaded logo (PNG, JPEG or WebP, max 2 MB), strip metadata by re-encoding it as PNG, scale it down, store it."""
+    if not data:
+        raise HTTPException(422, "Choose a logo image to upload.")
+    if len(data) > LOGO_MAX_BYTES:
+        raise HTTPException(422, "The logo must be 2 MB or smaller.")
+    from PIL import Image, UnidentifiedImageError
+    import io as _io
+    try:
+        probe = Image.open(_io.BytesIO(data))
+        if probe.format not in ("PNG", "JPEG", "WEBP"):
+            raise HTTPException(422, "Upload the logo as a PNG, JPG or WebP image.")
+        probe.verify()
+        img = Image.open(_io.BytesIO(data))
+        img.load()
+    except HTTPException:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError, Image.DecompressionBombError):
+        raise HTTPException(422, "The file is not a readable image.")
+    img = img.convert("RGBA")
+    img.thumbnail(LOGO_MAX_PX)
+    out = _io.BytesIO()
+    img.save(out, format="PNG", optimize=True)
+    cfg = get_config(db, actor.organization_id)
+    cfg["logo_key"] = storage.get_store().put(actor.organization_id, f"org-logo-{secrets.token_hex(6)}.png", out.getvalue())
+    _write_config(db, actor.organization_id, cfg)
+    return settings_view(db, actor.organization_id)
+
+
+def remove_logo(db, actor) -> dict:
+    cfg = get_config(db, actor.organization_id)
+    cfg["logo_key"] = ""
+    _write_config(db, actor.organization_id, cfg)
+    return settings_view(db, actor.organization_id)
+
+
+def logo_bytes(db, organization_id: int, cfg: Optional[dict] = None) -> Optional[bytes]:
+    key = (cfg or get_config(db, organization_id)).get("logo_key")
+    if not key:
+        return None
+    try:
+        return storage.get_store().get(key)
+    except Exception:
+        logger.warning("offer package logo for org %s is missing from storage", organization_id)
+        return None
+
+
+def settings_view(db, organization_id: int) -> dict:
+    cfg = get_config(db, organization_id)
+    used: dict[str, list[str]] = {}
+    for cat in C.CATEGORIES:
+        for tok in C.tokens_in(cat):
+            ck = C.clause_key(tok)
+            if ck:
+                used.setdefault(ck, []).append(C.DOCS[cat]["title"])
+    clauses = [{"key": k, "token": R._hook_token(k), "title": t, "note": n, "required": req, "used_in": used.get(k, []),
+                **{f: (cfg["clauses"].get(k) or {}).get(f) for f in ("text", "not_applicable", "counsel_reference", "updated_at")}}
+               for k, (t, n, req) in C.CLAUSES.items()]
+    settings_out = {k: v for k, v in cfg.items() if k not in ("clauses", "logo_key")}
+    settings_out["has_logo"] = bool(cfg.get("logo_key"))
+    return {"settings": settings_out, "clauses": clauses,
+            "documents": [{k: d[k] for k in ("category", "title", "template_id", "doc_type", "risk", "sensitivity", "mode",
+                                              "orientation", "pages", "signers")} for d in C.documents()],
+            "mode_labels": C.MODE_LABELS}
+
+
+# ── per-hire data ────────────────────────────────────────────────────────────────────────────────────────────────────
+# Fields HR may type in per new hire (everything else comes from settings, the hire record, the offer or is computed).
+HIRE_INPUT_FIELDS = [k for k in C.FIELDS if k.split(".")[0] in ("employment", "job", "kpi", "worker")
+                     and k not in ("worker.full_name", "worker.email", "worker.outside_activities", "employment.pay_terms")]
+
+
+def _fmt_date(d, cfg) -> Optional[str]:
+    if not d:
+        return None
+    if isinstance(d, str):
+        try:
+            d = date.fromisoformat(d[:10])
+        except ValueError:
+            return d
+    if isinstance(d, datetime):
+        d = d.date()
+    return f"{d.strftime('%B')} {d.day:02d}, {d.year}" if cfg.get("date_format") == "MDY" else f"{d.day:02d} {d.strftime('%B %Y')}"
+
+
+def _pretty(v: Optional[str]) -> Optional[str]:
+    if not v:
+        return None
+    special = {"onsite": "On-site", "on_site": "On-site", "full_time": "Full-time", "part_time": "Part-time"}
+    return special.get(str(v).lower(), str(v).replace("_", " ").capitalize())
+
+
+PER_PERIOD = {"annual": "per year", "monthly": "per month", "weekly": "per week", "hourly": "per hour", "one_time": "one-off"}
+
+
+def _offer_for(db, hire):
+    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.onboarding_new_hire_id == hire.id).first()
+    offer = (db.query(RecruitmentOffer).filter(RecruitmentOffer.candidate_id == cand.id).order_by(RecruitmentOffer.id.desc()).first()
+             if cand else None)
+    req = None
+    if cand and getattr(cand, "requisition_id", None):
+        from app.modules.hr.models import RecruitmentRequisition
+        req = db.get(RecruitmentRequisition, cand.requisition_id)
+    return cand, offer, req
+
+
+def hire_inputs(hire) -> dict:
+    return dict((hire.profile_details or {}).get("_package_inputs") or {})
+
+
+def save_hire_inputs(db, hire, values: dict) -> dict:
+    if not isinstance(values, dict):
+        raise HTTPException(422, "values must be an object.")
+    current = hire_inputs(hire)
+    for key, val in values.items():
+        if key not in HIRE_INPUT_FIELDS:
+            raise HTTPException(422, f"{key} cannot be set here.")
+        v = str(val or "").strip()[:2000]
+        if v:
+            current[key] = v
+        else:
+            current.pop(key, None)
+    details = dict(hire.profile_details or {})
+    details["_package_inputs"] = current
+    hire.profile_details = details
+    db.commit()
+    return current
+
+
+def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optional[str] = None,
+                 contract_id: Optional[str] = None) -> dict:
+    org = _org(db, hire.organization_id)
+    _cand, offer, req = _offer_for(db, hire)
+    details = hire.profile_details or {}
+    from app.core.regions import country_name
+
+    start = hire.joining_date or (offer.joining_date if offer else None)
+    country_code = (offer.work_country if offer else None) or hire.work_country
+    hours = getattr(offer, "hours_per_week", None) if offer else None
+    working_hours = f"{float(hours):g} hours per week" if hours else None
+    base_pay = None
+    if offer and offer.salary:
+        cur = offer.currency or getattr(org, "currency", None) or ""
+        base_pay = f"{cur} {float(offer.salary):,.2f} {PER_PERIOD.get(offer.pay_period or 'annual', '')}".strip()
+    address = ", ".join(str(details.get(k)).strip() for k in ("address", "city", "state", "postal_code", "country")
+                        if details.get(k) and str(details.get(k)).strip()) or None
+    emp = getattr(hire, "employee", None)
+    if address is None and emp is not None and getattr(emp, "current_address", None):
+        address = emp.current_address
+    hr_contact = " – ".join(p for p in (cfg.get("hr_contact_name"), cfg.get("hr_contact_email")) if p) or None
+    emp = getattr(hire, "employee", None)
+    values = {
+        "generated_at": _fmt_date(date.today(), cfg),
+        "employer.legal_name": cfg.get("legal_name") or None,
+        "employer.registered_address": cfg.get("registered_address") or None,
+        "employer.signatory_name": cfg.get("signatory_name") or None,
+        "employer.signatory_title": cfg.get("signatory_title") or None,
+        "employer.hr_contact": hr_contact,
+        "worker.full_name": hire.candidate_name,
+        "worker.email": hire.email,
+        "worker.phone": hire.phone or (getattr(_cand, "phone", None) if _cand else None),
+        "worker.postal_address": address,
+        "worker.employee_id": getattr(emp, "employee_code", None) if emp else None,
+        "employment.position_title": hire.position or (offer.position if offer else None),
+        "employment.department": hire.department_name or (req.department if req else None),
+        "employment.reports_to": hire.manager_name,
+        "employment.employment_type": _pretty(hire.employment_type or (offer.employment_type if offer else None)),
+        "employment.start_date": _fmt_date(start, cfg),
+        "employment.continuous_service_date": _fmt_date(start, cfg),
+        "employment.work_location": (offer.work_location if offer else None) or getattr(org, "city", None),
+        "employment.work_arrangement": _pretty(offer.work_arrangement if offer else None),
+        "employment.working_hours": working_hours,
+        "employment.work_pattern": (offer.work_pattern if offer else None) or working_hours,
+        "employment.base_pay": base_pay,
+        "employment.pay_frequency": cfg.get("pay_frequency") or None,
+        "employment.variable_pay": (f"Equity: {offer.equity}" if offer and offer.equity else None),
+        "employment.benefits_reference": cfg.get("benefits_reference") or None,
+        "employment.leave_entitlement": cfg.get("leave_entitlement") or None,
+        "employment.country": country_name(country_code) if country_code else (getattr(org, "country", None) or None),
+        "offer.response_deadline": _fmt_date(date.today() + timedelta(days=int(cfg.get("response_days") or 7)), cfg),
+        "offer.secure_link": secure_link,
+        "contract.id": contract_id,
+        "agreement.post_employment_period": cfg.get("post_employment_period") or None,
+        "document.version": C.PACKAGE_VERSION,
+        "document.effective_date": _fmt_date(cfg.get("effective_date") or start or date.today(), cfg),
+        "job.role_purpose": (req.description.strip()[:1200] if req and req.description else None),
+        "job.skills_essential": (req.requirements.strip()[:800] if req and req.requirements else None),
+        "kpi.review_cycle": cfg.get("kpi_review_cycle") or None,
+    }
+    for key, val in hire_inputs(hire).items():                    # HR's per-hire entries win
+        values[key] = val
+    if address:                                                   # ... except the address the new hire entered themselves
+        values["worker.postal_address"] = address
+    if values.get("employment.work_pattern") is None:
+        values["employment.work_pattern"] = values.get("employment.working_hours")
+    if values.get("employment.continuous_service_date") is None:
+        values["employment.continuous_service_date"] = values.get("employment.start_date")
+    if values.get("employment.base_pay") and values.get("employment.pay_frequency"):
+        values["employment.pay_terms"] = f"{values['employment.base_pay']}, paid {values['employment.pay_frequency']}"
+    return values
+
+
+def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final: bool = False, esign: bool = False,
+                   secure_link: Optional[str] = None, contract_id: Optional[str] = None) -> R.RenderContext:
+    cfg = cfg or get_config(db, hire.organization_id)
+    values = build_values(db, hire, cfg, secure_link=secure_link, contract_id=contract_id)
+    if not final:   # previews: show where the generated values will go
+        values.setdefault("offer.secure_link", None)
+        values["offer.secure_link"] = values["offer.secure_link"] or "(your secure onboarding link – added when sent)"
+        values["contract.id"] = values["contract.id"] or "(assigned when issued)"
+    ctx = R.RenderContext(mode="issue", values=values, clauses=cfg.get("clauses") or {},
+                          optional=set(C.OPTIONAL_BY_DOC.get(category, set())),
+                          activities=(hire.profile_details or {}).get("outside_activities"),
+                          org_label=(cfg.get("header_label") or "ZOIKO GROUP").upper(), primary=cfg["brand_primary"],
+                          accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
+                          effective_date=values.get("document.effective_date") or "", esign=esign,
+                          logo_png=logo_bytes(db, hire.organization_id, cfg))
+    gaps = readiness(ctx, category)
+    ctx.draft = not (final and gaps["ready"])
+    ctx.status_text = (f"ISSUED – {values['generated_at']}" if not ctx.draft else None)
+    return ctx
+
+
+# values built from other fields: when missing, the field they come from is what HR is asked for
+DERIVED_FROM = {"employment.work_pattern": ("employment.working_hours",),
+                "employment.continuous_service_date": ("employment.start_date",),
+                "employment.pay_terms": ("employment.base_pay", "employment.pay_frequency")}
+
+
+def readiness(ctx: R.RenderContext, category: str) -> dict:
+    fields, clauses = [], []
+    for tok in C.tokens_in(category):
+        ck = C.clause_key(tok)
+        if ck:
+            if ctx.clause_value(ck) is None:
+                clauses.append(ck)
+        elif ctx.field_value(tok) is None and tok not in ("offer.secure_link", "contract.id"):
+            for src in DERIVED_FROM.get(tok, (tok,)):
+                if ctx.field_value(src) is None and src not in fields:
+                    fields.append(src)
+    return {"ready": not fields and not clauses, "missing_fields": fields, "missing_clauses": clauses}
+
+
+def template_context(db, organization_id: int) -> R.RenderContext:
+    cfg = get_config(db, organization_id)
+    return R.RenderContext(mode="template", org_label=(cfg.get("header_label") or "ZOIKO GROUP").upper(),
+                           primary=cfg["brand_primary"], accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
+                           effective_date=_fmt_date(cfg.get("effective_date") or date.today(), cfg),
+                           logo_png=logo_bytes(db, organization_id, cfg))
+
+
+def template_set_pdf(db, organization_id: int) -> bytes:
+    return R.render_template_set(template_context(db, organization_id))
+
+
+def preview_pdf(db, hire, category: str) -> bytes:
+    if category not in C.DOCS:
+        raise HTTPException(404, "Unknown package document.")
+    return R.render_pdf(category, render_context(db, hire, category))
+
+
+# ── state of a hire's package ────────────────────────────────────────────────────────────────────────────────────────
+def _rows(db, hire) -> dict:
+    rows = (db.query(OnboardingDocument)
+            .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
+                    OnboardingDocument.category.in_(C.CATEGORIES))
+            .order_by(OnboardingDocument.id.desc()).all())
+    out = {}
+    for r in rows:
+        out.setdefault(r.category, r)
+    return out
+
+
+def _gen(db, row) -> Optional[GeneratedDocument]:
+    return db.get(GeneratedDocument, row.document_id) if row is not None and row.document_id else None
+
+
+def _row_state(db, row) -> str:
+    """not_sent | awaiting_signature | awaiting_acknowledgement | awaiting_upload | needs_review | completed | available |
+    declined | rejected"""
+    if row is None:
+        return "not_sent"
+    mode = mode_of(row.category)
+    hire = getattr(row, "new_hire", None)
+    if hire is not None and not package_file_key(hire, row.category) and not _is_recruitment_letter(db, hire, row):
+        # never issued through this package: an upload request made before it existed, or a document the earlier automatic
+        # generator created by itself. Only a signed one is kept (as a record); everything else is sent only when HR presses Send.
+        gen = _gen(db, row)
+        return "completed" if gen is not None and gen.status == "EXECUTED" else "not_sent"
+    if row.status == NO_ACTION_STATUS:
+        return "available"
+    if row.status == "approved":
+        return "completed"
+    if row.status == "rejected":
+        return "rejected"
+    if mode == "SIGN":
+        gen = _gen(db, row)
+        if gen is not None and gen.status in ("DECLINED", "EXPIRED", "REVOKED", "CANCELLED"):
+            return "declined"
+        return "awaiting_signature"
+    if mode == "ACKNOWLEDGE":
+        return "awaiting_acknowledgement"
+    if mode == "COMPLETE":
+        return "needs_review" if row.status == "pending" else "awaiting_upload"
+    return "available"
+
+
+def _is_recruitment_letter(db, hire, row) -> bool:
+    """The offer letter signed in Recruitment, linked into the package (not issued by it)."""
+    if row.category != "offer_letter" or not row.document_id:
+        return False
+    _cand, offer, _req = _offer_for(db, hire)
+    return bool(offer is not None and getattr(offer, "document_id", None) == row.document_id)
+
+
+def package_view(db, hire) -> dict:
+    cfg = get_config(db, hire.organization_id)
+    rows = _rows(db, hire)
+    docs = []
+    for d in C.documents():
+        cat = d["category"]
+        ctx = render_context(db, hire, cat, cfg=cfg, final=True)
+        gaps = readiness(ctx, cat)
+        row = rows.get(cat)
+        gen = _gen(db, row)
+        docs.append({
+            "category": cat, "title": d["title"], "template_id": d["template_id"], "mode": d["mode"],
+            "mode_label": C.MODE_LABELS[d["mode"]], "doc_type": d["doc_type"], "risk": d["risk"], "sensitivity": d["sensitivity"],
+            "orientation": d["orientation"], "signers": d["signers"], "state": _row_state(db, row),
+            "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
+            "signing_status": gen.status if gen else None, "ready": gaps["ready"],
+            "missing_fields": [{"key": k, "meaning": C.FIELDS[k][0], "source": C.FIELDS[k][1],
+                                "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == "worker.postal_address",
+                                "hr_may_enter": k == "worker.postal_address"}
+                               for k in gaps["missing_fields"]],
+            "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
+        })
+    pkg = (hire.profile_details or {}).get("_package") or {}
+    values = build_values(db, hire, cfg)
+    return {"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "email": hire.email, "documents": docs,
+            "sent_at": pkg.get("sent_at"), "inputs": hire_inputs(hire),
+            "input_fields": [{"key": k, "meaning": C.FIELDS[k][0], "value": values.get(k), "required": C.FIELDS[k][2]}
+                             for k in HIRE_INPUT_FIELDS],
+            "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
+
+
+# ── issuing ──────────────────────────────────────────────────────────────────────────────────────────────────────────
+def _ensure_definition(db, d: dict) -> TemplateDefinition:
+    t = db.get(TemplateDefinition, d["template_id"])
+    if t is None:      # package-specific ids (HR-CON-101 …) are not in the 566 register
+        t = TemplateDefinition(canonical_id=d["template_id"], family_id=d["family_id"], title=d["title"], kind=d["doc_type"],
+                               legal_risk=d["risk"], sensitivity=d["sensitivity"], catalogue_status="ONBOARDING_PACKAGE",
+                               implemented=False, output_mode="DOCUMENT", execution_mode="SIGN_CANDIDATE",
+                               audience="COUNTERPARTY", approval_policy=d["risk"], source_spec="ZOIKO-OFFER-PACKAGE v1.0")
+        db.add(t)
+        db.flush()
+    return t
+
+
+def _store_files(hire, category: str, key: str) -> None:
+    details = dict(hire.profile_details or {})
+    files = dict(details.get("_package_files") or {})
+    files[category] = key
+    details["_package_files"] = files
+    hire.profile_details = details
+
+
+def package_file_key(hire, category: str) -> Optional[str]:
+    return ((hire.profile_details or {}).get("_package_files") or {}).get(category)
+
+
+def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optional[OnboardingDocument]) -> OnboardingDocument:
+    cat, mode = d["category"], d["mode"]
+    store = storage.get_store()
+    number = f"ONB-{d['template_id'].replace('HR-', '')}-{hire.id}-{secrets.token_hex(3).upper()}"
+    ctx = render_context(db, hire, cat, cfg=cfg, final=True, esign=(mode == "SIGN"), secure_link=secure_link,
+                         contract_id=number if cat == "employment_contract" else None)
+    pdf = R.render_pdf(cat, ctx)
+    key = store.put(hire.organization_id, f"onb-{hire.id}-{cat}-{secrets.token_hex(4)}.pdf", pdf)
+    _store_files(hire, cat, key)
+    gen_id = None
+    if mode == "SIGN":
+        t = _ensure_definition(db, d)
+        html = R.render_html(cat, ctx, document_number=number)
+        html_key = store.put(hire.organization_id, f"onb-{hire.id}-{cat}-{secrets.token_hex(4)}.html", html.encode("utf-8"))
+        now = datetime.utcnow()
+        gen = GeneratedDocument(
+            document_number=number, organization_id=hire.organization_id, canonical_id=t.canonical_id, family_id=d["family_id"],
+            title=d["title"], kind=d["doc_type"], legal_risk=d["risk"], sensitivity=d["sensitivity"], output_mode="DOCUMENT",
+            execution_mode="SIGN_CANDIDATE", audience="COUNTERPARTY", approval_policy=d["risk"], subject_type="new_hire",
+            subject_id=hire.id, source_ref=f"onboarding_new_hire:{hire.id}", language="en", rendered_html_path=html_key,
+            pdf_path=key, pdf_sha256=hashlib.sha256(pdf).hexdigest(), recipient_name=hire.candidate_name,
+            recipient_email=hire.email, requested_by=getattr(actor, "id", None) or _fallback_actor(db, hire),
+            issued_by=getattr(actor, "id", None), issued_at=now, due_by=now + timedelta(days=int(cfg.get("response_days") or 7)),
+            expires_at=now + timedelta(days=30))
+        state._set(gen, "ISSUED")
+        db.add(gen)
+        db.flush()
+        state.add_event(db, gen, "issued", actor_id=getattr(actor, "id", None), detail={"package": cat})
+        raw, _ = signing.issue_candidate_token(db, gen)
+        details = dict(hire.profile_details or {})
+        tokens = dict(details.get("_signing_tokens") or {})
+        tokens[str(gen.id)] = raw
+        details["_signing_tokens"] = tokens
+        hire.profile_details = details
+        gen_id = gen.id
+    status = {"SIGN": "requested", "ACKNOWLEDGE": "requested", "COMPLETE": "requested"}.get(mode, NO_ACTION_STATUS)
+    file_path = None if mode == "COMPLETE" else key        # COMPLETE: the candidate's upload becomes the file
+    if row is None:
+        row = OnboardingDocument(organization_id=hire.organization_id, onboarding_new_hire_id=hire.id, title=d["title"],
+                                 category=cat, created_by="system")
+        db.add(row)
+    row.title, row.file_path, row.document_id, row.status, row.rejection_reason = d["title"], file_path, gen_id, status, None
+    db.flush()
+    return row
+
+
+def _fallback_actor(db, hire) -> int:
+    from app.modules.employee.models import Employee
+    emp = (db.query(Employee).filter(Employee.organization_id == hire.organization_id).order_by(Employee.id).first())
+    if emp is None:
+        raise HTTPException(409, "No employee account exists in this organisation to record as the issuer.")
+    return emp.id
+
+
+def _link_recruitment_offer(db, hire, row) -> Optional[OnboardingDocument]:
+    """An offer letter already signed in Recruitment is reused, not issued twice."""
+    _cand, offer, _req = _offer_for(db, hire)
+    gen = db.get(GeneratedDocument, offer.document_id) if offer and getattr(offer, "document_id", None) else None
+    if gen is None or gen.status != "EXECUTED":
+        return None
+    if row is None:
+        row = OnboardingDocument(organization_id=hire.organization_id, onboarding_new_hire_id=hire.id, title="Offer Letter",
+                                 category="offer_letter", created_by="system")
+        db.add(row)
+    row.document_id, row.file_path, row.status = gen.id, gen.executed_pdf_path or gen.pdf_path, "approved"
+    db.flush()
+    return row
+
+
+def send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[list[str]] = None, *, notify: bool = True,
+                 automatic: bool = False) -> dict:
+    """Issue every ready document of the package that has not been issued yet. Never re-issues a live document."""
+    from app.modules.hr import onboarding_flow
+    if hire.status not in onboarding_flow.ACTIVE_STATUSES:
+        raise HTTPException(400, "Onboarding documents can only be sent while onboarding is active.")
+    wanted = [c for c in (categories or C.CATEGORIES) if c in C.DOCS]
+    cfg = get_config(db, hire.organization_id)
+    rows = _rows(db, hire)
+    secure_link = onboarding_flow.current_portal_url(db, hire)
+    issued, held, unchanged = [], [], []
+    for cat in wanted:
+        d, row = C.DOCS[cat], rows.get(cat)
+        st = _row_state(db, row)
+        if st not in ("not_sent", "declined"):
+            unchanged.append({"category": cat, "title": d["title"], "state": st})
+            continue
+        if cat == "offer_letter" and _link_recruitment_offer(db, hire, row):
+            unchanged.append({"category": cat, "title": d["title"], "state": "completed"})
+            continue
+        gaps = readiness(render_context(db, hire, cat, cfg=cfg, final=True, secure_link=secure_link), cat)
+        if not gaps["ready"]:
+            held.append({"category": cat, "title": d["title"], **gaps})
+            continue
+        old = _gen(db, row)
+        if old is not None and old.status == "ISSUED":          # a leftover from the earlier generator: replaced, link revoked
+            state.transition(db, old, "SUPERSEDED", actor_id=getattr(actor, "id", None),
+                             detail={"reason": "replaced by the onboarding package document sent by HR"})
+            signing.revoke_candidate_tokens(db, old)
+        _issue_one(db, hire, d, cfg, actor, secure_link, row)
+        issued.append({"category": cat, "title": d["title"], "mode": d["mode"]})
+    details = dict(hire.profile_details or {})
+    pkg = dict(details.get("_package") or {})
+    if issued or not automatic:
+        pkg.update({"sent_at": pkg.get("sent_at") or datetime.utcnow().isoformat(), "last_sent_at": datetime.utcnow().isoformat(),
+                    "sent_by": getattr(actor, "id", None) if actor else pkg.get("sent_by")})
+    pkg["held"] = [h["category"] for h in held]
+    details["_package"] = pkg
+    hire.profile_details = details
+    db.commit()
+    sync_onboarding_document_checklist(db, hire)
+    from app.modules.hr.service import log_onboarding_activity
+    if issued:
+        log_onboarding_activity(db, hire.id, "Offer package issued" if not automatic else "Offer package documents released",
+                                f"{len(issued)} document(s) issued to {hire.candidate_name}: " + ", ".join(i["title"] for i in issued)
+                                + ("" if not automatic else " (after the new hire completed their details)."),
+                                hire.organization_id)
+    email_sent = False
+    if issued and notify:
+        email_sent = _notify(db, hire, issued, secure_link)
+    return {"issued": issued, "held": held, "unchanged": unchanged, "portal_url": secure_link, "email_sent": email_sent}
+
+
+def _notify(db, hire, issued: list[dict], url: str) -> bool:
+    from app.modules.hr import onboarding_flow
+    note = {"SIGN": "E-signature required", "ACKNOWLEDGE": "Please acknowledge receipt", "COMPLETE": "Complete and upload",
+            "VOLUNTARY": "Optional – voluntary", "INFO": "For information"}
+    try:
+        return bool(onboarding_flow.notify_document_request(db, hire, [{"title": i["title"], "note": note[i["mode"]]} for i in issued]))
+    except Exception:
+        logger.exception("offer package e-mail failed for new hire %s", hire.id)
+        return False
+
+
+def release_held(db, hire) -> dict:
+    """Called after the candidate saves portal details: issue documents that were waiting only for that data."""
+    pkg = (hire.profile_details or {}).get("_package") or {}
+    if not pkg.get("sent_at") or not pkg.get("held"):
+        return {"issued": []}
+    try:
+        return send_package(db, hire, None, list(pkg["held"]), notify=False, automatic=True)
+    except HTTPException:
+        return {"issued": []}
+    except Exception:
+        db.rollback()
+        logger.exception("releasing held package documents failed for new hire %s", hire.id)
+        return {"issued": []}
+
+
+def generate_onboarding_package(db, hire, categories=None, actor=None) -> list[OnboardingDocument]:
+    """Backwards-compatible wrapper: issue the package and return the hire's package document rows."""
+    send_package(db, hire, actor, categories, notify=False)
+    return list(_rows(db, hire).values())
+
+
+def link_documents_to_employee(db, hire, employee) -> int:
+    """On completion: the new employee sees their own signed offer letter and package documents in self-service."""
+    from sqlalchemy import or_
+    _cand, offer, _req = _offer_for(db, hire)
+    ids = [r.document_id for r in _rows(db, hire).values() if r.document_id]
+    if offer is not None and getattr(offer, "document_id", None):
+        ids.append(offer.document_id)
+    q = db.query(GeneratedDocument).filter(
+        GeneratedDocument.organization_id == hire.organization_id, GeneratedDocument.recipient_employee_id.is_(None),
+        or_(GeneratedDocument.id.in_(ids or [0]),
+            (GeneratedDocument.subject_type == "new_hire") & (GeneratedDocument.subject_id == hire.id)))
+    n = 0
+    for doc in q.all():
+        doc.recipient_employee_id = employee.id
+        n += 1
+    db.commit()
+    return n
+
+
+# ── candidate actions in the portal ──────────────────────────────────────────────────────────────────────────────────
+def acknowledge(db, hire, doc: OnboardingDocument, *, text_version: str, ip: Optional[str], user_agent: Optional[str]) -> None:
+    if mode_of(doc.category) != "ACKNOWLEDGE":
+        raise HTTPException(409, "This document does not ask for an acknowledgement.")
+    if doc.status == "approved":
+        return
+    if doc.status != "requested":
+        raise HTTPException(409, "This document cannot be acknowledged now.")
+    if text_version != ACK_TEXT_VERSION:
+        raise HTTPException(422, "Confirm the current acknowledgement statement.")
+    digest = None
+    if doc.file_path:
+        try:
+            digest = hashlib.sha256(storage.get_store().get(doc.file_path)).hexdigest()
+        except Exception:
+            digest = None
+    details = dict(hire.profile_details or {})
+    acks = dict(details.get("_acknowledgements") or {})
+    acks[str(doc.id)] = {"at": datetime.utcnow().isoformat(), "text_version": text_version, "document_sha256": digest,
+                         "ip": (ip or "")[:64], "user_agent": (user_agent or "")[:300]}
+    details["_acknowledgements"] = acks
+    hire.profile_details = details
+    doc.status = "approved"
+    db.commit()
+    from app.modules.hr.service import log_onboarding_activity
+    log_onboarding_activity(db, hire.id, "Document acknowledged", f"{hire.candidate_name} acknowledged receipt of '{doc.title}'.",
+                            hire.organization_id)
+    sync_onboarding_document_checklist(db, hire)
+
+
+def save_outside_activities(db, hire, data: dict) -> None:
+    none = bool((data or {}).get("none"))
+    rows = []
+    for r in ((data or {}).get("rows") or [])[:20]:
+        org = str(r.get("organisation") or "").strip()[:200]
+        if not org:
+            continue
+        try:
+            hours = max(0.0, min(168.0, float(r.get("hours") or 0)))
+        except (TypeError, ValueError):
+            raise HTTPException(422, "Hours per week must be a number.")
+        paid = str(r.get("paid") or "").strip().lower()
+        if paid not in ("paid", "unpaid"):
+            raise HTTPException(422, "Choose paid or unpaid for each activity.")
+        rows.append({"organisation": org, "role": str(r.get("role") or "").strip()[:200], "hours": f"{hours:g}",
+                     "paid": paid.capitalize(), "approved": False})
+    if not none and not rows:
+        raise HTTPException(422, "List your outside activities, or confirm that you have none.")
+    if _row_state(db, _rows(db, hire).get("exclusivity_affidavit")) == "completed":
+        raise HTTPException(409, "Your affidavit is already signed. Contact HR to change your declaration.")
+    details = dict(hire.profile_details or {})
+    details["outside_activities"] = {"none": none and not rows, "rows": rows, "declared_at": datetime.utcnow().isoformat()}
+    hire.profile_details = details
+    db.commit()
+    from app.modules.hr.service import log_onboarding_activity
+    log_onboarding_activity(db, hire.id, "Outside activities declared",
+                            f"{hire.candidate_name} declared {len(rows) or 'no'} outside activit{'y' if len(rows) == 1 else 'ies'}.",
+                            hire.organization_id)
+
+
+AFFIDAVIT_ID = "HR-CON-101"
+
+
+def _hire_of(db, doc: GeneratedDocument) -> Optional[OnboardingNewHire]:
+    if doc.subject_type != "new_hire" or not doc.subject_id:
+        return None
+    hire = db.get(OnboardingNewHire, doc.subject_id)
+    return hire if hire is not None and hire.organization_id == doc.organization_id else None
+
+
+def check_before_signing(db, doc: GeneratedDocument) -> None:
+    """The affidavit's Schedule A is the deponent's own declaration: it must be made (in the portal) before signing."""
+    if doc.canonical_id != AFFIDAVIT_ID:
+        return
+    hire = _hire_of(db, doc)
+    if hire is not None and not (hire.profile_details or {}).get("outside_activities"):
+        raise HTTPException(409, {"code": "DECLARATION_REQUIRED",
+                                  "message": "Before signing, complete Schedule A: declare your outside activities (or confirm you "
+                                             "have none) in your onboarding portal."})
+
+
+def signing_schedule(db, doc: GeneratedDocument) -> Optional[bytes]:
+    """Pages appended to the executed document before the signature certificate (the affidavit's Schedule A)."""
+    if doc.canonical_id != AFFIDAVIT_ID:
+        return None
+    hire = _hire_of(db, doc)
+    if hire is None:
+        return None
+    acts = (hire.profile_details or {}).get("outside_activities") or {"none": True, "rows": []}
+    ctx = render_context(db, hire, "exclusivity_affidavit", final=True)
+    ctx.activities = acts
+    return R.render_affidavit_schedule(ctx, _fmt_date((acts.get("declared_at") or "")[:10], get_config(db, hire.organization_id)) or "")
+
+
+def portal_items(db, hire) -> dict:
+    """Extra package facts for the candidate's portal (per onboarding document id)."""
+    acks = (hire.profile_details or {}).get("_acknowledgements") or {}
+    out = {}
+    for cat, row in _rows(db, hire).items():
+        out[row.id] = {"mode": mode_of(cat), "mode_label": C.MODE_LABELS[mode_of(cat)],
+                       "template_id": C.DOCS[cat]["template_id"], "package_file": bool(package_file_key(hire, cat)),
+                       "acknowledged_at": (acks.get(str(row.id)) or {}).get("at"), "optional": mode_of(cat) in ("VOLUNTARY", "INFO")}
+    return out
+
+
+def portal_package_status(db, hire) -> dict:
+    pkg = (hire.profile_details or {}).get("_package") or {}
+    held = set(pkg.get("held") or [])
+    details = hire.profile_details or {}
+    needs = []
+    if held & {"nda", "employment_contract", "exclusivity_affidavit"} and not any(
+            details.get(k) for k in ("address", "city")):
+        needs.append("address")
+    affidavit = _rows(db, hire).get("exclusivity_affidavit")
+    if not details.get("outside_activities") and ("exclusivity_affidavit" in held
+                                                  or (affidavit is not None and _row_state(db, affidavit) == "awaiting_signature")):
+        needs.append("outside_activities")              # Schedule A of the affidavit, completed before signing
+    return {"needs": needs, "outside_activities": details.get("outside_activities"),
+            "ack_text": ACK_TEXT, "ack_text_version": ACK_TEXT_VERSION}
+
+
+# ── checklist ────────────────────────────────────────────────────────────────────────────────────────────────────────
+CHECKLIST_NAME = "Onboarding Documents & Agreements"
+ITEM_VERB = {"SIGN": "Sign", "ACKNOWLEDGE": "Acknowledge", "COMPLETE": "Complete and return"}
+
+
+def sync_onboarding_document_checklist(db: Session, hire: OnboardingNewHire) -> None:
+    """Mirror documents that need the new hire to act into their checklist (voluntary and information documents are left out,
+    so they never hold up completion)."""
+    from app.modules.hr.models import OnboardingChecklist, OnboardingChecklistItem
+    docs = (db.query(OnboardingDocument)
+            .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
+            .order_by(OnboardingDocument.id).all())
+    # only package documents the new hire must act on; ordinary uploads are already covered by "documents approved"
+    actionable = [d for d in docs if mode_of(d.category) in ("SIGN", "ACKNOWLEDGE", "COMPLETE") and d.status != NO_ACTION_STATUS]
+    checklist = (db.query(OnboardingChecklist)
+                 .filter(OnboardingChecklist.onboarding_new_hire_id == hire.id, OnboardingChecklist.name == CHECKLIST_NAME,
+                         OnboardingChecklist.is_deleted == False).first())  # noqa: E712
+    if checklist is None:
+        if not actionable:
+            return
+        checklist = OnboardingChecklist(organization_id=hire.organization_id, onboarding_new_hire_id=hire.id, name=CHECKLIST_NAME,
+                                        description="Sign, acknowledge or complete your onboarding documents.", category="HR",
+                                        status="pending")
+        db.add(checklist)
+        db.flush()
+    existing = {i.item_key: i for i in checklist.items if i.item_key and not i.is_deleted}
+    wanted = set()
+    for d in actionable:
+        key = f"doc_{d.id}"
+        wanted.add(key)
+        mode = mode_of(d.category)
+        done = d.status == "approved"
+        title = f"{ITEM_VERB.get(mode, 'Review')} {d.title}"
+        desc = (f"Done · {d.title}" if done else
+                {"SIGN": "Waiting for the new hire's electronic signature", "ACKNOWLEDGE": "Waiting for acknowledgement of receipt",
+                 "COMPLETE": "Waiting for the completed form" if d.status != "pending" else "Uploaded – HR to review"}
+                .get(mode, "Waiting for the document to be approved"))
+        it = existing.get(key)
+        if it is None:
+            it = OnboardingChecklistItem(organization_id=hire.organization_id, checklist_id=checklist.id, item_key=key,
+                                         due_date=hire.joining_date or date.today(), owner_role="employee")
+            db.add(it)
+        it.title, it.description, it.mandatory = title[:200], desc, True
+        it.completed, it.completed_at = done, (it.completed_at or datetime.utcnow()) if done else None
+    for key, it in existing.items():             # documents removed, or now voluntary / informational
+        if key.startswith("doc_") and key not in wanted:
+            it.is_deleted = True
+    db.flush()
+    live = [i for i in checklist.items if not i.is_deleted]
+    done_n = sum(1 for i in live if i.completed)
+    checklist.status = "completed" if live and done_n == len(live) else ("in_progress" if done_n else "pending")
+    db.commit()
+
+
+# ── signing links (used by the portal) ───────────────────────────────────────────────────────────────────────────────
 def get_signing_token_for_onboarding_doc(db: Session, onb_doc: OnboardingDocument) -> Optional[str]:
-    """Retrieves or creates a stable candidate signing token for a signable onboarding document."""
+    """A live candidate signing token for a signable onboarding document (reused while unused and unexpired)."""
     if not onb_doc.document_id:
         return None
     gen_doc = db.get(GeneratedDocument, onb_doc.document_id)
     if not gen_doc or gen_doc.status != "ISSUED":
         return None
-
-    # Check for active token
     from app.modules.employee.models import SecurityActionPurpose, SecurityActionToken
-    from app.modules.hr.models import OnboardingNewHire
-
     hire = db.get(OnboardingNewHire, onb_doc.onboarding_new_hire_id) if onb_doc.onboarding_new_hire_id else None
     details = dict(hire.profile_details or {}) if hire else {}
-    signing_tokens = dict(details.get("_signing_tokens") or {})
-
-    cached_raw = signing_tokens.get(str(gen_doc.id))
-    if cached_raw:
-        h = signing._token_hash(cached_raw)
-        active = (
-            db.query(SecurityActionToken)
-            .filter(
-                SecurityActionToken.token_hash == h,
-                SecurityActionToken.purpose == SecurityActionPurpose.DOCUMENT_SIGN,
-                SecurityActionToken.used_at.is_(None),
-                SecurityActionToken.expires_at > datetime.utcnow(),
-            )
-            .first()
-        )
+    tokens = dict(details.get("_signing_tokens") or {})
+    cached = tokens.get(str(gen_doc.id))
+    if cached:
+        active = (db.query(SecurityActionToken)
+                  .filter(SecurityActionToken.token_hash == signing._token_hash(cached),
+                          SecurityActionToken.purpose == SecurityActionPurpose.DOCUMENT_SIGN,
+                          SecurityActionToken.used_at.is_(None), SecurityActionToken.expires_at > datetime.utcnow()).first())
         if active:
-            return cached_raw
-
-    # Otherwise issue a fresh candidate signing token
+            return cached
     raw, _ = signing.issue_candidate_token(db, gen_doc)
     if hire:
-        signing_tokens[str(gen_doc.id)] = raw
-        details["_signing_tokens"] = signing_tokens
+        tokens[str(gen_doc.id)] = raw
+        details["_signing_tokens"] = tokens
         hire.profile_details = details
     db.commit()
     return raw
+
+
+def generate_html_for_doc(doc: GeneratedDocument) -> str:
+    """Fallback when a document has no stored HTML: never invent terms; point the reader to the PDF."""
+    from html import escape
+    return (f'<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="font-family:Arial,sans-serif;padding:24px">'
+            f"<h1 style=\"font-size:20px\">{escape(doc.title)}</h1><p>Document {escape(doc.document_number)}.</p>"
+            "<p>The on-screen version of this document is not available. Download the PDF to read the full document before "
+            "signing.</p></body></html>")

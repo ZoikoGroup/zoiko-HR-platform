@@ -113,7 +113,6 @@ const REPORT_LINKS = [
   { icon: CheckCircle2, title: "Attendance Analytics", description: "Daily attendance, overtime and shift efficiency", href: "/zoiko-hr/attendance/analytics" },
   { icon: Target, title: "Recruitment Analytics", description: "Pipeline health and open requisitions", href: "/zoiko-hr/recruitment" },
   { icon: BarChart3, title: "Workforce Reports", description: "Headcount planning and succession insights", href: "/zoiko-hr/workforce-planning/reports" },
-  { icon: TrendingUp, title: "Onboarding Reports", description: "New hire joining and task completion", href: "/zoiko-hr/onboarding/reports" },
 ];
 
 

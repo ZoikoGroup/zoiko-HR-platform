@@ -10,7 +10,7 @@ import {
 import ApproveVariantModal from "./components/ApproveVariantModal";
 import VariantDiff from "./components/VariantDiff";
 import {
-  Badge, ErrorBanner, GOVERNANCE_PATH, InfoBanner, Labeled, PACKS_PATH, ReasonModal, ReleaseModeBadge, RiskBadge, SensitivityBadge,
+  Badge, ErrorBanner, InfoBanner, Labeled, PACKS_PATH, ReasonModal, ReleaseModeBadge, RiskBadge, SensitivityBadge,
   Spinner, StatusBadge, TEMPLATES_PATH, btnPrimary, btnSecondary, btnSmall, cardClass, editorPath, errorMessage, fmtDate, fmtDateTime,
   inputClass, useCurrentUser, useToast,
 } from "./components/ui";
@@ -260,7 +260,7 @@ export default function TemplateDetailPage() {
       {t.engine_record && (
         <InfoBanner icon={Info}>
           This is a governance record produced automatically by the document engine (for example approval registers and signature evidence).
-          It has no editable content. View it on the <Link to={GOVERNANCE_PATH} className="font-semibold underline">Governance reports</Link> page.
+          It has no editable content.
         </InfoBanner>
       )}
       {!t.implemented && !t.engine_record && <InfoBanner tone="gray" icon={Info}>This template is not available yet.</InfoBanner>}

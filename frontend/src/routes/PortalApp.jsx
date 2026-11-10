@@ -63,10 +63,7 @@ const ZoikoHROnboardingNewHires = lazyRoute(() => import("../modules/zoiko-hr/on
 const ZoikoHROnboardingPreOnboarding = lazyRoute(() => import("../modules/zoiko-hr/onboarding/pre-onboarding.jsx"));
 const ZoikoHROnboardingDocuments = lazyRoute(() => import("../modules/zoiko-hr/onboarding/documents.jsx"));
 const ZoikoHROnboardingChecklists = lazyRoute(() => import("../modules/zoiko-hr/onboarding/checklists.jsx"));
-const ZoikoHROnboardingOrientation = lazyRoute(() => import("../modules/zoiko-hr/onboarding/orientation.jsx"));
-const ZoikoHROnboardingReports = lazyRoute(() => import("../modules/zoiko-hr/onboarding/reports.jsx"));
 const ZoikoHROnboardingSettings = lazyRoute(() => import("../modules/zoiko-hr/onboarding/settings.jsx"));
-const OnboardingFormsReviewPage = lazyRoute(() => import("../modules/zoiko-hr/onboarding/OnboardingFormsReview.jsx"));
 const ZoikoHRLearning = lazyRoute(() => import("../modules/zoiko-hr/learning/learning.jsx"));
 
 const EssDashboard = lazyRoute(() => import("../modules/zoiko-hr/ess/dashboard.jsx"));
@@ -104,7 +101,6 @@ const ClauseLibraryPage = lazyRoute(() => import("../modules/zoiko-hr/documents/
 const JurisdictionPacksPage = lazyRoute(() => import("../modules/zoiko-hr/documents/templates/JurisdictionPacksPage.jsx"));
 const GeneratedDocumentsPage = lazyRoute(() => import("../modules/zoiko-hr/documents/generated/GeneratedDocumentsPage.jsx"));
 const PolicyDistributionsPage = lazyRoute(() => import("../modules/zoiko-hr/documents/generated/PolicyDistributionsPage.jsx"));
-const GovernanceReportsPage = lazyRoute(() => import("../modules/zoiko-hr/documents/generated/GovernanceReportsPage.jsx"));
 const SignatoryQueuePage = lazyRoute(() => import("../modules/zoiko-hr/ess/SignatoryQueuePage.jsx"));
 const CandidateSignPage = lazyRoute(() => import("../pages/public/CandidateSignPage.jsx"));
 const VerifyDocumentPage = lazyRoute(() => import("../pages/public/VerifyDocumentPage.jsx"));
@@ -283,10 +279,7 @@ const routeOverrides = {
   "/zoiko-hr/onboarding/pre-onboarding": <ZoikoHROnboardingPreOnboarding />,
   "/zoiko-hr/onboarding/documents": <ZoikoHROnboardingDocuments />,
   "/zoiko-hr/onboarding/checklists": <ZoikoHROnboardingChecklists />,
-  "/zoiko-hr/onboarding/orientation": <ZoikoHROnboardingOrientation />,
-  "/zoiko-hr/onboarding/reports": <ZoikoHROnboardingReports />,
   "/zoiko-hr/onboarding/settings": <ZoikoHROnboardingSettings />,
-  "/zoiko-hr/onboarding/payroll-verifications": <OnboardingFormsReviewPage payrollQueue />,
   // Assets
   "/zoiko-hr/assets": <AssetsDashboard />,
   "/zoiko-hr/assets/my-assets": <MyAssets />,
@@ -366,7 +359,6 @@ const routeOverrides = {
   "/employee/performance": <EmployeeMyPerformance />,
   "/employee/documents/policies": <EmployeeCompanyPolicies />,
   "/employee/compensation": <EmployeeMyCompensation />,
-  "/zoiko-hr/documents/governance": <GovernanceReportsPage />,
   "/employee/documents/signatory-queue": <SignatoryQueuePage />,
   // Workforce Planning
   "/zoiko-hr/workforce-planning": <WorkforceDashboard />,

@@ -19,7 +19,6 @@ export const returnOnboardingForm = (submissionId, reason) =>
   api.post(`${HR_ONBOARDING}/forms/${submissionId}/return`, { reason });
 export const revealOnboardingForm = (submissionId) => api.get(`${HR_ONBOARDING}/forms/${submissionId}/reveal`);
 
-export const getPayrollVerifications = () => api.get(`${HR_ONBOARDING}/payroll-verifications`);
 export const getFinanceViewers = () => api.get(`${HR_ONBOARDING}/finance-viewers`);
 export const setFinanceViewers = (employeeIds) =>
   api.put(`${HR_ONBOARDING}/finance-viewers`, { employee_ids: employeeIds });

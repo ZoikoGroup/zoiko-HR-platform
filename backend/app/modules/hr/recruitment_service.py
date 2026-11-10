@@ -1037,6 +1037,17 @@ def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id:
 
 def delete_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> None:
     offer = get_offer_by_id(db, offer_id, organization_id)
+
+    # Offer approvals are a direct child of the offer. Deleting the parent without removing them violates the FK
+    # constraint, and the relationship cascade keeps this safe for future deletes as well.
+    approval_filter = [RecruitmentOfferApproval.offer_id == offer.id]
+    if organization_id:
+        approval_filter.append(RecruitmentOfferApproval.organization_id == organization_id)
+
+    approvals = db.query(RecruitmentOfferApproval).filter(*approval_filter).all()
+    for approval in approvals:
+        db.delete(approval)
+
     db.delete(offer)
     db.commit()
 

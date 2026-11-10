@@ -220,9 +220,6 @@ const products = {
           { label: "Pre-Onboarding",        href: "/zoiko-hr/onboarding/pre-onboarding", icon: CalendarCheck, featureKey: "hr.onboarding.core" },
           { label: "Documents",             href: "/zoiko-hr/onboarding/documents",       icon: FileText, featureKey: "hr.onboarding.core" },
           { label: "Checklists",            href: "/zoiko-hr/onboarding/checklists",     icon: ClipboardCheck, featureKey: "hr.onboarding.core" },
-          { label: "Orientation",           href: "/zoiko-hr/onboarding/orientation",     icon: Calendar, featureKey: "hr.onboarding.core" },
-          { label: "Reports",               href: "/zoiko-hr/onboarding/reports",         icon: BarChart3, featureKey: "hr.onboarding.core" },
-          { label: "Payroll Verification",   href: "/zoiko-hr/onboarding/payroll-verifications", icon: WalletCards, featureKey: "hr.onboarding.core" },
           { label: "Settings",              href: "/zoiko-hr/onboarding/settings",        icon: SlidersHorizontal, featureKey: "hr.onboarding.core" },
         ]},
         { label: "Employee Management", icon: Users, excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN], children: [

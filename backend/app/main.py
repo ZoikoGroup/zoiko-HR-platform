@@ -464,6 +464,13 @@ document_flow_routers = _safe_import(lambda: [
 ], "hr.document_flows")
 for _r in document_flow_routers:
     app.include_router(_r)
+# Offer package (10 onboarding documents): settings, clause library, readiness, previews, portal acknowledgements
+offer_package_routers = _safe_import(lambda: [
+    __import__("app.modules.hr.onboarding_package_router", fromlist=["x"]).router,
+    __import__("app.modules.hr.onboarding_package_router", fromlist=["x"]).portal_router,
+], "hr.onboarding_package")
+for _r in offer_package_routers or []:
+    app.include_router(_r)
 app.include_router(support_data_router)
 app.include_router(support_login_operator_router)
 app.include_router(support_login_tenant_router)

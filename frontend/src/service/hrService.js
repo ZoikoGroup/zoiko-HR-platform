@@ -219,32 +219,46 @@ export const updateOnboardingChecklistAssignment = (id, payload) => api.put(`/hr
 export const deleteOnboardingChecklistAssignment = (id) => api.delete(`/hr/onboarding/checklist-assignments/${id}`);
 
 // ── ONBOARDING ORIENTATIONS ──────────────────────────────────────────────
-export const getOnboardingOrientationSessions = () => api.get("/hr/onboarding/orientation-sessions");
-export const createOnboardingOrientationSession = (payload) => api.post("/hr/onboarding/orientation-sessions", payload);
-export const updateOnboardingOrientationSession = (id, payload) => api.put(`/hr/onboarding/orientation-sessions/${id}`, payload);
-export const deleteOnboardingOrientationSession = (id) => api.delete(`/hr/onboarding/orientation-sessions/${id}`);
-export const getOnboardingOrientationAttendees = (sessionId) => api.get(`/hr/onboarding/orientation-attendees${sessionId ? `?session_id=${sessionId}` : ""}`);
-export const createOnboardingOrientationAttendee = (payload) => api.post("/hr/onboarding/orientation-attendees", payload);
-export const updateOnboardingOrientationAttendee = (id, payload) => api.put(`/hr/onboarding/orientation-attendees/${id}`, payload);
-export const deleteOnboardingOrientationAttendee = (id) => api.delete(`/hr/onboarding/orientation-attendees/${id}`);
 
 // ── ONBOARDING ACTIVITIES ────────────────────────────────────────────────
 export const getOnboardingActivities = (limit = 50) => api.get(`/hr/onboarding/activities?limit=${limit}`);
 
 // ── ONBOARDING DASHBOARD & REPORTS ───────────────────────────────────────
 export const getOnboardingDashboard = () => api.get("/hr/onboarding/dashboard");
-export const getOnboardingJoiningReport = () => api.get("/hr/onboarding/reports/joining");
 
 // ── ONBOARDING FLOW: settings, pre-onboarding link, document requests, progress ──
 export const getOnboardingSettings = () => api.get("/hr/onboarding/settings");
 export const saveOnboardingSettings = (payload) => api.put("/hr/onboarding/settings", payload);
 export const sendOnboardingPortalInvite = (newHireId) => api.post(`/hr/onboarding/new-hires/${newHireId}/portal-invite`);
-export const sendOnboardingPackage = (newHireId) => api.post(`/hr/onboarding/new-hires/${newHireId}/send-package`);
+export const sendOnboardingPackage = (newHireId, categories) =>
+  api.post(`/hr/onboarding/new-hires/${newHireId}/send-package`, categories && categories.length ? { categories } : {});
+
+// ── OFFER PACKAGE (10 onboarding documents): settings, counsel clauses, readiness, previews ──
+export const getOfferPackageSettings = () => api.get("/hr/onboarding/package/settings");
+export const saveOfferPackageSettings = (payload) => api.put("/hr/onboarding/package/settings", payload);
+export const uploadOfferPackageLogo = (file) => {
+  const fd = new FormData();
+  fd.append("file", file);
+  return api.post("/hr/onboarding/package/logo", fd);
+};
+export const deleteOfferPackageLogo = () => api.delete("/hr/onboarding/package/logo");
+export const getOfferPackageLogo = () => fetchDocumentFile("/hr/onboarding/package/logo", "logo.png");
+export const getOfferPackageTemplateSet = () => fetchDocumentFile("/hr/onboarding/package/template.pdf", "offer-package-template-set.pdf");
+export const getHirePackage = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/package`);
+export const saveHirePackageInputs = (newHireId, values) => api.put(`/hr/onboarding/new-hires/${newHireId}/package/inputs`, { values });
+export const getHirePackagePreview = (newHireId, category) =>
+  fetchDocumentFile(`/hr/onboarding/new-hires/${newHireId}/package/${category}/preview.pdf`, `${category}-preview.pdf`);
 export const requestOnboardingDocuments = (newHireId, categories) => api.post(`/hr/onboarding/new-hires/${newHireId}/document-requests`, { categories });
 export const getOnboardingProgress = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/progress`);
 
 // ── The new hire's own pre-onboarding page (public: the link token is the credential) ──
 export const getPortal = (token) => api.get(`/public/onboarding/${encodeURIComponent(token)}`, { auth: false });
+export const acknowledgePortalDocument = (token, docId, textVersion) =>
+  api.post(`/public/onboarding/${encodeURIComponent(token)}/documents/${docId}/acknowledge`, { text_version: textVersion }, { auth: false });
+export const savePortalOutsideActivities = (token, payload) =>
+  api.post(`/public/onboarding/${encodeURIComponent(token)}/outside-activities`, payload, { auth: false });
+export const portalPackageFileUrl = (token, category) =>
+  `${API_BASE_URL}/public/onboarding/${encodeURIComponent(token)}/package/${category}/file`;
 export const submitSignedPackage = (token) => api.post(`/public/onboarding/${encodeURIComponent(token)}/submit-signed-package`, {}, { auth: false });
 export const savePortalDetails = (token, payload) => api.put(`/public/onboarding/${encodeURIComponent(token)}/details`, payload, { auth: false });
 export const uploadPortalDocument = (token, docId, file) => {

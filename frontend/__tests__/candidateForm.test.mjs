@@ -51,7 +51,8 @@ test("the payload is trimmed and empty optional fields become null", () => {
 async function load(t, over = {}) {
   const calls = { create: [] };
   const svc = {
-    getCandidates: async () => ({ items: [] }), getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
+    getCandidates: async () => ({ items: [] }), getCandidateById: async () => null,
+    getRequisitions: async () => (over.requisitions ? over.requisitions() : { items: [] }),
     createCandidate: async (p) => { calls.create.push(p); if (over.createError) throw over.createError; return {}; },
     updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
     parseCV: async () => ({}),
@@ -155,4 +156,22 @@ test("the candidate record shows every detail that was entered", async (t) => {
   assert.equal(document.getElementById("cand-phone").value, "+919876543210");
   assert.equal(document.getElementById("cand-location").value, "Pune");
   assert.equal(document.getElementById("cand-exp").value, "5");
+});
+
+test("a requisition created after the page loaded is offered when the form opens; unapproved ones are shown but disabled", async (t) => {
+  let reqs = [];
+  await load(t, { requisitions: () => ({ items: reqs }) });
+  reqs = [
+    { id: 1, title: "Data Analyst", department: "Ops", status: "open" },
+    { id: 2, title: "Designer", department: "Product", status: "pending" },
+    { id: 3, title: "Old Role", status: "closed" },
+  ];
+  fireEvent.click(screen.getByRole("button", { name: /Add Candidate/ }));
+  await settle();
+  const options = [...document.getElementById("cand-req").options];
+  const analyst = options.find((o) => o.textContent.includes("Data Analyst"));
+  const designer = options.find((o) => o.textContent.includes("Designer"));
+  assert.ok(analyst && !analyst.disabled, "the new open requisition can be linked");
+  assert.ok(designer && designer.disabled && /awaiting approval/.test(designer.textContent), "a pending one is visible, with the reason");
+  assert.ok(!options.some((o) => o.textContent.includes("Old Role")), "closed requisitions are not offered");
 });

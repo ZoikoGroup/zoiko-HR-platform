@@ -140,7 +140,13 @@ def send_otp(db, doc: GeneratedDocument, *, party: str, signer_key: str, email: 
                            code_hash=_code_hash(doc.id, signer_key, code), created_at=now,
                            expires_at=now + timedelta(minutes=settings.DOC_SIGN_OTP_TTL_MINUTES)))
     db.commit()
-    notify.sign_code(db, doc, email, first_name, code)
+    if not notify.sign_code(db, doc, email, first_name, code):
+        # never tell the signer a code is on its way when the e-mail failed: the code is void and they can retry
+        pending = db.query(DocumentSignOtp).filter(DocumentSignOtp.document_id == doc.id, DocumentSignOtp.signer_key == signer_key,
+                                                   DocumentSignOtp.consumed_at.is_(None))
+        pending.update({DocumentSignOtp.consumed_at: datetime.utcnow()}, synchronize_session=False)
+        db.commit()
+        raise HTTPException(503, "We could not e-mail your signing code. Try again in a few minutes, or contact HR.")
     return {"sent_to": governance.mask_email(email), "expires_in_minutes": settings.DOC_SIGN_OTP_TTL_MINUTES}
 
 
@@ -216,6 +222,9 @@ def sign(db, doc: GeneratedDocument, *, party: str, signer_employee=None, signer
             raise HTTPException(409, "The employer signs after the other party.")
     if consent_version != governance.CONSENT_VERSION:
         raise HTTPException(422, "Confirm the current electronic signature consent statement.")
+    if party == "candidate":
+        from app.modules.hr import onboarding_package
+        onboarding_package.check_before_signing(db, doc)       # e.g. the affidavit's Schedule A declaration
     if method not in ("TYPED", "DRAWN"):
         raise HTTPException(422, "Choose a typed or drawn signature.")
 
@@ -315,7 +324,12 @@ def _finalize(db, doc: GeneratedDocument) -> None:
     sigs = [s for s in signatures(db, doc) if s.decision == "SIGNED"]
     cert = governance.to_pdf(governance.certificate_record(db, doc, sigs, now, org), org, entity)
     original = storage.get_store().get(doc.pdf_path)
-    executed = renderer.append_pdf(original, cert)
+    try:                                   # signer-completed schedules (the affidavit's Schedule A) sit before the certificate
+        from app.modules.hr import onboarding_package
+        schedule = onboarding_package.signing_schedule(db, doc)
+    except Exception:
+        schedule = None
+    executed = renderer.append_pdf(renderer.append_pdf(original, schedule) if schedule else original, cert)
     digest = hashlib.sha256(executed).hexdigest()
     doc.executed_pdf_path = storage.get_store().put(doc.organization_id, f"{doc.document_number}-executed-{digest[:12]}.pdf",
                                                     executed, encrypt=doc.files_encrypted)
