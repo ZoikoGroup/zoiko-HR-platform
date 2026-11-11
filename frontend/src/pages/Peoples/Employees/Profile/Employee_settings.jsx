@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from "react";
-import { Eye, EyeOff, Lock, ShieldCheck, Shield, CheckCircle, XCircle, Loader2, AlertCircle } from "lucide-react";
+import PasswordInput from "../../../../components/PasswordInput";
+import { Lock, ShieldCheck, Shield, CheckCircle, XCircle, Loader2, AlertCircle } from "lucide-react";
 import { getMyProfile, updateMyProfile } from "../../../../service/employee";
 import { changePassword, forgotMyPassword } from "../../../../service/authService";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
@@ -24,28 +25,25 @@ const requirements = [
   { label: "One special character", test: (pw) => /[^A-Za-z0-9]/.test(pw) },
 ];
 
-const PasswordField = ({ label, value, onChange, show, onToggle, placeholder }) => (
+// Each field has its own show/hide eye (PasswordInput), with an accessible label.
+const PasswordField = ({ id, label, value, onChange, placeholder, autoComplete }) => (
   <div>
-    <label className="text-xs font-semibold text-slate-400 dark:text-[#94a3b8] uppercase tracking-widest block mb-1.5">{label}</label>
-    <div className="relative">
-      <div className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 dark:text-[#64748b]">
-        <Lock size={15} />
-      </div>
-      <input
-        type={show ? "text" : "password"}
-        value={value}
-        onChange={onChange}
-        placeholder={placeholder || "••••••••"}
-        className="w-full border border-slate-200 dark:border-[#334155] rounded-xl pl-9 pr-10 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition"
-      />
-      <button
-        type="button"
-        onClick={onToggle}
-        className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[#94a3b8] hover:text-slate-600 dark:hover:text-[#cbd5e1] transition"
-      >
-        {show ? <EyeOff size={15} /> : <Eye size={15} />}
-      </button>
-    </div>
+    <label htmlFor={id} className="text-xs font-semibold text-slate-400 dark:text-[#94a3b8] uppercase tracking-widest block mb-1.5">{label}</label>
+    <PasswordInput
+      id={id}
+      value={value}
+      onChange={onChange}
+      autoComplete={autoComplete}
+      placeholder={placeholder || "••••••••"}
+      iconSize={15}
+      leading={(
+        <div className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-300 dark:text-[#64748b]">
+          <Lock size={15} />
+        </div>
+      )}
+      className="w-full border border-slate-200 dark:border-[#334155] rounded-xl pl-9 pr-10 py-2.5 text-sm font-medium text-slate-800 dark:text-[#e2e8f0] bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition"
+      toggleClassName="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 dark:text-[#94a3b8] hover:text-slate-600 dark:hover:text-[#cbd5e1] transition"
+    />
   </div>
 );
 
@@ -53,7 +51,6 @@ export default function ChangePassword() {
   const [current, setCurrent] = useState("");
   const [newPw, setNewPw] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [show, setShow] = useState({ current: false, new: false, confirm: false });
   const [twoFA, setTwoFA] = useState(false);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -141,7 +138,6 @@ export default function ChangePassword() {
       });
   };
 
-  const toggle = (field) => setShow((s) => ({ ...s, [field]: !s[field] }));
 
   if (loading) {
     return (
@@ -190,8 +186,8 @@ export default function ChangePassword() {
                 label="Current Password"
                 value={current}
                 onChange={(e) => { setCurrent(e.target.value); setErrors((p) => ({ ...p, current: "" })); }}
-                show={show.current}
-                onToggle={() => toggle("current")}
+                id="es-current-password"
+                autoComplete="current-password"
               />
               {errors.current && <p className="text-xs text-red-500 mt-1">{errors.current}</p>}
               <div className="mt-2 text-xs">
@@ -215,8 +211,8 @@ export default function ChangePassword() {
                 label="New Password"
                 value={newPw}
                 onChange={(e) => { setNewPw(e.target.value); setErrors((p) => ({ ...p, newPw: "" })); }}
-                show={show.new}
-                onToggle={() => toggle("new")}
+                id="es-new-password"
+                autoComplete="new-password"
                 placeholder="Create a strong password"
               />
               {errors.newPw && <p className="text-xs text-red-500 mt-1">{errors.newPw}</p>}
@@ -264,8 +260,8 @@ export default function ChangePassword() {
                 label="Confirm New Password"
                 value={confirm}
                 onChange={(e) => { setConfirm(e.target.value); setErrors((p) => ({ ...p, confirm: "" })); }}
-                show={show.confirm}
-                onToggle={() => toggle("confirm")}
+                id="es-confirm-password"
+                autoComplete="new-password"
                 placeholder="Re-enter your new password"
               />
               {errors.confirm && <p className="text-xs text-red-500 mt-1">{errors.confirm}</p>}

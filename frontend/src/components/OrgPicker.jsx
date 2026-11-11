@@ -22,8 +22,13 @@ export default function OrgPicker({ selectedOrg, onSelect, placeholder = "Search
     function onClickOutside(e) {
       if (containerRef.current && !containerRef.current.contains(e.target)) setOpen(false);
     }
+    function onKey(e) { if (e.key === "Escape") setOpen(false); }   // B15
     document.addEventListener("mousedown", onClickOutside);
-    return () => document.removeEventListener("mousedown", onClickOutside);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onClickOutside);
+      document.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   useEffect(() => {

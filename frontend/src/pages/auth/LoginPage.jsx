@@ -1,25 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import PasswordInput from "../../components/PasswordInput";
 import { useAuth } from "../../context/AuthContext";
 import { googleSignInEnabled, mfaEnrollStart, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
-import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
+import { googleErrorMessage, googleExchangeMessage, googleLoginUrl, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
 import { realEmailError } from "../../utils/realEmail";
+import { ROLE_DEFAULT_REDIRECT } from "../../config/roles";
 import "./LoginPage.css";
 
 export default function LoginPage() {
   const { login, loginWithGoogle, confirmMfaEnrollment, error: authError, defaultRedirect } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = location.state?.from?.pathname || defaultRedirect;
+  const from = location.state?.from?.pathname || null;
+  // A1: where to go once signed in. The page a guard sent the person away from, else the home of the role the server just
+  // returned (defaultRedirect is computed before anyone is signed in, so it cannot know the role yet). A temporary
+  // password goes to the screen that replaces it.
+  const destinationFor = (signedIn) => {
+    if (signedIn?.mustChangePassword || signedIn?.must_change_password) return "/change-password";
+    return from || ROLE_DEFAULT_REDIRECT[signedIn?.role] || defaultRedirect;
+  };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [mfaStep, setMfaStep] = useState(null);
   const [mfaCode, setMfaCode] = useState("");
   const [enrollment, setEnrollment] = useState(null);
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
@@ -65,8 +72,8 @@ export default function LoginPage() {
     if (error) { setLocalError(googleErrorMessage(error)); return; }
     setGoogleBusy(true);
     loginWithGoogle(ticket)
-      .then(() => navigate(from, { replace: true }))
-      .catch((err) => setLocalError(err?.message || googleErrorMessage("failed")))
+      .then((signedIn) => navigate(destinationFor(signedIn), { replace: true }))
+      .catch((err) => setLocalError(googleExchangeMessage(err)))
       .finally(() => setGoogleBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -75,7 +82,8 @@ export default function LoginPage() {
     if (!googleReady || googleBusy) return;
     setLocalError(null);
     setGoogleBusy(true);
-    window.location.href = `${API_BASE_URL}/auth/google/login`;
+    // return_to: the server sends the browser back to this app (checked against its allow-list), not to a configured default
+    window.location.href = googleLoginUrl(API_BASE_URL, window.location.origin);
   }
 
   async function handleSubmit(e) {
@@ -96,9 +104,10 @@ export default function LoginPage() {
     }
     setSubmitting(true);
     try {
-      if (mfaStep === "enroll") await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() });
-      else await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
-      navigate(from, { replace: true });
+      const signedIn = mfaStep === "enroll"
+        ? await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() })
+        : await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
+      navigate(destinationFor(signedIn), { replace: true });
     } catch (err) {
       if (err?.code === "MFA_REQUIRED") {
         setMfaStep("code");
@@ -189,21 +198,18 @@ export default function LoginPage() {
 
               <div className="login-field">
                 <label htmlFor="login-password">Password</label>
-                <div className="password-input-wrap">
-                  <input
-                    id="login-password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    aria-invalid={fieldErrors.password ? "true" : undefined}
-                    onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                  />
-                  <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                    {showPassword ? <EyeOff /> : <Eye />}
-                  </button>
-                </div>
+                <PasswordInput
+                  wrapperClassName="password-input-wrap"
+                  toggleClassName="password-toggle"
+                  id="login-password"
+                  name="password"
+                  value={password}
+                  aria-invalid={fieldErrors.password ? "true" : undefined}
+                  onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  iconSize={20}
+                />
                 {fieldErrors.password && <p role="alert" className="field-error">{fieldErrors.password}</p>}
               </div>
 

@@ -797,7 +797,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `notification_id`, `kind`, `ref`
 
 ## `super_admin_notifications` (default PLATFORM_META; most sensitive column rank 2)
-- **PLATFORM_META**: `id`, `title`, `message`, `body_html`, `notification_type`, `priority`, `is_read`, `target_org_id`, `target_user_id`, `created_by`, `created_at`, `channels`, `target_type`, `audience`, `status`, `sent_at`
+- **PLATFORM_META**: `id`, `title`, `message`, `body_html`, `notification_type`, `priority`, `is_read`, `target_org_id`, `target_user_id`, `created_by`, `created_at`, `channels`, `target_type`, `audience`, `status`, `sent_at`, `link`
 - **PERSONAL_BASIC**: `sender_name`
 
 ## `super_admin_security_events` (default PLATFORM_META; most sensitive column rank 0)

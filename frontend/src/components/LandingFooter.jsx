@@ -84,7 +84,7 @@ export default function LandingFooter() {
           {/* Brand column */}
           <div>
             <Link to="/" style={{ display: "flex", alignItems: "center", gap: "10px", textDecoration: "none", marginBottom: "16px" }}>
-              <img src={logo} alt="Zoiko One" style={{ height: "38px", width: "auto", objectFit: "contain", filter: "brightness(0) invert(1)" }} />
+              <img src={logo} alt="Zoiko HR" style={{ height: "38px", width: "auto", objectFit: "contain", filter: "brightness(0) invert(1)" }} />
             </Link>
             <p style={{ fontSize: "13px", color: "#9CA3AF", lineHeight: "1.7", maxWidth: "220px", margin: "0 0 20px 0" }}>
               The connected business operations platform — HR, Time, Payroll, Billing, Compliance, and Insights from one modular system.

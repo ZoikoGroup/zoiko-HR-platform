@@ -103,12 +103,18 @@ def team_actions(db, user) -> dict:
 
 
 def notify_in_app(db, doc: GeneratedDocument, person) -> None:
-    """The in-app notifications inbox gets an ID-only entry when a document needs the person's action."""
+    """The in-app notifications inbox gets an ID-only entry (document number, never the title or an amount) when a document is
+    issued to the person: to sign, to acknowledge, or just to read (e.g. a compensation letter). Links to the document (A5)."""
+    titles = {"ACKNOWLEDGE": "Document to acknowledge", "SIGN_EMPLOYEE": "Document to sign", "SIGN_BOTH": "Document to sign"}
+    title = titles.get(doc.execution_mode, "New document available")
+    message = (f"Document {doc.document_number} is waiting for you in Zoiko HR." if doc.execution_mode in titles
+               else f"Document {doc.document_number} has been issued to you in Zoiko HR.")
     try:
         from app.modules.super_admin.models import Notification, NotificationTarget
-        n = Notification(title="A document needs your action", message=f"Document {doc.document_number} is waiting for you in Zoiko HR.",
+        n = Notification(title=title, message=message,
                          notification_type="document", priority="normal", target_type="user", channels=["in_app"],
-                         sender_name="Zoiko HR", status="sent", sent_at=datetime.utcnow())
+                         sender_name="Zoiko HR", status="sent", sent_at=datetime.utcnow(),
+                         target_org_id=doc.organization_id, link=f"/employee/documents/company?generated={doc.id}")
         n.targets = [NotificationTarget(kind="user", ref=str(person.id))]
         db.add(n)
         db.commit()

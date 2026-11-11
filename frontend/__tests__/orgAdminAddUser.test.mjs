@@ -65,7 +65,7 @@ test("required fields are enforced and everything filled in is sent", async (t) 
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
   assert.equal(sent.length, 0);
-  assert.ok(screen.getByText("First name is required") && screen.getByText("Job title is required"));
+  assert.ok(screen.getByText("First name is required.") && screen.getByText("Job title is required."));
 
   type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
   type(/^Department/, "Platform"); type(/^Designation/, "Senior Engineer"); type(/^Gender/, "male"); type(/^Employment type/, "contract");
@@ -91,7 +91,8 @@ test("a server error is shown in the form and the form stays open", async (t) =>
   type(/^First name/, "A"); type(/^Last name/, "B"); type(/^Email/, "a@gmail.com"); type(/^Job title/, "Dev");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
-  assert.ok(screen.getByRole("alert").textContent.includes("already exists"));
+  // the duplicate e-mail goes under the Email field (a generic message: it never says which organization uses it)
+  assert.match(document.getElementById("add-user-email-error").textContent, /already exists/);
   assert.equal(screen.getByRole("button", { name: "Create User" }).disabled, false);
   cleanup();
 });

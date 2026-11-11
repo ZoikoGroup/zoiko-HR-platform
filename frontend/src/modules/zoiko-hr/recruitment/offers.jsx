@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
+import { useDismissible } from "../../../hooks/useDismissible";
 import { NavLink } from "react-router-dom";
 import {
   Plus, X, Edit2, Trash2, AlertCircle, CheckCircle2, Building2, ChevronDown, Loader2, Eye, FileText, ShieldCheck,
@@ -123,12 +124,7 @@ const asList = (d) => (Array.isArray(d) ? d : d?.items || d?.data || []);
 function RowMenu({ label, items }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);
-  useEffect(() => {
-    if (!open) return undefined;
-    const close = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
-    document.addEventListener("mousedown", close);
-    return () => document.removeEventListener("mousedown", close);
-  }, [open]);
+  useDismissible(ref, open, () => setOpen(false));   // outside click, Escape, navigation (B15)
   return (
     <div ref={ref} className="relative inline-block text-left" onClick={(e) => e.stopPropagation()}>
       <button type="button" aria-label={label} aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((v) => !v)}

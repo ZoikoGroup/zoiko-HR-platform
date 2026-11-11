@@ -87,9 +87,8 @@ def action_required(db, doc: GeneratedDocument, person, issuer) -> None:
     action_label, phrase = ACTION_TEXT.get(doc.execution_mode, ACTION_TEXT["NONE"])
     issuer_name = getattr(getattr(issuer, "organization", None), "organization_name", None) or "your HR team"
     url = app_url(f"/employee/documents/company?generated={doc.id}")
-    if doc.execution_mode != "NONE":
-        from app.modules.doc_templates.golive import notify_in_app
-        notify_in_app(db, doc, person)          # the in-app inbox: document number only
+    from app.modules.doc_templates.golive import notify_in_app
+    notify_in_app(db, doc, person)              # the in-app inbox: document number only (sign / acknowledge / issued, A5)
     if doc.family_id in registry.COMPENSATION_FAMILIES:
         # compensation letters never name an amount, a revision or even the letter type in an e-mail
         _safe(lambda: email_service.send_compensation_document_available_email(

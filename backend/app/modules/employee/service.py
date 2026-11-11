@@ -559,6 +559,30 @@ def _require_real_sign_in_address(email: str) -> None:
         raise ZoikoException(400, "EMAIL_NOT_REAL", f"{problem} Only real email addresses can sign in.")
 
 
+def pick_sign_in_account(db: Session, candidates: list) -> Optional[Employee]:
+    """One e-mail can belong to accounts in several organizations: prefer an active account in an active organization.
+    Shared by the password sign-in and Sign in with Google (A1), so both pick the same account."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    from app.core import org_access
+
+    def _score(e):
+        if not e.is_active:
+            return -1
+        if e.organization_id:
+            try:
+                oa = org_access.get_org_access(db, e.organization_id)
+                if oa.deleted:
+                    return -2
+                return 2 if oa.status in ("approved", "active") else 1
+            except Exception:
+                return 0
+        return 1
+    return sorted(candidates, key=_score, reverse=True)[0]
+
+
 def login_employee(db: Session, data: LoginRequest) -> dict:
     from app.modules.support_login import service as support_login
     if support_login.is_support_username(str(data.email)):
@@ -568,24 +592,7 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if not candidates:
         raise UnauthorizedException("Invalid email or password.")
 
-    if len(candidates) == 1:
-        employee = candidates[0]
-    else:
-        from app.core import org_access
-        def _score(e):
-            if not e.is_active:
-                return -1
-            if e.organization_id:
-                try:
-                    oa = org_access.get_org_access(db, e.organization_id)
-                    if oa.deleted:
-                        return -2
-                    return 2 if oa.status in ("approved", "active") else 1
-                except Exception:
-                    return 0
-            return 1
-        candidates.sort(key=_score, reverse=True)
-        employee = candidates[0]
+    employee = pick_sign_in_account(db, candidates)
 
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
@@ -1139,6 +1146,36 @@ def _import_style_fields(db: Session, data, organization_id, created_by=None) ->
     return out
 
 
+def _person_snapshot(db: Session, user: Employee) -> dict:
+    """The stored values of every field the person-field rules cover (employee columns and the statutory profile)."""
+    from app.core import field_rules
+    profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
+    snap = {}
+    for field in field_rules.EMPLOYEE_FIELDS:
+        if field in ("pan_number", "uan_number", "bank_account", "bank_ifsc"):
+            snap[field] = getattr(profile, field, None) if profile is not None else None
+        elif field == "department_name":
+            snap[field] = getattr(getattr(user, "department", None), "name", None)
+        elif field == "designation_name":
+            snap[field] = getattr(getattr(user, "designation", None), "title", None)
+        else:
+            snap[field] = getattr(user, field, None)
+    return snap
+
+
+def _check_person_fields(data, previous: Optional[dict] = None, extra_errors: Optional[dict] = None) -> None:
+    """Runs the shared field rules (app/core/field_rules.py) over a create / update request, writes the cleaned values back
+    (trimmed names, E.164 phone, canonical country, upper-case IDs) and answers 422 with one message per field (together
+    with any `extra_errors` the caller found, so the person sees every problem at once)."""
+    from app.core import field_rules
+    values = {k: v for k, v in data.model_dump(exclude_unset=previous is not None).items()
+              if k in field_rules.EMPLOYEE_FIELDS and v not in (None, "")}
+    cleaned, errors = field_rules.validate_record(values, field_rules.EMPLOYEE_FIELDS, previous=previous, check_mail_domain=True)
+    field_rules.raise_if_errors({**(extra_errors or {}), **errors})
+    for field, value in cleaned.items():
+        setattr(data, field, value)
+
+
 def create_organization_user(
     db: Session,
     data: "UserCreateRequest",
@@ -1147,6 +1184,7 @@ def create_organization_user(
     actor=None,
 ) -> Employee:
     """Invite a user into an organization and record the invite for the feed."""
+    _check_person_fields(data)                 # B16-B38: the same rules as the form, enforced even when the form is bypassed
     try:
         existing = _identity_query(db).filter(Employee.email == data.email).first()
         if existing:
@@ -1307,15 +1345,10 @@ def update_organization_user(
 ) -> Employee:
     user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     old_role = user.role
+    # B16-B38: only a value that is being changed is checked, so a record whose stored details predate these rules can
+    # still have its other details saved.
+    _check_person_fields(data, previous=_person_snapshot(db, user))
     update_data = data.model_dump(exclude_unset=True)
-    if "phone" in update_data and update_data["phone"] != user.phone:
-        # Only a number that is being changed is checked, so a user whose stored number predates this rule can
-        # still have their other details saved.
-        from app.core.phone import normalize_phone
-        try:
-            update_data["phone"] = normalize_phone(update_data["phone"])
-        except ValueError as exc:
-            raise BadRequestException(str(exc))
 
     # Simple account/employee columns handled directly.
     for field in ("first_name", "last_name", "phone", "role", "job_title", "is_active"):
@@ -1718,6 +1751,7 @@ def create_employee(
     add is always attributable to a person and a role.
     """
     resolved_org_id = organization_id or (data.organization_id if hasattr(data, "organization_id") else None)
+    _check_person_fields(data)                 # B16-B38: the shared field rules, whatever screen or API call sent it
     try:
         existing = _identity_query(db).filter(Employee.email == data.email).first()
         if existing:
@@ -2125,20 +2159,12 @@ def import_employees_from_file(
         if employee_id_val:
             seen_import_ids.add(employee_id_val)
 
-        from app.core.phone import normalize_phone
-        try:
-            normalize_phone(row_data.get("phone"))
-        except ValueError as exc:
-            result["skipped"] += 1
-            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "phone", "error": f"Invalid phone: {str(row_data.get('phone')).strip()}. {exc}"})
-            continue
-
         # Parse fields
         payload = {
             "first_name": str(row_data.get("first_name", "")).strip(),
             "last_name": str(row_data.get("last_name", "")).strip(),
             "email": email_val,
-            "phone": normalize_phone(row_data.get("phone")),
+            "phone": str(row_data.get("phone") or "").strip() or None,
             "job_title": str(row_data.get("job_title", "")).strip(),
             "work_email": str(row_data.get("work_email", "")).strip() or None,
             "personal_email": str(row_data.get("personal_email", "")).strip() or None,
@@ -2178,6 +2204,27 @@ def import_employees_from_file(
         # HRA is an ANNUAL amount consumed downstream; keep it out of the Employee insert
         if "hra" in payload:
             payload.pop("hra")
+
+        # B16-B38: the same field rules as the Add User form (app/core/field_rules.py). Updating an existing person checks
+        # only the values that change, so older records still import. A row with no country follows the India template.
+        from app.core import field_rules
+        if isinstance(row_data.get("phone"), float) and row_data["phone"].is_integer():
+            payload["phone"] = str(int(row_data["phone"]))          # a spreadsheet cell holding the number
+        checked = {k: v for k, v in {**payload, **profile_fields}.items() if k in field_rules.EMPLOYEE_FIELDS and v not in (None, "")}
+        checked.pop("email", None)                                   # the e-mail was checked above
+        cleaned, field_errors = field_rules.validate_record(
+            checked, field_rules.EMPLOYEE_FIELDS, country=payload.get("country") or (existing.country if existing else None) or "India",
+            previous=_person_snapshot(db, existing) if existing else None)
+        if field_errors:
+            result["skipped"] += 1
+            for f_name, message in field_errors.items():
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": f_name, "error": message})
+            continue
+        for f_name, value in cleaned.items():
+            if f_name in profile_fields:
+                profile_fields[f_name] = value
+            else:
+                payload[f_name] = value
 
         # Enum fields
         row_invalid = False
@@ -2753,10 +2800,13 @@ def update_employee(
     data: EmployeeUpdate,
     organization_id: Optional[int] = None,
     actor=None,
+    extra_errors: Optional[dict] = None,
 ) -> Employee:
     """Update an employee and record exactly which fields moved, and to what."""
     employee = get_employee_by_id(db, employee_id, organization_id)
     org_id = employee.organization_id
+    # only changed values are re-checked (legacy-safe); `extra_errors` (e.g. the self-service checks) are reported with them
+    _check_person_fields(data, previous=_person_snapshot(db, employee), extra_errors=extra_errors)
     try:
         if data.department_id:
             dept_query = db.query(Department).filter(Department.id == data.department_id)

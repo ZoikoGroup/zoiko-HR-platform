@@ -115,3 +115,57 @@ test("the login page is the hero and the sign-in card: tabs, account links and l
   assert.equal(screen.getByText("Terms").getAttribute("href"), "/terms");
   assert.match(document.querySelector(".login-footer").textContent, /© 2026 Zoiko Tech Inc\./);
 });
+
+// ── A1 (QA report 10 Nov 2026) ───────────────────────────────────────────────────────────────────────────────────────
+import { googleExchangeMessage, GOOGLE_NEEDS_PASSWORD } from "../src/utils/googleSignIn.js";
+
+test("A1 a signed-in Google user lands on their role's dashboard, not the pre-login default", async (t) => {
+  const calls = { exchange: [] };
+  t.mock.module("../src/service/authService.js", { exports: { googleSignInEnabled: async () => true, resendVerification: async () => ({}), mfaEnrollStart: async () => ({}) } });
+  t.mock.module("../src/service/api.js", { exports: { API_BASE_URL: "https://api.example.com" } });
+  t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({
+    login: async () => ({}), loginWithGoogle: async (tk) => { calls.exchange.push(tk); return { id: 1, role: "employee" }; },
+    error: null, defaultRedirect: "/dashboard",
+  }) } });
+  const { default: Page } = await import(`../src/pages/auth/LoginPage.jsx?a1=${Math.random()}`);
+  render(React.createElement(MemoryRouter, { initialEntries: ["/login?google_ticket=t1"] }, React.createElement(Routes, null,
+    React.createElement(Route, { path: "/login", element: React.createElement(Page) }),
+    React.createElement(Route, { path: "*", element: React.createElement(Where) }))));
+  await settle();
+  assert.deepEqual(calls.exchange, ["t1"]);
+  assert.equal(screen.getByTestId("where").textContent, "/employee/ess");
+});
+
+test("A1 a Google user with a temporary password goes to the screen that replaces it", async (t) => {
+  t.mock.module("../src/service/authService.js", { exports: { googleSignInEnabled: async () => true, resendVerification: async () => ({}), mfaEnrollStart: async () => ({}) } });
+  t.mock.module("../src/service/api.js", { exports: { API_BASE_URL: "https://api.example.com" } });
+  t.mock.module("../src/context/AuthContext.jsx", { exports: { useAuth: () => ({
+    login: async () => ({}), loginWithGoogle: async () => ({ id: 1, role: "admin", mustChangePassword: true }), error: null, defaultRedirect: "/dashboard",
+  }) } });
+  const { default: Page } = await import(`../src/pages/auth/LoginPage.jsx?a1b=${Math.random()}`);
+  render(React.createElement(MemoryRouter, { initialEntries: ["/login?google_ticket=t2"] }, React.createElement(Routes, null,
+    React.createElement(Route, { path: "/login", element: React.createElement(Page) }),
+    React.createElement(Route, { path: "*", element: React.createElement(Where) }))));
+  await settle();
+  assert.equal(screen.getByTestId("where").textContent, "/change-password");
+});
+
+test("A1 every exchange failure is shown in words and the Google button works again", async (t) => {
+  await open(t, { url: "/login?google_ticket=x", exchange: async () => { throw Object.assign(new Error("Your organization has been suspended. Please contact support."), { status: 401 }); } });
+  assert.match(document.querySelector("[role=alert]")?.textContent || document.body.textContent, /suspended/);
+  assert.equal(screen.getByRole("button", { name: /Continue with Google/ }).disabled, false);
+});
+
+test("A1 the exchange message: server reason, a sentence for second-factor accounts, a fallback for network failures", () => {
+  assert.equal(googleExchangeMessage(Object.assign(new Error("Your account has been deactivated."), { status: 401 })), "Your account has been deactivated.");
+  assert.equal(googleExchangeMessage({ code: "MFA_REQUIRED", message: "x" }), GOOGLE_NEEDS_PASSWORD);
+  assert.equal(googleExchangeMessage({ status: 0, message: "Failed to fetch" }), GOOGLE_ERRORS.failed);
+  assert.equal(googleExchangeMessage(undefined), GOOGLE_ERRORS.failed);
+});
+
+test("A1 the Google button tells the server which app to come back to", async () => {
+  const { googleLoginUrl } = await import("../src/utils/googleSignIn.js");
+  assert.equal(googleLoginUrl("https://api.example.com", "https://app.zoikohr.com"),
+    "https://api.example.com/auth/google/login?return_to=https%3A%2F%2Fapp.zoikohr.com");
+  assert.equal(googleLoginUrl("https://api.example.com/", ""), "https://api.example.com/auth/google/login");
+});

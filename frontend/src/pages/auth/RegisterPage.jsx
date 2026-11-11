@@ -1,13 +1,13 @@
-import { realEmailError } from "../../utils/realEmail";
 import PlanComparison from "../../components/PlanComparison";
+import PasswordInput from "../../components/PasswordInput";
+import PhoneField from "../../components/PhoneField";
+import { fieldProblem, INDUSTRIES, COUNTRY_CHOICES, regionsFor, businessIdTypes, businessIdType } from "../../utils/fieldRules";
 import { planHighlights } from "../../config/planMatrix";
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { readGoogleSignup, withoutGoogleSignupParams } from "../../utils/googleSignup";
 import {
   Loader2,
-  Eye,
-  EyeOff,
   AlertCircle,
   Check,
   X,
@@ -23,7 +23,6 @@ import {
 } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import {
-  REGISTRATION_COUNTRIES,
   getStatesForCountryName,
   getTimezonesForCountryName,
   getDefaultTimezoneForCountry,
@@ -59,7 +58,9 @@ export default function RegisterPage() {
     country: "",
     timezone: "",
     industry: "",
+    industryOther: "",
     taxNumber: "",
+    taxIdType: "",
     adminName: google?.name || "",
     adminEmail: google?.email || "",
     password: "",
@@ -71,9 +72,10 @@ export default function RegisterPage() {
     google.email.toLowerCase() === form.adminEmail.trim().toLowerCase() &&
     google.email.toLowerCase() === form.registeredEmail.trim().toLowerCase()
   );
-  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
+  // B7-B13: one message under each field
+  const [fieldErrors, setFieldErrors] = useState({});
 
   // OTP Verification state
   const [otpDigits, setOtpDigits] = useState(["", "", "", "", "", ""]);
@@ -102,6 +104,7 @@ export default function RegisterPage() {
 
   function update(field, value) {
     setForm((f) => ({ ...f, [field]: value }));
+    setFieldErrors((e) => (e[field] ? { ...e, [field]: undefined } : e));
   }
 
   function handleCountryChange(value) {
@@ -109,31 +112,66 @@ export default function RegisterPage() {
       ...f,
       country: value,
       state: "",
+      taxIdType: "",
       timezone: getDefaultTimezoneForCountry(value),
     }));
+    setFieldErrors((e) => ({ ...e, country: undefined, state: undefined, taxNumber: undefined, phone: undefined }));
   }
 
-  const countryStates = getStatesForCountryName(form.country);
+  const countryStates = regionsFor(form.country) || getStatesForCountryName(form.country);
+  const taxTypes = businessIdTypes(form.country);
+  const taxType = businessIdType(form.country, form.taxIdType);
   const countryTimezones = getTimezonesForCountryName(form.country);
+
+  // B7-B13: the check for one field (the same rules and words as the server: utils/fieldRules.js); required fields say so
+  function problemFor(name) {
+    const v = form[name];
+    const blank = !String(v ?? "").trim();
+    switch (name) {
+      case "orgName": return blank ? "Organization name is required." : fieldProblem("org_name", v);
+      case "orgType": return blank ? "Organization type is required." : "";
+      case "registeredEmail": return blank ? "Registered email is required." : fieldProblem("email", v);
+      case "phone": return blank ? "Phone number is required." : fieldProblem("phone", v, { country: form.country });
+      case "taxNumber": return blank ? `${taxType.label} is required.` : fieldProblem("org_registration", v, { country: form.country, idKey: taxType.key });
+      case "industry": return form.industry && form.industry !== "Other" ? fieldProblem("industry", v) : "";
+      case "industryOther": return form.industry !== "Other" ? "" : (blank ? "Enter your industry." : fieldProblem("industry", `Other: ${v}`));
+      case "address": return blank ? "Address is required." : fieldProblem("address", v);
+      case "country": return blank ? "Country is required." : fieldProblem("country", v);
+      case "state": return fieldProblem("state", v, { country: form.country });
+      case "city": return fieldProblem("place_name", v);
+      case "adminName": return blank ? "Admin name is required." : fieldProblem("person_full_name", v);
+      case "adminEmail": return blank ? "Admin email is required." : fieldProblem("email", v);
+      default: return "";
+    }
+  }
+  const STEP_FIELDS = {
+    1: ["orgName", "orgType", "registeredEmail", "phone", "taxNumber", "industry", "industryOther", "address", "country", "state", "city"],
+    2: ["adminName", "adminEmail"],
+  };
+
+  function blurCheck(name) {
+    if (!String(form[name] ?? "").trim()) return;            // an empty field is reported on Next, not while moving through
+    setFieldErrors((e) => ({ ...e, [name]: problemFor(name) || undefined }));
+  }
 
   function validateStep(s) {
     if (s === 0) {
       if (!form.selectedPlan) return "Please select a plan to evaluate.";
     }
-    if (s === 1) {
-      if (!form.orgName.trim()) return "Organization name is required.";
-      if (!form.orgType) return "Organization type is required.";
-      if (!form.registeredEmail.trim()) return "Registered email is required.";
-      if (realEmailError(form.registeredEmail)) return `Registered email: ${realEmailError(form.registeredEmail)}`;
-      if (!form.phone.trim()) return "Phone number is required.";
-      if (!form.taxNumber.trim()) return "Tax / Registration number is required.";
-      if (!form.address.trim()) return "Address is required.";
-      if (!form.country) return "Country is required.";
+    if (s === 1 || s === 2) {
+      const errors = {};
+      for (const name of STEP_FIELDS[s]) {
+        const message = problemFor(name);
+        if (message) errors[name] = message;
+      }
+      setFieldErrors(errors);
+      const first = STEP_FIELDS[s].find((n) => errors[n]);
+      if (first) {
+        setTimeout(() => document.getElementById(`reg-${first}`)?.focus(), 0);
+        return "Please correct the highlighted fields.";
+      }
     }
     if (s === 2) {
-      if (!form.adminName.trim()) return "Admin name is required.";
-      if (!form.adminEmail.trim()) return "Admin email is required.";
-      if (realEmailError(form.adminEmail)) return `Admin email: ${realEmailError(form.adminEmail)}`;
       if (!form.password || form.password.length < 8) return "Password must be at least 8 characters.";
       if (!form.termsAccepted) return "You must accept the Terms & Conditions.";
     }
@@ -144,6 +182,14 @@ export default function RegisterPage() {
     }
     return null;
   }
+
+  const aria = (name, hintId) => ({
+    "aria-invalid": fieldErrors[name] ? "true" : undefined,
+    "aria-describedby": [hintId, fieldErrors[name] ? `reg-${name}-error` : null].filter(Boolean).join(" ") || undefined,
+  });
+  const fieldError = (name) => (fieldErrors[name]
+    ? <p id={`reg-${name}-error`} className="mt-1 text-xs text-red-600">{fieldErrors[name]}</p>
+    : null);
 
   function goNext() {
     setLocalError(null);
@@ -253,8 +299,9 @@ export default function RegisterPage() {
         state: form.state,
         country: form.country,
         timezone: form.timezone,
-        industry: form.industry,
+        industry: form.industry === "Other" ? `Other: ${form.industryOther.trim()}` : form.industry,
         taxNumber: form.taxNumber,
+        taxIdType: form.country ? taxType.key : undefined,
         registeredEmail: form.registeredEmail,
         otp: form.otp.trim(),
         googleProof: google && google.email.toLowerCase() === form.adminEmail.trim().toLowerCase() ? google.proof : undefined,
@@ -269,7 +316,21 @@ export default function RegisterPage() {
         },
       });
     } catch (err) {
-      setLocalError(err.message || "Unable to create your account.");
+      // the server checks the same rules: show its messages under the fields and go back to the first step that has one
+      const SERVER_FIELDS = { organization: "orgName", registered_email: "registeredEmail", phone: "phone", tax_number: "taxNumber",
+        industry: "industry", address: "address", city: "city", state: "state", country: "country", name: "adminName", email: "adminEmail" };
+      const mapped = {};
+      for (const item of Array.isArray(err?.validation) ? err.validation : []) {
+        const key = SERVER_FIELDS[Array.isArray(item?.loc) ? item.loc[item.loc.length - 1] : ""];
+        if (key && !mapped[key]) mapped[key] = String(item.msg || "").replace(/^value error,\s*/i, "");
+      }
+      if (Object.keys(mapped).length) {
+        setFieldErrors(mapped);
+        setStep(STEP_FIELDS[1].some((n) => mapped[n]) ? 1 : 2);
+        setLocalError("Please correct the highlighted fields.");
+      } else {
+        setLocalError(err.message || "Unable to create your account.");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -349,7 +410,7 @@ export default function RegisterPage() {
                 </div>
               )}
 
-              <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+              <form onSubmit={handleSubmit} noValidate className="flex flex-col gap-5">
                 {step === 0 && (
                   <>
                     <p className="text-[13px] text-slate-500 -mt-1">Choose the package you would like to evaluate. Enterprise is contract-priced and sales-led only.</p>
@@ -418,12 +479,14 @@ export default function RegisterPage() {
                   <>
                     <div className="grid sm:grid-cols-2 gap-x-5 gap-y-4">
                       <div>
-                        <label className={label}>Organization Name<Req /></label>
-                        <input type="text" required value={form.orgName} onChange={(e) => update("orgName", e.target.value)} placeholder="Acme Inc." className={field} />
+                        <label htmlFor="reg-orgName" className={label}>Organization Name<Req /></label>
+                        <input id="reg-orgName" type="text" required maxLength={150} value={form.orgName} onChange={(e) => update("orgName", e.target.value)}
+                          onBlur={() => blurCheck("orgName")} placeholder="Acme Inc." className={field} {...aria("orgName")} />
+                        {fieldError("orgName")}
                       </div>
                       <div>
-                        <label className={label}>Organization Type<Req /></label>
-                        <select required value={form.orgType} onChange={(e) => update("orgType", e.target.value)} className={field}>
+                        <label htmlFor="reg-orgType" className={label}>Organization Type<Req /></label>
+                        <select id="reg-orgType" required value={form.orgType} onChange={(e) => update("orgType", e.target.value)} className={field} {...aria("orgType")}>
                           <option value="">Select type</option>
                           <option value="sole_proprietorship">Sole Proprietorship</option>
                           <option value="partnership">Partnership</option>
@@ -432,53 +495,97 @@ export default function RegisterPage() {
                           <option value="nonprofit">Non-Profit</option>
                           <option value="other">Other</option>
                         </select>
+                        {fieldError("orgType")}
                       </div>
                       <div>
-                        <label className={label}>Registered Email<Req /></label>
-                        <input type="email" required value={form.registeredEmail} onChange={(e) => update("registeredEmail", e.target.value)} placeholder="company@yourcompany.com" className={field} />
-                        <p className="mt-1 text-xs text-slate-500">
+                        <label htmlFor="reg-registeredEmail" className={label}>Registered Email<Req /></label>
+                        <input id="reg-registeredEmail" type="email" required maxLength={254} value={form.registeredEmail} onChange={(e) => update("registeredEmail", e.target.value)}
+                          onBlur={() => blurCheck("registeredEmail")} placeholder="company@yourcompany.com" className={field} {...aria("registeredEmail", "reg-registeredEmail-hint")} />
+                        <p id="reg-registeredEmail-hint" className="mt-1 text-xs text-slate-500">
                           {googleConfirmsRegisteredEmail
                             ? "Google has confirmed this email address."
                             : "A one-time verification code (OTP) will be sent to this email address."}
                         </p>
+                        {fieldError("registeredEmail")}
                       </div>
                       <div>
-                        <label className={label}>Phone Number<Req /></label>
-                        <input type="tel" required value={form.phone} onChange={(e) => update("phone", e.target.value)} placeholder="+1 (555) 123-4567" className={field} />
+                        <label htmlFor="reg-phone" className={label}>Phone Number<Req /></label>
+                        <PhoneField id="reg-phone" value={form.phone} country={form.country} onChange={(v) => update("phone", v)} onBlur={() => blurCheck("phone")}
+                          className={field} invalid={!!fieldErrors.phone} describedBy={fieldErrors.phone ? "reg-phone-error" : undefined} />
+                        {fieldError("phone")}
                       </div>
                       <div>
-                        <label className={label}>Tax / Registration Number<Req /></label>
-                        <input type="text" required value={form.taxNumber} onChange={(e) => update("taxNumber", e.target.value)} placeholder="GSTIN / VAT / EIN" className={field} />
+                        {taxTypes.length > 1 && (
+                          <div className="mb-2">
+                            <label htmlFor="reg-taxIdType" className={label}>Registration number type</label>
+                            <select id="reg-taxIdType" value={taxType.key} onChange={(e) => update("taxIdType", e.target.value)} className={field}>
+                              {taxTypes.map((t) => <option key={t.key} value={t.key}>{t.label}</option>)}
+                            </select>
+                          </div>
+                        )}
+                        <div>
+                        <label htmlFor="reg-taxNumber" className={label}>{taxType.label}<Req /></label>
+                        <input id="reg-taxNumber" type="text" required maxLength={40} value={form.taxNumber} onChange={(e) => update("taxNumber", e.target.value.toUpperCase())}
+                          onBlur={() => blurCheck("taxNumber")} placeholder={taxType.placeholder || (form.country ? "" : "Select a country first")} className={field}
+                          {...aria("taxNumber", "reg-taxNumber-hint")} />
+                        <p id="reg-taxNumber-hint" className="mt-1 text-xs text-slate-500">{form.country ? taxType.hint : "The number's format follows the country you select below."}</p>
+                        {fieldError("taxNumber")}
+                        </div>
                       </div>
                       <div>
-                        <label className={label}>Industry</label>
-                        <input type="text" value={form.industry} onChange={(e) => update("industry", e.target.value)} placeholder="Technology" className={field} />
+                        <label htmlFor="reg-industry" className={label}>Industry</label>
+                        <select id="reg-industry" value={form.industry} onChange={(e) => update("industry", e.target.value)} className={field} {...aria("industry")}>
+                          <option value="">Select an industry</option>
+                          {INDUSTRIES.map((i) => <option key={i} value={i}>{i}</option>)}
+                        </select>
+                        {fieldError("industry")}
+                        {form.industry === "Other" && (
+                          <div className="mt-2">
+                            <label htmlFor="reg-industryOther" className="sr-only">Your industry</label>
+                            <input id="reg-industryOther" type="text" maxLength={100} value={form.industryOther} onChange={(e) => update("industryOther", e.target.value)}
+                              onBlur={() => blurCheck("industryOther")} placeholder="Your industry" className={field} {...aria("industryOther")} />
+                            {fieldError("industryOther")}
+                          </div>
+                        )}
                       </div>
                     </div>
 
                     <div>
-                      <label className={label}>Address<Req /></label>
-                      <textarea required value={form.address} onChange={(e) => update("address", e.target.value)} placeholder="123 Main St, Suite 100" rows={2} className={`${field} h-auto py-2.5 resize-y`} />
+                      <label htmlFor="reg-address" className={label}>Address<Req /></label>
+                      <textarea id="reg-address" required maxLength={250} value={form.address} onChange={(e) => update("address", e.target.value)}
+                        onBlur={() => blurCheck("address")} placeholder="12 MG Road, Indiranagar" rows={2} className={`${field} h-auto py-2.5 resize-y`}
+                        {...aria("address", "reg-address-count")} />
+                      <p id="reg-address-count" className="mt-1 text-right text-[11px] text-slate-400">{form.address.length}/250</p>
+                      {fieldError("address")}
                     </div>
 
                     <div className="grid sm:grid-cols-2 gap-x-5 gap-y-4">
                       <div>
-                        <label className={label}>Country<Req /></label>
-                        <select required value={form.country} onChange={(e) => handleCountryChange(e.target.value)} className={field}>
+                        <label htmlFor="reg-country" className={label}>Country<Req /></label>
+                        <select id="reg-country" required value={form.country} onChange={(e) => handleCountryChange(e.target.value)} className={field} {...aria("country")}>
                           <option value="">Select country</option>
-                          {REGISTRATION_COUNTRIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                          {COUNTRY_CHOICES.map((c) => <option key={c.code} value={c.name}>{c.name}</option>)}
                         </select>
+                        {fieldError("country")}
                       </div>
                       <div>
-                        <label className={label}>State / Province</label>
-                        <select value={form.state} onChange={(e) => update("state", e.target.value)} disabled={countryStates.length === 0} className={field}>
-                          <option value="">{countryStates.length === 0 ? "Select country first" : "Select state"}</option>
-                          {countryStates.map((s) => <option key={s} value={s}>{s}</option>)}
-                        </select>
+                        <label htmlFor="reg-state" className={label}>State / Province</label>
+                        {countryStates.length > 0 || !form.country ? (
+                          <select id="reg-state" value={form.state} onChange={(e) => update("state", e.target.value)} disabled={countryStates.length === 0} className={field} {...aria("state")}>
+                            <option value="">{countryStates.length === 0 ? "Select country first" : "Select state"}</option>
+                            {countryStates.map((s) => <option key={s} value={s}>{s}</option>)}
+                          </select>
+                        ) : (
+                          <input id="reg-state" type="text" maxLength={80} value={form.state} onChange={(e) => update("state", e.target.value)}
+                            onBlur={() => blurCheck("state")} className={field} {...aria("state")} />
+                        )}
+                        {fieldError("state")}
                       </div>
                       <div>
-                        <label className={label}>City</label>
-                        <input type="text" value={form.city} onChange={(e) => update("city", e.target.value)} placeholder="New York" className={field} />
+                        <label htmlFor="reg-city" className={label}>City</label>
+                        <input id="reg-city" type="text" maxLength={80} value={form.city} onChange={(e) => update("city", e.target.value)}
+                          onBlur={() => blurCheck("city")} placeholder="Bengaluru" className={field} {...aria("city")} />
+                        {fieldError("city")}
                       </div>
                       <div>
                         <label className={label}>Timezone</label>
@@ -498,27 +605,26 @@ export default function RegisterPage() {
                   <>
                     <div className="grid sm:grid-cols-2 gap-x-5 gap-y-4">
                       <div>
-                        <label className={label}>Admin Name<Req /></label>
-                        <input type="text" required value={form.adminName} onChange={(e) => update("adminName", e.target.value)} placeholder="Jane Doe" className={field} />
+                        <label htmlFor="reg-adminName" className={label}>Admin Name<Req /></label>
+                        <input id="reg-adminName" type="text" required maxLength={100} value={form.adminName} onChange={(e) => update("adminName", e.target.value)}
+                          onBlur={() => blurCheck("adminName")} placeholder="Jane Doe" className={field} {...aria("adminName")} />
+                        {fieldError("adminName")}
                       </div>
                       <div>
-                        <label className={label}>Admin Email<Req /></label>
-                        <input type="email" required value={form.adminEmail} readOnly={!!google} onChange={(e) => update("adminEmail", e.target.value)} placeholder="admin@company.com"
+                        <label htmlFor="reg-adminEmail" className={label}>Admin Email<Req /></label>
+                        <input id="reg-adminEmail" type="email" required maxLength={254} value={form.adminEmail} readOnly={!!google} onChange={(e) => update("adminEmail", e.target.value)}
+                          onBlur={() => blurCheck("adminEmail")} placeholder="admin@company.com" {...aria("adminEmail")}
                           className={`${field} ${google ? "bg-slate-100 text-slate-500 cursor-not-allowed" : ""}`} />
                         {google && <p className="mt-1.5 text-xs text-emerald-700 flex items-center gap-1"><Check size={12} strokeWidth={3} />Confirmed by Google</p>}
+                        {fieldError("adminEmail")}
                       </div>
                     </div>
 
                     <div>
-                      <label className={label}>Password<Req /></label>
-                      <div className="relative">
-                        <input type={showPassword ? "text" : "password"} required minLength={8} value={form.password} onChange={(e) => update("password", e.target.value)}
-                          placeholder="At least 8 characters" className={`${field} pr-11`} />
-                        <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? "Hide password" : "Show password"}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                          {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                        </button>
-                      </div>
+                      <label htmlFor="reg-password" className={label}>Password<Req /></label>
+                      <PasswordInput id="reg-password" required minLength={8} value={form.password} onChange={(e) => update("password", e.target.value)}
+                        autoComplete="new-password" placeholder="At least 8 characters" className={`${field} pr-11`}
+                        toggleClassName="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" iconSize={17} />
                     </div>
 
                     <div className="rounded-2xl bg-slate-50 border border-slate-200 p-5">

@@ -158,11 +158,29 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
     throw createApiError(detail, res.status, extra);
   }
 
+  if (method !== "GET") announceMutation(path);
+
   if (res.status === 204) return null;
 
   const contentType = res.headers.get("content-type") || "";
   if (contentType.includes("application/json")) return res.json();
   return res.text();
+}
+
+// A5: after the person changes something (approves a leave, submits a claim, …) the notification bell re-checks its count
+// right away instead of waiting for the next poll. Debounced so a burst of saves causes one check. The notifications API
+// itself, the AI assistant and support tickets are left out, so their requests behave exactly as before.
+export const MUTATION_EVENT = "zoiko-api-mutation";
+const MUTATION_QUIET_PATHS = /^\/(notifications|assistant|super-admin\/support|support)(\/|$|\?)/;
+let mutationTimer = null;
+function announceMutation(path) {
+  if (typeof window === "undefined" || typeof path !== "string") return;
+  const relative = path.startsWith("http") ? path.replace(/^https?:\/\/[^/]+/, "") : path;
+  if (MUTATION_QUIET_PATHS.test(relative)) return;
+  clearTimeout(mutationTimer);
+  mutationTimer = setTimeout(() => {
+    try { window.dispatchEvent(new window.CustomEvent(MUTATION_EVENT, { detail: { path: relative } })); } catch { /* no window */ }
+  }, 800);
 }
 
 async function tryRefreshToken() {

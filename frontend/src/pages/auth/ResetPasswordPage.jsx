@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { Loader2, AlertCircle, CheckCircle2, Eye, EyeOff } from "lucide-react";
+import { Loader2, AlertCircle, CheckCircle2 } from "lucide-react";
+import PasswordInput from "../../components/PasswordInput";
 import { resetPasswordWithToken } from "../../service/authService";
 import { passwordProblem, PASSWORD_HINT } from "../../utils/passwordPolicy";
 import LandingHeader from "../../landing/LandingHeader";
@@ -20,7 +21,6 @@ export default function ResetPasswordPage() {
   const token = params.get("token") || "";
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [show, setShow] = useState(false);
   const [errors, setErrors] = useState({});
   const [pending, setPending] = useState(false);
   const [done, setDone] = useState(false);
@@ -95,20 +95,16 @@ export default function ResetPasswordPage() {
       )}
 
       <label htmlFor="rp-password" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#374151", marginBottom: "6px" }}>New password</label>
-      <div style={{ position: "relative", marginBottom: errors.password ? "4px" : "16px" }}>
-        <input id="rp-password" type={show ? "text" : "password"} autoComplete="new-password" value={password} aria-invalid={!!errors.password}
-          onChange={(e) => { setPassword(e.target.value); setErrors((p) => ({ ...p, password: undefined, submit: undefined })); }} style={inputStyle} />
-        <button type="button" aria-label={show ? "Hide password" : "Show password"} onClick={() => setShow((v) => !v)}
-          style={{ position: "absolute", right: "10px", top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#6B7280" }}>
-          {show ? <EyeOff size={16} /> : <Eye size={16} />}
-        </button>
-      </div>
+      {/* A3: New and Confirm each have their own eye; revealing one never reveals the other. */}
+      <PasswordInput id="rp-password" autoComplete="new-password" value={password} aria-invalid={!!errors.password}
+        onChange={(e) => { setPassword(e.target.value); setErrors((p) => ({ ...p, password: undefined, submit: undefined })); }}
+        style={inputStyle} wrapperStyle={{ marginBottom: errors.password ? "4px" : "16px" }} iconSize={16} />
       {errors.password && <p role="alert" style={{ color: "#DC2626", fontSize: "12px", margin: "0 0 14px" }}>{errors.password}</p>}
 
       <label htmlFor="rp-confirm" style={{ display: "block", fontSize: "13px", fontWeight: 500, color: "#374151", marginBottom: "6px" }}>Confirm new password</label>
-      <input id="rp-confirm" type={show ? "text" : "password"} autoComplete="new-password" value={confirm} aria-invalid={!!errors.confirm}
+      <PasswordInput id="rp-confirm" autoComplete="new-password" value={confirm} aria-invalid={!!errors.confirm}
         onChange={(e) => { setConfirm(e.target.value); setErrors((p) => ({ ...p, confirm: undefined, submit: undefined })); }}
-        style={{ ...inputStyle, marginBottom: errors.confirm ? "4px" : "20px" }} />
+        style={inputStyle} wrapperStyle={{ marginBottom: errors.confirm ? "4px" : "20px" }} iconSize={16} />
       {errors.confirm && <p role="alert" style={{ color: "#DC2626", fontSize: "12px", margin: "0 0 16px" }}>{errors.confirm}</p>}
 
       <button type="submit" disabled={pending}

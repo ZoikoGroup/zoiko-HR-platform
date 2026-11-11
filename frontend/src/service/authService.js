@@ -109,7 +109,7 @@ export async function verifyRegistrationOtp({ registeredEmail, otp }) {
   }
 }
 
-export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail, googleProof, otp }) {
+export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, taxIdType, registeredEmail, googleProof, otp }) {
   try {
     const payload = { name, email, password, organization, plan_code: planCode };
     if (orgType) payload.org_type = orgType;
@@ -121,6 +121,7 @@ export async function register({ name, email, password, organization, planCode, 
     if (timezone) payload.timezone = timezone;
     if (industry) payload.industry = industry;
     if (taxNumber) payload.tax_number = taxNumber;
+    if (taxIdType) payload.tax_id_type = taxIdType;
     if (registeredEmail) payload.registered_email = registeredEmail;
     if (googleProof) payload.google_proof = googleProof;
     if (otp) payload.otp = otp;

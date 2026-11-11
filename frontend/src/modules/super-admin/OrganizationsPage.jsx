@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
 import { RefreshBar } from "../../components/LoadingSkeletons";
 import { keepPreviousData, useQuery, useQueryClient } from "@tanstack/react-query";
 import { keys } from "../../service/queryKeys";
@@ -33,6 +33,13 @@ export default function SuperAdminOrganizationsPage() {
   const [rejectReason, setRejectReason] = useState("");
   const [deleteOrg, setDeleteOrg] = useState(null);
   const [openMenuId, setOpenMenuId] = useState(null);
+  // B15: a row's "More options" menu also closes on Escape (the backdrop already handles outside clicks).
+  useEffect(() => {
+    if (openMenuId === null) return undefined;
+    const onKey = (e) => { if (e.key === "Escape") setOpenMenuId(null); };
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [openMenuId]);
 
   // The list is a cached query keyed by every filter. Changing a filter or page keeps the previous rows on screen until
   // the new ones arrive, and coming back to a view shown in the last 30 s needs no request.

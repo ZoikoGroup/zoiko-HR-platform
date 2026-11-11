@@ -513,6 +513,8 @@ def assign_manager_checklist(db, hire: OnboardingNewHire) -> Optional[Onboarding
                                        owner_role="manager", mandatory=bool(it.get("mandatory")), due_offset_days=it.get("due_offset_days"),
                                        due_date=due, assignee_employee_id=hire.manager_id, completed=False, created_by="system"))
     db.commit()
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, hire.organization_id, hire.manager_id, "onboarding.tasks_assigned", link="/zoiko-hr/onboarding/checklists")  # A5
     return cl
 
 

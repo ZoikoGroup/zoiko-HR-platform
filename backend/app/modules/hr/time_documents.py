@@ -158,6 +158,9 @@ def decide_overtime(db, user, o: OvertimeRequest, *, approve: bool, reason: Opti
             rec.overtime_request_id = o.id
             o.attendance_record_id = rec.id
     db.commit()
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, o.organization_id, o.employee_id, "overtime.approved" if approve else "overtime.rejected",
+                    date=o.date, link="/employee/ess/time-requests")          # A5
     if approve:
         _emit(db, "attendance.overtime.approved", {"id": o.id, "employee_id": o.employee_id, "date": o.date.isoformat(),
                                                    "attendance_record_id": o.attendance_record_id}, o.organization_id)
@@ -265,6 +268,9 @@ def decide_correction(db, user, c: AttendanceCorrectionRequest, *, approve: bool
     if approve:
         apply_correction(db, user, c)
     db.commit()
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, c.organization_id, c.employee_id, "correction.approved" if approve else "correction.rejected",
+                    date=getattr(c, "date", None), link="/employee/ess/time-requests")   # A5
     try:
         from app.modules.hr import service as hr_service
         hr_service._activity_record(db, "attendance.correction_decided", user, c.organization_id, entity_type="AttendanceCorrectionRequest",
