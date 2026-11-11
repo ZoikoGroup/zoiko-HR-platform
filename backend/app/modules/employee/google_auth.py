@@ -20,7 +20,7 @@ import logging
 import secrets
 import time
 from typing import Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 import httpx
 
@@ -53,21 +53,72 @@ def is_configured() -> bool:
     return bool((settings.GOOGLE_CLIENT_ID or "").strip() and (settings.GOOGLE_CLIENT_SECRET or "").strip())
 
 
-def redirect_uri() -> str:
+def _is_local(url: str) -> bool:
+    host = (urlparse(url or "").hostname or "").lower()
+    return host in ("", "localhost", "127.0.0.1", "0.0.0.0") or host.endswith(".local")
+
+
+def redirect_uri(request=None) -> str:
+    """The callback address Google sends the browser back to. It must match, character for character, an authorized redirect
+    URI of the OAuth client, and the token exchange must send the same value.
+
+    GOOGLE_REDIRECT_URI wins; then {API_BASE_URL}/auth/google/callback. A1 (QA 10 Nov 2026): production had API_BASE_URL unset,
+    so Google was sent http://localhost:8000/auth/google/callback and sign-in could never finish. When the configured base is
+    a local address but the request reached a public host, the public address of THIS request is used instead (and logged
+    so the configuration gets fixed)."""
     explicit = (settings.GOOGLE_REDIRECT_URI or "").strip()
     if explicit:
         return explicit
-    return f"{(settings.API_BASE_URL or 'http://localhost:8000').rstrip('/')}/auth/google/callback"
+    configured = f"{(settings.API_BASE_URL or 'http://localhost:8000').rstrip('/')}/auth/google/callback"
+    if request is not None and _is_local(configured):
+        here = str(request.url_for("google_callback"))
+        if not _is_local(here):
+            logger.warning("[google] API_BASE_URL is a local address (%s); using this request's address %s. Set API_BASE_URL "
+                           "or GOOGLE_REDIRECT_URI in the server environment.", settings.API_BASE_URL, here)
+            return here
+    return configured
 
 
-def frontend_register_url(**params) -> str:
-    base = f"{(settings.FRONTEND_URL or 'http://localhost:5173').rstrip('/')}/register"
+def _allowed_app_origins() -> set[str]:
+    origins = {o.strip().rstrip("/") for o in (settings.CORS_ORIGINS or "").split(",") if o.strip()}
+    if settings.FRONTEND_URL:
+        origins.add(settings.FRONTEND_URL.strip().rstrip("/"))
+    return origins
+
+
+def app_origin_from(candidate: Optional[str]) -> Optional[str]:
+    """The app origin the person started from (scheme://host[:port]), when it is one this API serves (CORS_ORIGINS /
+    FRONTEND_URL). Anything else is ignored, so the callback can never be turned into an open redirect."""
+    if not candidate:
+        return None
+    parsed = urlparse(candidate.strip())
+    if parsed.scheme not in ("http", "https") or not parsed.netloc:
+        return None
+    origin = f"{parsed.scheme}://{parsed.netloc}".lower()
+    return origin if origin in {o.lower() for o in _allowed_app_origins()} else None
+
+
+def _frontend_base(origin: Optional[str] = None) -> str:
+    configured = (settings.FRONTEND_URL or "http://localhost:5173").rstrip("/")
+    if origin and (_is_local(configured) or origin == configured.lower()):
+        return origin
+    return configured
+
+
+def frontend_register_url(origin: Optional[str] = None, **params) -> str:
+    base = f"{_frontend_base(origin)}/register"
     return f"{base}?{urlencode(params)}" if params else base
 
 
-def frontend_login_url(**params) -> str:
-    base = f"{(settings.FRONTEND_URL or 'http://localhost:5173').rstrip('/')}/login"
+def frontend_login_url(origin: Optional[str] = None, **params) -> str:
+    base = f"{_frontend_base(origin)}/login"
     return f"{base}?{urlencode(params)}" if params else base
+
+
+def origin_in_state(state: Optional[str]) -> Optional[str]:
+    """The app origin recorded in a (validly signed, unexpired) state, re-checked against the allow-list."""
+    payload = _open("state", state or "")
+    return app_origin_from(payload.get("o")) if payload else None
 
 
 # ── small signed blobs (state and ticket). They are not JWTs on purpose: a ticket must never be usable as an access token.
@@ -108,11 +159,14 @@ def new_nonce() -> str:
     return secrets.token_urlsafe(24)
 
 
-def authorize_url(nonce: str) -> str:
-    state = _sign("state", {"n": hashlib.sha256(nonce.encode()).hexdigest(), "exp": time.time() + STATE_TTL_SECONDS})
+def authorize_url(nonce: str, request=None, origin: Optional[str] = None) -> str:
+    payload = {"n": hashlib.sha256(nonce.encode()).hexdigest(), "exp": time.time() + STATE_TTL_SECONDS}
+    if origin:
+        payload["o"] = origin
+    state = _sign("state", payload)
     return AUTHORIZE_URL + "?" + urlencode({
         "client_id": settings.GOOGLE_CLIENT_ID,
-        "redirect_uri": redirect_uri(),
+        "redirect_uri": redirect_uri(request),
         "response_type": "code",
         "scope": "openid email profile",
         "state": state,
@@ -129,29 +183,30 @@ def state_matches_browser(state: str, nonce_cookie: Optional[str]) -> bool:
     return hmac.compare_digest(payload.get("n", ""), hashlib.sha256(nonce_cookie.encode()).hexdigest())
 
 
-def verified_profile_for_code(code: str) -> dict:
+def verified_profile_for_code(code: str, request=None) -> dict:
     """{"email", "name", "error"}: the verified e-mail (and display name) Google vouches for, or why there isn't one."""
-    email, problem, name = _profile_for_code(code)
+    email, problem, name = _profile_for_code(code, request)
     return {"email": email, "name": name, "error": problem}
 
 
-def verified_email_for_code(code: str) -> tuple[Optional[str], Optional[str]]:
+def verified_email_for_code(code: str, request=None) -> tuple[Optional[str], Optional[str]]:
     """(email, error_key): the verified e-mail Google vouches for, or why there isn't one."""
-    email, problem, _ = _profile_for_code(code)
+    email, problem, _ = _profile_for_code(code, request)
     return email, problem
 
 
-def _profile_for_code(code: str) -> tuple[Optional[str], Optional[str], str]:
+def _profile_for_code(code: str, request=None) -> tuple[Optional[str], Optional[str], str]:
     try:
         with httpx.Client(timeout=10.0) as client:
             token = client.post(TOKEN_URL, data={
                 "code": code,
                 "client_id": settings.GOOGLE_CLIENT_ID,
                 "client_secret": settings.GOOGLE_CLIENT_SECRET,
-                "redirect_uri": redirect_uri(),
+                "redirect_uri": redirect_uri(request),
                 "grant_type": "authorization_code",
             })
             if token.status_code != 200:
+                # the body names the problem (invalid_grant, redirect_uri_mismatch, invalid_client); it holds no personal data
                 logger.warning("[google] token exchange refused: %s %s", token.status_code, token.text[:200])
                 return None, "failed", ""
             access = token.json().get("access_token")
@@ -192,16 +247,32 @@ def make_ticket(employee_id: int) -> str:
 
 
 # ── step 3
+def _claim_once(jti: str, expires_at: float) -> bool:
+    """True the first time a ticket id is seen. With Redis (HR_REDIS_URL) the claim is shared by every worker and instance,
+    so a ticket cannot be replayed on another one (A1); without it, this process remembers it."""
+    from app.core.redis_client import get_redis
+    client = get_redis()
+    if client is not None:
+        try:
+            ttl = max(int(expires_at - time.time()) + 5, 1)
+            return bool(client.set(f"zhr:google:ticket:{jti}", "1", nx=True, ex=ttl))
+        except Exception:
+            logger.warning("[google] shared ticket store unavailable; using this process's memory")
+    now = time.time()
+    for old in [j for j, exp in _used_tickets.items() if exp < now]:
+        _used_tickets.pop(old, None)
+    if jti in _used_tickets:
+        return False
+    _used_tickets[jti] = expires_at
+    return True
+
+
 def redeem_ticket(ticket: str) -> Optional[int]:
     """The employee id the ticket was made for, once; None when it is forged, expired or already used."""
     payload = _open("ticket", ticket or "")
     if not payload:
         return None
-    now = time.time()
-    for jti in [j for j, exp in _used_tickets.items() if exp < now]:
-        _used_tickets.pop(jti, None)
     jti = payload.get("jti")
-    if not jti or jti in _used_tickets:
+    if not jti or not _claim_once(jti, payload["exp"]):
         return None
-    _used_tickets[jti] = payload["exp"]
     return payload.get("eid")

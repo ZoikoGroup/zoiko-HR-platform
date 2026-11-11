@@ -167,14 +167,17 @@ def google_status():
 
 @auth_router.get("/google/login", summary="Start Sign in with Google", include_in_schema=True)
 @limiter.limit("20/minute")
-def google_login(request: Request):
+def google_login(request: Request, return_to: Optional[str] = None):
+    """return_to: the app origin the button was pressed on (checked against CORS_ORIGINS / FRONTEND_URL). The browser is sent
+    back there after Google, so a missing or local FRONTEND_URL cannot strand people on localhost (A1)."""
     from fastapi.responses import RedirectResponse
     from app.modules.employee import google_auth
 
+    origin = google_auth.app_origin_from(return_to) or google_auth.app_origin_from(request.headers.get("referer"))
     if not google_auth.is_configured():
-        return RedirectResponse(google_auth.frontend_login_url(google_error="not_configured"), status_code=302)
+        return RedirectResponse(google_auth.frontend_login_url(origin, google_error="not_configured"), status_code=302)
     nonce = google_auth.new_nonce()
-    response = RedirectResponse(google_auth.authorize_url(nonce), status_code=302)
+    response = RedirectResponse(google_auth.authorize_url(nonce, request, origin), status_code=302)
     response.set_cookie(
         google_auth.NONCE_COOKIE, nonce, max_age=google_auth.STATE_TTL_SECONDS, httponly=True,
         secure=str(request.url.scheme) == "https", samesite="lax", path="/auth/google",
@@ -182,32 +185,41 @@ def google_login(request: Request):
     return response
 
 
-@auth_router.get("/google/callback", summary="Google sends the browser back here", include_in_schema=True)
+@auth_router.get("/google/callback", name="google_callback", summary="Google sends the browser back here", include_in_schema=True)
 @limiter.limit("20/minute")
 def google_callback(request: Request, db: Session = Depends(get_db), code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
     from fastapi.responses import RedirectResponse
     from app.modules.employee import google_auth
 
-    def back(**params):
-        response = RedirectResponse(google_auth.frontend_login_url(**params), status_code=302)
+    origin = google_auth.origin_in_state(state)
+
+    def back(problem: Optional[str] = None, **params):
+        if problem:
+            # ids and reason codes only: never the e-mail address (ZHR-PRIV-001)
+            google_auth.logger.info("[google] sign-in did not complete: %s", problem)
+            params["google_error"] = problem
+        response = RedirectResponse(google_auth.frontend_login_url(origin, **params), status_code=302)
         response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
         return response
 
     if not google_auth.is_configured():
-        return back(google_error="not_configured")
+        return back("not_configured")
     if error:
-        return back(google_error="cancelled" if error == "access_denied" else "failed")
+        return back("cancelled" if error == "access_denied" else "failed")
     if not code or not google_auth.state_matches_browser(state or "", request.cookies.get(google_auth.NONCE_COOKIE)):
-        return back(google_error="expired")
-    profile = google_auth.verified_profile_for_code(code)
+        return back("expired")
+    profile = google_auth.verified_profile_for_code(code, request)
     email, problem = profile["email"], profile["error"]
     if problem:
-        return back(google_error=problem)
-    employee = db.query(Employee).filter(func.lower(Employee.email) == email).first()
+        return back(problem)
+    employee = service.pick_sign_in_account(db, db.query(Employee).filter(func.lower(Employee.email) == email).all())
     if not employee:
-        # Google confirmed who they are, but they have no account yet: send them to Register with their address filled in.
+        # Google confirmed who they are, but they have no account yet: send them to Register with their address filled in
+        # (the Register page explains there is no Zoiko HR account for this address yet).
+        google_auth.logger.info("[google] no account for the verified address; sent to registration")
         response = RedirectResponse(google_auth.frontend_register_url(
-            google_email=email, google_name=profile.get("name") or "", google_proof=google_auth.make_signup_proof(email)), status_code=302)
+            origin, google_email=email, google_name=profile.get("name") or "", google_proof=google_auth.make_signup_proof(email)),
+            status_code=302)
         response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
         return response
     if not employee.email_verified:       # Google has just confirmed this person controls the address

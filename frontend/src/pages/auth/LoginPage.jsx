@@ -4,15 +4,23 @@ import PasswordInput from "../../components/PasswordInput";
 import { useAuth } from "../../context/AuthContext";
 import { googleSignInEnabled, mfaEnrollStart, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
-import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
+import { googleErrorMessage, googleExchangeMessage, googleLoginUrl, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
 import { realEmailError } from "../../utils/realEmail";
+import { ROLE_DEFAULT_REDIRECT } from "../../config/roles";
 import "./LoginPage.css";
 
 export default function LoginPage() {
   const { login, loginWithGoogle, confirmMfaEnrollment, error: authError, defaultRedirect } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = location.state?.from?.pathname || defaultRedirect;
+  const from = location.state?.from?.pathname || null;
+  // A1: where to go once signed in. The page a guard sent the person away from, else the home of the role the server just
+  // returned (defaultRedirect is computed before anyone is signed in, so it cannot know the role yet). A temporary
+  // password goes to the screen that replaces it.
+  const destinationFor = (signedIn) => {
+    if (signedIn?.mustChangePassword || signedIn?.must_change_password) return "/change-password";
+    return from || ROLE_DEFAULT_REDIRECT[signedIn?.role] || defaultRedirect;
+  };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -64,8 +72,8 @@ export default function LoginPage() {
     if (error) { setLocalError(googleErrorMessage(error)); return; }
     setGoogleBusy(true);
     loginWithGoogle(ticket)
-      .then(() => navigate(from, { replace: true }))
-      .catch((err) => setLocalError(err?.message || googleErrorMessage("failed")))
+      .then((signedIn) => navigate(destinationFor(signedIn), { replace: true }))
+      .catch((err) => setLocalError(googleExchangeMessage(err)))
       .finally(() => setGoogleBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -74,7 +82,8 @@ export default function LoginPage() {
     if (!googleReady || googleBusy) return;
     setLocalError(null);
     setGoogleBusy(true);
-    window.location.href = `${API_BASE_URL}/auth/google/login`;
+    // return_to: the server sends the browser back to this app (checked against its allow-list), not to a configured default
+    window.location.href = googleLoginUrl(API_BASE_URL, window.location.origin);
   }
 
   async function handleSubmit(e) {
@@ -95,9 +104,10 @@ export default function LoginPage() {
     }
     setSubmitting(true);
     try {
-      if (mfaStep === "enroll") await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() });
-      else await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
-      navigate(from, { replace: true });
+      const signedIn = mfaStep === "enroll"
+        ? await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() })
+        : await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
+      navigate(destinationFor(signedIn), { replace: true });
     } catch (err) {
       if (err?.code === "MFA_REQUIRED") {
         setMfaStep("code");

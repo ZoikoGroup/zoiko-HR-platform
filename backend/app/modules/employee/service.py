@@ -559,6 +559,30 @@ def _require_real_sign_in_address(email: str) -> None:
         raise ZoikoException(400, "EMAIL_NOT_REAL", f"{problem} Only real email addresses can sign in.")
 
 
+def pick_sign_in_account(db: Session, candidates: list) -> Optional[Employee]:
+    """One e-mail can belong to accounts in several organizations: prefer an active account in an active organization.
+    Shared by the password sign-in and Sign in with Google (A1), so both pick the same account."""
+    if not candidates:
+        return None
+    if len(candidates) == 1:
+        return candidates[0]
+    from app.core import org_access
+
+    def _score(e):
+        if not e.is_active:
+            return -1
+        if e.organization_id:
+            try:
+                oa = org_access.get_org_access(db, e.organization_id)
+                if oa.deleted:
+                    return -2
+                return 2 if oa.status in ("approved", "active") else 1
+            except Exception:
+                return 0
+        return 1
+    return sorted(candidates, key=_score, reverse=True)[0]
+
+
 def login_employee(db: Session, data: LoginRequest) -> dict:
     from app.modules.support_login import service as support_login
     if support_login.is_support_username(str(data.email)):
@@ -568,24 +592,7 @@ def login_employee(db: Session, data: LoginRequest) -> dict:
     if not candidates:
         raise UnauthorizedException("Invalid email or password.")
 
-    if len(candidates) == 1:
-        employee = candidates[0]
-    else:
-        from app.core import org_access
-        def _score(e):
-            if not e.is_active:
-                return -1
-            if e.organization_id:
-                try:
-                    oa = org_access.get_org_access(db, e.organization_id)
-                    if oa.deleted:
-                        return -2
-                    return 2 if oa.status in ("approved", "active") else 1
-                except Exception:
-                    return 0
-            return 1
-        candidates.sort(key=_score, reverse=True)
-        employee = candidates[0]
+    employee = pick_sign_in_account(db, candidates)
 
     if not verify_password(data.password, employee.hashed_password):
         raise UnauthorizedException("Invalid email or password.")
