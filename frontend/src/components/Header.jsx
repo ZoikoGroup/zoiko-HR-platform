@@ -9,11 +9,13 @@ import logo from "../assets/zoikohr-logo-svg.svg";
 
 /**
  * Header component for the app shell.
- * - Shows Zoiko One logo and a role-based badge.
+ * - Shows the Zoiko HR logo (links to the signed-in user's home, B14) and a role-based badge.
  * - Provides a mobile menu button (hamburger) to toggle the sidebar.
  */
 export default function Header({ onMenuClick, onSearch }) {
-  const { role } = useAuth();
+  const { role, getFirstAccessibleRoute, defaultRedirect } = useAuth();
+  // B14: "/" is not a home page (it sends visitors to /login); the logo goes to this role's dashboard.
+  const home = getFirstAccessibleRoute?.() || defaultRedirect || "/";
   // Keyboard shortcut for command palette
   useEffect(() => {
     const handler = (e) => {
@@ -41,7 +43,7 @@ export default function Header({ onMenuClick, onSearch }) {
 
         {/* Branding */}
         <div className="flex min-w-0 items-center gap-2">
-          <Link to="/"><img src={logo} alt="Zoiko One" className="h-7 w-auto object-contain" /></Link>
+          <Link to={home} aria-label="Zoiko HR home"><img src={logo} alt="Zoiko HR" className="h-7 w-auto object-contain" /></Link>
           <span className="hidden rounded-full border border-[#3B82F6]/25 bg-[#3B82F6]/10 px-2.5 py-0.5 text-xs font-semibold text-[#3B82F6] sm:inline-flex">
             {ROLE_LABELS[role] ?? "Super Admin"}
           </span>

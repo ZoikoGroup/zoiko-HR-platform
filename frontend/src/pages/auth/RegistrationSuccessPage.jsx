@@ -81,7 +81,7 @@ export default function RegistrationSuccessPage() {
       >
         {/* Brand mark */}
         <div className="mb-8 flex items-center justify-center">
-          <img src={logo} alt="Zoiko One" className="h-10 w-auto object-contain" />
+          <img src={logo} alt="Zoiko HR" className="h-10 w-auto object-contain" />
         </div>
 
         <div className="rounded-2xl border border-slate-200/80 bg-white p-8 shadow-xl shadow-slate-900/[0.04] sm:p-10">
