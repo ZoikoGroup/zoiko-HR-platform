@@ -459,6 +459,9 @@ def notify_task_assignees(db: Session, hire: OnboardingNewHire, items: list[Onbo
             by_person.setdefault(item.assignee_employee_id, []).append(item)
     if not by_person:
         return 0
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, hire.organization_id, sorted(by_person), "onboarding.tasks_assigned",
+                    link="/zoiko-hr/onboarding/checklists")                   # A5: in-app, alongside the email
     try:
         from app.modules.employee.models import Employee
         from app.services.email_service import send_onboarding_task_assigned

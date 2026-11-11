@@ -4,7 +4,8 @@
  * The unread badge count, on the query cache. There is no push channel, so it polls (default 45 s, only while the tab
  * is visible) and refetches when the tab regains focus. Mutations elsewhere (opening or marking a notification) call
  * publishUnreadCount() with the count the server returned, which writes it straight into the cache, so every mounted
- * badge updates immediately without a refetch.
+ * badge updates immediately without a refetch. After any change the person makes through the API (MUTATION_EVENT from
+ * service/api.js) the count is re-checked at once, so a notification created by that action shows up without waiting (A5).
  */
 import { useEffect } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -12,6 +13,7 @@ import { notificationService } from "../service/notificationService";
 import { keys } from "../service/queryKeys";
 
 export const UNREAD_EVENT = "zoiko-notifications-unread";
+export const MUTATION_EVENT = "zoiko-api-mutation";       // dispatched by service/api.js after a successful change
 export const POLL_MS = 45_000;
 
 /** Tell every mounted badge the server's new unread count (it is written into the query cache by the hook below). */
@@ -37,7 +39,12 @@ export function useUnreadNotifications({ enabled = true, pollMs = POLL_MS } = {}
     const onFocus = () => qc.invalidateQueries({ queryKey: keys.notifications.unreadCount() });
     window.addEventListener(UNREAD_EVENT, onPublished);
     window.addEventListener("focus", onFocus);
-    return () => { window.removeEventListener(UNREAD_EVENT, onPublished); window.removeEventListener("focus", onFocus); };
+    window.addEventListener(MUTATION_EVENT, onFocus);
+    return () => {
+      window.removeEventListener(UNREAD_EVENT, onPublished);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener(MUTATION_EVENT, onFocus);
+    };
   }, [enabled, qc]);
   // The query that is mounted reads the shared cache, so the count it shows is the one last written by any source.
   const count = enabled ? Number(query.data?.unread_count) || 0 : 0;

@@ -26,6 +26,8 @@ Endpoints created here:
     GET    /hr/dashboard/stats          → HR summary stats
 """
 
+import logging as _logging
+_notify_log = _logging.getLogger("zoiko.notifications.hr")
 import os
 import uuid
 from datetime import date, datetime
@@ -746,8 +748,9 @@ def review_leave(
             notification_type="leave",
         )
         db.commit()
-    except Exception:
-        pass  # notification failure must not break the action
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -1804,8 +1807,9 @@ async def upload_onboarding_document(
             notification_type="onboarding",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return doc
 
 
@@ -1979,8 +1983,9 @@ def request_onboarding_documents(new_hire_id: int, data: OnboardingDocumentReque
                 notification_type="onboarding",
             )
             db.commit()
-        except Exception:
-            pass
+        except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+            db.rollback()
+            _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -2587,8 +2592,9 @@ def update_travel_request(
                 notification_type="travel",
             )
             db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -2660,8 +2666,9 @@ def review_travel_expense(
             notification_type="expense",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -2927,8 +2934,9 @@ async def upload_hr_document_route(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return doc
 
 
@@ -3074,8 +3082,9 @@ def update_hr_document_status(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -3174,8 +3183,9 @@ async def upload_document_version(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return version
 
 
@@ -3259,8 +3269,9 @@ def approve_document(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -3287,8 +3298,9 @@ def reject_document(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 

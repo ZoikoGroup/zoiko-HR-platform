@@ -6,7 +6,7 @@
  * from their own Notification Center, so they are redirected there.
  */
 import { useCallback, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Link, Navigate } from "react-router-dom";
 import { Bell, ChevronLeft, ChevronRight, AlertTriangle, Mail, MailOpen, CheckCheck } from "lucide-react";
 import PageHeader from "../components/PageHeader";
 import NotificationDetailDialog from "../components/notifications/NotificationDetailDialog";
@@ -16,6 +16,7 @@ import { notificationService } from "../service/notificationService";
 import { publishUnreadCount } from "../hooks/useUnreadNotifications";
 import { formatDateTimeWithZone, formatUtc } from "../utils/dateTime";
 import { relativeTime } from "../utils/notificationFormat";
+import { notificationTypeMeta, safeNotificationLink } from "../utils/notificationType";
 
 const PAGE_SIZE = 20;
 
@@ -86,7 +87,7 @@ export default function NotificationsPage() {
 
   return (
     <div className="space-y-6 font-sans">
-      <PageHeader title="Notifications" description="Messages sent to you by the Zoiko HR team." icon={Bell} />
+      <PageHeader title="Notifications" description="Updates about your requests, documents and tasks, and messages from the Zoiko HR team." icon={Bell} />
 
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div role="tablist" aria-label="Filter notifications" className="flex gap-2">
@@ -124,9 +125,17 @@ export default function NotificationsPage() {
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {items.map((n) => (
+            {items.map((n) => {
+              const meta = notificationTypeMeta(n.notification_type);
+              const TypeIcon = meta.icon;
+              const link = safeNotificationLink(n.link);
+              return (
               <li key={n.id} className={`flex items-start gap-4 px-6 py-4 ${n.is_read ? "" : "bg-blue-50/40"}`}>
                 <span aria-hidden="true" className={`mt-2 h-2 w-2 shrink-0 rounded-full ${n.is_read ? "bg-transparent" : "bg-blue-500"}`} />
+                <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-slate-100 text-slate-500" title={meta.label}>
+                  <TypeIcon className="h-4 w-4" aria-hidden="true" />
+                  <span className="sr-only">{meta.label}</span>
+                </span>
                 <button onClick={() => setSelectedId(n.id)} className="min-w-0 flex-1 text-left focus:outline-none focus:ring-2 focus:ring-blue-500/40 rounded-lg">
                   <span className={`block text-sm ${n.is_read ? "text-slate-600" : "font-semibold text-slate-900"}`}>
                     {n.title}{!n.is_read && <span className="sr-only"> (unread)</span>}
@@ -148,8 +157,19 @@ export default function NotificationsPage() {
                 >
                   {n.is_read ? <Mail className="h-4 w-4" /> : <MailOpen className="h-4 w-4" />}
                 </button>
+                {link && (
+                  <Link
+                    to={link}
+                    onClick={() => { if (!n.is_read) notificationService.markRead(n.id).then((r) => publishUnreadCount(r?.unread_count)).catch(() => {}); }}
+                    className="shrink-0 self-center rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-[#3B82F6] transition hover:bg-blue-50 focus:outline-none focus:ring-2 focus:ring-blue-500/40"
+                    aria-label={`Open: ${n.title}`}
+                  >
+                    Open
+                  </Link>
+                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>

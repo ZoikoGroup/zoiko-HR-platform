@@ -1685,6 +1685,8 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
         ],
         commit=True,
     )
+    from app.modules.hr import leave_notifications
+    leave_notifications.leave_submitted(db, record)        # A5: the approver(s) hear about it in-app
 
     # Notify the employee that their leave request was submitted (non-blocking)
     try:
@@ -1864,6 +1866,11 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
         entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
         changes=changes_from(before, update_data),
     )
+    from app.modules.hr import leave_notifications
+    if decision is not None:
+        leave_notifications.leave_decided(db, record)      # A5
+    elif update_data.get("status") == RequestStatus.CANCELLED and before.get("status") != RequestStatus.CANCELLED:
+        leave_notifications.leave_cancelled(db, record)
     return record
 
 
@@ -1908,6 +1915,8 @@ def withdraw_leave_request(db: Session, record: LeaveRequest, actor=None) -> Lea
         entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
         changes=[{"field": "status", "label": "Status", "before": "pending", "after": "cancelled"}],
     )
+    from app.modules.hr import leave_notifications
+    leave_notifications.leave_cancelled(db, record)         # A5: the approver(s) no longer need to act
     return record
 
 
@@ -1989,6 +1998,8 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
 
     if "status" in update_data:
         leave_documents.after_decided(db, record, _actor_of(db, reviewer_id))
+        from app.modules.hr import leave_notifications
+        leave_notifications.leave_decided(db, record)      # A5: the requester hears about it in-app
     return record
 
 
@@ -3657,6 +3668,11 @@ def create_checklist(db: Session, data: OnboardingChecklistCreate, organization_
             ))
         db.commit()
         db.refresh(checklist)
+        assignees = sorted({i.assignee_employee_id for i in data.items if i.assignee_employee_id})
+        if assignees and data.onboarding_new_hire_id:
+            from app.modules.hr.hr_notifications import notify_employee
+            notify_employee(db, organization_id, assignees, "onboarding.tasks_assigned",
+                            link="/zoiko-hr/onboarding/checklists")           # A5
 
     return checklist
 
@@ -4658,11 +4674,17 @@ def get_travel_request(db: Session, request_id: int, organization_id: Optional[i
 
 def update_travel_request(db: Session, request_id: int, data: TravelRequestUpdate, organization_id: Optional[int] = None) -> TravelRequest:
     request = get_travel_request(db, request_id, organization_id)
+    before_status = request.status
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(request, field, value)
     db.commit()
     db.refresh(request)
+    if request.status != before_status and request.status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
+        from app.modules.hr.hr_notifications import notify_employee
+        notify_employee(db, request.organization_id, request.employee_id,
+                        "travel.approved" if request.status == RequestStatus.APPROVED else "travel.rejected",
+                        link="/employee/travel/requests")                      # A5
     _name_travel_rows(db, [request])
     return request
 
@@ -4737,15 +4759,21 @@ def update_travel_approval(db: Session, approval_id: int, data: TravelApprovalUp
     for field, value in update_data.items():
         setattr(approval, field, value)
     
+    newly_approved = None
     if "status" in update_data and update_data["status"] == RequestStatus.APPROVED:
         approval.approved_at = datetime.utcnow()
         # Update the travel request status
         request = approval.request
+        newly_approved = request if request.status != RequestStatus.APPROVED else None
         request.status = RequestStatus.APPROVED
         request.approved_at = datetime.utcnow()
     
     db.commit()
     db.refresh(approval)
+    if newly_approved is not None:
+        from app.modules.hr.hr_notifications import notify_employee
+        notify_employee(db, newly_approved.organization_id, newly_approved.employee_id, "travel.approved",
+                        link="/employee/travel/requests")                      # A5
     return approval
 
 
@@ -4867,6 +4895,8 @@ def review_travel_expense(db: Session, expense_id: int, organization_id: int, st
         raise BadRequestException("A claim can be approved, rejected, or marked as reimbursed.")
     db.commit()
     db.refresh(expense)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, expense.organization_id, expense.employee_id, "expense.reimbursed", link="/employee/travel/expenses")  # A5
     _name_travel_rows(db, [expense])
     return expense
 
@@ -4887,6 +4917,8 @@ def approve_travel_expense(db: Session, expense_id: int, approver_id: int, comme
         expense.description = f"{expense.description or ''} - Approved by {approver_id}: {comments}".strip(" - ")
     db.commit()
     db.refresh(expense)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, expense.organization_id, expense.employee_id, "expense.approved", link="/employee/travel/expenses")  # A5
     return expense
 
 
@@ -4900,6 +4932,8 @@ def reimburse_travel_expense(db: Session, expense_id: int, approver_id: int, com
         expense.description = f"{expense.description or ''} - Reimbursed by {approver_id}: {comments}".strip(" - ")
     db.commit()
     db.refresh(expense)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, expense.organization_id, expense.employee_id, "expense.reimbursed", link="/employee/travel/expenses")  # A5
     return expense
 
 
