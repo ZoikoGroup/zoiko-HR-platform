@@ -19,9 +19,9 @@ test("rules: nothing about a password, and every required box is named", () => {
   const empty = validateAddEmployee({ ...GOOD, first_name: "", last_name: " ", email: "", job_title: "", date_of_joining: "" });
   assert.deepEqual(Object.keys(empty).sort(), ["date_of_joining", "email", "first_name", "job_title", "last_name"]);
   assert.match(validateAddEmployee({ ...GOOD, email: "nope" }).email, /valid email/);
-  assert.match(validateAddEmployee({ ...GOOD, phone: "123" }).phone, /10-digit/);
+  assert.match(validateAddEmployee({ ...GOOD, phone: "123" }).phone, /valid phone number for/);   // B8: per country
   assert.match(validateAddEmployee({ ...GOOD, basic_salary: "500", ctc: "100" }).ctc, /less than the basic/);
-  assert.match(validateAddEmployee({ ...GOOD, first_name: "R2D2" }).first_name, /only letters/);
+  assert.match(validateAddEmployee({ ...GOOD, first_name: "R2D2" }).first_name, /letters only/);   // B16
   assert.deepEqual(addEmployeePayload({ ...GOOD, email: " Aarav@gmail.com ", department_id: "4", basic_salary: "100" }).department_id, 4);
   assert.equal(serverAddEmployeeErrors({ message: "Employee with this email already exists" }).fieldErrors.email, "An employee with this email already exists");
   assert.equal(serverAddEmployeeErrors({ validation: [{ loc: ["body", "password"], msg: "Field required" }] }).fieldErrors.password, "This is required");

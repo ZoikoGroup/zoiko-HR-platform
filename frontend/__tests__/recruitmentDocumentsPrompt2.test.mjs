@@ -96,6 +96,7 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
   const calls = { bulk: [], privacy: 0 };
   const candidate = { id: 11, name: "Ari Applicant", email: "ari@example.com", position: "Designer", status: "screening", source: "referral" };
   t.mock.module("react-router-dom", { exports: {
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),   // useDismissible (B15)
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
     useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {},
   } });
@@ -138,6 +139,7 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
 test("interview scorecard loads requisition criteria and submits the documented score payload", async (t) => {
   const calls = [];
   t.mock.module("react-router-dom", { exports: {
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),   // useDismissible (B15)
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
   } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -173,6 +175,7 @@ test("offer letter lifecycle uses server approval, generation, preview and send"
   const calls = [];
   const state = { status: "draft", letter: null, approved_at: null, issued_at: null };
   t.mock.module("react-router-dom", { exports: {
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),   // useDismissible (B15)
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
   } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });

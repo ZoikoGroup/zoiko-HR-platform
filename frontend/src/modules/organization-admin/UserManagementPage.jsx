@@ -1,4 +1,3 @@
-import { realEmailError } from "../../utils/realEmail";
 import { formatSalary, salaryCurrencyCode, salaryCurrencyName } from "../../utils/employeeCurrency";
 import { statutoryField } from "../../utils/employeeStatutory";
 import { REGISTRATION_COUNTRIES } from "../../utils/registrationRegions";
@@ -8,7 +7,10 @@ import { keys } from "../../service/queryKeys";
 import { useAuth } from "../../context/AuthContext";
 import { importEmployees, downloadImportTemplate, getImportTemplateCountries, getEmployees, hardDeleteEmployee, bulkHardDeleteEmployees } from "../../service/employee";
 import { resolveEmployeeDisplayStatus } from "../../utils/employeeStatus";
-import { phoneError, PHONE_MAX_LENGTH } from "../../utils/phone";
+import PhoneField from "../../components/PhoneField";
+import { COUNTRY_CHOICES, regionsFor, bankAccountInputFilter, countryIso, isIbanCountry, postalExample } from "../../utils/fieldRules";
+import { validateUserForm, userFieldProblem, changedFields, firstInvalid, ADD_REQUIRED, EDIT_REQUIRED } from "../../utils/userFormRules";
+import { serverAddEmployeeErrors } from "../../utils/addEmployeeForm";
 import { createUser, resetPassword, updateUser, deactivateUser, activateUser, archiveUser, getAssignableRoles, getUser } from "../../service/userService";
 import {
   Users,
@@ -154,9 +156,9 @@ const ADD_USER_SECTIONS = [
     { name: "personal_email", label: "Personal email", type: "email" },
     { name: "current_address", label: "Current address", wide: true },
     { name: "permanent_address", label: "Permanent address", wide: true },
-    { name: "city", label: "City" },
-    { name: "state", label: "State" },
     { name: "country", label: "Country" },
+    { name: "state", label: "State" },
+    { name: "city", label: "City" },
     { name: "pincode", label: "Pincode" },
   ] },
   { title: "Compensation & statutory", fields: [
@@ -227,6 +229,98 @@ function detailToEditForm(d) {
   };
 }
 
+const STATUTORY_FIELDS = new Set(["pan_number", "uan_number", "bank_account", "bank_ifsc"]);
+
+// B16–B38: one renderer for every Add / Edit User field. Each field has its rule (utils/userFormRules.js): the message shows
+// under the field (aria-describedby), the field is marked invalid, and what was typed is kept. Country is a list (the server's
+// countries), State is a list where the country has one, Phone has a calling-code selector, and number fields only take the
+// characters that can be valid.
+const NUMERIC_FIELDS = new Set(["pincode", "uan_number", "bank_account", "bank_ifsc", "pan_number"]);
+
+function UserFormField({ f, prefix, form, setForm, errors, setErrors, roleOptions, disabled, onBlurCheck }) {
+  const id = `${prefix}-${f.name}`;
+  const errorId = `${id}-error`;
+  const invalid = !!errors[f.name];
+  const cls = `w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] disabled:bg-gray-50 disabled:text-gray-500 ${
+    invalid ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
+  }`;
+  const value = form[f.name] ?? "";
+  const setValue = (v) => {
+    setForm((prev) => {
+      const next = { ...prev, [f.name]: v };
+      if (f.name === "country" && v !== prev.country) next.state = regionsFor(v) ? "" : prev.state;   // a new country: pick its state again
+      return next;
+    });
+    if (errors[f.name]) setErrors((prev) => ({ ...prev, [f.name]: undefined }));
+  };
+  const set = (e) => setValue(e.target.value);
+  const a11y = { "aria-invalid": invalid ? "true" : undefined, "aria-describedby": invalid ? errorId : undefined };
+  const blur = () => onBlurCheck?.(f.name);
+  const states = f.name === "state" ? regionsFor(form.country) : null;
+  const statutory = STATUTORY_FIELDS.has(f.name);
+
+  let control;
+  if (f.name === "role") {
+    control = (
+      <div className="relative">
+        <select id={id} value={value} onChange={set} disabled={disabled} className={`${cls} appearance-none pr-9`} {...a11y}>
+          {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      </div>
+    );
+  } else if (f.options || f.name === "country" || states) {
+    const options = f.options || (f.name === "country" ? COUNTRY_CHOICES.map((c) => [c.name, c.name]) : states.map((s) => [s, s]));
+    const known = !value || options.some(([v]) => v === value);
+    control = (
+      <div className="relative">
+        <select id={id} value={value} onChange={set} onBlur={blur} disabled={disabled} className={`${cls} appearance-none pr-9`} {...a11y}>
+          <option value="">{f.blank || (f.name === "country" ? "Select a country" : f.name === "state" ? "Select a state/region" : "Select…")}</option>
+          {!known && <option value={value}>{value}</option>}
+          {options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+      </div>
+    );
+  } else if (f.name === "phone") {
+    control = (
+      <PhoneField id={id} value={value} country={form.country} onChange={setValue} onBlur={blur} disabled={disabled}
+        className={cls} invalid={invalid} describedBy={invalid ? errorId : undefined} />
+    );
+  } else {
+    const filter = f.name === "bank_account" ? (v) => bankAccountInputFilter(v, form.country)
+      : NUMERIC_FIELDS.has(f.name) ? (v) => v.toUpperCase() : (v) => v;
+    control = (
+      <input id={id} type={f.type || "text"} value={value} disabled={disabled} className={cls}
+        onChange={(e) => setValue(filter(e.target.value))} onBlur={blur} {...a11y}
+        maxLength={f.type === "number" || f.type === "date" ? undefined : (f.name.endsWith("address") ? 250 : f.type === "email" ? 254 : 100)}
+        inputMode={f.name === "bank_account" && !isIbanCountry(form.country) ? "numeric" : f.name === "uan_number" && countryIso(form.country) === "IN" ? "numeric" : undefined}
+        autoComplete="off"
+        placeholder={f.name === "pincode" ? `e.g. ${postalExample(form.country)}` : statutoryPlaceholder(f, form.country)}
+        min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
+    );
+  }
+
+  return (
+    <div className={f.wide ? "sm:col-span-2" : ""}>
+      <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
+        {statutoryLabel(f, form.country)}{f.required && !disabled ? <span className="text-red-500"> *</span> : null}
+      </label>
+      {control}
+      {invalid && <p id={errorId} className="mt-1 text-xs text-red-500">{errors[f.name]}</p>}
+      {statutory && !countryIso(form.country) && !invalid ? (
+        <p className="mt-1 text-xs text-gray-500">Select the employee's country first: the format of this number depends on it.</p>
+      ) : null}
+      {(f.name === "basic_salary" || f.name === "ctc") && salaryCurrencyName(form.country) ? (
+        <p className="mt-1 text-xs text-gray-500">Amounts in {salaryCurrencyName(form.country)}</p>
+      ) : null}
+      {f.name === "role" && roleOptions.find((r) => r.value === form.role)?.description ? (
+        <p className="mt-1 text-xs text-gray-500">{roleOptions.find((r) => r.value === form.role).description}</p>
+      ) : null}
+    </div>
+  );
+}
+
 /** "3 created, 2 updated" - an update-only file must not read as "0 created". */
 function importSummary(result) {
   const parts = [];
@@ -270,6 +364,7 @@ export default function OrgAdminUserManagementPage() {
   const [editModal, setEditModal] = useState(null);
   const [editForm, setEditForm] = useState(emptyEditForm);
   const [editErrors, setEditErrors] = useState({});
+  const [editInitial, setEditInitial] = useState(null);
   const [editLoading, setEditLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -477,24 +572,23 @@ export default function OrgAdminUserManagementPage() {
     setShowAddModal(true);
   };
 
+  const focusField = (prefix, name) => setTimeout(() => document.getElementById(`${prefix}-${name}`)?.focus(), 0);
+
+  // B16–B38: every field with its rule, all messages at once, the first one focused
   const validateAddForm = () => {
-    const errors = {};
-    if (!formData.first_name.trim()) errors.first_name = "First name is required";
-    if (!formData.last_name.trim()) errors.last_name = "Last name is required";
-    if (!formData.email.trim()) errors.email = "Email is required";
-    else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData.email)) errors.email = "Invalid email";
-    else if (realEmailError(formData.email)) errors.email = realEmailError(formData.email);
-    if (!formData.role) errors.role = "Role is required";
-    if (!formData.job_title.trim()) errors.job_title = "Job title is required";
-    if (!formData.date_of_joining) errors.date_of_joining = "Date of joining is required";
-    const phoneProblem = phoneError(formData.phone);
-    if (phoneProblem) errors.phone = phoneProblem;
-    ["work_email", "personal_email"].forEach((k) => {
-      if (formData[k].trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(formData[k])) errors[k] = "Invalid email";
-      else if (formData[k].trim() && realEmailError(formData[k])) errors[k] = realEmailError(formData[k]);
-    });
+    const errors = validateUserForm(formData, { required: ADD_REQUIRED });
     setFormErrors(errors);
-    return Object.keys(errors).length === 0;
+    const first = firstInvalid(ADD_USER_SECTIONS, errors);
+    if (first) focusField("add-user", first);
+    return !first;
+  };
+  const addBlurCheck = (name) => {
+    if (!String(formData[name] ?? "").trim()) return;
+    setFormErrors((prev) => ({ ...prev, [name]: userFieldProblem(name, formData) || undefined }));
+  };
+  const editBlurCheck = (name) => {
+    if (!changedFields(editForm, editInitial || {}).has(name)) return;
+    setEditErrors((prev) => ({ ...prev, [name]: userFieldProblem(name, editForm, EDIT_REQUIRED) || undefined }));
   };
 
   const handleAddUser = async (e) => {
@@ -515,7 +609,15 @@ export default function OrgAdminUserManagementPage() {
       setNotice({ message: res.message || "User created successfully.", type: "success" });
       await fetchUsers();
     } catch (err) {
-      setFormErrors({ submit: err.message || err.response?.data?.detail || "Failed to create user" });
+      // the server checks the same rules: its messages go under the fields they belong to
+      const { fieldErrors, message } = serverAddEmployeeErrors(err);
+      if (Object.keys(fieldErrors).length) {
+        setFormErrors(fieldErrors);
+        const first = firstInvalid(ADD_USER_SECTIONS, fieldErrors);
+        if (first) focusField("add-user", first);
+      } else {
+        setFormErrors({ submit: message || err.message || "Failed to create user" });
+      }
     } finally {
       setSubmitting(false);
     }
@@ -558,6 +660,7 @@ export default function OrgAdminUserManagementPage() {
     try {
       const detail = await getUser(u.id);
       setEditForm(detailToEditForm(detail));
+      setEditInitial(detailToEditForm(detail));
       setEditModal({ ...u, phone: detail.phone || u.phone || "" });
     } catch (err) {
       setEditErrors({ submit: err.response?.data?.detail || err.message || "Failed to load user details." });
@@ -568,20 +671,14 @@ export default function OrgAdminUserManagementPage() {
 
   const handleEdit = async (e) => {
     e.preventDefault();
-    const errors = {};
-    if (!editForm.first_name.trim()) errors.first_name = "Required";
-    if (!editForm.last_name.trim()) errors.last_name = "Required";
-    // only a number that was changed is checked, so details of someone with an older number can still be saved
-    if (editForm.phone.trim() !== (editModal.phone || "").trim()) {
-      const phoneProblem = phoneError(editForm.phone);
-      if (phoneProblem) errors.phone = phoneProblem;
+    // only values that were changed are checked, so details of someone whose stored values predate the rules can still be saved
+    const errors = validateUserForm(editForm, { required: EDIT_REQUIRED, only: changedFields(editForm, editInitial || {}) });
+    if (Object.keys(errors).length) {
+      setEditErrors(errors);
+      const first = firstInvalid(EDIT_SECTIONS, errors);
+      if (first) focusField("edit-user", first);
+      return;
     }
-    ["work_email", "personal_email"].forEach((k) => {
-      const v = editForm[k].trim();
-      if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) errors[k] = "Invalid email";
-      else if (v && realEmailError(v)) errors[k] = realEmailError(v);
-    });
-    if (Object.keys(errors).length) { setEditErrors(errors); return; }
 
     setSaving(true);
     try {
@@ -598,7 +695,14 @@ export default function OrgAdminUserManagementPage() {
       setNotice({ message: "User updated successfully.", type: "success" });
       await fetchUsers();
     } catch (err) {
-      setEditErrors({ submit: err.response?.data?.detail || err.message || "Failed to update user" });
+      const { fieldErrors, message } = serverAddEmployeeErrors(err);
+      if (Object.keys(fieldErrors).length) {
+        setEditErrors(fieldErrors);
+        const first = firstInvalid(EDIT_SECTIONS, fieldErrors);
+        if (first) focusField("edit-user", first);
+      } else {
+        setEditErrors({ submit: message || err.message || "Failed to update user" });
+      }
     } finally {
       setSaving(false);
     }
@@ -1170,7 +1274,7 @@ export default function OrgAdminUserManagementPage() {
               </button>
             </div>
 
-            <form onSubmit={handleAddUser} className="max-h-[78vh] overflow-y-auto px-5 pt-5 space-y-5">
+            <form onSubmit={handleAddUser} noValidate className="max-h-[78vh] overflow-y-auto px-5 pt-5 space-y-5">
               {formErrors.submit && (
                 <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
                   {formErrors.submit}
@@ -1181,53 +1285,10 @@ export default function OrgAdminUserManagementPage() {
                 <fieldset key={section.title} disabled={submitting}>
                   <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">{section.title}</legend>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {section.fields.map((f) => {
-                      const id = `add-user-${f.name}`;
-                      const cls = `w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] ${
-                        formErrors[f.name] ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
-                      }`;
-                      const value = formData[f.name] ?? "";
-                      const set = (e) => {
-                        setFormData({ ...formData, [f.name]: e.target.value });
-                        if (formErrors[f.name]) setFormErrors((prev) => ({ ...prev, [f.name]: undefined }));
-                      };
-                      return (
-                        <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
-                          <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
-                            {statutoryLabel(f, formData.country)}{f.required ? <span className="text-red-500"> *</span> : null}
-                          </label>
-                          {f.name === "role" ? (
-                            <div className="relative">
-                              <select id={id} value={value} onChange={set} className={`${cls} appearance-none pr-9`}>
-                                {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                              </select>
-                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                            </div>
-                          ) : f.options ? (
-                            <div className="relative">
-                              <select id={id} value={value} onChange={set} className={`${cls} appearance-none pr-9`}>
-                                <option value="">{f.blank || "Select…"}</option>
-                                {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                              </select>
-                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                            </div>
-                          ) : (
-                            <input id={id} type={f.type || "text"} value={value} onChange={set} className={cls}
-                              maxLength={f.name === "phone" ? PHONE_MAX_LENGTH : undefined} inputMode={f.name === "phone" ? "tel" : undefined}
-                              onBlur={f.name === "phone" ? () => setFormErrors((prev) => ({ ...prev, phone: phoneError(formData.phone) || undefined })) : undefined}
-                              aria-invalid={formErrors[f.name] ? "true" : undefined}
-                              placeholder={statutoryPlaceholder(f, formData.country)} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
-                          )}
-                          {formErrors[f.name] && <p className="mt-1 text-xs text-red-500">{formErrors[f.name]}</p>}
-                          {(f.name === "basic_salary" || f.name === "ctc") && salaryCurrencyName(formData.country) ? (
-                            <p className="mt-1 text-xs text-gray-500">Amounts in {salaryCurrencyName(formData.country)}</p>
-                          ) : null}
-                          {f.name === "role" && roleOptions.find((r) => r.value === formData.role)?.description ? (
-                            <p className="mt-1 text-xs text-gray-500">{roleOptions.find((r) => r.value === formData.role).description}</p>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                    {section.fields.map((f) => (
+                      <UserFormField key={f.name} f={f} prefix="add-user" form={formData} setForm={setFormData} errors={formErrors}
+                        setErrors={setFormErrors} roleOptions={roleOptions} onBlurCheck={addBlurCheck} />
+                    ))}
                   </div>
                 </fieldset>
               ))}
@@ -1416,7 +1477,7 @@ export default function OrgAdminUserManagementPage() {
                 <X className="h-5 w-5" />
               </button>
             </div>
-            <form onSubmit={handleEdit} className="max-h-[78vh] overflow-y-auto px-5 pt-5 space-y-5">
+            <form onSubmit={handleEdit} noValidate className="max-h-[78vh] overflow-y-auto px-5 pt-5 space-y-5">
               {editErrors.submit && (
                 <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{editErrors.submit}</div>
               )}
@@ -1429,51 +1490,10 @@ export default function OrgAdminUserManagementPage() {
                 <fieldset key={section.title} disabled={saving}>
                   <legend className="mb-2 text-xs font-bold uppercase tracking-wider text-gray-400">{section.title}</legend>
                   <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                    {section.fields.map((f) => {
-                      const id = `edit-user-${f.name}`;
-                      const disabled = EDIT_DISABLED_FIELDS.has(f.name);
-                      const cls = `w-full rounded-lg border px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#DBEAFE] disabled:bg-gray-50 disabled:text-gray-500 ${
-                        editErrors[f.name] ? "border-red-300 focus:border-red-400" : "border-gray-200 focus:border-[#3B82F6]"
-                      }`;
-                      const value = editForm[f.name] ?? "";
-                      const set = (e) => {
-                        setEditForm({ ...editForm, [f.name]: e.target.value });
-                        if (editErrors[f.name]) setEditErrors((prev) => ({ ...prev, [f.name]: undefined }));
-                      };
-                      return (
-                        <div key={f.name} className={f.wide ? "sm:col-span-2" : ""}>
-                          <label htmlFor={id} className="mb-1 block text-sm font-medium text-gray-700">
-                            {statutoryLabel(f, editForm.country)}{f.required && !disabled ? <span className="text-red-500"> *</span> : null}
-                          </label>
-                          {f.name === "role" ? (
-                            <div className="relative">
-                              <select id={id} value={value} onChange={set} disabled={disabled} className={`${cls} appearance-none pr-9`}>
-                                {roleOptions.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-                              </select>
-                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                            </div>
-                          ) : f.options ? (
-                            <div className="relative">
-                              <select id={id} value={value} onChange={set} disabled={disabled} className={`${cls} appearance-none pr-9`}>
-                                <option value="">{f.blank || "Select…"}</option>
-                                {f.options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                              </select>
-                              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
-                            </div>
-                          ) : (
-                            <input id={id} type={f.type || "text"} value={value} onChange={set} disabled={disabled} className={cls}
-                              maxLength={f.name === "phone" ? PHONE_MAX_LENGTH : undefined} inputMode={f.name === "phone" ? "tel" : undefined}
-                              onBlur={f.name === "phone" ? () => { if (editForm.phone.trim() !== (editModal?.phone || "").trim()) setEditErrors((prev) => ({ ...prev, phone: phoneError(editForm.phone) || undefined })); } : undefined}
-                              aria-invalid={editErrors[f.name] ? "true" : undefined}
-                              placeholder={statutoryPlaceholder(f, editForm.country)} min={f.type === "number" ? "0" : undefined} step={f.type === "number" ? "0.01" : undefined} />
-                          )}
-                          {editErrors[f.name] && <p className="mt-1 text-xs text-red-500">{editErrors[f.name]}</p>}
-                          {(f.name === "basic_salary" || f.name === "ctc") && salaryCurrencyName(editForm.country) ? (
-                            <p className="mt-1 text-xs text-gray-500">Amounts in {salaryCurrencyName(editForm.country)}</p>
-                          ) : null}
-                        </div>
-                      );
-                    })}
+                    {section.fields.map((f) => (
+                      <UserFormField key={f.name} f={f} prefix="edit-user" form={editForm} setForm={setEditForm} errors={editErrors}
+                        setErrors={setEditErrors} roleOptions={roleOptions} disabled={EDIT_DISABLED_FIELDS.has(f.name)} onBlurCheck={editBlurCheck} />
+                    ))}
                   </div>
                 </fieldset>
               ))}

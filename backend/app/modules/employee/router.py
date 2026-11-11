@@ -249,6 +249,8 @@ def google_exchange(request: Request, data: GoogleExchangeRequest, db: Session =
 )
 @limiter.limit("5/minute")
 def register(request: Request, data: RegisterRequest, db: Session = Depends(get_db)):
+    from app.core import field_rules
+    field_rules.check_registration(data)       # B7-B13: the same rules as the form, even when the form is bypassed
     return service.register_enterprise(db, data)
 
 
@@ -1055,9 +1057,18 @@ def update_my_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from pydantic import ValidationError
+    from app.core import field_rules
+    from app.modules.employee.schema import self_update_problems
+    problems = self_update_problems(data)
+    try:
+        update = EmployeeUpdate(**data.model_dump(exclude_unset=True))
+    except ValidationError as exc:              # e.g. a disposable personal e-mail: a 422 on that field, never a 500
+        for err in exc.errors():
+            problems.setdefault(str(err["loc"][-1]), str(err["msg"]).removeprefix("Value error, "))
+        field_rules.raise_if_errors(problems)
     return service.update_employee(
-        db, current_user.id, EmployeeUpdate(**data.model_dump(exclude_unset=True)),
-        current_user.organization_id, actor=current_user,
+        db, current_user.id, update, current_user.organization_id, actor=current_user, extra_errors=problems,
     )
 
 

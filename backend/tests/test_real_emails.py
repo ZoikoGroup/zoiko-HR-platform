@@ -211,7 +211,7 @@ def test_google_sign_in_confirms_the_address_because_google_already_has(env, mon
     monkeypatch.setattr(settings, "API_BASE_URL", "https://api.example.com")
     monkeypatch.setattr(settings, "FRONTEND_URL", "https://app.example.com")
     env.post(ADD, json=_new())
-    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code: {"email": "new.hire@gmail.com", "name": "New Hire", "error": None})
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code, request=None: {"email": "new.hire@gmail.com", "name": "New Hire", "error": None})
     c = TestClient(env.app if hasattr(env, "app") else __import__("app.main", fromlist=["app"]).app, raise_server_exceptions=False, follow_redirects=False)
     start = c.get("/auth/google/login")
     from urllib.parse import parse_qs, urlparse

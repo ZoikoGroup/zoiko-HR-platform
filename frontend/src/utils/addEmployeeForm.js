@@ -1,32 +1,27 @@
 // "Add Employee" on the dashboard: the same rules as the server (employee/schema.EmployeeCreate), so the message is the same
 // whether the browser or the server catches the problem. No password is asked for: the server makes a one-time temporary
 // one, e-mails it, and shows it once to whoever added the person.
-import { phoneError } from "./phone";
-import { realEmailError } from "./realEmail";
+import { fieldProblem } from "./fieldRules";
 
 const clean = (v) => String(v ?? "").trim().replace(/\s+/g, " ");
-const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-const NAME = /^[A-Za-zÀ-ɏ][A-Za-zÀ-ɏ .'-]*$/;
 
 /** { field: message } for everything wrong with the form. */
 export function validateAddEmployee(form) {
   const e = {};
+  // B16–B19 / B8: the shared field rules (utils/fieldRules.js), the same as the server
   for (const [key, label] of [["first_name", "First name"], ["last_name", "Last name"]]) {
     const v = clean(form[key]);
     if (!v) e[key] = `${label} is required`;
-    else if (!NAME.test(v)) e[key] = `${label} can contain only letters, spaces and . ' -`;
-    else if (v.length > 100) e[key] = `${label} can be at most 100 characters`;
+    else if (fieldProblem("person_name", v)) e[key] = fieldProblem("person_name", v);
   }
   const email = clean(form.email);
   if (!email) e.email = "Email is required";
-  else if (!EMAIL.test(email)) e.email = "Enter a valid email address";
-  else if (realEmailError(email)) e.email = realEmailError(email);
+  else if (fieldProblem("email", email)) e.email = fieldProblem("email", email);
 
-  const phone = phoneError(form.phone);
-  if (clean(form.phone) && phone) e.phone = phone;
+  if (clean(form.phone) && fieldProblem("phone", form.phone, { country: form.country })) e.phone = fieldProblem("phone", form.phone, { country: form.country });
 
   if (!clean(form.job_title)) e.job_title = "Job title is required";
-  else if (clean(form.job_title).length > 150) e.job_title = "Job title can be at most 150 characters";
+  else if (fieldProblem("job_title", form.job_title)) e.job_title = fieldProblem("job_title", form.job_title);
 
   if (!form.date_of_joining) e.date_of_joining = "Date of joining is required";
   else if (!/^\d{4}-\d{2}-\d{2}$/.test(form.date_of_joining) || Number(form.date_of_joining.slice(0, 4)) < 1980) e.date_of_joining = "Enter a valid date of joining";

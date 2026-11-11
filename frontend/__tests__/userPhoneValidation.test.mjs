@@ -1,11 +1,11 @@
-/** Add/Edit User: a phone number with more (or fewer) than 10 digits is rejected with a message. */
+/** Add/Edit User (B8 rule): a phone number is checked for its country and refused with a message under the field. */
 import "./support/setup-jsdom.mjs";
 import { withQuery } from "./support/queryWrapper.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import React from "react";
 import { render, screen, cleanup, act, fireEvent } from "@testing-library/react";
-import { phoneError, PHONE_ERROR } from "../src/utils/phone.js";
+import { fieldProblem } from "../src/utils/fieldRules.js";
 
 const userSvc = {};
 const auth = { user: { id: 1, role: "admin", email: "a@gmail.com" }, role: "admin", isAuthenticated: true };
@@ -39,28 +39,39 @@ async function openAddUser(t) {
   await settle();
 }
 
-test("the phone rule: 10 digits, optional country code, separators allowed", () => {
-  for (const ok of ["", "   ", "9876543210", "+91 98765 43210", "+91-9876543210", "(555) 010-0100", "+1 (555) 010-0100", "555.010.0100"]) assert.equal(phoneError(ok), "", ok);
-  for (const bad of ["98765432101", "123456789", "987654321012345", "+91 9876543", "abcdefghij", "98765 4321x", "+12 34", "12-34"]) assert.equal(phoneError(bad), PHONE_ERROR, bad);
+const phone = () => document.getElementById("add-user-phone");
+const typePhone = (value) => fireEvent.change(phone(), { target: { value } });
+const INDIA = "Enter a valid phone number for India.";
+const fillRequired = () => {
+  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
+  fireEvent.change(screen.getByLabelText(/^Date of joining/), { target: { value: "2026-10-01" } });
+  fireEvent.change(document.getElementById("add-user-country"), { target: { value: "India" } });
+};
+
+test("B8 the phone rule is per country (libphonenumber), not a fixed 10 digits", () => {
+  assert.equal(fieldProblem("phone", "+91 98765 43210"), "");
+  assert.equal(fieldProblem("phone", "(415) 555-2671", { country: "United States" }), "");
+  assert.equal(fieldProblem("phone", "+65 6123 4567"), "", "an 8-digit Singapore number is fine");
+  assert.equal(fieldProblem("phone", "98765432101", { country: "India" }), INDIA);
+  assert.equal(fieldProblem("phone", "98765abc10", { country: "India" }), INDIA);
 });
 
-test("Add User refuses an 11-digit phone, shows why, and sends nothing; a valid one is sent", async (t) => {
+test("Add User refuses a wrong phone for the country, shows why, and sends nothing; a valid one is sent with its code", async (t) => {
   const sent = [];
   await openAddUser(t);
   userSvc.createUser = async (p) => { sent.push(p); return { message: "User created successfully.", temporary_password: null }; };
-  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
-  fireEvent.change(screen.getByLabelText(/^Date of joining/), { target: { value: "2026-10-01" } });
-
-  type(/^Phone/, "98765432101");
-  fireEvent.blur(screen.getByLabelText(/^Phone/));
+  fillRequired();
+  typePhone("98765 4321 01");
+  fireEvent.blur(phone());
   await settle();
-  assert.ok(screen.getByText(PHONE_ERROR), "the message appears as soon as the field is left");
+  assert.ok(screen.getByText(INDIA), "the message appears as soon as the field is left");
+  assert.equal(phone().getAttribute("aria-invalid"), "true");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
   assert.equal(sent.length, 0);
 
-  type(/^Phone/, "+91 98765 43210");
-  assert.equal(screen.queryByText(PHONE_ERROR), null, "the message clears while correcting");
+  typePhone("98765 43210");
+  assert.equal(screen.queryByText(INDIA), null, "the message clears while correcting");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
   assert.equal(sent.length, 1);
@@ -72,20 +83,21 @@ test("a wrong phone is also caught when the form is submitted without leaving th
   const sent = [];
   await openAddUser(t);
   userSvc.createUser = async (p) => { sent.push(p); return { message: "ok" }; };
-  type(/^First name/, "Rahul"); type(/^Last name/, "Mehta"); type(/^Email/, "rahul@gmail.com"); type(/^Job title/, "Engineer");
-  fireEvent.change(screen.getByLabelText(/^Date of joining/), { target: { value: "2026-10-01" } });
-  type(/^Phone/, "123456789012");
+  fillRequired();
+  typePhone("123456789012");
   fireEvent.click(screen.getByRole("button", { name: "Create User" }));
   await settle();
-  assert.ok(screen.getByText(PHONE_ERROR));
+  assert.ok(screen.getByText(INDIA));
   assert.equal(sent.length, 0);
   cleanup();
 });
 
-test("the phone field limits how much can be typed and uses a telephone keypad", async (t) => {
+test("the phone field has a calling-code selector, a telephone keypad, and refuses letters as they are typed", async (t) => {
   await openAddUser(t);
-  const input = screen.getByLabelText(/^Phone/);
-  assert.equal(input.getAttribute("maxlength"), "20");
-  assert.equal(input.getAttribute("type"), "tel");
+  assert.ok(screen.getByLabelText("Phone country code"));
+  assert.equal(phone().getAttribute("maxlength"), "20");
+  assert.equal(phone().getAttribute("type"), "tel");
+  typePhone("98765abc");
+  assert.equal(phone().value, "98765");
   cleanup();
 });

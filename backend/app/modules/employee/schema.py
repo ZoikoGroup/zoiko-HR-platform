@@ -92,7 +92,7 @@ def _clean_travel_preferences(v):
 
 
 class EmployeeCreate(BaseModel):
-    email:               EmailStr          = Field(..., example="john.doe@zoiko.com")
+    email:               str               = Field(..., max_length=254, example="john.doe@zoiko.com")
     # Optional: when it is left out a one-time temporary password is generated, e-mailed to the employee and shown once
     # to whoever added them; the employee must change it at first sign-in.
     password:            Optional[str]     = Field(None, min_length=8, example="SecurePass123!")
@@ -124,11 +124,8 @@ class EmployeeCreate(BaseModel):
     country:             Optional[str]     = Field(None, example="India")
     pincode:             Optional[str]     = Field(None, example="400001")
 
-    @field_validator("email", "work_email", "personal_email", mode="after", check_fields=False)
-    @classmethod
-    def _v_real_email(cls, v, info):
-        from app.core.email_quality import check_real_email
-        return check_real_email(v, label="Email")
+    # e-mails (syntax, placeholder / disposable domains, a domain with no mail servers) are checked with every other
+    # field in the service by app/core/field_rules.py, so all problems come back together, one per field (B18, B26, B27)
 
 
 class EmployeeUpdate(BaseModel):
@@ -192,11 +189,8 @@ class EmployeeUpdate(BaseModel):
         from app.core import identity_formats as f
         return f.emergency_contacts(v)
 
-    @field_validator("work_email", "personal_email", mode="after", check_fields=False)
-    @classmethod
-    def _v_real_email(cls, v, info):
-        from app.core.email_quality import check_real_email
-        return check_real_email(v, label="Email")
+    # e-mails (syntax, placeholder / disposable domains, a domain with no mail servers) are checked with every other
+    # field in the service by app/core/field_rules.py, so all problems come back together, one per field (B18, B26, B27)
 
 
 CONTACT_HR_TOPICS = ("Leave balance not set up", "Leave request question", "Payroll or payslip", "Profile or documents", "Other")
@@ -281,70 +275,28 @@ class EmployeeSelfUpdate(BaseModel):
         from app.core import identity_formats as f
         return f.emergency_contacts(v)
 
-    @field_validator("first_name", "last_name", mode="before")
-    @classmethod
-    def _v_name(cls, v, info):
-        from app.core import identity_formats as f
-        label = "First name" if info.field_name == "first_name" else "Last name"
-        text = f.person_text(v, label, 100)
-        if text is None:
-            raise ValueError(f"{label} is required.")
-        return text
+    # Every personal field is checked in one pass by self_update_problems() + the shared field rules (app/core/field_rules.py),
+    # so the person sees every problem at once and only a value that is being changed is checked (B16-B38).
 
-    @field_validator("phone", mode="before")
-    @classmethod
-    def _v_phone(cls, v):
-        from app.core.phone import normalize_phone
-        return normalize_phone(v)
 
-    @field_validator("date_of_birth")
-    @classmethod
-    def _v_dob(cls, v):
-        if v is None:
-            return v
+def self_update_problems(data: "EmployeeSelfUpdate") -> dict:
+    """{field: message} for the checks that need no stored record: names present, a believable date of birth."""
+    errors = {}
+    for field, label in (("first_name", "First name"), ("last_name", "Last name")):
+        value = getattr(data, field)
+        if field in data.model_fields_set and (value is None or not str(value).strip()):
+            errors[field] = f"{label} is required."
+    v = data.date_of_birth
+    if v is not None:
         today = date.today()
         if v >= today:
-            raise ValueError("Date of birth must be in the past.")
-        if v.year < 1900:
-            raise ValueError("Enter a valid date of birth.")
-        if (today - v).days < 14 * 365:
-            raise ValueError("An employee must be at least 14 years old.")
-        return v
+            errors["date_of_birth"] = "Date of birth must be in the past."
+        elif v.year < 1900:
+            errors["date_of_birth"] = "Enter a valid date of birth."
+        elif (today - v).days < 14 * 365:
+            errors["date_of_birth"] = "An employee must be at least 14 years old."
+    return errors
 
-    @field_validator("personal_email", mode="before")
-    @classmethod
-    def _v_email(cls, v):
-        text = "" if v is None else str(v).strip()
-        if not text:
-            return None
-        if len(text) > 255 or not re.fullmatch(r"[^@\s]+@[^@\s]+\.[A-Za-z]{2,}", text):
-            raise ValueError("Enter a valid email address, for example name@yourcompany.com.")
-        from app.core.email_quality import check_real_email
-        return check_real_email(text, label="Personal email").lower()
-
-    @field_validator("company", "business_unit", "team", mode="before")
-    @classmethod
-    def _v_work(cls, v, info):
-        from app.core import identity_formats as f
-        return f.free_text(v, info.field_name.replace("_", " ").capitalize(), 100)
-
-    @field_validator("address", "current_address", "permanent_address", mode="before")
-    @classmethod
-    def _v_address(cls, v, info):
-        from app.core import identity_formats as f
-        return f.free_text(v, info.field_name.replace("_", " ").capitalize(), 500)
-
-    @field_validator("city", "state", "country", mode="before")
-    @classmethod
-    def _v_place(cls, v, info):
-        from app.core import identity_formats as f
-        return f.person_text(v, info.field_name.capitalize(), 100, letters_only=False)
-
-    @field_validator("pincode", mode="before")
-    @classmethod
-    def _v_pin(cls, v):
-        from app.core import identity_formats as f
-        return f.pincode(v)
 
 
 
@@ -553,6 +505,8 @@ class RegisterRequest(BaseModel):
     timezone: Optional[str] = Field(None, example="UTC")
     industry: Optional[str] = Field(None, example="Technology")
     tax_number: Optional[str] = Field(None, example="12-3456789")
+    # which of the country's business IDs tax_number is (gstin / cin / pan / ein / abn / vat ...): app/core/business_ids.py
+    tax_id_type: Optional[str] = Field(None, max_length=30, example="gstin")
     registered_email: Optional[str] = Field(None, example="company@yourcompany.com")
     otp: Optional[str] = Field(None, example="123456", description="Verification code sent to registered_email")
     # Set when the person arrived through "Continue with Google": proof that Google already confirmed the admin address.
@@ -584,14 +538,9 @@ class VerifyRegistrationOtpRequest(BaseModel):
 class UserCreateRequest(BaseModel):
     first_name: str = Field(..., min_length=1, max_length=100, example="Jane")
     last_name:  str = Field(..., min_length=1, max_length=100, example="Smith")
-    email:      EmailStr = Field(..., example="jane.smith@company.com")
+    email:      str = Field(..., max_length=254, example="jane.smith@company.com")
+    # phone: checked with the country (app/core/field_rules.py) in the service, where the country is known
     phone:      Optional[str] = Field(None, example="+91 9876543210")
-
-    @field_validator("phone")
-    @classmethod
-    def _valid_phone(cls, v):
-        from app.core.phone import normalize_phone
-        return normalize_phone(v)
     role:       UserRole = Field(..., example="hr_admin")
     job_title:  Optional[str] = Field(None, max_length=150, example="Software Engineer")
     organization_id: Optional[int] = Field(None, description="Target organization (Super Admin only)")
@@ -625,11 +574,8 @@ class UserCreateRequest(BaseModel):
     bank_account: Optional[str] = Field(None, max_length=50)
     bank_ifsc: Optional[str] = Field(None, max_length=20)
 
-    @field_validator("email", "work_email", "personal_email", mode="after", check_fields=False)
-    @classmethod
-    def _v_real_email(cls, v, info):
-        from app.core.email_quality import check_real_email
-        return check_real_email(v, label="Email")
+    # e-mails (syntax, placeholder / disposable domains, a domain with no mail servers) are checked with every other
+    # field in the service by app/core/field_rules.py, so all problems come back together, one per field (B18, B26, B27)
 
 
 class UserUpdateRequest(BaseModel):
@@ -668,11 +614,8 @@ class UserUpdateRequest(BaseModel):
     bank_account: Optional[str] = Field(None, max_length=50)
     bank_ifsc: Optional[str] = Field(None, max_length=20)
 
-    @field_validator("work_email", "personal_email", mode="after", check_fields=False)
-    @classmethod
-    def _v_real_email(cls, v, info):
-        from app.core.email_quality import check_real_email
-        return check_real_email(v, label="Email")
+    # e-mails (syntax, placeholder / disposable domains, a domain with no mail servers) are checked with every other
+    # field in the service by app/core/field_rules.py, so all problems come back together, one per field (B18, B26, B27)
 
 
 class UserResponse(BaseModel):
