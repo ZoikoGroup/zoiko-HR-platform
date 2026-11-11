@@ -90,7 +90,8 @@ def test_the_file_can_be_downloaded_with_its_title_and_listed_documents_point_to
 
 
 def test_approve_reject_rules(client):
-    doc = _post(client).json()
+    # an uploaded document HR reviews (package agreements such as the offer letter are completed by e-signature instead)
+    doc = _post(client, {"title": "Passport", "category": "id_proof"}).json()
     url = f"/hr/onboarding/documents/{doc['id']}"
     assert client.put(url, json={"status": "bogus"}).status_code == 422
     assert client.put(url, json={"status": "rejected"}).status_code == 400            # a reason is needed
@@ -99,3 +100,10 @@ def test_approve_reject_rules(client):
     back = client.put(url, json={"status": "approved"}).json()
     assert back["status"] == "approved" and back["rejection_reason"] is None
     assert client.put(url, json={"title": "  "}).status_code == 422
+
+
+def test_package_agreements_are_not_approved_or_rejected_by_hand(client):
+    url = f"/hr/onboarding/documents/{_post(client).json()['id']}"            # offer_letter: a SIGN document
+    r = client.put(url, json={"status": "rejected", "rejection_reason": "Blurry scan"})
+    assert r.status_code == 400 and "electronic signature" in r.text
+    assert client.put(url, json={"status": "approved"}).status_code == 400

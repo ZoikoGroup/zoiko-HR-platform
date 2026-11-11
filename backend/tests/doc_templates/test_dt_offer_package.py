@@ -320,8 +320,8 @@ def test_company_logo_upload_validation_and_rendering(world):
     h, _token = _new_hire(world)
     pdf = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/offer_letter/preview.pdf").content
     assert "insert approved asset" not in _text(pdf)
-    import fitz
-    assert len(fitz.open(stream=pdf)[0].get_images()) >= 1
+    from pypdf import PdfReader
+    assert len(PdfReader(_io.BytesIO(pdf)).pages[0].images) >= 1, "the logo is embedded as an image"
     assert world.client.delete("/hr/onboarding/package/logo", headers=world._h("a_admin")).json()["settings"]["has_logo"] is False
     pdf = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/offer_letter/preview.pdf").content
     assert "insert approved asset" in _text(pdf), "placeholder comes back"
