@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import PasswordInput from "../../components/PasswordInput";
 import { useAuth } from "../../context/AuthContext";
 import { googleSignInEnabled, mfaEnrollStart, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
@@ -19,7 +19,6 @@ export default function LoginPage() {
   const [mfaStep, setMfaStep] = useState(null);
   const [mfaCode, setMfaCode] = useState("");
   const [enrollment, setEnrollment] = useState(null);
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
@@ -189,21 +188,18 @@ export default function LoginPage() {
 
               <div className="login-field">
                 <label htmlFor="login-password">Password</label>
-                <div className="password-input-wrap">
-                  <input
-                    id="login-password"
-                    name="password"
-                    type={showPassword ? "text" : "password"}
-                    value={password}
-                    aria-invalid={fieldErrors.password ? "true" : undefined}
-                    onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
-                    placeholder="Enter your password"
-                    autoComplete="current-password"
-                  />
-                  <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                    {showPassword ? <EyeOff /> : <Eye />}
-                  </button>
-                </div>
+                <PasswordInput
+                  wrapperClassName="password-input-wrap"
+                  toggleClassName="password-toggle"
+                  id="login-password"
+                  name="password"
+                  value={password}
+                  aria-invalid={fieldErrors.password ? "true" : undefined}
+                  onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
+                  placeholder="Enter your password"
+                  autoComplete="current-password"
+                  iconSize={20}
+                />
                 {fieldErrors.password && <p role="alert" className="field-error">{fieldErrors.password}</p>}
               </div>
 

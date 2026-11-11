@@ -1,13 +1,12 @@
 import { realEmailError } from "../../utils/realEmail";
 import PlanComparison from "../../components/PlanComparison";
+import PasswordInput from "../../components/PasswordInput";
 import { planHighlights } from "../../config/planMatrix";
 import { useEffect, useState, useRef } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { readGoogleSignup, withoutGoogleSignupParams } from "../../utils/googleSignup";
 import {
   Loader2,
-  Eye,
-  EyeOff,
   AlertCircle,
   Check,
   X,
@@ -71,7 +70,6 @@ export default function RegisterPage() {
     google.email.toLowerCase() === form.adminEmail.trim().toLowerCase() &&
     google.email.toLowerCase() === form.registeredEmail.trim().toLowerCase()
   );
-  const [showPassword, setShowPassword] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
 
@@ -510,15 +508,10 @@ export default function RegisterPage() {
                     </div>
 
                     <div>
-                      <label className={label}>Password<Req /></label>
-                      <div className="relative">
-                        <input type={showPassword ? "text" : "password"} required minLength={8} value={form.password} onChange={(e) => update("password", e.target.value)}
-                          placeholder="At least 8 characters" className={`${field} pr-11`} />
-                        <button type="button" onClick={() => setShowPassword((v) => !v)} aria-label={showPassword ? "Hide password" : "Show password"}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600">
-                          {showPassword ? <EyeOff size={17} /> : <Eye size={17} />}
-                        </button>
-                      </div>
+                      <label htmlFor="reg-password" className={label}>Password<Req /></label>
+                      <PasswordInput id="reg-password" required minLength={8} value={form.password} onChange={(e) => update("password", e.target.value)}
+                        autoComplete="new-password" placeholder="At least 8 characters" className={`${field} pr-11`}
+                        toggleClassName="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600" iconSize={17} />
                     </div>
 
                     <div className="rounded-2xl bg-slate-50 border border-slate-200 p-5">
