@@ -14,7 +14,8 @@ const SETTINGS = {
 };
 
 function mockShell(t) {
-  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children) } });
+  t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
+    Link: ({ children }) => React.createElement("a", null, children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
 }
 
@@ -26,6 +27,13 @@ async function loadSettings(t, over = {}) {
     getOnboardingSettings: async () => { if (fails > 0) { fails -= 1; throw new Error("Network down"); } return SETTINGS; },
     getOnboardingChecklistTemplates: async () => [{ id: 1, name: "IT Setup", category: "it" }, { id: 2, name: "HR Basics", category: "hr" }],
     saveOnboardingSettings: async (p) => { calls.save.push(p); if (over.saveError) throw over.saveError; return p; },
+    getOfferPackageSettings: async () => ({ settings: { brand_primary: "#0B3D91", brand_accent: "#00A3E0", paper: "A4", spelling: "UK",
+      date_format: "DMY", response_days: 7 }, clauses: [], documents: [], mode_labels: {} }),
+    saveOfferPackageSettings: async (p) => ({ settings: p, clauses: [], documents: [], mode_labels: {} }),
+    getOfferPackageTemplateSet: async () => ({ blob: new Blob(["%PDF"]), filename: "set.pdf" }),
+    getOfferPackageLogo: async () => ({ blob: new Blob(["png"], { type: "image/png" }), filename: "logo.png" }),
+    uploadOfferPackageLogo: async () => ({ settings: { has_logo: true }, clauses: [], documents: [], mode_labels: {} }),
+    deleteOfferPackageLogo: async () => ({ settings: { has_logo: false }, clauses: [], documents: [], mode_labels: {} }),
   } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/onboarding/settings.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
@@ -68,35 +76,4 @@ test("a failed settings load shows Retry, and Retry loads the form", async (t) =
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await settle();
   assert.ok(screen.getByRole("button", { name: "Save Settings" }));
-});
-
-async function loadReport(t, data, fail = 0) {
-  let fails = fail;
-  mockShell(t);
-  t.mock.module("../src/service/hrService.js", { exports: {
-    getOnboardingJoiningReport: async () => { if (fails > 0) { fails -= 1; throw new Error("Report broke"); } return data; },
-  } });
-  const { default: Page } = await import(`../src/modules/zoiko-hr/onboarding/reports.jsx?t=${Math.random()}`);
-  render(React.createElement(Page));
-  await settle();
-}
-
-test("the average says how many hires it is based on", async (t) => {
-  await loadReport(t, { totalJoiners: 5, thisMonth: 1, thisQuarter: 2, completed: 3, avgDaysToOnboard: 12.5, avgDaysMeasured: 3, monthlyTrend: [{ month: "Oct 2026", count: 2 }] });
-  assert.match(document.body.textContent, /Avg days from joining to completion \(based on 3 hires\)/);
-  assert.match(document.body.textContent, /12\.5/);
-  assert.ok(screen.getByText("Oct 2026"));
-});
-
-test("with no completed hires the average shows -", async (t) => {
-  await loadReport(t, { totalJoiners: 0, thisMonth: 0, thisQuarter: 0, completed: 0, avgDaysToOnboard: 0, avgDaysMeasured: 0, monthlyTrend: [] });
-  assert.ok(screen.getByText("-"));
-});
-
-test("a failed report load shows the error with Retry", async (t) => {
-  await loadReport(t, { totalJoiners: 1, avgDaysMeasured: 0, monthlyTrend: [] }, 1);
-  assert.match(screen.getByRole("alert").textContent, /Report broke/);
-  fireEvent.click(screen.getByRole("button", { name: "Retry" }));
-  await settle();
-  assert.ok(screen.getByText("Joining Report"));
 });

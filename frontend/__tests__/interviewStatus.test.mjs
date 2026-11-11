@@ -116,3 +116,19 @@ test("scheduling with nothing entered shows field messages and sends nothing", a
   assert.match(text, /Interview date is required\./);
   assert.equal(calls.update.length, 0);
 });
+
+test("marking an interview completed asks for its feedback straight away", async (t) => {
+  const calls = await load(t);
+  showAll();
+  const original = globalThis.window.confirm;
+  globalThis.window.confirm = () => true;
+  try {
+    fireEvent.click(within(card("Soon Sue")).getByRole("button", { name: "Mark completed" }));
+    await settle();
+  } finally {
+    globalThis.window.confirm = original;
+  }
+  assert.deepEqual(calls.update.at(-1)[1], { status: "completed" });
+  assert.match(document.body.textContent, /Feedback/i);
+  assert.ok(document.querySelector("textarea"), "the feedback form is open");
+});

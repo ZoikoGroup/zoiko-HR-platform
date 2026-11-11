@@ -1,6 +1,6 @@
 
-import { humanizeValidationError } from "../utils/validationMessage";
-import { queryClient } from "../lib/queryClient";
+import { humanizeValidationError } from "../utils/validationMessage.js";
+import { queryClient } from "../lib/queryClient.js";
 
 const API_BASE_URL = import.meta.env?.VITE_API_BASE_URL || "http://localhost:8000";
 const TOKEN_KEY = "zoiko_access_token";

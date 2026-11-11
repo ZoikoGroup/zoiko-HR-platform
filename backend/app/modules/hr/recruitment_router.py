@@ -45,7 +45,7 @@ Endpoints:
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Body, status, Request, UploadFile, File, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, Query, Body, status, Request, UploadFile, File, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
@@ -475,16 +475,17 @@ def list_offers(
     summary="Create an offer",
 )
 def create_offer(
+    request: Request,
+    background: BackgroundTasks,
     data: OfferCreate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
     offer = recruitment_service.create_offer(db, data, current_user.organization_id, actor=current_user)
-    _auto_offer_letter(db, current_user, offer.id)
-    from app.modules.hr.recruitment_documents import auto_generate_offer_draft_on_create
-    offer = recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
-    auto_generate_offer_draft_on_create(db, current_user, offer)
-    return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
+    # The letter (auto-approval, template selection, rendering) is ~85% of the work: it runs after the response,
+    # so saving an offer never waits on document generation.
+    background.add_task(_prepare_letter_after_response, request.app, current_user.id, offer.id, True)
+    return offer
 
 
 @recruitment_router.get(
@@ -506,14 +507,44 @@ def get_offer(
     summary="Update an offer",
 )
 def update_offer(
+    request: Request,
+    background: BackgroundTasks,
     offer_id: int,
     data: OfferUpdate,
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
     offer = recruitment_service.update_offer(db, offer_id, data, current_user.organization_id, actor=current_user)
-    _auto_offer_letter(db, current_user, offer.id)
-    return recruitment_service.get_offer_by_id(db, offer.id, current_user.organization_id)
+    background.add_task(_prepare_letter_after_response, request.app, current_user.id, offer.id, False)
+    return offer
+
+
+def _prepare_letter_after_response(app, actor_id: int, offer_id: int, created: bool) -> None:
+    """Background step after an offer is saved: 'offer letters without approval' approves it and generates its letter;
+    a new offer for a supported country also gets a starter draft. Runs on its own session (the request's is closed by now),
+    obtained through the get_db dependency so test overrides apply. Failures are logged; the offer itself is already saved."""
+    import inspect
+    import logging
+    from app.modules.employee.models import Employee
+    provider = app.dependency_overrides.get(get_db, get_db)
+    made = provider()
+    gen = made if inspect.isgenerator(made) else None
+    db = next(gen) if gen is not None else made
+    try:
+        actor = db.get(Employee, actor_id)
+        if actor is None:
+            return
+        _auto_offer_letter(db, actor, offer_id)
+        if created:
+            from app.modules.hr.recruitment_documents import auto_generate_offer_draft_on_create
+            offer = db.get(recruitment_service.RecruitmentOffer, offer_id)
+            auto_generate_offer_draft_on_create(db, actor, offer)
+    except Exception:
+        db.rollback()
+        logging.getLogger("zoiko.recruitment").exception("preparing the letter for offer %s failed", offer_id)
+    finally:
+        if gen is not None:
+            gen.close()
 
 
 def _auto_offer_letter(db, user, offer_id: int) -> None:

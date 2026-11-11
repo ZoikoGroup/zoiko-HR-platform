@@ -81,20 +81,6 @@ export async function downloadGeneratedDocument(id, { original = false, self = f
 }
 
 // ── governance reports (HR-DOC family) ──────────────────────────────────────────────────────────────────────────────
-export const governanceRegister = () => api.get("/hr/generated-documents/governance/register");
-export const governanceApprovals = (params) => api.get(`/hr/generated-documents/governance/approvals${q(params)}`);
-export const governanceVersions = (variantId) => api.get(`/hr/generated-documents/governance/versions${q({ variant_id: variantId })}`);
-export const governanceGenerationInstructions = (params) => api.get(`/hr/generated-documents/governance/generation-instructions${q(params)}`);
-export const governanceGenerationInstruction = (docId) => api.get(`/hr/generated-documents/governance/generation-instructions/${docId}`);
-export const governanceWorkflowApproval = (docId) => api.get(`/hr/generated-documents/governance/workflow-approvals/${docId}`);
-export const governanceSignatureEvidence = (docId) => api.get(`/hr/generated-documents/governance/signature-evidence/${docId}`);
-export const governanceAcknowledgements = (params) => api.get(`/hr/generated-documents/governance/acknowledgements${q(params)}`);
-export const governanceAcknowledgement = (id) => api.get(`/hr/generated-documents/governance/acknowledgements/${id}`);
-export const governanceDistribution = (id) => api.get(`/hr/generated-documents/governance/distributions/${id}`);
-export const governanceExpiries = (params) => api.get(`/hr/generated-documents/governance/expiries${q(params)}`);
-export const resolveExpiryItem = (id, body) => api.put(`/hr/generated-documents/governance/expiries/${id}`, body);
-export const governanceSupersessions = () => api.get("/hr/generated-documents/governance/supersessions");
-export const governanceSupersession = (id) => api.get(`/hr/generated-documents/governance/supersessions/${id}`);
 
 // Authenticated file export (CSV or PDF) of any governance report path above.
 export async function exportGovernance(path, format, filename) {

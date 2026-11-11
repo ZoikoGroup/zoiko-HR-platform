@@ -226,7 +226,7 @@ def hire_for_token(db: Session, token: str) -> OnboardingNewHire:
 
 
 def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
-    from app.modules.hr.onboarding_package import SIGNABLE_CATEGORIES, get_signing_token_for_onboarding_doc
+    from app.modules.hr import onboarding_package
 
     docs = (db.query(OnboardingDocument)
             .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
@@ -238,13 +238,18 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
                         OnboardingOrientation.status != "cancelled").all())
 
     base = app_base()
+    pkg = onboarding_package.portal_items(db, hire)
     doc_items = []
     for d in docs:
-        is_signable = d.category in SIGNABLE_CATEGORIES or bool(d.document_id)
+        extra = pkg.get(d.id) or {}
+        mode = extra.get("mode")
+        is_signable = mode == "SIGN" or (mode is None and bool(d.document_id))
         sign_url = None
-        if is_signable and d.status != "approved":
+        needs_declaration = d.category == "exclusivity_affidavit" and d.status != "approved" \
+            and not (hire.profile_details or {}).get("outside_activities")
+        if is_signable and d.status != "approved" and not needs_declaration:
             try:
-                raw_token = get_signing_token_for_onboarding_doc(db, d)
+                raw_token = onboarding_package.get_signing_token_for_onboarding_doc(db, d)
                 if raw_token:
                     sign_url = f"{base}/sign/{raw_token}"
             except Exception:
@@ -260,6 +265,13 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
             "document_id": d.document_id,
             "requires_signature": is_signable,
             "sign_url": sign_url,
+            "package_mode": mode,
+            "mode_label": extra.get("mode_label"),
+            "template_id": extra.get("template_id"),
+            "optional": bool(extra.get("optional")),
+            "acknowledged_at": extra.get("acknowledged_at"),
+            "has_package_file": bool(extra.get("package_file")),
+            "needs_declaration": needs_declaration,
         })
 
     return {
@@ -274,6 +286,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "details": hire.profile_details or {},
         "phone": hire.phone,
         "documents": doc_items,
+        "package": onboarding_package.portal_package_status(db, hire),
         "orientation": [{"title": s.title, "date": s.date, "time": s.time, "location": s.location,
                          "meeting_link": s.meeting_link} for s in sessions],
     }
@@ -292,6 +305,8 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
     db.commit()
     from app.modules.hr.service import log_onboarding_activity
     log_onboarding_activity(db, hire.id, "Details submitted", f"{hire.candidate_name} updated their personal details.", hire.organization_id)
+    from app.modules.hr import onboarding_package
+    onboarding_package.release_held(db, hire)       # documents not sent yet that were waiting for the address
     return portal_view(db, hire)
 
 
@@ -301,6 +316,10 @@ def request_documents(db: Session, hire: OnboardingNewHire, categories: list[str
     bad = [c for c in categories if c not in DOCUMENT_LABELS]
     if bad:
         raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
+    from app.modules.hr.onboarding_package import PACKAGE_CATEGORIES
+    # offer-package documents are generated and issued from the package (Documents › Offer package), never requested as uploads;
+    # older settings may still list them, so they are skipped rather than refused
+    categories = [c for c in categories if c not in PACKAGE_CATEGORIES]
     have = {d.category for d in db.query(OnboardingDocument).filter(
         OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
         OnboardingDocument.status != "rejected").all()}
@@ -361,6 +380,8 @@ def progress(db: Session, hire: OnboardingNewHire) -> dict:
     open_items = [i for i in items if not i.completed]
     if settings.require_checklists_complete and open_items:
         blockers.append(f"{len(open_items)} checklist item(s) are not done")
+    from app.modules.hr.onboarding_package import is_blocking
+    docs = [d for d in docs if is_blocking(d)]          # voluntary / for-information package documents never block
     not_approved = [d for d in docs if d.status != "approved"]
     if settings.require_documents_approved and not_approved:
         blockers.append(f"{len(not_approved)} document(s) are not approved")

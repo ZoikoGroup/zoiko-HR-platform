@@ -1994,53 +1994,25 @@ def request_onboarding_documents(new_hire_id: int, data: OnboardingDocumentReque
 )
 def send_onboarding_package(
     new_hire_id: int,
+    data: Optional[dict] = Body(default=None),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    from app.modules.hr import onboarding_flow, onboarding_package
+    """Issue every ready package document that has not been issued yet and e-mail the portal link.
+    Documents still missing HR data or counsel clauses are held and listed in the response."""
+    from app.modules.hr import onboarding_package
     hire = service.get_new_hire_by_id(db, new_hire_id, organization_id=current_user.organization_id)
-    if hire.status not in onboarding_flow.ACTIVE_STATUSES:
-        raise HTTPException(status_code=400, detail="Onboarding documents can only be sent while onboarding is active.")
-
-    docs = onboarding_package.generate_onboarding_package(db, hire, actor=current_user)
-    portal_link_url = onboarding_flow.current_portal_url(db, hire)
-    portal_out = {"url": portal_link_url, "email_sent": False}
-    if not portal_link_url:
-        portal_out = onboarding_flow.issue_portal_link(db, hire, send=True)
+    categories = (data or {}).get("categories") or None
+    result = onboarding_package.send_package(db, hire, actor=current_user, categories=categories)
+    n, h = len(result["issued"]), len(result["held"])
+    if n:
+        message = f"{n} document(s) sent to {hire.candidate_name}." + (f" {h} held until they are ready." if h else "")
+    elif h:
+        message = f"Nothing sent: {h} document(s) are not ready yet."
     else:
-        try:
-            from app.services.email_service import send_onboarding_invite
-            settings = onboarding_flow.get_settings(db, hire.organization_id)
-            expires_str = hire.portal_expires_at.strftime("%b %d, %Y") if hire.portal_expires_at else ""
-            sent = bool(send_onboarding_invite(
-                hire.email, onboarding_flow._first_name(hire), onboarding_flow._org_name(db, hire.organization_id),
-                hire.position, portal_link_url, expires_str,
-                joining_date_display=onboarding_flow._date_display(hire.joining_date),
-                manager_name=hire.manager_name,
-                documents_requested=len(docs),
-                welcome_message=settings.welcome_message,
-                db=db, organization_id=hire.organization_id
-            ))
-            portal_out["email_sent"] = sent
-        except Exception:
-            pass
-    try:
-        onboarding_flow.notify_document_request(
-            db, hire,
-            [{"title": d.title, "note": "E-Signature Required" if d.document_id else "Operational Guide"} for d in docs]
-        )
-    except Exception:
-        pass
-
-    return {
-        "success": True,
-        "message": f"All 10 onboarding documents generated and sent to {hire.candidate_name}.",
-        "new_hire_id": hire.id,
-        "candidate_name": hire.candidate_name,
-        "documents_count": len(docs),
-        "portal_url": portal_out.get("url"),
-        "email_sent": portal_out.get("email_sent", False),
-    }
+        message = "Every package document has already been sent."
+    return {"success": n > 0, "message": message, "new_hire_id": hire.id, "candidate_name": hire.candidate_name,
+            "documents_count": n, **result}
 
 
 @hr_router.get("/onboarding/new-hires/{new_hire_id}/progress", summary="Checklist, document and orientation progress, and what blocks completion")

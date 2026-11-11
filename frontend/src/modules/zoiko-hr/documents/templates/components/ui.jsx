@@ -7,7 +7,6 @@ import { Modal } from "../../../../../components/billing-ui";
 export const TEMPLATES_PATH = "/zoiko-hr/documents/templates";
 export const PACKS_PATH = "/zoiko-hr/documents/jurisdiction-packs";
 export const CLAUSES_PATH = "/zoiko-hr/documents/clauses";
-export const GOVERNANCE_PATH = "/zoiko-hr/documents/governance";
 export const templatePath = (canonicalId) => `${TEMPLATES_PATH}/${encodeURIComponent(canonicalId)}`;
 export const editorPath = (variantId) => `${TEMPLATES_PATH}/variants/${variantId}`;
 

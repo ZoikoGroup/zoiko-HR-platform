@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AlertCircle, AlertTriangle, Building2, CalendarPlus, Check, Clock, Globe, Link2, Loader2, Mail, Search, StickyNote, CalendarCheck, CalendarClock, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CircleX,
   ClipboardCheck, Code2, ExternalLink, LayoutList, MapPin, MessageSquare, MoreHorizontal, Pencil, Phone, Plus, Star, Trash2,
-  UserRound, Users, Video, X } from "lucide-react";
+  Play, UserRound, Users, Video, X } from "lucide-react";
 import { getInterviews, createInterview, updateInterview, updateInterviewFeedback, deleteInterview, getCandidates } from "../../../service/hrService";
 import { getRequisitionScorecards, submitInterviewScorecard } from "../../../service/recruitmentDocumentsService";
 import { getEmployees } from "../../../service/employee";
@@ -32,6 +32,33 @@ const humanize = (v) => String(v || "").replace(/[_-]+/g, " ").replace(/^\w/, (c
 const typeLabel = (t) => (t ? TYPE_LABEL[t] || humanize(t) : "—");
 const STATUS_TONE = { scheduled: "blue", in_progress: "violet", completed: "green", cancelled: "red" };
 const statusLabel = (s) => STATUS_LABELS[s] || humanize(s) || STATUS_LABELS.scheduled;
+
+// The Status actions in the interview panel: colour, icon and what each one does (shown as a tooltip and under the buttons).
+const STATUS_ACTION_LOOK = {
+  in_progress: { icon: Play, cls: "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 focus-visible:ring-blue-300",
+    hint: "Marks the interview as in progress." },
+  completed: { icon: CheckCircle2, cls: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 focus-visible:ring-emerald-300",
+    hint: "Closes the interview; you are asked for feedback next." },
+  cancelled: { icon: CircleX, cls: "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 focus-visible:ring-rose-300",
+    hint: "Cancels it and emails the candidate and interviewer." },
+  scheduled: { icon: CalendarClock, cls: "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-gray-300",
+    hint: "Pick a new date and time." },
+};
+
+function StatusActionButton({ act, busy, disabled, onClick }) {
+  const look = STATUS_ACTION_LOOK[act.status] || STATUS_ACTION_LOOK.scheduled;
+  const Icon = look.icon;
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={look.hint} aria-describedby={`iv-act-${act.status}`}
+      className={`group flex min-w-[96px] flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold
+        shadow-sm transition duration-150 hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 active:translate-y-0
+        disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${look.cls}`}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        : <Icon className="h-4 w-4 transition-transform group-hover:scale-110" aria-hidden="true" />}
+      <span>{busy ? "Saving…" : act.text}</span>
+    </button>
+  );
+}
 
 const initForm = {
   candidate_id: "", candidate_name: "", position: "", interview_type: "video", interview_date: "", start_time: "", end_time: "",
@@ -961,19 +988,43 @@ export default function Interviews() {
 
   const emailedText = (n) => (n ? ` ${n} email${n === 1 ? "" : "s"} sent.` : "");
 
+  const [statusBusy, setStatusBusy] = useState(null);        // the status being saved from the panel's Status buttons
   const changeStatus = async (interview, action) => {
     setMenu(null);
     if (action.status === "scheduled") {          // reschedule: pick the new date and time first
       openEdit(interview, { status: "scheduled" });
       return;
     }
-    if (action.confirm && !window.confirm(`${action.confirm} The candidate and interviewer are emailed.`)) return;
+    const payload = { status: action.status };
+    if (action.status === "cancelled") {
+      const question = "Cancel this interview? The candidate and interviewer are emailed.";
+      let reason = typeof window.prompt === "function"
+        ? window.prompt(`${question}\n\nReason (optional, kept in the internal notes):`, "") : undefined;
+      if (reason === undefined) reason = window.confirm(question) ? "" : null;   // no prompt available: a plain confirmation
+      if (reason === null) return;                // the user closed the dialog: nothing is cancelled
+      if (String(reason).trim()) {
+        const stamp = `Cancelled ${new Date().toLocaleDateString()}: ${String(reason).trim()}`;
+        payload.notes = [interview.notes, stamp].filter(Boolean).join("\n");
+      }
+    } else if (action.confirm && !window.confirm(`${action.confirm} The candidate and interviewer are emailed.`)) {
+      return;
+    }
     setNotice("");
+    setStatusBusy(action.status);
     try {
-      const r = await updateInterview(interview.id, { status: action.status });
+      const r = await updateInterview(interview.id, payload);
       setSuccess(`Interview ${STATUS_LABELS[action.status]?.toLowerCase() || action.status}.${emailedText(r?.emails_sent)}`);
+      if (action.status === "in_progress" && interview.meeting_link
+          && window.confirm("The interview has started. Open the meeting link now?")) {
+        window.open(interview.meeting_link, "_blank", "noopener");
+      }
+      if (action.status === "completed" && !hasFeedback(interview)) {
+        openFeedback({ ...interview, status: "completed" });      // record the outcome while it is fresh
+      }
     } catch (err) {
       setNotice(err?.message || "The status could not be changed.");
+    } finally {
+      setStatusBusy(null);
     }
     load();
   };
@@ -1282,12 +1333,25 @@ export default function Interviews() {
       </DetailSection>
       {selected.notes ? <DetailSection title="Internal notes"><p className="whitespace-pre-wrap break-words text-sm text-gray-700">{selected.notes}</p></DetailSection> : null}
       <DetailSection title="Status">
+        <p className="mb-2 flex items-center gap-2 text-xs text-gray-500">
+          Current: <StatusPill tone={STATUS_TONE[selected.status || "scheduled"] || "gray"}>{statusLabel(selected.status || "scheduled")}</StatusPill>
+        </p>
         <div className="flex flex-wrap gap-2">
           {cardActions(selected.status || "scheduled").map((act) => (
-            <QuickAction key={act.status} label={act.text} tone={act.tone === "red" ? "danger" : "default"} onClick={() => changeStatus(selected, act)} />
+            <StatusActionButton key={act.status} act={act} busy={statusBusy === act.status} disabled={!!statusBusy}
+              onClick={() => changeStatus(selected, act)} />
           ))}
-          {cardActions(selected.status || "scheduled").length === 0 && <p className="text-xs text-gray-400">A completed interview is final.</p>}
+          {cardActions(selected.status || "scheduled").length === 0 && (
+            <p className="text-xs text-gray-400">{selected.status === "cancelled" ? "This interview was cancelled." : "A completed interview is final."}</p>
+          )}
         </div>
+        {cardActions(selected.status || "scheduled").length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-[11px] text-gray-500">
+            {cardActions(selected.status || "scheduled").map((act) => (
+              <li key={act.status} id={`iv-act-${act.status}`}><span className="font-semibold text-gray-600">{act.text}:</span> {(STATUS_ACTION_LOOK[act.status] || STATUS_ACTION_LOOK.scheduled).hint}</li>
+            ))}
+          </ul>
+        )}
       </DetailSection>
       <div className="mt-6 border-t border-gray-100 pt-4">
         <button type="button" onClick={() => handleDelete(selected)} className="inline-flex items-center gap-2 text-sm font-medium text-rose-600 hover:text-rose-700"><Trash2 className="h-4 w-4" />Delete interview</button>

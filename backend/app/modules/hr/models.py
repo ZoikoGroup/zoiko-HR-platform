@@ -1320,6 +1320,8 @@ class RecruitmentInterview(Base):
 class RecruitmentOffer(Base):
     __tablename__ = "recruitment_offers"
 
+    approvals = relationship("RecruitmentOfferApproval", back_populates="offer", cascade="all, delete-orphan")
+
     id             = Column(Integer, primary_key=True, index=True)
     candidate_id   = Column(Integer, ForeignKey("recruitment_candidates.id"), nullable=True)
     candidate_name = Column(String(150), nullable=False)
@@ -1433,6 +1435,8 @@ class RecruitmentInterviewFeedback(Base):
 
 class RecruitmentOfferApproval(Base):
     __tablename__ = "recruitment_offer_approvals"
+
+    offer = relationship("RecruitmentOffer", back_populates="approvals")
 
     id = Column(Integer, primary_key=True, index=True)
     offer_id = Column(Integer, ForeignKey("recruitment_offers.id"), nullable=False)

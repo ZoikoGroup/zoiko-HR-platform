@@ -185,6 +185,7 @@ test("offer letter lifecycle uses server approval, generation, preview and send"
   } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getOffers: async () => ({ items: [{ id: 7, candidate_id: 11, candidate_name: "Ari Applicant", position: "Designer", salary: 120000, currency: "USD", status: state.status }] }),
+    getOfferById: async (id) => ({ id, candidate_id: 11, candidate_name: "Ari Applicant", position: "Designer", salary: 120000, currency: "USD", status: state.status }),
     getCandidates: async () => ({ items: [] }), createOffer: async () => ({}), updateOffer: async () => ({}), deleteOffer: async () => ({}),
   } });
   t.mock.module("../src/service/recruitmentDocumentsService.js", { exports: {

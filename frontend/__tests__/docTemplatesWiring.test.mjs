@@ -24,7 +24,7 @@ const roles = read("src/config/roles.js");
 const HR_PAGES = [
   "/zoiko-hr/documents/templates", "/zoiko-hr/documents/templates/variants/:variantId", "/zoiko-hr/documents/templates/:canonicalId",
   "/zoiko-hr/documents/clauses", "/zoiko-hr/documents/jurisdiction-packs", "/zoiko-hr/documents/generated",
-  "/zoiko-hr/documents/policy-distributions", "/zoiko-hr/documents/governance",
+  "/zoiko-hr/documents/policy-distributions",
 ];
 
 test("every template-engine page is registered as a route", () => {
@@ -33,6 +33,8 @@ test("every template-engine page is registered as a route", () => {
   }
   // the organization-admin legal entities page was removed on request (2026-10-22)
   assert.ok(!routes.includes('"/organization-admin/legal-entities":'), "the legal entities page is gone");
+  // the governance reports page was removed on request (2026-11-10); records stay exportable where they are shown
+  assert.ok(!routes.includes('"/zoiko-hr/documents/governance":'), "the governance page is gone");
 });
 
 test("candidate signing and verification are public routes outside the app shell", () => {

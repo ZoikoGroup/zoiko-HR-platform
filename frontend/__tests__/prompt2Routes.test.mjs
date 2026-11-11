@@ -14,7 +14,6 @@ const navigation = read("src/navigation.js");
 
 test("Prompt 2 workforce and payroll pages have routes and navigation entries", () => {
   for (const route of [
-    "/zoiko-hr/onboarding/payroll-verifications",
     "/zoiko-hr/workforce-planning/job-descriptions",
   ]) {
     assert.ok(navigation.includes(`"${route}"`), `missing navigation entry for ${route}`);

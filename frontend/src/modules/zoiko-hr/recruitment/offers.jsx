@@ -8,7 +8,7 @@ import {
 import RemunerationFields, { CountrySelect, currencyForCountry, guessCountry, useRegions } from "../../../components/RemunerationFields";
 import BusinessLookupFields, { checkBusinessId, checkPostal, useBusinessFormats } from "../../../components/BusinessLookupFields";
 import {
-  getOffers, createOffer, updateOffer, deleteOffer, getCandidates,
+  getOffers, getOfferById, createOffer, updateOffer, deleteOffer, getCandidates,
 } from "../../../service/hrService";
 // optional extras (requisition names for the position card) are read through the namespace so a page or test that
 // provides only the core calls still works
@@ -455,19 +455,39 @@ export default function OfferManagement({ mode = "all" }) {
     try {
       const saved = editItem ? await updateOffer(editItem.id, payload) : await createOffer(payload);
       setShowModal(false);
-      // "Offer letters without approval" (recruitment settings): the server approves the saved offer and generates its
-      // letter straight away, so it comes back ready to send
-      const auto = saved?.status === "approved" && (!editItem || editItem.status !== "approved");
-      setNotice(auto && saved?.document_id
-        ? `${editItem ? "Offer updated" : "Offer created"}. Its letter was generated automatically and is ready to send.`
-        : auto ? `${editItem ? "Offer updated" : "Offer created"} and approved automatically. Open Preview Offer to see why the letter was not generated.`
-        : editItem ? "Offer updated." : "Offer created.");
+      const verb = editItem ? "Offer updated" : "Offer created";
+      setNotice(`${verb}.`);
       refreshAll();
       if (detailId && editItem && detailId === editItem.id) loadDetail(detailId);
+      // The server saves the offer at once and prepares its letter right after responding ("offer letters without
+      // approval" approves it and generates the letter; supported countries get a starter draft). Follow that briefly.
+      if (saved?.id) watchLetter(saved.id, verb, editItem?.status);
     } catch (err) {
       setFormError(err.message || "Failed to save offer.");
     } finally {
       setSaving(false);
+    }
+  };
+
+  const letterWatch = useRef(0);
+  useEffect(() => () => { letterWatch.current += 1; }, []);
+  const watchLetter = async (offerId, verb, previousStatus) => {
+    const run = ++letterWatch.current;
+    for (let i = 0; i < 10; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      if (run !== letterWatch.current) return;            // a newer save, or the page closed
+      let o;
+      try { o = await getOfferById(offerId); } catch { return; }
+      if (run !== letterWatch.current) return;
+      const autoApproved = o?.status === "approved" && previousStatus !== "approved";
+      if (o?.document_id || autoApproved) {
+        setNotice(o.document_id
+          ? (autoApproved ? `${verb}. Its letter was generated automatically and is ready to send.` : `${verb}. A draft letter is ready to preview.`)
+          : `${verb} and approved automatically. Open Preview Offer to see why the letter was not generated.`);
+        refreshAll();
+        if (detailId === offerId) loadDetail(offerId);
+        return;
+      }
     }
   };
 

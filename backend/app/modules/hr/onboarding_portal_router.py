@@ -66,6 +66,8 @@ async def portal_upload(request: Request, token: str, document_id: int, file: Up
         hire.status = "pre_joining"                        # the new hire has started their part
     db.commit()
     log_onboarding_activity(db, hire.id, "Document Submitted", f"{hire.candidate_name} uploaded '{doc.title}' for review.", hire.organization_id)
+    from app.modules.hr import onboarding_package
+    onboarding_package.sync_onboarding_document_checklist(db, hire)
     return onboarding_flow.portal_view(db, hire)
 
 

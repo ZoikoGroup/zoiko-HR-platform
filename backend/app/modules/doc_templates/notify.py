@@ -128,9 +128,10 @@ def candidate_link(db, doc: GeneratedDocument, candidate, raw_token: str, expire
         attempts=1 if wait else EMAIL_ATTEMPTS)
 
 
-def sign_code(db, doc: GeneratedDocument, email: str, first_name: str, code: str) -> None:
+def sign_code(db, doc: GeneratedDocument, email: str, first_name: str, code: str) -> bool:
+    """True when the code e-mail was accepted for delivery."""
     from app.services import email_service
-    _safe(lambda: email_service.send_document_sign_code_email(
+    return _safe(lambda: email_service.send_document_sign_code_email(
         email, first_name or "there", doc.document_number, code, settings.DOC_SIGN_OTP_TTL_MINUTES, db=db,
         organization_id=doc.organization_id), doc.id, "sign code")
 

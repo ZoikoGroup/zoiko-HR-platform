@@ -4,22 +4,12 @@ import { AlertCircle, CheckCircle2, ClipboardCheck, FileText, Info, Link2, ListC
 import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates } from "../../../service/hrService";
 import { humanizeValidationError } from "../../../utils/validationMessage";
 import FinanceViewersSetting from "./FinanceViewersSetting";
+import OfferPackageSettings from "./OfferPackageSettings";
 import { PrimaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 
+// Uploads requested automatically. The 10 offer-package documents are issued from Documents › Offer package instead.
 const DOCUMENT_CATEGORIES = [
-  // ── 10 Standard Onboarding Package Documents ──
-  { value: "offer_letter", label: "Offer Letter" },
-  { value: "job_description", label: "Job Description" },
-  { value: "daily_kpi", label: "Daily Key Performance Indicators (KPIs)" },
-  { value: "nda", label: "Non-Disclosure Agreement (NDA)" },
-  { value: "employment_contract", label: "Employment Contract" },
-  { value: "exclusivity_affidavit", label: "Affidavit of Employment Exclusivity" },
-  { value: "self_disclosure", label: "Voluntary Self-Disclosure Form" },
-  { value: "job_application", label: "Job Application Form" },
-  { value: "daily_work_report", label: "Daily Work Report (DWR) Template" },
-  { value: "velocity_report", label: "Zoiko Group Project Velocity Report Template" },
-  // ── Employee Upload Documents ──
   { value: "id_proof", label: "ID proof" },
   { value: "education_certificates", label: "Education certificates" },
   { value: "experience_letters", label: "Experience letters" },
@@ -44,7 +34,7 @@ function fromServer(s) {
   const d = s || {};
   return {
     auto_template_ids: Array.isArray(d.auto_template_ids) ? d.auto_template_ids.map(Number) : [],
-    required_document_categories: Array.isArray(d.required_document_categories) ? d.required_document_categories : [],
+    required_document_categories: (Array.isArray(d.required_document_categories) ? d.required_document_categories : []).filter((c) => DOCUMENT_CATEGORIES.some((x) => x.value === c)),
     auto_send_portal_invite: !!d.auto_send_portal_invite,
     portal_link_days: d.portal_link_days ?? EMPTY.portal_link_days,
     reminder_days: d.reminder_days ?? EMPTY.reminder_days,
@@ -350,6 +340,7 @@ export default function OnboardingSettings() {
           </div>
         </div>
 
+        <OfferPackageSettings />
         <FinanceViewersSetting />
       </div>
 

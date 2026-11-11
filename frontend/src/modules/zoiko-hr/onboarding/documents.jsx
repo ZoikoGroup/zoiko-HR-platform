@@ -20,23 +20,25 @@ import {
   getOnboardingRecords,
   getOnboardingDocumentFile,
   requestOnboardingDocuments,
-  sendOnboardingPackage,
 } from "../../../service/hrService";
+import OfferPackagePanel from "./OfferPackagePanel";
 import { MAX_FILE_MB, validateUploadForm, serverUploadErrors, fileSizeText, extensionOf } from "../../../utils/onboardingDocForm";
 
-export const CATEGORIES = [
-  // ── 10 Standard Onboarding Package Documents ──
+// The 10 offer-package documents are generated and issued from the Offer package panel, never requested as uploads.
+export const PACKAGE_CATEGORIES = [
   { value: "offer_letter", label: "Offer Letter" },
   { value: "job_description", label: "Job Description" },
-  { value: "daily_kpi", label: "Daily Key Performance Indicators (KPIs)" },
-  { value: "nda", label: "Non-Disclosure Agreement (NDA)" },
+  { value: "daily_kpi", label: "Daily Key Performance Indicators" },
+  { value: "nda", label: "Non-Disclosure Agreement" },
   { value: "employment_contract", label: "Employment Contract" },
   { value: "exclusivity_affidavit", label: "Affidavit of Employment Exclusivity" },
   { value: "self_disclosure", label: "Voluntary Self-Disclosure Form" },
   { value: "job_application", label: "Job Application Form" },
-  { value: "daily_work_report", label: "Daily Work Report (DWR) Template" },
-  { value: "velocity_report", label: "Zoiko Group Project Velocity Report Template" },
-  // ── Employee Upload Documents ──
+  { value: "daily_work_report", label: "Daily Work Report (DWR)" },
+  { value: "velocity_report", label: "Project Velocity Report" },
+];
+
+export const UPLOAD_CATEGORIES = [
   { value: "id_proof", label: "ID proof" },
   { value: "education_certificates", label: "Education certificates" },
   { value: "experience_letters", label: "Experience letters" },
@@ -44,11 +46,14 @@ export const CATEGORIES = [
   { value: "other", label: "Other" },
 ];
 
+export const CATEGORIES = [...PACKAGE_CATEGORIES, ...UPLOAD_CATEGORIES];
+
 export const STATUSES = [
   { value: "requested", label: "Requested (waiting for new hire)", short: "Requested", cls: "bg-blue-100 text-blue-800", tone: "blue" },
   { value: "pending", label: "Needs review", short: "Needs review", cls: "bg-yellow-100 text-yellow-800", tone: "amber" },
   { value: "approved", label: "Approved", short: "Approved", cls: "bg-green-100 text-green-800", tone: "green" },
   { value: "rejected", label: "Rejected", short: "Rejected", cls: "bg-red-100 text-red-800", tone: "red" },
+  { value: "available", label: "Sent – no action needed", short: "Sent", cls: "bg-slate-100 text-slate-700", tone: "gray" },
 ];
 
 // HR uploads accept this narrower set (the shared form rules allow more types).
@@ -82,12 +87,14 @@ const CATEGORY_TONE = {
 
 const INACTIVE_HIRE_STATUSES = ["completed", "cancelled"];
 const INITIAL_UPLOAD_FORM = { title: "", category: "", file: null, onboarding_record_id: "" };
-const STATUS_ICON = { requested: Hourglass, pending: Inbox, approved: CheckCircle2, rejected: FileX2 };
+const STATUS_ICON = { requested: Hourglass, pending: Inbox, approved: CheckCircle2, rejected: FileX2, available: FileCheck2 };
 
 const labelCls = "mb-1 block text-sm font-medium text-gray-700";
 const fieldCls = (bad) => `w-full rounded-xl border ${bad ? "border-rose-300" : "border-gray-200"} bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100`;
 
 const statusOf = (doc) => doc.status || "pending";
+// Signed, acknowledged, voluntary and information package documents are completed by the new hire, never reviewed by HR.
+const reviewable = (doc) => !["SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"].includes(doc?.package_mode);
 const categoryLabel = (value) => CATEGORIES.find((c) => c.value === value)?.label || value || "—";
 
 function DocStatus({ status, doc }) {
@@ -95,9 +102,17 @@ function DocStatus({ status, doc }) {
     if (status === "approved" || doc.signing_status === "EXECUTED") {
       return <StatusPill tone="green" icon={CheckCircle2}>E-Signed</StatusPill>;
     }
+    if (doc.signing_status === "DECLINED") return <StatusPill tone="red" icon={FileX2}>Declined</StatusPill>;
     if (status === "requested") {
       return <StatusPill tone="blue" icon={Hourglass}>Awaiting signature</StatusPill>;
     }
+  }
+  if (doc?.package_mode === "ACKNOWLEDGE") {
+    if (status === "approved") return <StatusPill tone="green" icon={CheckCircle2}>Acknowledged</StatusPill>;
+    if (status === "requested") return <StatusPill tone="blue" icon={Hourglass}>Awaiting acknowledgement</StatusPill>;
+  }
+  if (doc?.package_mode === "VOLUNTARY" && status === "available") {
+    return <StatusPill tone="gray" icon={FileCheck2}>Sent – voluntary</StatusPill>;
   }
   const st = STATUSES.find((s) => s.value === status);
   return <StatusPill tone={st?.tone || "gray"} icon={STATUS_ICON[status]}>{st?.short || status}</StatusPill>;
@@ -183,6 +198,8 @@ export default function OnboardingDocuments() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   const [selectedId, setSelectedId] = useState(null);
+  const [openHire, setOpenHire] = useState(null);          // new hire id, or "none" for documents not linked to anyone
+  const [previewId, setPreviewId] = useState(null);
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -198,8 +215,6 @@ export default function OnboardingDocuments() {
 
   const [showPackageModal, setShowPackageModal] = useState(false);
   const [packageHireId, setPackageHireId] = useState("");
-  const [packageError, setPackageError] = useState("");
-  const [sendingPackage, setSendingPackage] = useState(false);
 
   const [showRequestModal, setShowRequestModal] = useState(false);
   const [requestHire, setRequestHire] = useState("");
@@ -427,50 +442,15 @@ export default function OnboardingDocuments() {
     }
   };
 
-  const handleSendPackage = async (hireId) => {
-    if (!hireId) return;
-    const hire = recordOf(hireId);
-    const hireName = hire?.candidate_name || `New hire #${hireId}`;
-    if (!window.confirm(`Generate and send all 10 onboarding documents to ${hireName}?\n\n• 5 Signable Documents (Offer Letter, NDA, Employment Contract, Exclusivity Affidavit, Self-Disclosure Form) will be generated and issued for electronic signature.\n• 5 Operational Templates (Job Description, Daily KPIs, Job Application, DWR, Velocity Report) will be generated and made available.`)) {
-      return;
-    }
-    setBusyHireId(hireId);
-    try {
-      const res = await sendOnboardingPackage(Number(hireId));
-      showSuccess(res?.message || `All 10 onboarding documents generated and sent to ${hireName}.`);
-      await refresh();
-    } catch (err) {
-      showError(err?.message || `Failed to send onboarding package to ${hireName}.`);
-    } finally {
-      setBusyHireId(null);
-    }
-  };
+  // every "Offer package" entry point opens the package panel, which shows readiness before anything is sent
+  const handleSendPackage = (hireId) => openSendPackageModal(hireId);
 
   const openSendPackageModal = (prefillHire = "") => {
     const hire = prefillHire || recordFilter;
     setPackageHireId(hire && activeHires.some((r) => String(r.id) === String(hire)) ? String(hire) : (activeHires[0]?.id ? String(activeHires[0].id) : ""));
-    setPackageError("");
     setShowPackageModal(true);
   };
 
-  const submitSendPackageModal = async (e) => {
-    e.preventDefault();
-    if (!packageHireId) { setPackageError("Please choose an employee / new hire."); return; }
-    const hire = recordOf(packageHireId);
-    const hireName = hire?.candidate_name || `New hire #${packageHireId}`;
-    setSendingPackage(true);
-    setPackageError("");
-    try {
-      const res = await sendOnboardingPackage(Number(packageHireId));
-      setShowPackageModal(false);
-      showSuccess(res?.message || `All 10 onboarding documents generated and sent to ${hireName}.`);
-      await refresh();
-    } catch (err) {
-      setPackageError(err?.message || `Failed to send onboarding package.`);
-    } finally {
-      setSendingPackage(false);
-    }
-  };
 
   const openRequestModal = (prefillHire) => {
     const hire = prefillHire || recordFilter;
@@ -512,16 +492,17 @@ export default function OnboardingDocuments() {
     <OnboardingLayout title="Onboarding Documents" subtitle="Request, collect and review new hires' onboarding documents."
       actions={(
         <>
-          <SecondaryButton icon={Send} onClick={() => openSendPackageModal()}>Send 10 Onboarding Docs</SecondaryButton>
+          <PrimaryButton icon={Send} onClick={() => openSendPackageModal()}>Send 10 Onboarding Docs</PrimaryButton>
           <SecondaryButton icon={Send} onClick={() => openRequestModal()}>Request documents from a new hire</SecondaryButton>
-          <PrimaryButton icon={Upload} onClick={() => openUpload()}>Upload Document</PrimaryButton>
+          <SecondaryButton icon={Upload} onClick={() => openUpload()}>Upload Document</SecondaryButton>
         </>
       )}>
       {body}
     </OnboardingLayout>
   );
 
-  if (loading && documents.length === 0 && !error) {
+  // only the very first load replaces the page; a refresh while a panel is open must not unmount it
+  if (loading && documents.length === 0 && !error && !showPackageModal && !showUploadModal && !showRequestModal) {
     return layout(
       <div className="flex items-center justify-center py-20">
         <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
@@ -529,6 +510,42 @@ export default function OnboardingDocuments() {
       </div>
     );
   }
+
+  // ── one row per employee ────────────────────────────────────────────────────────────────────────────────────────
+  const docsOf = (hireKey) => documents.filter((d) => (hireKey === "none" ? !d.onboarding_new_hire_id
+    : String(d.onboarding_new_hire_id) === String(hireKey)));
+  const summaryOf = (docs) => {
+    const pkgCats = new Set(PACKAGE_CATEGORIES.map((c) => c.value));
+    return {
+      packageSent: new Set(docs.filter((d) => pkgCats.has(d.category)).map((d) => d.category)).size,
+      toSign: docs.filter((d) => d.requires_signature && d.status === "requested").length,
+      toAck: docs.filter((d) => d.package_mode === "ACKNOWLEDGE" && d.status === "requested").length,
+      toUpload: docs.filter((d) => !d.requires_signature && d.package_mode !== "ACKNOWLEDGE" && ["requested", "rejected"].includes(d.status)).length,
+      review: docs.filter((d) => d.status === "pending").length,
+      done: docs.filter((d) => ["approved", "available"].includes(d.status)).length,
+      total: docs.length,
+      last: docs.map((d) => d.updated_at || d.created_at).filter(Boolean).sort().at(-1),
+    };
+  };
+  // (a plain computation, not a hook: this runs after the page's early "loading" return)
+  const employees = (() => {
+    const ids = new Set(documents.map((d) => (d.onboarding_new_hire_id ? String(d.onboarding_new_hire_id) : "none")));
+    activeHires.forEach((r) => ids.add(String(r.id)));          // active hires appear even before anything is sent
+    return [...ids].map((key) => {
+      const rec = key === "none" ? null : recordOf(key);
+      return { key, rec, name: key === "none" ? "Not linked to a new hire" : (rec?.candidate_name || `New hire #${key}`) };
+    }).sort((a, b) => (a.key === "none") - (b.key === "none") || a.name.localeCompare(b.name));
+  })();
+  const visibleEmployees = employees.filter((e) => {
+    const docs = docsOf(e.key);
+    const q = search.trim().toLowerCase();
+    if (q && ![e.name, e.rec?.email, e.rec?.position, ...docs.map((d) => d.title)].some((v) => String(v || "").toLowerCase().includes(q))) return false;
+    if (statusFilter && !docs.some((d) => statusOf(d) === statusFilter)) return false;
+    if (categoryFilter && !docs.some((d) => d.category === categoryFilter)) return false;
+    if (recordFilter && e.key !== String(recordFilter)) return false;
+    return true;
+  });
+  const employeeRows = visibleEmployees.slice((page - 1) * pageSize, page * pageSize);
 
   const statusTabs = [
     { value: "", label: "All", count: documents.length },
@@ -548,10 +565,10 @@ export default function OnboardingDocuments() {
             <button type="button" onClick={stop(handleDownload)} disabled={busy} className={`${btn} text-blue-600 hover:bg-blue-50`}>Download</button>
           </>
         )}
-        {status === "pending" && (
+        {reviewable(doc) && status === "pending" && (
           <button type="button" onClick={stop(handleApprove)} disabled={busy} className={`${btn} text-emerald-700 hover:bg-emerald-50`}>Approve</button>
         )}
-        {(status === "pending" || status === "approved") && (
+        {reviewable(doc) && (status === "pending" || status === "approved") && (
           <button type="button" onClick={stop(openRejectModal)} disabled={busy} className={`${btn} text-rose-600 hover:bg-rose-50`}>Reject</button>
         )}
         <button type="button" onClick={stop(handleDelete)} disabled={busy} className={`${btn} text-gray-400 hover:bg-gray-100 hover:text-rose-600`}>Delete</button>
@@ -559,111 +576,102 @@ export default function OnboardingDocuments() {
     );
   };
 
-  const detail = selected ? (() => {
-    const status = statusOf(selected);
-    const busy = busyId === selected.id;
-    const hire = recordOf(selected.onboarding_new_hire_id);
-    const hireName = selected.onboarding_new_hire_id ? recordName(selected.onboarding_new_hire_id) : "";
-    const siblings = selected.onboarding_new_hire_id
-      ? documents.filter((d) => d.id !== selected.id && String(d.onboarding_new_hire_id) === String(selected.onboarding_new_hire_id)) : [];
+  const summaryPills = (sum) => (
+    <div className="flex flex-wrap gap-1.5">
+      {sum.review > 0 && <StatusPill tone="amber" icon={Inbox}>{sum.review} to review</StatusPill>}
+      {sum.toSign > 0 && <StatusPill tone="blue" icon={Hourglass}>{sum.toSign} to sign</StatusPill>}
+      {sum.toAck > 0 && <StatusPill tone="blue" icon={Hourglass}>{sum.toAck} to acknowledge</StatusPill>}
+      {sum.toUpload > 0 && <StatusPill tone="violet" icon={FileUp}>{sum.toUpload} to upload</StatusPill>}
+      {sum.done > 0 && <StatusPill tone="green" icon={CheckCircle2}>{sum.done} done</StatusPill>}
+      {sum.total === 0 && <span className="text-xs text-gray-400">No documents yet</span>}
+    </div>
+  );
+
+  const docRow = (doc, category, key) => {
+    if (!doc) {
+      return (
+        <li key={key} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2.5">
+          <span className="flex min-w-0 items-center gap-2 text-sm text-gray-500"><FileText className="h-4 w-4 shrink-0 text-gray-300" />{categoryLabel(category)}</span>
+          <span className="text-xs text-gray-400">Not sent yet</span>
+        </li>
+      );
+    }
+    const open = previewId === doc.id;
     return (
-      <DetailPanel title="Document details" onClose={() => setSelectedId(null)}
-        header={(
-          <div className="flex items-start gap-3">
-            <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-hidden="true"><FileText className="h-5 w-5" /></span>
+      <li key={key} data-testid="doc-row" className={`rounded-xl border bg-white transition ${open ? "border-blue-200 shadow-sm" : "border-gray-200 hover:border-gray-300"}`}>
+        <div role="button" tabIndex={0} onClick={() => setPreviewId(open ? null : doc.id)}
+          onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setPreviewId(open ? null : doc.id); } }}
+          aria-expanded={open} className="flex cursor-pointer flex-wrap items-center justify-between gap-2 px-3 py-2.5">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="grid h-8 w-8 shrink-0 place-items-center rounded-lg bg-blue-50 text-blue-600" aria-hidden="true"><FileText className="h-4 w-4" /></span>
             <div className="min-w-0">
-              <h2 className="break-words text-base font-semibold text-gray-900">{selected.title}</h2>
-              <div className="mt-1 flex flex-wrap items-center gap-2">
-                <DocStatus status={status} doc={selected} />
-                <StatusPill tone={CATEGORY_TONE[selected.category] || "gray"}>{categoryLabel(selected.category)}</StatusPill>
-                {selected.requires_signature && (
-                  <span className="inline-flex items-center rounded-md bg-purple-50 px-2 py-0.5 text-xs font-medium text-purple-700 ring-1 ring-inset ring-purple-600/20">
-                    E-Signature
-                  </span>
-                )}
-              </div>
+              <p className="break-words text-sm font-semibold text-gray-900">{doc.title}</p>
+              <p className="text-xs text-gray-500">
+                {[categoryLabel(doc.category) !== doc.title ? categoryLabel(doc.category) : null,
+                  doc.updated_at || doc.created_at ? shortDate(doc.updated_at || doc.created_at) : null].filter(Boolean).join(" · ")}
+                {!doc.file_url && !doc.requires_signature ? " · Not uploaded" : ""}
+              </p>
             </div>
           </div>
-        )}>
-        <DetailSection title="Quick Actions">
-          <div className="flex flex-wrap gap-2">
-            <QuickAction icon={Eye} label="Open" disabled={!selected.file_url || busy} onClick={() => handleView(selected)} />
-            <QuickAction icon={Download} label="Download" disabled={!selected.file_url || busy} onClick={() => handleDownload(selected)} />
-            <QuickAction icon={ThumbsUp} label="Approve" tone="primary" disabled={status !== "pending" || busy} onClick={() => handleApprove(selected)} />
-            <QuickAction icon={FileX2} label="Reject" tone="danger" disabled={!(status === "pending" || status === "approved") || busy} onClick={() => openRejectModal(selected)} />
-            {selected.onboarding_new_hire_id && activeHires.some((r) => String(r.id) === String(selected.onboarding_new_hire_id)) && (
-              <QuickAction icon={Send} label="Send 10 Docs" tone="primary" disabled={busyHireId === selected.onboarding_new_hire_id} onClick={() => handleSendPackage(selected.onboarding_new_hire_id)} />
+          <div className="flex flex-wrap items-center gap-2">
+            <DocStatus status={statusOf(doc)} doc={doc} />
+            {rowActions(doc)}
+          </div>
+        </div>
+        {statusOf(doc) === "rejected" && doc.rejection_reason && (
+          <p className="mx-3 mb-2 break-words rounded-lg bg-rose-50 px-2.5 py-1.5 text-xs text-rose-700">Rejected: {doc.rejection_reason}</p>
+        )}
+        {open && (
+          <div className="border-t border-gray-100 px-3 py-3">
+            {doc.file_url ? <FilePreview doc={doc} /> : (
+              <p className="rounded-lg bg-gray-50 px-3 py-4 text-center text-sm text-gray-500">Nothing to preview yet.</p>
             )}
           </div>
-        </DetailSection>
+        )}
+      </li>
+    );
+  };
 
-        <DetailSection title="Preview">
-          {selected.file_url ? <FilePreview key={selected.id} doc={selected} /> : (
-            <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
-              Not uploaded yet{hireName ? ` — waiting for ${hireName}.` : "."}
+  const employeePanel = openHire ? (() => {
+    const isNone = openHire === "none";
+    const rec = isNone ? null : recordOf(openHire);
+    const docs = docsOf(openHire);
+    const sum = summaryOf(docs);
+    const pkgDocs = Object.fromEntries(docs.filter((d) => PACKAGE_CATEGORIES.some((c) => c.value === d.category)).map((d) => [d.category, d]));
+    const others = docs.filter((d) => !PACKAGE_CATEGORIES.some((c) => c.value === d.category));
+    const active = rec && activeHires.some((r) => String(r.id) === String(rec.id));
+    return (
+      <SlideOver title={isNone ? "Documents not linked to a new hire" : (rec?.candidate_name || "New hire")}
+        subtitle={isNone ? "Uploaded without choosing a new hire." : [rec?.position, rec?.email].filter(Boolean).join(" · ")}
+        icon={Files} width="sm:max-w-[820px]" onClose={() => { setOpenHire(null); setPreviewId(null); }}>
+        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-5 sm:px-6">
+          {!isNone && (
+            <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-gray-200 bg-white p-4">
+              {summaryPills(sum)}
+              {active && (
+                <div className="flex flex-wrap gap-2">
+                  <SecondaryButton icon={Send} onClick={() => openRequestModal(String(rec.id))}>Request documents</SecondaryButton>
+                  <PrimaryButton icon={Send} onClick={() => openSendPackageModal(String(rec.id))}>Send 10 Onboarding Docs</PrimaryButton>
+                </div>
+              )}
             </div>
           )}
-        </DetailSection>
-
-        {status === "rejected" && selected.rejection_reason && (
-          <DetailSection title="Rejection reason">
-            <p className="break-words rounded-xl border border-rose-100 bg-rose-50 px-3 py-2 text-sm text-rose-700">{selected.rejection_reason}</p>
-          </DetailSection>
-        )}
-
-        <DetailSection title="Details">
-          <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-4 gap-y-2 text-sm">
-            <dt className="text-gray-500">New hire</dt>
-            <dd className="min-w-0">
-              {hireName ? (
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <PersonCell name={hireName} sub={[hire?.position, hire?.email].filter(Boolean).join(" · ") || undefined} />
-                  {activeHires.some((r) => String(r.id) === String(selected.onboarding_new_hire_id)) && (
-                    <button
-                      type="button"
-                      onClick={() => handleSendPackage(selected.onboarding_new_hire_id)}
-                      disabled={busyHireId === selected.onboarding_new_hire_id}
-                      className="inline-flex items-center gap-1 rounded-lg border border-blue-200/80 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50 transition"
-                    >
-                      <Send className="h-3 w-3" /> Send 10 Docs
-                    </button>
-                  )}
-                </div>
-              ) : "—"}
-            </dd>
-            <dt className="text-gray-500">Category</dt><dd className="text-gray-800">{categoryLabel(selected.category)}</dd>
-            <dt className="text-gray-500">Created</dt><dd className="text-gray-800">{shortDate(selected.created_at)}</dd>
-            <dt className="text-gray-500">Last updated</dt>
-            <dd className="text-gray-800">{selected.updated_at ? `${shortDate(selected.updated_at)} · ${relativeTime(selected.updated_at)}` : "—"}</dd>
-          </dl>
-        </DetailSection>
-
-        {hireName && (
-          <DetailSection title={`Other documents for ${hireName}`}
-            action={activeHires.some((r) => String(r.id) === String(selected.onboarding_new_hire_id))
-              ? <button type="button" onClick={() => openRequestModal(String(selected.onboarding_new_hire_id))} className="text-xs font-medium text-blue-600 hover:text-blue-800">Request more</button>
-              : null}>
-            {siblings.length === 0 ? <p className="text-sm text-gray-500">None.</p> : (
-              <ul className="space-y-1.5">
-                {siblings.map((d) => (
-                  <li key={d.id}>
-                    <button type="button" onClick={() => setSelectedId(d.id)} className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-1.5 text-left text-sm hover:bg-gray-50">
-                      <span className="min-w-0 truncate text-gray-800">{d.title}</span>
-                      <DocStatus status={statusOf(d)} doc={d} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
+          {!isNone && (
+            <section>
+              <h3 className="mb-2 text-sm font-semibold text-gray-900">Onboarding package <span className="font-normal text-gray-500">({sum.packageSent} of 10 sent)</span></h3>
+              <ol className="space-y-2">
+                {PACKAGE_CATEGORIES.map((c) => docRow(pkgDocs[c.value], c.value, c.value))}
+              </ol>
+            </section>
+          )}
+          <section>
+            <h3 className="mb-2 text-sm font-semibold text-gray-900">{isNone ? "Documents" : "Other documents"} <span className="font-normal text-gray-500">({others.length})</span></h3>
+            {others.length === 0 ? <p className="rounded-xl border border-dashed border-gray-200 px-3 py-4 text-center text-sm text-gray-500">None.</p> : (
+              <ul className="space-y-2">{others.map((d) => docRow(d, d.category, d.id))}</ul>
             )}
-          </DetailSection>
-        )}
-
-        <div className="mt-6 border-t border-gray-100 pt-4">
-          <button type="button" onClick={() => handleDelete(selected)} disabled={busy} className="inline-flex items-center gap-1.5 text-sm font-medium text-rose-600 hover:text-rose-700 disabled:opacity-50">
-            <Trash2 className="h-4 w-4" />Delete document
-          </button>
+          </section>
         </div>
-      </DetailPanel>
+      </SlideOver>
     );
   })() : null;
 
@@ -691,99 +699,63 @@ export default function OnboardingDocuments() {
           <div data-testid="count-total"><KpiCard label="Total Documents" icon={Files} tone="violet" kpi={{ value: documents.length }} loading={kpiLoading} /></div>
         </KpiGrid>
 
-        <WithDetail detail={detail}>
-          <Card bodyClass="p-0">
-            <div className="space-y-4 border-b border-gray-100 px-5 py-4">
-              <ChipTabs label="Document status" tabs={statusTabs} value={statusFilter} onChange={setStatusFilter} />
-              <div className="flex flex-wrap items-end gap-3">
-                <SearchInput value={search} onChange={setSearch} placeholder="Search title, category or new hire…" label="Search documents" />
-                <FilterSelect label="New hire" value={recordFilter} onChange={setRecordFilter} allLabel="All new hires"
-                  options={records.map((r) => ({ value: String(r.id), label: r.candidate_name || `New hire #${r.id}` }))} />
-                {recordFilter && activeHires.some((r) => String(r.id) === String(recordFilter)) && (
-                  <button
-                    type="button"
-                    onClick={() => handleSendPackage(recordFilter)}
-                    disabled={busyHireId === recordFilter}
-                    className="inline-flex items-center gap-1.5 rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-3.5 py-2 text-xs font-semibold text-white shadow-sm hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 transition"
-                  >
-                    <Send className="h-3.5 w-3.5" />
-                    <span>Send 10 Onboarding Docs to {recordName(recordFilter)}</span>
-                  </button>
-                )}
-                <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} allLabel="All categories" options={CATEGORIES} />
-                <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} allLabel="All statuses"
-                  options={STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
-              </div>
+        <Card bodyClass="p-0">
+          <div className="space-y-4 border-b border-gray-100 px-5 py-4">
+            <ChipTabs label="Document status" tabs={statusTabs} value={statusFilter} onChange={setStatusFilter} />
+            <div className="flex flex-wrap items-end gap-3">
+              <SearchInput value={search} onChange={setSearch} placeholder="Search employee or document…" label="Search employees" />
+              <FilterSelect label="Category" value={categoryFilter} onChange={setCategoryFilter} allLabel="All categories" options={CATEGORIES} />
+              <FilterSelect label="Status" value={statusFilter} onChange={setStatusFilter} allLabel="All statuses"
+                options={STATUSES.map((s) => ({ value: s.value, label: s.label }))} />
             </div>
+          </div>
 
-            {filtered.length === 0 && !loading ? (
-              <EmptyState icon={FileUp} title={documents.length === 0 ? "No documents yet" : "No documents match the selected filters."}>
-                {documents.length === 0 ? "Upload one or request documents from a new hire." : null}
-              </EmptyState>
-            ) : (
-              <>
-                <Table columns={[{ label: "Document" }, { label: "Category" }, { label: "New hire" }, { label: "Uploaded" }, { label: "Status" },
-                  { label: "Actions", className: "text-right" }]}>
-                  {pageRows.map((doc) => {
-                    const status = statusOf(doc);
-                    const hireName = recordName(doc.onboarding_new_hire_id);
-                    const isSel = selectedId === doc.id;
-                    return (
-                      <tr key={doc.id} onClick={() => setSelectedId(doc.id)} className={`cursor-pointer transition-colors ${isSel ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
-                        <td className={td}>
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-gray-100 text-gray-500" aria-hidden="true"><FileText className="h-4 w-4" /></span>
-                            <button type="button" onClick={(e) => { e.stopPropagation(); setSelectedId(doc.id); }} aria-pressed={isSel}
-                              className="min-w-0 max-w-[16rem] break-words text-left font-medium text-gray-900 hover:text-blue-600">{doc.title}</button>
-                          </div>
-                        </td>
-                        <td className={td}><StatusPill tone={CATEGORY_TONE[doc.category] || "gray"}>{categoryLabel(doc.category)}</StatusPill></td>
-                        <td className={td}>
-                          {hireName ? (
-                            <div className="flex items-center justify-between gap-2">
-                              <div className="flex items-center gap-2 min-w-0">
-                                <Avatar name={hireName} size="sm" />
-                                <span className="truncate">{hireName}</span>
-                              </div>
-                              {activeHires.some((r) => String(r.id) === String(doc.onboarding_new_hire_id)) && (
-                                <button
-                                  type="button"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    handleSendPackage(doc.onboarding_new_hire_id);
-                                  }}
-                                  disabled={busyHireId === doc.onboarding_new_hire_id}
-                                  title={`Generate and send all 10 onboarding documents to ${hireName}`}
-                                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-blue-200/80 bg-blue-50 px-2 py-0.5 text-xs font-semibold text-blue-700 hover:bg-blue-100 hover:text-blue-800 disabled:opacity-50 transition shadow-xs"
-                                >
-                                  <Send className="h-3 w-3" />
-                                  <span>Send Docs</span>
-                                </button>
-                              )}
+          {visibleEmployees.length === 0 && !loading ? (
+            <EmptyState icon={FileUp} title={employees.length === 0 ? "No new hires yet" : "No employees match the selected filters."}>
+              {employees.length === 0 ? "Add a new hire, then send them the 10 onboarding documents." : null}
+            </EmptyState>
+          ) : (
+            <>
+              <Table columns={[{ label: "Employee" }, { label: "Onboarding package" }, { label: "Where things stand" }, { label: "Last update" },
+                { label: "", className: "text-right" }]}>
+                {employeeRows.map((e) => {
+                  const docs = docsOf(e.key);
+                  const sum = summaryOf(docs);
+                  return (
+                    <tr key={e.key} data-testid="employee-row" onClick={() => { setOpenHire(e.key); setPreviewId(null); }}
+                      className="cursor-pointer transition-colors hover:bg-gray-50">
+                      <td className={td}>
+                        {e.key === "none" ? <span className="font-medium text-gray-700">{e.name}</span>
+                          : <PersonCell name={e.name} sub={[e.rec?.position, e.rec?.email].filter(Boolean).join(" · ") || undefined} />}
+                      </td>
+                      <td className={`${td} whitespace-nowrap`}>
+                        {e.key === "none" ? <span className="text-gray-400">—</span> : (
+                          <div className="w-32">
+                            <p className="text-xs font-medium text-gray-700">{sum.packageSent} of 10 sent</p>
+                            <div className="mt-1 h-1.5 rounded-full bg-gray-100">
+                              <div className="h-1.5 rounded-full bg-blue-600" style={{ width: `${sum.packageSent * 10}%` }} />
                             </div>
-                          ) : <span className="text-gray-400">—</span>}
-                        </td>
-                        <td className={`${td} whitespace-nowrap`}>
-                          {doc.file_url ? (
-                            <span title={doc.updated_at || doc.created_at || undefined}>{doc.updated_at || doc.created_at ? shortDate(doc.updated_at || doc.created_at) : "—"}</span>
-                          ) : <span className="text-gray-400">Not uploaded</span>}
-                        </td>
-                        <td className={td}>
-                          <DocStatus status={status} doc={doc} />
-                          {status === "rejected" && doc.rejection_reason ? (
-                            <p className="mt-1 max-w-[220px] break-words text-xs text-gray-500">{doc.rejection_reason}</p>
-                          ) : null}
-                        </td>
-                        <td className={`${td} text-right`}>{rowActions(doc)}</td>
-                      </tr>
-                    );
-                  })}
-                </Table>
-                <Pagination page={page} pageSize={pageSize} total={filtered.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1); }} />
-              </>
-            )}
-          </Card>
-        </WithDetail>
+                          </div>
+                        )}
+                      </td>
+                      <td className={td}>{summaryPills(sum)}</td>
+                      <td className={`${td} whitespace-nowrap text-gray-500`}>{sum.last ? relativeTime(sum.last) : "—"}</td>
+                      <td className={`${td} text-right`}>
+                        <button type="button" onClick={(ev) => { ev.stopPropagation(); setOpenHire(e.key); setPreviewId(null); }}
+                          aria-label={`View documents of ${e.name}`}
+                          className="inline-flex items-center gap-1 whitespace-nowrap rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50">
+                          <Eye className="h-3.5 w-3.5" />View documents
+                        </button>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </Table>
+              <Pagination page={page} pageSize={pageSize} total={visibleEmployees.length} onPage={setPage} onPageSize={(n) => { setPageSize(n); setPage(1); }} />
+            </>
+          )}
+        </Card>
+        {employeePanel}
       </div>
 
       {/* Upload */}
@@ -856,7 +828,7 @@ export default function OnboardingDocuments() {
               <fieldset className="rounded-2xl border border-gray-200 bg-white p-4">
                 <legend className="px-1 text-sm font-medium text-gray-700">Documents to request <span className="text-rose-500">*</span></legend>
                 <div className="space-y-1">
-                  {CATEGORIES.map((cat) => (
+                  {UPLOAD_CATEGORIES.map((cat) => (
                     <label key={cat.value} className="flex cursor-pointer items-center gap-2 rounded-lg px-1 py-1 text-sm text-gray-700 hover:bg-gray-50">
                       <input type="checkbox" checked={requestCategories.includes(cat.value)} onChange={() => toggleRequestCategory(cat.value)} className="rounded border-gray-300" />
                       {cat.label}
@@ -903,73 +875,38 @@ export default function OnboardingDocuments() {
         </SlideOver>
       )}
 
-      {/* Send 10 Onboarding Documents Package Modal */}
+      {/* Offer package: readiness, missing data, previews and sending */}
       {showPackageModal && (
         <SlideOver
-          title="Send Onboarding Documents"
-          subtitle="Generate and email all 10 standard employment & onboarding package documents to the new hire."
+          title="Send 10 Onboarding Docs"
+          subtitle="Offer letter, job description, KPIs, NDA, contract, affidavit, self-disclosure, application, DWR and velocity report. Only documents that are ready are sent."
           icon={Send}
+          width="sm:max-w-[640px]"
           onClose={() => setShowPackageModal(false)}
         >
-          <form noValidate onSubmit={submitSendPackageModal} className="flex min-h-0 flex-1 flex-col">
-            <div className="min-h-0 flex-1 space-y-4 overflow-y-auto px-4 py-5 sm:px-6">
-              {packageError && (
-                <div role="alert" className="rounded-xl border border-red-200 bg-red-50 p-2.5 text-sm text-red-600">
-                  {packageError}
-                </div>
-              )}
-              <div>
-                <label htmlFor="pkg-hire" className={labelCls}>
-                  Select Employee / New Hire <span className="text-rose-500">*</span>
-                </label>
-                <select
-                  id="pkg-hire"
-                  value={packageHireId}
-                  onChange={(e) => {
-                    setPackageHireId(e.target.value);
-                    setPackageError("");
-                  }}
-                  className={fieldCls(false)}
-                >
-                  <option value="">Choose an employee...</option>
-                  {activeHires.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {r.candidate_name || `New hire #${r.id}`}{r.position ? ` — ${r.position}` : ""}{r.email ? ` (${r.email})` : ""}
-                    </option>
-                  ))}
-                </select>
-                {activeHires.length === 0 && <p className="mt-1 text-xs text-gray-500">There are no active new hires.</p>}
-              </div>
-
-              <div className="rounded-2xl border border-blue-100 bg-blue-50/50 p-4">
-                <h3 className="text-sm font-semibold text-slate-900 mb-2">10 Documents Included in Package:</h3>
-                <div className="space-y-1.5 text-xs text-slate-700">
-                  <div className="font-medium text-blue-900 pb-1">5 Signable Documents (Issued for E-Signature):</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 1. Offer Letter</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 2. Non-Disclosure Agreement (NDA)</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 3. Employment Contract</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 4. Affidavit of Employment Exclusivity</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-blue-600" /> 5. Voluntary Self-Disclosure Form</div>
-
-                  <div className="font-medium text-slate-900 pt-2 pb-1">5 Operational & Template Documents:</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 6. Job Description</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 7. Daily Key Performance Indicators (KPIs)</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 8. Job Application Form</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 9. Daily Work Report (DWR) Template</div>
-                  <div className="flex items-center gap-2 pl-2"><span className="h-1.5 w-1.5 rounded-full bg-slate-500" /> 10. Zoiko Group Project Velocity Report Template</div>
-                </div>
-                <p className="mt-3 text-xs text-slate-500 border-t border-blue-200/50 pt-2">
-                  All 10 documents are automatically filled with employee details (position, salary, department, dates) and the new hire will be emailed a link to sign required documents online.
-                </p>
-              </div>
-            </div>
-            <SlideOverFooter>
-              <SecondaryButton onClick={() => setShowPackageModal(false)}>Cancel</SecondaryButton>
-              <PrimaryButton type="submit" disabled={sendingPackage || !packageHireId}>
-                {sendingPackage ? "Generating & Sending..." : "Generate & Send 10 Documents"}
-              </PrimaryButton>
-            </SlideOverFooter>
-          </form>
+          <div className="shrink-0 border-b border-gray-200 bg-white px-4 py-3 sm:px-6">
+            <label htmlFor="pkg-hire" className={labelCls}>New hire</label>
+            <select id="pkg-hire" value={packageHireId} onChange={(e) => setPackageHireId(e.target.value)} className={fieldCls(false)}>
+              <option value="">Choose a new hire...</option>
+              {activeHires.map((r) => (
+                <option key={r.id} value={r.id}>
+                  {r.candidate_name || `New hire #${r.id}`}{r.position ? ` — ${r.position}` : ""}{r.email ? ` (${r.email})` : ""}
+                </option>
+              ))}
+            </select>
+            {activeHires.length === 0 && <p className="mt-1 text-xs text-gray-500">There are no active new hires.</p>}
+          </div>
+          {packageHireId ? (
+            <OfferPackagePanel
+              key={packageHireId}
+              hireId={Number(packageHireId)}
+              footer={SlideOverFooter}
+              onError={showError}
+              onSent={async (res) => { if (res?.issued?.length) { showSuccess(res.message); await refresh(); } }}
+            />
+          ) : (
+            <div className="flex-1 px-6 py-10 text-center text-sm text-gray-500">Choose a new hire to see their package.</div>
+          )}
         </SlideOver>
       )}
     </>

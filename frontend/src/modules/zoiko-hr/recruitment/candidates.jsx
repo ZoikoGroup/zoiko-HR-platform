@@ -205,7 +205,20 @@ export default function Candidates() {
   const sources = [...new Set(candidates.map((c) => c.source).filter(Boolean))];
 
   // ── Add / Edit candidate panel ───────────────────────────────────────────────────────────────────────────────────
+  // requisitions are re-read whenever the form opens and when the tab regains focus, so one created a moment ago
+  // (on the Job Requisitions page or in another tab) is offered straight away
+  const refreshRequisitions = useCallback(() => {
+    getRequisitions({ per_page: 100 })
+      .then((reqs) => setRequisitions(Array.isArray(reqs) ? reqs : reqs?.items || reqs?.data || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    window.addEventListener("focus", refreshRequisitions);
+    return () => window.removeEventListener("focus", refreshRequisitions);
+  }, [refreshRequisitions]);
+
   const openPanel = (item, values, filled = {}) => {
+    refreshRequisitions();
     returnFocusRef.current = typeof document !== "undefined" ? document.activeElement : null;
     setEditItem(item);
     setForm(values);
@@ -487,7 +500,13 @@ export default function Candidates() {
   const stageOptions = editItem
     ? [editItem.status, ...(NEXT_STAGES[editItem.status] || [])].filter(Boolean)
     : ["applied", "screening", "interview", "offer"];
-  const reqOptions = requisitions.filter((r) => r.status === "open" || String(r.id) === String(form.requisition_id));
+  // open requisitions can be linked; ones still in draft, awaiting approval or on hold are listed but disabled, so a newly
+  // created requisition is visible and the reason it cannot be chosen yet is clear. Closed ones are left out.
+  const isLinkable = (r) => r.status === "open" || String(r.id) === String(form.requisition_id);
+  const reqOptions = requisitions.filter((r) => r.status !== "closed" || String(r.id) === String(form.requisition_id))
+    .sort((a, b) => Number(isLinkable(b)) - Number(isLinkable(a)));
+  const linkableCount = reqOptions.filter(isLinkable).length;
+  const REQ_STATUS_NOTE = { draft: "draft – submit for approval first", pending: "awaiting approval", on_hold: "on hold" };
 
   const modalJsx = showModal ? (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -579,10 +598,16 @@ export default function Candidates() {
 
               <FormSection icon={Briefcase} title="Application" helper="The role they applied for and where they came from.">
                 <Field id="cand-req" label="Job requisition" error={errors.requisition_id}
-                  hint={reqOptions.length ? "Linking a requisition fills the position if it is empty." : "There are no open requisitions to link."}>
+                  hint={linkableCount ? "Linking a requisition fills the position if it is empty."
+                    : reqOptions.length ? "Requisitions can be linked once they are approved (open)."
+                      : "There are no requisitions yet. Create one in Job Requisitions."}>
                   <select id="cand-req" value={form.requisition_id} onChange={(e) => handleRequisitionSelect(e.target.value)} aria-describedby={errors.requisition_id ? "cand-req-error" : "cand-req-hint"} className={inputCls(errors.requisition_id)}>
                     <option value="">No requisition linked</option>
-                    {reqOptions.map((r) => <option key={r.id} value={r.id}>{r.title}{r.department ? ` — ${r.department}` : ""}{r.status !== "open" ? ` · ${r.status}` : ""}</option>)}
+                    {reqOptions.map((r) => (
+                      <option key={r.id} value={r.id} disabled={!isLinkable(r)}>
+                        {r.title}{r.department ? ` — ${r.department}` : ""}{r.status !== "open" ? ` (${REQ_STATUS_NOTE[r.status] || String(r.status).replace(/_/g, " ")})` : ""}
+                      </option>
+                    ))}
                   </select>
                 </Field>
                 {selectedRequisition ? (
