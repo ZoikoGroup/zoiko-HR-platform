@@ -1,6 +1,8 @@
 /*
  * Onboarding › Settings › Offer package: what the 10 package documents print.
- * - Employer particulars, signatory and HR contact; branding, paper size, spelling and date format.
+ * - Employer particulars, signatory and HR contact; branding, paper size, spelling and date format. These settings are the ONLY
+ *   source of company information in the documents: nothing is taken from the organisation profile, so a document waits
+ *   (not ready) until the particulars it prints are filled in here.
  * - The counsel clause library: one entry per {{clause:…}} hook. Paste the wording your employment counsel approved for your
  *   jurisdiction, or mark an optional clause "not used". Until a required clause has wording, every document that uses it stays
  *   a watermarked draft and is never sent to a new hire. Zoiko HR does not write legal clauses for you.
@@ -49,7 +51,7 @@ function LogoCard({ hasLogo, onChanged, onMessage }) {
   };
 
   const remove = async () => {
-    if (!window.confirm("Remove the company logo? New documents will show the logo placeholder again.")) return;
+    if (!window.confirm("Remove the company logo? Documents generated from now on will have no logo.")) return;
     setBusy(true);
     try {
       onChanged(await deleteOfferPackageLogo());
@@ -97,9 +99,9 @@ const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 te
 const labelCls = "mb-1 block text-sm font-medium text-gray-700";
 
 const TEXT_FIELDS = [
-  ["legal_name", "Employer legal name", "e.g. Zoiko Group Ltd"],
+  ["legal_name", "Employer legal name", "As registered, e.g. Example Holdings Ltd"],
   ["registered_address", "Registered office address", "Street, town, postcode, country"],
-  ["header_label", "Header label (shown as “LABEL | HR”)", "e.g. ZOIKO GROUP"],
+  ["header_label", "Header label (shown as “LABEL | HR”)", "Optional – the legal name is used if left blank"],
   ["signatory_name", "Authorised signatory – name", "Who issues offers and contracts"],
   ["signatory_title", "Authorised signatory – job title", "e.g. Managing Director"],
   ["hr_contact_name", "HR contact – name", "e.g. People Team"],
@@ -185,6 +187,10 @@ export default function OfferPackageSettings() {
             <p className="mt-1 text-xs text-gray-500">
               You can change anything here at any time. Changes apply to documents generated from now on (new employees, and
               documents not sent yet). Documents already sent to an employee are final and are never changed.
+            </p>
+            <p className="mt-1 text-xs font-medium text-blue-700">
+              The company details below are the only company information printed in the documents. Nothing is taken from your
+              organisation profile, so fill in every field the documents need before sending.
             </p>
           </div>
         </div>

@@ -77,21 +77,26 @@ def _is_us(org) -> bool:
 
 
 def _defaults(org) -> dict:
-    name = (getattr(org, "organization_name", None) or getattr(org, "display_name", None) or "").strip()
-    addr = ", ".join(p for p in [getattr(org, "address", None), getattr(org, "city", None), getattr(org, "state", None),
-                                 getattr(org, "country", None)] if p and str(p).strip())
+    """Company particulars are NEVER taken from the organisation record: every employer detail printed in the documents is
+    what HR entered on Onboarding › Settings › Offer package (until then the documents stay held as not ready). Only the
+    formatting defaults (paper, spelling, date format) follow the organisation's country."""
     us = _is_us(org)
     return {
-        "legal_name": name, "registered_address": addr,
-        "header_label": ((getattr(org, "display_name", None) or name) or "ZOIKO GROUP").upper()[:60],
+        "legal_name": "", "registered_address": "",
+        "header_label": "",
         "brand_primary": "#0B3D91", "brand_accent": "#00A3E0",
         "paper": "LETTER" if us else "A4", "spelling": "US" if us else "UK", "date_format": "MDY" if us else "DMY",
-        "jurisdiction": getattr(org, "country", None) or "",
+        "jurisdiction": "",
         "signatory_name": "", "signatory_title": "", "hr_contact_name": "",
-        "hr_contact_email": getattr(org, "registered_email", None) or "",
+        "hr_contact_email": "",
         "response_days": 7, "leave_entitlement": "", "post_employment_period": "", "pay_frequency": "",
         "kpi_review_cycle": "", "benefits_reference": "", "effective_date": "", "clauses": {}, "logo_key": "",
     }
+
+
+def header_label(cfg: dict) -> str:
+    """The running header's "LABEL | HR": the header label from the settings, else the employer legal name from the settings."""
+    return ((cfg.get("header_label") or "").strip() or (cfg.get("legal_name") or "").strip()).upper()[:60]
 
 
 def _row(db, organization_id):
@@ -350,7 +355,7 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "employment.employment_type": _pretty(hire.employment_type or (offer.employment_type if offer else None)),
         "employment.start_date": _fmt_date(start, cfg),
         "employment.continuous_service_date": _fmt_date(start, cfg),
-        "employment.work_location": (offer.work_location if offer else None) or getattr(org, "city", None),
+        "employment.work_location": (offer.work_location if offer else None),          # never the org record's city
         "employment.work_arrangement": _pretty(offer.work_arrangement if offer else None),
         "employment.working_hours": working_hours,
         "employment.work_pattern": (offer.work_pattern if offer else None) or working_hours,
@@ -359,7 +364,7 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "employment.variable_pay": (f"Equity: {offer.equity}" if offer and offer.equity else None),
         "employment.benefits_reference": cfg.get("benefits_reference") or None,
         "employment.leave_entitlement": cfg.get("leave_entitlement") or None,
-        "employment.country": country_name(country_code) if country_code else (getattr(org, "country", None) or None),
+        "employment.country": country_name(country_code) if country_code else (cfg.get("jurisdiction") or None),
         "offer.response_deadline": _fmt_date(date.today() + timedelta(days=int(cfg.get("response_days") or 7)), cfg),
         "offer.secure_link": secure_link,
         "contract.id": contract_id,
@@ -394,7 +399,7 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
     ctx = R.RenderContext(mode="issue", values=values, clauses=cfg.get("clauses") or {},
                           optional=set(C.OPTIONAL_BY_DOC.get(category, set())),
                           activities=(hire.profile_details or {}).get("outside_activities"),
-                          org_label=(cfg.get("header_label") or "ZOIKO GROUP").upper(), primary=cfg["brand_primary"],
+                          org_label=header_label(cfg), primary=cfg["brand_primary"],
                           accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                           effective_date=values.get("document.effective_date") or "", esign=esign,
                           logo_png=logo_bytes(db, hire.organization_id, cfg))
@@ -426,7 +431,7 @@ def readiness(ctx: R.RenderContext, category: str) -> dict:
 
 def template_context(db, organization_id: int) -> R.RenderContext:
     cfg = get_config(db, organization_id)
-    return R.RenderContext(mode="template", org_label=(cfg.get("header_label") or "ZOIKO GROUP").upper(),
+    return R.RenderContext(mode="template", org_label=header_label(cfg),
                            primary=cfg["brand_primary"], accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                            effective_date=_fmt_date(cfg.get("effective_date") or date.today(), cfg),
                            logo_png=logo_bytes(db, organization_id, cfg))
@@ -436,9 +441,37 @@ def template_set_pdf(db, organization_id: int) -> bytes:
     return R.render_template_set(template_context(db, organization_id))
 
 
+def stored_document_pdf(db, document_id: Optional[int], organization_id: int) -> Optional[tuple[bytes, str]]:
+    """(bytes, file name) of the document the new hire was actually sent, from the document store: the signed copy (with
+    the signatures page and the evidence certificate) once it is executed, otherwise the issued original. None when the
+    onboarding row is not backed by an issued document (a plain upload)."""
+    if not document_id:
+        return None
+    gen = db.get(GeneratedDocument, document_id)
+    if gen is None or gen.organization_id != organization_id:
+        return None
+    signed = gen.status == "EXECUTED" and bool(gen.executed_pdf_path)
+    key = gen.executed_pdf_path if signed else gen.pdf_path
+    if not key:
+        return None
+    try:
+        data = storage.get_store().get(key)
+    except Exception:
+        logger.exception("stored document %s could not be read", gen.id)
+        return None
+    title = re.sub(r"[^A-Za-z0-9 ._-]+", "", gen.title or "document").strip() or "document"
+    return data, f"{title} - {gen.document_number}{' (signed)' if signed else ''}.pdf"
+
+
 def preview_pdf(db, hire, category: str) -> bytes:
+    """What HR sees under "Preview": the document as sent (signed copy once signed); a draft render only before sending."""
     if category not in C.DOCS:
         raise HTTPException(404, "Unknown package document.")
+    row = _rows(db, hire).get(category)
+    if row is not None and row.document_id:
+        stored = stored_document_pdf(db, row.document_id, hire.organization_id)
+        if stored is not None:
+            return stored[0]
     return R.render_pdf(category, render_context(db, hire, category))
 
 
@@ -658,6 +691,8 @@ def send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[l
         pkg.update({"sent_at": pkg.get("sent_at") or datetime.utcnow().isoformat(), "last_sent_at": datetime.utcnow().isoformat(),
                     "sent_by": getattr(actor, "id", None) if actor else pkg.get("sent_by")})
     pkg["held"] = [h["category"] for h in held]
+    if issued:
+        pkg.pop("submitted_at", None)          # new documents to act on: the hire's earlier submission no longer covers them
     details["_package"] = pkg
     hire.profile_details = details
     db.commit()
@@ -806,6 +841,25 @@ def check_before_signing(db, doc: GeneratedDocument) -> None:
                                              "have none) in your onboarding portal."})
 
 
+def declaration_needed(db, doc: GeneratedDocument) -> bool:
+    """True for an unsigned affidavit whose Schedule A declaration has not been made yet."""
+    if doc.canonical_id != AFFIDAVIT_ID or doc.status != "ISSUED":
+        return False
+    hire = _hire_of(db, doc)
+    return hire is not None and not (hire.profile_details or {}).get("outside_activities")
+
+
+def declare_for_document(db, doc: GeneratedDocument, data: dict) -> None:
+    """Schedule A made from wherever the affidavit is being signed (the signing link or self-service), not only the portal."""
+    hire = _hire_of(db, doc) if doc.canonical_id == AFFIDAVIT_ID else None
+    if hire is None:
+        raise HTTPException(409, "This document has no declaration to complete.")
+    if doc.status != "ISSUED":
+        raise HTTPException(409, "This document can no longer be signed.")
+    save_outside_activities(db, hire, data)
+    release_held(db, hire)
+
+
 def signing_schedule(db, doc: GeneratedDocument) -> Optional[bytes]:
     """Pages appended to the executed document before the signature certificate (the affidavit's Schedule A)."""
     if doc.canonical_id != AFFIDAVIT_ID:
@@ -840,7 +894,8 @@ def portal_package_status(db, hire) -> dict:
         needs.append("address")
     affidavit = _rows(db, hire).get("exclusivity_affidavit")
     if not details.get("outside_activities") and ("exclusivity_affidavit" in held
-                                                  or (affidavit is not None and _row_state(db, affidavit) == "awaiting_signature")):
+                                                  or (affidavit is not None and affidavit.status != "approved"
+                                                      and _row_state(db, affidavit) not in ("completed", "declined"))):
         needs.append("outside_activities")              # Schedule A of the affidavit, completed before signing
     return {"needs": needs, "outside_activities": details.get("outside_activities"),
             "ack_text": ACK_TEXT, "ack_text_version": ACK_TEXT_VERSION}
@@ -927,6 +982,178 @@ def get_signing_token_for_onboarding_doc(db: Session, onb_doc: OnboardingDocumen
         hire.profile_details = details
     db.commit()
     return raw
+
+
+def next_to_sign(db: Session, doc: GeneratedDocument) -> dict:
+    """After the candidate signs `doc` from its link: the package's other documents still waiting for their signature, in
+    package order, with a live link token for the first one. (The affidavit's Schedule A declaration is made on its signing
+    page, so it is offered like the others.)"""
+    empty = {"in_package": False, "remaining": 0, "next": None}
+    onb = (db.query(OnboardingDocument)
+           .filter(OnboardingDocument.document_id == doc.id, OnboardingDocument.is_deleted == False)  # noqa: E712
+           .first())
+    hire = db.get(OnboardingNewHire, onb.onboarding_new_hire_id) if onb is not None and onb.onboarding_new_hire_id else None
+    if hire is None or hire.organization_id != doc.organization_id:
+        return empty
+    rows = _rows(db, hire)
+    waiting = []
+    for cat in C.CATEGORIES:
+        row = rows.get(cat)
+        if row is None or row.document_id == doc.id or mode_of(cat) != "SIGN" or _row_state(db, row) != "awaiting_signature":
+            continue
+        gen = _gen(db, row)
+        if gen is None or gen.status != "ISSUED"                 or (gen.recipient_email or "").lower() != (doc.recipient_email or "").lower()                 or "candidate" not in signing.required_parties(gen) or "candidate" in signing.signed_parties(db, gen):
+            continue
+        waiting.append((row, gen.title or row.title))
+    nxt = None
+    for row, title in waiting:
+        raw = get_signing_token_for_onboarding_doc(db, row)
+        if raw:
+            nxt = {"title": title, "token": raw}
+            break
+    return {"in_package": True, "remaining": len(waiting), "next": nxt, "submission": submission_status(db, hire),
+            "candidate_name": hire.candidate_name, "position": hire.position}
+
+
+# ── the new hire's final submission ──────────────────────────────────────────────────────────────────────────────────
+_OWED = {"awaiting_signature": "sign", "awaiting_acknowledgement": "acknowledge", "awaiting_upload": "complete and upload",
+         "rejected": "upload again", "declined": "contact HR about"}
+
+
+def outstanding_for_hire(db, hire) -> list[dict]:
+    """What the new hire still has to do before they can submit: package documents to sign / acknowledge / upload, other
+    requested uploads, and the details the package waits for. Voluntary and information documents never count."""
+    out = []
+    package_ids = set()
+    rows = _rows(db, hire)
+    for cat in C.CATEGORIES:
+        row = rows.get(cat)
+        if row is None:
+            continue
+        package_ids.add(row.id)
+        verb = _OWED.get(_row_state(db, row))
+        if verb:
+            out.append({"title": row.title or C.DOCS[cat]["title"], "action": verb})
+    others = (db.query(OnboardingDocument)
+              .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
+              .all())
+    for d in others:
+        if d.id not in package_ids and is_blocking(d) and d.status in ("requested", "rejected"):
+            out.append({"title": d.title, "action": "upload" if d.status == "requested" else "upload again"})
+    needs = portal_package_status(db, hire)["needs"]
+    for need in needs:
+        out.append({"title": {"address": "Your residential address",
+                              "outside_activities": "Schedule A: outside activities"}.get(need, need), "action": "complete"})
+    # documents HR has not been able to send yet (held): the package is not complete until they arrive and are done
+    held = ((hire.profile_details or {}).get("_package") or {}).get("held") or []
+    for cat in held:
+        if cat not in C.DOCS or mode_of(cat) in ("VOLUNTARY", "INFO"):
+            continue
+        gaps = readiness(render_context(db, hire, cat, final=True), cat)
+        if not gaps["ready"] and not gaps["missing_clauses"] and set(gaps["missing_fields"]) <= {"worker.postal_address"}:
+            continue                       # waiting only for the hire's own address: already listed above as their step
+        # otherwise HR still has to complete the settings and/or press Send: the hire has not received it yet
+        out.append({"title": C.DOCS[cat]["title"], "action": "wait for HR to send"})
+    return out
+
+
+def submission_status(db, hire) -> dict:
+    pkg = (hire.profile_details or {}).get("_package") or {}
+    outstanding = outstanding_for_hire(db, hire)
+    return {"submitted_at": pkg.get("submitted_at"), "outstanding": outstanding, "can_submit": not outstanding}
+
+
+def submit_package(db, hire) -> dict:
+    """The new hire confirms they have finished: everything they owe is done. HR is told in-app; repeat calls are harmless."""
+    outstanding = outstanding_for_hire(db, hire)
+    if outstanding:
+        raise HTTPException(409, {"code": "ONBOARDING_INCOMPLETE",
+                                  "message": "Finish these first: " + "; ".join(f"{o['action']} {o['title']}" for o in outstanding),
+                                  "outstanding": outstanding})
+    details = dict(hire.profile_details or {})
+    pkg = dict(details.get("_package") or {})
+    first = not pkg.get("submitted_at")
+    if first:
+        pkg["submitted_at"] = datetime.utcnow().isoformat()
+        details["_package"] = pkg
+        hire.profile_details = details
+        sync_onboarding_document_checklist(db, hire)
+        from app.modules.hr.service import log_onboarding_activity
+        log_onboarding_activity(db, hire.id, "Onboarding documents submitted",
+                                f"{hire.candidate_name} completed and submitted all their onboarding documents.", hire.organization_id)
+        try:
+            from app.modules.super_admin.admin_notifications import notify_org_admins
+            notify_org_admins(db, org_id=hire.organization_id, title="Onboarding documents submitted",
+                              message=f"{hire.candidate_name} ({hire.position or 'new hire'}) has signed and submitted all onboarding "
+                                      "documents. They are ready for your review.", notification_type="onboarding")
+        except Exception:
+            logger.exception("submission notification failed for new hire %s", hire.id)
+        db.commit()
+    return {**submission_status(db, hire), "first_submission": first}
+
+
+def hire_for_document(db, doc: GeneratedDocument) -> Optional[OnboardingNewHire]:
+    onb = (db.query(OnboardingDocument)
+           .filter(OnboardingDocument.document_id == doc.id, OnboardingDocument.is_deleted == False)  # noqa: E712
+           .first())
+    hire = db.get(OnboardingNewHire, onb.onboarding_new_hire_id) if onb is not None and onb.onboarding_new_hire_id else None
+    return hire if hire is not None and hire.organization_id == doc.organization_id else None
+
+
+# ── signed documents, for HR / org admins ───────────────────────────────────────────────────────────────────────────
+PARTY_LABEL = {"candidate": "Employee", "employee": "Employee", "employer": "Employer", "witness": "Witness"}
+
+
+def signed_documents(db, organization_id: int, new_hire_id: Optional[int] = None) -> list[dict]:
+    """Every onboarding document the new hire (later the employee) has signed, with each signature: who, how, when, and
+    whether a drawn image exists (served by signature_image). Grouped by new hire, newest hire first."""
+    from app.modules.doc_templates.models import DocumentSignature
+    q = (db.query(OnboardingDocument, OnboardingNewHire, GeneratedDocument)
+         .join(OnboardingNewHire, OnboardingNewHire.id == OnboardingDocument.onboarding_new_hire_id)
+         .join(GeneratedDocument, GeneratedDocument.id == OnboardingDocument.document_id)
+         .filter(OnboardingDocument.organization_id == organization_id, OnboardingDocument.is_deleted == False,  # noqa: E712
+                 GeneratedDocument.organization_id == organization_id))
+    if new_hire_id is not None:
+        q = q.filter(OnboardingNewHire.id == new_hire_id)
+    rows = q.order_by(OnboardingNewHire.id.desc(), OnboardingDocument.id).limit(2000).all()
+    if not rows:
+        return []
+    sigs: dict[int, list] = {}
+    for sig in (db.query(DocumentSignature)
+                .filter(DocumentSignature.document_id.in_([g.id for _o, _h, g in rows]), DocumentSignature.decision == "SIGNED")
+                .order_by(DocumentSignature.signed_at).all()):
+        sigs.setdefault(sig.document_id, []).append(sig)
+    order = {cat: i for i, cat in enumerate(C.CATEGORIES)}
+    hires: dict[int, dict] = {}
+    for onb, hire, gen in rows:
+        if gen.id not in sigs:
+            continue
+        h = hires.setdefault(hire.id, {"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "position": hire.position,
+                                       "documents": []})
+        h["documents"].append({
+            "id": gen.id, "onboarding_document_id": onb.id, "title": gen.title or onb.title, "category": onb.category,
+            "document_number": gen.document_number, "status": gen.status, "fully_signed": gen.status == "EXECUTED",
+            "signatures": [{"id": s.id, "party": PARTY_LABEL.get(s.signer_party, s.signer_party.title()),
+                            "name": s.signer_name_typed, "method": s.signature_method, "signed_at": s.signed_at,
+                            "email": s.signer_email, "otp_verified": bool(s.otp_verified_at), "ip_address": s.ip_address,
+                            "has_image": bool(s.signature_image_path)} for s in sigs[gen.id]],
+        })
+    for h in hires.values():
+        h["documents"].sort(key=lambda d: (order.get(d["category"], 99), d["id"]))
+    return list(hires.values())
+
+
+def signature_image(db, organization_id: int, signature_id: int) -> bytes:
+    from app.modules.doc_templates.models import DocumentSignature
+    sig = db.get(DocumentSignature, signature_id)
+    if sig is None or sig.organization_id != organization_id or not sig.signature_image_path:
+        raise HTTPException(404, "Signature image not found")
+    onboarding = (db.query(OnboardingDocument.id)
+                  .filter(OnboardingDocument.document_id == sig.document_id, OnboardingDocument.organization_id == organization_id,
+                          OnboardingDocument.is_deleted == False).first())  # noqa: E712
+    if onboarding is None:                     # only the onboarding documents this page lists, never other HR documents
+        raise HTTPException(404, "Signature image not found")
+    return storage.get_store().get(sig.signature_image_path)
 
 
 def generate_html_for_doc(doc: GeneratedDocument) -> str:

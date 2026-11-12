@@ -56,12 +56,12 @@ def test_package_order_ids_and_modes():
     ("exclusivity_affidavit", 1, 2), ("self_disclosure", 1, 2), ("job_application", 3, 4), ("daily_work_report", 1, 1),
     ("velocity_report", 2, 3)])
 def test_page_budget_and_running_header_footer(cat, low, high):
-    pdf = R.render_pdf(cat, R.RenderContext(mode="template", effective_date="10 November 2026"))
+    pdf = R.render_pdf(cat, R.RenderContext(mode="template", org_label="EXAMPLE HOLDINGS", effective_date="10 November 2026"))
     n = _pages(pdf)
     assert low <= n <= high, f"{cat}: {n} pages"
     text = _text(pdf)
     d = C.DOCS[cat]
-    assert "ZOIKO GROUP | HR" in text and f"{d['template_id']} | v1.0" in text and "Private and Confidential" in text
+    assert "EXAMPLE HOLDINGS | HR" in text and f"{d['template_id']} | v1.0" in text and "Private and Confidential" in text
     assert f"Page {n} of {n}" in text and "LOGO – insert approved asset" in text
     assert R.DRAFT_STATUS in text and "DRAFT – NOT FOR ISSUE" in text
 
@@ -186,7 +186,8 @@ def test_full_package_journey(world):
 
     offer = world.db.query(GeneratedDocument).filter_by(subject_type="new_hire", subject_id=h.id, canonical_id="HR-HIR-011").one()
     pdf = _text(storage.get_store().get(offer.pdf_path))
-    assert "Tenant A Ltd" in pdf and "GBP 42,000 per year, paid monthly" in pdf and "ISSUED" in pdf
+    assert "Tenant A Ltd" in pdf and "GBP 42,000 per year, paid monthly" in pdf
+    assert "Legal risk level" not in pdf and "insert approved asset" not in pdf, "no internal control block or logo box"
     assert "{{" not in pdf and "DRAFT – NOT FOR ISSUE" not in pdf
 
     # candidate: portal shows modes; address releases NDA + contract; declaration releases the affidavit
@@ -199,7 +200,7 @@ def test_full_package_journey(world):
     assert r.status_code == 200, r.text
     docs_now = {d["category"]: d for d in r.json()["documents"]}
     assert {"nda", "employment_contract", "exclusivity_affidavit"} <= set(docs_now), "the address releases all three"
-    assert docs_now["exclusivity_affidavit"]["needs_declaration"] and not docs_now["exclusivity_affidavit"]["sign_url"]
+    assert docs_now["exclusivity_affidavit"]["needs_declaration"] and docs_now["exclusivity_affidavit"]["sign_url"],         "the affidavit can be opened for signing straight away; its page asks for Schedule A first"
     aff = world.db.query(GeneratedDocument).filter_by(subject_id=h.id, canonical_id="HR-CON-101").one()
     world.db.refresh(aff)
     assert aff.status == "ISSUED" and "Schedule A" in _text(storage.get_store().get(aff.pdf_path))
@@ -212,6 +213,8 @@ def test_full_package_journey(world):
     refused = world.client.post(f"/public/documents/sign/{raw}/sign", json={"typed_name": "Nora Newstarter",
                                 "consent_version": v["consent"]["version"], "otp_code": code(world)})
     assert refused.status_code == 409 and "Schedule A" in refused.text
+    assert v["needs_declaration"] is True, "the signing page asks for Schedule A itself"
+    assert world.client.post(f"/public/documents/sign/{raw}/declaration", json={"none": False, "rows": []}).status_code == 422
     assert world.client.post(f"/public/onboarding/{token}/outside-activities", json={"none": False, "rows": []}).status_code == 422
     r = world.client.post(f"/public/onboarding/{token}/outside-activities",
                           json={"rows": [{"organisation": "Chess Club", "role": "Treasurer", "hours": 2, "paid": "unpaid"}]})
@@ -239,6 +242,13 @@ def test_full_package_journey(world):
     assert s.status_code == 200, s.text
     world.db.expire_all()
     assert world.db.get(OnboardingDocument, nda_row["id"]).status == "approved"
+    # the success page offers the next document of the package that still needs the signature (never the one just signed)
+    nx = world.client.get(f"/public/documents/sign/{sign_token}/next")
+    assert nx.status_code == 200, nx.text
+    nx = nx.json()
+    assert nx["in_package"] and nx["remaining"] >= 1 and nx["next"], nx
+    assert nx["next"]["title"] not in ("Non-Disclosure Agreement", "Affidavit of Employment Exclusivity")
+    assert world.client.get(f"/public/documents/sign/{nx['next']['token']}").json()["can_sign"] is True
 
     # acknowledge the job description (receipt, not signature)
     jd = next(d for d in r.json()["documents"] if d["category"] == "job_description")
@@ -324,7 +334,7 @@ def test_company_logo_upload_validation_and_rendering(world):
     assert len(PdfReader(_io.BytesIO(pdf)).pages[0].images) >= 1, "the logo is embedded as an image"
     assert world.client.delete("/hr/onboarding/package/logo", headers=world._h("a_admin")).json()["settings"]["has_logo"] is False
     pdf = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/offer_letter/preview.pdf").content
-    assert "insert approved asset" in _text(pdf), "placeholder comes back"
+    assert "insert approved asset" not in _text(pdf), "no logo: no placeholder box on a document for a real employee"
 
 
 def test_the_documents_list_api_carries_the_package_mode(world):
@@ -417,3 +427,230 @@ def test_documents_left_by_the_earlier_generator_count_as_not_sent_until_hr_pres
     assert legacy_nda.status == "SUPERSEDED", "the old document is replaced, its link revoked"
     pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()
     assert not any(d["state"] == "not_sent" for d in pkg["documents"])
+
+
+def test_a_new_hire_who_became_an_employee_signs_the_package_from_self_service(world):
+    """Package documents are candidate documents; once linked to the employee they are signed from self-service, and the
+    affidavit's Schedule A can be declared there (the portal may be gone by then)."""
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, token = _new_hire(world)
+    assert world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS}).status_code == 200
+    world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
+    assert world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                            "postal_code": "YO1 1AA", "country": "United Kingdom"}).status_code == 200
+    world.db.expire_all()
+    P.link_documents_to_employee(world.db, world.db.get(OnboardingNewHire, h.id), world.u["a_emp"])
+
+    mine = {d["canonical_id"]: d for d in world.get("a_emp", "/hr/me/generated-documents?per_page=50").json()["items"]}
+    aff = mine["HR-CON-101"]
+    assert aff["my_action"] == "sign" and aff["needs_declaration"] is True, aff
+    assert all(d["my_action"] == "sign" for d in mine.values() if d["execution_mode"] == "SIGN_CANDIDATE" and d["status"] == "ISSUED")
+
+    base = f"/hr/me/generated-documents/{aff['id']}"
+    consent = world.get("a_emp", "/hr/me/generated-documents/statements").json()["consent"]["version"]
+    body = lambda: {"typed_name": "Nora Newstarter", "method": "TYPED", "consent_version": consent, "otp_code": code(world)}  # noqa: E731
+    assert world.post("a_emp", f"{base}/sign/otp").status_code == 200
+    refused = world.post("a_emp", f"{base}/sign", json=body())
+    assert refused.status_code == 409 and "Schedule A" in refused.text
+    d = world.post("a_emp", f"{base}/declaration", json={"none": True, "rows": []})
+    assert d.status_code == 200 and d.json()["needs_declaration"] is False, d.text
+    assert world.post("a_emp", f"{base}/sign/otp").status_code == 200
+    signed = world.post("a_emp", f"{base}/sign", json=body())
+    assert signed.status_code == 200, signed.text
+    assert signed.json()["status"] == "EXECUTED" and signed.json()["my_action"] is None
+    world.db.expire_all()
+    row = world.db.query(OnboardingDocument).filter_by(document_id=aff["id"]).one()
+    assert row.status == "approved"
+    assert world.post("a_emp2", f"{base}/declaration", json={"none": True}).status_code == 404, "only the recipient"
+
+
+def _png() -> str:
+    import base64
+    from PIL import Image, ImageDraw
+    img = Image.new("RGBA", (300, 90), (255, 255, 255, 0))
+    ImageDraw.Draw(img).line([(10, 70), (80, 20), (150, 65), (290, 15)], fill=(20, 40, 120, 255), width=5)
+    buf = io.BytesIO()
+    img.save(buf, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode()
+
+
+def test_admins_see_every_signed_document_with_the_signature_itself(world):
+    """Org admins list each new hire's signed documents with the signatures (drawn image or typed name), and the executed
+    PDF now shows the signatures on their own page before the evidence certificate."""
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
+    view = world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                            "postal_code": "YO1 1AA", "country": "United Kingdom"}).json()
+    docs = {d["category"]: d for d in view["documents"]}
+
+    def sign(cat, method):
+        tok = docs[cat]["sign_url"].rsplit("/", 1)[1]
+        v = world.client.get(f"/public/documents/sign/{tok}").json()
+        world.client.post(f"/public/documents/sign/{tok}/otp")
+        body = {"typed_name": "Nora Newstarter", "method": method, "consent_version": v["consent"]["version"], "otp_code": code(world)}
+        if method == "DRAWN":
+            body["drawn_signature"] = _png()
+        r = world.client.post(f"/public/documents/sign/{tok}/sign", json=body)
+        assert r.status_code == 200, r.text
+
+    sign("nda", "DRAWN")
+    sign("employment_contract", "TYPED")
+
+    r = world.get("a_admin", "/hr/onboarding/signed-documents")
+    assert r.status_code == 200, r.text
+    group = next(g for g in r.json()["items"] if g["new_hire_id"] == h.id)
+    by_title = {d["title"]: d for d in group["documents"]}
+    nda, contract = by_title["Non-Disclosure Agreement"], by_title["Employment Contract"]
+    assert [d["title"] for d in group["documents"]].index("Non-Disclosure Agreement") < \
+        [d["title"] for d in group["documents"]].index("Employment Contract"), "package order"
+    s_nda, s_con = nda["signatures"][0], contract["signatures"][0]
+    assert (s_nda["party"], s_nda["name"], s_nda["method"], s_nda["has_image"]) == ("Employee", "Nora Newstarter", "DRAWN", True)
+    assert (s_con["method"], s_con["has_image"]) == ("TYPED", False) and nda["fully_signed"] and s_nda["otp_verified"]
+    assert "Job Description" not in by_title, "only signed documents are listed"
+
+    img = world.get("a_admin", f"/hr/onboarding/signatures/{s_nda['id']}/image")
+    assert img.status_code == 200 and img.content.startswith(b"\x89PNG")
+    assert world.get("a_admin", f"/hr/onboarding/signatures/{s_con['id']}/image").status_code == 404, "typed: no image"
+    assert world.get("b_admin", f"/hr/onboarding/signatures/{s_nda['id']}/image").status_code == 404, "other organisation"
+    assert all(g["new_hire_id"] != h.id for g in world.get("b_admin", "/hr/onboarding/signed-documents").json()["items"])
+    assert world.get("a_emp", "/hr/onboarding/signed-documents").status_code == 403
+    only = world.get("a_admin", f"/hr/onboarding/signed-documents?new_hire_id={h.id}").json()["items"]
+    assert [g["new_hire_id"] for g in only] == [h.id]
+
+    # the executed PDF: original pages, then the signatures page, then the evidence certificate
+    from pypdf import PdfReader
+    gen = world.db.get(GeneratedDocument, nda["id"])
+    executed = storage.get_store().get(gen.executed_pdf_path)
+    pages = [" ".join((pg.extract_text() or "").split()) for pg in PdfReader(io.BytesIO(executed)).pages]
+    sig_page = next(i for i, t in enumerate(pages) if t.startswith("Signatures"))
+    cert_page = next(i for i, t in enumerate(pages) if "Electronic Signature Evidence Certificate" in t and not t.startswith("Signatures"))
+    assert sig_page < cert_page and sig_page == _pages(storage.get_store().get(gen.pdf_path))
+    assert "Nora Newstarter" in pages[sig_page] and "EMPLOYEE" in pages[sig_page] and "Drawn signature" in pages[sig_page]
+    assert PdfReader(io.BytesIO(executed)).pages[sig_page].images, "the drawn signature image is on the page"
+    typed_pdf = storage.get_store().get(world.db.get(GeneratedDocument, contract["id"]).executed_pdf_path)
+    assert "Typed signature" in _text(typed_pdf)
+
+
+def test_previews_show_the_document_as_sent_and_the_signed_copy_once_signed(world):
+    """HR's Documents-page preview, the package panel's Preview and the new hire's portal download all serve the document
+    from the document store: the issued original before signing, the signed copy (signatures page + certificate) after."""
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
+    view = world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                            "postal_code": "YO1 1AA", "country": "United Kingdom"}).json()
+    nda = next(d for d in view["documents"] if d["category"] == "nda")
+    listed = next(d for d in world.get("a_admin", f"/hr/onboarding/documents?onboarding_record_id={h.id}").json()
+                  if d["id"] == nda["id"])
+    assert listed["file_url"] == f"/hr/onboarding/documents/{nda['id']}/file"
+
+    def views():
+        return (world.get("a_admin", f"/hr/onboarding/documents/{nda['id']}/file"),
+                world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/nda/preview.pdf"),
+                world.client.get(f"/public/onboarding/{token}/documents/{nda['id']}/file"))
+
+    for r in views():                                       # sent, not signed yet: the issued original
+        assert r.status_code == 200 and r.headers["content-type"] == "application/pdf", r.text[:200]
+        assert "Non-Disclosure Agreement" in _text(r.content) and "Electronic Signature Evidence Certificate" not in _text(r.content)
+
+    tok = nda["sign_url"].rsplit("/", 1)[1]
+    v = world.client.get(f"/public/documents/sign/{tok}").json()
+    world.client.post(f"/public/documents/sign/{tok}/otp")
+    assert world.client.post(f"/public/documents/sign/{tok}/sign", json={"typed_name": "Nora Newstarter", "method": "TYPED",
+                             "consent_version": v["consent"]["version"], "otp_code": code(world)}).status_code == 200
+
+    for r in views():                                       # signed: the executed copy with the signatures
+        assert r.status_code == 200, r.text[:200]
+        text = _text(r.content)
+        assert "Signatures" in text and "Nora Newstarter" in text and "Electronic Signature Evidence Certificate" in text
+        assert "(signed).pdf" in r.headers["content-disposition"] or "preview" in r.headers["content-disposition"]
+    assert world.get("b_admin", f"/hr/onboarding/documents/{nda['id']}/file").status_code == 404, "other organisation"
+
+
+def test_only_the_onboarding_settings_supply_company_information(world):
+    """Real hires: every employer detail comes from Onboarding › Settings › Offer package, never from the organisation
+    record (here "Tenant A Ltd"); issued documents carry no template furniture (logo box, control block) and the forms
+    have real empty tick boxes."""
+    from pypdf import PdfReader
+    h0, _t0 = _new_hire(world)
+    held = P.readiness(P.render_context(world.db, h0, "offer_letter", final=True), "offer_letter")
+    assert not held["ready"] and {"employer.legal_name", "employer.signatory_name", "employer.hr_contact"} <= set(held["missing_fields"]), \
+        "nothing saved yet: held, never filled from the organisation record"
+    assert P.get_config(world.db, 1)["legal_name"] == "" and P.header_label(P.get_config(world.db, 1)) == ""
+
+    company = {**SETTINGS, "legal_name": "Brightwave Analytics Ltd", "registered_address": "22 Market Street, Manchester M1 1AA",
+               "hr_contact_email": "people@brightwave.example.com"}
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**company, "clauses": _all_clauses()}).status_code == 200
+    h, token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                     "postal_code": "YO1 1AA", "country": "United Kingdom"})
+    world.db.refresh(h)
+    for cat in C.CATEGORIES:
+        ctx = P.render_context(world.db, h, cat, final=True, secure_link="https://app.example.com/p", contract_id="HR-CON-001-2026-000001")
+        assert not ctx.draft, (cat, P.readiness(ctx, cat))
+        pdf = R.render_pdf(cat, ctx)
+        text = " ".join(_text(pdf).split())
+        html = R.render_html(cat, ctx)
+        for out, what in ((text, "pdf"), (html, "html")):
+            assert "BRIGHTWAVE ANALYTICS LTD | HR" in out, (cat, what)
+            for banned in ("Tenant A", "TENANT A", "ZOIKO", "Zoiko Group", "ZG-ENG", "ZHR-1042", "insert approved asset",
+                           "Legal risk level", "Sensitivity level", "{{"):
+                assert banned not in out, (cat, what, banned)
+        if cat in ("self_disclosure", "job_application", "velocity_report"):
+            assert PdfReader(io.BytesIO(pdf)).pages[0].images, f"{cat}: tick boxes are drawn as empty squares"
+            assert "ZapfDingbats" not in pdf.decode("latin-1"), f"{cat}: the old shadowed-box glyph printed as a black square"
+    assert "Brightwave Analytics Ltd" in _text(R.render_pdf("offer_letter", P.render_context(world.db, h, "offer_letter", final=True)))
+
+
+def test_a_revoked_link_cannot_reach_the_hires_other_documents(world):
+    """HR re-issuing a link revokes the old one (marked used). The follow-up endpoints (next document, PDF, submit) accept a
+    used link only when the candidate signed or declined with it, so a leaked old link gets nothing."""
+    from app.modules.doc_templates import signing as _signing
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
+    view = world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                            "postal_code": "YO1 1AA", "country": "United Kingdom"}).json()
+    nda = next(d for d in view["documents"] if d["category"] == "nda")
+    leaked = nda["sign_url"].rsplit("/", 1)[1]
+    gen = world.db.get(GeneratedDocument, nda["document_id"])
+    _signing.issue_candidate_token(world.db, gen)          # HR re-issues: the old link is revoked
+    world.db.commit()
+    for path in ("next", "pdf"):
+        assert world.client.get(f"/public/documents/sign/{leaked}/{path}").status_code == 404, path
+    assert world.client.post(f"/public/documents/sign/{leaked}/submit-package").status_code == 404
+    assert world.client.get(f"/public/documents/sign/{leaked}").status_code == 404
+
+
+def test_the_hire_cannot_submit_while_documents_are_held_or_declined(world):
+    # HR's settings lack wording only the contract uses: the contract is held (not the hire's doing)
+    contract_only = {"working_time"}                       # a required clause only the Employment Contract uses
+    clauses = {k: v for k, v in _all_clauses().items() if k not in contract_only}
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": clauses}).status_code == 200
+    h, token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
+    world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York",
+                     "postal_code": "YO1 1AA", "country": "United Kingdom"})
+    out = world.client.get(f"/public/onboarding/{token}").json()["submission"]["outstanding"]
+    assert {"title": "Employment Contract", "action": "wait for HR to send"} in out, out
+    assert world.client.post(f"/public/onboarding/{token}/submit-signed-package").status_code == 409
+
+    # a declined agreement blocks the submission too
+    nda = next(d for d in world.client.get(f"/public/onboarding/{token}").json()["documents"] if d["category"] == "nda")
+    tok = nda["sign_url"].rsplit("/", 1)[1]
+    assert world.client.post(f"/public/documents/sign/{tok}/decline", json={"reason": "Wrong address"}).status_code == 200
+    out = world.client.get(f"/public/onboarding/{token}").json()["submission"]["outstanding"]
+    assert {"title": "Non-Disclosure Agreement", "action": "contact HR about"} in out, out
+
+
+def test_submit_details_treats_an_explicit_null_as_missing(world):
+    _h, token = _new_hire(world)
+    r = world.client.put(f"/public/onboarding/{token}/details", json={"phone": "+44 7700 900123", "address": None, "city": "York",
+                         "country": "United Kingdom", "postal_code": "YO1 1AA", "submit": True})
+    assert r.status_code == 422 and "address" in r.text, r.text

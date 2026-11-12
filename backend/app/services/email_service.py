@@ -879,6 +879,32 @@ def send_interview_cancelled(email, recipient_name, is_candidate, candidate_name
                                  None, None, ics=ics, db=db, organization_id=organization_id)
 
 
+def send_interview_result(email, candidate_name, position, organization_name, cleared: bool, interview_type_label,
+                          date_display, message=None, db=None, organization_id=None):
+    """Tell the candidate the outcome of their interview: cleared (next steps follow) or not taken forward."""
+    template = "interview_cleared.html" if cleared else "interview_rejected.html"
+    subject = (f"Congratulations, you've cleared your interview: {position} | {organization_name}" if cleared
+               else f"An update on your interview: {position} | {organization_name}")
+    return send_approval_email(email, template, {
+        "subject": subject, "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
+        "interview_type_label": interview_type_label or "Interview", "date_display": date_display, "message": message,
+    }, db=db, organization_id=organization_id)
+
+
+def send_interview_result_recorded(email, recipient_name, candidate_name, position, organization_name, cleared: bool,
+                                   interview_type_label, date_display, rating=None, recorded_by=None, candidate_emailed=False,
+                                   review_url=None, db=None, organization_id=None):
+    """Tell HR admins and the interviewer that an interview's result was recorded."""
+    label = "Cleared" if cleared else "Not selected"
+    return send_approval_email(email, "interview_result_recorded.html", {
+        "subject": f"Interview result: {candidate_name} – {label} ({position}) | {organization_name}",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "cleared": cleared, "result_label": label,
+        "interview_type_label": interview_type_label or "Interview", "date_display": date_display, "rating": rating,
+        "recorded_by": recorded_by, "candidate_emailed": candidate_emailed, "review_url": review_url,
+    }, db=db, organization_id=organization_id)
+
+
 def send_candidate_status_update(email, candidate_name, position, organization_name, status_label, is_rejection=False,
                                  db=None, organization_id=None):
     """Tell a candidate their application moved to review, or was not taken forward."""

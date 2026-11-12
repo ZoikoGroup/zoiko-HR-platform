@@ -1,8 +1,9 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { FileSignature, FileCheck2, Download, Loader2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { FileSignature, FileCheck2, Download, Loader2, AlertTriangle, CheckCircle2, ArrowRight } from "lucide-react";
 import { Modal } from "../billing-ui";
 import SandboxedHtmlPreview from "./SandboxedHtmlPreview";
 import SigningSteps from "./SigningSteps";
+import OutsideActivitiesForm from "./OutsideActivitiesForm";
 import { DocStatusPill, showDate } from "./generatedDocumentMeta";
 import {
   getSigningStatements,
@@ -13,6 +14,7 @@ import {
   requestMySignOtp,
   signMyDocument,
   declineMyDocument,
+  myDocumentDeclaration,
   employerSignOtp,
   employerSign,
 } from "../../service/docTemplatesService";
@@ -29,7 +31,8 @@ const TITLES = {
   "employer-sign": "Sign for the employer",
 };
 
-export default function DocumentActionDialog({ doc, mode = "acknowledge", onClose, onDone }) {
+// `nextDoc` (optional): the next document waiting for the person; after this one is done the dialog offers it.
+export default function DocumentActionDialog({ doc, mode = "acknowledge", onClose, onDone, nextDoc = null, onNext }) {
   const uid = useId();
   const [preview, setPreview] = useState(null);
   const [statements, setStatements] = useState(null);
@@ -40,6 +43,7 @@ export default function DocumentActionDialog({ doc, mode = "acknowledge", onClos
   const [actionError, setActionError] = useState(null);
   const [downloadBusy, setDownloadBusy] = useState(false);
   const [done, setDone] = useState(null); // text of the result, announced
+  const [needsDeclaration, setNeedsDeclaration] = useState(!!doc.needs_declaration);
   const doneRef = useRef(null);
   const returnFocus = useRef(typeof document !== "undefined" ? document.activeElement : null);
 
@@ -96,10 +100,22 @@ export default function DocumentActionDialog({ doc, mode = "acknowledge", onClos
     ? { requestOtp: () => employerSignOtp(doc.id), submit: (body) => employerSign(doc.id, body), decline: null }
     : { requestOtp: () => requestMySignOtp(doc.id), submit: (body) => signMyDocument(doc.id, body), decline: (r) => declineMyDocument(doc.id, r) };
 
+  const nextLabel = nextDoc?.my_action === "acknowledge" ? "Acknowledge next document" : "Sign next document";
   const footer = done ? (
-    <button type="button" onClick={onClose} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-      Close
-    </button>
+    nextDoc && onNext ? (
+      <>
+        <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
+          Close
+        </button>
+        <button type="button" onClick={() => onNext(nextDoc)} className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
+          {nextLabel} <ArrowRight size={16} aria-hidden="true" />
+        </button>
+      </>
+    ) : (
+      <button type="button" onClick={onClose} className="rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
+        Close
+      </button>
+    )
   ) : mode === "acknowledge" && !loading && !loadError ? (
     <>
       <button type="button" onClick={onClose} className="rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
@@ -131,6 +147,11 @@ export default function DocumentActionDialog({ doc, mode = "acknowledge", onClos
         <div ref={doneRef} tabIndex={-1} role="status" className="flex flex-col items-center gap-3 py-10 text-center outline-none">
           <CheckCircle2 size={40} className="text-emerald-600" aria-hidden="true" />
           <p className="max-w-md text-base font-semibold text-slate-900">{done}</p>
+          {nextDoc && onNext && (
+            <p className="max-w-md text-sm text-slate-600">
+              Next waiting for you: <strong className="text-slate-800">{nextDoc.title}</strong>
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-5">
@@ -203,6 +224,13 @@ export default function DocumentActionDialog({ doc, mode = "acknowledge", onClos
                       <AlertTriangle size={16} className="mt-0.5 shrink-0" aria-hidden="true" /> {actionError}
                     </div>
                   )}
+                  {!employer && needsDeclaration ? (
+                    <OutsideActivitiesForm
+                      compact
+                      save={(body) => myDocumentDeclaration(doc.id, body)}
+                      onSaved={(res) => setNeedsDeclaration(!!res?.needs_declaration)}
+                    />
+                  ) : (
                   <SigningSteps
                     consent={statements?.consent}
                     needsOtp={!!doc.needs_otp}
@@ -221,6 +249,7 @@ export default function DocumentActionDialog({ doc, mode = "acknowledge", onClos
                       onDone?.(res);
                     }}
                   />
+                  )}
                 </section>
               )}
             </>

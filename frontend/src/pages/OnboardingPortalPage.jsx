@@ -18,11 +18,18 @@ import {
   AlertCircle,
   FileCheck2,
   Lock,
+  Send,
 } from "lucide-react";
 import { getPortal, getPortalDocumentFile, savePortalDetails, uploadPortalDocument, acknowledgePortalDocument,
-  savePortalOutsideActivities, portalPackageFileUrl } from "../service/hrService";
+  savePortalOutsideActivities, portalPackageFileUrl, submitSignedPackage } from "../service/hrService";
+import OutsideActivitiesForm from "../components/documents/OutsideActivitiesForm";
+import OnboardingSubmitted from "../components/documents/OnboardingSubmitted";
+import DetailsSubmitted from "../components/documents/DetailsSubmitted";
+import PhoneField from "../components/PhoneField";
+import { validateFields } from "../utils/fieldRules";
 import { formatDate } from "../utils/dateTime";
 import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructuredForms";
+import { rememberOnboardingPortal } from "./public/onboardingReturn";
 
 // The new hire's own pre-onboarding page. Public: the link token is the credential.
 
@@ -31,13 +38,23 @@ const MAX_BYTES = 10 * 1024 * 1024;
 
 // Emergency contacts removed per requirement
 const DETAIL_FIELDS = [
-  { key: "phone", label: "Phone Number", type: "tel", placeholder: "+1 (555) 000-0000" },
-  { key: "address", label: "Residential Street Address", wide: true, placeholder: "123 Main St, Apt 4B" },
-  { key: "city", label: "City", placeholder: "New York" },
+  { key: "phone", label: "Phone Number", type: "tel", required: true },
+  { key: "address", label: "Residential Street Address", wide: true, placeholder: "123 Main St, Apt 4B", required: true },
+  { key: "city", label: "City", placeholder: "New York", required: true },
   { key: "state", label: "State / Province / Region", placeholder: "NY" },
-  { key: "country", label: "Country", placeholder: "United States" },
-  { key: "postal_code", label: "Postal / ZIP Code", placeholder: "10001" },
+  { key: "country", label: "Country", placeholder: "United States", required: true },
+  { key: "postal_code", label: "Postal / ZIP Code", placeholder: "10001", required: true },
 ];
+
+// The shared field rules (utils/fieldRules.js), the same ones the server applies to this form.
+const detailRules = (d) => ({
+  phone: ["phone", { country: d.country, required: true }],
+  address: ["address", { required: true }],
+  city: ["place_name", { required: true }],
+  state: ["state", { country: d.country }],
+  country: ["country", { required: true }],
+  postal_code: ["postal_code", { country: d.country, required: true }],
+});
 
 const detailsFromView = (view) => {
   const d = view?.details || {};
@@ -439,67 +456,60 @@ function AcknowledgeDocCard({ doc, token, ack, onUpdated, onError }) {
   );
 }
 
-const EMPTY_ACTIVITY = { organisation: "", role: "", hours: "", paid: "unpaid" };
-
 function OutsideActivitiesCard({ token, onUpdated, onError }) {
-  const [none, setNone] = useState(false);
-  const [rows, setRows] = useState([{ ...EMPTY_ACTIVITY }]);
-  const [busy, setBusy] = useState(false);
-  const set = (i, patch) => setRows((r) => r.map((x, j) => (j === i ? { ...x, ...patch } : x)));
-  const cls = "w-full min-w-0 rounded-lg border border-slate-200 px-2.5 py-1.5 text-sm";
-
-  const submit = async (e) => {
-    e.preventDefault();
-    setBusy(true);
-    try {
-      const view = await savePortalOutsideActivities(token, {
-        none, rows: none ? [] : rows.filter((r) => r.organisation.trim()).map((r) => ({ ...r, hours: Number(r.hours) || 0 })),
-      });
-      onUpdated(view, "Thank you. Schedule A is complete; you can now sign your Affidavit of Employment Exclusivity.");
-    } catch (err) {
-      onError(err.message || "Could not save your declaration.");
-    } finally {
-      setBusy(false);
-    }
-  };
-
   return (
-    <form onSubmit={submit} className="rounded-2xl border border-slate-200 bg-white p-4">
-      <h4 className="text-sm font-semibold text-slate-900">Outside activities</h4>
-      <p className="mt-1 text-xs text-slate-500">
-        Schedule A of your Affidavit of Employment Exclusivity: list any other employment, consultancy, directorship or business
-        activity, paid or unpaid, or confirm you have none. It is attached to the affidavit when you sign it.
-      </p>
-      <label className="mt-3 flex items-center gap-2 text-sm text-slate-700">
-        <input type="checkbox" checked={none} onChange={(e) => setNone(e.target.checked)} className="rounded border-slate-300" />
-        I have no outside activities
-      </label>
-      {!none && (
-        <div className="mt-3 space-y-2">
-          {rows.map((r, i) => (
-            <div key={i} className="grid grid-cols-2 gap-2 sm:grid-cols-[2fr_1.5fr_1fr_1fr_auto]">
-              <input aria-label="Organisation" placeholder="Organisation" className={cls} value={r.organisation} onChange={(e) => set(i, { organisation: e.target.value })} />
-              <input aria-label="Role" placeholder="Role" className={cls} value={r.role} onChange={(e) => set(i, { role: e.target.value })} />
-              <input aria-label="Hours per week" type="number" min={0} max={168} placeholder="Hours / week" className={cls} value={r.hours} onChange={(e) => set(i, { hours: e.target.value })} />
-              <select aria-label="Paid or unpaid" className={cls} value={r.paid} onChange={(e) => set(i, { paid: e.target.value })}>
-                <option value="unpaid">Unpaid</option><option value="paid">Paid</option>
-              </select>
-              <button type="button" onClick={() => setRows((x) => (x.length > 1 ? x.filter((_, j) => j !== i) : [{ ...EMPTY_ACTIVITY }]))}
-                className="rounded-lg px-2 text-xs font-medium text-slate-500 hover:bg-slate-50 hover:text-rose-600">Remove</button>
-            </div>
-          ))}
-          <button type="button" onClick={() => setRows((x) => [...x, { ...EMPTY_ACTIVITY }])} className="text-xs font-semibold text-blue-600 hover:underline">
-            + Add another activity
+    <OutsideActivitiesForm
+      save={(body) => savePortalOutsideActivities(token, body)}
+      onSaved={(view) => onUpdated(view, "Thank you. Schedule A is complete; you can now sign your Affidavit of Employment Exclusivity.")}
+      onError={onError}
+    />
+  );
+}
+
+function SubmitSection({ submission, onSubmit, submitting }) {
+  const outstanding = submission?.outstanding || [];
+  const ready = !!submission?.can_submit;
+  return (
+    <section id="portal-submit" className="scroll-mt-20 overflow-hidden rounded-3xl border border-blue-200 bg-white shadow-sm">
+      <div className="h-1.5 bg-gradient-to-r from-blue-600 via-blue-500 to-sky-400" aria-hidden="true" />
+      <div className="p-5 sm:p-7">
+        <div className="flex items-start gap-3">
+          <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600"><Send className="h-5 w-5" /></span>
+          <div className="min-w-0">
+            <h2 className="text-base font-bold tracking-tight text-slate-900">Submit your onboarding documents</h2>
+            <p className="mt-1 text-sm text-slate-500">
+              {ready
+                ? "Everything is complete. Submit to let HR know you have finished; they will review your documents and confirm next steps."
+                : "Once every item below is done, submit to let HR know you have finished."}
+            </p>
+          </div>
+        </div>
+        {!ready && outstanding.length > 0 && (
+          <ul className="mt-4 space-y-1.5 rounded-2xl border border-slate-100 bg-slate-50/70 p-4">
+            {outstanding.map((o, i) => (
+              <li key={`${o.title}-${i}`} className="flex items-start gap-2 text-sm text-slate-700">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" aria-hidden="true" />
+                <span><span className="font-medium capitalize">{o.action}</span> · {o.title}</span>
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="mt-5 flex flex-col-reverse items-stretch gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-xs text-slate-400">
+            {ready ? "You can't change signed documents after submitting." : `${outstanding.length} item${outstanding.length === 1 ? "" : "s"} left`}
+          </p>
+          <button
+            type="button"
+            onClick={onSubmit}
+            disabled={!ready || submitting}
+            className="inline-flex min-h-11 items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:bg-slate-300 disabled:shadow-none"
+          >
+            {submitting ? "Submitting…" : "Submit onboarding documents"}
+            {!submitting && <ArrowRight className="h-4 w-4" />}
           </button>
         </div>
-      )}
-      <div className="mt-3 flex justify-end">
-        <button type="submit" disabled={busy || (!none && !rows.some((r) => r.organisation.trim()))}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-          {busy ? "Saving…" : "Save declaration"}
-        </button>
       </div>
-    </form>
+    </section>
   );
 }
 
@@ -512,12 +522,17 @@ export default function OnboardingPortalPage() {
   const [details, setDetails] = useState(detailsFromView(null));
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState({ type: "", text: "" });
+  const [submitting, setSubmitting] = useState(false);
+  const [showDocs, setShowDocs] = useState(false); // after submitting: the success page, or the documents behind it
+  const [detailErrors, setDetailErrors] = useState({});
+  const [detailsDone, setDetailsDone] = useState(null); // { released, nextActions } after "Submit details"
 
   const load = async () => {
     setLoading(true);
     setLoadError(null);
     try {
       const data = await getPortal(token);
+      rememberOnboardingPortal(token); // the signing page's "Back" button returns here
       setView(data);
       setDetails(detailsFromView(data));
     } catch (err) {
@@ -541,9 +556,17 @@ export default function OnboardingPortalPage() {
 
   const saveDetails = async (e) => {
     e.preventDefault();
+    const errors = validateFields(details, detailRules(details));
+    setDetailErrors(errors);
+    const firstBad = DETAIL_FIELDS.find((f) => errors[f.key]);
+    if (firstBad) {
+      document.getElementById(`pd-${firstBad.key}`)?.focus();
+      return;
+    }
     setSaving(true);
+    const readyBefore = (view?.documents || []).filter((d) => d.sign_url).length;
     try {
-      const payload = {};
+      const payload = { submit: true };
       DETAIL_FIELDS.forEach(({ key }) => {
         payload[key] = details[key].trim() || null;
       });
@@ -551,11 +574,23 @@ export default function OnboardingPortalPage() {
       if (data) {
         setView(data);
         setDetails(detailsFromView(data));
+        const docs = data.documents || [];
+        const released = Math.max(0, docs.filter((d) => d.sign_url).length - readyBefore);
+        const nextActions = data.submission?.outstanding?.length || 0;
+        setDetailsDone({ released, nextActions });
+        if (typeof window !== "undefined") window.scrollTo?.(0, 0);
       }
-      setBanner({ type: "success", text: "Your personal details have been safely saved." });
     } catch (err) {
       if (err?.status === 404 || err?.status === 410) setInvalid(true);
-      else setBanner({ type: "error", text: err?.message || "Could not save your details. Please try again." });
+      else if (Array.isArray(err?.validation)) {
+        const fieldErrors = {};
+        err.validation.forEach((item) => {
+          const key = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : null;
+          if (key && DETAIL_FIELDS.some((f) => f.key === key)) fieldErrors[key] = item.msg;
+        });
+        setDetailErrors(fieldErrors);
+        setBanner({ type: "error", text: "Please correct the highlighted details." });
+      } else setBanner({ type: "error", text: err?.message || "Could not submit your details. Please try again." });
     } finally {
       setSaving(false);
     }
@@ -595,7 +630,11 @@ export default function OnboardingPortalPage() {
       progress: { completed, total, percent: total ? Math.round((completed / total) * 100) : 0 },
     };
   }, [documents]);
-  const needs = view?.package?.needs || [];
+  const needs = useMemo(() => {
+    const base = view?.package?.needs || [];
+    const affidavitWaiting = documents.some((d) => d.needs_declaration && d.status !== "approved");
+    return affidavitWaiting && !base.includes("outside_activities") ? [...base, "outside_activities"] : base;
+  }, [view, documents]);
 
   const overallStatus = useMemo(() => {
     if (!progress.total) return { label: "Not started", tone: "amber" };
@@ -643,6 +682,54 @@ export default function OnboardingPortalPage() {
   }
 
   const orientation = view.orientation || [];
+  const submission = view.submission || null;
+
+  const submitAll = async () => {
+    setSubmitting(true);
+    try {
+      const res = await submitSignedPackage(token);
+      if (res?.view) setView(res.view);
+      setShowDocs(false);
+      if (typeof window !== "undefined") window.scrollTo?.(0, 0);
+    } catch (err) {
+      setBanner({ type: "error", text: err?.message || "Your documents could not be submitted. Please try again." });
+      load();
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (detailsDone) {
+    return (
+      <DetailsSubmitted
+        organizationName={view.organization_name}
+        candidateName={view.candidate_name}
+        details={view.details}
+        phone={view.phone}
+        released={detailsDone.released}
+        nextActions={detailsDone.nextActions}
+        onContinue={() => { setDetailsDone(null); if (typeof window !== "undefined") window.scrollTo?.(0, 0); }}
+        onEdit={() => {
+          setDetailsDone(null);
+          setTimeout(() => document.getElementById("portal-details")?.scrollIntoView({ behavior: "smooth" }), 0);
+        }}
+      />
+    );
+  }
+
+  if (submission?.submitted_at && !showDocs) {
+    return (
+      <OnboardingSubmitted
+        organizationName={view.organization_name}
+        candidateName={view.candidate_name}
+        position={view.position}
+        joiningDate={view.joining_date}
+        submittedAt={submission.submitted_at}
+        documentsCount={progress.total}
+        onViewDocuments={() => setShowDocs(true)}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-slate-50/70 text-slate-800 antialiased relative overflow-hidden">
@@ -842,7 +929,7 @@ export default function OnboardingPortalPage() {
 
             <p className="flex items-center gap-1.5 px-1 text-xs text-slate-500">
               <ShieldCheck className="h-3.5 w-3.5 text-blue-600" />
-              HR is told automatically as soon as you sign; there is nothing else to submit.
+              HR is told as soon as you sign. When everything is done, submit at the bottom of this page.
             </p>
           </section>
         )}
@@ -954,30 +1041,64 @@ export default function OnboardingPortalPage() {
             </p>
           </div>
 
-          <form onSubmit={saveDetails} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {DETAIL_FIELDS.map((f) => (
-              <div key={f.key} className={f.wide ? "min-w-0 sm:col-span-2" : "min-w-0"}>
-                <label htmlFor={`pd-${f.key}`} className="block text-xs font-semibold text-slate-700 mb-1.5">
-                  {f.label}
-                </label>
-                <input
-                  id={`pd-${f.key}`}
-                  type={f.type || "text"}
-                  value={details[f.key]}
-                  placeholder={f.placeholder}
-                  onChange={(e) => setDetails({ ...details, [f.key]: e.target.value })}
-                  className="w-full min-h-10 border border-slate-200 rounded-xl px-3.5 py-2 text-sm bg-slate-50/50 focus:bg-white focus:border-blue-500 focus:ring-2 focus:ring-blue-100 transition outline-none"
-                />
-              </div>
-            ))}
+          {view.details?.details_submitted_at && (
+            <p className="-mt-2 mb-4 inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700 ring-1 ring-inset ring-blue-600/20">
+              <CheckCircle2 className="h-3.5 w-3.5" /> Submitted on {formatDate(view.details.details_submitted_at)}. You can update them below.
+            </p>
+          )}
+          <form onSubmit={saveDetails} noValidate className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {DETAIL_FIELDS.map((f) => {
+              const err = detailErrors[f.key];
+              const inputCls = `w-full min-h-10 rounded-xl border px-3.5 py-2 text-sm bg-slate-50/50 focus:bg-white focus:ring-2 transition outline-none ${
+                err ? "border-rose-300 focus:border-rose-500 focus:ring-rose-100" : "border-slate-200 focus:border-blue-500 focus:ring-blue-100"}`;
+              const setValue = (value) => {
+                setDetails((prev) => ({ ...prev, [f.key]: value }));
+                if (err) setDetailErrors((prev) => ({ ...prev, [f.key]: undefined }));
+              };
+              return (
+                <div key={f.key} className={f.wide ? "min-w-0 sm:col-span-2" : "min-w-0"}>
+                  <label htmlFor={`pd-${f.key}`} className="block text-xs font-semibold text-slate-700 mb-1.5">
+                    {f.label}{f.required && <span className="text-blue-600" aria-hidden="true"> *</span>}
+                  </label>
+                  {f.key === "phone" ? (
+                    <PhoneField
+                      id={`pd-${f.key}`}
+                      value={details.phone}
+                      country={details.country}
+                      onChange={setValue}
+                      invalid={!!err}
+                      required
+                      describedBy={err ? `pd-${f.key}-error` : undefined}
+                      className={inputCls}
+                      selectClassName={inputCls.replace("w-full", "w-28 shrink-0")}
+                    />
+                  ) : (
+                    <input
+                      id={`pd-${f.key}`}
+                      type={f.type || "text"}
+                      value={details[f.key]}
+                      placeholder={f.placeholder}
+                      required={f.required}
+                      aria-invalid={err ? "true" : undefined}
+                      aria-describedby={err ? `pd-${f.key}-error` : undefined}
+                      onChange={(e) => setValue(e.target.value)}
+                      className={inputCls}
+                    />
+                  )}
+                  {err && <p id={`pd-${f.key}-error`} className="mt-1 text-xs text-rose-600">{err}</p>}
+                </div>
+              );
+            })}
 
-            <div className="sm:col-span-2 pt-2 flex justify-end">
+            <div className="sm:col-span-2 mt-2 flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-xs text-slate-400"><span className="text-blue-600">*</span> Required. Your details are shared only with HR.</p>
               <button
                 type="submit"
                 disabled={saving}
-                className="w-full sm:w-auto min-h-10 inline-flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 disabled:opacity-50 text-white text-xs font-semibold px-6 py-2.5 rounded-xl shadow-xs hover:shadow transition"
+                className="inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-7 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 transition hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60 sm:w-auto"
               >
-                {saving ? "Saving Details..." : "Save Personal Details"}
+                {saving ? "Submitting…" : view.details?.details_submitted_at ? "Update details" : "Submit details"}
+                {!saving && <ArrowRight className="h-4 w-4" />}
               </button>
             </div>
           </form>
@@ -1014,6 +1135,18 @@ export default function OnboardingPortalPage() {
                 </li>
               ))}
             </ul>
+          </section>
+        )}
+
+        {submission && !submission.submitted_at && (
+          <SubmitSection submission={submission} onSubmit={submitAll} submitting={submitting} />
+        )}
+        {submission?.submitted_at && (
+          <section className="flex flex-col items-center gap-3 rounded-3xl border border-blue-200 bg-blue-50/60 p-5 text-center sm:flex-row sm:justify-between sm:text-left">
+            <p className="text-sm font-medium text-blue-900">Your onboarding documents were submitted on {formatDate(submission.submitted_at)}.</p>
+            <button type="button" onClick={() => setShowDocs(false)} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
+              Back to confirmation
+            </button>
           </section>
         )}
 

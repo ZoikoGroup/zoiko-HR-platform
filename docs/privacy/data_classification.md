@@ -705,8 +705,8 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `recruitment_interviews` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `candidate_id`, `interviewer_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `interview_type`, `interview_date`, `start_time`, `end_time`, `interviewer`, `timezone`, `meeting_link`, `location`, `status`, `feedback`, `rating`, `notes`
+- **PERSONAL_BASIC**: `candidate_id`, `interviewer_id`, `result_by_id`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `interview_type`, `interview_date`, `start_time`, `end_time`, `interviewer`, `timezone`, `meeting_link`, `location`, `status`, `feedback`, `rating`, `notes`, `result`, `result_message`, `result_at`, `result_emailed`
 
 ## `recruitment_offer_approvals` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`

@@ -44,6 +44,17 @@ def _hire(db, user, new_hire_id: int):
     return service.get_new_hire_by_id(db, new_hire_id, organization_id=user.organization_id)
 
 
+@router.get("/signed-documents", summary="Onboarding documents signed by new hires, with each signature")
+def signed_documents(new_hire_id: Optional[int] = None, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    return {"items": onboarding_package.signed_documents(db, user.organization_id, new_hire_id)}
+
+
+@router.get("/signatures/{signature_id}/image", summary="The drawn signature image (PNG)")
+def signature_image(signature_id: int, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    png = onboarding_package.signature_image(db, user.organization_id, signature_id)
+    return Response(content=png, media_type="image/png", headers={"Cache-Control": "private, no-store"})
+
+
 @router.get("/package/settings", summary="Offer package settings, clause library and documents")
 def get_settings(db: Session = Depends(get_db), user=Depends(get_current_admin)):
     return onboarding_package.settings_view(db, user.organization_id)

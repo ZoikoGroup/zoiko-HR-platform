@@ -80,7 +80,7 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "kpi.role_specific_target": ("Daily target for the role-specific KPI", ZHR, False, "To be agreed"),
     "kpi.role_specific_minimum": ("Minimum acceptable level for the role-specific KPI", ZHR, False, "To be agreed"),
     "kpi.role_specific_source": ("Data source for the role-specific KPI", ZHR, False, "To be agreed"),
-    "time.hours_logged": ("Hours worked that day, read-only from ZoikoTime", ZTIME, False, "Filled automatically from ZoikoTime"),
+    "time.hours_logged": ("Hours worked that day, read-only from ZoikoTime", ZTIME, False, "Filled automatically from time records"),
 }
 
 # ── Clause hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -620,7 +620,7 @@ def _job_application():
         P("Complete every section that applies to you. Fields marked with an example show the format we need."),
         H2("A. Position applied for"),
         FIELDS_([("Job title", "{{employment.position_title}}", ""),
-                 ("Vacancy reference", "Enter the reference", "e.g. ZG-ENG-0142"),
+                 ("Vacancy reference", "Enter the reference", "e.g. REQ-ENG-0142"),
                  ("How you heard about the role", "Enter the source", "e.g. company website")]),
         H2("B. Personal details"),
         FIELDS_([("Full name", "{{worker.full_name}}", ""),
@@ -670,7 +670,7 @@ def _daily_work_report():
         COLUMNS([
             H3("Planned Tasks for Today"),
             TABLE(["#", "Task", "Project / ticket ID", "Priority (H/M/L)", "Est. hours (h)"],
-                  [["1", EX("e.g. Fix login timeout"), EX("e.g. ZHR-1042"), EX("H"), EX("2.0")], ["2", "", "", "", ""],
+                  [["1", EX("e.g. Fix login timeout"), EX("e.g. PRJ-1042"), EX("H"), EX("2.0")], ["2", "", "", "", ""],
                    ["3", "", "", "", ""]], widths=[0.06, 0.4, 0.22, 0.16, 0.16], compact=True),
             H3("Work Completed"),
             TABLE(["#", "Task", "Status (Done / In progress / Blocked / Deferred)", "Actual hours (h)", "Output or link", "Notes"],

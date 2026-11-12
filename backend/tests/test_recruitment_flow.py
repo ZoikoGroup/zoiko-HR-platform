@@ -210,3 +210,73 @@ def test_contracting_entity_follows_its_country(env):
     fmts = _ok(env.c.get("/hr/reference/business-formats"))
     assert [i["key"] for i in fmts["countries"]["IN"]["ids"]][:2] == ["gstin", "cin"] and fmts["countries"]["IN"]["postal_label"] == "PIN code"
     assert "checksum" not in fmts["countries"]["AU"]["ids"][0]
+
+
+def _completed_interview(env, name, email):
+    cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": name, "email": email, "position": "Dev"}))
+    iv = _ok(env.c.post("/hr/recruitment/interviews", json={"candidate_id": cand["id"], "interviewer_id": env.interviewer.id,
+                                                            "interview_type": "video", "interview_date": FUTURE}))
+    return cand, iv
+
+
+def test_interview_cleared_emails_the_candidate_and_tells_hr_and_the_interviewer(env):
+    cand, iv = _completed_interview(env, "Sam Rivera", "sam@mail.com")
+    url = f"/hr/recruitment/interviews/{iv['id']}/feedback"
+    assert env.c.put(url, json={"result": "cleared"}).status_code == 400, "only a completed interview has a result"
+    env.sent.clear()
+    r = _ok(env.c.put(url, json={"status": "completed", "rating": 4, "feedback": "Strong system design",
+                                 "result": "cleared", "result_message": "We'll send the final round details tomorrow."}))
+    assert (r["status"], r["result"], r["result_emailed"]) == ("completed", "cleared", True) and r["result_at"]
+    to_candidate = [m for m in env.sent if m["template"] == "interview_cleared.html"]
+    assert [m["to"] for m in to_candidate] == ["sam@mail.com"]
+    assert to_candidate[0]["ctx"]["message"] == "We'll send the final round details tomorrow."
+    assert "Strong system design" not in str(to_candidate[0]["ctx"]), "internal feedback never reaches the candidate"
+    internal = [m for m in env.sent if m["template"] == "interview_result_recorded.html"]
+    assert {m["to"] for m in internal} == {"admin@acme.com", "lead@acme.com"}, "everyone but the HR user who recorded it"
+    assert internal[0]["ctx"]["result_label"] == "Cleared" and internal[0]["ctx"]["candidate_emailed"] is True
+    assert r["emails_sent"] == 3
+    assert _ok(env.c.get(f"/hr/recruitment/candidates/{cand['id']}"))["status"] == "interview", "a cleared round keeps the stage"
+
+    # the result is final: the same result again sends nothing, a different one is refused
+    env.sent.clear()
+    again = _ok(env.c.put(url, json={"result": "cleared", "feedback": "Strong system design; good culture fit"}))
+    assert again["feedback"].endswith("culture fit") and env.sent == []
+    assert env.c.put(url, json={"result": "rejected"}).status_code == 400
+
+
+def test_interview_rejected_emails_the_candidate_once_and_moves_them_to_rejected(env):
+    cand, iv = _completed_interview(env, "Ria Das", "ria@mail.com")
+    _ok(env.c.put(f"/hr/recruitment/interviews/{iv['id']}", json={"status": "completed"}))
+    env.sent.clear()
+    r = _ok(env.c.put(f"/hr/recruitment/interviews/{iv['id']}/feedback", json={"result": "rejected"}))
+    assert r["result"] == "rejected" and r["result_emailed"] is True
+    assert [m["to"] for m in env.sent if m["template"] == "interview_rejected.html"] == ["ria@mail.com"]
+    assert not [m for m in env.sent if m["template"] in ("candidate_status_update.html", "interview_cleared.html")], \
+        "no second rejection e-mail"
+    assert _ok(env.c.get(f"/hr/recruitment/candidates/{cand['id']}"))["status"] == "rejected"
+
+
+def test_hr_can_record_a_result_without_emailing_the_candidate(env):
+    _cand, iv = _completed_interview(env, "Kai Lee", "kai@mail.com")
+    env.sent.clear()
+    r = _ok(env.c.put(f"/hr/recruitment/interviews/{iv['id']}/feedback",
+                      json={"status": "completed", "result": "cleared", "notify_candidate": False}))
+    assert r["result"] == "cleared" and r["result_emailed"] is False
+    assert not [m for m in env.sent if m["to"] == "kai@mail.com"]
+    internal = [m for m in env.sent if m["template"] == "interview_result_recorded.html"]
+    assert internal and internal[0]["ctx"]["candidate_emailed"] is False
+
+
+def test_interview_result_email_templates_render():
+    """Rendered through the real renderer (strict: a missing variable fails) with exactly what the send functions pass."""
+    from app.services import email_service
+    base = {"candidate_name": "Sam Rivera", "position": "Dev", "organization_name": "Acme", "interview_type_label": "Video interview",
+            "date_display": "Thu, Nov 19, 2026"}
+    cleared = email_service.render_email("interview_cleared.html", {**base, "subject": "s", "message": "See you <soon>"})
+    assert "cleared this interview" in cleared.html and "See you &lt;soon&gt;" in cleared.html, "the note is escaped"
+    rejected = email_service.render_email("interview_rejected.html", {**base, "subject": "s", "message": None})
+    assert "not to move forward" in rejected.text and "A note from the hiring team" not in rejected.text
+    internal = email_service.render_email("interview_result_recorded.html", {
+        **base, "subject": "s", "recipient_name": "Hana", "cleared": False, "result_label": "Not selected", "rating": 3,
+        "recorded_by": "Alex T", "candidate_emailed": True, "review_url": "https://app.example.com/zoiko-hr/recruitment/interviews"})
+    assert "Not selected" in internal.text and "3 / 5" in internal.text and "moved to Rejected" in internal.text

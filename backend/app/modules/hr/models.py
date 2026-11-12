@@ -870,7 +870,7 @@ class OnboardingNewHire(Base):
     department_id   = Column(Integer, ForeignKey("departments.id"), nullable=True)
     manager_id      = Column(Integer, ForeignKey("employees.id"), nullable=True)
     joining_date    = Column(Date, nullable=True)
-    status          = Column(String(50), default="offer_sent", nullable=False)
+    status          = Column(String(50), default="offer_sent", nullable=False, index=True)
     joining_status  = Column(String(50), default="not_joined", nullable=False)
     notes           = Column(Text, nullable=True)
     employment_type = Column(String(30), nullable=True)          # from the accepted offer: full_time, internship, ...
@@ -911,7 +911,7 @@ class OnboardingPreboardingTask(Base):
 
     id                      = Column(Integer, primary_key=True, index=True)
     organization_id         = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    onboarding_new_hire_id  = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True)
+    onboarding_new_hire_id  = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True, index=True)
     employee_id             = Column(Integer, ForeignKey("employees.id"), nullable=True)
     title                   = Column(String(200), nullable=False)
     description             = Column(Text, nullable=True)
@@ -932,11 +932,11 @@ class OnboardingDocument(Base):
 
     id                      = Column(Integer, primary_key=True, index=True)
     organization_id         = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    onboarding_new_hire_id  = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True)
+    onboarding_new_hire_id  = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True, index=True)
     title                   = Column(String(200), nullable=False)
     category                = Column(String(100), nullable=False)
     file_path               = Column(String(500), nullable=True)
-    document_id             = Column(Integer, ForeignKey("generated_documents.id"), nullable=True)
+    document_id             = Column(Integer, ForeignKey("generated_documents.id"), nullable=True, index=True)
     status                  = Column(String(50), default="pending", nullable=False)
     rejection_reason        = Column(Text, nullable=True)
     is_deleted              = Column(Boolean, default=False, nullable=False)
@@ -952,7 +952,7 @@ class OnboardingChecklist(Base):
 
     id                      = Column(Integer, primary_key=True, index=True)
     organization_id         = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    onboarding_new_hire_id  = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True)
+    onboarding_new_hire_id  = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True, index=True)
     template_id             = Column(Integer, ForeignKey("onboarding_checklists.id"), nullable=True)
     name                    = Column(String(200), nullable=False)
     description            = Column(Text, nullable=True)
@@ -972,14 +972,14 @@ class OnboardingChecklistItem(Base):
 
     id           = Column(Integer, primary_key=True, index=True)
     organization_id       = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    checklist_id          = Column(Integer, ForeignKey("onboarding_checklists.id"), nullable=False)
+    checklist_id          = Column(Integer, ForeignKey("onboarding_checklists.id"), nullable=False, index=True)
     title                 = Column(String(200), nullable=False)
     description           = Column(Text, nullable=True)
     completed             = Column(Boolean, default=False, nullable=False)
     completed_at          = Column(DateTime, nullable=True)
     due_date              = Column(Date, nullable=True)
     due_offset_days       = Column(Integer, nullable=True)       # templates: days from the joining date (negative = before)
-    assignee_employee_id  = Column(Integer, ForeignKey("employees.id"), nullable=True)   # who does it (IT, manager, HR...)
+    assignee_employee_id  = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)   # who does it (IT, manager, HR...)
     owner_role       = Column(String(20), nullable=True)         # hr | manager | it | employee
     mandatory        = Column(Boolean, nullable=False, default=False, server_default="false")
     item_key         = Column(String(40), nullable=True)         # links to an engine record (onb001, onb011, ...) for auto-ticks
@@ -1059,7 +1059,7 @@ class OnboardingActivity(Base):
 
     id                     = Column(Integer, primary_key=True, index=True)
     organization_id        = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
-    onboarding_new_hire_id = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True)
+    onboarding_new_hire_id = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True, index=True)
     action                 = Column(String(200), nullable=False)
     description            = Column(Text, nullable=False)
     created_at             = Column(DateTime, server_default=func.now(), nullable=False)
@@ -1241,7 +1241,7 @@ class RecruitmentCandidate(Base):
     phone          = Column(String(50), nullable=True)
     position       = Column(String(150), nullable=False)
     source         = Column(String(100), nullable=True)
-    status         = Column(Enum(RecruitmentCandidateStatus), default=RecruitmentCandidateStatus.APPLIED, nullable=False)
+    status         = Column(Enum(RecruitmentCandidateStatus), default=RecruitmentCandidateStatus.APPLIED, nullable=False, index=True)
     location       = Column(String(150), nullable=True)
     experience     = Column(Integer, nullable=True)
     resume_link    = Column(String(500), nullable=True)
@@ -1296,11 +1296,11 @@ class RecruitmentInterview(Base):
     __tablename__ = "recruitment_interviews"
 
     id             = Column(Integer, primary_key=True, index=True)
-    candidate_id   = Column(Integer, ForeignKey("recruitment_candidates.id"), nullable=True)
+    candidate_id   = Column(Integer, ForeignKey("recruitment_candidates.id"), nullable=True, index=True)
     candidate_name = Column(String(150), nullable=False)
     position       = Column(String(150), nullable=False)
     interview_type = Column(String(50), default="in_person")
-    interview_date = Column(Date, nullable=False)
+    interview_date = Column(Date, nullable=False, index=True)
     start_time     = Column(String(10), nullable=True)
     end_time       = Column(String(10), nullable=True)
     interviewer    = Column(String(150), nullable=True)
@@ -1313,6 +1313,12 @@ class RecruitmentInterview(Base):
     feedback       = Column(Text, nullable=True)
     rating         = Column(Integer, nullable=True)
     notes          = Column(Text, nullable=True)
+    # outcome recorded after the interview is completed: cleared | rejected (final once recorded; the candidate is e-mailed)
+    result         = Column(String(20), nullable=True)
+    result_message = Column(Text, nullable=True)                # the note included in the candidate's e-mail
+    result_at      = Column(DateTime, nullable=True)
+    result_by_id   = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    result_emailed = Column(Boolean, nullable=True)             # was the candidate e-mailed the result
     created_at     = Column(DateTime, server_default=func.now())
     updated_at     = Column(DateTime, onupdate=func.now())
 
@@ -1323,7 +1329,7 @@ class RecruitmentOffer(Base):
     approvals = relationship("RecruitmentOfferApproval", back_populates="offer", cascade="all, delete-orphan")
 
     id             = Column(Integer, primary_key=True, index=True)
-    candidate_id   = Column(Integer, ForeignKey("recruitment_candidates.id"), nullable=True)
+    candidate_id   = Column(Integer, ForeignKey("recruitment_candidates.id"), nullable=True, index=True)
     candidate_name = Column(String(150), nullable=False)
     position       = Column(String(150), nullable=False)
     salary         = Column(Numeric(12, 2), nullable=True)      # the remuneration amount (salary, stipend or fee)

@@ -2779,6 +2779,7 @@ class OnboardingPortalDetails(BaseModel):
     emergency_contact_name: Optional[str] = Field(None, max_length=150)
     emergency_contact_relation: Optional[str] = Field(None, max_length=60)
     emergency_contact_phone: Optional[str] = Field(None, max_length=50)
+    submit: bool = False          # "Submit details": every required field must be present; the submission time is recorded
 
 class OnboardingOrientationAttendeeResponse(BaseModel):
     id: int
@@ -4188,6 +4189,10 @@ class InterviewFeedback(BaseModel):
     feedback: Optional[str] = None
     rating: Optional[int] = Field(None, ge=1, le=5)
     status: Optional[InterviewStatus] = None
+    # the interview's outcome; recorded once, on a completed interview (or one completed by this same request)
+    result: Optional[Literal["cleared", "rejected"]] = None
+    result_message: Optional[str] = Field(None, max_length=2000)     # included in the candidate's e-mail
+    notify_candidate: bool = True
 
 
 class InterviewResponse(BaseModel):
@@ -4209,6 +4214,10 @@ class InterviewResponse(BaseModel):
     feedback: Optional[str]
     rating: Optional[int]
     notes: Optional[str]
+    result: Optional[str] = None
+    result_message: Optional[str] = None
+    result_at: Optional[datetime] = None
+    result_emailed: Optional[bool] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 

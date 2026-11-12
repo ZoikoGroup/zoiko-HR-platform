@@ -86,6 +86,8 @@ def test_requisition_to_employee(world):
     # ── candidate portal ──
     from app.modules.hr import onboarding_flow
     token = onboarding_flow.current_portal_url(world.db, hire).rsplit("/", 1)[1]
+    early = world.client.post(f"/public/onboarding/{token}/submit-signed-package")
+    assert early.status_code == 409 and early.json()["detail"]["outstanding"], "nothing can be submitted before it is done"
     view = _ok(world.client.put(f"/public/onboarding/{token}/details", json={
         "address": "4 Lake View Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500032", "country": "India"}))
     view = _ok(world.client.post(f"/public/onboarding/{token}/outside-activities", json={"none": True}))
@@ -105,6 +107,14 @@ def test_requisition_to_employee(world):
         if d["status"] == "requested" and not d["package_mode"]:
             _ok(world.client.post(f"/public/onboarding/{token}/documents/{d['id']}",
                                   files={"file": (f"{d['category']}.pdf", b"%PDF-1.4 test", "application/pdf")}))
+
+    # ── the new hire submits: everything they owe is done ──
+    portal = _ok(world.client.get(f"/public/onboarding/{token}"))
+    assert portal["submission"]["can_submit"] and portal["submission"]["submitted_at"] is None, portal["submission"]
+    sub = _ok(world.client.post(f"/public/onboarding/{token}/submit-signed-package"))
+    assert sub["submitted_at"] and sub["first_submission"] and sub["view"]["submission"]["submitted_at"]
+    again = _ok(world.client.post(f"/public/onboarding/{token}/submit-signed-package"))
+    assert again["first_submission"] is False and again["submitted_at"] == sub["submitted_at"]
 
     # contract text carries the offer terms and counsel's wording
     world.db.expire_all()

@@ -27,6 +27,11 @@ import {
   UnderlineTabs, useInsights,
 } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
+import SignedDocumentsPanel from "../../../components/documents/SignedDocumentsPanel";
+import { getSignedOnboardingDocuments } from "../../../service/docTemplatesService";
+
+// The automatic "Manager onboarding" checklist was removed (2026-11-12); hide any left over until the data migration runs.
+const isRemovedChecklist = (a) => a?.name === "Manager onboarding";
 
 const CATEGORIES = ["HR", "IT", "Manager", "Custom"];
 const CATEGORY_TONE = { HR: "blue", IT: "green", Manager: "violet", Custom: "amber" };
@@ -154,6 +159,7 @@ export default function OnboardingChecklists() {
   const [templates, setTemplates] = useState([]);
   const [allTemplates, setAllTemplates] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [signedByHire, setSignedByHire] = useState({}); // new hire id -> their signed onboarding documents
   const [records, setRecords] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -219,10 +225,19 @@ export default function OnboardingChecklists() {
   const fetchAssignments = async () => {
     try {
       const data = await getOnboardingChecklistAssignments();
-      setAssignments(Array.isArray(data) ? data : []);
+      setAssignments(Array.isArray(data) ? data.filter((a) => !isRemovedChecklist(a)) : []);
     } catch (err) {
       setError(err.message || "Failed to load assigned checklists");
       setAssignments([]);
+    }
+  };
+
+  const fetchSigned = async () => {
+    try {
+      const data = await getSignedOnboardingDocuments();
+      setSignedByHire(Object.fromEntries((data?.items || []).map((g) => [String(g.new_hire_id), g.documents || []])));
+    } catch {
+      setSignedByHire({});            // not an org admin / HR admin: the section is simply not shown
     }
   };
 
@@ -247,7 +262,7 @@ export default function OnboardingChecklists() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchTemplates(), fetchAllTemplates(), fetchAssignments(), fetchRecords(), fetchEmployees()]);
+      await Promise.all([fetchTemplates(), fetchAllTemplates(), fetchAssignments(), fetchRecords(), fetchEmployees(), fetchSigned()]);
       setLoading(false);
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -684,6 +699,7 @@ export default function OnboardingChecklists() {
                 </button>
               </div>
             </div>
+            {!collapsed && <SignedDocumentsPanel documents={signedByHire[String(hid)] || []} />}
             {!collapsed && (
               <div className="divide-y divide-gray-100">
                 {lists.map((assn) => {

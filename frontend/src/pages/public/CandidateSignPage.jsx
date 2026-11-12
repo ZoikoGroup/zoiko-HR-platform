@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { useParams } from "react-router-dom";
-import { Download, Loader2, CheckCircle2, XCircle, FileText, AlertTriangle, Send, ArrowRight } from "lucide-react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import { Download, Loader2, CheckCircle2, XCircle, FileText, AlertTriangle, Send, ArrowRight, ArrowLeft } from "lucide-react";
+import { onboardingPortalPath } from "./onboardingReturn";
 import SandboxedHtmlPreview from "../../components/documents/SandboxedHtmlPreview";
 import SigningSteps from "../../components/documents/SigningSteps";
 import { showDate } from "../../components/documents/generatedDocumentMeta";
@@ -11,7 +12,12 @@ import {
   publicSign,
   publicDecline,
   submitSignToAdmin,
+  getNextToSign,
+  publicDeclaration,
+  submitPackageFromSign,
 } from "../../service/docTemplatesService";
+import OutsideActivitiesForm from "../../components/documents/OutsideActivitiesForm";
+import OnboardingSubmitted from "../../components/documents/OnboardingSubmitted";
 
 // A candidate's signing page (route /sign/:token). Public: the link token is the credential, there is no login and no
 // app shell. The candidate reads the document, downloads the PDF if they want, then signs (consent → e-mailed code →
@@ -26,6 +32,20 @@ function usePreviewHeight() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
   return h;
+}
+
+// "Back": to the hire's onboarding portal when they came from it in this tab, otherwise one step back in the browser
+// history. Hidden when there is nowhere to go (the link was opened straight from an e-mail in a new tab).
+function BackButton({ className = "" }) {
+  const navigate = useNavigate();
+  const portal = onboardingPortalPath();
+  const canGoBack = typeof window !== "undefined" && (window.history.state?.idx ?? 0) > 0;
+  const cls = `inline-flex items-center gap-1.5 rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${className}`;
+  if (portal) {
+    return <Link to={portal} className={cls}><ArrowLeft size={16} aria-hidden="true" /> Back to onboarding portal</Link>;
+  }
+  if (!canGoBack) return null;
+  return <button type="button" onClick={() => navigate(-1)} className={cls}><ArrowLeft size={16} aria-hidden="true" /> Back</button>;
 }
 
 function Shell({ children }) {
@@ -44,6 +64,7 @@ function CenteredCard({ icon: Icon, tone = "slate", title, children }) {
         {Icon && <Icon size={40} className={`mx-auto mb-3 ${toneCls}`} aria-hidden="true" />}
         <h1 className="mb-2 text-lg font-semibold text-slate-800">{title}</h1>
         <div className="text-sm text-slate-600">{children}</div>
+        <div className="mt-4 flex justify-center"><BackButton /></div>
       </div>
     </div>
   );
@@ -58,6 +79,10 @@ export default function CandidateSignPage() {
   const [loadAttempt, setLoadAttempt] = useState(0);
   const [submittingToAdmin, setSubmittingToAdmin] = useState(false);
   const [submittedToAdmin, setSubmittedToAdmin] = useState(false);
+  const [nextUp, setNextUp] = useState(null); // { in_package, remaining, next: { title, token } | null, submission } after signing
+  const [finalBusy, setFinalBusy] = useState(false);
+  const [finalError, setFinalError] = useState(null);
+  const [finished, setFinished] = useState(null); // the submission result: shows the "onboarding complete" page
   const previewHeight = usePreviewHeight();
   const headingRef = useRef(null);
 
@@ -67,6 +92,12 @@ export default function CandidateSignPage() {
     setFailure(null);
     setOutcome(null);
     setView(null);
+    setNextUp(null);
+    setFinished(null);
+    setFinalError(null);
+    setSubmittingToAdmin(false);
+    setSubmittedToAdmin(false);
+    if (typeof window !== "undefined") window.scrollTo?.(0, 0);
     getPublicSigning(token)
       .then((v) => alive && setView(v))
       .catch((e) => {
@@ -82,6 +113,16 @@ export default function CandidateSignPage() {
     if (view?.title) document.title = `${view.title} · ${view.organization_name || "Zoiko HR"}`;
   }, [view]);
   useEffect(() => { if (outcome) headingRef.current?.focus(); }, [outcome]);
+
+  // After a signature, look up the next document in the same onboarding package that still needs signing.
+  useEffect(() => {
+    if (outcome?.kind !== "signed") return undefined;
+    let alive = true;
+    getNextToSign(token)
+      .then((n) => alive && setNextUp(n || null))
+      .catch(() => alive && setNextUp({ in_package: false, remaining: 0, next: null }));
+    return () => { alive = false; };
+  }, [outcome, token]);
 
   if (loading) {
     return (
@@ -114,7 +155,36 @@ export default function CandidateSignPage() {
     );
   }
 
+  if (finished) {
+    return (
+      <OnboardingSubmitted
+        organizationName={view?.organization_name}
+        organizationLogo={view?.organization_logo}
+        candidateName={nextUp?.candidate_name || view?.recipient_name}
+        position={nextUp?.position}
+        submittedAt={finished.submitted_at}
+      />
+    );
+  }
+
+  const submitAll = async () => {
+    setFinalBusy(true);
+    setFinalError(null);
+    try {
+      setFinished(await submitPackageFromSign(token));
+      if (typeof window !== "undefined") window.scrollTo?.(0, 0);
+    } catch (e) {
+      const outstanding = e?.data?.detail?.outstanding || e?.detail?.outstanding;
+      if (outstanding) setNextUp((n) => (n ? { ...n, submission: { ...n.submission, can_submit: false, outstanding } } : n));
+      setFinalError(e?.message || "Your documents could not be submitted. Please try again.");
+    } finally {
+      setFinalBusy(false);
+    }
+  };
+
   if (outcome) {
+    const inPackage = !!nextUp?.in_package;
+    const submission = nextUp?.submission;
     return (
       <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
         <section className="w-full max-w-xl rounded-3xl border border-slate-200 bg-white p-7 text-center shadow-sm sm:p-10" role="status">
@@ -137,7 +207,7 @@ export default function CandidateSignPage() {
             <p className="mt-1 break-all font-mono text-sm font-semibold text-slate-800">{outcome.document_number || view.document_number}</p>
           </div>
 
-          {outcome.kind === "signed" && (
+          {outcome.kind === "signed" && nextUp && !inPackage && (
             <div className="mt-6 space-y-3">
               {!submittedToAdmin ? (
                 <button
@@ -167,7 +237,62 @@ export default function CandidateSignPage() {
             </div>
           )}
 
-          <p className="mt-6 text-xs text-slate-500">You can safely close this page or return to your onboarding portal.</p>
+          {outcome.kind === "signed" && nextUp?.next && (
+            <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-left">
+              <p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-700">
+                {nextUp.remaining === 1 ? "1 more document to sign" : `${nextUp.remaining} more documents to sign`}
+              </p>
+              <p className="mt-1 break-words text-sm font-semibold text-slate-900">Next: {nextUp.next.title}</p>
+              <Link
+                to={`/sign/${encodeURIComponent(nextUp.next.token)}`}
+                replace
+                className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              >
+                Sign next document <ArrowRight size={16} aria-hidden="true" />
+              </Link>
+            </div>
+          )}
+          {outcome.kind === "signed" && inPackage && nextUp.remaining === 0 && submission && (
+            submission.submitted_at ? (
+              <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50 p-4 text-sm font-semibold text-blue-900">
+                Your onboarding documents have already been submitted. Thank you.
+              </div>
+            ) : submission.can_submit ? (
+              <div className="mt-6 overflow-hidden rounded-2xl border border-blue-200 bg-white text-left">
+                <div className="h-1 bg-gradient-to-r from-blue-600 to-sky-400" aria-hidden="true" />
+                <div className="p-4 sm:p-5">
+                  <p className="text-xs font-bold uppercase tracking-[0.12em] text-blue-700">All documents signed</p>
+                  <p className="mt-1 text-sm text-slate-600">Submit your onboarding documents to let HR know you have finished.</p>
+                  {finalError && <p role="alert" className="mt-3 rounded-lg border border-red-200 bg-red-50 p-2 text-xs text-red-800">{finalError}</p>}
+                  <button
+                    type="button"
+                    onClick={submitAll}
+                    disabled={finalBusy}
+                    className="mt-4 inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2 disabled:opacity-60"
+                  >
+                    {finalBusy ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Send size={16} aria-hidden="true" />}
+                    {finalBusy ? "Submitting…" : "Submit onboarding documents"}
+                  </button>
+                </div>
+              </div>
+            ) : (
+              <div className="mt-6 rounded-2xl border border-blue-200 bg-blue-50/60 p-4 text-left text-sm text-slate-700">
+                <p className="font-semibold text-blue-900">All signatures done. A few things left in your onboarding portal:</p>
+                <ul className="mt-2 space-y-1">
+                  {(submission.outstanding || []).map((o, i) => (
+                    <li key={`${o.title}-${i}`} className="flex items-start gap-2">
+                      <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-blue-500" aria-hidden="true" />
+                      <span><span className="font-medium capitalize">{o.action}</span> · {o.title}</span>
+                    </li>
+                  ))}
+                </ul>
+                <p className="mt-2 text-xs text-slate-500">Finish them there, then press “Submit onboarding documents” at the bottom of the portal.</p>
+              </div>
+            )
+          )}
+
+          <div className="mt-6 flex justify-center"><BackButton /></div>
+          <p className="mt-4 text-xs text-slate-500">You can safely close this page or return to your onboarding portal.</p>
         </section>
       </main>
     );
@@ -176,6 +301,7 @@ export default function CandidateSignPage() {
   const v = view;
   return (
     <Shell>
+      <BackButton />
       <header className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <div className="flex items-center gap-3">
           {v.organization_logo ? (
@@ -210,7 +336,12 @@ export default function CandidateSignPage() {
 
       <section aria-labelledby="doc-sign" className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-6">
         <h2 id="doc-sign" className="mb-3 text-base font-bold text-slate-900">2. Sign or decline</h2>
-        {v.can_sign ? (
+        {v.can_sign && v.needs_declaration ? (
+          <OutsideActivitiesForm
+            save={(body) => publicDeclaration(token, body)}
+            onSaved={(res) => res && setView((prev) => ({ ...prev, ...res, html: prev?.html }))}
+          />
+        ) : v.can_sign ? (
           <SigningSteps
             consent={v.consent}
             needsOtp={v.needs_otp !== false}

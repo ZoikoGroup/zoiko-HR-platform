@@ -106,10 +106,21 @@ def test_checklist_exceptions_gate_completion_and_managers_see_their_tasks(world
     h, _ = _hire(world)
     from app.modules.hr import onboarding_flow
     onboarding_flow.start_onboarding(world.db, h)
+    # the automatic "Manager onboarding" checklist and its HR-ONB-005 document are no longer created (removed 2026-11-12)
+    assert not world.db.query(OnboardingChecklist).filter_by(onboarding_new_hire_id=h.id, name="Manager onboarding").count()
+    assert not any(d.canonical_id == "HR-ONB-005" for d in world.db.query(GeneratedDocument).all())
+    # tasks HR assigns to the manager by hand still reach them and still gate completion
+    cl = OnboardingChecklist(organization_id=h.organization_id, onboarding_new_hire_id=h.id, name="Team set-up", category="Manager",
+                             status="pending")
+    world.db.add(cl)
+    world.db.flush()
+    for title in ("Plan the first week", "Introduce the team"):
+        world.db.add(OnboardingChecklistItem(organization_id=h.organization_id, checklist_id=cl.id, title=title, owner_role="manager",
+                                             mandatory=True, due_date=date.today(), assignee_employee_id=world.u["a_manager"].id,
+                                             completed=False))
+    world.db.commit()
     tasks = world.get("a_manager", "/hr/onboarding/my-tasks").json()
-    assert tasks["total"] >= 10 and tasks["open"] == tasks["total"]
-    assert any(d.canonical_id == "HR-ONB-005" and d.recipient_employee_id == world.u["a_manager"].id
-               for d in world.db.query(GeneratedDocument).all()), "the manager checklist is issued to the manager"
+    assert tasks["total"] == 2 and tasks["open"] == tasks["total"]
     blockers = onboarding_flow.completion_blockers(world.db, h)
     assert any("mandatory item" in b for b in blockers)
     for t in tasks["items"]:

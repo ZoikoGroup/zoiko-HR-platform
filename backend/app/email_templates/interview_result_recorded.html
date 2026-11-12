@@ -1,0 +1,26 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "Interview result recorded" %}
+{% set preheader = candidate_name ~ " – " ~ result_label ~ " (" ~ position ~ ")." %}
+{% set badge = result_label %}
+{% set badge_tone = "success" if cleared else "danger" %}
+{% set footer_reason %}You are receiving this because you are an administrator or the interviewer for this candidate at {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Interview result recorded</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, the result of <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong>'s interview for the {{ position }} role has been recorded{% if recorded_by %} by {{ recorded_by }}{% endif %}.</p>
+{% call ui.details() %}
+{{ ui.detail_row("Candidate", candidate_name, first=True) }}
+{{ ui.detail_row("Position", position) }}
+{{ ui.detail_row("Interview", interview_type_label ~ " · " ~ date_display) }}
+{{ ui.detail_row("Result", result_label) }}
+{% if rating %}{{ ui.detail_row("Rating", rating ~ " / 5") }}{% endif %}
+{{ ui.detail_row("Candidate e-mailed", "Yes" if candidate_emailed else "No") }}
+{% endcall %}
+{% if cleared %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Next step: schedule the next round or prepare an offer.</p>
+{% else %}
+<p class="t-body dm-text-body" style="{{ S.p }}">The candidate has been moved to Rejected in the pipeline.</p>
+{% endif %}
+{% if review_url %}{{ ui.button(review_url, "Open interviews") }}{% endif %}
+{{ ui.signoff() }}
+{% endblock %}
