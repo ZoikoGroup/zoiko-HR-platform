@@ -94,12 +94,17 @@ test("a refused ticket shows the server's message and the person stays on the lo
   assert.doesNotMatch(document.body.textContent, /HOME PAGE/);
 });
 
-test("Google is the only single sign-on option on the login page: no Microsoft and no SSO buttons", async (t) => {
+test("the login page shows Microsoft, Google, Apple and Company SSO in the design's order; only Google starts a sign-in", async (t) => {
   await open(t);
-  assert.ok(screen.getByRole("button", { name: /Continue with Google/ }));
-  assert.equal(screen.queryByRole("button", { name: /Microsoft/i }), null);
-  assert.equal(screen.queryByRole("button", { name: /SSO/i }), null);
-  assert.doesNotMatch(document.body.textContent, /Microsoft|Continue with SSO/);
+  const names = [...document.querySelectorAll(".social-login-options button")].map((b) => b.textContent.trim());
+  assert.deepEqual(names, ["Continue with Microsoft", "Continue with Google", "Continue with Apple", "Continue with Company SSO"]);
+  // Microsoft, Apple and SSO have no server side yet: pressing one says so and goes nowhere.
+  const before = window.location.href;
+  for (const [label, provider] of [[/Microsoft/, "Microsoft"], [/Apple/, "Apple"], [/Company SSO/, "Company SSO"]]) {
+    await act(async () => { fireEvent.click(screen.getByRole("button", { name: label })); });
+    assert.match(screen.getByRole("status").textContent, new RegExp(`Sign in with ${provider} is not available yet`));
+  }
+  assert.equal(window.location.href, before);
 });
 
 test("the login page is the hero and the sign-in card: tabs, account links and legal links go to their pages", async (t) => {

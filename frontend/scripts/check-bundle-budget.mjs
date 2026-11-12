@@ -17,7 +17,8 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dist = join(here, "..", "dist");
-const BUDGET = { js: 120 * 1024, css: 20 * 1024 };
+// css raised 20 -> 21 kB (Nov 2026): the framed, proportionally scaled login page (the first route) needs ~1.4 kB more.
+const BUDGET = { js: 120 * 1024, css: 21 * 1024 };
 
 const html = readFileSync(join(dist, "index.html"), "utf8");
 const urls = new Set();
