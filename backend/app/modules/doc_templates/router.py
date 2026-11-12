@@ -15,7 +15,7 @@ import logging
 from datetime import datetime
 from typing import Optional
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request, Response
+from fastapi import APIRouter, BackgroundTasks, Body, Depends, HTTPException, Query, Request, Response
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 
@@ -865,17 +865,25 @@ def _mine(db, user, document_id: int) -> GeneratedDocument:
     return doc
 
 
+def _my_party(doc: GeneratedDocument) -> str:
+    """The party the signed-in recipient signs as. A document issued to them as a candidate or new hire (the onboarding package)
+    stays a candidate document after they become an employee, so they sign it as "candidate" from self-service too."""
+    return "candidate" if doc.subject_type in ("candidate", "new_hire") else "employee"
+
+
 def _ser_mine(db, doc: GeneratedDocument, user) -> dict:
     out = service.serialize(doc, viewer_is_hr=False)
     parties = signing.required_parties(doc)
     signed = signing.signed_parties(db, doc)
+    party = _my_party(doc)
     out["my_action"] = None
     if doc.status == "ISSUED":
         if doc.execution_mode == "ACKNOWLEDGE":
             out["my_action"] = "acknowledge"
-        elif "employee" in parties and "employee" not in signed:
+        elif party in parties and party not in signed:
             out["my_action"] = "sign"
-    out["needs_otp"] = out["my_action"] == "sign" and signing.needs_otp(doc, "employee")
+    out["needs_otp"] = out["my_action"] == "sign" and signing.needs_otp(doc, party)
+    out["needs_declaration"] = out["my_action"] == "sign" and _needs_declaration(db, doc)
     return out
 
 
@@ -980,13 +988,23 @@ def my_acknowledge(document_id: int, body: S.AcknowledgeRequest, request: Reques
     return _ser_mine(db, doc, user)
 
 
+@ess_router.post("/{document_id}/declaration")
+def my_declaration(document_id: int, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_user)):
+    """The affidavit's Schedule A, made from self-service when the new hire has already become an employee."""
+    doc = _mine(db, user, document_id)
+    from app.modules.hr import onboarding_package
+    onboarding_package.declare_for_document(db, doc, data)
+    return _ser_mine(db, doc, user)
+
+
 @ess_router.post("/{document_id}/sign/otp")
 @limiter.limit("5/minute")
 def my_sign_otp(request: Request, document_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     doc = _mine(db, user, document_id)
-    if "employee" not in signing.required_parties(doc) or doc.status != "ISSUED":
+    party = _my_party(doc)
+    if party not in signing.required_parties(doc) or party in signing.signed_parties(db, doc) or doc.status != "ISSUED":
         raise HTTPException(409, "This document does not need your signature.")
-    return signing.send_otp(db, doc, party="employee", signer_key=f"employee:{user.id}", email=user.work_email or user.email,
+    return signing.send_otp(db, doc, party=party, signer_key=f"employee:{user.id}", email=user.work_email or user.email,
                             first_name=user.first_name)
 
 
@@ -994,7 +1012,8 @@ def my_sign_otp(request: Request, document_id: int, db: Session = Depends(get_db
 @limiter.limit("10/minute")
 def my_sign(request: Request, document_id: int, body: S.SignRequest, db: Session = Depends(get_db), user=Depends(get_current_user)):
     doc = _mine(db, user, document_id)
-    signing.sign(db, doc, party="employee", signer_employee=user, signer_email=user.work_email or user.email, typed_name=body.typed_name,
+    party = _my_party(doc)
+    signing.sign(db, doc, party=party, signer_employee=user, signer_email=user.work_email or user.email, typed_name=body.typed_name,
                  method=body.method, drawn=body.drawn_signature, consent_version=body.consent_version, otp_code=body.otp_code,
                  ip=get_client_ip(request), user_agent=_ua(request))
     return _ser_mine(db, doc, user)
@@ -1003,7 +1022,7 @@ def my_sign(request: Request, document_id: int, body: S.SignRequest, db: Session
 @ess_router.post("/{document_id}/decline")
 def my_decline(document_id: int, body: S.DeclineRequest, request: Request, db: Session = Depends(get_db), user=Depends(get_current_user)):
     doc = _mine(db, user, document_id)
-    signing.decline(db, doc, party="employee", signer_employee=user, signer_email=user.work_email or user.email, reason=body.reason,
+    signing.decline(db, doc, party=_my_party(doc), signer_employee=user, signer_email=user.work_email or user.email, reason=body.reason,
                     ip=get_client_ip(request), user_agent=_ua(request))
     return _ser_mine(db, doc, user)
 
@@ -1138,7 +1157,17 @@ def _public_view(db, doc: GeneratedDocument) -> dict:
             "organization_name": getattr(org, "display_name", None) or getattr(org, "organization_name", ""),
             "organization_logo": getattr(org, "logo_url", None), "recipient_name": doc.recipient_name, "due_by": doc.due_by,
             "can_sign": doc.status == "ISSUED" and "candidate" in signing.required_parties(doc) and "candidate" not in signed,
-            "needs_otp": True, "consent": {"version": governance.CONSENT_VERSION, "text": governance.CONSENT_TEXT}}
+            "needs_otp": True, "consent": {"version": governance.CONSENT_VERSION, "text": governance.CONSENT_TEXT},
+            "needs_declaration": _needs_declaration(db, doc)}
+
+
+def _needs_declaration(db, doc: GeneratedDocument) -> bool:
+    """The affidavit's Schedule A must be declared before it can be signed (shown as a form above the signature)."""
+    from app.modules.hr import onboarding_package
+    try:
+        return onboarding_package.declaration_needed(db, doc)
+    except Exception:
+        return False
 
 
 @public_router.get("/sign/{token}")
@@ -1161,7 +1190,7 @@ def public_sign_view(request: Request, token: str, db: Session = Depends(get_db)
 @public_router.post("/sign/{token}/submit-to-admin", summary="Candidate submits signed document to Org Admin")
 @limiter.limit("20/minute")
 def public_submit_to_admin(request: Request, token: str, db: Session = Depends(get_db)):
-    doc, tok = signing.resolve_candidate_token(db, token, allow_used=True)
+    doc, tok = signing.resolve_candidate_followup(db, token)
     from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
     from app.modules.hr.service import log_onboarding_activity
     from app.modules.hr import onboarding_package
@@ -1179,10 +1208,38 @@ def public_submit_to_admin(request: Request, token: str, db: Session = Depends(g
     return {"success": True, "message": f"'{doc.title}' submitted to Org Admin."}
 
 
+@public_router.post("/sign/{token}/declaration", summary="Make the affidavit's Schedule A declaration before signing")
+@limiter.limit("20/minute")
+def public_sign_declaration(request: Request, token: str, data: dict = Body(...), db: Session = Depends(get_db)):
+    doc, _ = signing.resolve_candidate_token(db, token)
+    from app.modules.hr import onboarding_package
+    onboarding_package.declare_for_document(db, doc, data)
+    return {**_public_view(db, doc), "needs_declaration": _needs_declaration(db, doc)}
+
+
+@public_router.post("/sign/{token}/submit-package", summary="The new hire submits their completed onboarding documents")
+@limiter.limit("20/minute")
+def public_sign_submit_package(request: Request, token: str, db: Session = Depends(get_db)):
+    doc, _ = signing.resolve_candidate_followup(db, token)
+    from app.modules.hr import onboarding_package
+    hire = onboarding_package.hire_for_document(db, doc)
+    if hire is None:
+        raise HTTPException(404, "This document is not part of an onboarding package.")
+    return onboarding_package.submit_package(db, hire)
+
+
+@public_router.get("/sign/{token}/next", summary="The next onboarding document waiting for the candidate's signature")
+@limiter.limit("30/minute")
+def public_sign_next(request: Request, token: str, db: Session = Depends(get_db)):
+    doc, _ = signing.resolve_candidate_followup(db, token)
+    from app.modules.hr import onboarding_package
+    return onboarding_package.next_to_sign(db, doc)
+
+
 @public_router.get("/sign/{token}/pdf")
 @limiter.limit("30/minute")
 def public_sign_pdf(request: Request, token: str, db: Session = Depends(get_db)):
-    doc, _ = signing.resolve_candidate_token(db, token, allow_used=True)
+    doc, _ = signing.resolve_candidate_followup(db, token)
     target = "executed" if doc.status == "EXECUTED" else "original"
     try:
         data = service.file_bytes(doc, target)

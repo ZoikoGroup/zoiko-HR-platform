@@ -84,7 +84,16 @@ def portal_download_document(request: Request, token: str, document_id: int, db:
         OnboardingDocument.onboarding_new_hire_id == hire.id,
         OnboardingDocument.is_deleted == False,
     ).first()
-    if doc is None or not doc.file_path:
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Document not found or no file uploaded yet.")
+    from app.modules.hr import onboarding_package
+    stored = onboarding_package.stored_document_pdf(db, doc.document_id, hire.organization_id)
+    if stored is not None:                     # an issued / signed document lives in the document store, not on disk
+        from fastapi.responses import Response
+        data, fname = stored
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{fname}"', "Cache-Control": "no-store"})
+    if not doc.file_path:
         raise HTTPException(status_code=404, detail="Document not found or no file uploaded yet.")
 
     resolved = file_storage.resolve_stored_file(doc.file_path) if belongs_to_tenant(doc.file_path, hire.organization_id) else None
@@ -101,21 +110,10 @@ def portal_download_document(request: Request, token: str, document_id: int, db:
     )
 
 
-@portal_router.post("/{token}/submit-signed-package", summary="Candidate submits all signed documents to Org Admin")
+@portal_router.post("/{token}/submit-signed-package", summary="The new hire submits their completed onboarding documents")
 @limiter.limit("20/minute")
 def submit_signed_package(request: Request, token: str, db: Session = Depends(get_db)):
-    from app.modules.hr.service import log_onboarding_activity
     from app.modules.hr import onboarding_package
     hire = onboarding_flow.hire_for_token(db, token)
-    onboarding_package.sync_onboarding_document_checklist(db, hire)
-    log_onboarding_activity(
-        db, hire.id, "Signed Documents Submitted",
-        f"{hire.candidate_name} submitted their signed onboarding documents package to Org Admin.",
-        hire.organization_id
-    )
-    return {
-        "success": True,
-        "message": "All signed onboarding documents have been submitted to Org Admin.",
-        "view": onboarding_flow.portal_view(db, hire)
-    }
-
+    result = onboarding_package.submit_package(db, hire)
+    return {**result, "view": onboarding_flow.portal_view(db, hire)}

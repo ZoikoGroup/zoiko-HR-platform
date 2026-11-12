@@ -12,6 +12,7 @@ Three records, three meanings, never mixed:
 from __future__ import annotations
 
 import base64
+import logging
 import hashlib
 import hmac
 import secrets
@@ -24,6 +25,8 @@ from app.config import settings
 from app.modules.doc_templates import approvals, governance, notify, renderer, state, storage
 from app.modules.doc_templates.models import (DocumentAcknowledgement, DocumentSignOtp, DocumentSignature, EmployerEntity,
                                               GeneratedDocument, TemplateVariant)
+
+logger = logging.getLogger(__name__)
 
 SIGN_STATUSES = ("ISSUED",)
 MAX_DRAWN_BYTES = 200_000
@@ -105,6 +108,19 @@ def resolve_candidate_token(db, raw: str, allow_used: bool = False):
     if doc is None or doc.organization_id != tok.organization_id or doc.subject_type not in ("candidate", "new_hire") \
             or (doc.recipient_email or "").lower() != (tok.email or "").lower():
         raise HTTPException(404, "This link is not valid or has expired.")
+    return doc, tok
+
+
+def resolve_candidate_followup(db, raw: str):
+    """A link for what comes after signing (download, next document, submit). A used link is accepted only when the candidate
+    actually signed or declined with it; a link HR revoked (also marked used) is refused, so a leaked or re-issued link
+    cannot reach the hire's other documents."""
+    doc, tok = resolve_candidate_token(db, raw, allow_used=True)
+    if tok.used_at is not None:
+        acted = db.query(DocumentSignature.id).filter(DocumentSignature.document_id == doc.id,
+                                                       DocumentSignature.signer_party == "candidate").first()
+        if acted is None:
+            raise HTTPException(404, "This link is not valid or has expired.")
     return doc, tok
 
 
@@ -329,7 +345,12 @@ def _finalize(db, doc: GeneratedDocument) -> None:
         schedule = onboarding_package.signing_schedule(db, doc)
     except Exception:
         schedule = None
-    executed = renderer.append_pdf(renderer.append_pdf(original, schedule) if schedule else original, cert)
+    body = renderer.append_pdf(original, schedule) if schedule else original
+    try:                                   # the signatures as given (drawn image / typed name), before the evidence certificate
+        body = renderer.append_pdf(body, governance.signature_page_pdf(doc, sigs, org))
+    except Exception:
+        logger.exception("signature page could not be rendered for document %s", doc.id)
+    executed = renderer.append_pdf(body, cert)
     digest = hashlib.sha256(executed).hexdigest()
     doc.executed_pdf_path = storage.get_store().put(doc.organization_id, f"{doc.document_number}-executed-{digest[:12]}.pdf",
                                                     executed, encrypt=doc.files_encrypted)

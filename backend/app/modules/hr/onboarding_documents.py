@@ -491,33 +491,6 @@ def record_exception(db, actor, item_id: int, data: dict) -> OnboardingChecklist
     return it
 
 
-def assign_manager_checklist(db, hire: OnboardingNewHire) -> Optional[OnboardingChecklist]:
-    """HR-ONB-005 as real tasks for the reporting manager, with due dates from the start date."""
-    if not hire.manager_id:
-        return None
-    exists = (db.query(OnboardingChecklist).filter(OnboardingChecklist.onboarding_new_hire_id == hire.id, OnboardingChecklist.name == "Manager onboarding",
-                                                   OnboardingChecklist.is_deleted.is_(False)).first())
-    if exists is not None:
-        return exists
-    s = starters.latest(db, MANAGER_CHECKLIST) or {}
-    items = [it for b in s.get("content") or [] if b.get("type") == "checklist" for it in b["items"]]
-    if not items:
-        return None
-    cl = OnboardingChecklist(organization_id=hire.organization_id, onboarding_new_hire_id=hire.id, name="Manager onboarding",
-                             category="Manager", status="pending", created_by="system")
-    db.add(cl)
-    db.flush()
-    for it in items:
-        due = hire.joining_date + timedelta(days=it.get("due_offset_days") or 0) if hire.joining_date else None
-        db.add(OnboardingChecklistItem(organization_id=hire.organization_id, checklist_id=cl.id, title=it["label"], item_key=f"mgr_{it['key']}",
-                                       owner_role="manager", mandatory=bool(it.get("mandatory")), due_offset_days=it.get("due_offset_days"),
-                                       due_date=due, assignee_employee_id=hire.manager_id, completed=False, created_by="system"))
-    db.commit()
-    from app.modules.hr.hr_notifications import notify_employee
-    notify_employee(db, hire.organization_id, hire.manager_id, "onboarding.tasks_assigned", link="/zoiko-hr/onboarding/checklists")  # A5
-    return cl
-
-
 def my_tasks(db, user) -> list[dict]:
     rows = (db.query(OnboardingChecklistItem, OnboardingChecklist, OnboardingNewHire)
             .join(OnboardingChecklist, OnboardingChecklist.id == OnboardingChecklistItem.checklist_id)
@@ -543,15 +516,9 @@ def complete_my_task(db, user, item_id: int, done: bool) -> dict:
 # ── automatic documents ──────────────────────────────────────────────────────────────────────────────────────────────
 
 def on_onboarding_started(db, hire: OnboardingNewHire) -> None:
-    try:
-        assign_manager_checklist(db, hire)
-        actor = system_actor(db, hire.organization_id)
-        if hire.manager_id:
-            _try_generate(db, actor, canonical_id=MANAGER_CHECKLIST, subject_type="new_hire", subject_id=hire.id,
-                          source_ref=f"onboarding_new_hire:{hire.id}", trigger="new_hire.created")
-    except Exception:
-        db.rollback()
-        logger.warning("manager onboarding checklist failed for new hire %s", hire.id)
+    """Nothing is created automatically for the manager any more: the "Manager onboarding" checklist (HR-ONB-005 tasks)
+    and its document were removed at the organisation's request (2026-11-12). HR assigns checklists from templates."""
+    return None
 
 
 def on_onboarding_completed(db, hire: OnboardingNewHire, employee, actor=None) -> None:

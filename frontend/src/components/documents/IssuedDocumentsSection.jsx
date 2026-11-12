@@ -295,8 +295,11 @@ export default function IssuedDocumentsSection({ className = "", onPendingCount 
 
       {action && (
         <DocumentActionDialog
+          key={action.doc.id}
           doc={action.doc}
           mode={action.mode}
+          nextDoc={items.filter((d) => d.my_action && d.id !== action.doc.id).sort((a, b) => a.id - b.id)[0] || null}
+          onNext={(d) => setAction({ doc: d, mode: d.my_action })}
           onClose={closeAction}
           onDone={() => {
             setNotice(action.mode === "acknowledge" ? `"${action.doc.title}" acknowledged.` : `"${action.doc.title}" updated.`);

@@ -106,6 +106,7 @@ export const previewMyGeneratedDocument = (id) => api.get(`/hr/me/generated-docu
 export const acknowledgeMyDocument = (id, textVersion) => api.post(`/hr/me/generated-documents/${id}/acknowledge`, { text_version: textVersion });
 export const requestMySignOtp = (id) => api.post(`/hr/me/generated-documents/${id}/sign/otp`, {});
 // body: { typed_name, method: "TYPED"|"DRAWN", drawn_signature?: dataURL, consent_version, otp_code? }
+export const myDocumentDeclaration = (id, body) => api.post(`/hr/me/generated-documents/${id}/declaration`, body);
 export const signMyDocument = (id, body) => api.post(`/hr/me/generated-documents/${id}/sign`, body);
 export const declineMyDocument = (id, reason) => api.post(`/hr/me/generated-documents/${id}/decline`, { reason });
 export const getSignatoryQueue = () => api.get("/hr/me/generated-documents/signatory-queue");
@@ -117,7 +118,20 @@ export const getPublicSigning = (token) => api.get(`/public/documents/sign/${enc
 export const publicSigningPdfUrl = (token) => `${API_BASE_URL}/public/documents/sign/${enc(token)}/pdf`;
 export const requestPublicSignOtp = (token) => api.post(`/public/documents/sign/${enc(token)}/otp`, {}, { auth: false });
 export const publicSign = (token, body) => api.post(`/public/documents/sign/${enc(token)}/sign`, body, { auth: false });
-export const submitSignToAdmin = (token) => api.post(`/public/documents/sign/${enc(token)}/submit-to-admin`, {}, { auth: false });
+export const publicDeclaration = (token, body) => api.post(`/public/documents/sign/${enc(token)}/declaration`, body, { auth: false });
+export const submitPackageFromSign = (token) => api.post(`/public/documents/sign/${enc(token)}/submit-package`, {}, { auth: false });
+// Onboarding documents the new hires have signed (org admins / HR), with each signature.
+export const getSignedOnboardingDocuments = (newHireId) => api.get(`/hr/onboarding/signed-documents${q({ new_hire_id: newHireId })}`);
+// A drawn signature as an object URL (the image needs the signed-in user's token, so it cannot be a plain <img src>).
+export async function signatureImageUrl(signatureId) {
+  const res = await fetch(`${API_BASE_URL}/hr/onboarding/signatures/${signatureId}/image`, {
+    headers: { Authorization: `Bearer ${getAccessToken()}` },
+  });
+  if (!res.ok) throw new Error(`Signature image unavailable (${res.status})`);
+  return URL.createObjectURL(await res.blob());
+}
+export const getNextToSign = (token) => api.get(`/public/documents/sign/${enc(token)}/next`, { auth: false });
+export const submitSignToAdmin =(token) => api.post(`/public/documents/sign/${enc(token)}/submit-to-admin`, {}, { auth: false });
 export const publicDecline = (token, reason) => api.post(`/public/documents/sign/${enc(token)}/decline`, { reason }, { auth: false });
 export const verifyDocument = (documentNumber, hash16) =>
   api.get(`/public/documents/verify/${enc(documentNumber)}${q({ h: hash16 })}`, { auth: false });

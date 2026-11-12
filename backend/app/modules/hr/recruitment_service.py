@@ -790,19 +790,59 @@ def delete_interview(db: Session, interview_id: int, organization_id: Optional[i
     db.commit()
 
 
-def update_interview_feedback(db: Session, interview_id: int, data: InterviewFeedback, organization_id: Optional[int] = None) -> RecruitmentInterview:
+def update_interview_feedback(db: Session, interview_id: int, data: InterviewFeedback, organization_id: Optional[int] = None,
+                              actor=None) -> RecruitmentInterview:
     interview = get_interview_by_id(db, interview_id, organization_id)
     if interview.status == InterviewStatus.CANCELLED:
         raise BadRequestException("Feedback cannot be added to a cancelled interview.")
     check_interview_transition(interview.status, data.status)
     update_data = data.model_dump(exclude_unset=True)
+    result = update_data.pop("result", None)
+    message = (update_data.pop("result_message", None) or "").strip() or None
+    email_candidate = update_data.pop("notify_candidate", True)
     if update_data.get("status") is None:
         update_data.pop("status", None)
+    if result is not None:
+        completed = interview.status == InterviewStatus.COMPLETED or update_data.get("status") == InterviewStatus.COMPLETED
+        if not completed:
+            raise BadRequestException("Mark the interview completed before recording its result.")
+        if interview.result and interview.result != result:
+            raise BadRequestException("This interview's result was already recorded and the candidate was told. It cannot be changed.")
     for field, value in update_data.items():
         setattr(interview, field, value)
+    first_result = result is not None and not interview.result
+    if first_result:
+        interview.result, interview.result_message = result, message
+        interview.result_at, interview.result_by_id = datetime.utcnow(), getattr(actor, "id", None)
     db.commit()
     db.refresh(interview)
+    if first_result:
+        if result == "rejected":
+            _reject_candidate_after_interview(db, interview)
+        sent = notify.notify_interview_result(db, interview, result == "cleared", message, email_candidate, recorded_by=actor)
+        interview.result_emailed = sent["candidate"]
+        db.commit()
+        db.refresh(interview)
+        interview.emails_sent = int(sent["candidate"]) + sent["internal"]
     return interview
+
+
+def _reject_candidate_after_interview(db: Session, interview) -> None:
+    """A "rejected" result moves the linked candidate to Rejected. The interview result e-mail is their notification, so
+    the generic rejection e-mail / letter is not sent as well."""
+    if not interview.candidate_id:
+        return
+    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == interview.candidate_id,
+                                                 RecruitmentCandidate.organization_id == interview.organization_id).first()
+    if cand is None or cand.status not in (RecruitmentCandidateStatus.APPLIED, RecruitmentCandidateStatus.SCREENING,
+                                           RecruitmentCandidateStatus.INTERVIEW):
+        return                                              # rejected already, or an offer is in progress: HR decides there
+    try:
+        check_candidate_transition(cand.status, RecruitmentCandidateStatus.REJECTED)
+    except BadRequestException:
+        return                                              # e.g. already hired: the pipeline is left alone
+    cand.status = RecruitmentCandidateStatus.REJECTED
+    db.commit()
 
 
 # Statuses an offer can be put in by editing it. Accepted / rejected / withdrawn go through their own endpoints, which also

@@ -1,0 +1,22 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "An update on your interview" %}
+{% set preheader = "An update on your interview for " ~ position ~ " at " ~ organization_name ~ "." %}
+{% set badge = "Interview outcome" %}
+{% set badge_tone = "neutral" %}
+{% set footer_reason %}You are receiving this because you interviewed with {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">An update on your interview</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong>, thank you for taking the time to interview for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role at {{ organization_name }}.</p>
+<p class="t-body dm-text-body" style="{{ S.p }}">After careful consideration, we have decided not to move forward with your application at this stage. This was not an easy decision, and we genuinely appreciate the effort you put into the process.</p>
+{% if message %}
+{% call ui.notice("A note from the hiring team", "neutral") %}{{ message }}{% endcall %}
+{% endif %}
+{% call ui.details() %}
+{{ ui.detail_row("Position", position, first=True) }}
+{{ ui.detail_row("Interview", interview_type_label) }}
+{{ ui.detail_row("Interview date", date_display) }}
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">We'd be glad to hear from you again for future roles that match your experience. We wish you every success.</p>
+{{ ui.signoff(organization_name) }}
+{% endblock %}

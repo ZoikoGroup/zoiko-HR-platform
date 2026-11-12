@@ -444,7 +444,7 @@ def add_interview_feedback(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return recruitment_service.update_interview_feedback(db, interview_id, data, current_user.organization_id)
+    return recruitment_service.update_interview_feedback(db, interview_id, data, current_user.organization_id, actor=current_user)
 
 
 # ════════════════════════════════════════════════════════════════════════════

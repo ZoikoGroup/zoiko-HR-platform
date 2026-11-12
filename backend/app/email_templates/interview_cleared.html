@@ -1,0 +1,22 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui %}
+{% set title = "You've cleared your interview" %}
+{% set preheader = "Good news about your " ~ interview_type_label|lower ~ " for " ~ position ~ " at " ~ organization_name ~ "." %}
+{% set badge = "Interview cleared" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this because you interviewed with {{ organization_name }}.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Congratulations, you've cleared your interview</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong>, thank you for interviewing for the <strong class="dm-text-strong" style="{{ S.strong }}">{{ position }}</strong> role at {{ organization_name }}. We're pleased to let you know that you have successfully cleared this interview.</p>
+{% if message %}
+{% call ui.notice("A note from the hiring team", "success") %}{{ message }}{% endcall %}
+{% endif %}
+{% call ui.details() %}
+{{ ui.detail_row("Position", position, first=True) }}
+{{ ui.detail_row("Interview", interview_type_label) }}
+{{ ui.detail_row("Interview date", date_display) }}
+{{ ui.detail_row("Result", "Cleared") }}
+{% endcall %}
+<p class="t-body dm-text-body" style="{{ S.p }}">Our team will be in touch shortly about the next steps. There is nothing you need to do right now.</p>
+{{ ui.signoff(organization_name) }}
+{% endblock %}

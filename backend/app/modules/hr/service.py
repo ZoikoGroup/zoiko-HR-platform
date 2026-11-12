@@ -3614,6 +3614,10 @@ def get_checklists(db: Session, organization_id: Optional[int] = None, is_templa
     if category:
         query = query.filter(OnboardingChecklist.category == category)
     order_col = OnboardingChecklist.created_at.desc() if is_template else OnboardingChecklist.id.asc()
+    # items and their owners in two batched queries, not one query per checklist and per item (was ~450 queries / 3 s
+    # for 150 hires; every query is a network round trip to the database in production)
+    from sqlalchemy.orm import selectinload
+    query = query.options(selectinload(OnboardingChecklist.items).selectinload(OnboardingChecklistItem.assignee))
     return list_or_page(query.order_by(order_col), page, per_page, label="/onboarding/checklist-assignments")
 
 def _check_assignees(db: Session, items, organization_id: int) -> None:
@@ -3985,7 +3989,7 @@ def get_onboarding_documents(
 
 def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
     # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
-    file_url = f"/hr/onboarding/documents/{doc.id}/file" if doc.file_path else None
+    file_url = f"/hr/onboarding/documents/{doc.id}/file" if (doc.file_path or doc.document_id) else None   # issued docs: document store
     from app.modules.hr.onboarding_package import mode_of
     package_mode = mode_of(doc.category)
     requires_signature = package_mode == "SIGN" or (package_mode is None and bool(doc.document_id))

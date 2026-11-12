@@ -2,8 +2,9 @@ import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AlertCircle, AlertTriangle, Building2, CalendarPlus, Check, Clock, Globe, Link2, Loader2, Mail, Search, StickyNote, CalendarCheck, CalendarClock, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CircleX,
   ClipboardCheck, Code2, ExternalLink, LayoutList, MapPin, MessageSquare, MoreHorizontal, Pencil, Phone, Plus, Star, Trash2,
   Play, UserRound, Users, Video, X } from "lucide-react";
-import { getInterviews, createInterview, updateInterview, updateInterviewFeedback, deleteInterview, getCandidates } from "../../../service/hrService";
+import { getInterviews, createInterview, updateInterview, deleteInterview, getCandidates } from "../../../service/hrService";
 import { getRequisitionScorecards, submitInterviewScorecard } from "../../../service/recruitmentDocumentsService";
+import InterviewResultDialog from "./InterviewResultDialog";
 import { getEmployees } from "../../../service/employee";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { STATUS_LABELS, cardActions, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
@@ -917,7 +918,6 @@ export default function Interviews() {
   const [people, setPeople] = useState([]);
   const [success, setSuccess] = useState("");
   const [feedbackFor, setFeedbackFor] = useState(null);
-  const [feedbackForm, setFeedbackForm] = useState({ feedback: "", rating: 0, complete: true });
   const [scorecardFor, setScorecardFor] = useState(null);
   const [scorecardCriteria, setScorecardCriteria] = useState([]);
   const [scorecardSummary, setScorecardSummary] = useState(null);
@@ -984,6 +984,10 @@ export default function Interviews() {
   }, [panels]);
   const hasFeedback = (iv) => Boolean(String(iv.feedback || "").trim()) || (panels[iv.id]?.feedback_count || 0) > 0;
   const needsFeedback = (iv) => dayOf(iv) && dayOf(iv) <= today && ["scheduled", "in_progress", "completed"].includes(iv.status || "scheduled") && !hasFeedback(iv);
+  const needsResult = (iv) => iv.status === "completed" && !iv.result;
+  const ResultPill = ({ iv }) => (iv.result
+    ? <StatusPill tone={iv.result === "cleared" ? "green" : "red"}>{iv.result === "cleared" ? "Interview cleared" : "Rejected"}</StatusPill>
+    : needsResult(iv) ? <StatusPill tone="amber">Result pending</StatusPill> : null);
   const candidateOf = (iv) => candidates.find((c) => String(c.id) === String(iv.candidate_id));
 
   const emailedText = (n) => (n ? ` ${n} email${n === 1 ? "" : "s"} sent.` : "");
@@ -1018,8 +1022,8 @@ export default function Interviews() {
           && window.confirm("The interview has started. Open the meeting link now?")) {
         window.open(interview.meeting_link, "_blank", "noopener");
       }
-      if (action.status === "completed" && !hasFeedback(interview)) {
-        openFeedback({ ...interview, status: "completed" });      // record the outcome while it is fresh
+      if (action.status === "completed" && !interview.result) {
+        openFeedback({ ...interview, ...(r || {}), status: "completed" });   // feedback & result straight away
       }
     } catch (err) {
       setNotice(err?.message || "The status could not be changed.");
@@ -1161,20 +1165,17 @@ export default function Interviews() {
   const openFeedback = (iv) => {
     setMenu(null);
     setFeedbackFor(iv);
-    setFeedbackForm({ feedback: iv.feedback || "", rating: iv.rating || 0, complete: iv.status !== "completed" });
   };
 
-  const saveFeedback = async () => {
-    try {
-      const body = { feedback: feedbackForm.feedback.trim() || null, rating: feedbackForm.rating || null };
-      if (feedbackForm.complete && feedbackFor.status !== "completed") body.status = "completed";
-      await updateInterviewFeedback(feedbackFor.id, body);
-      setFeedbackFor(null);
+  const onResultSaved = (res, { recordedNow, result }) => {
+    setFeedbackFor(null);
+    if (recordedNow) {
+      const who = res?.result_emailed ? " The candidate has been e-mailed." : " The candidate was not e-mailed.";
+      setSuccess(`Result recorded: ${result === "cleared" ? "interview cleared" : "rejected"}.${who}`);
+    } else {
       setSuccess("Feedback saved.");
-      load();
-    } catch (err) {
-      setNotice(err.message || "Failed to save feedback.");
     }
+    load();
   };
 
   const openScorecard = async (interview) => {
@@ -1251,7 +1252,7 @@ export default function Interviews() {
         {iv.status !== "cancelled" && (
           <>
             <button type="button" className={item} onClick={() => openFeedback(iv)}>
-              <MessageSquare className="h-4 w-4 text-gray-400" />Feedback
+              <MessageSquare className="h-4 w-4 text-gray-400" />{needsResult(iv) ? "Record result" : "Feedback & result"}
               {iv.rating ? <span className="ml-auto flex items-center text-xs text-amber-500"><Star className="h-3 w-3 fill-current" />{iv.rating}</span> : null}
             </button>
             {iv.candidate_id && <button type="button" className={item} onClick={() => openScorecard(iv)}><Star className="h-4 w-4 text-gray-400" />Scorecard</button>}
@@ -1306,11 +1307,13 @@ export default function Interviews() {
     <DetailPanel title="Interview details" onClose={() => setSelectedId(null)}
       header={<PersonCell name={selected.candidate_name} sub={selected.position || "—"} />}>
       <div className="flex flex-wrap items-center gap-2"><IvStatus status={selected.status} />
-        {needsFeedback(selected) && <StatusPill tone="amber">Feedback pending</StatusPill>}</div>
+        <ResultPill iv={selected} />
+        {needsFeedback(selected) && !needsResult(selected) && <StatusPill tone="amber">Feedback pending</StatusPill>}</div>
       <div className="mt-4 flex flex-wrap gap-2">
         {canJoin(selected) && <QuickAction icon={ExternalLink} label="Join" tone="primary" onClick={() => window.open(selected.meeting_link, "_blank", "noopener,noreferrer")} />}
         <QuickAction icon={Pencil} label="Edit" onClick={() => openEdit(selected)} />
-        {selected.status !== "cancelled" && <QuickAction icon={MessageSquare} label="Feedback" onClick={() => openFeedback(selected)} />}
+        {selected.status !== "cancelled" && <QuickAction icon={MessageSquare} label={needsResult(selected) ? "Record result" : "Feedback & result"}
+          tone={needsResult(selected) ? "primary" : undefined} onClick={() => openFeedback(selected)} />}
         {selected.status !== "cancelled" && selected.candidate_id && <QuickAction icon={ClipboardCheck} label="Scorecard" onClick={() => openScorecard(selected)} />}
       </div>
       <DetailSection title="Schedule">
@@ -1327,6 +1330,22 @@ export default function Interviews() {
           <ul className="space-y-2">{panelOf(selected).map((n) => <li key={n}><PersonCell name={n} /></li>)}</ul>
         ) : <p className="text-sm text-gray-500">—</p>}
       </DetailSection>
+      {(selected.result || needsResult(selected)) && (
+        <DetailSection title="Result">
+          {selected.result ? (
+            <div className="space-y-1 text-sm">
+              <p className="flex items-center gap-2"><ResultPill iv={selected} />
+                {selected.result_at && <span className="text-xs text-gray-500">{formatDate(selected.result_at)}</span>}</p>
+              <p className="text-xs text-gray-500">{selected.result_emailed ? "The candidate was e-mailed the result." : "The candidate was not e-mailed."}</p>
+              {selected.result_message && <p className="whitespace-pre-wrap break-words text-xs text-gray-600">Note sent: “{selected.result_message}”</p>}
+            </div>
+          ) : (
+            <button type="button" onClick={() => openFeedback(selected)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+              Record result
+            </button>
+          )}
+        </DetailSection>
+      )}
       <DetailSection title="Feedback">
         {selected.rating ? <p className="flex items-center gap-1 text-sm text-amber-500"><Star className="h-4 w-4 fill-current" />{selected.rating} / 5</p> : null}
         <p className="whitespace-pre-wrap break-words text-sm text-gray-700">{selected.feedback || (panels[selected.id]?.feedback_count ? `${panels[selected.id].feedback_count} scorecard(s) recorded` : "—")}</p>
@@ -1407,7 +1426,9 @@ export default function Interviews() {
             <td className={td}>
               <div className="flex flex-col items-start gap-1">
                 <IvStatus status={e.status} />
-                {needsFeedback(e) && <span className="text-[11px] font-medium text-amber-600">Feedback pending</span>}
+                {e.result ? <span className={`text-[11px] font-semibold ${e.result === "cleared" ? "text-emerald-600" : "text-rose-600"}`}>{e.result === "cleared" ? "Interview cleared" : "Rejected"}</span>
+                  : needsResult(e) ? <button type="button" onClick={() => openFeedback(e)} className="text-[11px] font-semibold text-amber-600 hover:underline">Result pending · record</button>
+                  : needsFeedback(e) && <span className="text-[11px] font-medium text-amber-600">Feedback pending</span>}
               </div>
             </td>
             <td className={`${td} text-right`}><RowActions iv={e} /></td>
@@ -1505,33 +1526,13 @@ export default function Interviews() {
       )}
 
       {feedbackFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
-          <div className="bg-white rounded-xl p-4 sm:p-6 w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
-            <div className="flex justify-between items-center gap-2 mb-4">
-              <h2 className="min-w-0 break-words text-lg font-semibold">Feedback · {feedbackFor.candidate_name}</h2>
-              <button type="button" onClick={() => setFeedbackFor(null)} aria-label="Close" className="shrink-0 -m-1.5 p-1.5"><X className="w-5 h-5 text-gray-400" /></button>
-            </div>
-            <label className="text-xs text-gray-500 font-medium">Rating</label>
-            <div className="mt-1 mb-3 flex gap-1">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button key={n} type="button" aria-label={`${n} star${n > 1 ? "s" : ""}`} onClick={() => setFeedbackForm({ ...feedbackForm, rating: n === feedbackForm.rating ? 0 : n })}>
-                  <Star className={`h-6 w-6 ${n <= feedbackForm.rating ? "fill-amber-400 text-amber-400" : "text-gray-300"}`} />
-                </button>
-              ))}
-            </div>
-            <label htmlFor="fb-text" className="text-xs text-gray-500 font-medium">Feedback</label>
-            <textarea id="fb-text" rows={4} maxLength={5000} value={feedbackForm.feedback} onChange={(e) => setFeedbackForm({ ...feedbackForm, feedback: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            {feedbackFor.status !== "completed" && (
-              <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">
-                <input type="checkbox" checked={feedbackForm.complete} onChange={(e) => setFeedbackForm({ ...feedbackForm, complete: e.target.checked })} /> Mark the interview completed
-              </label>
-            )}
-            <div className="flex flex-wrap justify-end gap-2 mt-5">
-              <button type="button" onClick={() => setFeedbackFor(null)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button type="button" onClick={saveFeedback} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">Save feedback</button>
-            </div>
-          </div>
-        </div>
+        <InterviewResultDialog
+          key={feedbackFor.id}
+          interview={feedbackFor}
+          candidateEmail={candidateOf(feedbackFor)?.email || null}
+          onClose={() => setFeedbackFor(null)}
+          onSaved={onResultSaved}
+        />
       )}
 
       {scorecardFor && (

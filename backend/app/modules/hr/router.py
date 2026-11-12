@@ -1823,6 +1823,13 @@ def get_onboarding_document_file(
     current_user=Depends(get_current_admin),
 ):
     doc = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
+    from app.modules.hr import onboarding_package
+    stored = onboarding_package.stored_document_pdf(db, doc.get("document_id"), current_user.organization_id)
+    if stored is not None:                     # an issued / signed document lives in the document store, not on disk
+        from fastapi.responses import Response
+        data, fname = stored
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{fname}"', "Cache-Control": "no-store"})
     from app.core.privacy.files import belongs_to_tenant
     resolved = file_storage.resolve_stored_file(doc.get("file_path")) if belongs_to_tenant(doc.get("file_path"), current_user.organization_id) else None
     if not resolved:

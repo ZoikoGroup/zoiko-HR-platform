@@ -247,7 +247,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         sign_url = None
         needs_declaration = d.category == "exclusivity_affidavit" and d.status != "approved" \
             and not (hire.profile_details or {}).get("outside_activities")
-        if is_signable and d.status != "approved" and not needs_declaration:
+        if is_signable and d.status != "approved":      # the affidavit's Schedule A is asked for on its signing page
             try:
                 raw_token = onboarding_package.get_signing_token_for_onboarding_doc(db, d)
                 if raw_token:
@@ -287,20 +287,41 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "phone": hire.phone,
         "documents": doc_items,
         "package": onboarding_package.portal_package_status(db, hire),
+        "submission": onboarding_package.submission_status(db, hire),
         "orientation": [{"title": s.title, "date": s.date, "time": s.time, "location": s.location,
                          "meeting_link": s.meeting_link} for s in sessions],
     }
 
 
+PORTAL_DETAIL_RULES = {"phone": "phone", "address": "address", "city": "place_name", "state": "state", "country": "country",
+                       "postal_code": "postal_code"}
+PORTAL_DETAIL_REQUIRED = ("phone", "address", "city", "country", "postal_code")
+
+
 def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dict:
+    """The new hire's contact and address details. Checked with the shared field rules (the same messages as every other
+    form); with `submit` the required ones must all be present, and the submission time is recorded."""
+    from app.core import field_rules
     details = dict(hire.profile_details or {})
+    previous = {**{k: details.get(k) for k in PORTAL_DETAIL_RULES if k != "phone"}, "phone": hire.phone}
+    values = {k: data.get(k) for k in PORTAL_DETAIL_RULES if k in data and str(data.get(k) or "").strip()}
+    cleaned, errors = field_rules.validate_record(values, PORTAL_DETAIL_RULES, previous=previous)
+    submit = bool(data.get("submit"))
+    if submit:
+        for key in PORTAL_DETAIL_REQUIRED:
+            value = data.get(key) if key in data else previous.get(key)
+            if key not in errors and not str(value or "").strip():
+                errors[key] = "This is required."
+    field_rules.raise_if_errors(errors)
     for key in ("address", "city", "state", "country", "postal_code", "emergency_contact_name",
                 "emergency_contact_relation", "emergency_contact_phone"):
         if key in data:
-            value = (data.get(key) or "").strip()
-            details[key] = value[:300] if value else None
+            value = cleaned.get(key, (data.get(key) or "").strip())
+            details[key] = str(value)[:300] if value else None
     if data.get("phone"):
-        hire.phone = str(data["phone"]).strip()[:50]
+        hire.phone = str(cleaned.get("phone", data["phone"])).strip()[:50]
+    if submit:
+        details["details_submitted_at"] = datetime.utcnow().isoformat()
     hire.profile_details = details
     db.commit()
     from app.modules.hr.service import log_onboarding_activity
@@ -357,7 +378,7 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
         logger.exception("starting onboarding failed for new hire %s", hire.id)
     try:
         from app.modules.hr import onboarding_documents
-        onboarding_documents.on_onboarding_started(db, hire)        # HR-ONB-005: manager checklist and its record
+        onboarding_documents.on_onboarding_started(db, hire)        # hook kept; no manager checklist is created
     except Exception:
         db.rollback()
         logger.exception("manager onboarding checklist failed for new hire %s", hire.id)

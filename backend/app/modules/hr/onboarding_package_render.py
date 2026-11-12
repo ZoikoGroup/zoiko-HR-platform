@@ -56,7 +56,7 @@ class RenderContext:
     clauses: dict = field(default_factory=dict)                # clause key -> {"text": str, "not_applicable": bool}
     optional: set = field(default_factory=set)                 # field keys optional in this document
     activities: Optional[dict] = None                          # {"none": bool, "rows": [{organisation, role, hours, paid, approved}]}
-    org_label: str = "ZOIKO GROUP"
+    org_label: str = ""                                        # header label from the onboarding settings ("" -> just "HR")
     primary: str = "#0B3D91"
     accent: str = "#00A3E0"
     paper: str = "A4"
@@ -66,7 +66,18 @@ class RenderContext:
     draft: bool = True
     esign: bool = False                                        # issued for in-app e-signature
     version: str = C.PACKAGE_VERSION
-    logo_png: Optional[bytes] = None                           # the organisation's uploaded logo (PNG); None -> placeholder box
+    logo_png: Optional[bytes] = None                           # the organisation's uploaded logo (PNG); None -> no logo
+                                                               # (the dashed "insert logo" box is shown on the template set only)
+
+    @property
+    def header_text(self) -> str:
+        return f"{self.org_label} | HR" if self.org_label else "HR"
+
+    @property
+    def show_placeholders(self) -> bool:
+        """Layout placeholders (logo box, document-control block) belong to the blank template set, never to an issued
+        document a real employee receives."""
+        return self.mode == "template"
 
     # ── resolution ─────────────────────────────────────────────────────────────────────────────────────────────────
     def field_value(self, key: str) -> Optional[str]:
@@ -260,24 +271,24 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
     top = h - MARGIN + 30
     c.setFillColor(primary)
     c.setFont("Helvetica-Bold", 9.5)
-    c.drawString(MARGIN, top, f"{ctx.org_label} | HR")
+    c.drawString(MARGIN, top, ctx.header_text)
     c.setFillColor(colors.HexColor("#1F2933"))
     c.setFont("Helvetica", 9)
     c.drawRightString(w - MARGIN, top, info.get("title", ""))
     box_w, box_h = 168, 15
-    bx = MARGIN + c.stringWidth(f"{ctx.org_label} | HR", "Helvetica-Bold", 9.5) + 14
+    bx = MARGIN + c.stringWidth(ctx.header_text, "Helvetica-Bold", 9.5) + 14
     logo = _logo_reader(ctx)
     if logo is not None:
         lw, lh = _fit(logo, 120, 20)
         c.drawImage(logo, bx, top - 6, width=lw, height=lh, mask="auto")
-    else:
+    elif ctx.show_placeholders:
         c.setStrokeColor(colors.HexColor("#9AA5B1"))
         c.setDash(2, 2)
         c.rect(bx, top - 4, box_w, box_h, stroke=1, fill=0)
         c.setDash()
         c.setFont("Helvetica", 6.5)
         c.setFillColor(colors.HexColor(GREY_TEXT))
-        c.drawCentredString(bx + box_w / 2, top + 1, f"[{ctx.org_label.split(' ')[0]} LOGO – insert approved asset]")
+        c.drawCentredString(bx + box_w / 2, top + 1, f"[{(ctx.org_label or 'COMPANY').split(' ')[0]} LOGO – insert approved asset]")
     c.setStrokeColor(primary)
     c.setLineWidth(0.8)
     c.line(MARGIN, top - 9, w - MARGIN, top - 9)
@@ -357,6 +368,21 @@ class PdfBuilder:
         base = LETTER if self.ctx.paper == "LETTER" else A4
         return landscape(base) if orient == "landscape" else portrait(base)
 
+    def _choice_grid(self, opts: list) -> Table:
+        """Tick-box options laid out in even columns: each box always stays on the same line as its own label."""
+        style = ParagraphStyle("ck", parent=self.s["body"], fontSize=10, leading=13, spaceAfter=0, leftIndent=12, firstLineIndent=-12)
+        longest = max((len(str(o)) for o in opts), default=0)
+        cols = 4 if longest <= 16 else 3 if longest <= 26 else 2 if longest <= 48 else 1
+        cols = max(1, min(cols, len(opts)))
+        cells = [Paragraph(f"{_box_pdf()}&nbsp;{inline(o, self.ctx)[0]}", style) for o in opts]
+        cells += [""] * (-len(cells) % cols)
+        rows = [cells[i:i + cols] for i in range(0, len(cells), cols)]
+        t = Table(rows, colWidths=[self.width / cols] * cols, hAlign="LEFT")
+        t.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("LEFTPADDING", (0, 0), (-1, -1), 0),
+                               ("RIGHTPADDING", (0, 0), (-1, -1), 6), ("TOPPADDING", (0, 0), (-1, -1), 1),
+                               ("BOTTOMPADDING", (0, 0), (-1, -1), 3)]))
+        return t
+
     def _control_block(self, d: dict) -> Table:
         status = self.ctx.status_text or DRAFT_STATUS
         rows = [
@@ -413,7 +439,7 @@ class PdfBuilder:
         self._anchor_prefix = d.get("category", "doc")
         self.story.append(_DocMarker({"key": d.get("category"), "title": d["title"], "template_id": d["template_id"],
                                       "draft": self.ctx.draft if draft is None else draft}))
-        if d.get("control", True):
+        if d.get("control", True) and self.ctx.show_placeholders:
             self.story += [self._control_block(d), Spacer(1, 4 if orient == "landscape" else 10)]
         self.story += self._flow(blocks)
 
@@ -489,8 +515,7 @@ class PdfBuilder:
                     opts = [ln.strip() for ln in res[1].splitlines() if ln.strip()] + opts
                 elif res[0] == "na":
                     return out + [Paragraph("Not collected for this role.", s["note"])]
-            line = "&nbsp;&nbsp;&nbsp;&nbsp;".join(f"{BOX_PDF}&nbsp;{inline(o, ctx)[0]}" for o in opts)
-            return out + [Paragraph(line, ParagraphStyle("ck", parent=s["body"], fontSize=10, leading=14)), Spacer(1, 4)]
+            return out + [self._choice_grid(opts), Spacer(1, 4)]
         if t == "fields":
             return [self._fields(b["rows"], b.get("cols", 2)), Spacer(1, 6)]
         if t == "textbox":
@@ -501,7 +526,7 @@ class PdfBuilder:
             return (parts if self._width_override else [KeepTogether(parts)]) + [Spacer(1, 8)]
         if t == "consent":
             markup, _ = inline(b["text"], ctx)
-            out = [Paragraph(f"{BOX_PDF}&nbsp;&nbsp;{markup}", ParagraphStyle("cs", parent=s["body"], leftIndent=16, firstLineIndent=-16))]
+            out = [Paragraph(f"{_box_pdf()}&nbsp;&nbsp;{markup}", ParagraphStyle("cs", parent=s["body"], leftIndent=16, firstLineIndent=-16))]
             for a in b.get("after", []):
                 out += self._para(a, "small")
             return out
@@ -535,11 +560,13 @@ class PdfBuilder:
                 lw, lh = _fit(reader, 150, 46)
                 logo = RLImage(io.BytesIO(ctx.logo_png), width=lw, height=lh)
                 logo.hAlign = "RIGHT"
-            else:
-                logo = Table([[Paragraph(f"[{ctx.org_label.split(' ')[0]} LOGO – insert approved asset]", s["ex"])]],
+            elif ctx.show_placeholders:
+                logo = Table([[Paragraph(f"[{(ctx.org_label or 'COMPANY').split(' ')[0]} LOGO – insert approved asset]", s["ex"])]],
                              colWidths=[150], rowHeights=[46])
                 logo.setStyle(TableStyle([("BOX", (0, 0), (-1, -1), 0.8, colors.HexColor("#9AA5B1")),
                                           ("VALIGN", (0, 0), (-1, -1), "MIDDLE"), ("ALIGN", (0, 0), (-1, -1), "CENTER")]))
+            else:
+                logo = ""                                            # no logo uploaded: the letterhead is just the company
             tb = Table([[left, logo]], colWidths=[self.width - 160, 160])
             tb.setStyle(TableStyle([("VALIGN", (0, 0), (-1, -1), "TOP"), ("ALIGN", (1, 0), (1, 0), "RIGHT"),
                                     ("LINEBELOW", (0, 0), (-1, 0), 1, colors.HexColor(ctx.primary)),
@@ -605,8 +632,9 @@ class PdfBuilder:
                     out.append(extra)
             else:
                 for f in self._block(item):
-                    if isinstance(f, Paragraph):
-                        f.style = ParagraphStyle("ind", parent=f.style, leftIndent=f.style.leftIndent + 30)
+                    if isinstance(f, Paragraph):        # the bullet moves with its text (it stayed at the margin before)
+                        f.style = ParagraphStyle("ind", parent=f.style, leftIndent=f.style.leftIndent + 30,
+                                                 bulletIndent=(f.style.bulletIndent or 0) + 30)
                     out.append(f)
         return out
 
@@ -645,9 +673,11 @@ class PdfBuilder:
                 sig_note = "Issued electronically by the employer" if employer else "Electronic signature – see execution certificate"
             data.append([self._cell(party), self._cell(name), self._cell(title),
                          Paragraph(escape(sig_note), s["ex"]), self._cell(dt)])
-        tb = Table(data, colWidths=[self.width * f for f in (0.2, 0.22, 0.2, 0.24, 0.14)],
-                   rowHeights=[None] + [34] * len(b["rows"]), repeatRows=1)
+        # rows grow with their content (a long company name or date never spills out of its cell); the bottom padding
+        # leaves room to sign by hand
+        tb = Table(data, colWidths=[self.width * f for f in (0.22, 0.21, 0.19, 0.2, 0.18)], repeatRows=1)
         tb.setStyle(_grid_style(ctx, len(data)))
+        tb.setStyle(TableStyle([("BOTTOMPADDING", (0, 1), (-1, -1), 10), ("VALIGN", (0, 1), (-1, -1), "TOP")]))
         return (out + [tb] if self._width_override else [KeepTogether(out + [tb])]) + [Spacer(1, 10)]
 
     def _activities(self) -> list:
@@ -678,12 +708,36 @@ class PdfBuilder:
                           leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0)
             templates.append(PageTemplate(id=o, frames=[frame], pagesize=size))
         doc = BaseDocTemplate(buf, pagesize=self._page_size(first), leftMargin=MARGIN, rightMargin=MARGIN, topMargin=MARGIN,
-                              bottomMargin=MARGIN, pageTemplates=templates, title="Offer package", author=self.ctx.org_label)
+                              bottomMargin=MARGIN, pageTemplates=templates, title="Offer package", author=self.ctx.org_label or "HR")
         doc.build(self.story, canvasmaker=_canvas_class({"ctx": self.ctx}))
         return buf.getvalue()
 
 
-BOX_PDF = '<font name="ZapfDingbats" size="10">o</font>'
+_CHECKBOX = {"path": None}
+_CHECKBOX_LOCK = __import__("threading").Lock()
+
+
+def _checkbox_png() -> str:
+    """Path of a crisp empty checkbox image, made once per process in a private temporary folder (mkdtemp: unpredictable,
+    owner-only), under a lock so concurrent first renders never see a half-written file."""
+    if _CHECKBOX["path"]:
+        return _CHECKBOX["path"]
+    with _CHECKBOX_LOCK:
+        if not _CHECKBOX["path"]:
+            import os
+            import tempfile
+            from PIL import Image, ImageDraw
+            img = Image.new("RGBA", (96, 96), (255, 255, 255, 0))
+            ImageDraw.Draw(img).rectangle([6, 6, 89, 89], fill=(255, 255, 255, 255), outline=(31, 41, 51, 255), width=7)
+            path = os.path.join(tempfile.mkdtemp(prefix="zhr-pkg-"), "checkbox.png")
+            img.save(path, "PNG")
+            _CHECKBOX["path"] = path
+    return _CHECKBOX["path"]
+
+
+def _box_pdf() -> str:
+    """Paragraph markup for an empty checkbox (the image is made on first use, so importing never touches the disk)."""
+    return f'<img src="{_checkbox_png()}" width="8.5" height="8.5" valign="-1"/>'
 
 
 def blank_rows(n, cols):
@@ -720,7 +774,7 @@ def render_template_set(ctx: RenderContext) -> bytes:
             for i, d in enumerate(C.documents(), 1)]
     b.add_document(cover, [
         C.H1("Offer Package – Template Set"),
-        C.P(f"{ctx.org_label.title()} HR offer-package templates, version {ctx.version}. Each document starts on a new page with "
+        C.P(f"{(ctx.org_label.title() + ' ') if ctx.org_label else ''}HR offer-package templates, version {ctx.version}. Each document starts on a new page with "
            "its own document-control block."),
         {"t": "table", "headers": ["#", "Document", "Template ID", "Type", "Pages (est.)", "Who signs"], "rows": rows,
          "widths": [0.05, 0.3, 0.13, 0.17, 0.11, 0.24], "compact": True},
@@ -753,7 +807,7 @@ def render_html(category: str, ctx: RenderContext, *, document_number: str = "")
     hx = _Html(ctx)
     body = "".join(hx.block(b) for b in C.blocks_for(category))
     status = ctx.status_text or DRAFT_STATUS
-    ctrl = "".join(f"<tr><th>{_html.escape(k)}</th><td>{_html.escape(v)}</td></tr>" for k, v in [
+    ctrl = "" if not ctx.show_placeholders else "".join(f"<tr><th>{_html.escape(k)}</th><td>{_html.escape(v)}</td></tr>" for k, v in [
         ("Template ID", d["template_id"]), ("Template version", f"v{ctx.version}"), ("Document type", d["doc_type"]),
         ("Legal risk level", d["risk"]), ("Sensitivity level", d["sensitivity"]), ("Owner", "HR"),
         ("Effective date", ctx.effective_date or "—"), ("Status", status)])
@@ -780,8 +834,8 @@ mark.ph{{background:{HIGHLIGHT};padding:0 2px}} .note{{font-style:italic;color:{
 .wm{{position:fixed;top:45%;left:50%;transform:translate(-50%,-50%) rotate(-35deg);font-size:60px;font-weight:bold;color:rgba(140,148,158,.15);pointer-events:none;white-space:nowrap;z-index:0}}
 .toc a{{color:{p};text-decoration:none}}
 </style></head><body>{wm}<div class="page">
-<header class="run"><b>{_html.escape(ctx.org_label)} | HR</b>{(f'<img src="{_logo_data_uri(ctx)}" alt="{_html.escape(ctx.org_label)} logo" style="max-height:28px;max-width:160px">') if ctx.logo_png else f'<span class="logo">[{_html.escape(ctx.org_label.split(" ")[0])} LOGO – insert approved asset]</span>'}<span>{_html.escape(d['title'])}</span></header>
-<table class="ctrl">{ctrl}</table>
+<header class="run"><b>{_html.escape(ctx.header_text)}</b>{(f'<img src="{_logo_data_uri(ctx)}" alt="{_html.escape(ctx.org_label or "Company")} logo" style="max-height:28px;max-width:160px">') if ctx.logo_png else (f'<span class="logo">[{_html.escape((ctx.org_label or "COMPANY").split(" ")[0])} LOGO – insert approved asset]</span>' if ctx.show_placeholders else '<span></span>')}<span>{_html.escape(d['title'])}</span></header>
+{f'<table class="ctrl">{ctrl}</table>' if ctrl else ''}
 {body}
 <footer class="run"><span>{d['template_id']} | v{_html.escape(ctx.version)}{(' · ' + _html.escape(document_number)) if document_number else ''}</span><span>Private and Confidential</span><span></span></footer>
 </div></body></html>"""
@@ -907,7 +961,8 @@ class _Html:
             return (f'<div style="display:flex;justify-content:space-between;border-bottom:1px solid {ctx.primary};padding-bottom:8px;margin-bottom:10px">'
                     f'<div><h3 style="margin:0">{self.il("{{employer.legal_name}}")}</h3><div>{self.il("{{employer.registered_address}}")}</div></div>'
                     + (f'<img src="{_logo_data_uri(ctx)}" alt="logo" style="max-height:60px;max-width:180px"></div>' if ctx.logo_png else
-                       f'<div class="logo" style="padding:14px">[{_html.escape(ctx.org_label.split(" ")[0])} LOGO – insert approved asset]</div></div>'))
+                       f'<div class="logo" style="padding:14px">[{_html.escape((ctx.org_label or "COMPANY").split(" ")[0])} LOGO – insert approved asset]</div></div>'
+                       if ctx.show_placeholders else '</div>'))
         if t == "activities":
             acts = ctx.activities if ctx.mode == "issue" else None
             headers = ["Organisation", "Role", "Hours per week", "Paid / unpaid", "Approved (Y/N)"]
