@@ -526,7 +526,10 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         company_lines = F.address_lines(parts, profile.get("country"))
     else:
         company_lines = CP.address_parts(profile)
-    law = (profile.get("governing_law_text") or "").strip() or None
+    # Keep the package's existing counsel-clause setting as a compatibility source
+    # for organisations that have not yet migrated this wording into Company Profile.
+    clause_law = ((cfg.get("clauses") or {}).get("governing_law") or {}).get("text")
+    law = (profile.get("governing_law_text") or clause_law or "").strip() or None
     if law is None and profile.get("jurisdiction_country") and profile.get("jurisdiction_city"):
         country = country_name(profile["jurisdiction_country"]) or profile["jurisdiction_country"]
         law = f"the laws of {country}; the courts at {profile['jurisdiction_city']} have exclusive jurisdiction"

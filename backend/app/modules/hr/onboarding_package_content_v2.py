@@ -256,7 +256,6 @@ def nda():
              ("Witness 1 (name, address)", "", "", ""),
              (PARTY, "{{worker.full_name}}", "{{role.title}}", ""),
              ("Witness 2 (name, address)", "", "", "")]),
-        NOTE("© {{document.year}} {{company.copyright_line}}"),
     ]
 
 
