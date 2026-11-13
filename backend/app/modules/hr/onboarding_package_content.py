@@ -15,11 +15,23 @@ from __future__ import annotations
 
 import re
 
-PACKAGE_VERSION = "1.0"
+def _v2_enabled() -> bool:
+    """HR_ONBOARDING_PACKAGE_V2: the v2 documents (Company Profile, Engagement / Role Profiles, reference structure).
+    Off: the v1 documents, exactly as before. Documents already issued keep the version they were issued under."""
+    try:
+        from app.config import settings
+        return bool(getattr(settings, "ONBOARDING_PACKAGE_V2", True))
+    except Exception:
+        return True
+
+
+V2 = _v2_enabled()
+PACKAGE_VERSION = "2.0" if V2 else "1.0"
 
 # ── Placeholder Dictionary ─────────────────────────────────────────────────────────────────────────────────────────────
 # key -> (meaning, data source, required, fallback shown when an optional value is missing)
-ZHR, ZTIME, PAYROLL, COUNSEL = "Zoiko HR", "ZoikoTime", "Payroll", "Counsel"
+ZHR, ZTIME, PAYROLL, COUNSEL = (("Company Profile", "Company Profile", "Payroll", "Counsel") if V2
+                                  else ("Zoiko HR", "ZoikoTime", "Payroll", "Counsel"))
 
 FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "generated_at": ("Date the document was generated", ZHR, True, None),
@@ -78,9 +90,85 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "kpi.review_cycle": ("How often KPIs are reviewed with the manager", ZHR, False, "Weekly, in the 1:1 meeting"),
     "kpi.role_specific_definition": ("Role-specific KPI and how it is measured", ZHR, False, "Agreed with the manager in week one"),
     "kpi.role_specific_target": ("Daily target for the role-specific KPI", ZHR, False, "To be agreed"),
+    # ── v2: Company Profile (Settings) ──
+    "company.legal_name": ("Employer's legal name, exactly as registered", ZHR, True, None),
+    "company.short_name": ("Employer's short name, where the settings allow it", ZHR, False, ""),
+    "company.legal_name_with_associates": ("Legal name, with \"(and its associated companies)\" when set", ZHR, True, None),
+    "company.address_block": ("Registered address, one line per part", ZHR, True, None),
+    "company.address_inline": ("Registered address on one line", ZHR, True, None),
+    "company.cin": ("Corporate Identification Number", ZHR, False, ""),
+    "company.gstin": ("GSTIN", ZHR, False, ""),
+    "company.phone": ("Company phone", ZHR, False, ""),
+    "company.website": ("Company website", ZHR, False, ""),
+    "company.onboarding_return_email": ("Where signed documents are returned", ZHR, True, None),
+    "company.reports_email": ("Where the daily work report is sent", ZHR, True, None),
+    "company.reports_channel": ("Additional daily-report channel (e.g. \" and the designated group\")", ZHR, False, ""),
+    "company.time_tracking_tool": ("Time-tracking tool", ZHR, False, "the company's time-tracking tool"),
+    "company.task_system": ("Project / task system", ZHR, False, "the company's task system"),
+    "company.jurisdiction_city": ("City whose courts have jurisdiction", ZHR, True, None),
+    "company.governing_law": ("Governing law and jurisdiction sentence", ZHR, True, None),
+    "company.copyright_line": ("Copyright holder", ZHR, True, None),
+    "company.sign_off": ("Sign-off under the signature (e.g. Human Resources Team)", ZHR, False, ""),
+    "company.group_name": ("Group name", ZHR, False, ""),
+    # ── v2: the person ──
+    "worker.full_name_caps": ("Employee's full name in capitals", ZHR, True, None),
+    "worker.initials": ("Employee's initials", ZHR, True, None),
+    "worker.address_block": ("Employee's address, one line per part", ZHR, True, None),
+    "worker.address_inline": ("Employee's address on one line", ZHR, True, None),
+    # ── v2: Engagement Profile ──
+    "engagement.programme_name": ("Programme name", ZHR, False, ""),
+    "engagement.programme_short": ("Programme short name", ZHR, False, ""),
+    "engagement.party_term": ("What the person is called in the documents", ZHR, True, None),
+    "engagement.engagement_term": ("What the engagement is called", ZHR, True, None),
+    "engagement.assessment_months": ("Length of the assessment / probation period (months)", ZHR, False, ""),
+    "engagement.assessment_label": ("Name of the assessment / probation period", ZHR, True, None),
+    "engagement.conversion_text": ("Programme structure and conversion pathway", ZHR, False, ""),
+    "engagement.remuneration_label": ("How pay is described (e.g. Monthly Stipend, Salary)", ZHR, True, None),
+    "engagement.work_schedule": ("Working days and hours", ZHR, True, None),
+    "engagement.saturday_rule": ("Saturday working rule", ZHR, False, ""),
+    "engagement.leave_rule": ("Leave rule during the engagement", ZHR, False, ""),
+    "engagement.workspace_requirements": ("Workspace and equipment requirements", ZHR, False, ""),
+    # ── v2: computed employment values ──
+    "employment.start_date_long": ("Start date with its weekday", ZHR, True, None),
+    "employment.notice_text": ("Notice the employee gives", ZHR, True, None),
+    "employment.employer_notice_text": ("Notice the employer gives", ZHR, False, ""),
+    "employment.pay_amount": ("Pay amount with currency", ZHR, True, None),
+    "employment.pay_statement": ("Pay amount, period and pay day", ZHR, True, None),
+    "employment.duties_paragraph": ("The role's duties, from its Role Profile", ZHR, True, None),
+    "offer.candidate_fit_summary": ("Personal paragraph on why the candidate fits the role", ZHR, False, ""),
+    "offer.compliance_documents": ("Documents to submit before the start date", ZHR, False, ""),
+    "document.issue_date": ("Date the document is issued", ZHR, True, None),
+    "document.issue_date_legal": ("Issue date in recital form (6th day of July, 2026)", ZHR, True, None),
+    "document.reference": ("Document reference", ZHR, True, None),
+    # ── v2: Role Profile ──
+    "role.title": ("Role title", ZHR, True, None),
+    "role.about": ("About the role", ZHR, True, None),
+    "role.responsibility_groups": ("Key responsibilities, grouped", ZHR, True, None),
+    "role.offer_responsibilities": ("Headline duties in the offer letter", ZHR, True, None),
+    "role.required_skills": ("Required skills", ZHR, False, ""),
+    "role.work_setup": ("Work setup requirements", ZHR, False, ""),
+    "role.performance_structure": ("Performance structure", ZHR, False, ""),
+    "kpi.areas": ("KPI areas with what success looks like", ZHR, True, None),
+    # ── v2: further Company Profile values used by the documents ──
+    "company.nda_non_solicit_months": ("Non-solicitation period in the NDA (months)", ZHR, True, None),
+    "company.non_solicit_months": ("Non-solicitation period after the engagement ends (months)", ZHR, True, None),
+    "company.confidentiality_duration": ("How long confidentiality lasts after the engagement", ZHR, False, "indefinitely"),
+    "company.affidavit_hours": ("Hours within which the affidavit is submitted", ZHR, False, "48"),
+    "company.affidavit_notary": ("Whether the affidavit is sworn before a notary", ZHR, False, ""),
+    "company.affidavit_stamp_note": ("Stamp paper note for the affidavit", ZHR, False, ""),
+    "company.brand_label": ("Name of the brand column in the velocity report", ZHR, False, "Brand"),
+    "company.brands": ("The organisation's brands", ZHR, False, ""),
+    "company.group_name_caps": ("Group (or company) name in capitals", ZHR, True, None),
+    "company.velocity_motto": ("Motto printed on the velocity report", ZHR, False, ""),
+    "company.velocity_deadline": ("When the velocity report is due", ZHR, False, "Every Friday by the end of the working day"),
+    "document.year": ("Year the document is issued", ZHR, True, None),
+    "engagement.timezone": ("Time zone of the working hours", ZHR, False, ""),
+    "employment.work_location_suffix": ("Place of work, when there is one", ZHR, False, ""),
+    "employment.country_is_in": ("Whether the work country is India", ZHR, False, ""),
     "kpi.role_specific_minimum": ("Minimum acceptable level for the role-specific KPI", ZHR, False, "To be agreed"),
     "kpi.role_specific_source": ("Data source for the role-specific KPI", ZHR, False, "To be agreed"),
-    "time.hours_logged": ("Hours worked that day, read-only from ZoikoTime", ZTIME, False, "Filled automatically from time records"),
+    "time.hours_logged": ("Hours worked that day, read-only from the configured time-tracking tool", ZTIME, False,
+                           "Filled automatically from time records"),
 }
 
 # ── Clause hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -147,6 +235,18 @@ CLAUSES: dict[str, tuple[str, str, bool]] = {
                            "Where veteran monitoring applies, counsel to supply the categories, one per line. Otherwise mark as not used.", False),
     "criminal_record_question": ("Criminal record question",
                                  "Ask only where lawful and relevant to the role, and only at the stage the law allows.", False),
+    "conflict_of_opportunities": ("Avoiding conflict of opportunities",
+                                  "Counsel to set how business opportunities learned through the engagement must be offered to the "
+                                  "Company first.", True),
+    "non_solicitation": ("Non-solicitation",
+                         "Counsel to set which employees, clients and suppliers may not be solicited, and confirm the period set "
+                         "in the Company Profile is enforceable.", True),
+    "non_competition": ("Non-competition",
+                        "Include only if counsel confirms enforceability where the person works (in India, restraints after the "
+                        "engagement ends are generally void under section 27 of the Indian Contract Act). Otherwise mark as not "
+                        "used.", False),
+    "business_discontinuance": ("Termination due to discontinuance of business",
+                                "Counsel to set what happens to the engagement if the business or the programme closes.", False),
     "applicant_privacy_notice": ("Applicant privacy notice",
                                  "Counsel to summarise how applicant data is used, kept and shared, and how to exercise rights.", True),
 }
@@ -781,15 +881,30 @@ MODE_LABELS = {"SIGN": "E-signature", "ACKNOWLEDGE": "Acknowledge receipt", "COM
 
 def documents() -> list[dict]:
     out = []
-    for (cat, title, tid, fam, typ, risk, sens, mode, orient, pages, signers, builder) in DOCUMENT_INDEX:
+    if V2:
+        from app.modules.hr import onboarding_package_content_v2 as _v2
+        index = _v2.DOCUMENT_INDEX
+    else:
+        index = [(*row, False) for row in DOCUMENT_INDEX]
+    for (cat, title, tid, fam, typ, risk, sens, mode, orient, pages, signers, builder, initials) in index:
         out.append({"category": cat, "title": title, "template_id": tid, "family_id": fam, "doc_type": typ, "risk": risk,
                     "sensitivity": sens, "mode": mode, "orientation": orient, "pages": pages, "signers": signers,
-                    "builder": builder})
+                    "builder": builder, "initials": initials})
     return out
 
 
 DOCS = {d["category"]: d for d in documents()}
 CATEGORIES = [d["category"] for d in documents()]
+if V2:
+    from app.modules.hr import onboarding_package_content_v2 as _v2_content
+    OPTIONAL_BY_DOC = _v2_content.OPTIONAL_BY_DOC
+
+# The v1 equal-opportunity monitoring form, kept as an optional extra template outside the 10-document package in v2.
+EXTRA_TEMPLATES = {"diversity_monitoring": {"category": "diversity_monitoring", "title": "Equal Opportunity Monitoring Form",
+                                            "template_id": "HR-REC-102", "family_id": "HR-REC", "doc_type": "FORM",
+                                            "risk": "L2", "sensitivity": "C4", "mode": "VOLUNTARY", "orientation": "portrait",
+                                            "pages": "1–2", "signers": "No signature (date only)", "builder": _self_disclosure,
+                                            "initials": False}}
 
 
 def blocks_for(category: str) -> list[dict]:

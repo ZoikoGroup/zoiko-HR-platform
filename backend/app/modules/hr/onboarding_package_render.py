@@ -2,7 +2,7 @@
 
 Global formatting standards applied here, once, for all 10 documents:
 * 2.54 cm margins; portrait, or landscape for the Daily Work Report and the Project Velocity Report; A4 or US Letter.
-* Body Helvetica (metric-compatible with Arial) 11 pt, 1.15 line spacing, 6 pt after; H1 18 pt bold in the brand primary colour,
+* Body Noto Sans (v2; Helvetica with HR_ONBOARDING_PACKAGE_V2 off) 11 pt, 1.15 line spacing, 6 pt after; H1 18 pt bold in the brand primary colour,
   H2 14 pt bold, H3 12 pt bold, no underlining.
 * Tables: brand-primary header row with white bold text, 0.5 pt light-grey borders, alternating grey rows, 4 pt padding,
   header row repeated on each page.
@@ -154,7 +154,7 @@ def inline(text: str, ctx: RenderContext, fmt: str = "pdf") -> tuple[str, list[s
                     out.append("<br/>".join(esc(line) for line in res[1].splitlines() if line.strip()))
             else:
                 v = ctx.field_value(tok)
-                out.append(mark("{{%s}}" % tok) if v is None else esc(v))
+                out.append(mark("{{%s}}" % tok) if v is None else "<br/>".join(esc(line) for line in v.split("\n")))
         else:
             out.append(esc(ctx.spell(part)))
     if bold:
@@ -162,33 +162,118 @@ def inline(text: str, ctx: RenderContext, fmt: str = "pdf") -> tuple[str, list[s
     return "".join(out), notes
 
 
+# ── fonts ─────────────────────────────────────────────────────────────────────────────────────────────────────────
+# v2 (HR_ONBOARDING_PACKAGE_V2): the bundled Noto Sans, which has the rupee sign (Helvetica prints a box for U+20B9) and
+# Indian names; there is no bundled italic, so "italic" text uses the regular face. With the flag off: Helvetica, as in v1.
+def _faces() -> tuple:
+    from app.config import settings
+    if not getattr(settings, "ONBOARDING_PACKAGE_V2", True):
+        return ("Helvetica", "Helvetica-Bold", "Helvetica-Oblique")
+    from app.modules.doc_templates.renderer import _fonts
+    f = _fonts()
+    if f["regular"] == "Helvetica":
+        return ("Helvetica", "Helvetica-Bold", "Helvetica-Oblique")
+    return (f["regular"], f["bold"], f["regular"])
+
+
+def FONT_R() -> str:
+    return _faces()[0]
+
+
+def FONT_B() -> str:
+    return _faces()[1]
+
+
+def FONT_I() -> str:
+    return _faces()[2]
+
+
+# ── v2 blocks: expanded into the basic blocks before rendering (PDF, HTML and DOCX alike) ──────────────────────────
+def _truthy(v) -> bool:
+    return v not in (None, "", [], {}, False, "no", "false", "False", 0)
+
+
+def _plain(text) -> str:
+    """A value printed as text inside a generated block: no token or bold markup can be smuggled in through data."""
+    return str(text or "").replace("{{", "{ {").replace("}}", "} }").replace("**", "")
+
+
+def expand(blocks: list, ctx: "RenderContext") -> list:
+    out = []
+    for b in blocks:
+        t = b.get("t")
+        if t == "when":                      # a section printed only when a value is set (all shown on the template set)
+            if ctx.mode == "template" or _truthy(ctx.values.get(b["key"])):
+                out += expand(b["blocks"], ctx)
+            continue
+        if t in ("list", "groups", "kpis"):
+            key = b["src"].strip("{} ")
+            items = ctx.values.get(key) if ctx.mode != "template" else None
+            if not items:
+                out.append({"t": "p", "text": b["src"]})          # highlighted placeholder; readiness lists it
+                continue
+            if t == "list":
+                out.append({"t": "numbered" if b.get("numbered") else "bullets", "items": [_plain(i) for i in items]})
+            elif t == "groups":
+                for n, g in enumerate(items, 1):
+                    out.append({"t": "h3", "text": f"{n}. {_plain(g.get('heading'))}"})
+                    if g.get("bullets"):
+                        out.append({"t": "bullets", "items": [_plain(x) for x in g["bullets"]]})
+            else:
+                for n, a in enumerate(items, 1):
+                    out.append({"t": "h2", "text": f"{n}. {_plain(a.get('title'))}"})
+                    if a.get("bullets"):
+                        out.append({"t": "bullets", "items": [_plain(x) for x in a["bullets"]]})
+                    if a.get("success"):
+                        out.append({"t": "notice", "items": [f"**Success looks like:** {_plain(a['success'])}"]})
+            continue
+        if t == "clause":
+            items = []
+            for i in b["items"]:
+                if isinstance(i, dict) and i.get("t") in ("when", "list", "groups", "kpis"):
+                    items += expand([i], ctx)
+                else:
+                    items.append(i)
+            out.append({**b, "items": items})
+            continue
+        if t == "columns":
+            out.append({**b, "left": expand(b["left"], ctx), "right": expand(b["right"], ctx)})
+            continue
+        out.append(b)
+    return out
+
+
+def blocks(category: str, ctx: "RenderContext") -> list:
+    return expand(C.blocks_for(category), ctx)
+
+
 # ── PDF ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _styles(ctx: RenderContext) -> dict:
     primary = colors.HexColor(ctx.primary)
-    body = ParagraphStyle("b", fontName="Helvetica", fontSize=11, leading=12.65, spaceAfter=6, textColor=colors.HexColor("#1F2933"))
+    body = ParagraphStyle("b", fontName=FONT_R(), bulletFontName=FONT_R(), fontSize=11, leading=12.65, spaceAfter=6, textColor=colors.HexColor("#1F2933"))
     return {
         "body": body,
         "small": ParagraphStyle("s", parent=body, fontSize=9, leading=10.6, spaceAfter=3),
-        "h1": ParagraphStyle("h1", parent=body, fontName="Helvetica-Bold", fontSize=18, leading=22, textColor=primary,
+        "h1": ParagraphStyle("h1", parent=body, fontName=FONT_B(), fontSize=18, leading=22, textColor=primary,
                              spaceBefore=4, spaceAfter=8),
-        "h2": ParagraphStyle("h2", parent=body, fontName="Helvetica-Bold", fontSize=14, leading=17, spaceBefore=10, spaceAfter=6),
-        "h3": ParagraphStyle("h3", parent=body, fontName="Helvetica-Bold", fontSize=12, leading=14.5, spaceBefore=8, spaceAfter=4),
-        "center": ParagraphStyle("c", parent=body, fontName="Helvetica-Bold", fontSize=16, leading=20, alignment=TA_CENTER,
+        "h2": ParagraphStyle("h2", parent=body, fontName=FONT_B(), fontSize=14, leading=17, spaceBefore=10, spaceAfter=6),
+        "h3": ParagraphStyle("h3", parent=body, fontName=FONT_B(), fontSize=12, leading=14.5, spaceBefore=8, spaceAfter=4),
+        "center": ParagraphStyle("c", parent=body, fontName=FONT_B(), fontSize=16, leading=20, alignment=TA_CENTER,
                                  spaceBefore=6, spaceAfter=12, textColor=primary),
-        "note": ParagraphStyle("n", parent=body, fontName="Helvetica-Oblique", fontSize=9, leading=11, textColor=colors.HexColor(GREY_TEXT),
+        "note": ParagraphStyle("n", parent=body, fontName=FONT_I(), fontSize=9, leading=11, textColor=colors.HexColor(GREY_TEXT),
                                spaceAfter=6),
         "cell": ParagraphStyle("td", parent=body, fontSize=9.5, leading=11.5, spaceAfter=0),
         "cell_c": ParagraphStyle("tdc", parent=body, fontSize=8.5, leading=10, spaceAfter=0),
-        "th": ParagraphStyle("th", parent=body, fontName="Helvetica-Bold", fontSize=9.5, leading=11.5, textColor=colors.white,
+        "th": ParagraphStyle("th", parent=body, fontName=FONT_B(), fontSize=9.5, leading=11.5, textColor=colors.white,
                              spaceAfter=0),
-        "th_c": ParagraphStyle("thc", parent=body, fontName="Helvetica-Bold", fontSize=8.5, leading=10, textColor=colors.white,
+        "th_c": ParagraphStyle("thc", parent=body, fontName=FONT_B(), fontSize=8.5, leading=10, textColor=colors.white,
                                spaceAfter=0),
-        "ex": ParagraphStyle("ex", parent=body, fontName="Helvetica-Oblique", fontSize=8.5, leading=10, spaceAfter=0,
+        "ex": ParagraphStyle("ex", parent=body, fontName=FONT_I(), fontSize=8.5, leading=10, spaceAfter=0,
                              textColor=colors.HexColor(GREY_TEXT)),
-        "label": ParagraphStyle("lb", parent=body, fontName="Helvetica-Bold", fontSize=9.5, leading=11.5, spaceAfter=2),
+        "label": ParagraphStyle("lb", parent=body, fontName=FONT_B(), fontSize=9.5, leading=11.5, spaceAfter=2),
         "ctrl": ParagraphStyle("ct", parent=body, fontSize=8, leading=9.6, spaceAfter=0),
-        "ctrl_b": ParagraphStyle("ctb", parent=body, fontName="Helvetica-Bold", fontSize=8, leading=9.6, spaceAfter=0),
-        "cover": ParagraphStyle("cv", parent=body, fontName="Helvetica-Bold", fontSize=26, leading=32, alignment=TA_CENTER,
+        "ctrl_b": ParagraphStyle("ctb", parent=body, fontName=FONT_B(), fontSize=8, leading=9.6, spaceAfter=0),
+        "cover": ParagraphStyle("cv", parent=body, fontName=FONT_B(), fontSize=26, leading=32, alignment=TA_CENTER,
                                 textColor=primary, spaceAfter=18),
         "cover_sub": ParagraphStyle("cvs", parent=body, fontSize=13, leading=17, alignment=TA_CENTER, spaceAfter=8),
     }
@@ -209,7 +294,7 @@ def _grid_style(ctx: RenderContext, n_rows: int, header=True, total=False) -> Ta
             cmds.append(("BACKGROUND", (0, r), (-1, r), ROW_ALT))
     if total:
         cmds += [("BACKGROUND", (0, n_rows - 1), (-1, n_rows - 1), colors.HexColor("#E3E8EF")),
-                 ("FONTNAME", (0, n_rows - 1), (-1, n_rows - 1), "Helvetica-Bold")]
+                 ("FONTNAME", (0, n_rows - 1), (-1, n_rows - 1), FONT_B())]
     return TableStyle(cmds)
 
 
@@ -230,6 +315,7 @@ class _DocMarker(Flowable):
 def _canvas_class(ctx_for: dict):
     class _Canvas(rl_canvas.Canvas):
         def __init__(self, *a, **k):
+            k.setdefault("initialFontName", FONT_R())      # otherwise every page's preamble declares Helvetica
             super().__init__(*a, **k)
             self._pages = []
             self._zdoc = None
@@ -261,7 +347,7 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
     c.saveState()
     if info.get("draft", ctx.draft):
         c.setFillColor(colors.Color(0.55, 0.58, 0.62, alpha=0.13))
-        c.setFont("Helvetica-Bold", 54 if w < h else 64)
+        c.setFont(FONT_B(), 54 if w < h else 64)
         c.translate(w / 2, h / 2)
         c.rotate(35)
         c.drawCentredString(0, -18, WATERMARK)
@@ -270,13 +356,13 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
     # header
     top = h - MARGIN + 30
     c.setFillColor(primary)
-    c.setFont("Helvetica-Bold", 9.5)
+    c.setFont(FONT_B(), 9.5)
     c.drawString(MARGIN, top, ctx.header_text)
     c.setFillColor(colors.HexColor("#1F2933"))
-    c.setFont("Helvetica", 9)
+    c.setFont(FONT_R(), 9)
     c.drawRightString(w - MARGIN, top, info.get("title", ""))
     box_w, box_h = 168, 15
-    bx = MARGIN + c.stringWidth(ctx.header_text, "Helvetica-Bold", 9.5) + 14
+    bx = MARGIN + c.stringWidth(ctx.header_text, FONT_B(), 9.5) + 14
     logo = _logo_reader(ctx)
     if logo is not None:
         lw, lh = _fit(logo, 120, 20)
@@ -286,7 +372,7 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
         c.setDash(2, 2)
         c.rect(bx, top - 4, box_w, box_h, stroke=1, fill=0)
         c.setDash()
-        c.setFont("Helvetica", 6.5)
+        c.setFont(FONT_R(), 6.5)
         c.setFillColor(colors.HexColor(GREY_TEXT))
         c.drawCentredString(bx + box_w / 2, top + 1, f"[{(ctx.org_label or 'COMPANY').split(' ')[0]} LOGO – insert approved asset]")
     c.setStrokeColor(primary)
@@ -298,10 +384,13 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
     c.setLineWidth(0.5)
     c.line(MARGIN, fy + 12, w - MARGIN, fy + 12)
     c.setFillColor(colors.HexColor("#3E4C59"))
-    c.setFont("Helvetica", 8)
-    c.drawString(MARGIN, fy, f"{info.get('template_id', 'HR-PKG')} | v{ctx.version}")
+    c.setFont(FONT_R(), 8)
+    ref = (ctx.values or {}).get("document.reference") if ctx.mode == "issue" else None
+    c.drawString(MARGIN, fy, f"{ref + ' · ' if ref else ''}{info.get('template_id', 'HR-PKG')} | v{ctx.version}")
     c.drawCentredString(w / 2, fy, "Private and Confidential")
     c.drawRightString(w - MARGIN, fy, f"Page {page} of {total}")
+    if info.get("initials") and page < total:
+        c.drawRightString(w - MARGIN, fy + 18, "Initials: ____________")
     c.restoreState()
 
 
@@ -438,7 +527,7 @@ class PdfBuilder:
         self._current_orient = orient
         self._anchor_prefix = d.get("category", "doc")
         self.story.append(_DocMarker({"key": d.get("category"), "title": d["title"], "template_id": d["template_id"],
-                                      "draft": self.ctx.draft if draft is None else draft}))
+                                      "draft": self.ctx.draft if draft is None else draft, "initials": d.get("initials", False)}))
         if d.get("control", True) and self.ctx.show_placeholders:
             self.story += [self._control_block(d), Spacer(1, 4 if orient == "landscape" else 10)]
         self.story += self._flow(blocks)
@@ -478,12 +567,13 @@ class PdfBuilder:
                 lead = f"{i}." if t == "numbered" else "•"
                 text = item if item else "________________________________________________"
                 markup, notes = inline(text, ctx)
-                st = ParagraphStyle("li", parent=s["body"], leftIndent=18, bulletIndent=4, spaceAfter=3)
+                st = ParagraphStyle("li", parent=s["body"], leftIndent=18, bulletIndent=4, spaceAfter=3,
+                                    bulletFontName=s["body"].fontName)
                 out.append(Paragraph(markup, st, bulletText=lead))
                 out += [Paragraph(escape(n), ParagraphStyle("lin", parent=s["note"], leftIndent=18)) for n in notes]
             return out + [Spacer(1, 3)]
         if t == "kv":
-            data = [[Paragraph(f"<b>{escape(ctx.spell(k))}</b>", s["cell"]), self._cell(v)] for k, v in b["rows"]]
+            data = [[Paragraph(f"<b>{inline(k, ctx)[0]}</b>", s["cell"]), self._cell(v)] for k, v in b["rows"]]   # labels may hold tokens
             tb = Table(data, colWidths=[self.width * 0.3, self.width * 0.7])
             st = _grid_style(ctx, len(data), header=False)
             st.add("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#E8EEF7"))
@@ -553,7 +643,8 @@ class PdfBuilder:
                 out += self._para(ln, "cover_sub")
             return out + [PageBreak()]
         if t == "letterhead":
-            left = self._para("**{{employer.legal_name}}**", "h3") + self._para("{{employer.registered_address}}", "small")
+            left = (self._para(f"**{b.get('name', '{{employer.legal_name}}')}**", "h3")
+                    + self._para(b.get("address", "{{employer.registered_address}}"), "small"))
             reader = _logo_reader(ctx)
             if reader is not None:
                 from reportlab.platypus import Image as RLImage
@@ -747,7 +838,7 @@ def blank_rows(n, cols):
 def render_pdf(category: str, ctx: RenderContext) -> bytes:
     d = C.DOCS[category]
     b = PdfBuilder(ctx)
-    b.add_document(d, C.blocks_for(category))
+    b.add_document(d, blocks(category, ctx))
     return b.build()
 
 
@@ -788,7 +879,7 @@ def render_template_set(ctx: RenderContext) -> bytes:
                               "always captured separately."},
     ], draft=True)
     for d in C.documents():
-        b.add_document(d, C.blocks_for(d["category"]))
+        b.add_document(d, blocks(d["category"], ctx))
     appendix = {"category": "_dictionary", "title": "Placeholder Dictionary", "template_id": "HR-PKG-000",
                 "orientation": "portrait", "control": False}
     drows = [[r["placeholder"], r["meaning"], r["source"], "Y" if r["required"] else "N", ", ".join(r["used_in"])]
@@ -805,7 +896,7 @@ def render_template_set(ctx: RenderContext) -> bytes:
 def render_html(category: str, ctx: RenderContext, *, document_number: str = "") -> str:
     d = C.DOCS[category]
     hx = _Html(ctx)
-    body = "".join(hx.block(b) for b in C.blocks_for(category))
+    body = "".join(hx.block(b) for b in blocks(category, ctx))
     status = ctx.status_text or DRAFT_STATUS
     ctrl = "" if not ctx.show_placeholders else "".join(f"<tr><th>{_html.escape(k)}</th><td>{_html.escape(v)}</td></tr>" for k, v in [
         ("Template ID", d["template_id"]), ("Template version", f"v{ctx.version}"), ("Document type", d["doc_type"]),
@@ -815,7 +906,7 @@ def render_html(category: str, ctx: RenderContext, *, document_number: str = "")
     p, a = ctx.primary, ctx.accent
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_html.escape(d['title'])}</title><style>
-body{{font-family:Calibri,Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#1F2933;margin:0;background:#fff}}
+body{{font-family:'Noto Sans',Calibri,Arial,Helvetica,sans-serif;font-size:11pt;line-height:1.15;color:#1F2933;margin:0;background:#fff}}
 .page{{max-width:{'1000' if d['orientation'] == 'landscape' else '760'}px;margin:0 auto;padding:24px;position:relative}}
 header.run{{display:flex;justify-content:space-between;align-items:center;gap:12px;border-bottom:1px solid {p};padding-bottom:6px;margin-bottom:14px;font-size:9pt}}
 header.run b{{color:{p}}} .logo{{border:1px dashed #9AA5B1;color:{GREY_TEXT};font-size:7pt;padding:3px 8px}}
@@ -883,7 +974,7 @@ class _Html:
             tag = "ol" if t == "numbered" else "ul"
             return f"<{tag}>" + "".join(f"<li>{self.il(i) if i else '&nbsp;'}</li>" for i in b["items"]) + f"</{tag}>"
         if t == "kv":
-            return '<table class="kv">' + "".join(f"<tr><th>{_html.escape(ctx.spell(k))}</th><td>{self.cell(v)}</td></tr>"
+            return '<table class="kv">' + "".join(f"<tr><th>{inline(k, ctx, 'html')[0]}</th><td>{self.cell(v)}</td></tr>"
                                                   for k, v in b["rows"]) + "</table>"
         if t == "table":
             return self.table(b["headers"], b["rows"], b.get("total"))
@@ -959,7 +1050,7 @@ class _Html:
                     "".join(f"<p>{self.il(ln)}</p>" for ln in lines[1:]) + "</div>")
         if t == "letterhead":
             return (f'<div style="display:flex;justify-content:space-between;border-bottom:1px solid {ctx.primary};padding-bottom:8px;margin-bottom:10px">'
-                    f'<div><h3 style="margin:0">{self.il("{{employer.legal_name}}")}</h3><div>{self.il("{{employer.registered_address}}")}</div></div>'
+                    f'<div><h3 style="margin:0">{self.il(b.get("name", "{{employer.legal_name}}"))}</h3><div>{self.il(b.get("address", "{{employer.registered_address}}"))}</div></div>'
                     + (f'<img src="{_logo_data_uri(ctx)}" alt="logo" style="max-height:60px;max-width:180px"></div>' if ctx.logo_png else
                        f'<div class="logo" style="padding:14px">[{_html.escape((ctx.org_label or "COMPANY").split(" ")[0])} LOGO – insert approved asset]</div></div>'
                        if ctx.show_placeholders else '</div>'))

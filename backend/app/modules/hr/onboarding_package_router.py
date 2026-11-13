@@ -1,6 +1,8 @@
 """Routes for the offer package (see onboarding_package).
 
 HR (org admin / HR admin):
+  GET/PUT /hr/onboarding/company-profile                     the organisation's Company Profile (employer particulars)
+  POST /hr/onboarding/company-profile/prefill               proposed values from the organisation record (never saved)
   GET  /hr/onboarding/package/settings                      employer particulars, branding, clause library, documents
   PUT  /hr/onboarding/package/settings
   POST/GET/DELETE /hr/onboarding/package/logo             the company logo printed in headers and the letterhead
@@ -67,6 +69,59 @@ def put_settings(data: dict = Body(...), db: Session = Depends(get_db), user=Dep
     return onboarding_package.settings_view(db, user.organization_id)
 
 
+@router.get("/company-profile", summary="The organisation's Company Profile and how complete it is")
+def get_company_profile(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import company_profile
+    return company_profile.profile_view(db, user.organization_id)
+
+
+@router.put("/company-profile", summary="Save the organisation's Company Profile (validated; 422 lists each field's problem)")
+def put_company_profile(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import company_profile
+    company_profile.save_profile(db, user, data)
+    return company_profile.profile_view(db, user.organization_id)
+
+
+@router.post("/company-profile/prefill", summary="Propose Company Profile values from the organisation record (not saved)")
+def prefill_company_profile(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import company_profile
+    return company_profile.prefill(db, user.organization_id)
+
+
+@router.get("/profiles", summary="Engagement Profiles and Role Profiles")
+def get_profiles(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    return onboarding_profiles.view(db, user.organization_id)
+
+
+@router.put("/profiles/engagement/{slug}", summary="Create or update an Engagement Profile")
+def put_engagement_profile(slug: str, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.save_engagement(db, user, slug, data)
+    return onboarding_profiles.view(db, user.organization_id)
+
+
+@router.delete("/profiles/engagement/{slug}", summary="Delete an Engagement Profile (not while an unsent hire uses it)")
+def delete_engagement_profile(slug: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.delete_engagement(db, user, slug)
+    return onboarding_profiles.view(db, user.organization_id)
+
+
+@router.put("/profiles/role/{slug}", summary="Create or update a Role Profile")
+def put_role_profile(slug: str, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.save_role(db, user, slug, data)
+    return onboarding_profiles.view(db, user.organization_id)
+
+
+@router.delete("/profiles/role/{slug}", summary="Delete a Role Profile (not while an unsent hire uses it)")
+def delete_role_profile(slug: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_profiles
+    onboarding_profiles.delete_role(db, user, slug)
+    return onboarding_profiles.view(db, user.organization_id)
+
+
 @router.post("/package/logo", summary="Upload the company logo printed on every package document")
 async def upload_logo(file: UploadFile = File(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
     data = await file.read(onboarding_package.LOGO_MAX_BYTES + 1)
@@ -109,6 +164,55 @@ def hire_package_preview(new_hire_id: int, category: str, db: Session = Depends(
     if category not in C.DOCS:
         raise HTTPException(404, "Unknown package document.")
     return _pdf(onboarding_package.preview_pdf(db, hire, category), f"{C.DOCS[category]['template_id']}-preview.pdf")
+
+
+def _attachment(data: bytes, name: str, media_type: str) -> Response:
+    """Download response with an RFC 5987 file name (the names are ASCII already; filename* keeps any client happy)."""
+    from urllib.parse import quote
+    return Response(content=data, media_type=media_type,
+                    headers={"Content-Disposition": f"attachment; filename=\"{name}\"; filename*=UTF-8''{quote(name)}",
+                             "Cache-Control": "no-store"})
+
+
+DOCX_TYPE = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+
+
+@router.get("/new-hires/{new_hire_id}/package/download.zip", summary="Download all package documents for a new hire (ZIP)")
+def hire_package_zip(new_hire_id: int, format: str = "pdf", db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    data, name = onboarding_package.package_zip(db, _hire(db, user, new_hire_id), format)
+    return _attachment(data, name, "application/zip")
+
+
+@router.get("/new-hires/{new_hire_id}/package/{category}/download", summary="Download one package document (PDF or DOCX)")
+def hire_package_download(new_hire_id: int, category: str, format: str = "pdf", db: Session = Depends(get_db),
+                          user=Depends(get_current_admin)):
+    hire = _hire(db, user, new_hire_id)
+    if format == "docx":
+        data, name = onboarding_package.document_docx(db, hire, category)
+        return _attachment(data, name, DOCX_TYPE)
+    if format != "pdf":
+        raise HTTPException(422, "format must be pdf or docx.")
+    data, name, _state = onboarding_package.document_file(db, hire, category)
+    return _attachment(data, name, "application/pdf")
+
+
+@router.post("/package/bulk-generate", summary="Generate the package documents of up to 50 new hires into one ZIP (nothing is sent)")
+def bulk_generate(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_bulk
+    return onboarding_package_bulk.start(db, user, (data or {}).get("new_hire_ids"))
+
+
+@router.get("/package/jobs/{job_id}", summary="Progress of a bulk generation job")
+def bulk_job(job_id: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_bulk
+    return onboarding_package_bulk.job_view(db, user.organization_id, job_id)
+
+
+@router.get("/package/jobs/{job_id}/download.zip", summary="Download a finished bulk generation job")
+def bulk_job_zip(job_id: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_bulk
+    data = onboarding_package_bulk.job_zip(db, user.organization_id, job_id)
+    return _attachment(data, f"ONBOARDING_PACKAGES_{job_id}.zip", "application/zip")
 
 
 # ── public portal ───────────────────────────────────────────────────────────────────────────────────────────────────

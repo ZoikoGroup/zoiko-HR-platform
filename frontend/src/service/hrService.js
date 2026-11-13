@@ -234,6 +234,16 @@ export const sendOnboardingPackage = (newHireId, categories) =>
   api.post(`/hr/onboarding/new-hires/${newHireId}/send-package`, categories && categories.length ? { categories } : {});
 
 // ── OFFER PACKAGE (10 onboarding documents): settings, counsel clauses, readiness, previews ──
+// Company Profile (Settings): the employer particulars every generated document prints
+export const getCompanyProfile = () => api.get("/hr/onboarding/company-profile");
+export const saveCompanyProfile = (payload) => api.put("/hr/onboarding/company-profile", payload);
+export const prefillCompanyProfile = () => api.post("/hr/onboarding/company-profile/prefill", {});
+// Engagement Profiles and Role Profiles
+export const getOnboardingProfiles = () => api.get("/hr/onboarding/profiles");
+export const saveEngagementProfile = (slug, payload) => api.put(`/hr/onboarding/profiles/engagement/${encodeURIComponent(slug)}`, payload);
+export const deleteEngagementProfile = (slug) => api.delete(`/hr/onboarding/profiles/engagement/${encodeURIComponent(slug)}`);
+export const saveRoleProfile = (slug, payload) => api.put(`/hr/onboarding/profiles/role/${encodeURIComponent(slug)}`, payload);
+export const deleteRoleProfile = (slug) => api.delete(`/hr/onboarding/profiles/role/${encodeURIComponent(slug)}`);
 export const getOfferPackageSettings = () => api.get("/hr/onboarding/package/settings");
 export const saveOfferPackageSettings = (payload) => api.put("/hr/onboarding/package/settings", payload);
 export const uploadOfferPackageLogo = (file) => {
@@ -246,6 +256,14 @@ export const getOfferPackageLogo = () => fetchDocumentFile("/hr/onboarding/packa
 export const getOfferPackageTemplateSet = () => fetchDocumentFile("/hr/onboarding/package/template.pdf", "offer-package-template-set.pdf");
 export const getHirePackage = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/package`);
 export const saveHirePackageInputs = (newHireId, values) => api.put(`/hr/onboarding/new-hires/${newHireId}/package/inputs`, { values });
+// Package downloads (file names come from the server: RR_RAVURI_RUGVEDH_OFFER_LETTER.pdf, …_SIGNED, …_DRAFT)
+export const downloadHirePackageDocument = (newHireId, category, format = "pdf") =>
+  fetchDocumentFile(`/hr/onboarding/new-hires/${newHireId}/package/${category}/download?format=${format}`, `${category}.${format}`);
+export const downloadHirePackageZip = (newHireId, format = "pdf") =>
+  fetchDocumentFile(`/hr/onboarding/new-hires/${newHireId}/package/download.zip?format=${format}`, "onboarding-package.zip");
+export const startBulkPackageGeneration = (newHireIds) => api.post("/hr/onboarding/package/bulk-generate", { new_hire_ids: newHireIds });
+export const getBulkPackageJob = (jobId) => api.get(`/hr/onboarding/package/jobs/${jobId}`);
+export const downloadBulkPackageZip = (jobId) => fetchDocumentFile(`/hr/onboarding/package/jobs/${jobId}/download.zip`, "onboarding-packages.zip");
 export const getHirePackagePreview = (newHireId, category) =>
   fetchDocumentFile(`/hr/onboarding/new-hires/${newHireId}/package/${category}/preview.pdf`, `${category}-preview.pdf`);
 export const requestOnboardingDocuments = (newHireId, categories) => api.post(`/hr/onboarding/new-hires/${newHireId}/document-requests`, { categories });
