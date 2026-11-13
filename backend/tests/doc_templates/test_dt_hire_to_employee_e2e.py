@@ -30,6 +30,25 @@ def _sign(world, sign_url, name):
     return view
 
 
+# v2: the Company Profile terms and the Role Profile the rebuilt documents print (Onboarding > Settings)
+V2_PROFILE = {"jurisdiction_country": "IN", "jurisdiction_city": "Hyderabad", "notice_period_value": 4,
+              "notice_period_unit": "weeks", "non_solicit_post_termination_months": 12, "nda_non_solicit_months": 12,
+              "reports_email": "reports@tenant-a.example.com"}
+
+
+def _v2_terms(world, title):
+    from types import SimpleNamespace
+    from app.modules.hr import company_profile, onboarding_profiles
+    actor = SimpleNamespace(id=world.u["a_admin"].id, organization_id=1)
+    company_profile.save_profile(world.db, actor, V2_PROFILE)
+    onboarding_profiles.save_role(world.db, actor, title.lower().replace(" ", "-"), {
+        "title": title, "about": [f"The {title} keeps our products reliable."],
+        "responsibility_groups": [{"heading": "Delivery", "bullets": ["Ship reliable work every week."]}],
+        "offer_responsibilities": ["Delivery: ship reliable work every week."],
+        "contract_duties": f"The {title} designs, builds and tests the team's software.",
+        "kpi_areas": [{"title": "Delivery", "bullets": ["Work shipped on time."], "success": "Every release is on time."}]})
+
+
 def test_requisition_to_employee(world):
     name, email = "Ishaan Candidate", "ishaan.candidate@example.com"
 
@@ -73,6 +92,7 @@ def test_requisition_to_employee(world):
         "signatory_name": "Avery Admin", "signatory_title": "Director", "hr_contact_name": "People Team",
         "hr_contact_email": "people@tenant-a.example.com", "leave_entitlement": "18 days plus public holidays",
         "post_employment_period": "two years", "pay_frequency": "monthly", "clauses": clauses}))
+    _v2_terms(world, "Backend Engineer")
     pkg = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{hire.id}/package"))
     states = {d["category"]: d for d in pkg["documents"]}
     missing = {f["key"] for d in pkg["documents"] for f in d["missing_fields"] if not f["candidate_provides"]}
@@ -99,9 +119,10 @@ def test_requisition_to_employee(world):
     for cat in ("job_description", "daily_kpi"):
         view = _ok(world.client.post(f"/public/onboarding/{token}/documents/{docs[cat]['id']}/acknowledge",
                                      json={"text_version": view["package"]["ack_text_version"]}))
-    blank = _ok(world.client.get(f"/public/onboarding/{token}/package/job_application/file"))
-    _ok(world.client.post(f"/public/onboarding/{token}/documents/{docs['job_application']['id']}",
-                          files={"file": ("application.pdf", blank.content, "application/pdf")}))
+    for cat in ("job_application", "self_disclosure"):             # v2: both forms are completed and returned
+        blank = _ok(world.client.get(f"/public/onboarding/{token}/package/{cat}/file"))
+        _ok(world.client.post(f"/public/onboarding/{token}/documents/{docs[cat]['id']}",
+                              files={"file": (f"{cat}.pdf", blank.content, "application/pdf")}))
     # the organisation's standard uploads (onboarding settings), e.g. ID proof
     for d in _ok(world.client.get(f"/public/onboarding/{token}"))["documents"]:
         if d["status"] == "requested" and not d["package_mode"]:
@@ -122,8 +143,9 @@ def test_requisition_to_employee(world):
     assert contract.status == "EXECUTED"
     from app.modules.doc_templates import renderer, storage
     text = " ".join(renderer.pdf_text(storage.get_store().get(contract.pdf_path)).split())
-    for expected in ("Tenant A India Pvt Ltd", name, "Backend Engineer", "INR 1,500,000.00 per year, paid monthly",
-                     "Hyderabad office", "40 hours per week", "4 Lake View Road", "Counsel wording – Probation."):
+    for expected in ("Tenant A India Pvt Ltd", name, "Backend Engineer", "₹1,500,000 per year", "Hyderabad office",
+                     "Monday to Friday", "4 Lake View Road", "Counsel wording – Probation.",
+                     "The Backend Engineer designs, builds and tests the team's software."):
         assert expected in text, expected
     assert "{{" not in text and "DRAFT – NOT FOR ISSUE" not in text
 
@@ -186,9 +208,10 @@ def test_a_newly_hired_employee_gets_the_package_in_one_send(world):
         "legal_name": "Tenant A India Pvt Ltd", "registered_address": "Plot 1, Hitech City, Hyderabad", "signatory_name": "Avery Admin",
         "signatory_title": "Director", "hr_contact_email": "people@tenant-a.example.com", "leave_entitlement": "18 days",
         "post_employment_period": "two years", "pay_frequency": "monthly", "clauses": clauses}))
+    _v2_terms(world, "QA Engineer")
     pkg = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{hire_id}/package"))
     asks = {f["key"] for d in pkg["documents"] for f in d["missing_fields"] if f["editable"] and (not f["candidate_provides"] or f["hr_may_enter"])}
-    assert asks == {"worker.postal_address", "job.role_purpose"}, asks      # no requisition was linked, so no role purpose
+    assert asks == {"worker.postal_address"}, asks      # v2: the role's wording comes from its Role Profile
     _ok(world.put("a_admin", f"/hr/onboarding/new-hires/{hire_id}/package/inputs", json={"values": {
         "worker.postal_address": "22 FC Road, Pune 411004", "job.role_purpose": "Keeps releases reliable through automated testing."}}))
     sent = _ok(world.post("a_admin", f"/hr/onboarding/new-hires/{hire_id}/send-package"))
@@ -198,8 +221,8 @@ def test_a_newly_hired_employee_gets_the_package_in_one_send(world):
     contract = world.db.query(GeneratedDocument).filter_by(subject_type="new_hire", subject_id=hire_id, canonical_id="HR-CON-001").one()
     from app.modules.doc_templates import renderer, storage
     text = " ".join(renderer.pdf_text(storage.get_store().get(contract.pdf_path)).split())
-    for expected in (name, "QA Engineer", "INR 900,000.00 per year, paid monthly", "Pune office", "40 hours per week", "22 FC Road, Pune 411004",
-                     "Tenant A India Pvt Ltd", "18 days"):
+    for expected in (name, "QA Engineer", "₹900,000 per year", "Pune office", "Monday to Friday", "22 FC Road, Pune 411004",
+                     "Tenant A India Pvt Ltd", "Counsel wording – Holidays and leave."):
         assert expected in text, expected
     # the declaration releases the affidavit straight away
     from app.modules.hr import onboarding_flow

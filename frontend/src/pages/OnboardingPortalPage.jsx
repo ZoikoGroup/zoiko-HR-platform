@@ -523,7 +523,6 @@ export default function OnboardingPortalPage() {
   const [saving, setSaving] = useState(false);
   const [banner, setBanner] = useState({ type: "", text: "" });
   const [submitting, setSubmitting] = useState(false);
-  const [showDocs, setShowDocs] = useState(false); // after submitting: the success page, or the documents behind it
   const [detailErrors, setDetailErrors] = useState({});
   const [detailsDone, setDetailsDone] = useState(null); // { released, nextActions } after "Submit details"
 
@@ -689,7 +688,6 @@ export default function OnboardingPortalPage() {
     try {
       const res = await submitSignedPackage(token);
       if (res?.view) setView(res.view);
-      setShowDocs(false);
       if (typeof window !== "undefined") window.scrollTo?.(0, 0);
     } catch (err) {
       setBanner({ type: "error", text: err?.message || "Your documents could not be submitted. Please try again." });
@@ -708,16 +706,11 @@ export default function OnboardingPortalPage() {
         phone={view.phone}
         released={detailsDone.released}
         nextActions={detailsDone.nextActions}
-        onContinue={() => { setDetailsDone(null); if (typeof window !== "undefined") window.scrollTo?.(0, 0); }}
-        onEdit={() => {
-          setDetailsDone(null);
-          setTimeout(() => document.getElementById("portal-details")?.scrollIntoView({ behavior: "smooth" }), 0);
-        }}
       />
     );
   }
 
-  if (submission?.submitted_at && !showDocs) {
+  if (submission?.submitted_at) {   // once submitted, the success page is all the new hire sees
     return (
       <OnboardingSubmitted
         organizationName={view.organization_name}
@@ -726,7 +719,6 @@ export default function OnboardingPortalPage() {
         joiningDate={view.joining_date}
         submittedAt={submission.submitted_at}
         documentsCount={progress.total}
-        onViewDocuments={() => setShowDocs(true)}
       />
     );
   }
@@ -1140,14 +1132,6 @@ export default function OnboardingPortalPage() {
 
         {submission && !submission.submitted_at && (
           <SubmitSection submission={submission} onSubmit={submitAll} submitting={submitting} />
-        )}
-        {submission?.submitted_at && (
-          <section className="flex flex-col items-center gap-3 rounded-3xl border border-blue-200 bg-blue-50/60 p-5 text-center sm:flex-row sm:justify-between sm:text-left">
-            <p className="text-sm font-medium text-blue-900">Your onboarding documents were submitted on {formatDate(submission.submitted_at)}.</p>
-            <button type="button" onClick={() => setShowDocs(false)} className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-700">
-              Back to confirmation
-            </button>
-          </section>
         )}
 
         {/* Footer */}

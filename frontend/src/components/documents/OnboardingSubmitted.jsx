@@ -1,8 +1,11 @@
 import { useEffect, useRef } from "react";
 import { Check, ClipboardCheck, Mail, CalendarDays, ShieldCheck, FileText } from "lucide-react";
+import useStayOnPage from "./useStayOnPage";
+
 
 // The new hire's "submission successful · onboarding complete" page, shown after they submit their onboarding documents
-// (from the portal or straight after their last signature). White and blue, calm, nothing left to do.
+// (from the portal or straight after their last signature). White and blue, calm, nothing left to do: it has no buttons,
+// and the browser's Back button keeps the new hire here instead of returning them to the forms they already submitted.
 
 function when(value, withTime = false) {
   if (!value) return null;
@@ -14,9 +17,10 @@ function when(value, withTime = false) {
 }
 
 export default function OnboardingSubmitted({
-  organizationName, organizationLogo, candidateName, position, joiningDate, submittedAt, documentsCount, onViewDocuments,
+  organizationName, organizationLogo, candidateName, position, joiningDate, submittedAt, documentsCount,
 }) {
   const headingRef = useRef(null);
+  useStayOnPage();
   useEffect(() => { headingRef.current?.focus(); }, []);
   const first = (candidateName || "").trim().split(/\s+/)[0];
   const org = organizationName || "your new employer";
@@ -86,15 +90,10 @@ export default function OnboardingSubmitted({
           </ol>
         </section>
 
-        <div className="mt-8 flex flex-col items-center gap-4">
-          {onViewDocuments && (
-            <button type="button" onClick={onViewDocuments}
-              className="inline-flex items-center gap-2 rounded-xl border border-blue-200 bg-white px-5 py-2.5 text-sm font-semibold text-blue-700 hover:bg-blue-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-              <FileText size={16} aria-hidden="true" /> View my documents
-            </button>
-          )}
+        <div className="mt-8 flex flex-col items-center gap-3 text-center">
+          <p className="text-sm font-medium text-slate-600">You can now close this window.</p>
           <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
-            <ShieldCheck size={14} className="text-blue-500" aria-hidden="true" /> Secured by Zoiko HR · You can safely close this page
+            <ShieldCheck size={14} className="text-blue-500" aria-hidden="true" /> Secured by Zoiko HR
           </p>
         </div>
       </main>

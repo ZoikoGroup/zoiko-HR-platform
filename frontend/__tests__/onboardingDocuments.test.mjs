@@ -85,6 +85,13 @@ async function load(t, over = {}) {
     getHirePackagePreview: async () => ({ blob: new Blob(["%PDF"]), filename: "preview.pdf" }),
     sendOnboardingPortalInvite: async () => ({ email_sent: true }),
     getOfferPackageTemplateSet: async () => ({ blob: new Blob(["%PDF"]), filename: "set.pdf" }),
+    getOnboardingProfiles: async () => ({ engagement_profiles: [{ slug: "standard-employee", name: "Standard Employee", default: true, builtin: true }],
+      role_profiles: [] }),
+    downloadHirePackageDocument: async (id, cat, fmt) => ({ blob: new Blob(["x"]), filename: `${cat}.${fmt}` }),
+    downloadHirePackageZip: async () => ({ blob: new Blob(["x"]), filename: "package.zip" }),
+    startBulkPackageGeneration: async (ids) => ({ job_id: "j1", status: "completed", done: ids.length, total: ids.length, failed: [] }),
+    getBulkPackageJob: async () => ({ job_id: "j1", status: "completed", done: 1, total: 1, failed: [] }),
+    downloadBulkPackageZip: async () => ({ blob: new Blob(["x"]), filename: "packages.zip" }),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
     Link: ({ children }) => React.createElement("a", null, children) } });

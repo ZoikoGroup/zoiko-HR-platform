@@ -3991,7 +3991,7 @@ def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
     # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
     file_url = f"/hr/onboarding/documents/{doc.id}/file" if (doc.file_path or doc.document_id) else None   # issued docs: document store
     from app.modules.hr.onboarding_package import mode_of
-    package_mode = mode_of(doc.category)
+    package_mode = mode_of(doc)
     requires_signature = package_mode == "SIGN" or (package_mode is None and bool(doc.document_id))
     signing_status = None
     if doc.document_id:
@@ -4070,7 +4070,7 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
     if update_data.get("status") == "approved" and not doc.file_path:
         raise BadRequestException("Nothing has been uploaded for this document yet.")
     from app.modules.hr.onboarding_package import mode_of
-    package_mode = mode_of(doc.category)
+    package_mode = mode_of(doc)
     if "status" in update_data and update_data["status"] != doc.status and package_mode in ("SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"):
         # these package documents change state only through the new hire's signature or acknowledgement
         raise BadRequestException({"SIGN": "This agreement is completed by the new hire's electronic signature.",

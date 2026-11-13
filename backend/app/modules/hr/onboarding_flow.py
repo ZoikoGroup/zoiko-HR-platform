@@ -296,6 +296,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
 PORTAL_DETAIL_RULES = {"phone": "phone", "address": "address", "city": "place_name", "state": "state", "country": "country",
                        "postal_code": "postal_code"}
 PORTAL_DETAIL_REQUIRED = ("phone", "address", "city", "country", "postal_code")
+ADDRESS_PARTS = ("house", "building", "street", "landmark", "locality", "district")   # optional structured parts
 
 
 def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dict:
@@ -303,6 +304,11 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
     form); with `submit` the required ones must all be present, and the submission time is recorded."""
     from app.core import field_rules
     details = dict(hire.profile_details or {})
+    data = dict(data or {})
+    if any(str(data.get(k) or "").strip() for k in ("house", "building", "street")) and not str(data.get("address") or "").strip():
+        # structured parts only: the one-line address (used by the forms and v1 documents) is built from them
+        data["address"] = ", ".join(str(data[k]).strip() for k in ("house", "building", "street")
+                                    if str(data.get(k) or "").strip())[:300]
     previous = {**{k: details.get(k) for k in PORTAL_DETAIL_RULES if k != "phone"}, "phone": hire.phone}
     values = {k: data.get(k) for k in PORTAL_DETAIL_RULES if k in data and str(data.get(k) or "").strip()}
     cleaned, errors = field_rules.validate_record(values, PORTAL_DETAIL_RULES, previous=previous)
@@ -314,7 +320,7 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
                 errors[key] = "This is required."
     field_rules.raise_if_errors(errors)
     for key in ("address", "city", "state", "country", "postal_code", "emergency_contact_name",
-                "emergency_contact_relation", "emergency_contact_phone"):
+                "emergency_contact_relation", "emergency_contact_phone", *ADDRESS_PARTS):
         if key in data:
             value = cleaned.get(key, (data.get(key) or "").strip())
             details[key] = str(value)[:300] if value else None

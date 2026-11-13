@@ -20,6 +20,7 @@ import {
   getOnboardingTasks, createOnboardingTask, updateOnboardingTask, deleteOnboardingTask,
   getOnboardingDocuments, getOnboardingChecklistAssignments, sendOnboardingPortalInvite,
   requestOnboardingDocuments, getOnboardingProgress, getDepartments, getOnboardingActivities,
+  startBulkPackageGeneration, getBulkPackageJob, downloadBulkPackageZip,
 } from "../../../service/hrService";
 import { getEmployees } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
@@ -632,7 +633,7 @@ function HireDetail({ rec, progress, panel, link, busy, employees, act, onClose 
       ? { title: `Joining date · ${joiningMeta(rec.joining_status).label}`, when: rec.joining_date, rel: joinRel, done: rec.joining_status === "joined", failed: rec.joining_status === "no_show" }
       : { title: "Joining date not set" },
     rec.status === "completed"
-      ? { title: "Onboarding completed", when: rec.completed_at, done: true, note: rec.employee_id ? `Employee account #${rec.employee_id} created` : "Employee account created" }
+      ? { title: "Onboarding completed", when: rec.completed_at, done: true, note: rec.employee_id ? `Employee account #${rec.employee_id} linked · activate it in User Management` : "Activate the employee account in User Management" }
       : rec.status === "cancelled" ? { title: "Onboarding cancelled", failed: true } : { title: `Now ${statusLabel(rec.status)}` },
   ];
 
@@ -657,7 +658,7 @@ function HireDetail({ rec, progress, panel, link, busy, employees, act, onClose 
           <>
             {readOnly && (
               <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                Onboarding completed{rec.completed_at ? ` on ${formatDate(rec.completed_at)}` : ""}. Employee account created{rec.employee_id ? ` (employee #${rec.employee_id})` : ""}. This record is read-only.
+                Onboarding completed{rec.completed_at ? ` on ${formatDate(rec.completed_at)}` : ""}. Employee account{rec.employee_id ? ` #${rec.employee_id}` : ""} is ready — activate it in User Management to send the login details. This record is read-only.
               </p>
             )}
             <div className="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 p-4">
@@ -904,6 +905,10 @@ export default function NewHires() {
   }, [searchParams, setSearchParams]);
 
   const flash = (msg) => { setError(null); setSuccess(msg); };
+  // multi-select → "Generate onboarding documents": one ZIP with every selected hire's 10 documents (nothing is sent)
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulk, setBulk] = useState(null);           // {status, done, total} while a job runs
+  const toggleSelected = (id) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const fail = (err, fallback) => { setSuccess(null); setError(err?.message || fallback); };
 
   const fetchRecords = async (acceptedOfferOnly = !showAllRecords) => {
@@ -1149,14 +1154,14 @@ export default function NewHires() {
   const submitCompletion = async (force) => {
     const { record } = completion;
     const msg = force
-      ? `Complete onboarding for ${record.candidate_name} even though some items are open? This creates their employee account.`
-      : `Complete onboarding for ${record.candidate_name}? This creates their employee account and emails the login details.`;
+      ? `Complete onboarding for ${record.candidate_name} even though some items are open? Their employee account stays Pending until you activate it in User Management.`
+      : `Complete onboarding for ${record.candidate_name}? Their employee account stays Pending until you activate it in User Management, which emails the login details.`;
     if (!window.confirm(msg)) return;
     setCompletion((c) => ({ ...c, submitting: true, error: null }));
     try {
       await updateOnboardingRecord(record.id, force ? { status: "completed", force_complete: true } : { status: "completed" });
       setCompletion(null);
-      flash(`Onboarding completed for ${record.candidate_name}. Their employee account was created and the login details were emailed to ${record.email}.`);
+      flash(`Onboarding completed for ${record.candidate_name}. Activate their employee account in User Management to email the login details to ${record.email}.`);
       await refresh();
     } catch (err) {
       setCompletion((c) => c && { ...c, submitting: false, error: err.message || "Failed to complete onboarding" });
@@ -1295,7 +1300,39 @@ export default function NewHires() {
 
   const detail = records.find((r) => r.id === detailId) || null;
   const progress = completion?.progress;
+  const pageIds = paginated.map((r) => r.id);
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const runBulk = async () => {
+    const ids = [...selected];
+    if (ids.length > 50) { fail(null, "Generate at most 50 new hires at a time."); return; }
+    try {
+      let job = await startBulkPackageGeneration(ids);
+      setBulk(job);
+      while (job.status === "queued" || job.status === "running") {
+        await new Promise((r) => setTimeout(r, 1500));
+        job = await getBulkPackageJob(job.job_id);
+        setBulk(job);
+      }
+      if (job.status !== "completed") throw new Error("The documents could not be generated.");
+      const res = await downloadBulkPackageZip(job.job_id);
+      const url = URL.createObjectURL(res.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      flash(`Onboarding documents generated for ${job.total - job.failed.length} new hire${job.total === 1 ? "" : "s"}${job.failed.length ? ` (${job.failed.length} failed)` : ""}. Nothing was sent.`);
+      setSelected(new Set());
+    } catch (e) {
+      fail(e, "The documents could not be generated.");
+    } finally {
+      setBulk(null);
+    }
+  };
   const columns = [
+    { label: <input type="checkbox" aria-label="Select all new hires on this page" className="h-4 w-4 rounded border-gray-300" checked={allOnPage}
+        onChange={() => setSelected((prev) => { const n = new Set(prev); pageIds.forEach((id) => (allOnPage ? n.delete(id) : n.add(id))); return n; })} />,
+      className: "w-10" },
     { label: "New Hire" }, { label: "Position" }, { label: "Department", className: "hidden md:table-cell" }, { label: "Manager", className: "hidden lg:table-cell" },
     { label: "Joining Date" }, { label: "Status" }, { label: "Checklist" }, { label: "Alerts" }, { label: "Actions", className: "text-right" },
   ];
@@ -1351,6 +1388,17 @@ export default function NewHires() {
                   options={JOINING_STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label }))} />
               </div>
             </div>
+            {selected.size > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-2.5 text-sm" role="region" aria-label="Selected new hires">
+                <span className="font-medium text-blue-900">
+                  {bulk ? `Generating… ${bulk.done} of ${bulk.total}` : `${selected.size} selected`}
+                </span>
+                <span className="flex gap-2">
+                  <SecondaryButton onClick={() => setSelected(new Set())} disabled={!!bulk}>Clear</SecondaryButton>
+                  <PrimaryButton icon={Download} onClick={runBulk} disabled={!!bulk}>Generate onboarding documents</PrimaryButton>
+                </span>
+              </div>
+            )}
             <Table columns={columns}
               empty={filtered.length === 0 && (
                 <EmptyState icon={UserPlus} title={records.length === 0 ? (showAllRecords ? "No new hire records yet." : "No candidates have accepted an offer yet.") : "No records match your search."}>
@@ -1367,6 +1415,10 @@ export default function NewHires() {
                   <tr key={r.id} onClick={() => openDetail(r.id)} tabIndex={0} aria-selected={isActive}
                     onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) openDetail(r.id); }}
                     className={`cursor-pointer focus:outline-none focus-visible:bg-blue-50/60 ${isActive ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
+                    <td className={`${td} w-10`} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Select ${r.candidate_name}`} className="h-4 w-4 rounded border-gray-300"
+                        checked={selected.has(r.id)} onChange={() => toggleSelected(r.id)} onKeyDown={(e) => e.stopPropagation()} />
+                    </td>
                     <td className={`${td} min-w-[13rem]`}><PersonCell name={r.candidate_name} sub={r.email} /></td>
                     <td className={td}>
                       <p className="break-words text-gray-800">{r.position || "—"}</p>

@@ -2772,6 +2772,13 @@ class OnboardingDocumentRequest(BaseModel):
 class OnboardingPortalDetails(BaseModel):
     phone: Optional[str] = Field(None, max_length=50)
     address: Optional[str] = Field(None, max_length=300)
+    # structured address parts (optional; Indian-style addresses): printed line by line in the documents
+    house: Optional[str] = Field(None, max_length=150)
+    building: Optional[str] = Field(None, max_length=150)
+    street: Optional[str] = Field(None, max_length=150)
+    landmark: Optional[str] = Field(None, max_length=150)
+    locality: Optional[str] = Field(None, max_length=150)
+    district: Optional[str] = Field(None, max_length=100)
     city: Optional[str] = Field(None, max_length=100)
     state: Optional[str] = Field(None, max_length=100)
     country: Optional[str] = Field(None, max_length=100)

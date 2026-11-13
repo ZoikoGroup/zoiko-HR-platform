@@ -34,6 +34,14 @@ async function loadSettings(t, over = {}) {
     getOfferPackageLogo: async () => ({ blob: new Blob(["png"], { type: "image/png" }), filename: "logo.png" }),
     uploadOfferPackageLogo: async () => ({ settings: { has_logo: true }, clauses: [], documents: [], mode_labels: {} }),
     deleteOfferPackageLogo: async () => ({ settings: { has_logo: false }, clauses: [], documents: [], mode_labels: {} }),
+    getCompanyProfile: async () => ({ profile: { legal_name: "" }, completeness: { percent: 0, missing: [], complete: false }, fields: [] }),
+    saveCompanyProfile: async (p) => ({ profile: p, completeness: { percent: 100, missing: [], complete: true }, fields: [] }),
+    prefillCompanyProfile: async () => ({ proposal: {}, saved: false }),
+    getOnboardingProfiles: async () => ({ engagement_profiles: [], role_profiles: [] }),
+    saveEngagementProfile: async () => ({ engagement_profiles: [], role_profiles: [] }),
+    deleteEngagementProfile: async () => ({ engagement_profiles: [], role_profiles: [] }),
+    saveRoleProfile: async () => ({ engagement_profiles: [], role_profiles: [] }),
+    deleteRoleProfile: async () => ({ engagement_profiles: [], role_profiles: [] }),
   } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/onboarding/settings.jsx?t=${Math.random()}`);
   render(React.createElement(Page));

@@ -98,15 +98,12 @@ function LogoCard({ hasLogo, onChanged, onMessage }) {
 const inputCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 const labelCls = "mb-1 block text-sm font-medium text-gray-700";
 
+// Employer particulars, branding, paper, spelling and date format live in the Company Profile (above); they are never sent
+// from here, so saving this form can't overwrite a newer Company Profile.
+const COMPANY_PROFILE_KEYS = ["legal_name", "registered_address", "header_label", "signatory_name", "signatory_title",
+  "hr_contact_name", "hr_contact_email", "pay_frequency", "brand_primary", "brand_accent", "paper", "spelling", "date_format"];
+
 const TEXT_FIELDS = [
-  ["legal_name", "Employer legal name", "As registered, e.g. Example Holdings Ltd"],
-  ["registered_address", "Registered office address", "Street, town, postcode, country"],
-  ["header_label", "Header label (shown as “LABEL | HR”)", "Optional – the legal name is used if left blank"],
-  ["signatory_name", "Authorised signatory – name", "Who issues offers and contracts"],
-  ["signatory_title", "Authorised signatory – job title", "e.g. Managing Director"],
-  ["hr_contact_name", "HR contact – name", "e.g. People Team"],
-  ["hr_contact_email", "HR contact – e-mail", "e.g. people@example.com"],
-  ["pay_frequency", "Pay frequency", "e.g. monthly"],
   ["leave_entitlement", "Annual leave entitlement (Schedule 1)", "e.g. 25 days plus public holidays"],
   ["post_employment_period", "Confidentiality period after employment (NDA §9)", "As advised by counsel, e.g. two years"],
   ["benefits_reference", "Where benefits are described", "e.g. the Benefits Guide provided with this offer"],
@@ -147,7 +144,7 @@ export default function OfferPackageSettings() {
     setSaving(true);
     setMsg(null);
     try {
-      const payload = { ...form, clauses };
+      const payload = { ...Object.fromEntries(Object.entries(form).filter(([k]) => !COMPANY_PROFILE_KEYS.includes(k))), clauses };
       hydrate(await saveOfferPackageSettings(payload));
       setMsg({ tone: "ok", text: "Offer package settings saved. Documents generated from now on use them; documents already sent are not changed." });
     } catch (e) {
@@ -189,8 +186,8 @@ export default function OfferPackageSettings() {
               documents not sent yet). Documents already sent to an employee are final and are never changed.
             </p>
             <p className="mt-1 text-xs font-medium text-blue-700">
-              The company details below are the only company information printed in the documents. Nothing is taken from your
-              organisation profile, so fill in every field the documents need before sending.
+              Company details, signatory, branding, paper size and date format are set in the Company Profile above. They are the only
+              company information printed in the documents.
             </p>
           </div>
         </div>
@@ -215,34 +212,13 @@ export default function OfferPackageSettings() {
 
           <div className="grid gap-4 sm:grid-cols-2">
             {TEXT_FIELDS.map(([key, label, hint]) => (
-              <div key={key} className={key === "registered_address" ? "sm:col-span-2" : ""}>
+              <div key={key}>
                 <label htmlFor={`op-${key}`} className={labelCls}>{label}</label>
                 <input id={`op-${key}`} className={inputCls} value={form[key] || ""} placeholder={hint}
                   onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))} />
               </div>
             ))}
             <div className="grid grid-cols-2 gap-3 sm:col-span-2 sm:grid-cols-6">
-              {[["brand_primary", "Primary colour"], ["brand_accent", "Accent colour"]].map(([key, label]) => (
-                <div key={key} className="col-span-1 sm:col-span-1">
-                  <label htmlFor={`op-${key}`} className={labelCls}>{label}</label>
-                  <div className="flex items-center gap-2">
-                    <input type="color" aria-label={`${label} picker`} value={form[key] || "#0B3D91"}
-                      onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value.toUpperCase() }))} className="h-9 w-10 shrink-0 cursor-pointer rounded border border-gray-200" />
-                    <input id={`op-${key}`} className={inputCls} value={form[key] || ""} maxLength={7}
-                      onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))} />
-                  </div>
-                </div>
-              ))}
-              {[["paper", "Paper size", [["A4", "A4"], ["LETTER", "US Letter"]]],
-                ["spelling", "Spelling", [["UK", "UK English"], ["US", "US English"]]],
-                ["date_format", "Date format", [["DMY", "10 November 2026"], ["MDY", "November 10, 2026"]]]].map(([key, label, opts]) => (
-                <div key={key}>
-                  <label htmlFor={`op-${key}`} className={labelCls}>{label}</label>
-                  <select id={`op-${key}`} className={inputCls} value={form[key] || opts[0][0]} onChange={(e) => setForm((p) => ({ ...p, [key]: e.target.value }))}>
-                    {opts.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                  </select>
-                </div>
-              ))}
               <div>
                 <label htmlFor="op-response_days" className={labelCls}>Days to respond</label>
                 <input id="op-response_days" type="number" min={1} max={60} className={inputCls} value={form.response_days ?? 7}

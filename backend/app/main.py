@@ -99,6 +99,22 @@ async def lifespan(application: FastAPI):
         except Exception as e:
             logger.warning("[startup] Template catalogue sync could not run: %s", e)
 
+    # Company Profile: every organisation has its row in Settings (empty until HR fills it). Idempotent, leader only.
+    if _leader:
+        try:
+            from app.database import SessionLocal as _ProfileSession
+            from app.modules.hr import company_profile as _company_profile
+
+            _profile_db = _ProfileSession()
+            try:
+                _created = _company_profile.backfill_all(_profile_db)
+                if _created:
+                    logger.info("[startup] Company Profile: created %d missing row(s).", _created)
+            finally:
+                _profile_db.close()
+        except Exception as e:
+            logger.warning("[startup] Company Profile backfill could not run: %s", e)
+
     # Background scheduler: plan-change execution (every minute) + daily billing walks.
     try:
         if _leader:

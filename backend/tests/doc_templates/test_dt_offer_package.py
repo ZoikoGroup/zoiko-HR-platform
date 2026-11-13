@@ -13,6 +13,7 @@ from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
 from tests.doc_templates.p2_support import code
 
 GOVERNING_LAW = "This Agreement is governed by the law of the jurisdiction confirmed by counsel (test wording)."
+REMEDIES = "Remedies wording confirmed by counsel (test wording)."
 
 
 def _pages(pdf: bytes) -> int:
@@ -37,33 +38,55 @@ def test_every_placeholder_is_in_the_dictionary_and_every_hook_has_a_drafting_no
     listed = {r["placeholder"] for r in C.dictionary()}
     used = {"{{%s}}" % t for c in C.CATEGORIES for t in C.tokens_in(c)}
     assert listed == used
-    assert {r["source"] for r in C.dictionary()} <= {"Zoiko HR", "ZoikoTime", "Payroll", "Counsel"}
+    assert not any("ZOIKO" in r["source"].upper() for r in C.dictionary())
 
 
 def test_package_order_ids_and_modes():
     assert [d["title"] for d in C.documents()] == [
         "Offer Letter", "Job Description", "Daily Key Performance Indicators", "Non-Disclosure Agreement", "Employment Contract",
-        "Affidavit of Employment Exclusivity", "Voluntary Self-Disclosure Form", "Job Application Form", "Daily Work Report (DWR)",
+        "Affidavit of Employment Exclusivity", "Self-Disclosure Declaration", "Job Application Form", "Daily Work Report (DWR)",
         "Project Velocity Report"]
     assert C.DOCS["offer_letter"]["template_id"] == "HR-HIR-011" and C.DOCS["employment_contract"]["template_id"] == "HR-CON-001"
-    assert (C.DOCS["self_disclosure"]["sensitivity"], C.DOCS["self_disclosure"]["mode"]) == ("C4", "VOLUNTARY")
+    assert (C.DOCS["self_disclosure"]["sensitivity"], C.DOCS["self_disclosure"]["mode"]) == ("C3", "COMPLETE")
     assert {c for c, d in C.DOCS.items() if d["mode"] == "SIGN"} == {"offer_letter", "nda", "employment_contract",
                                                                      "exclusivity_affidavit"}
 
 
+# v2: Noto Sans (needed for the rupee sign) sets slightly wider than Helvetica; the offer letter's budget is the v2 target of
+# 2–3 pages (onboarding package v2 spec §6.1)
 @pytest.mark.parametrize("cat,low,high", [
-    ("offer_letter", 1, 2), ("job_description", 1, 2), ("daily_kpi", 1, 2), ("nda", 3, 4), ("employment_contract", 6, 10),
-    ("exclusivity_affidavit", 1, 2), ("self_disclosure", 1, 2), ("job_application", 3, 4), ("daily_work_report", 1, 1),
-    ("velocity_report", 2, 3)])
+    ("offer_letter", 1, 3), ("job_description", 1, 2), ("daily_kpi", 1, 2), ("nda", 3, 4), ("employment_contract", 6, 10),
+    ("exclusivity_affidavit", 1, 2), ("self_disclosure", 1, 2), ("job_application", 3, 4), ("daily_work_report", 1, 2),
+    ("velocity_report", 1, 2)])
 def test_page_budget_and_running_header_footer(cat, low, high):
     pdf = R.render_pdf(cat, R.RenderContext(mode="template", org_label="EXAMPLE HOLDINGS", effective_date="10 November 2026"))
     n = _pages(pdf)
     assert low <= n <= high, f"{cat}: {n} pages"
     text = _text(pdf)
     d = C.DOCS[cat]
-    assert "EXAMPLE HOLDINGS | HR" in text and f"{d['template_id']} | v1.0" in text and "Private and Confidential" in text
-    assert f"Page {n} of {n}" in text and "LOGO – insert approved asset" in text
+    assert "EXAMPLE HOLDINGS | HR" in text and f"{d['template_id']} | v{C.PACKAGE_VERSION}" in text and "Private and Confidential" in text
+    assert f"Page {n} of {n}" in text and "insert approved asset" in text
     assert R.DRAFT_STATUS in text and "DRAFT – NOT FOR ISSUE" in text
+
+
+def test_rupee_sign_renders_in_the_embedded_noto_sans_font():
+    """Helvetica has no U+20B9 and printed a box; v2 renders with the bundled Noto Sans, embedded in the PDF."""
+    from pypdf import PdfReader
+    ctx = R.RenderContext(mode="issue", values={"employment.pay_statement": "₹12,000 per month (gross)"}, org_label="EXAMPLE",
+                          effective_date="6 July 2026")
+    pdf = R.render_pdf("offer_letter", ctx)
+    assert "₹12,000 per month (gross)" in _text(pdf)
+    reader = PdfReader(io.BytesIO(pdf))
+    for page in reader.pages:
+        fonts = {k: str(v.get_object()["/BaseFont"]) for k, v in (page["/Resources"].get("/Font") or {}).items()}
+        assert any("NotoSans" in f for f in fonts.values()), fonts
+        # ReportLab's page preamble and empty table cells name its base font, but no text is ever drawn in Helvetica
+        helv = [k for k, v in fonts.items() if v.endswith("Helvetica")]
+        if helv:
+            import re as _re
+            stream = page.get_contents().get_data().decode("latin-1")
+            drawn = _re.findall(r"%s [\d.]+ Tf[^E]*?\((.*?)\) Tj" % _re.escape(helv[0]), stream)
+            assert not [t for t in drawn if t.strip()], drawn
 
 
 def test_template_set_has_cover_documents_and_dictionary_and_no_invented_law():
@@ -84,21 +107,25 @@ def test_forms_ask_nothing_unlawful_and_keep_ack_signature_and_consent_apart():
         assert banned not in app_text
     assert "Do you have the right to work in" in app_text
     sd = _text(R.render_pdf("self_disclosure", R.RenderContext(mode="template")))
-    assert "entirely voluntary" in sd and sd.count("Prefer not to say") >= 8 and "withdraw consent" in sd
-    assert "{{worker.full_name}}" not in sd, "the monitoring form is not tied to a name"
+    assert "Do you work exclusively" in sd and "list every other business or employer" in sd
+    assert "false documents or incorrect information" in sd and "HR / Management Use Only" in sd
+    assert "{{worker.full_name}}" in sd
     offer = _text(R.render_pdf("offer_letter", R.RenderContext(mode="template")))
-    assert "Signing confirms acceptance of the offer only" in offer
+    assert "accept the terms of engagement set out in this letter" in offer
     assert "disciplin" not in _text(R.render_pdf("daily_work_report", R.RenderContext(mode="template"))).lower()
 
 
 def test_supplied_clause_replaces_hook_and_us_spelling():
-    ctx = R.RenderContext(mode="issue", clauses={"governing_law": {"text": GOVERNING_LAW}}, spelling="US", draft=False,
-                          status_text="ISSUED")
+    # v2: governing law is Company Profile data (company.governing_law), the remaining legal wording stays in counsel hooks
+    ctx = R.RenderContext(mode="issue", values={"company.governing_law": GOVERNING_LAW},
+                          clauses={"remedies": {"text": REMEDIES}}, spelling="US", draft=False, status_text="ISSUED")
     html = R.render_html("nda", ctx)
-    assert GOVERNING_LAW in html and "{{clause:governing_law}}" not in html and "{{clause:remedies}}" in html
+    assert GOVERNING_LAW in html and REMEDIES in html and "{{clause:remedies}}" not in html
+    assert "{{clause:confidentiality_and_ip}}" in html, "a hook without counsel wording stays visible"
     assert "DRAFT – NOT FOR ISSUE" not in html
-    jd = R.render_html("job_description", ctx)
-    assert "prioritize" in jd and "prioritise" not in jd and "Licenses" in jd
+    assert "unless authorized" in html and "authorised" not in html
+    app_form = R.render_html("job_application", ctx)
+    assert "Driving license" in app_form and "licence" not in app_form
 
 
 # ── the flow ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -108,7 +135,29 @@ SETTINGS = {"legal_name": "Tenant A Ltd", "registered_address": "1 Sample Street
             "leave_entitlement": "25 days plus public holidays", "post_employment_period": "two years", "pay_frequency": "monthly"}
 INPUTS = {"employment.work_location": "Leeds office", "employment.working_hours": "37.5 hours per week",
           "employment.base_pay": "GBP 42,000 per year", "job.role_purpose": "The Analyst turns data into decisions for the team.",
-          "employment.employment_type": "Full-time"}
+          "employment.employment_type": "Full-time", "employment.reports_to": "Morgan Manager"}
+
+
+# v2: the terms the rebuilt documents print beyond the v1 settings, and the test hires' role (tenant A only — tenant B stays
+# empty so the neutrality checks keep their meaning)
+V2_PROFILE = {"jurisdiction_country": "GB", "jurisdiction_city": "Leeds", "notice_period_value": 4,
+              "notice_period_unit": "weeks", "non_solicit_post_termination_months": 6, "nda_non_solicit_months": 6,
+              "reports_email": "reports@tenant-a.example.com"}
+ANALYST = {"title": "Analyst", "about": ["The Analyst turns data into decisions for the team."],
+           "responsibility_groups": [{"heading": "Analysis", "bullets": ["Prepare weekly reports."]}],
+           "offer_responsibilities": ["Analysis: prepare weekly reports for the team."],
+           "contract_duties": "The Analyst prepares analysis and reports for the team.",
+           "required_skills": ["SQL", "Spreadsheets"],
+           "kpi_areas": [{"title": "Delivery", "bullets": ["Reports on time."], "success": "Every report is on time."}]}
+
+
+@pytest.fixture(autouse=True)
+def _v2_terms(world):
+    from types import SimpleNamespace
+    from app.modules.hr import company_profile, onboarding_profiles
+    actor = SimpleNamespace(id=world.u["a_admin"].id, organization_id=1)
+    company_profile.save_profile(world.db, actor, V2_PROFILE)
+    onboarding_profiles.save_role(world.db, actor, "analyst", ANALYST)
 
 
 def _all_clauses():
@@ -133,15 +182,17 @@ def _states(world, h):
 def test_without_clauses_only_hook_free_documents_are_sent(world):
     h, token = _new_hire(world)
     docs = _states(world, h)
-    assert not docs["nda"]["ready"] and {"governing_law", "remedies"} <= {c["key"] for c in docs["nda"]["missing_clauses"]}
+    assert not docs["nda"]["ready"] and {"confidentiality_and_ip", "remedies"} <= {c["key"] for c in docs["nda"]["missing_clauses"]}
     r = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert {i["category"] for i in body["issued"]} == {"daily_kpi", "daily_work_report", "velocity_report"}, \
-        "documents without clause hooks go out; the rest wait for counsel wording"
-    assert {x["category"] for x in body["held"]} >= {"offer_letter", "nda", "employment_contract"}
+    assert {i["category"] for i in body["issued"]} == {"daily_kpi", "daily_work_report"}, \
+        "documents without clause hooks or missing company data go out; the rest wait"
+    held = {x["category"]: x for x in body["held"]}
+    assert set(held) >= {"offer_letter", "nda", "employment_contract", "velocity_report"}
+    assert "company.group_name_caps" in held["velocity_report"]["missing_fields"], "no company name saved yet"
     rows = {r.category: r.status for r in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=h.id)}
-    assert rows == {"daily_kpi": "requested", "daily_work_report": "available", "velocity_report": "available"}
+    assert rows == {"daily_kpi": "requested", "daily_work_report": "available"}
     from app.modules.hr import onboarding_flow
     assert onboarding_flow.progress(world.db, h)["documents_total"] == 1, "information documents never block completion"
     preview = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/nda/preview.pdf")
@@ -174,12 +225,12 @@ def test_full_package_journey(world):
 
     body = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package").json()
     issued = {i["category"] for i in body["issued"]}
-    assert issued == {"offer_letter", "job_description", "daily_kpi", "self_disclosure", "job_application", "daily_work_report",
-                      "velocity_report"}
+    assert issued == {"offer_letter", "job_description", "daily_kpi", "self_disclosure", "job_application",
+                      "daily_work_report", "velocity_report"}
     held = {x["category"]: x for x in body["held"]}
     assert set(held) == {"nda", "employment_contract", "exclusivity_affidavit"}
-    assert "worker.postal_address" in held["nda"]["missing_fields"]
-    assert held["exclusivity_affidavit"]["missing_fields"] == ["worker.postal_address"], "Schedule A is completed at signing"
+    assert "worker.address_inline" in held["nda"]["missing_fields"]
+    assert held["exclusivity_affidavit"]["missing_fields"] == ["worker.address_inline"], "Schedule A is completed at signing"
     assert body["email_sent"] is True
     again = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package").json()
     assert again["issued"] == [], "a live document is never issued twice"
@@ -193,7 +244,7 @@ def test_full_package_journey(world):
     # candidate: portal shows modes; address releases NDA + contract; declaration releases the affidavit
     portal = world.client.get(f"/public/onboarding/{token}").json()
     modes = {d["category"]: d["package_mode"] for d in portal["documents"]}
-    assert modes["job_description"] == "ACKNOWLEDGE" and modes["self_disclosure"] == "VOLUNTARY"
+    assert modes["job_description"] == "ACKNOWLEDGE" and modes["self_disclosure"] == "COMPLETE"
     assert set(portal["package"]["needs"]) == {"address", "outside_activities"}
     r = world.client.put(f"/public/onboarding/{token}/details",
                          json={"address": "5 River Road", "city": "York", "postal_code": "YO1 1AA", "country": "United Kingdom"})
@@ -258,17 +309,18 @@ def test_full_package_journey(world):
                           json={"text_version": P.ACK_TEXT_VERSION})
     assert a.status_code == 200 and next(d for d in a.json()["documents"] if d["id"] == jd["id"])["acknowledged_at"]
 
-    # the blank application form is downloadable; voluntary/information documents never block completion
+    # The application form and numbered self-disclosure declaration are completed in the portal.
     f = world.client.get(f"/public/onboarding/{token}/package/job_application/file")
     assert f.status_code == 200 and "Job Application Form" in _text(f.content)
     states = _states(world, h)
     assert states["nda"]["state"] == "completed" and states["job_description"]["state"] == "completed"
-    assert states["self_disclosure"]["state"] == "available" and states["job_application"]["state"] == "awaiting_upload"
+    assert states["self_disclosure"]["state"] == "awaiting_upload" and states["job_application"]["state"] == "awaiting_upload"
     from app.modules.hr import onboarding_flow
     prog = onboarding_flow.progress(world.db, h)
-    assert prog["documents_total"] == 7, "voluntary and information documents are not counted"
+    assert prog["documents_total"] == 8, "information documents are not counted"
     items = [i.title for c in h.checklists for i in c.items if not i.is_deleted]
-    assert "Sign Non-Disclosure Agreement" in items and not any("Self-Disclosure" in t or "Velocity" in t for t in items)
+    assert "Sign Non-Disclosure Agreement" in items and "Complete and return Self-Disclosure Declaration" in items
+    assert not any("Velocity" in t or "Daily Work Report" in t for t in items), "information documents are not checklist items"
 
 
 def test_old_upload_requests_are_replaced_and_deleting_revokes_the_signing_link(world):
@@ -373,6 +425,8 @@ def test_settings_changes_apply_to_new_documents_only_sent_ones_are_final(world)
     assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": {
         **_all_clauses(), "governing_law": {"text": "Old governing law wording."}}}).status_code == 200
     first, token = _new_hire(world)
+    from app.modules.hr import company_profile
+    company_profile.save_profile(world.db, world.u["a_admin"], {"governing_law_text": "Old governing law wording."})
     world.put("a_admin", f"/hr/onboarding/new-hires/{first.id}/package/inputs", json={"values": INPUTS})
     world.post("a_admin", f"/hr/onboarding/new-hires/{first.id}/send-package")
     world.client.put(f"/public/onboarding/{token}/details", json={"address": "5 River Road", "city": "York", "country": "UK"})
@@ -380,8 +434,8 @@ def test_settings_changes_apply_to_new_documents_only_sent_ones_are_final(world)
     tok = nda["sign_url"].rsplit("/", 1)[1]
 
     # the org admin edits the wording again; the hire's own details change too
-    r = world.put("a_admin", "/hr/onboarding/package/settings", json={"clauses": {"governing_law": {"text": "New governing law wording."}}})
-    assert r.status_code == 200 and next(c for c in r.json()["clauses"] if c["key"] == "governing_law")["text"] == "New governing law wording."
+    r = world.put("a_admin", "/hr/onboarding/company-profile", json={"governing_law_text": "New governing law wording."})
+    assert r.status_code == 200 and r.json()["profile"]["governing_law_text"] == "New governing law wording."
     world.put("a_admin", f"/hr/onboarding/new-hires/{first.id}", json={"position": "Senior Analyst"})
     html = world.client.get(f"/public/documents/sign/{tok}").json()["html"]
     assert "Old governing law wording." in html and "New governing law wording." not in html, "a sent document never changes"
@@ -577,7 +631,7 @@ def test_only_the_onboarding_settings_supply_company_information(world):
     from pypdf import PdfReader
     h0, _t0 = _new_hire(world)
     held = P.readiness(P.render_context(world.db, h0, "offer_letter", final=True), "offer_letter")
-    assert not held["ready"] and {"employer.legal_name", "employer.signatory_name", "employer.hr_contact"} <= set(held["missing_fields"]), \
+    assert not held["ready"] and {"company.legal_name", "employer.signatory_name", "employer.hr_contact"} <= set(held["missing_fields"]), \
         "nothing saved yet: held, never filled from the organisation record"
     assert P.get_config(world.db, 1)["legal_name"] == "" and P.header_label(P.get_config(world.db, 1)) == ""
 
@@ -600,8 +654,8 @@ def test_only_the_onboarding_settings_supply_company_information(world):
             for banned in ("Tenant A", "TENANT A", "ZOIKO", "Zoiko Group", "ZG-ENG", "ZHR-1042", "insert approved asset",
                            "Legal risk level", "Sensitivity level", "{{"):
                 assert banned not in out, (cat, what, banned)
-        if cat in ("self_disclosure", "job_application", "velocity_report"):
-            assert PdfReader(io.BytesIO(pdf)).pages[0].images, f"{cat}: tick boxes are drawn as empty squares"
+        if cat in ("self_disclosure", "job_application", "daily_work_report"):
+            assert any(pg.images for pg in PdfReader(io.BytesIO(pdf)).pages), f"{cat}: tick boxes are drawn as empty squares"
             assert "ZapfDingbats" not in pdf.decode("latin-1"), f"{cat}: the old shadowed-box glyph printed as a black square"
     assert "Brightwave Analytics Ltd" in _text(R.render_pdf("offer_letter", P.render_context(world.db, h, "offer_letter", final=True)))
 

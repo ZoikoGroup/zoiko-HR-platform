@@ -1,11 +1,14 @@
 import { useEffect, useRef } from "react";
-import { Check, PenTool, ArrowRight, Pencil, ShieldCheck, MapPin, Phone } from "lucide-react";
+import { Check, PenTool, ShieldCheck, MapPin, Phone } from "lucide-react";
+import useStayOnPage from "./useStayOnPage";
 
 // Shown after the new hire submits their pre-onboarding details in the portal. White and blue, matching the
-// "onboarding complete" page: a clear confirmation, what was recorded, and the next step.
+// "onboarding complete" page: a clear confirmation and what was recorded. A final page: no buttons, and the browser's
+// Back button keeps the new hire here. Remaining steps are reached again from the onboarding link in their e-mail.
 
-export default function DetailsSubmitted({ organizationName, candidateName, details, phone, released = 0, nextActions = 0, onContinue, onEdit }) {
+export default function DetailsSubmitted({ organizationName, candidateName, details, phone, released = 0, nextActions = 0 }) {
   const headingRef = useRef(null);
+  useStayOnPage();
   useEffect(() => { headingRef.current?.focus(); }, []);
   const first = (candidateName || "").trim().split(/\s+/)[0];
   const address = [details?.address, details?.city, details?.state, details?.postal_code, details?.country].filter(Boolean).join(", ");
@@ -56,26 +59,19 @@ export default function DetailsSubmitted({ organizationName, candidateName, deta
                     ? `${released} ${released === 1 ? "agreement is" : "agreements are"} now ready for your signature`
                     : `${nextActions} onboarding ${nextActions === 1 ? "step is" : "steps are"} still waiting for you`}
                 </p>
-                <p className="mt-0.5 text-xs text-blue-800/80">Continue to your onboarding portal to finish the remaining steps.</p>
+                <p className="mt-0.5 text-xs text-blue-800/80">Open the onboarding link in your e-mail again whenever you are ready to complete them.</p>
               </div>
             </div>
           )}
 
-          <div className="mt-8 flex flex-col-reverse gap-3 sm:flex-row sm:justify-center">
-            <button type="button" onClick={onEdit}
-              className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500">
-              <Pencil size={15} aria-hidden="true" /> Edit details
-            </button>
-            <button type="button" onClick={onContinue}
-              className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm shadow-blue-600/20 hover:bg-blue-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2">
-              Continue onboarding <ArrowRight size={16} aria-hidden="true" />
-            </button>
-          </div>
         </section>
 
-        <p className="mt-8 flex items-center justify-center gap-1.5 text-xs text-slate-400">
-          <ShieldCheck size={14} className="text-blue-500" aria-hidden="true" /> Secured by Zoiko HR
-        </p>
+        <div className="mt-8 flex flex-col items-center gap-3 text-center">
+          <p className="text-sm font-medium text-slate-600">You can now close this window.</p>
+          <p className="inline-flex items-center gap-1.5 text-xs text-slate-400">
+            <ShieldCheck size={14} className="text-blue-500" aria-hidden="true" /> Secured by Zoiko HR
+          </p>
+        </div>
       </main>
     </div>
   );

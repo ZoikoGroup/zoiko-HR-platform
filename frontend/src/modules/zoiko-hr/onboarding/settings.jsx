@@ -5,6 +5,8 @@ import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTe
 import { humanizeValidationError } from "../../../utils/validationMessage";
 import FinanceViewersSetting from "./FinanceViewersSetting";
 import OfferPackageSettings from "./OfferPackageSettings";
+import CompanyProfileSettings from "./CompanyProfileSettings";
+import OnboardingProfilesSettings from "./OnboardingProfilesSettings";
 import { PrimaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 
@@ -340,6 +342,8 @@ export default function OnboardingSettings() {
           </div>
         </div>
 
+        <CompanyProfileSettings />
+        <OnboardingProfilesSettings />
         <OfferPackageSettings />
         <FinanceViewersSetting />
       </div>
