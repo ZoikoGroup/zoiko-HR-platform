@@ -3,11 +3,25 @@ import io
 import zipfile
 from datetime import date, timedelta
 
+import pytest
 from docx import Document
 
 from app.modules.hr import onboarding_package as P
 from app.modules.hr import onboarding_package_content as C
 from app.modules.hr.models import OnboardingNewHire
+
+
+@pytest.fixture(autouse=True)
+def _v2_terms(world):
+    """v2: the Company Profile and Role Profile the documents without clause hooks (KPIs, Daily Work Report) need."""
+    from types import SimpleNamespace
+    from app.modules.hr import company_profile, onboarding_profiles
+    actor = SimpleNamespace(id=world.u["a_admin"].id, organization_id=1)
+    company_profile.save_profile(world.db, actor, {"reports_email": "reports@tenant-a.example.com"})
+    onboarding_profiles.save_role(world.db, actor, "analyst", {
+        "title": "Analyst", "about": ["The Analyst turns data into decisions."],
+        "responsibility_groups": [{"heading": "Analysis", "bullets": ["Prepare weekly reports."]}],
+        "kpi_areas": [{"title": "Delivery", "bullets": ["Reports on time."], "success": "Every report is on time."}]})
 
 
 def _hire(world, name="Ravuri Rugvedh"):

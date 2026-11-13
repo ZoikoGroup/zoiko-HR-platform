@@ -557,7 +557,9 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
             statement += f", paid on the {day} of each month for the preceding period"
 
     if amount is None and v1.get("employment.base_pay"):             # no offer: the pay HR typed for this hire
-        amount = statement = v1["employment.base_pay"]
+        amount = v1["employment.base_pay"]
+        # the statement carries the period too ("GBP 42,000 per year, paid monthly"), as the v1 pay terms did
+        statement = v1.get("employment.pay_terms") or amount
     start = hire.joining_date or (offer.joining_date if offer else None)
     issue = F.to_date(inputs.get("document.issue_date")) or date.today()
     duties = role.get("contract_duties") or " ".join(role.get("offer_responsibilities") or []) or None
@@ -852,6 +854,19 @@ def _is_recruitment_letter(db, hire, row) -> bool:
     return bool(offer is not None and getattr(offer, "document_id", None) == row.document_id)
 
 
+# v2 documents print the hire's address as address_block / address_inline, both computed from the one postal address the
+# new hire enters in the portal (or HR types in for them): a gap in either is reported as that one input.
+ADDRESS_INPUT = "worker.postal_address"
+_ADDRESS_FORMS = {"worker.address_block", "worker.address_inline"}
+
+
+def _reported_missing(keys: list) -> list:
+    out: dict = {}
+    for k in keys:
+        out.setdefault(ADDRESS_INPUT if k in _ADDRESS_FORMS else k, None)
+    return list(out)
+
+
 def package_view(db, hire) -> dict:
     cfg = get_config(db, hire.organization_id)
     rows = _rows(db, hire)
@@ -869,9 +884,9 @@ def package_view(db, hire) -> dict:
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
             "missing_fields": [{"key": k, "meaning": C.FIELDS[k][0], "source": C.FIELDS[k][1],
-                                "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == "worker.postal_address",
-                                "hr_may_enter": k == "worker.postal_address"}
-                               for k in gaps["missing_fields"]],
+                                "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == ADDRESS_INPUT,
+                                "hr_may_enter": k == ADDRESS_INPUT}
+                               for k in _reported_missing(gaps["missing_fields"])],
             "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
         })
     pkg = (hire.profile_details or {}).get("_package") or {}
@@ -1382,7 +1397,7 @@ def outstanding_for_hire(db, hire) -> list[dict]:
         if cat not in C.DOCS or mode_of(cat) in ("VOLUNTARY", "INFO"):
             continue
         gaps = readiness(render_context(db, hire, cat, final=True), cat)
-        if not gaps["ready"] and not gaps["missing_clauses"] and set(gaps["missing_fields"]) <= {"worker.postal_address"}:
+        if not gaps["ready"] and not gaps["missing_clauses"] and set(_reported_missing(gaps["missing_fields"])) <= {ADDRESS_INPUT}:
             continue                       # waiting only for the hire's own address: already listed above as their step
         # otherwise HR still has to complete the settings and/or press Send: the hire has not received it yet
         out.append({"title": C.DOCS[cat]["title"], "action": "wait for HR to send"})

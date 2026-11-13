@@ -13,6 +13,7 @@ from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
 from tests.doc_templates.p2_support import code
 
 GOVERNING_LAW = "This Agreement is governed by the law of the jurisdiction confirmed by counsel (test wording)."
+REMEDIES = "Remedies wording confirmed by counsel (test wording)."
 
 
 def _pages(pdf: bytes) -> int:
@@ -115,13 +116,16 @@ def test_forms_ask_nothing_unlawful_and_keep_ack_signature_and_consent_apart():
 
 
 def test_supplied_clause_replaces_hook_and_us_spelling():
-    ctx = R.RenderContext(mode="issue", clauses={"governing_law": {"text": GOVERNING_LAW}}, spelling="US", draft=False,
-                          status_text="ISSUED")
+    # v2: governing law is Company Profile data (company.governing_law), the remaining legal wording stays in counsel hooks
+    ctx = R.RenderContext(mode="issue", values={"company.governing_law": GOVERNING_LAW},
+                          clauses={"remedies": {"text": REMEDIES}}, spelling="US", draft=False, status_text="ISSUED")
     html = R.render_html("nda", ctx)
-    assert GOVERNING_LAW in html and "{{clause:governing_law}}" not in html and "{{clause:remedies}}" in html
+    assert GOVERNING_LAW in html and REMEDIES in html and "{{clause:remedies}}" not in html
+    assert "{{clause:confidentiality_and_ip}}" in html, "a hook without counsel wording stays visible"
     assert "DRAFT – NOT FOR ISSUE" not in html
-    jd = R.render_html("job_description", ctx)
-    assert "prioritize" in jd and "prioritise" not in jd and "Licenses" in jd
+    assert "unless authorized" in html and "authorised" not in html
+    app_form = R.render_html("job_application", ctx)
+    assert "Driving license" in app_form and "licence" not in app_form
 
 
 # ── the flow ─────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -137,7 +141,8 @@ INPUTS = {"employment.work_location": "Leeds office", "employment.working_hours"
 # v2: the terms the rebuilt documents print beyond the v1 settings, and the test hires' role (tenant A only — tenant B stays
 # empty so the neutrality checks keep their meaning)
 V2_PROFILE = {"jurisdiction_country": "GB", "jurisdiction_city": "Leeds", "notice_period_value": 4,
-              "notice_period_unit": "weeks", "non_solicit_post_termination_months": 6, "nda_non_solicit_months": 6}
+              "notice_period_unit": "weeks", "non_solicit_post_termination_months": 6, "nda_non_solicit_months": 6,
+              "reports_email": "reports@tenant-a.example.com"}
 ANALYST = {"title": "Analyst", "about": ["The Analyst turns data into decisions for the team."],
            "responsibility_groups": [{"heading": "Analysis", "bullets": ["Prepare weekly reports."]}],
            "offer_responsibilities": ["Analysis: prepare weekly reports for the team."],
@@ -177,15 +182,17 @@ def _states(world, h):
 def test_without_clauses_only_hook_free_documents_are_sent(world):
     h, token = _new_hire(world)
     docs = _states(world, h)
-    assert not docs["nda"]["ready"] and {"governing_law", "remedies"} <= {c["key"] for c in docs["nda"]["missing_clauses"]}
+    assert not docs["nda"]["ready"] and {"confidentiality_and_ip", "remedies"} <= {c["key"] for c in docs["nda"]["missing_clauses"]}
     r = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package")
     assert r.status_code == 200, r.text
     body = r.json()
-    assert {i["category"] for i in body["issued"]} == {"daily_kpi", "daily_work_report", "velocity_report"}, \
-        "documents without clause hooks go out; the rest wait for counsel wording"
-    assert {x["category"] for x in body["held"]} >= {"offer_letter", "nda", "employment_contract"}
+    assert {i["category"] for i in body["issued"]} == {"daily_kpi", "daily_work_report"}, \
+        "documents without clause hooks or missing company data go out; the rest wait"
+    held = {x["category"]: x for x in body["held"]}
+    assert set(held) >= {"offer_letter", "nda", "employment_contract", "velocity_report"}
+    assert "company.group_name_caps" in held["velocity_report"]["missing_fields"], "no company name saved yet"
     rows = {r.category: r.status for r in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=h.id)}
-    assert rows == {"daily_kpi": "requested", "daily_work_report": "available", "velocity_report": "available"}
+    assert rows == {"daily_kpi": "requested", "daily_work_report": "available"}
     from app.modules.hr import onboarding_flow
     assert onboarding_flow.progress(world.db, h)["documents_total"] == 1, "information documents never block completion"
     preview = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/nda/preview.pdf")
@@ -219,9 +226,9 @@ def test_full_package_journey(world):
     body = world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package").json()
     issued = {i["category"] for i in body["issued"]}
     assert issued == {"offer_letter", "job_description", "daily_kpi", "self_disclosure", "job_application",
-                      "velocity_report"}
+                      "daily_work_report", "velocity_report"}
     held = {x["category"]: x for x in body["held"]}
-    assert set(held) == {"nda", "employment_contract", "exclusivity_affidavit", "daily_work_report"}
+    assert set(held) == {"nda", "employment_contract", "exclusivity_affidavit"}
     assert "worker.address_inline" in held["nda"]["missing_fields"]
     assert held["exclusivity_affidavit"]["missing_fields"] == ["worker.address_inline"], "Schedule A is completed at signing"
     assert body["email_sent"] is True
@@ -312,7 +319,8 @@ def test_full_package_journey(world):
     prog = onboarding_flow.progress(world.db, h)
     assert prog["documents_total"] == 8, "information documents are not counted"
     items = [i.title for c in h.checklists for i in c.items if not i.is_deleted]
-    assert "Sign Non-Disclosure Agreement" in items and not any("Self-Disclosure" in t or "Velocity" in t for t in items)
+    assert "Sign Non-Disclosure Agreement" in items and "Complete and return Self-Disclosure Declaration" in items
+    assert not any("Velocity" in t or "Daily Work Report" in t for t in items), "information documents are not checklist items"
 
 
 def test_old_upload_requests_are_replaced_and_deleting_revokes_the_signing_link(world):
@@ -390,8 +398,7 @@ def test_the_documents_list_api_carries_the_package_mode(world):
     body = world.get("a_admin", "/hr/onboarding/documents", params={"onboarding_record_id": h.id}).json()
     items = body if isinstance(body, list) else body["items"]
     modes = {d["category"]: d.get("package_mode") for d in items}
-    assert modes["offer_letter"] == "SIGN" and modes["job_description"] == "ACKNOWLEDGE"
-    assert "daily_work_report" not in modes, "the DWR is not issued while its required manager data is missing"
+    assert modes["offer_letter"] == "SIGN" and modes["job_description"] == "ACKNOWLEDGE" and modes["daily_work_report"] == "INFO"
 
 
 def test_a_completion_that_cannot_create_the_employee_leaves_the_hire_as_it_was(world, monkeypatch):
@@ -647,8 +654,8 @@ def test_only_the_onboarding_settings_supply_company_information(world):
             for banned in ("Tenant A", "TENANT A", "ZOIKO", "Zoiko Group", "ZG-ENG", "ZHR-1042", "insert approved asset",
                            "Legal risk level", "Sensitivity level", "{{"):
                 assert banned not in out, (cat, what, banned)
-        if cat in ("self_disclosure", "job_application", "velocity_report"):
-            assert PdfReader(io.BytesIO(pdf)).pages[0].images, f"{cat}: tick boxes are drawn as empty squares"
+        if cat in ("self_disclosure", "job_application", "daily_work_report"):
+            assert any(pg.images for pg in PdfReader(io.BytesIO(pdf)).pages), f"{cat}: tick boxes are drawn as empty squares"
             assert "ZapfDingbats" not in pdf.decode("latin-1"), f"{cat}: the old shadowed-box glyph printed as a black square"
     assert "Brightwave Analytics Ltd" in _text(R.render_pdf("offer_letter", P.render_context(world.db, h, "offer_letter", final=True)))
 
