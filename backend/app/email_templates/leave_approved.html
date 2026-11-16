@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Leave request approved" %}
 {% set preheader = "Review the approved period and required actions for request " ~ request_reference ~ "." %}
 {% set badge = "Approved" %}

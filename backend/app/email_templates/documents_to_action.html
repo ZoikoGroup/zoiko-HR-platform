@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Documents to action" %}
 {% set preheader = "You have " ~ pending_count ~ " document(s) waiting in Zoiko HR." %}
 {% set badge = "Action needed" %}

@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Leave request submitted" %}
 {% set preheader = "Your leave request " ~ request_reference ~ " was submitted and is pending review." %}
 {% set badge = "Pending review" %}

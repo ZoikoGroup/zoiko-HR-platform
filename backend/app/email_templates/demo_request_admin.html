@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "New demo request" %}
 {% set preheader = full_name ~ " from " ~ company ~ " booked a demo (" ~ reference ~ ")." %}
 {% set badge = "New demo request" %}

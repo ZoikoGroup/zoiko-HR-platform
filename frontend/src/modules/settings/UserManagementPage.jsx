@@ -526,10 +526,12 @@ export default function UserManagementPage() {
   });
 
   const handleActivate = (user) => confirmAction(isSuperAdmin ? superAdminService.activateTenantAdmin : activateUser, user, {
-    title: "Activate User",
-    message: `Activate ${user.first_name} ${user.last_name}? They will regain access.`,
+    title: user.status === "pending" ? "Activate Employee Account" : "Activate User",
+    message: user.status === "pending"
+      ? `Activate ${user.first_name} ${user.last_name}'s employee account? They will be emailed their login details and can sign in straight away.`
+      : `Activate ${user.first_name} ${user.last_name}? They will regain access.`,
     confirmLabel: "Activate",
-    successMsg: "User activated.",
+    successMsg: user.status === "pending" ? "Employee account activated. The login details were emailed." : "User activated.",
   });
 
   const handleSuspend = (user) => confirmAction(isSuperAdmin ? superAdminService.suspendTenantAdmin : suspendUser, user, {

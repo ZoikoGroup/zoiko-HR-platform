@@ -80,6 +80,18 @@ def test_requisition_to_employee(world):
     assert c.status.value == "hired" and c.onboarding_new_hire_id, "accepting the offer hires the candidate and starts onboarding"
     assert world.db.get(RecruitmentRequisition, req["id"]).filled == 1
 
+    # ── accepting the offer creates the employee account at once: Pending, in User Management, not able to sign in ──
+    from app.modules.employee.models import Employee
+    pending = world.db.query(Employee).filter(Employee.email == email).one()
+    assert (pending.first_name, pending.last_name, pending.job_title) == ("Ishaan", "Candidate", "Backend Engineer")
+    assert pending.status.value == "pending" and pending.is_active is False and pending.organization_id == 1
+    assert pending.reporting_manager_id == world.u["a_manager"].id and pending.employee_code
+    listed = _ok(world.get("a_admin", "/hr/employee-management/employees?per_page=200&include_all_roles=true"))
+    assert email in {u["email"] for u in (listed["items"] if isinstance(listed, dict) else listed)}, "shown in User Management"
+    login = world.client.post("/auth/login", json={"email": email, "password": "anything"})
+    assert login.status_code in (401, 403)
+    pending_id = pending.id
+
     # ── the new hire carries the offer's terms ──
     hire = world.db.get(OnboardingNewHire, c.onboarding_new_hire_id)
     assert (hire.position, hire.work_country, hire.manager_id) == ("Backend Engineer", "IN", world.u["a_manager"].id)
@@ -175,9 +187,28 @@ def test_requisition_to_employee(world):
     r = world.put("a_admin", f"/hr/onboarding/new-hires/{hire.id}", json={"status": "completed"})          # "Complete onboarding"
     done = _ok(r)
     assert done["status"] == "completed"
-    from app.modules.employee.models import Employee
+    world.db.expire_all()
     emp = world.db.query(Employee).filter(Employee.email == email).one()
     assert emp.organization_id == 1
+    assert emp.id == pending_id, "completing onboarding links the account made at acceptance, never a second one"
+    assert emp.status.value == "pending" and emp.is_active is False, "only an admin activates the account"
+    assert not any(t == "welcome.html" for (to, t, c) in world.mail if to == email)
+
+    # ── the admin activates it in User Management: now it signs in, and the login details are e-mailed ──
+    activated = _ok(world.post("a_admin", f"/hr/admin/users/{emp.id}/activate"))
+    assert activated["status"] == "active"
+    world.db.expire_all()
+    emp = world.db.get(Employee, pending_id)
+    assert emp.is_active is True and emp.must_change_password is True
+    welcome = [c for (to, t, c) in world.mail if to == email and t == "welcome.html"]
+    assert len(welcome) == 1 and welcome[0]["temporary_password"]
+    world.client.cookies.clear()
+    login = world.client.post("/auth/login", json={"email": email, "password": welcome[0]["temporary_password"]})
+    assert login.status_code == 200, login.text
+    signed_in = login.json()["employee"]
+    assert signed_in.get("mustChangePassword") or signed_in.get("must_change_password"), "first sign-in asks for a new password"
+    emp.must_change_password = False                   # they choose their own password (the change-password page)
+    world.db.commit()
     # ── the new employee sees their own signed documents in self-service ──
     from tests.privacy.support import token_for
     mine = world.client.get("/hr/me/generated-documents", headers=token_for(emp))
@@ -229,3 +260,45 @@ def test_a_newly_hired_employee_gets_the_package_in_one_send(world):
     token = onboarding_flow.current_portal_url(world.db, world.db.get(OnboardingNewHire, hire_id)).rsplit("/", 1)[1]
     view = _ok(world.client.post(f"/public/onboarding/{token}/outside-activities", json={"none": True}))
     assert next(d for d in view["documents"] if d["category"] == "exclusivity_affidavit")["sign_url"]
+
+
+def test_pending_account_follows_the_hire_cancel_reopen_and_email_change(world):
+    from app.modules.employee.models import Employee
+    from app.modules.hr import service as hr_service
+    from app.modules.hr.schemas import OnboardingNewHireUpdate
+
+    hire = OnboardingNewHire(candidate_name="Mira Pending", email="mira.pending@example.com", position="Analyst",
+                             status="offer_accepted", organization_id=1)
+    world.db.add(hire)
+    world.db.commit()
+    emp = hr_service.create_pending_employee_for_hire(world.db, hire, 1)
+    assert emp is not None and emp.status.value == "pending" and not emp.is_active
+    assert hr_service.create_pending_employee_for_hire(world.db, hire, 1) is None, "never a second account"
+
+    hr_service.update_new_hire(world.db, hire.id, OnboardingNewHireUpdate(email="mira.p@example.com"), 1)
+    world.db.expire_all()
+    assert world.db.get(Employee, emp.id).email == "mira.p@example.com", "the pending account follows an e-mail correction"
+
+    hr_service.update_new_hire(world.db, hire.id, OnboardingNewHireUpdate(status="cancelled"), 1)
+    world.db.expire_all()
+    assert world.db.get(Employee, emp.id).status.value == "archived"
+
+    hr_service.update_new_hire(world.db, hire.id, OnboardingNewHireUpdate(status="offer_accepted"), 1)
+    world.db.expire_all()
+    assert world.db.get(Employee, emp.id).status.value == "pending", "reopening the hire restores the account"
+
+    hr_service.delete_new_hire(world.db, hire.id, 1)
+    world.db.expire_all()
+    assert world.db.get(Employee, emp.id).status.value == "archived"
+
+
+def test_no_account_is_created_for_an_email_that_signs_in_to_another_organization(world):
+    from app.modules.hr import service as hr_service
+
+    other = world.db.query(__import__("app.modules.employee.models", fromlist=["Employee"]).Employee) \
+        .filter(__import__("app.modules.employee.models", fromlist=["Employee"]).Employee.organization_id != 1).first()
+    hire = OnboardingNewHire(candidate_name="Dup Person", email=other.email, position="Analyst",
+                             status="offer_accepted", organization_id=1)
+    world.db.add(hire)
+    world.db.commit()
+    assert hr_service.create_pending_employee_for_hire(world.db, hire, 1) is None

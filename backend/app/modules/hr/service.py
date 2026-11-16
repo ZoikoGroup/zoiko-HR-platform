@@ -1703,6 +1703,7 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
                 ),
                 leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves",
                 db=db,
+                organization_id=org_id,
             )
     except Exception as e:
         logger.warning(f"[email] Failed to notify employee about leave request {record.id}: {e}")
@@ -3394,68 +3395,188 @@ def _hire_entity(db: Session, new_hire, organization_id: int):
     return e.id if e is not None else None
 
 
-def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> tuple["Employee", Optional[str]]:
-    """Create an Employee record from an OnboardingNewHire when onboarding completes.
+def _hire_employee_fields(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> dict:
+    """The employee record's fields for a new hire: the candidate and accepted offer (name, position, department, manager,
+    start date, work country, pay) plus anything the hire entered or HR verified during onboarding."""
+    from app.modules.employee.models import EmploymentType
 
-    If an employee with the same email already exists in the SAME organization,
-    link to that existing employee instead of creating a duplicate.
-
-    Returns (employee, temp_password). temp_password is None when linking existing.
-    """
-    from app.modules.employee.models import Employee as EmpModel, EmployeeStatus, EmploymentType, UserRole
-    from app.core.security import hash_password
-    from app.core.code_generation import generate_employee_code
-
-    existing = db.query(EmpModel).filter(
-        EmpModel.email == new_hire.email,
-        EmpModel.organization_id == organization_id,
-    ).first()
     pay = _offer_pay_fields(db, new_hire)
-    note = pay.pop("_currency_note", None)
-    if note:
-        log_onboarding_activity(db, new_hire.id, "Check pay currency", note, organization_id)
-    if existing:
-        # already an employee (e.g. added by an employee import): link, and fill pay/country only where it is empty
-        for field, value in pay.items():
-            if getattr(existing, field, None) in (None, ""):
-                setattr(existing, field, value)
-        new_hire.employee_id = existing.id
-        db.commit()
-        return existing, None
-
+    pay.pop("_currency_note", None)
     name_parts = (new_hire.candidate_name or "").strip().split(" ", 1)
-    first_name = name_parts[0] if name_parts else "Unknown"
+    first_name = name_parts[0] if name_parts and name_parts[0] else "Unknown"
     last_name = name_parts[1] if len(name_parts) > 1 else "Unknown"
-
-    temp_password = _generate_temp_password()
-    emp_code = generate_employee_code(db, organization_id=organization_id)
-
     profile = {**_profile_fields(new_hire), **pay}         # the offer's work country and CTC win over the typed address country
     # names and phone the new hire verified on the structured new-starter form win over the name typed on the offer
     first_name = profile.pop("first_name", None) or first_name
     last_name = profile.pop("last_name", None) or last_name
     phone = profile.pop("phone", None) or new_hire.phone or ""
+    return {
+        "first_name": first_name, "last_name": last_name, "phone": phone,
+        "job_title": new_hire.position or "Employee",
+        "employment_type": _employment_type_for(new_hire, EmploymentType),
+        "date_of_joining": new_hire.joining_date or date.today(),
+        "department_id": new_hire.department_id,
+        "reporting_manager_id": new_hire.manager_id,
+        # jurisdiction facts captured while hiring (doc_templates): where the person will work, never guessed
+        "work_country": new_hire.work_country,
+        "work_region": new_hire.work_region,
+        "employing_entity_id": _hire_entity(db, new_hire, organization_id),
+        **profile,
+    }
+
+
+def _status_of(employee) -> str:
+    return getattr(employee.status, "value", employee.status)
+
+
+def _is_pending_hire_account(employee) -> bool:
+    """An account created when the offer was accepted and not activated yet: Pending and disabled, so it holds no seat and
+    cannot sign in."""
+    from app.modules.employee.models import EmployeeStatus
+    return _status_of(employee) == EmployeeStatus.PENDING.value and not employee.is_active
+
+
+def _hire_account(db: Session, new_hire: OnboardingNewHire, organization_id: int):
+    """The employee in this organization with the hire's e-mail, if any."""
+    from app.modules.employee.models import Employee as EmpModel
+    return db.query(EmpModel).filter(func.lower(EmpModel.email) == (new_hire.email or "").strip().lower(),
+                                     EmpModel.organization_id == organization_id).first()
+
+
+def create_pending_employee_for_hire(db: Session, new_hire: OnboardingNewHire, organization_id: int):
+    """When the candidate accepts their offer, their employee account is created at once from the candidate and offer
+    details, so HR sees them in User Management. It stays Pending: it takes no seat and cannot sign in until an admin
+    activates it in User Management, which sends the welcome e-mail with the first temporary password.
+
+    Best effort: accepting the offer never fails because of this. Returns the employee, or None when none was created."""
+    from app.modules.employee.models import Employee as EmpModel, EmployeeStatus, UserRole
+    from app.core.security import hash_password
+    from app.core.code_generation import generate_employee_code
+    import secrets
+
+    if new_hire is None or not (new_hire.email or "").strip() or new_hire.employee_id:
+        return None
+    try:
+        existing = _identity_query(db).filter(func.lower(EmpModel.email) == new_hire.email.strip().lower()).first()
+        if existing is not None:
+            if existing.organization_id != organization_id:
+                log_onboarding_activity(db, new_hire.id, "Employee Account Not Created",
+                                        f"{new_hire.email} already signs in to another organization, so no account was created "
+                                        "for it here. Use a different e-mail address for this hire.", organization_id)
+            elif _status_of(existing) == EmployeeStatus.ARCHIVED.value and not existing.is_active:
+                existing.status = EmployeeStatus.PENDING             # a cancelled hire was reopened
+                db.commit()
+                return existing
+            return None                                     # already an employee here: completing onboarding links it
+        fields = _hire_employee_fields(db, new_hire, organization_id)
+        with db.begin_nested():
+            employee = EmpModel(
+                email=new_hire.email.strip(),
+                hashed_password=hash_password(secrets.token_urlsafe(32)),   # never sent; replaced when the account is activated
+                employee_code=generate_employee_code(db, organization_id=organization_id),
+                role=UserRole.EMPLOYEE, status=EmployeeStatus.PENDING, is_active=False,
+                organization_id=organization_id, **fields,
+            )
+            db.add(employee)
+            db.flush()
+        db.commit()
+        db.refresh(employee)
+        log_onboarding_activity(db, new_hire.id, "Employee Account Created",
+                                f"Pending employee account created for {new_hire.candidate_name} (code: {employee.employee_code}) "
+                                "when the offer was accepted. An admin activates it in User Management.", organization_id)
+        return employee
+    except Exception:
+        db.rollback()
+        logger.exception("pending employee account for new hire %s could not be created", getattr(new_hire, "id", None))
+        return None
+
+
+def archive_pending_employee_for_hire(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> None:
+    """The hire was cancelled or deleted before joining: the pending account created at offer acceptance is archived."""
+    from app.modules.employee.models import EmployeeStatus
+    if new_hire is None or not new_hire.email or new_hire.employee_id:
+        return
+    try:
+        emp = _hire_account(db, new_hire, organization_id)
+        if emp is not None and _status_of(emp) == EmployeeStatus.PENDING.value and not emp.is_active:
+            emp.status = EmployeeStatus.ARCHIVED
+            db.commit()
+            log_onboarding_activity(db, new_hire.id, "Employee Account Archived",
+                                    f"The pending employee account of {new_hire.candidate_name} was archived.", organization_id)
+    except Exception:
+        db.rollback()
+        logger.exception("pending employee account for new hire %s could not be archived", getattr(new_hire, "id", None))
+
+
+def _move_pending_account_email(db: Session, new_hire: OnboardingNewHire, old_email: Optional[str], organization_id: int) -> None:
+    """HR corrected the hire's e-mail: the pending account created at offer acceptance follows it (when the new address is
+    free), so completing onboarding activates that account instead of creating a second one."""
+    from app.modules.employee.models import Employee as EmpModel
+    if not old_email or new_hire.employee_id:
+        return
+    try:
+        emp = db.query(EmpModel).filter(func.lower(EmpModel.email) == old_email.strip().lower(),
+                                        EmpModel.organization_id == organization_id).first()
+        if emp is None or not _is_pending_hire_account(emp):
+            return
+        if _identity_query(db).filter(func.lower(EmpModel.email) == new_hire.email.strip().lower()).first() is not None:
+            return
+        emp.email = new_hire.email.strip()
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("pending account e-mail for new hire %s could not be updated", new_hire.id)
+
+
+def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> tuple["Employee", Optional[str]]:
+    """Link (or create) the Employee record for an OnboardingNewHire when onboarding completes. It never switches an
+    account on: an admin activates it in User Management, which sends the first temporary password and the welcome e-mail.
+
+    - The pending account created when the offer was accepted is linked and its details are refreshed from onboarding.
+    - Any other employee with the same e-mail in the SAME organization is linked instead of creating a duplicate.
+    - Otherwise a Pending account is created.
+
+    Returns (employee, temp_password); temp_password is always None now (no credentials are issued here).
+    """
+    from app.modules.employee.models import Employee as EmpModel, EmployeeStatus, UserRole
+    from app.core.security import hash_password
+    from app.core.code_generation import generate_employee_code
+    import secrets
+
+    existing = _hire_account(db, new_hire, organization_id)
+    note = _offer_pay_fields(db, new_hire).get("_currency_note")
+    if note:
+        log_onboarding_activity(db, new_hire.id, "Check pay currency", note, organization_id)
+    fields = _hire_employee_fields(db, new_hire, organization_id)
+
+    if existing is not None and _is_pending_hire_account(existing):
+        for field, value in fields.items():
+            if value not in (None, ""):
+                setattr(existing, field, value)
+        new_hire.employee_id = existing.id
+        db.commit()
+        db.refresh(existing)
+        return existing, None
+
+    if existing is not None:
+        # already an employee (e.g. added by an employee import): link, and fill pay/country only where it is empty
+        for field in ("country", "ctc"):
+            if field in fields and getattr(existing, field, None) in (None, ""):
+                setattr(existing, field, fields[field])
+        new_hire.employee_id = existing.id
+        db.commit()
+        return existing, None
+
+    emp_code = generate_employee_code(db, organization_id=organization_id)
     employee = EmpModel(
         email=new_hire.email,
-        hashed_password=hash_password(temp_password),
-        first_name=first_name,
-        last_name=last_name,
-        phone=phone,
+        hashed_password=hash_password(secrets.token_urlsafe(32)),   # never sent; replaced when an admin activates the account
         employee_code=emp_code,
-        job_title=new_hire.position or "Employee",
         role=UserRole.EMPLOYEE,
-        employment_type=_employment_type_for(new_hire, EmploymentType),
-        status=EmployeeStatus.ACTIVE,
-        is_active=True,
-        date_of_joining=new_hire.joining_date or date.today(),
-        department_id=new_hire.department_id,
-        reporting_manager_id=new_hire.manager_id,
-        # jurisdiction facts captured while hiring (doc_templates): where the person will work, never guessed
-        work_country=new_hire.work_country,
-        work_region=new_hire.work_region,
-        employing_entity_id=_hire_entity(db, new_hire, organization_id),
+        status=EmployeeStatus.PENDING,
+        is_active=False,
         organization_id=organization_id,
-        **profile,
+        **fields,
     )
     db.add(employee)
     db.flush()
@@ -3465,10 +3586,7 @@ def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, o
 
     new_hire.employee_id = employee.id
     db.commit()
-
-    _send_welcome_email(db, employee, temp_password)
-
-    return employee, temp_password
+    return employee, None
 
 
 def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate, organization_id: int, actor=None) -> dict:
@@ -3517,7 +3635,8 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
         new_hire = get_new_hire_by_id(db, new_hire_id, organization_id)
         log_onboarding_activity(
             db, new_hire.id, "Employee Created",
-            f"Employee record created for {new_hire.candidate_name} (code: {employee.employee_code}).",
+            f"Employee record ready for {new_hire.candidate_name} (code: {employee.employee_code}). It stays Pending until "
+            "an admin activates it in User Management.",
             organization_id,
         )
         onboarding_flow.notify_completed(db, new_hire, employee)
@@ -3532,6 +3651,12 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
             onboarding_documents.on_onboarding_completed(db, new_hire, employee, actor)   # HR-ONB-004/-022, -020, -010/-011
         except Exception:
             db.rollback()
+    if update_data.get("email") and (restore.get("email") or "").strip().lower() != str(update_data["email"]).strip().lower():
+        _move_pending_account_email(db, new_hire, restore.get("email"), organization_id)
+    if update_data.get("status") == "cancelled" and previous_status != "cancelled":
+        archive_pending_employee_for_hire(db, new_hire, organization_id)
+    elif previous_status == "cancelled" and update_data.get("status") in onboarding_flow.ACTIVE_STATUSES:
+        create_pending_employee_for_hire(db, new_hire, organization_id)          # reopened: restore the pending account
     if completing:
         pass                                            # the account and its records were created above
     elif update_data.get("status") and update_data["status"] != previous_status:
@@ -3547,6 +3672,7 @@ def delete_new_hire(db: Session, new_hire_id: int, organization_id: int) -> None
     new_hire = get_new_hire_by_id(db, new_hire_id, organization_id)
     if new_hire.status == "completed":
         raise BadRequestException("A completed onboarding cannot be deleted: the employee account exists. Deactivate the employee instead.")
+    archive_pending_employee_for_hire(db, new_hire, organization_id)
     new_hire.is_deleted = True
     new_hire.portal_token_hash = None
     new_hire.portal_token_enc = None

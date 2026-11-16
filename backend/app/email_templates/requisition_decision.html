@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Job requisition " ~ decision_label|lower %}
 {% set preheader = "Your requisition for " ~ title_text ~ " was " ~ decision_label|lower ~ "." %}
 {% set badge = decision_label %}

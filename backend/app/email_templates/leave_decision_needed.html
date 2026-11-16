@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "A leave request needs your decision today" %}
 {% set preheader = "Leave request " ~ request_reference ~ " is waiting for a same-day decision." %}
 {% set badge = "Action needed" %}

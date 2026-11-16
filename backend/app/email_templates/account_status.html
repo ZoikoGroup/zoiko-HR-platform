@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Account status updated" %}
 {% set preheader = "Your Zoiko HR account status is now " ~ status_label ~ "." %}
 {% set badge = status_label %}

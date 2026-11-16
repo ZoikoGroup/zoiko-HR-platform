@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Employee record update" %}
 {% set preheader = "There is an update to your employee record: " ~ event_label ~ "." %}
 {% block content %}

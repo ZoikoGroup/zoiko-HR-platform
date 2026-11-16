@@ -150,6 +150,13 @@ _WRITE_INVALIDATION = [
     (r"/hr/travel", "/hr/travel"),
     (r"/hr/ess", "/hr/ess"),
     (r"/hr/onboarding", "/hr/onboarding"),
+    # accepting an offer (HR records it, or the candidate signs the letter on the public link) creates the hire's pending
+    # employee account, and cancelling / deleting the hire archives it: User Management must show that at once
+    (r"/hr/recruitment", "/hr/employee"),
+    (r"/hr/onboarding", "/hr/employee"),
+    (r"/public/documents/sign", "/hr/employee"),
+    (r"/public/documents/sign", "/hr/recruitment"),
+    (r"/public/documents/sign", "/hr/onboarding"),
     (r"/hr/learning", "/hr/learning"),
     (r"/hr/recruitment", "/hr/recruitment"),
     (r"/hr/workforce", "/hr/workforce"),

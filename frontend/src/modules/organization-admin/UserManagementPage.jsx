@@ -739,8 +739,10 @@ export default function OrgAdminUserManagementPage() {
 
   const handleActivate = (u) => setConfirmAction({
     user: u,
-    title: "Activate User",
-    message: `Activate ${u.name}? They will regain access.`,
+    title: u.status === "Pending" ? "Activate Employee Account" : "Activate User",
+    message: u.status === "Pending"
+      ? `Activate ${u.name}'s employee account? They will be emailed their login details and can sign in straight away.`
+      : `Activate ${u.name}? They will regain access.`,
     confirmLabel: "Activate",
     fn: activateUser,
   });
