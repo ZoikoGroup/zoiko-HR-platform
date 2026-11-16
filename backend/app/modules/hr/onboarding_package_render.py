@@ -206,6 +206,10 @@ def expand(blocks: list, ctx: "RenderContext") -> list:
             if ctx.mode == "template" or _truthy(ctx.values.get(b["key"])):
                 out += expand(b["blocks"], ctx)
             continue
+        if t == "kv" and b.get("optional") and ctx.mode != "template":   # rows whose optional value is unset are left out
+            skip = {v for v in b["optional"] if not _truthy(ctx.values.get(v.strip("{} ")))}
+            out.append({**b, "rows": [r for r in b["rows"] if r[1] not in skip]})
+            continue
         if t in ("list", "groups", "kpis"):
             key = b["src"].strip("{} ")
             items = ctx.values.get(key) if ctx.mode != "template" else None
@@ -538,7 +542,7 @@ class PdfBuilder:
         while i < len(blocks):
             b = blocks[i]
             nxt = blocks[i + 1] if i + 1 < len(blocks) else None
-            if not self._width_override and b["t"] in ("h2", "h3") and nxt and nxt["t"] in ("table", "kv", "fields", "textbox", "checks")                     and len(nxt.get("rows", [])) <= 14:
+            if not self._width_override and b["t"] in ("h2", "h3") and nxt and nxt["t"] in ("table", "kv", "fields", "textbox", "checks", "signature")                     and len(nxt.get("rows", [])) <= 14:
                 head = [f for f in self._block(b) if not isinstance(f, CondPageBreak)]
                 body = []
                 for f in self._block(nxt):          # nested KeepTogether mis-measures; flatten it into this one
@@ -560,6 +564,8 @@ class PdfBuilder:
         if t == "center":
             return self._para(b["text"], "center")
         if t == "note":
+            if "{{" in b["text"]:                # v2 notes carry a value token (velocity motto, affidavit stamp note)
+                return self._para(b["text"], "note")
             return [Paragraph(escape(ctx.spell(b["text"])), s["note"])]
         if t in ("bullets", "numbered"):
             out = []

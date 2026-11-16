@@ -317,6 +317,26 @@ def _fmt_date(d, cfg) -> Optional[str]:
     return f"{d.strftime('%B')} {d.day:02d}, {d.year}" if cfg.get("date_format") == "MDY" else f"{d.day:02d} {d.strftime('%B %Y')}"
 
 
+def response_deadline(cfg: dict, start=None, issue=None) -> date:
+    """The "sign by" date printed in the offer letter: the issue date plus the response days, but never after the start
+    date (the letter asks for documents to be verified before the start). A start already in the past is not a cap."""
+    def _d(v):
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, str):
+            try:
+                return date.fromisoformat(v[:10])
+            except ValueError:
+                return None
+        return v
+    base = _d(issue) or date.today()
+    deadline = base + timedelta(days=int(cfg.get("response_days") or 7))
+    start = _d(start)
+    if start and start >= base and deadline > start:
+        deadline = start
+    return deadline
+
+
 def _pretty(v: Optional[str]) -> Optional[str]:
     if not v:
         return None
@@ -424,7 +444,7 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "employment.benefits_reference": cfg.get("benefits_reference") or None,
         "employment.leave_entitlement": cfg.get("leave_entitlement") or None,
         "employment.country": country_name(country_code) if country_code else (cfg.get("jurisdiction") or None),
-        "offer.response_deadline": _fmt_date(date.today() + timedelta(days=int(cfg.get("response_days") or 7)), cfg),
+        "offer.response_deadline": _fmt_date(response_deadline(cfg, start, hire_inputs(hire).get("document.issue_date")), cfg),
         "offer.secure_link": secure_link,
         "contract.id": contract_id,
         "agreement.post_employment_period": cfg.get("post_employment_period") or None,
@@ -529,7 +549,7 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     # Keep the package's existing counsel-clause setting as a compatibility source
     # for organisations that have not yet migrated this wording into Company Profile.
     clause_law = ((cfg.get("clauses") or {}).get("governing_law") or {}).get("text")
-    law = (profile.get("governing_law_text") or clause_law or "").strip() or None
+    law = (profile.get("governing_law_text") or clause_law or "").strip().rstrip(".").strip() or None   # template adds the "."
     if law is None and profile.get("jurisdiction_country") and profile.get("jurisdiction_city"):
         country = country_name(profile["jurisdiction_country"]) or profile["jurisdiction_country"]
         law = f"the laws of {country}; the courts at {profile['jurisdiction_city']} have exclusive jurisdiction"
@@ -598,6 +618,11 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "engagement.assessment_months": eng.get("assessment_months"),
         "engagement.assessment_label": eng.get("assessment_label") or None,
         "engagement.conversion_text": eng.get("conversion_text") or None,
+        "engagement.conversion_heading": ("Programme Structure and Conversion Pathway" if eng.get("programme_name")
+                                          else f"{eng.get('assessment_label') or 'Probation'} and Confirmation"),
+        "engagement.conversion_paragraph": eng.get("conversion_text") or (
+            "Conversion to the next stage is not automatic and depends on the review at the end of the "
+            f"{eng.get('assessment_label') or 'Probation'}."),
         "engagement.remuneration_label": eng.get("remuneration_label") or None,
         "engagement.work_schedule": _work_schedule(eng),
         "engagement.saturday_rule": eng.get("saturday_rule") or None,

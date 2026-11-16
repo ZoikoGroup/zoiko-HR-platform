@@ -72,9 +72,37 @@ function Toggle({ id, checked, onChange, label }) {
   );
 }
 
+/** A heading that introduces one part of the page (A: automation, B: documents). */
+function PartHeading({ id, letter, title, help }) {
+  return (
+    <div id={id} className="scroll-mt-24 pt-2">
+      <p className="text-[11px] font-semibold uppercase tracking-wide text-blue-600">Part {letter}</p>
+      <h2 className="text-lg font-semibold text-gray-900">{title}</h2>
+      <p className="mt-0.5 text-sm text-gray-500">{help}</p>
+    </div>
+  );
+}
+
+// "On this page" navigation: the anchors are the section ids rendered below (and in the section components).
+const PAGE_NAV = [
+  { href: "#automation", label: "A. New-hire automation", children: [
+    { href: "#os-step-1", label: "1. Checklists" },
+    { href: "#os-step-2", label: "2. Documents requested" },
+    { href: "#os-step-3", label: "3. Pre-onboarding link" },
+    { href: "#os-step-4", label: "4. Reminders" },
+    { href: "#os-step-5", label: "5. Completion rules" },
+  ] },
+  { href: "#documents", label: "B. Onboarding documents", children: [
+    { href: "#company-profile", label: "Company profile" },
+    { href: "#onboarding-profiles", label: "Engagement & role profiles" },
+    { href: "#offer-package", label: "Offer package & clauses" },
+    { href: "#finance-viewers", label: "Finance viewers" },
+  ] },
+];
+
 function Section({ step, icon: Icon, title, help, children }) {
   return (
-    <section aria-labelledby={`os-section-${step}`} className="rounded-2xl border border-gray-200/80 bg-white shadow-sm">
+    <section id={`os-step-${step}`} aria-labelledby={`os-section-${step}`} className="scroll-mt-24 rounded-2xl border border-gray-200/80 bg-white shadow-sm">
       <div className="flex items-start gap-3 border-b border-gray-100 px-5 py-4">
         <span className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-hidden="true">
           {Icon ? <Icon className="h-5 w-5" /> : <span className="text-sm font-bold">{step}</span>}
@@ -143,6 +171,15 @@ export default function OnboardingSettings() {
     })();
     return () => { mounted = false; };
   }, [reloadKey]);
+
+  // Warn before leaving the page with unsaved automation changes (steps 1–5).
+  const isDirty = !loading && JSON.stringify(form) !== JSON.stringify(saved);
+  useEffect(() => {
+    if (!isDirty) return undefined;
+    const warn = (e) => { e.preventDefault(); e.returnValue = ""; };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [isDirty]);
 
   const set = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -241,6 +278,9 @@ export default function OnboardingSettings() {
           </div>
         )}
 
+        <PartHeading id="automation" letter="A" title="New-hire automation"
+          help="What happens automatically when a new hire is created. Steps 1–5 are saved together with the Save button at the end of this part." />
+
         <Section step={1} icon={ClipboardCheck} title="Checklists assigned automatically" help="Every new hire gets a copy of these templates as soon as they are created.">
           {templates.length === 0 ? (
             <p className="text-sm text-gray-500">
@@ -263,7 +303,10 @@ export default function OnboardingSettings() {
           <FieldError msg={errors.auto_template_ids} />
         </Section>
 
-        <Section step={2} icon={FileText} title="Documents requested from new hires" help="These are requested from every new hire; they upload them through their pre-onboarding link.">
+        <Section step={2} icon={FileText} title="Documents requested from new hires" help="Uploads requested from every new hire through their pre-onboarding link. The 10 offer-package documents (offer letter, contract, NDA…) are set up in Part B.">
+          {form.required_document_categories.length === 0 && (
+            <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">No documents will be requested. Tick at least ID proof and bank details for payroll.</p>
+          )}
           <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
             {DOCUMENT_CATEGORIES.map((c) => {
               const on = form.required_document_categories.includes(c.value);
@@ -329,18 +372,22 @@ export default function OnboardingSettings() {
         <div className="sticky bottom-0 z-10 rounded-2xl border border-gray-200/80 bg-white/95 px-4 py-3 shadow-[0_-6px_20px_rgba(15,23,42,0.08)] backdrop-blur">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <p className="text-sm text-gray-600">
+              <span className="font-medium text-gray-800">New-hire automation (steps 1–5): </span>
               {errorCount ? <span className="text-rose-600">{errorCount} field{errorCount === 1 ? " needs" : "s need"} attention</span>
-                : dirty ? "You have unsaved changes." : "No unsaved changes."}
+                : dirty ? <span className="text-amber-700">unsaved changes</span> : "all changes saved"}
             </p>
             <div className="flex flex-wrap gap-2">
               <button type="button" onClick={() => { setForm(saved); setErrors({}); }} disabled={!dirty || saving}
                 className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50">
                 Discard changes
               </button>
-              <PrimaryButton icon={Save} onClick={handleSave} disabled={saving}>{saving ? "Saving..." : "Save Settings"}</PrimaryButton>
+              <PrimaryButton icon={Save} onClick={handleSave} disabled={saving || !dirty}>{saving ? "Saving..." : "Save automation settings"}</PrimaryButton>
             </div>
           </div>
         </div>
+
+        <PartHeading id="documents" letter="B" title="Onboarding documents"
+          help="What the 10 offer-package documents print. Work top to bottom: company details, then the engagement and role profiles, then the clause wording. Each section has its own Save button." />
 
         <CompanyProfileSettings />
         <OnboardingProfilesSettings />
@@ -349,6 +396,21 @@ export default function OnboardingSettings() {
       </div>
 
       <aside className="space-y-4 xl:sticky xl:top-4 xl:self-start">
+        <nav aria-label="On this page" className="hidden rounded-2xl border border-gray-200/80 bg-white p-5 shadow-sm xl:block">
+          <p className="text-sm font-semibold text-gray-900">On this page</p>
+          <ul className="mt-3 space-y-3 text-sm">
+            {PAGE_NAV.map((part) => (
+              <li key={part.href}>
+                <a href={part.href} className="font-medium text-gray-800 hover:text-blue-700">{part.label}</a>
+                <ul className="mt-1 space-y-1 border-l border-gray-100 pl-3">
+                  {part.children.map((c) => (
+                    <li key={c.href}><a href={c.href} className="text-gray-500 hover:text-blue-700">{c.label}</a></li>
+                  ))}
+                </ul>
+              </li>
+            ))}
+          </ul>
+        </nav>
         <div className="rounded-2xl border border-blue-100 bg-blue-50/60 p-5 text-sm text-gray-600">
           <p className="mb-1 inline-flex items-center gap-2 font-semibold text-gray-800"><Info className="h-4 w-4 text-blue-600" />How onboarding runs</p>
           <p>
