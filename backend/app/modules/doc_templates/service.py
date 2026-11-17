@@ -80,6 +80,20 @@ def letterhead(entity, organization) -> dict:
             "registration": reg, "logo_path": logo}
 
 
+def _signer_names(ctx: fields.FieldContext) -> dict:
+    """The name printed under each person's signature line. The executed copy keeps the issued pages unchanged, so the
+    candidate's (or employee's) name has to be on them from the start or that block stays empty after signing."""
+    names = {}
+    for party, key in (("candidate", "candidate.full_name"), ("employee", "worker.full_name")):
+        try:
+            name = (ctx.formatted(key) or "").strip()
+        except Exception:
+            name = ""
+        if name:
+            names[party] = name
+    return names
+
+
 def build_input(ctx: fields.FieldContext, *, blocks: list, clauses: dict, required_clause_keys: list, number: str, title: str,
                 sensitivity: str, letterhead_info: dict, author: str, signatures: Optional[dict] = None) -> renderer.RenderInput:
     refs = set(fields.REGISTRY)
@@ -108,7 +122,7 @@ def build_input(ctx: fields.FieldContext, *, blocks: list, clauses: dict, requir
     return renderer.RenderInput(
         blocks=blocks, value_of=value_of, raw_values=raw, clause_text=clause_text, required_clause_keys=required_clause_keys,
         rows_of=rows_of, items_of=items_of, form_values=dict(ctx.form_values or {}), checklist_state=dict(ctx.checklist_state or {}),
-        signatures=signatures or {}, document_number=number, title=title,
+        signatures=signatures or {}, signer_names=_signer_names(ctx), document_number=number, title=title,
         verify_url=verify_url(number) if number else "", confidential=sensitivity in ("C3", "C4"), language=ctx.language,
         letterhead=letterhead_info, author=author,
         visual_profile="offer_letter" if ctx.canonical_id in {

@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Interview result recorded" %}
 {% set preheader = candidate_name ~ " – " ~ result_label ~ " (" ~ position ~ ")." %}
 {% set badge = result_label %}

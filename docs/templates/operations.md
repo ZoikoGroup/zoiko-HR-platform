@@ -33,6 +33,7 @@
 | `HR_DOC_SIGN_OTP_TTL_MINUTES` | `10` | signing code lifetime |
 | `HR_DOC_SIGN_OTP_MAX_ATTEMPTS` | `5` | wrong codes before a code dies |
 | `FRONTEND_URL` | — | base of links in e-mails and of the printed verification URL |
+| `HR_ONBOARDING_PACKAGE_V2` | `true` | onboarding package v2 formatting (Noto Sans so ₹ prints, …); `false` renders the package with Helvetica as in v1. Turn it on in production after HR / counsel QA of the generated packages |
 
 Per tenant: `doc_template_settings.automation_rules["_generation"] = "off"` stops generation for one organization (Documents
 centre → Automation, organization admin). Plan features per template family / execution mode / automation / bulk are configured in
@@ -41,6 +42,15 @@ centre → Automation, organization admin). Plan features per template family / 
 **Rollback plan.** Set `HR_TEMPLATES_ENABLED=false` (or the tenant switch): generation stops with `TEMPLATES_DISABLED`, everything
 issued stays readable and actionable. Code rollback below `d7e1a0b2c3f4` is not needed for that; the migrations can be reversed
 one at a time if a schema rollback is ever required (sickness reasons are decrypted back on the Prompt 3 downgrade).
+
+## Onboarding package: Company Profile backfill, DOCX, bulk jobs
+
+- On start-up the leader creates a (empty) Company Profile row for every organisation that has none — idempotent
+  (`company_profile.backfill_all`). New organisations get theirs at registration.
+- DOCX downloads need `python-docx` (in `requirements.txt`).
+- Bulk generation (`POST /hr/onboarding/package/bulk-generate`, ≤ 50 hires) runs on a background thread in the process that
+  received the request; progress is stored in `organization_configs` (`onboarding_package.bulk_job:<id>`) so any worker can report
+  it, and the ZIP goes to the document store. A process restart mid-job leaves it `running`; start a new job.
 
 ## Scheduled jobs (leader only)
 

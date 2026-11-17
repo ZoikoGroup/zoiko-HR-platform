@@ -885,6 +885,12 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.commit()
     db.refresh(org)
     emit_event(db, "organization.created", {"id": org.id, "name": org.name, "code": org.organization_code}, org.id)
+    try:                                             # every organisation has its (empty) Company Profile in Settings
+        from app.modules.hr import company_profile
+        company_profile.ensure_profile(db, org.id)
+    except Exception:
+        db.rollback()
+        logger.exception("company profile could not be created for new organisation %s", org.id)
 
     dept_code = f"MGMT_{org.id}"
     dept_department_code = f"{org_code}DEP001"
@@ -990,13 +996,13 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     # Send registration confirmation email (non-blocking)
     from app.services.email_service import send_registration_received
     try:
-        send_registration_received(data.email, org.name, db=db)
+        send_registration_received(data.email, org.name, db=db, organization_id=org.id)
     except Exception as e:
         logger.warning(f"[email] Failed to send registration email to admin {data.email}: {e}")
 
     if data.registered_email and data.registered_email != data.email:
         try:
-            send_registration_received(data.registered_email, org.name, db=db)
+            send_registration_received(data.registered_email, org.name, db=db, organization_id=org.id)
         except Exception as e:
             logger.warning(f"[email] Failed to send registration email to {data.registered_email}: {e}")
 
@@ -1456,13 +1462,25 @@ def activate_organization_user(
     from app.modules.billing import seat_policy
     if not seat_policy.occupies_seat(user.status, user.is_active):
         seat_policy.check_can_add(db, user.organization_id)
+    # A Pending account that has never had a working password (the account a new hire gets when they accept their offer)
+    # is switched on here, by the admin, and only here: it gets its first temporary password and the welcome e-mail.
+    status_value = getattr(user.status, "value", user.status)
+    first_activation = status_value == EmployeeStatus.PENDING.value and not user.is_active and user.password_changed_at is None
+    temp_password = None
+    if first_activation:
+        temp_password = _generate_temp_password()
+        user.hashed_password = hash_password(temp_password)
+        user.must_change_password = True
     user.is_active = True
     user.status = EmployeeStatus.ACTIVE
     user.updated_by = updated_by_id
     db.commit()
     db.refresh(user)
 
-    if user.role == UserRole.ADMIN:
+    if first_activation:
+        from app.modules.hr.service import _send_welcome_email
+        _send_welcome_email(db, user, temp_password)
+    elif user.role == UserRole.ADMIN:
         _notify_email(
             "send_org_admin_account_activated_email",
             email=user.email,

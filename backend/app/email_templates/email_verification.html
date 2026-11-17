@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Confirm your email address" %}
 {% set preheader = "Confirm this is your email address to finish setting up your Zoiko HR account. The link expires at " ~ expires_at_local ~ " " ~ timezone ~ "." %}
 {% set badge = "Security" %}

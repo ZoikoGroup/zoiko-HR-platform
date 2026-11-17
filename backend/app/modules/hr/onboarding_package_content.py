@@ -123,6 +123,8 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "engagement.assessment_months": ("Length of the assessment / probation period (months)", ZHR, False, ""),
     "engagement.assessment_label": ("Name of the assessment / probation period", ZHR, True, None),
     "engagement.conversion_text": ("Programme structure and conversion pathway", ZHR, False, ""),
+    "engagement.conversion_heading": ("Heading over the conversion / confirmation wording", ZHR, False, ""),
+    "engagement.conversion_paragraph": ("Conversion / confirmation wording in the contract", ZHR, False, ""),
     "engagement.remuneration_label": ("How pay is described (e.g. Monthly Stipend, Salary)", ZHR, True, None),
     "engagement.work_schedule": ("Working days and hours", ZHR, True, None),
     "engagement.saturday_rule": ("Saturday working rule", ZHR, False, ""),

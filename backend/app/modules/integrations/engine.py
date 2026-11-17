@@ -105,7 +105,7 @@ def _step_email(db, step, ctx, transport):
     to = render(step["to"], ctx).strip()
     if "@" not in to:
         raise StepError(f"Invalid recipient email: '{to}'.")
-    ok, err = send_plain_email(to, render(step["subject"], ctx), render(step["body"], ctx), db=db)
+    ok, err = send_plain_email(to, render(step["subject"], ctx), render(step["body"], ctx), db=db, organization_id=(ctx or {}).get("organization_id"))
     if not ok:
         raise StepError(f"Email failed: {err}")
     return f"Email sent to {to}."

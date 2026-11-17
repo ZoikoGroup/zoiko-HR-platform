@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "New pricing request" %}
 {% set preheader = full_name ~ " from " ~ company ~ " asked for pricing (" ~ reference ~ ")." %}
 {% set badge = "New pricing request" %}

@@ -586,6 +586,9 @@ def _handle_candidate_hired(db: Session, candidate: RecruitmentCandidate, organi
     new_hire = _create_onboarding_record_for_hire(db, candidate, organization_id)
     if is_first_hire and candidate.requisition_id:
         _increment_requisition_filled(db, candidate.requisition_id)
+    # the accepted candidate gets their (pending) employee account straight away, so HR sees them in User Management
+    from app.modules.hr.service import create_pending_employee_for_hire
+    create_pending_employee_for_hire(db, new_hire, new_hire.organization_id if new_hire is not None else organization_id)
     return new_hire
 
 

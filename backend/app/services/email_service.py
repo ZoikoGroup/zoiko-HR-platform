@@ -111,6 +111,7 @@ class RenderedEmail:
     text: str
     inline_images: tuple = ()  # (cid, filename) pairs when CID logo mode is on
     branding: dict = None
+    inline_data: tuple = ()  # (cid, png bytes) pairs, e.g. the organization's own logo
 
 
 def _frontend_url() -> str:
@@ -177,9 +178,57 @@ def email_asset_base() -> str:
     return f"{PRODUCTION_APP_URL}/email"
 
 
-def _layout_context(branding: dict, context: dict) -> dict:
+ORG_LOGO_CID = "org-logo"
+ORG_LOGO_MAX_DISPLAY = (200, 48)  # px; the inlined file is up to 2x this so it stays sharp on high-DPI screens
+
+
+def _org_logo_for_email(png: bytes):
+    """Scale an organization logo down for email and return (png, display_width, display_height), or None when the
+    image cannot be read."""
+    try:
+        import io as _io
+        from PIL import Image
+
+        img = Image.open(_io.BytesIO(png))
+        img.load()
+        img = img.convert("RGBA")
+        max_w, max_h = ORG_LOGO_MAX_DISPLAY
+        img.thumbnail((max_w * 2, max_h * 2))
+        scale = 0.5  # shown at half its pixel size (2x)
+        if img.height * scale < 24:  # a small upload: show it larger rather than unreadably tiny
+            scale = min(1.0, max_w / img.width, max_h / img.height)
+        width, height = max(1, round(img.width * scale)), max(1, round(img.height * scale))
+        out = _io.BytesIO()
+        img.save(out, format="PNG", optimize=True)
+        return out.getvalue(), width, height
+    except Exception as e:
+        logger.warning(f"[email] Organization logo could not be prepared for email: {e}")
+        return None
+
+
+_ORG_LOGO_CACHE: dict = {}
+
+
+def _uploaded_org_logo(db, organization_id):
+    """The logo the organization uploaded (Onboarding › Settings › Offer package), prepared for email, or None."""
+    from app.modules.hr import onboarding_package
+
+    cfg = onboarding_package.get_config(db, organization_id)
+    key = cfg.get("logo_key")
+    if not key:
+        return None
+    if key not in _ORG_LOGO_CACHE:  # the storage key changes on every upload, so a cached entry never goes stale
+        data = onboarding_package.logo_bytes(db, organization_id, cfg)
+        _ORG_LOGO_CACHE[key] = _org_logo_for_email(data) if data else None
+    return _ORG_LOGO_CACHE[key]
+
+
+def _layout_context(branding: dict, context: dict, org_logo=None) -> dict:
     """Variables owned by the base layout. Applied last so a caller's context
-    can never replace the Zoiko HR logo (§5.2 immutable identity)."""
+    can never replace the Zoiko HR logo (§5.2 immutable identity).
+
+    The organization is the main brand of its own emails: its logo (or its name) heads the email and the Zoiko HR
+    logo moves to the footer as "Powered by Zoiko HR". Emails with no organization keep Zoiko HR as the header brand."""
     inline_logo = bool(getattr(_app_settings, "HR_EMAIL_INLINE_LOGO", False))
     base = email_asset_base()
 
@@ -193,7 +242,10 @@ def _layout_context(branding: dict, context: dict) -> dict:
         "logo_src": _logo(LOGO_FILE),
         "logo_dark_src": _logo(LOGO_DARK_FILE),
         "favicon_src": _logo(FAVICON_FILE),
-        "cobrand_logo_url": _safe_https_url(branding.get("logo_url")),
+        "org_brand": bool(branding.get("tenant_name")),
+        "org_logo_src": f"cid:{ORG_LOGO_CID}" if org_logo else _safe_https_url(branding.get("logo_url")),
+        "org_logo_width": org_logo[1] if org_logo else 0,
+        "org_logo_height": org_logo[2] if org_logo else 0,
         "tenant_name": branding.get("tenant_name", ""),
         "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://app.zoikohr.com/contact",
         "lang": locale,
@@ -248,9 +300,10 @@ def render_email(
     Raises EmailTemplateMissing if the template file doesn't exist, and
     jinja2 UndefinedError if the template references a variable the caller
     didn't supply."""
-    branding = _get_org_branding(organization_id, db=db)
+    branding = dict(_get_org_branding(organization_id, db=db))
+    org_logo = branding.pop("org_logo", None)
     full_context = {**branding, **context}
-    full_context.update(_layout_context(branding, context))
+    full_context.update(_layout_context(branding, context, org_logo))
 
     try:
         if template_body is not None:
@@ -265,9 +318,10 @@ def render_email(
     inline = ()
     if full_context["logo_src"].startswith("cid:"):
         inline = tuple((cid, filename) for filename, cid in _LOGO_CIDS.items())
+    inline_data = ((ORG_LOGO_CID, org_logo[0]),) if org_logo and full_context["org_brand"] else ()
     return RenderedEmail(
         subject=subject, html=html_body, text=_html_to_text(html_body),
-        inline_images=inline, branding=branding,
+        inline_images=inline, branding=branding, inline_data=inline_data,
     )
 
 
@@ -333,6 +387,15 @@ _BRANDING_DEFAULTS = {
 }
 
 
+def _load_org_logo(db, organization_id):
+    """The organization's uploaded logo for its emails; a storage problem must never stop the email itself."""
+    try:
+        return _uploaded_org_logo(db, organization_id)
+    except Exception as e:
+        logger.warning(f"[email] Could not load the logo of organization_id={organization_id}: {e}")
+        return None
+
+
 def _get_org_branding(organization_id=None, db=None) -> dict:
     """Look up HR Organization branding for organization_id and return the
     template-context branding fields, with safe fallbacks. Returns the
@@ -374,6 +437,7 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
                 "legal_entity": legal_entity,
                 "billing_address": billing_address,
                 "billing_phone": "",
+                "org_logo": _load_org_logo(db, organization_id) if row else None,
             }
         finally:
             if own_session:
@@ -536,16 +600,20 @@ def _log_email_delivery(
 
 def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
     """multipart/alternative(text, html) — wrapped in multipart/related when
-    the logo is CID-inlined, and in multipart/mixed when there are PDFs."""
+    a logo (Zoiko HR's in CID mode, or the organization's) is CID-inlined, and in multipart/mixed when there are PDFs."""
     alternative = MIMEMultipart("alternative")
     alternative.attach(MIMEText(rendered.text, "plain", "utf-8"))
     html_part = MIMEText(rendered.html, "html", "utf-8")
-    if rendered.inline_images:
+    if rendered.inline_images or rendered.inline_data:
         related = MIMEMultipart("related")
         related.attach(html_part)
+        images = []
         for cid, filename in rendered.inline_images:
             with open(os.path.join(TEMPLATE_DIR, "assets", filename), "rb") as f:
-                image = MIMEImage(f.read(), _subtype="png")
+                images.append((cid, filename, f.read()))
+        images += [(cid, f"{cid}.png", data) for cid, data in rendered.inline_data]
+        for cid, filename, data in images:
+            image = MIMEImage(data, _subtype="png")
             image.add_header("Content-ID", f"<{cid}>")
             image.add_header("Content-Disposition", "inline", filename=filename)
             related.attach(image)
@@ -757,12 +825,12 @@ def send_org_registration_otp_email(
     )
 
 
-def send_registration_received(email: str, org_name: str, login_url: str = None, db=None):
+def send_registration_received(email: str, org_name: str, login_url: str = None, db=None, organization_id=None):
     return send_approval_email(email, "registration_received.html", {
         "subject": f"Welcome to Zoiko HR — {org_name}",
         "organization_name": org_name,
         "action_url": login_url or _login_url(),
-    }, db=db)
+    }, db=db, organization_id=organization_id)
 
 
 def send_new_organization_created(
@@ -1029,6 +1097,7 @@ def send_leave_request_submitted(
     leave_period_display: str,
     leave_request_url: str,
     db=None,
+    organization_id=None,
 ):
     """Notify the employee that their leave request was submitted."""
     return send_approval_email(email, "leave_request_submitted.html", {
@@ -1037,7 +1106,7 @@ def send_leave_request_submitted(
         "request_reference": request_reference,
         "leave_period_display": leave_period_display,
         "leave_request_url": leave_request_url,
-    }, db=db)
+    }, db=db, organization_id=organization_id)
 
 
 def send_leave_approved(

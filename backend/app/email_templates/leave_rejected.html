@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Leave request declined" %}
 {% set preheader = "Review the decision securely in Zoiko HR for request " ~ request_reference ~ "." %}
 {% set badge = "Declined" %}

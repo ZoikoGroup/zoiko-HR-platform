@@ -55,7 +55,8 @@ def test_package_order_ids_and_modes():
 # v2: Noto Sans (needed for the rupee sign) sets slightly wider than Helvetica; the offer letter's budget is the v2 target of
 # 2–3 pages (onboarding package v2 spec §6.1)
 @pytest.mark.parametrize("cat,low,high", [
-    ("offer_letter", 1, 3), ("job_description", 1, 2), ("daily_kpi", 1, 2), ("nda", 3, 4), ("employment_contract", 6, 10),
+    # the contract's template set is 5 pages once §2 stopped printing the conversion wording twice; issued contracts are 6+
+    ("offer_letter", 1, 3), ("job_description", 1, 2), ("daily_kpi", 1, 2), ("nda", 3, 4), ("employment_contract", 5, 10),
     ("exclusivity_affidavit", 1, 2), ("self_disclosure", 1, 2), ("job_application", 3, 4), ("daily_work_report", 1, 2),
     ("velocity_report", 1, 2)])
 def test_page_budget_and_running_header_footer(cat, low, high):

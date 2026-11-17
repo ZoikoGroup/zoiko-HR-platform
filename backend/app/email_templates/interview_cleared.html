@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "You've cleared your interview" %}
 {% set preheader = "Good news about your " ~ interview_type_label|lower ~ " for " ~ position ~ " at " ~ organization_name ~ "." %}
 {% set badge = "Interview cleared" %}

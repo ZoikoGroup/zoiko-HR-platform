@@ -70,7 +70,7 @@ def offer_letter():
         ]),
         WHEN("engagement.saturday_rule", [P("Work may also be required on {{engagement.saturday_rule}}.")]),
         WHEN("engagement.conversion_text", [
-            H2("Programme Structure and Conversion Pathway"),
+            H2("{{engagement.conversion_heading}}"),
             P("{{engagement.conversion_text}}"),
         ]),
         H2("Role Responsibilities"),
@@ -104,7 +104,7 @@ def offer_letter():
 def job_description():
     return [
         H1("Job Description"),
-        KV([
+        {**KV([
             ("Job title", "{{role.title}}"),
             ("Programme", "{{engagement.programme_name}}"),
             ("Employment type", "{{employment.employment_type}}"),
@@ -112,7 +112,7 @@ def job_description():
             ("Start date", "{{employment.start_date_long}}"),
             ("Reports to", "{{employment.reports_to}}"),
             (PARTY, "{{worker.full_name}}"),
-        ]),
+        ]), "optional": ["{{engagement.programme_name}}", "{{employment.employment_type}}"]},
         H2("About the Role"),
         LIST("{{role.about}}"),
         H2("Key Responsibilities"),
@@ -220,7 +220,7 @@ def nda():
         ]),
         CLAUSE(3, "Avoiding Conflict of Opportunities", [HOOK("conflict_of_opportunities")]),
         CLAUSE(4, "Non-Solicitation", [
-            "This clause applies for {{company.nda_non_solicit_months}} months from the date of this Agreement.",
+            "This clause applies during the engagement and for {{company.nda_non_solicit_months}} months after it ends.",
             HOOK("non_solicitation"),
         ]),
         CLAUSE(5, "Non-Competition", [HOOK("non_competition")]),
@@ -277,16 +277,14 @@ def employment_contract():
             "The first {{engagement.assessment_months}} months are the {{engagement.assessment_label}}. During it either party "
             "may end the engagement by giving {{employment.notice_text}}.",
             HOOK("probation")],
-        2: [WHEN("engagement.conversion_text", [P("{{engagement.conversion_text}}")]),
-            "Conversion to the next stage is not automatic and depends on the review at the end of the "
-            "{{engagement.assessment_label}}."],
+        2: ["{{engagement.conversion_paragraph}}"],
         3: ["The " + PARTY + " is engaged as **{{role.title}}**, reporting to {{employment.reports_to}}.",
             "{{employment.duties_paragraph}}",
             "The " + PARTY + " will also carry out other reasonable duties that fit the role, set out in the Job Description."],
         4: ["The {{engagement.remuneration_label}} is {{employment.pay_statement}}.",
             "The Company will make the deductions the law requires. Any bonus is discretionary. Reasonable business expenses "
             "approved in advance are reimbursed under the expenses policy."],
-        5: ["The " + PARTY + " works on a {{employment.work_arrangement}} basis{{employment.work_location_suffix}}."],
+        5: ["The " + PARTY + "'s work arrangement is {{employment.work_arrangement}}{{employment.work_location_suffix}}."],
         6: ["Normal working time is {{engagement.work_schedule}}.",
             WHEN("engagement.saturday_rule", [P("Work may also be required on {{engagement.saturday_rule}}.")]),
             HOOK("working_time")],

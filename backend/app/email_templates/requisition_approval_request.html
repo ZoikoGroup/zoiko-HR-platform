@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Job requisition awaiting approval" %}
 {% set preheader = requester_name ~ " asked to open " ~ openings ~ " position(s) for " ~ title_text ~ "." %}
 {% set badge = "Approval needed" %}
