@@ -22,9 +22,11 @@ import logging
 import re
 import secrets
 from datetime import date, datetime, timedelta
+from contextlib import contextmanager
 from typing import Optional
 
 from fastapi import HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.modules.doc_templates import signing, state, storage
@@ -272,6 +274,7 @@ def settings_view(db, organization_id: int) -> dict:
             if ck:
                 used.setdefault(ck, []).append(C.DOCS[cat]["title"])
     clauses = [{"key": k, "token": R._hook_token(k), "title": t, "note": n, "required": req, "used_in": used.get(k, []),
+                "standard_text": C.STANDARD_CLAUSES.get(k),
                 **{f: (cfg["clauses"].get(k) or {}).get(f) for f in ("text", "not_applicable", "counsel_reference", "updated_at")}}
                for k, (t, n, req) in C.CLAUSES.items()]
     settings_out = {k: v for k, v in cfg.items() if k not in ("clauses", "logo_key")}
@@ -348,6 +351,10 @@ PER_PERIOD = {"annual": "per year", "monthly": "per month", "weekly": "per week"
 
 
 def _offer_for(db, hire):
+    return _cached(db, ("offer", hire.id), lambda: _load_offer_for(db, hire))
+
+
+def _load_offer_for(db, hire):
     cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.onboarding_new_hire_id == hire.id).first()
     offer = (db.query(RecruitmentOffer).filter(RecruitmentOffer.candidate_id == cand.id).order_by(RecruitmentOffer.id.desc()).first()
              if cand else None)
@@ -483,6 +490,22 @@ def _clock(hhmm: Optional[str]) -> str:
     return f"{(h % 12) or 12}:{m:02d} {'AM' if h < 12 else 'PM'}"
 
 
+def _employee_notice_text(profile: dict, eng: dict) -> Optional[str]:
+    """The notice the employee gives, from the Company Profile's notice rules for the hire's employee type:
+    "30 days' written notice", or "14 days' written notice during the Probation period and 30 days' written notice after it"
+    when the two stages differ."""
+    from app.modules.hr import company_profile as CP
+    from app.modules.hr import doc_formatting as F
+    notice = CP.notice_for(profile, (eng or {}).get("slug"))
+    during = F.notice_text(*notice["during"]) if notice["during"] else ""
+    after = F.notice_text(*notice["after"]) if notice["after"] else ""
+    if during and after and during != after:
+        label = ((eng or {}).get("assessment_label") or "Probation").strip()
+        stage = label if label.lower().endswith("period") else f"{label} period"
+        return f"{during} during the {stage} and {after} after it"
+    return after or during or None
+
+
 def _work_schedule(eng: dict) -> Optional[str]:
     if eng.get("work_schedule"):
         return eng["work_schedule"]
@@ -517,9 +540,132 @@ def hire_profiles(db, hire) -> tuple:
     """(engagement profile, role profile) for the hire; the role is None when none was chosen and none matches."""
     from app.modules.hr import onboarding_profiles as PR
     inputs = hire_inputs(hire)
-    eng = PR.engagement_for(db, hire.organization_id, inputs.get("engagement_profile_slug"))
-    role = PR.role_for(db, hire.organization_id, inputs.get("role_profile_slug"), hire.position)
-    return eng, role
+
+    def load():
+        eng = PR.engagement_for(db, hire.organization_id, inputs.get("engagement_profile_slug"))
+        role = PR.role_for(db, hire.organization_id, inputs.get("role_profile_slug"), hire.position)
+        if role is None:          # no saved profile for this position: build one from the hire's own records
+            role = generated_role(db, hire)
+        return eng, role
+    return _cached(db, ("profiles", hire.id, inputs.get("engagement_profile_slug"), inputs.get("role_profile_slug"),
+                        hire.position), load)
+
+
+# ── generated role profile ───────────────────────────────────────────────────────────────────────────────────────────
+# When no saved Role Profile matches the hire's position, the documents use one built from the hire's own records, best
+# source first: the job description linked to the requisition, a job description with the position's title, the
+# requisition's description and requirements, and finally neutral wording from the position and department. A saved Role
+# Profile (Settings › Engagement & role profiles) always wins; the panel warns that the generated one is in use.
+GENERIC_KPIS = [
+    {"title": "Delivery", "bullets": ["Complete planned and assigned work within the agreed timelines."],
+     "success": "Agreed work is finished on time, or risks are raised early with the manager."},
+    {"title": "Quality", "bullets": ["Produce accurate, complete work that meets the agreed standard."],
+     "success": "Work is accepted without avoidable rework."},
+    {"title": "Communication", "bullets": ["Share progress, decisions and blockers clearly and promptly."],
+     "success": "The manager and team always know the status and next steps."},
+    {"title": "Collaboration", "bullets": ["Work constructively with the team and act on feedback."],
+     "success": "Hand-overs are complete and feedback is addressed."},
+    {"title": "Reporting", "bullets": ["Submit the Daily Work Report each working day."],
+     "success": "Reports are complete, accurate and on time."},
+    {"title": "Policies and security", "bullets": ["Follow company policies and keep company information in approved systems."],
+     "success": "No policy or information-security breaches."},
+]
+
+
+def _text_items(value) -> list[str]:
+    """Strings from a JSON list (strings or {text|title|description} objects) or from free text (one item per line,
+    bullets stripped)."""
+    if isinstance(value, list):
+        items = []
+        for v in value:
+            if isinstance(v, dict):
+                v = v.get("text") or v.get("title") or v.get("description") or ""
+            items.append(str(v or ""))
+    else:
+        items = str(value or "").splitlines()
+    out = []
+    for item in items:
+        t = re.sub(r"^\s*(?:[-*•▪◦]|\d+[.)])\s*", "", item).strip()
+        if t:
+            out.append(t if t.endswith((".", "!", "?", ":")) else f"{t}.")
+    return out
+
+
+def _paragraphs(value) -> list[str]:
+    return [" ".join(p.split()) for p in re.split(r"\n\s*\n", str(value or "")) if p.strip()]
+
+
+def _job_description_for(db, hire, req, title: str):
+    from app.modules.hr.models import JobDescription
+    jd = db.get(JobDescription, req.job_description_id) if req is not None and getattr(req, "job_description_id", None) else None
+    if jd is not None and jd.organization_id == hire.organization_id:
+        return jd
+    rows = (db.query(JobDescription).filter(JobDescription.organization_id == hire.organization_id,
+                                            func.lower(JobDescription.title) == title.casefold(),
+                                            JobDescription.status != "RETIRED")
+            .order_by(JobDescription.id.desc()).all())
+    return next((j for j in rows if j.status == "APPROVED"), rows[0] if rows else None)
+
+
+def _lower_first(t: str) -> str:
+    return t[:1].lower() + t[1:] if t[:2] != t[:2].upper() else t
+
+
+def generated_role(db, hire) -> Optional[dict]:
+    """A role profile built from the hire's records (see above). None only when the hire has no position at all."""
+    _cand, offer, req = _offer_for(db, hire)
+    title = " ".join(str(hire.position or (offer.position if offer else None) or (req.title if req else None) or "").split())
+    if not title:
+        return None
+    dept = (hire.department_name or (req.department if req else None) or "").strip()
+    jd = _job_description_for(db, hire, req, title)
+    about, duties, skills, source = [], [], [], "the position"
+    if jd is not None:
+        about, duties = _paragraphs(jd.purpose), _text_items(jd.key_responsibilities)
+        skills = _text_items(jd.requirements_essential)
+        source = "the job description"
+    if req is not None and not (about and duties):
+        # a requisition's text is often a short internal note ("need a backend developer"): only real sentences are printed
+        lines = [t for t in _text_items(req.description) if len(t.split()) >= 3]
+        if not any(len(t.split()) >= 8 for t in lines):
+            lines = [t for t in lines if len(t.split()) >= 3] if len(lines) > 1 else []
+        if not about and lines:
+            long = [p for p in _paragraphs(req.description) if len(p.split()) >= 8]
+            about = long[:2] if len(lines) <= 1 else ([lines[0]] if len(lines[0].split()) >= 8 else [])
+        if not duties and len(lines) > 1:
+            duties = lines[1:] if about and about[0] == lines[0] else lines
+        if not skills:
+            skills = [t for t in _text_items(req.requirements) if len(t.split()) >= 2]
+        if about or duties:
+            source = "the job description and requisition" if jd is not None else "the requisition"
+    team = f" in the {dept} team" if dept else ""
+    if not about:
+        about = [f"The {title}{team} delivers the work of the role to the agreed standard, working closely with the manager "
+                 "and colleagues.",
+                 "The role's priorities and targets are agreed with the manager and reviewed regularly."]
+    groups = [{"heading": "Key responsibilities", "bullets": duties[:12]}] if duties else [
+        {"heading": "Core duties", "bullets": [f"Carry out the day-to-day duties of the {title} role as agreed with the manager.",
+                                               "Plan and complete assigned work within the agreed timelines.",
+                                               "Keep work accurate, documented and in line with company standards."]},
+        {"heading": "Collaboration and reporting", "bullets": ["Work with the team and other departments towards shared goals.",
+                                                               "Report progress, risks and blockers promptly.",
+                                                               "Submit the Daily Work Report each working day."]},
+        {"heading": "Development and compliance", "bullets": ["Keep skills up to date and complete the training the role needs.",
+                                                              "Follow company policies, including confidentiality and "
+                                                              "information security."]},
+    ]
+    if skills:
+        groups.append({"heading": "Skills and requirements", "bullets": skills[:12]})
+    headline = duties[:5] or ["Core duties: carry out the duties of the role as agreed with the manager.",
+                              "Delivery: plan and complete assigned work on time and to the agreed standard.",
+                              "Collaboration: work with the team and report progress, risks and blockers.",
+                              "Compliance: follow company policies and protect company information."]
+    main = duties[:6] or [b for g in groups[:2] for b in g["bullets"]]
+    contract = "The main duties of the role are to " + "; ".join(_lower_first(d.rstrip(".")) for d in main) + "."
+    return {"slug": "", "title": title, "about": about, "responsibility_groups": groups,
+            "offer_responsibilities": headline, "contract_duties": contract, "required_skills": skills[:20],
+            "work_setup": [], "performance_structure": ["Progress is reviewed regularly with the manager against the KPI areas below."],
+            "kpi_areas": GENERIC_KPIS, "generated": True, "generated_from": source}
 
 
 def _list(value) -> Optional[list]:
@@ -530,7 +676,7 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     from app.core.regions import country_name
     from app.modules.hr import company_profile as CP
     from app.modules.hr import doc_formatting as F
-    profile = CP.get_profile(db, hire.organization_id)
+    profile = _profile_for(db, hire.organization_id)
     eng, role = hire_profiles(db, hire)
     eng = eng or {}
     role = role or {}
@@ -629,7 +775,7 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "engagement.leave_rule": eng.get("leave_rule") or None,
         "engagement.workspace_requirements": _list(eng.get("workspace_requirements")),
         "employment.start_date_long": F.format_date_long(start, fmt) or None,
-        "employment.notice_text": F.notice_text(profile.get("notice_period_value"), profile.get("notice_period_unit")) or None,
+        "employment.notice_text": _employee_notice_text(profile, eng),
         "employment.employer_notice_text": F.notice_text(profile.get("employer_notice_value"),
                                                          profile.get("employer_notice_unit")) or None,
         "employment.pay_amount": amount,
@@ -672,8 +818,8 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
     send."""
     from app.modules.hr import company_profile as CP
     from app.modules.hr import doc_formatting as F
-    cfg = cfg or get_config(db, hire.organization_id)
-    profile = CP.get_profile(db, hire.organization_id)
+    cfg = cfg or _config_for(db, hire.organization_id)
+    profile = _profile_for(db, hire.organization_id)
     cand, offer, _req = _offer_for(db, hire)
     eng, role = hire_profiles(db, hire)
     inputs = hire_inputs(hire)
@@ -701,9 +847,9 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
         if a != b:
             warn("name_mismatch",
                  f"The name on the offer ({cand.name}) differs from the new hire record ({hire.candidate_name}).")
-    emp = (profile.get("notice_period_value"), profile.get("notice_period_unit"))
+    emp = CP.notice_for(profile, (eng or {}).get("slug"))["after"] or (None, None)       # after probation: the lasting term
     er = (profile.get("employer_notice_value"), profile.get("employer_notice_unit"))
-    if emp[0] is not None and er[0] is not None and emp != er:
+    if emp[0] is not None and er[0] is not None and tuple(emp) != er:
         warn("notice_mismatch", f"The employee gives {F.notice_text(*emp)} but the employer gives {F.notice_text(*er)}. "
                                 "Check this is intended.")
     a, b = profile.get("non_solicit_post_termination_months"), profile.get("nda_non_solicit_months")
@@ -716,6 +862,10 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
              "The leave rule says leave is unpaid / not pro-rata, but the profile accrues leave each month.")
     if role is None:
         warn("no_role_profile", "No role profile matches this position. Choose one so the role's own duties are printed.")
+    elif role.get("generated"):
+        warn("role_profile_generated",
+             f"No role profile is saved for \"{role['title']}\", so the role details were written automatically from "
+             f"{role['generated_from']}. Check them in the preview, or save a role profile in Settings to use your own wording.")
     return out
 
 
@@ -738,10 +888,55 @@ def printed_values(values: dict) -> list:
     return [{"group": g, "values": v} for g, v in groups.items()]
 
 
+# ── per-operation cache ──────────────────────────────────────────────────────────────────────────────────────────────
+# A hire's values do not depend on the document: opening the package panel, sending the package or listing what is
+# outstanding used to rebuild them (company profile, offer, engagement profiles …) once per document — about 100 queries,
+# which timed out against a distant database. Inside values_cache() each hire's values, the settings and the logo are built
+# once. Nothing an operation writes while the cache is open (issued rows, stored files) is read when building values.
+_CACHE_KEY = "_onboarding_package_cache"
+
+
+@contextmanager
+def values_cache(db):
+    owner = _CACHE_KEY not in db.info
+    if owner:
+        db.info[_CACHE_KEY] = {}
+    try:
+        yield
+    finally:
+        if owner:
+            db.info.pop(_CACHE_KEY, None)
+
+
+def _cached(db, key, build):
+    cache = db.info.get(_CACHE_KEY)
+    if cache is None:
+        return build()
+    if key not in cache:
+        cache[key] = build()
+    return cache[key]
+
+
+def _profile_for(db, organization_id: int) -> dict:
+    from app.modules.hr import company_profile as CP
+    return _cached(db, ("company_profile", organization_id), lambda: CP.get_profile(db, organization_id))
+
+
+def _config_for(db, organization_id: int) -> dict:
+    return _cached(db, ("config", organization_id), lambda: get_config(db, organization_id))
+
+
+def _values_for(db, hire, cfg: dict, *, secure_link: Optional[str] = None, contract_id: Optional[str] = None) -> dict:
+    """A copy of the hire's values (callers may change their copy)."""
+    built = _cached(db, ("values", hire.id, secure_link, contract_id),
+                    lambda: build_values(db, hire, cfg, secure_link=secure_link, contract_id=contract_id))
+    return dict(built)
+
+
 def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final: bool = False, esign: bool = False,
                    secure_link: Optional[str] = None, contract_id: Optional[str] = None) -> R.RenderContext:
-    cfg = cfg or get_config(db, hire.organization_id)
-    values = build_values(db, hire, cfg, secure_link=secure_link, contract_id=contract_id)
+    cfg = cfg or _config_for(db, hire.organization_id)
+    values = _values_for(db, hire, cfg, secure_link=secure_link, contract_id=contract_id)
     if not final:   # previews: show where the generated values will go
         values.setdefault("offer.secure_link", None)
         values["offer.secure_link"] = values["offer.secure_link"] or "(your secure onboarding link – added when sent)"
@@ -752,7 +947,7 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
                           org_label=header_label(cfg), primary=cfg["brand_primary"],
                           accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                           effective_date=values.get("document.effective_date") or "", esign=esign,
-                          logo_png=logo_bytes(db, hire.organization_id, cfg))
+                          logo_png=_cached(db, ("logo", hire.organization_id), lambda: logo_bytes(db, hire.organization_id, cfg)))
     gaps = readiness(ctx, category)
     ctx.draft = not (final and gaps["ready"])
     ctx.status_text = (f"ISSUED – {values['generated_at']}" if not ctx.draft else None)
@@ -817,6 +1012,10 @@ def preview_pdf(db, hire, category: str) -> bytes:
     """What HR sees under "Preview": the document as sent (signed copy once signed); a draft render only before sending."""
     if category not in C.DOCS:
         raise HTTPException(404, "Unknown package document.")
+    from app.modules.hr import onboarding_package_forms as FORMS
+    filled = FORMS.filled_pdf(db, hire, category)
+    if filled is not None:                               # a form the new hire filled in online: their completed copy
+        return filled
     row = _rows(db, hire).get(category)
     if row is not None and row.document_id:
         stored = stored_document_pdf(db, row.document_id, hire.organization_id)
@@ -893,7 +1092,13 @@ def _reported_missing(keys: list) -> list:
 
 
 def package_view(db, hire) -> dict:
-    cfg = get_config(db, hire.organization_id)
+    with values_cache(db):
+        return _package_view(db, hire)
+
+
+def _package_view(db, hire) -> dict:
+    from app.modules.hr import onboarding_package_forms as FORMS
+    cfg = _config_for(db, hire.organization_id)
     rows = _rows(db, hire)
     docs = []
     for d in C.documents():
@@ -908,6 +1113,7 @@ def package_view(db, hire) -> dict:
             "orientation": d["orientation"], "signers": d["signers"], "state": _row_state(db, row),
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
+            "filled_online": d["mode"] == "COMPLETE" and row is not None and FORMS.submitted(db, hire, cat) is not None,
             "missing_fields": [{"key": k, "meaning": C.FIELDS[k][0], "source": C.FIELDS[k][1],
                                 "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == ADDRESS_INPUT,
                                 "hr_may_enter": k == ADDRESS_INPUT}
@@ -915,7 +1121,7 @@ def package_view(db, hire) -> dict:
             "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
         })
     pkg = (hire.profile_details or {}).get("_package") or {}
-    values = build_values(db, hire, cfg)
+    values = _values_for(db, hire, cfg)
     return {"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "email": hire.email, "documents": docs,
             "sent_at": pkg.get("sent_at"), "inputs": hire_inputs(hire),
             "input_fields": [{"key": k, "meaning": input_meaning(k),
@@ -1028,11 +1234,17 @@ def _link_recruitment_offer(db, hire, row) -> Optional[OnboardingDocument]:
 def send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[list[str]] = None, *, notify: bool = True,
                  automatic: bool = False) -> dict:
     """Issue every ready document of the package that has not been issued yet. Never re-issues a live document."""
+    with values_cache(db):
+        return _send_package(db, hire, actor, categories, notify=notify, automatic=automatic)
+
+
+def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[list[str]] = None, *, notify: bool = True,
+                  automatic: bool = False) -> dict:
     from app.modules.hr import onboarding_flow
     if hire.status not in onboarding_flow.ACTIVE_STATUSES:
         raise HTTPException(400, "Onboarding documents can only be sent while onboarding is active.")
     wanted = [c for c in (categories or C.CATEGORIES) if c in C.DOCS]
-    cfg = get_config(db, hire.organization_id)
+    cfg = _config_for(db, hire.organization_id)
     rows = _rows(db, hire)
     secure_link = onboarding_flow.current_portal_url(db, hire)
     issued, held, unchanged = [], [], []
@@ -1393,6 +1605,11 @@ _OWED = {"awaiting_signature": "sign", "awaiting_acknowledgement": "acknowledge"
 
 
 def outstanding_for_hire(db, hire) -> list[dict]:
+    with values_cache(db):
+        return _outstanding_for_hire(db, hire)
+
+
+def _outstanding_for_hire(db, hire) -> list[dict]:
     """What the new hire still has to do before they can submit: package documents to sign / acknowledge / upload, other
     requested uploads, and the details the package waits for. Voluntary and information documents never count."""
     out = []
@@ -1558,9 +1775,13 @@ def package_filename(hire, category: str, ext: str = "pdf", state: str = "") -> 
 
 def document_file(db, hire, category: str) -> tuple:
     """(pdf bytes, file name, state) of one package document: what the new hire was sent (the signed copy once executed),
-    else a watermarked draft rendered now. state: signed | issued | draft."""
+    else a watermarked draft rendered now. state: signed | issued | completed | draft."""
     if category not in C.DOCS:
         raise HTTPException(404, "Unknown package document.")
+    from app.modules.hr import onboarding_package_forms as FORMS
+    filled = FORMS.filled_pdf(db, hire, category)
+    if filled is not None:                               # a form the new hire filled in online: the completed copy
+        return filled, package_filename(hire, category, "pdf", "completed"), "completed"
     row = _rows(db, hire).get(category)
     if row is not None and row.document_id:
         gen = _gen(db, row)
@@ -1603,6 +1824,11 @@ def document_docx(db, hire, category: str) -> tuple:
     if category not in C.DOCS:
         raise HTTPException(404, "Unknown package document.")
     from app.modules.hr import onboarding_package_docx as D
+    from app.modules.hr import onboarding_package_forms as FORMS
+    sub = FORMS.submitted(db, hire, category)
+    if sub is not None:                                  # a form the new hire filled in online: the completed copy
+        return (D.render_docx(category, FORMS.filled_context(db, hire, category, sub)),
+                package_filename(hire, category, "docx", "completed"))
     row = _rows(db, hire).get(category)
     gen = _gen(db, row)
     state = "draft"

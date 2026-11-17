@@ -57,7 +57,7 @@ test("settings load from the server and save exactly what the form shows", async
   fireEvent.click(screen.getByLabelText("Bank details"));
   fireEvent.change(document.getElementById("os-reminder-days"), { target: { value: "0" } });
   assert.match(document.body.textContent, /0 means no reminders/);
-  fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Save changes" })[0]);
   await settle();
   assert.deepEqual(calls.save[0], { ...SETTINGS, auto_template_ids: [2, 1], required_document_categories: ["id_proof", "bank_details"], reminder_days: 0 });
   assert.match(screen.getByRole("status").textContent, /saved/);
@@ -67,12 +67,12 @@ test("out-of-range values are refused before saving, and server refusals show un
   const err = Object.assign(new Error("Link valid for must be 180 or less"), { validation: [{ loc: ["body", "portal_link_days"], msg: "Input should be less than or equal to 180" }] });
   const calls = await loadSettings(t, { saveError: err });
   fireEvent.change(document.getElementById("os-link-days"), { target: { value: "0" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Save changes" })[0]);
   await settle();
   assert.equal(calls.save.length, 0);
   assert.match(document.body.textContent, /1 to 180/);
   fireEvent.change(document.getElementById("os-link-days"), { target: { value: "90" } });
-  fireEvent.click(screen.getByRole("button", { name: "Save Settings" }));
+  fireEvent.click(screen.getAllByRole("button", { name: "Save changes" })[0]);
   await settle();
   assert.equal(calls.save.length, 1);
   assert.ok(screen.getAllByRole("alert").some((a) => /180 or less/.test(a.textContent)));
@@ -83,5 +83,5 @@ test("a failed settings load shows Retry, and Retry loads the form", async (t) =
   assert.match(screen.getByRole("alert").textContent, /Network down/);
   fireEvent.click(screen.getByRole("button", { name: "Retry" }));
   await settle();
-  assert.ok(screen.getByRole("button", { name: "Save Settings" }));
+  assert.ok(screen.getAllByRole("button", { name: "Save changes" })[0]);
 });

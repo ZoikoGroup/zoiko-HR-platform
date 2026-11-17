@@ -4208,7 +4208,9 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
     db.commit()
     db.refresh(doc)
     if newly_rejected and doc.new_hire is not None:
-        from app.modules.hr import onboarding_flow
+        from app.modules.hr import onboarding_flow, onboarding_package_forms
+        if package_mode == "COMPLETE" and doc.category:   # an online form goes back to the new hire with their answers kept
+            onboarding_package_forms.returned(db, doc.new_hire, doc.category, doc.rejection_reason)
         onboarding_flow.notify_document_request(db, doc.new_hire, [{"title": doc.title, "note": f"Rejected: {doc.rejection_reason}"}])
     _sync_document_checklist(db, doc.new_hire)
     return _onboarding_doc_to_dict(doc)

@@ -170,11 +170,13 @@ def test_legacy_offers_are_answered_by_hand_and_new_ones_go_through_documents(en
     assert dash["offers_accepted"] == 1 and dash["time_to_hire"] is not None
 
 
-def test_a_candidate_with_history_cannot_be_deleted(env):
+def test_a_candidate_with_history_is_deleted_with_their_interviews(env):
     cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": "Sam", "email": "sam@mail.com", "position": "Dev"}))
-    _ok(env.c.post("/hr/recruitment/interviews", json={"candidate_id": cand["id"], "interview_date": FUTURE, "notify": False}))
+    iv = _ok(env.c.post("/hr/recruitment/interviews", json={"candidate_id": cand["id"], "interview_date": FUTURE, "notify": False}))
     r = env.c.delete(f"/hr/recruitment/candidates/{cand['id']}")
-    assert r.status_code == 400 and "interview" in r.json()["message"]
+    assert r.status_code == 200, r.text
+    assert env.c.get(f"/hr/recruitment/candidates/{cand['id']}").status_code == 404
+    assert env.c.get(f"/hr/recruitment/interviews/{iv['id']}").status_code == 404
 
 
 def test_regions_reference(env):

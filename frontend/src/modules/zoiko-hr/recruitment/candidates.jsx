@@ -389,7 +389,9 @@ export default function Candidates() {
   const selectedRequisition = form.requisition_id ? requisitions.find((r) => String(r.id) === String(form.requisition_id)) : null;
   const cvFilledCount = Object.values(cvFilled).filter(Boolean).length;
   const handleDelete = async (candId) => {
-    if (!window.confirm("Delete this candidate?")) return;
+    const who = candidates.find((c) => c.id === candId)?.name || (candidate && candidate.id === candId ? candidate.name : "") || "this candidate";
+    if (!window.confirm(`Delete ${who}? Their interviews, offers, uploaded documents and applications are deleted too. This cannot be undone.`)) return;
+    setNotice("");
     try {
       await deleteCandidate(candId);
       if (id) navigate("/zoiko-hr/recruitment/candidates");
@@ -950,7 +952,7 @@ export default function Candidates() {
                         {rowPrivacyBusy[c.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                       </button>
                       <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      <button type="button" title="Delete candidate" aria-label={`Delete ${c.name}`} onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
                     {rowPrivacy[c.id] && <p className="mt-1 text-[10px] text-gray-500">{rowPrivacy[c.id].privacy_notice_sent_at ? `Notice issued ${formatDate(rowPrivacy[c.id].privacy_notice_sent_at)}` : "No issued notice"}</p>}
                   </td>

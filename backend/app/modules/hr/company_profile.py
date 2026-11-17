@@ -31,9 +31,19 @@ EMAIL = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 HEX = re.compile(r"^#[0-9A-Fa-f]{6}$")
 URL = re.compile(r"^(https?://)?[A-Za-z0-9.-]+\.[A-Za-z]{2,}(/\S*)?$")
 NOTICE_UNITS = ("calendar_days", "business_days", "weeks", "months")
+# Dropdown choices for "choice" fields. The value is the wording printed in the documents ("paid {pay_frequency}", "continue
+# {confidentiality duration} after the engagement ends"). Free text stays valid so wording saved before the dropdown keeps working.
+PAY_FREQUENCIES = ("monthly", "twice a month", "every two weeks", "weekly")
+CONFIDENTIALITY_DURATIONS = ("indefinitely", "for one year", "for two years", "for three years", "for five years")
+TIME_TRACKING_TOOLS = ("ZoikoTime", "Hubstaff", "Time Doctor", "Clockify", "Toggl Track")
+# Employee notice period rules: one rule per employee type (an engagement profile slug, or "all") and stage of employment.
+NOTICE_RULE_TYPE_ALL = "all"
+NOTICE_RULE_STAGES = ("any", "probation", "post_probation")
+NOTICE_RULES_MAX = 20
 
-# key: (group, label, kind, options) — kind: text | email | url | bool | int | enum | list | hex | country | currency | regid
-# options: max length for text/list items, (min, max) for int, allowed values for enum, ID type for regid
+# key: (group, label, kind, options) — kind: text | choice | notice_rules | email | url | bool | int | enum | list | hex | country | currency | regid
+# options: max length for text/list items, (min, max) for int, allowed values for enum, (max length, choices) for choice,
+# ID type for regid
 FIELDS: dict[str, tuple] = {
     # Identity
     "legal_name": ("identity", "Legal name", "text", 200),
@@ -73,6 +83,8 @@ FIELDS: dict[str, tuple] = {
     "jurisdiction_country": ("legal", "Jurisdiction country", "country", None),
     "jurisdiction_city": ("legal", "Jurisdiction city", "text", 100),
     "governing_law_text": ("legal", "Governing law wording", "text", 500),
+    "notice_rules": ("legal", "Employee notice period rules", "notice_rules", NOTICE_RULES_MAX),
+    # The fallback employee notice: kept in step with the notice rules on every save (see _sync_notice_fallback)
     "notice_period_value": ("legal", "Notice period (employee)", "int", (0, 365)),
     "notice_period_unit": ("legal", "Notice period unit (employee)", "enum", NOTICE_UNITS),
     "employer_notice_value": ("legal", "Notice period (employer)", "int", (0, 365)),
@@ -80,11 +92,11 @@ FIELDS: dict[str, tuple] = {
     "non_solicit_post_termination_months": ("legal", "Non-solicitation after termination (months)", "int", (0, 60)),
     "nda_non_solicit_months": ("legal", "NDA non-solicitation (months)", "int", (0, 60)),
     "nda_non_compete_months": ("legal", "NDA non-compete (months)", "int", (0, 60)),
-    "nda_confidentiality_duration": ("legal", "NDA confidentiality duration", "text", 120),
+    "nda_confidentiality_duration": ("legal", "NDA confidentiality duration", "choice", (120, CONFIDENTIALITY_DURATIONS)),
     "pay_day_of_month": ("legal", "Pay day of month", "int", (1, 28)),
-    "pay_frequency": ("legal", "Pay frequency", "text", 60),
+    "pay_frequency": ("legal", "Pay frequency", "choice", (60, PAY_FREQUENCIES)),
     "stipend_gross_label": ("legal", "Print \"(gross)\" after pay", "bool", None),
-    "time_tracking_tool_name": ("legal", "Time-tracking tool", "text", 120),
+    "time_tracking_tool_name": ("legal", "Time-tracking tool", "choice", (120, TIME_TRACKING_TOOLS)),
     "task_system_name": ("legal", "Task / project system", "text", 200),
     "compliance_documents": ("legal", "Documents to submit before starting", "list", 120),
     "affidavit_submission_hours": ("legal", "Affidavit due within (hours)", "int", (1, 720)),
@@ -142,7 +154,7 @@ def defaults(org) -> dict:
     currency = _CURRENCY_BY_COUNTRY.get(cc, "")
     out = {}
     for key, (_g, _l, kind, _o) in FIELDS.items():
-        out[key] = [] if kind == "list" else (False if kind == "bool" else (None if kind == "int" else ""))
+        out[key] = [] if kind in ("list", "notice_rules") else (False if kind == "bool" else (None if kind == "int" else ""))
     out.update({
         "brand_primary": "#0B3D91", "brand_accent": "#00A3E0",
         "paper": "LETTER" if us else "A4", "spelling": "US" if us else "UK", "date_format": "MDY" if us else "DMY",
@@ -227,6 +239,11 @@ def get_profile(db, organization_id: int) -> dict:
         return profile
     stored = _load(row)
     profile.update({k: v for k, v in stored.items() if k in profile and v is not None})
+    if not profile.get("notice_rules") and profile.get("notice_period_value") is not None and profile.get("notice_period_unit"):
+        # saved before notice rules existed: the single notice period reads as one rule for everyone
+        profile["notice_rules"] = [{"employee_type": NOTICE_RULE_TYPE_ALL, "applies_when": "any",
+                                    "value": profile["notice_period_value"], "unit": profile["notice_period_unit"],
+                                    "active": True}]
     return profile
 
 
@@ -271,6 +288,8 @@ def _clean(key: str, value, errors: dict):
         if not lo <= n <= hi:
             errors[key] = f"{label} must be between {lo} and {hi}."
         return n
+    if kind == "notice_rules":
+        return _clean_notice_rules(value, label, opt, errors, key)
     if kind == "list":
         items = value if isinstance(value, list) else []
         out = [str(i).strip()[:opt] for i in items if str(i or "").strip()]
@@ -279,6 +298,14 @@ def _clean(key: str, value, errors: dict):
             errors[key] = f"{label}: at most {limit} entries."
         return out[:limit]
     text = str(value or "").strip()
+    if kind == "choice":
+        limit, choices = opt
+        match = next((c for c in choices if c.lower() == text.lower()), None)
+        if match:
+            return match
+        if len(text) > limit:
+            errors[key] = f"{label} must be {limit} characters or fewer."
+        return text[:limit]
     if kind == "text":
         if len(text) > opt:
             errors[key] = f"{label} must be {opt} characters or fewer."
@@ -321,6 +348,71 @@ def _clean(key: str, value, errors: dict):
             errors[key] = msg
         return v
     return text
+
+
+def _clean_notice_rules(value, label: str, limit: int, errors: dict, key: str) -> list[dict]:
+    if value in (None, ""):
+        return []
+    if not isinstance(value, list):
+        errors[key] = f"{label} must be a list."
+        return []
+    if len(value) > limit:
+        errors[key] = f"{label}: at most {limit} rules."
+    out, seen = [], set()
+    for n, item in enumerate(value[:limit], start=1):
+        item = item if isinstance(item, dict) else {}
+        etype = str(item.get("employee_type") or "").strip().lower()[:80]
+        stage = str(item.get("applies_when") or "any").strip().lower()
+        unit = str(item.get("unit") or "").strip().lower()
+        if not etype:
+            errors[key] = f"Rule {n}: choose the employee type."
+        elif stage not in NOTICE_RULE_STAGES:
+            errors[key] = f"Rule {n}: choose when the rule applies."
+        elif unit not in NOTICE_UNITS:
+            errors[key] = f"Rule {n}: choose the notice unit."
+        try:
+            v = int(item.get("value"))
+            if not 0 <= v <= 365:
+                raise ValueError
+        except (TypeError, ValueError):
+            errors[key] = f"Rule {n}: the notice period must be a whole number from 0 to 365."
+            v = None
+        active = item.get("active") is not False
+        if active and (etype, stage) in seen:
+            errors[key] = f"Rule {n}: there is already an active rule for this employee type and stage."
+        if active:
+            seen.add((etype, stage))
+        out.append({"employee_type": etype, "applies_when": stage, "value": v, "unit": unit, "active": active})
+    return out
+
+
+def _fallback_rule(rules) -> Optional[dict]:
+    """The rule that also fills notice_period_value/unit: the active all-employees any-time rule, else the first active."""
+    active = [r for r in rules or [] if r.get("active") and r.get("value") is not None]
+    exact = [r for r in active if r["employee_type"] == NOTICE_RULE_TYPE_ALL and r["applies_when"] == "any"]
+    return (exact or active or [None])[0]
+
+
+def _sync_notice_fallback(profile: dict) -> None:
+    rule = _fallback_rule(profile.get("notice_rules"))
+    profile["notice_period_value"] = rule["value"] if rule else None
+    profile["notice_period_unit"] = rule["unit"] if rule else ""
+
+
+def notice_for(profile: dict, engagement_slug: Optional[str]) -> dict:
+    """The employee's notice for a hire on this engagement profile: {"during": (value, unit) | None, "after": ...}, where
+    "during" is the probation / assessment period. Rules for the hire's own employee type win over the all-employees rules;
+    an "any" rule fills a stage that has no rule of its own. With no rules, the single notice period applies throughout."""
+    rules = [r for r in profile.get("notice_rules") or [] if r.get("active") and r.get("value") is not None]
+    own = [r for r in rules if engagement_slug and r["employee_type"] == engagement_slug]
+    pick = own or [r for r in rules if r["employee_type"] == NOTICE_RULE_TYPE_ALL]
+    by_stage = {r["applies_when"]: (r["value"], r["unit"]) for r in pick}
+    if not by_stage:
+        v, u = profile.get("notice_period_value"), profile.get("notice_period_unit")
+        single = (v, u) if v is not None and u else None
+        return {"during": single, "after": single}
+    return {"during": by_stage.get("probation") or by_stage.get("any"),
+            "after": by_stage.get("post_probation") or by_stage.get("any")}
 
 
 def _validate_cross(profile: dict, errors: dict) -> None:
@@ -370,6 +462,8 @@ def save_profile(db, actor, data: dict, *, partial_keys: Optional[set] = None) -
             errors[key] = "Unknown field."
             continue
         profile[key] = _clean(key, value, errors)
+    if "notice_rules" in data and "notice_rules" not in errors:
+        _sync_notice_fallback(profile)
     _validate_cross(profile, errors)
     if profile.get("signatory_id") and "signatory_id" not in errors:
         from app.modules.doc_templates.models import AuthorisedSignatory
@@ -397,17 +491,21 @@ def update_owned_fields(db, actor, values: dict) -> None:
 def completeness(profile: dict) -> dict:
     missing = []
     for key in REQUIRED:
+        if key == "notice_period_unit":
+            continue                                # the notice counts once: an active rule fills both value and unit
         v = profile.get(key)
         if v in (None, "", []):
-            missing.append({"key": key, "label": FIELDS[key][1]})
-    done = len(REQUIRED) - len(missing)
-    return {"percent": round(100 * done / len(REQUIRED)), "required": len(REQUIRED), "missing": missing,
+            shown = "notice_rules" if key == "notice_period_value" else key
+            missing.append({"key": shown, "label": FIELDS[shown][1]})
+    total = len(REQUIRED) - 1
+    done = total - len(missing)
+    return {"percent": round(100 * done / total), "required": total, "missing": missing,
             "complete": not missing}
 
 
 def fields_spec() -> list[dict]:
     return [{"key": k, "group": g, "label": l, "kind": kind, "required": k in REQUIRED,
-             "options": list(o) if kind == "enum" else None} for k, (g, l, kind, o) in FIELDS.items()]
+             "options": list(o) if kind == "enum" else list(o[1]) if kind == "choice" else None} for k, (g, l, kind, o) in FIELDS.items()]
 
 
 def profile_view(db, organization_id: int) -> dict:

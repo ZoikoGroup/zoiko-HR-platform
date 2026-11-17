@@ -30,6 +30,7 @@ import { validateFields } from "../utils/fieldRules";
 import { formatDate } from "../utils/dateTime";
 import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructuredForms";
 import { rememberOnboardingPortal } from "./public/onboardingReturn";
+import PackageFormFiller from "../components/documents/PackageFormFiller";
 
 // The new hire's own pre-onboarding page. Public: the link token is the credential.
 
@@ -322,6 +323,25 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
   const [file, setFile] = useState(null);
   const [fileError, setFileError] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const isForm = doc.package_mode === "COMPLETE";            // a form filled in online (an upload is the alternative)
+  const open = doc.status === "requested" || doc.status === "rejected";
+  const [filling, setFilling] = useState(false);
+  const [showUpload, setShowUpload] = useState(!isForm);
+  const [viewing, setViewing] = useState(false);
+
+  const viewSubmitted = async () => {
+    setViewing(true);
+    try {
+      const res = await getPortalDocumentFile(token, doc.id);
+      const url = URL.createObjectURL(res.blob);
+      window.open(url, "_blank", "noopener");
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch (err) {
+      onError(err.message || "Could not open the document.");
+    } finally {
+      setViewing(false);
+    }
+  };
 
   const upload = async () => {
     const problem = validateFile(file);
@@ -348,19 +368,42 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
         <StatusBadge status={doc.status} requiresSignature={false} />
       </div>
 
-      {doc.package_mode === "COMPLETE" && doc.has_package_file && (doc.status === "requested" || doc.status === "rejected") && (
-        <p className="mt-2 text-xs text-slate-600">
-          <a href={portalPackageFileUrl(token, doc.category)} className="font-semibold text-blue-600 hover:underline">Download the form</a>,
-          complete and sign it, then upload it here.
-        </p>
-      )}
       {doc.status === "rejected" && doc.rejection_reason && (
         <p className="mt-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 break-words">
           Revision requested: {doc.rejection_reason}
         </p>
       )}
+      {isForm && open && !filling && (
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+          <button type="button" onClick={() => setFilling(true)}
+            className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-blue-700 sm:w-auto">
+            <PenTool className="h-3.5 w-3.5" />{doc.status === "rejected" ? "Correct the form online" : "Fill in online"}
+          </button>
+          {!showUpload && (
+            <button type="button" onClick={() => setShowUpload(true)} className="text-xs font-semibold text-slate-500 hover:text-slate-700 hover:underline">
+              Or upload a completed copy instead
+            </button>
+          )}
+        </div>
+      )}
+      {isForm && open && filling && (
+        <PackageFormFiller token={token} category={doc.category} onClose={() => setFilling(false)}
+          onSubmitted={(view, msg) => { setFilling(false); onUpdated(view, msg); }} />
+      )}
+      {isForm && !open && doc.uploaded && (
+        <button type="button" onClick={viewSubmitted} disabled={viewing}
+          className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-600 hover:underline disabled:opacity-50">
+          <Eye className="h-3.5 w-3.5" />{viewing ? "Opening…" : "View what you submitted"}
+        </button>
+      )}
+      {isForm && open && showUpload && !filling && doc.has_package_file && (
+        <p className="mt-2 text-xs text-slate-600">
+          <a href={portalPackageFileUrl(token, doc.category)} className="font-semibold text-blue-600 hover:underline">Download the form</a>,
+          complete and sign it, then upload it here.
+        </p>
+      )}
 
-      {(doc.status === "requested" || doc.status === "rejected") && (
+      {open && showUpload && !filling && (
         <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
           <input
             type="file"

@@ -709,3 +709,161 @@ def test_submit_details_treats_an_explicit_null_as_missing(world):
     r = world.client.put(f"/public/onboarding/{token}/details", json={"phone": "+44 7700 900123", "address": None, "city": "York",
                          "country": "United Kingdom", "postal_code": "YO1 1AA", "submit": True})
     assert r.status_code == 422 and "address" in r.text, r.text
+
+
+def test_the_package_panel_and_send_build_the_hires_values_once(world, monkeypatch):
+    """Opening the panel used to rebuild the values once per document (~100 queries), which timed out against a distant
+    database. Within one request each hire's values are built once (and once more per contract number when sending)."""
+    from app.modules.hr import onboarding_package as P
+    h, _token = _new_hire(world)
+    calls = []
+    real = P.build_values
+    monkeypatch.setattr(P, "build_values", lambda *a, **k: calls.append(k) or real(*a, **k))
+    assert world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").status_code == 200
+    assert len(calls) == 1
+    calls.clear()
+    assert world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package").status_code == 200
+    assert len(calls) <= 2, calls
+    assert P._CACHE_KEY not in world.db.info, "the cache never outlives the request"
+
+
+def test_without_a_role_profile_the_role_is_generated_from_the_hires_records(world):
+    """No saved Role Profile matches: the documents use one built from the job description / requisition / position, the
+    panel says so, and the role no longer holds documents back. A short requisition note is never printed."""
+    from app.modules.hr import onboarding_package as P
+    from app.modules.hr.models import JobDescription, RecruitmentCandidate, RecruitmentRequisition
+    h, _token = _new_hire(world)
+    h.position = "Backend developer"
+    req = RecruitmentRequisition(title="Backend developer", department="Engineering", organization_id=1,
+                                 description="need a backend developer", requirements="Python\nPostgreSQL")
+    world.db.add(req)
+    world.db.flush()
+    world.db.add(RecruitmentCandidate(name="Nora Newstarter", email=h.email, position="Backend developer", organization_id=1,
+                                      requisition_id=req.id, onboarding_new_hire_id=h.id))
+    world.db.commit()
+    role = P.generated_role(world.db, h)
+    assert role["generated"] and role["title"] == "Backend developer"
+    assert "need a backend developer" not in str(role), "an internal note is not printed"
+    assert role["about"][0].startswith("The Backend developer in the Engineering team")
+    assert role["required_skills"] == [] or all(len(s.split()) >= 2 for s in role["required_skills"])
+    assert len(role["kpi_areas"]) >= 4 and role["contract_duties"].startswith("The main duties of the role are to ")
+    docs = _states(world, h)
+    assert not any(m["key"].startswith(("role.", "kpi.")) or m["key"] == "employment.duties_paragraph"
+                   for d in docs.values() for m in d["missing_fields"])
+    pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()
+    assert any(w["code"] == "role_profile_generated" for w in pkg["warnings"])
+
+    # a job description with the position's title is preferred, and a saved role profile always wins
+    world.db.add(JobDescription(organization_id=1, title="Backend developer", status="APPROVED",
+                                purpose="Builds and runs the services behind our products, keeping them fast, secure and reliable.",
+                                key_responsibilities=["Design and build APIs", "Keep services monitored and reliable"],
+                                requirements_essential=["Python", "SQL databases"]))
+    world.db.commit()
+    role = P.generated_role(world.db, h)
+    assert role["generated_from"] == "the job description"
+    assert role["responsibility_groups"][0]["bullets"] == ["Design and build APIs.", "Keep services monitored and reliable."]
+    assert role["offer_responsibilities"][0] == "Design and build APIs."
+
+
+def test_conflict_of_opportunities_and_non_solicitation_print_standard_wording_until_counsel_adds_their_own(world):
+    from types import SimpleNamespace
+    from app.modules.hr import onboarding_package as P
+    h, _token = _new_hire(world)
+    ctx = P.render_context(world.db, h, "nda", final=True)
+    kind, text = ctx.clause_value("non_solicitation")
+    assert kind == "text" and "will not, directly or indirectly, solicit" in text and "{party}" not in text
+    assert ctx.clause_value("conflict_of_opportunities")[0] == "text"
+    assert not {"non_solicitation", "conflict_of_opportunities"} & set(P.readiness(ctx, "nda")["missing_clauses"])
+    actor = SimpleNamespace(id=world.u["a_admin"].id, organization_id=1)
+    P.save_config(world.db, actor, {"clauses": {"non_solicitation": {"text": "Counsel's own wording."}}})
+    assert P.render_context(world.db, h, "nda", final=True).clause_value("non_solicitation") == ("text", "Counsel's own wording.")
+    listed = {c["key"]: c for c in world.get("a_admin", "/hr/onboarding/package/settings").json()["clauses"]}
+    assert listed["conflict_of_opportunities"]["standard_text"] and listed["conflict_of_opportunities"]["required"] is False
+
+
+def test_new_hire_fills_in_the_complete_and_return_forms_online_and_hr_sees_the_filled_document(world):
+    from app.modules.hr.models import OnboardingDocument
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": {
+        **_all_clauses(), "governing_law": {"text": GOVERNING_LAW}}}).status_code == 200
+    h, token = _new_hire(world)
+    assert world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS}).status_code == 200
+    issued = {i["category"] for i in world.post("a_admin", f"/hr/onboarding/new-hires/{h.id}/send-package").json()["issued"]}
+    assert {"self_disclosure", "job_application"} <= issued
+
+    form = world.client.get(f"/public/onboarding/{token}/package-forms/self_disclosure").json()
+    assert form["editable"] and form["status"] == "requested"
+    types = [i["type"] for i in form["items"]]
+    assert "choice" in types and "table" in types and "text" in types and types.count("signature") == 1
+    assert not any("Use Only" in (i.get("text") or "") for i in form["items"]), "the HR-only section is not on the form"
+    q1, q3 = [i for i in form["items"] if i["type"] == "choice"][:2]
+    assert "Tenant A Ltd" in q1["label"] and q1["options"] == ["Yes", "No"]
+    table = next(i for i in form["items"] if i["type"] == "table")
+    text = next(i for i in form["items"] if i["type"] == "text")
+    sig = next(i for i in form["items"] if i["type"] == "signature")
+
+    answers = form["answers"]
+    answers[q1["id"]] = "No"
+    answers[table["id"]][0] = ["Riverside Tutors", "Maths tutor", "Weekend tutoring", "4"]
+    answers[q3["id"]] = "No"
+    answers[text["id"]] = "Nothing to correct."
+    # a draft is saved without submitting; the signature is still needed to submit
+    saved = world.client.put(f"/public/onboarding/{token}/package-forms/self_disclosure", json={"answers": answers})
+    assert saved.status_code == 200, saved.text
+    saved = saved.json()
+    assert saved["answers"][q1["id"]] == "No" and saved["status"] == "requested"
+    r = world.client.post(f"/public/onboarding/{token}/package-forms/self_disclosure/submit", json={"answers": answers})
+    assert r.status_code == 422 and sig["id"] in r.json()["detail"]["errors"]
+    answers[sig["id"]] = {"name": "Nora Newstarter", "confirmed": True}
+    r = world.client.post(f"/public/onboarding/{token}/package-forms/self_disclosure/submit", json={"answers": answers})
+    assert r.status_code == 200, r.text
+    doc = {d["category"]: d for d in r.json()["documents"]}["self_disclosure"]
+    assert doc["status"] == "pending" and doc["uploaded"], "in HR's review queue like an upload"
+    assert world.client.put(f"/public/onboarding/{token}/package-forms/self_disclosure", json={"answers": answers}).status_code == 400
+
+    # HR: the answers, and the full filled document (PDF and Word)
+    view = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/self_disclosure/form").json()
+    assert view["answers"][q1["id"]] == "No" and view["signed_name"] == "Nora Newstarter"
+    pdf = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/self_disclosure/download")
+    assert pdf.status_code == 200
+    text_pdf = _text(pdf.content)
+    for expected in ("Riverside Tutors", "Maths tutor", "Nothing to correct.", "Answer: No", "Nora Newstarter",
+                     "Signed electronically"):
+        assert expected in text_pdf, expected
+    assert "DRAFT" not in text_pdf
+    row = world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=h.id, category="self_disclosure").one()
+    with open(row.file_path, "rb") as fh:
+        assert "Riverside Tutors" in _text(fh.read()), "the returned document HR reviews is the filled form"
+    docx = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/self_disclosure/download?format=docx")
+    assert docx.status_code == 200 and docx.content[:2] == b"PK"
+
+    # HR rejects: the form opens again with the answers kept, and can be submitted again
+    r = world.put("a_admin", f"/hr/onboarding/documents/{row.id}", json={"status": "rejected", "rejection_reason": "Add the hours."})
+    assert r.status_code == 200, r.text
+    again = world.client.get(f"/public/onboarding/{token}/package-forms/self_disclosure").json()
+    assert again["editable"] and again["rejection_reason"] == "Add the hours." and again["answers"][q1["id"]] == "No"
+    assert world.client.post(f"/public/onboarding/{token}/package-forms/self_disclosure/submit", json={"answers": again["answers"]}).status_code == 200
+
+    # the job application form works the same way
+    app_form = world.client.get(f"/public/onboarding/{token}/package-forms/job_application").json()
+    assert any(i["type"] == "table" and "Institution" in i["headers"] for i in app_form["items"])
+    assert world.client.get(f"/public/onboarding/{token}/package-forms/offer_letter").status_code == 404
+    ans = app_form["answers"]
+    for item in app_form["items"]:
+        if item["type"] == "choice":
+            ans[item["id"]] = item["options"][0]
+        if item["type"] == "table" and "Institution" in item["headers"]:
+            ans[item["id"]][0] = ["University of York", "2015", "2018", "BSc Computer Science", "2018", "2:1"]
+        if item["type"] == "signature":
+            ans[item["id"]] = {"name": "Nora Newstarter", "confirmed": True}
+        if item["type"] == "answer":
+            ans[item["id"]] = "No convictions."
+    r = world.client.post(f"/public/onboarding/{token}/package-forms/job_application/submit", json={"answers": ans})
+    assert r.status_code == 200, r.text
+    filled = _text(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/job_application/download").content)
+    assert "University of York" in filled and "BSc Computer Science" in filled and "nora.newstarter@example.com" in filled
+    assert "Not provided" not in filled, "a missing prefill is left blank, not filled with printed fallback text"
+    assert not any(i["type"] == "answer" for i in app_form["items"]), "the privacy notice is read, not answered"
+    panel = {d["category"]: d for d in world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()["documents"]}
+    assert panel["job_application"]["filled_online"] and panel["job_application"]["state"] == "needs_review"
+    preview = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/job_application/preview.pdf")
+    assert "University of York" in _text(preview.content), "Preview shows the filled form"

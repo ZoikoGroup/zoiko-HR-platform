@@ -173,6 +173,19 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
                            "Filled automatically from time records"),
 }
 
+# Standard wording printed for these clauses until the organisation saves its own (Settings › Offer package). They are
+# therefore never "missing" and never hold a document back. {party} / {engagement} are the engagement profile's terms.
+STANDARD_CLAUSES: dict[str, str] = {
+    "conflict_of_opportunities":
+        "Any business opportunity within the Company's field of business that the {party} learns of through the {engagement} "
+        "belongs to the Company. The {party} will offer it to the Company first and will not pursue it, personally or through "
+        "anyone else, without the Company's written consent.",
+    "non_solicitation":
+        "The {party} will not, directly or indirectly, solicit or try to entice away any employee, client or supplier of the "
+        "Company with whom the {party} worked or had material dealings during the {engagement}. General advertising that is "
+        "not aimed at them is not solicitation.",
+}
+
 # ── Clause hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────
 # key -> (title, drafting note, required). A required hook without counsel wording keeps the document a draft.
 # An optional hook without wording prints "Not used." in an issued document.
@@ -239,10 +252,10 @@ CLAUSES: dict[str, tuple[str, str, bool]] = {
                                  "Ask only where lawful and relevant to the role, and only at the stage the law allows.", False),
     "conflict_of_opportunities": ("Avoiding conflict of opportunities",
                                   "Counsel to set how business opportunities learned through the engagement must be offered to the "
-                                  "Company first.", True),
+                                  "Company first.", False),
     "non_solicitation": ("Non-solicitation",
                          "Counsel to set which employees, clients and suppliers may not be solicited, and confirm the period set "
-                         "in the Company Profile is enforceable.", True),
+                         "in the Company Profile is enforceable.", False),
     "non_competition": ("Non-competition",
                         "Include only if counsel confirms enforceability where the person works (in India, restraints after the "
                         "engagement ends are generally void under section 27 of the Indian Contract Act). Otherwise mark as not "

@@ -277,6 +277,13 @@ export const savePortalOutsideActivities = (token, payload) =>
   api.post(`/public/onboarding/${encodeURIComponent(token)}/outside-activities`, payload, { auth: false });
 export const portalPackageFileUrl = (token, category) =>
   `${API_BASE_URL}/public/onboarding/${encodeURIComponent(token)}/package/${category}/file`;
+// "Complete and return" package forms filled in online (self-disclosure, job application)
+export const getPortalPackageForm = (token, category) =>
+  api.get(`/public/onboarding/${encodeURIComponent(token)}/package-forms/${category}`, { auth: false });
+export const savePortalPackageForm = (token, category, answers) =>
+  api.put(`/public/onboarding/${encodeURIComponent(token)}/package-forms/${category}`, { answers }, { auth: false });
+export const submitPortalPackageForm = (token, category, answers) =>
+  api.post(`/public/onboarding/${encodeURIComponent(token)}/package-forms/${category}/submit`, { answers }, { auth: false });
 export const submitSignedPackage = (token) => api.post(`/public/onboarding/${encodeURIComponent(token)}/submit-signed-package`, {}, { auth: false });
 export const savePortalDetails = (token, payload) => api.put(`/public/onboarding/${encodeURIComponent(token)}/details`, payload, { auth: false });
 export const uploadPortalDocument = (token, docId, file) => {

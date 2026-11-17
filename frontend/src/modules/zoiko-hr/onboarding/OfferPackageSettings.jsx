@@ -254,6 +254,7 @@ export default function OfferPackageSettings() {
                       <span className="flex shrink-0 items-center gap-2">
                         {done
                           ? <StatusPill tone="green">{v.not_applicable ? "Not used" : "Supplied"}</StatusPill>
+                          : c.standard_text ? <StatusPill tone="blue">Standard wording</StatusPill>
                           : <StatusPill tone={c.required ? "amber" : "gray"}>{c.required ? "Required" : "Optional"}</StatusPill>}
                         <ChevronDown className={`h-4 w-4 text-gray-400 transition ${isOpen ? "rotate-180" : ""}`} />
                       </span>
@@ -261,6 +262,12 @@ export default function OfferPackageSettings() {
                     {isOpen && (
                       <div className="space-y-2 px-4 pb-4">
                         <p className="text-xs italic text-gray-500">Drafting note: {c.note}</p>
+                        {c.standard_text && !(v.text || "").trim() && !v.not_applicable && (
+                          <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-900">
+                            Until you add your own wording, the documents print this standard wording (with your engagement's terms, e.g. "Employee"):
+                            <span className="mt-1 block text-gray-700">{c.standard_text.replace(/\{party\}/g, "Employee").replace(/\{engagement\}/g, "employment")}</span>
+                          </p>
+                        )}
                         <label htmlFor={`cl-${c.key}`} className="sr-only">Wording for {c.title}</label>
                         <textarea id={`cl-${c.key}`} rows={6} className={inputCls} value={v.text || ""} disabled={v.not_applicable}
                           placeholder="Paste the counsel-approved wording. Leave a blank line between paragraphs."

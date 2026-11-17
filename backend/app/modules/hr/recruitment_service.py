@@ -614,19 +614,50 @@ def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, orga
     return candidate
 
 
-def delete_candidate(db: Session, candidate_id: int, organization_id: Optional[int] = None) -> None:
+def delete_candidate(db: Session, candidate_id: int, organization_id: Optional[int] = None) -> dict:
+    """Delete the candidate and everything recruitment holds for them: interviews (and their feedback), offers (and their
+    approvals), uploaded documents and applications, in one transaction. Refused only once the candidate has an onboarding
+    record, because the new hire's documents are built from the accepted offer: delete the new hire in Onboarding first
+    (a completed onboarding has an employee account and is never deleted). Generated offer-letter documents stay in the
+    document register as the record of what was sent. Returns how many linked records were removed."""
     candidate = get_candidate_by_id(db, candidate_id, organization_id)
-    linked = {
-        "interview(s)": db.query(func.count(RecruitmentInterview.id)).filter(RecruitmentInterview.candidate_id == candidate.id).scalar() or 0,
-        "offer(s)": db.query(func.count(RecruitmentOffer.id)).filter(RecruitmentOffer.candidate_id == candidate.id).scalar() or 0,
-        "document(s)": db.query(func.count(RecruitmentDocument.id)).filter(RecruitmentDocument.candidate_id == candidate.id).scalar() or 0,
-        "application(s)": db.query(func.count(RecruitmentApplication.id)).filter(RecruitmentApplication.candidate_id == candidate.id).scalar() or 0,
-    }
-    held = [f"{n} {what}" for what, n in linked.items() if n]
-    if held:
-        raise BadRequestException(f"This candidate has {', '.join(held)}. Mark them rejected instead of deleting the record.")
-    db.delete(candidate)
-    db.commit()
+    if candidate.onboarding_new_hire_id:
+        hire = db.get(OnboardingNewHire, candidate.onboarding_new_hire_id)
+        if hire is not None and not getattr(hire, "is_deleted", False):
+            if hire.status == "completed":
+                raise BadRequestException(f"{candidate.name} has joined: their onboarding is complete and the employee account "
+                                          "exists, so the candidate record is kept. Deactivate the employee instead.")
+            raise BadRequestException(f"{candidate.name} is in onboarding. Delete their new hire record in Onboarding › New Hires "
+                                      "first, then delete the candidate.")
+
+    def scoped(model):
+        q = db.query(model).filter(model.candidate_id == candidate.id)
+        return q.filter(model.organization_id == candidate.organization_id) if hasattr(model, "organization_id") else q
+
+    interview_ids = [i for (i,) in scoped(RecruitmentInterview).with_entities(RecruitmentInterview.id).all()]
+    offer_ids = [o for (o,) in scoped(RecruitmentOffer).with_entities(RecruitmentOffer.id).all()]
+    removed = {"interviews": len(interview_ids), "offers": len(offer_ids)}
+    try:
+        if interview_ids:
+            db.query(RecruitmentInterviewFeedback).filter(RecruitmentInterviewFeedback.interview_id.in_(interview_ids)) \
+                .delete(synchronize_session=False)
+            db.query(RecruitmentInterview).filter(RecruitmentInterview.id.in_(interview_ids)).delete(synchronize_session=False)
+        if offer_ids:
+            db.query(RecruitmentOfferApproval).filter(RecruitmentOfferApproval.offer_id.in_(offer_ids)) \
+                .delete(synchronize_session=False)
+            # an amended offer points at the one it replaced; clear those links before the offers go
+            db.query(RecruitmentOffer).filter(RecruitmentOffer.amends_offer_id.in_(offer_ids)) \
+                .update({RecruitmentOffer.amends_offer_id: None}, synchronize_session=False)
+            db.query(RecruitmentOffer).filter(RecruitmentOffer.id.in_(offer_ids)).delete(synchronize_session=False)
+        removed["documents"] = scoped(RecruitmentDocument).delete(synchronize_session=False)
+        removed["applications"] = scoped(RecruitmentApplication).delete(synchronize_session=False)
+        db.delete(candidate)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    logger.info("candidate %s deleted (org %s) with %s", candidate_id, candidate.organization_id, removed)
+    return removed
 
 
 def update_candidate_status(db: Session, candidate_id: int, data: CandidateStatusUpdate, organization_id: Optional[int] = None,
@@ -789,6 +820,9 @@ def update_interview(db: Session, interview_id: int, data: InterviewUpdate, orga
 
 def delete_interview(db: Session, interview_id: int, organization_id: Optional[int] = None) -> None:
     interview = get_interview_by_id(db, interview_id, organization_id)
+    # feedback rows reference the interview; remove them first or the delete breaks the foreign key
+    db.query(RecruitmentInterviewFeedback).filter(RecruitmentInterviewFeedback.interview_id == interview.id) \
+        .delete(synchronize_session=False)
     db.delete(interview)
     db.commit()
 

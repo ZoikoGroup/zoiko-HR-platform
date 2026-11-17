@@ -30,7 +30,7 @@ def test_company_profile_crud_validation_and_isolation(world):
     assert {m["key"] for m in empty["completeness"]["missing"]} >= {"legal_name", "postal_code", "signatory_name"}
 
     saved = _ok(world.put("a_hr", URL, json=VALID))
-    assert saved["completeness"] == {"percent": 100, "required": len(CP.REQUIRED), "missing": [], "complete": True}
+    assert saved["completeness"] == {"percent": 100, "required": len(CP.REQUIRED) - 1, "missing": [], "complete": True}
     assert saved["profile"]["cin"] == "L17110MH1973PLC019786" and saved["profile"]["compliance_documents"] == ["PAN Card", "Bank Details"]
     assert "II Stage, Indiranagar" in saved["registered_address"] and "560038" in saved["registered_address"]
 
