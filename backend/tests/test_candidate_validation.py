@@ -54,6 +54,9 @@ def client():
     from datetime import date
 
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
+    from sqlalchemy import event
+    # enforce foreign keys like Postgres does, so a delete in the wrong order fails here too
+    event.listen(engine, "connect", lambda conn, _rec: conn.execute("PRAGMA foreign_keys=ON"))
     Base.metadata.create_all(engine)
     s = sessionmaker(bind=engine, expire_on_commit=False)()
     s.add_all([Organization(id=1, name="A", status=OrganizationStatus.ACTIVE), Organization(id=2, name="B", status=OrganizationStatus.ACTIVE)])
@@ -103,3 +106,71 @@ def test_editing_keeps_required_fields_and_checks_duplicates(client):
     assert client.put(f"/hr/recruitment/candidates/{b['id']}", json={"position": "Engineer"}).status_code == 400
     assert client.put(f"/hr/recruitment/candidates/{a['id']}", json={"name": ""}).status_code == 422
 
+
+
+def _with_everything(db, cand_id, admin_id):
+    """Give a candidate an interview with feedback, an amended offer with an approval, a document and an application."""
+    from datetime import date
+    from app.modules.hr.models import (RecruitmentApplication, RecruitmentDocument, RecruitmentInterview,
+                                       RecruitmentInterviewFeedback, RecruitmentOffer, RecruitmentOfferApproval,
+                                       RecruitmentRequisition)
+    req = RecruitmentRequisition(title="Engineer", department="Tech", organization_id=1)
+    iv = RecruitmentInterview(candidate_id=cand_id, candidate_name="Ann Lee", position="Engineer", interview_date=date.today(),
+                              organization_id=1)
+    first = RecruitmentOffer(candidate_id=cand_id, candidate_name="Ann Lee", position="Engineer", organization_id=1)
+    db.add_all([req, iv, first])
+    db.flush()
+    second = RecruitmentOffer(candidate_id=cand_id, candidate_name="Ann Lee", position="Engineer", organization_id=1,
+                              amends_offer_id=first.id)
+    db.add_all([second,
+                RecruitmentInterviewFeedback(interview_id=iv.id, interviewer_id=admin_id, rating=4, organization_id=1),
+                RecruitmentOfferApproval(offer_id=first.id, approver_id=admin_id, organization_id=1),
+                RecruitmentDocument(candidate_id=cand_id, document_type="cv", file_path="x/cv.pdf", file_name="cv.pdf", organization_id=1),
+                RecruitmentApplication(candidate_id=cand_id, requisition_id=req.id, organization_id=1)])
+    db.commit()
+
+
+def test_a_candidate_with_interviews_offers_documents_and_applications_can_be_deleted(client):
+    from app.modules.hr.models import (RecruitmentApplication, RecruitmentCandidate, RecruitmentDocument, RecruitmentInterview,
+                                       RecruitmentInterviewFeedback, RecruitmentOffer, RecruitmentOfferApproval)
+    from app.modules.employee.models import Employee
+    cand = client.post("/hr/recruitment/candidates", json=GOOD).json()
+    other = client.post("/hr/recruitment/candidates", json={**GOOD, "email": "bob@x.com"}).json()
+    admin = client.db.query(Employee).first()
+    _with_everything(client.db, cand["id"], admin.id)
+    r = client.delete(f"/hr/recruitment/candidates/{cand['id']}")
+    assert r.status_code == 200, r.text
+    db = client.db
+    assert db.get(RecruitmentCandidate, cand["id"]) is None
+    for model in (RecruitmentInterview, RecruitmentInterviewFeedback, RecruitmentOffer, RecruitmentOfferApproval,
+                  RecruitmentDocument, RecruitmentApplication):
+        assert db.query(model).count() == 0, model.__name__
+    assert db.get(RecruitmentCandidate, other["id"]) is not None          # nobody else is touched
+    assert client.delete(f"/hr/recruitment/candidates/{cand['id']}").status_code == 404
+
+
+def test_a_candidate_in_onboarding_is_kept_until_the_new_hire_is_deleted(client):
+    from app.modules.hr.models import OnboardingNewHire, RecruitmentCandidate
+    cand = client.post("/hr/recruitment/candidates", json=GOOD).json()
+    hire = OnboardingNewHire(candidate_name="Ann Lee", email="ann@x.com", position="Engineer", organization_id=1)
+    client.db.add(hire)
+    client.db.commit()
+    row = client.db.get(RecruitmentCandidate, cand["id"])
+    row.onboarding_new_hire_id = hire.id
+    client.db.commit()
+    r = client.delete(f"/hr/recruitment/candidates/{cand['id']}")
+    assert r.status_code == 400 and "New Hires" in r.text
+    hire.is_deleted = True
+    client.db.commit()
+    assert client.delete(f"/hr/recruitment/candidates/{cand['id']}").status_code == 200
+
+
+def test_an_interview_with_feedback_can_be_deleted(client):
+    from app.modules.hr.models import RecruitmentInterview, RecruitmentInterviewFeedback
+    from app.modules.employee.models import Employee
+    cand = client.post("/hr/recruitment/candidates", json=GOOD).json()
+    _with_everything(client.db, cand["id"], client.db.query(Employee).first().id)
+    iv = client.db.query(RecruitmentInterview).first()
+    r = client.delete(f"/hr/recruitment/interviews/{iv.id}")
+    assert r.status_code in (200, 204), r.text
+    assert client.db.query(RecruitmentInterviewFeedback).count() == 0

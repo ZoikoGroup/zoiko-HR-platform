@@ -301,7 +301,9 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
 
         <ol className="space-y-2">
           {pkg?.documents.map((d, i) => {
-            const st = STATE[d.state] || STATE.not_sent;
+            const base = STATE[d.state] || STATE.not_sent;
+            // a form the new hire filled in online: say so, and Preview shows their completed copy
+            const st = d.filled_online && d.state === "needs_review" ? { ...base, label: "Filled in online – review" } : base;
             const unsent = ["not_sent", "declined"].includes(d.state);
             const candidateFields = d.missing_fields.filter((f) => f.candidate_provides);
             const addressOnly = candidateFields.length > 0 && candidateFields.every((f) => f.hr_may_enter);
@@ -343,7 +345,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
                   <span className="flex items-center gap-1">
                     <button type="button" onClick={() => preview(d.category)} disabled={previewing === d.category}
                       className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 disabled:opacity-50">
-                      {previewing === d.category ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}Preview
+                      {previewing === d.category ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Eye className="h-3.5 w-3.5" />}{d.filled_online ? "View filled form" : "Preview"}
                     </button>
                     {["pdf", "docx"].map((fmt) => (
                       <button key={fmt} type="button" disabled={downloading === `${d.category}-${fmt}`}

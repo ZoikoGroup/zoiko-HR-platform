@@ -59,7 +59,9 @@ export default function PhoneField({
         value={iso}
         disabled={disabled}
         onChange={(e) => { setIso(e.target.value); emit(e.target.value, national); }}
-        className={`${className} ${selectClassName} w-28 shrink-0`}
+        // the code box is always narrow: a width class passed in for the number box (w-full) must not stretch it and push
+        // the number box off the screen
+        className={`${`${className} ${selectClassName}`.replace(/(^|\s)w-\S+/g, " ")} w-28 shrink-0`}
       >
         {options.map((c) => <option key={c.code} value={c.code}>{`${c.dial} ${c.name}`}</option>)}
       </select>

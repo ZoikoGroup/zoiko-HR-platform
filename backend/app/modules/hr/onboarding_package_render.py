@@ -66,6 +66,8 @@ class RenderContext:
     draft: bool = True
     esign: bool = False                                        # issued for in-app e-signature
     version: str = C.PACKAGE_VERSION
+    answers: Optional[dict] = None                             # a filled-in form's answers (onboarding_package_forms)
+    answers_signed_on: str = ""                                # the date the new hire signed the filled-in form
     logo_png: Optional[bytes] = None                           # the organisation's uploaded logo (PNG); None -> no logo
                                                                # (the dashed "insert logo" box is shown on the template set only)
 
@@ -102,6 +104,11 @@ class RenderContext:
             return ("na", None)
         if (c.get("text") or "").strip():
             return ("text", c["text"].strip())
+        standard = C.STANDARD_CLAUSES.get(key)
+        if standard:
+            party = self.field_value("engagement.party_term") or "Employee"
+            engagement = self.field_value("engagement.engagement_term") or "employment"
+            return ("text", standard.format(party=party, engagement=engagement))
         if not C.CLAUSES.get(key, ("", "", True))[2]:
             return ("na", None)
         return None
@@ -248,7 +255,11 @@ def expand(blocks: list, ctx: "RenderContext") -> list:
 
 
 def blocks(category: str, ctx: "RenderContext") -> list:
-    return expand(C.blocks_for(category), ctx)
+    out = expand(C.blocks_for(category), ctx)
+    if ctx.answers is not None:                      # a form the new hire filled in online: their answers written in
+        from app.modules.hr import onboarding_package_forms as FORMS
+        out = FORMS.fill_blocks(out, ctx.answers, ctx.answers_signed_on)
+    return out
 
 
 # ── PDF ──────────────────────────────────────────────────────────────────────────────────────────────────────────────

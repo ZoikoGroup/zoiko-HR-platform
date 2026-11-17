@@ -258,3 +258,36 @@ def portal_package_file(request: Request, token: str, category: str, db: Session
     except (FileNotFoundError, ValueError):
         raise HTTPException(410, "The file for this document is not available.")
     return _pdf(data, f"{C.DOCS[category]['template_id']} {C.DOCS[category]['title']}.pdf", inline=False)
+
+
+# ── forms the new hire fills in online ("Complete and return": self-disclosure, job application) ───────────────────────
+@portal_router.get("/{token}/package-forms/{category}", summary="A package form to fill in online, with any saved answers")
+@limiter.limit("60/minute")
+def portal_form(request: Request, token: str, category: str, db: Session = Depends(get_db)):
+    from app.modules.hr import onboarding_package_forms as FORMS
+    return FORMS.portal_form(db, onboarding_flow.hire_for_token(db, token), category)
+
+
+@portal_router.put("/{token}/package-forms/{category}", summary="Save the form's answers as a draft")
+@limiter.limit("30/minute")
+def portal_form_save(request: Request, token: str, category: str, data: dict = Body(...), db: Session = Depends(get_db)):
+    from app.modules.hr import onboarding_package_forms as FORMS
+    return FORMS.save_draft(db, onboarding_flow.hire_for_token(db, token), category, (data or {}).get("answers"))
+
+
+@portal_router.post("/{token}/package-forms/{category}/submit", summary="Submit the filled-in form to HR")
+@limiter.limit("20/minute")
+def portal_form_submit(request: Request, token: str, category: str, data: dict = Body(...), db: Session = Depends(get_db)):
+    from app.modules.hr import onboarding_package_forms as FORMS
+    hire = onboarding_flow.hire_for_token(db, token)
+    FORMS.submit(db, hire, category, (data or {}).get("answers"))
+    return onboarding_flow.portal_view(db, hire)
+
+
+@router.get("/new-hires/{new_hire_id}/package/{category}/form", summary="The new hire's answers to a filled-in package form")
+def hire_package_form(new_hire_id: int, category: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_forms as FORMS
+    view = FORMS.submission_view(db, _hire(db, user, new_hire_id), category)
+    if view is None:
+        raise HTTPException(404, "The new hire has not submitted this form yet.")
+    return view

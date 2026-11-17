@@ -86,8 +86,10 @@ def test_role_profile_required_and_never_borrowed(world):
     _setup_tenant_a(world)
     h = _hire(world, "Sam Other", "Data Analyst", 30000, date(2026, 8, 3), {})
     values = P.build_values(world.db, h, P.get_config(world.db, 1))
-    assert values["role.title"] is None and values["employment.duties_paragraph"] is None, "no matching role: nothing borrowed"
-    assert any(w["code"] == "no_role_profile" for w in P.consistency_warnings(world.db, h))
+    # no matching role: a role is generated from the hire's own position, never borrowed from another role's profile
+    assert values["role.title"] == "Data Analyst"
+    assert "full-stack web applications" not in values["employment.duties_paragraph"]
+    assert any(w["code"] == "role_profile_generated" for w in P.consistency_warnings(world.db, h))
     # matched by title (case / dash insensitive), or chosen explicitly
     h2 = _hire(world, "Ravuri Rugvedh", "associate - ai web engineer / full-stack associate", 12000, date(2026, 8, 3), {})
     v2 = P.build_values(world.db, h2, P.get_config(world.db, 1))
