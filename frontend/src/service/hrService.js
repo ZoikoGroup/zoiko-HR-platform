@@ -255,6 +255,9 @@ export const deleteOfferPackageLogo = () => api.delete("/hr/onboarding/package/l
 export const getOfferPackageLogo = () => fetchDocumentFile("/hr/onboarding/package/logo", "logo.png");
 export const getOfferPackageTemplateSet = () => fetchDocumentFile("/hr/onboarding/package/template.pdf", "offer-package-template-set.pdf");
 export const getHirePackage = (newHireId) => api.get(`/hr/onboarding/new-hires/${newHireId}/package`);
+// Onboarding › Checklists: the state of the 10 package documents for every new hire, in one request
+export const getPackageStatusBoard = (includeFinished = false) =>
+  api.get("/hr/onboarding/package/status", { params: includeFinished ? { include_finished: true } : {} });
 export const saveHirePackageInputs = (newHireId, values) => api.put(`/hr/onboarding/new-hires/${newHireId}/package/inputs`, { values });
 // Package downloads (file names come from the server: RR_RAVURI_RUGVEDH_OFFER_LETTER.pdf, …_SIGNED, …_DRAFT)
 export const downloadHirePackageDocument = (newHireId, category, format = "pdf") =>

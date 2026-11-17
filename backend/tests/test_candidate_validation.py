@@ -27,7 +27,7 @@ def test_blank_required_fields_are_named_in_plain_words():
 def test_bad_values_get_specific_messages():
     out = _errors(name="A", email="not-an-email", position="Dev", phone="123", resume_link="cv", experience=99)
     assert "valid email" in out["email"]
-    assert "10-digit" in out["phone"]
+    assert "valid phone number for India" in out["phone"]          # QA #13: the country-aware phone rule
     assert "http" in out["resume_link"]
     assert "60" in out["experience"]
 
@@ -102,7 +102,7 @@ def test_editing_keeps_required_fields_and_checks_duplicates(client):
     b = client.post("/hr/recruitment/candidates", json={**GOOD, "position": "Designer"}).json()
     ok = client.put(f"/hr/recruitment/candidates/{a['id']}", json={"notes": "strong", "phone": "9876543210"})
     assert ok.status_code == 200, ok.text
-    assert ok.json()["phone"] == "9876543210"
+    assert ok.json()["phone"] == "+919876543210"              # QA #13: stored in E.164 like every other phone
     assert client.put(f"/hr/recruitment/candidates/{b['id']}", json={"position": "Engineer"}).status_code == 400
     assert client.put(f"/hr/recruitment/candidates/{a['id']}", json={"name": ""}).status_code == 422
 

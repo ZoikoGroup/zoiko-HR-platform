@@ -5,7 +5,8 @@ import { Avatar, Card, KpiCard, KpiGrid, PersonCell, PrimaryButton, RecruitmentL
 import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions, parseCV } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { validateCandidateForm, serverFieldErrors, candidatePayload } from "../../../utils/candidateForm";
-import { PHONE_MAX_LENGTH } from "../../../utils/phone";
+import PhoneField from "../../../components/PhoneField";
+import EmailSuggestion from "../../../components/EmailSuggestion";
 import { experienceText, sourceLabel, shown, candidateCsv, candidateTimeline } from "../../../utils/candidateDisplay";
 import { bulkRejectCandidates, getCandidateDocumentsStatus, sendCandidatePrivacyNotice } from "../../../service/recruitmentDocumentsService";
 import RecruitmentPrivacySettings from "./PrivacySettings";
@@ -312,6 +313,12 @@ export default function Candidates() {
     setCvFilled((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
   };
 
+  // a field is checked when the person leaves it (the same rules as on save)
+  const checkField = (key) => () => {
+    const message = validateCandidateForm(form)[key];
+    setErrors((prev) => (message ? { ...prev, [key]: message } : prev[key] ? { ...prev, [key]: undefined } : prev));
+  };
+
   const focusFirstInvalid = (found) => {
     const first = FIELD_ORDER.find((key) => found[key]);
     if (!first) return;
@@ -574,7 +581,7 @@ export default function Candidates() {
               <FormSection icon={User} title="Contact" helper="How the recruiting team reaches the candidate.">
                 <Field id="cand-name" label="Full name" required error={errors.name} badge={fromCv("name")}>
                   <input id="cand-name" value={form.name} maxLength={150} autoComplete="off" aria-invalid={!!errors.name} aria-describedby={errors.name ? "cand-name-error" : undefined}
-                    onChange={(e) => setField("name", e.target.value)} className={inputCls(errors.name)} />
+                    onChange={(e) => setField("name", e.target.value)} onBlur={checkField("name")} className={inputCls(errors.name)} />
                 </Field>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field id="cand-email" label="Email" required error={errors.email} badge={fromCv("email")}
@@ -587,13 +594,13 @@ export default function Candidates() {
                           <NavLink to={`/zoiko-hr/recruitment/candidates/${duplicateCandidate.id}`} className="font-medium underline">View profile</NavLink>
                         </span>
                       </p>
-                    ) : null}>
+                    ) : <EmailSuggestion value={form.email} onAccept={(v) => setField("email", v)} />}>
                     <input id="cand-email" type="email" value={form.email} maxLength={255} autoComplete="off" aria-invalid={!!errors.email} aria-describedby={errors.email ? "cand-email-error" : "cand-email-hint"}
-                      onChange={(e) => setField("email", e.target.value)} className={inputCls(errors.email)} />
+                      onChange={(e) => setField("email", e.target.value)} onBlur={checkField("email")} className={inputCls(errors.email)} />
                   </Field>
-                  <Field id="cand-phone" label="Phone" error={errors.phone} badge={fromCv("phone")} hint="10-digit number, country code optional.">
-                    <input id="cand-phone" type="tel" value={form.phone} maxLength={PHONE_MAX_LENGTH} placeholder="+91 9876543210" autoComplete="off" aria-invalid={!!errors.phone} aria-describedby={errors.phone ? "cand-phone-error" : "cand-phone-hint"}
-                      onChange={(e) => setField("phone", e.target.value)} className={inputCls(errors.phone)} />
+                  <Field id="cand-phone" label="Phone" error={errors.phone} badge={fromCv("phone")} hint="Choose the country code, then the number.">
+                    <PhoneField id="cand-phone" value={form.phone} onChange={(v) => setField("phone", v)} onBlur={checkField("phone")}
+                      invalid={!!errors.phone} describedBy={errors.phone ? "cand-phone-error" : "cand-phone-hint"} className={inputCls(errors.phone)} />
                   </Field>
                 </div>
               </FormSection>
@@ -624,7 +631,7 @@ export default function Candidates() {
                 ) : null}
                 <Field id="cand-position" label="Position" required error={errors.position} badge={fromCv("position")}>
                   <input id="cand-position" value={form.position} maxLength={150} autoComplete="off" aria-invalid={!!errors.position} aria-describedby={errors.position ? "cand-position-error" : undefined}
-                    onChange={(e) => setField("position", e.target.value)} className={inputCls(errors.position)} />
+                    onChange={(e) => setField("position", e.target.value)} onBlur={checkField("position")} className={inputCls(errors.position)} />
                 </Field>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field id="cand-status" label="Status" error={errors.status}
@@ -644,8 +651,8 @@ export default function Candidates() {
               <FormSection icon={MapPin} title="Profile" helper="Background that helps the hiring team shortlist.">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field id="cand-location" label="Location" error={errors.location} badge={fromCv("location")}>
-                    <input id="cand-location" value={form.location} maxLength={150} autoComplete="off" aria-invalid={!!errors.location} aria-describedby={errors.location ? "cand-location-error" : undefined}
-                      onChange={(e) => setField("location", e.target.value)} className={inputCls(errors.location)} />
+                    <input id="cand-location" value={form.location} maxLength={150} autoComplete="off" placeholder="e.g. Hyderabad, India" aria-invalid={!!errors.location} aria-describedby={errors.location ? "cand-location-error" : undefined}
+                      onChange={(e) => setField("location", e.target.value)} onBlur={checkField("location")} className={inputCls(errors.location)} />
                   </Field>
                   <Field id="cand-exp" label="Experience" error={errors.experience} badge={fromCv("experience")} hint="Whole years, 0–60.">
                     <div className="relative">
@@ -745,7 +752,14 @@ export default function Candidates() {
             )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
               {[
-                { icon: Mail, label: "Email", value: candidate.email ? <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline break-all">{candidate.email}</a> : "Not provided" },
+                { icon: Mail, label: "Email", value: candidate.email ? (
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline break-all">{candidate.email}</a>
+                    {candidate.email_status === "bounced" && (
+                      <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">Email bounced – check the address</span>
+                    )}
+                  </span>
+                ) : "Not provided" },
                 { icon: Phone, label: "Phone", value: shown(candidate.phone, "Not provided") },
                 { icon: MapPin, label: "Location", value: shown(candidate.location, "Not provided") },
                 { icon: Briefcase, label: "Experience", value: experienceText(candidate.experience, "Not provided") },

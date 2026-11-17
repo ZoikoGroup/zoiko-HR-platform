@@ -146,6 +146,11 @@ def template_set(db: Session = Depends(get_db), user=Depends(get_current_admin))
     return _pdf(onboarding_package.template_set_pdf(db, user.organization_id), "offer-package-template-set.pdf", inline=False)
 
 
+@router.get("/package/status", summary="The state of the 10 package documents for every new hire (Onboarding › Checklists)")
+def package_status(include_finished: bool = False, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    return onboarding_package.status_board(db, user.organization_id, include_finished=include_finished)
+
+
 @router.get("/new-hires/{new_hire_id}/package", summary="Readiness and state of each package document for a new hire")
 def hire_package(new_hire_id: int, db: Session = Depends(get_db), user=Depends(get_current_admin)):
     return onboarding_package.package_view(db, _hire(db, user, new_hire_id))

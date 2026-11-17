@@ -134,14 +134,48 @@ def _domain_receives_mail(domain: str) -> Optional[bool]:
     return result
 
 
-def check_real_email(value, *, label: str = "Email") -> Optional[str]:
+# System / role mailboxes that no person reads (refused for a candidate's or new hire's own address).
+ROLE_LOCAL_PARTS = frozenset({"noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "do_not_reply", "mailer-daemon",
+                              "postmaster"})
+ROLE_ADDRESS_MESSAGE = "Enter the person's own email address. System addresses such as noreply@ or postmaster@ are not accepted."
+
+# Frequent typos of the big mail providers: a suggestion only, never a refusal (the domain may really exist).
+DOMAIN_TYPOS = {
+    "gmial.com": "gmail.com", "gmai.com": "gmail.com", "gmal.com": "gmail.com", "gamil.com": "gmail.com", "gnail.com": "gmail.com",
+    "gmail.co": "gmail.com", "gmail.con": "gmail.com", "gmail.cm": "gmail.com", "gmaill.com": "gmail.com",
+    "yahooo.com": "yahoo.com", "yaho.com": "yahoo.com", "yahoo.co": "yahoo.com", "yahoo.con": "yahoo.com",
+    "hotmial.com": "hotmail.com", "hotmal.com": "hotmail.com", "hotmai.com": "hotmail.com", "hotmail.co": "hotmail.com",
+    "hotmail.con": "hotmail.com", "outlok.com": "outlook.com", "outllook.com": "outlook.com", "outlook.co": "outlook.com",
+    "outlook.con": "outlook.com", "iclod.com": "icloud.com", "icloud.co": "icloud.com", "rediffmial.com": "rediffmail.com",
+}
+
+
+def suggest_email(value) -> Optional[str]:
+    """"name@gmail.com" for "name@gmial.com"; None when the domain is not a known typo (same table as realEmail.js)."""
+    text = str(value or "").strip()
+    if "@" not in text:
+        return None
+    local, domain = text.rsplit("@", 1)
+    fixed = DOMAIN_TYPOS.get(domain.lower())
+    return f"{local}@{fixed}" if fixed else None
+
+
+def is_role_address(value) -> bool:
+    local = str(value or "").strip().rsplit("@", 1)[0].lower()
+    return local in ROLE_LOCAL_PARTS
+
+
+def check_real_email(value, *, label: str = "Email", person: bool = False) -> Optional[str]:
     """The address, trimmed; None for a blank one. Raises ValueError with a plain message when the
-    address is not a real, usable one."""
+    address is not a real, usable one. person=True: the address of a person (candidate, new hire), so system mailboxes
+    such as noreply@ are refused too."""
     if value is None:
         return None
     text = str(value).strip()
     if not text:
         return None
+    if person and is_role_address(text):
+        raise ValueError(ROLE_ADDRESS_MESSAGE)
     if not getattr(settings, "EMAIL_REAL_ONLY", True):
         return text
     problem = problem_with_domain(_domain_of(text))

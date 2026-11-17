@@ -865,6 +865,7 @@ class OnboardingNewHire(Base):
     employee_id     = Column(Integer, ForeignKey("employees.id"), nullable=True)
     candidate_name  = Column(String(150), nullable=False)
     email           = Column(String(255), nullable=False)
+    email_status    = Column(String(20), nullable=True)          # "bounced" when a send to this address was refused
     phone           = Column(String(50), nullable=True)
     position        = Column(String(150), nullable=False)
     department_id   = Column(Integer, ForeignKey("departments.id"), nullable=True)
@@ -1249,6 +1250,7 @@ class RecruitmentCandidate(Base):
     notes          = Column(Text, nullable=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     onboarding_new_hire_id = Column(Integer, ForeignKey("onboarding_new_hires.id"), nullable=True)
+    email_status   = Column(String(20), nullable=True)        # "bounced" when a send to this address was refused
     requisition_id = Column(Integer, ForeignKey("recruitment_requisitions.id"), nullable=True, index=True)
     hired_at       = Column(DateTime, nullable=True)          # when the candidate became HIRED (time-to-hire)
     created_at     = Column(DateTime, server_default=func.now())
@@ -1262,7 +1264,8 @@ class RecruitmentRequisition(Base):
 
     id             = Column(Integer, primary_key=True, index=True)
     title          = Column(String(200), nullable=False)
-    department     = Column(String(100), nullable=False)
+    department     = Column(String(100), nullable=False)      # the department record's name (kept for lists / exports)
+    department_id  = Column(Integer, ForeignKey("departments.id"), nullable=True, index=True)
     location       = Column(String(150), nullable=True)
     openings       = Column(Integer, default=1)
     filled         = Column(Integer, default=0)
@@ -1346,7 +1349,7 @@ class RecruitmentOffer(Base):
     entity_city    = Column(String(120), nullable=True)
     entity_region  = Column(String(120), nullable=True)              # state / province / emirate
     entity_postal_code = Column(String(20), nullable=True)
-    equity         = Column(String(50), nullable=True)
+    equity         = Column(Numeric(5, 2), nullable=True)       # percent, 0..100
     joining_date   = Column(Date, nullable=True)
     status         = Column(Enum(OfferStatus), default=OfferStatus.DRAFT, nullable=False)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)

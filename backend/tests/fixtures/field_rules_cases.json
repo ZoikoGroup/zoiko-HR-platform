@@ -1220,6 +1220,340 @@
    "valid": false,
    "country": "BR",
    "message": "That doesn't look like a valid Tax / registration number. The business's tax or company registration number."
+  },
+  {
+   "rule": "location",
+   "value": "Bengaluru, India",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Floor 3, Room 4B",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Floor 3, Room 4B, Bengaluru",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Hyderabad, India",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Pune, India",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "#12 MG Road, Pune",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "São Paulo",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "R&D Centre (Block A)",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "  Pune ,  India ",
+   "valid": true,
+   "normalized": "Pune , India"
+  },
+  {
+   "rule": "location",
+   "value": "मुंबई",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "St. John's",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "@#$Main",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "uytresdfty#$%$#@",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "*&^%$%^&88",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "@#$#^%$#$",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "12345",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "A1",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune!!",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune---East",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune 🙂",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "-Pune",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune​India",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "<script>alert(1)</script>",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+   "valid": false,
+   "message": "Use 2 to 150 characters."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon–Fri, 9:30–18:30",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon-Fri, 9:30-18:30",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Shifts (4 on / 4 off)",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Monday to Friday, 40 hours",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Flexible + core hours 11:00-16:00",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "*&^%$#%^&*9gh&",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "9:30-18:30",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon-Fri#",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon...Fri",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "!Mon-Fri",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "x",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "message": "Use 2 to 200 characters."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$##$%$TR$%$",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "U^%$#$%^&*876",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$#@",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$#@#%$",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$#",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Neha3",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Anil Kumar",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Rahul Mehta",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Neha Verma",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "José",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "अनिल",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "O'Brien",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "#$%$#TRF",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "*&^%$45^&87",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "#$%#",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "*&^%",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "*&^%^&*876",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "Senior Engineer II",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "QA Analyst",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "Product Designer",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "HR Executive",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "R&D Engineer",
+   "valid": true
+  },
+  {
+   "rule": "org_unit",
+   "value": "765$%^&*",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) only. Include at least one letter."
+  },
+  {
+   "rule": "org_unit",
+   "value": "8765$%^&*(8",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) only. Include at least one letter."
   }
  ]
 }

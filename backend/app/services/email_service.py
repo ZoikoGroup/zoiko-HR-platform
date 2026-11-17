@@ -788,6 +788,9 @@ def _send_approval_email_now(
             context_data=context,
             db=db,
         )
+        from app.modules.hr import email_status
+        if email_status.is_recipient_bounce(error):         # the mailbox does not exist: say so on the person's profile
+            email_status.mark_bounced(db, organization_id, to_email)
         return False
 
     logger.info(f"[email] Sent to {to_email} | template={template_name}")

@@ -8,7 +8,7 @@
 import "../portal.css";
 // Route elements keep the existing contract: each page has its own error
 // boundary and its own role check; AppLayout refuses to render without a
-// session; unknown paths go to /login exactly as before.
+// session (signed-out visitors go to /login); an unknown path shows "Page not found" to a signed-in person.
 import { Suspense } from "react";
 import { Navigate, useRoutes } from "react-router-dom";
 import { lazyRoute } from "../lib/lazyRoute";
@@ -18,6 +18,7 @@ import { flatRoutes } from "../navigation";
 import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES } from "../config/roles";
 import PlanGate from "../components/PlanGate";
 import ProtectedRoute from "../components/ProtectedRoute";
+import NotFoundPage from "../components/NotFoundPage";
 
 function ModuleSpinner() {
   return (
@@ -329,6 +330,7 @@ const routeOverrides = {
   // Recruitment
   "/zoiko-hr/recruitment/job-requisitions": <JobRequisitions />,
   "/zoiko-hr/recruitment/candidates": <Candidates />,
+  "/zoiko-hr/recruitment/candidates/:id": <Candidates />,     // a candidate's profile (rows link here)
   "/zoiko-hr/recruitment/interviews": <Interviews />,
   "/zoiko-hr/recruitment/offers": <OfferManagement />,
   "/zoiko-hr/recruitment/offers-issued": <OffersIssued />,
@@ -518,7 +520,7 @@ export default function PortalApp() {
   return (
     <AppLayout>
       <Suspense fallback={<ModuleSpinner />}>
-        {element || <Navigate to="/login" replace />}
+        {element || <RouteBoundary><NotFoundPage /></RouteBoundary>}
       </Suspense>
     </AppLayout>
   );

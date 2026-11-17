@@ -32,11 +32,13 @@ export const MESSAGES = {
   email: "Enter a valid email address, for example name@company.com.",
   email_no_mail: "This email domain can't receive email. Check the address.",
   country_first: "Select the employee's country first so this number can be checked.",
+  location: "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only.",
+  work_pattern: "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only.",
 };
 
 export const LENGTHS = {
   person_name: [1, 50], person_full_name: [2, 100], org_name: [2, 150], org_unit: [2, 100], job_title: [2, 100],
-  place_name: [2, 80], address: [5, 250], industry_other: [2, 100],
+  place_name: [2, 80], address: [5, 250], industry_other: [2, 100], location: [2, 150], work_pattern: [2, 200],
 };
 
 export const lengthMessage = (rule) => `Use ${LENGTHS[rule][0]} to ${LENGTHS[rule][1]} characters.`;
@@ -105,6 +107,12 @@ function freeText(rule, value) {
       const words = text.split(/[\s,]+/).filter(Boolean);
       ok = chars(text).some(isDigit) || words.filter((w) => chars(w).some(isLetter)).length >= 2;
     }
+  } else if (rule === "location") {
+    ok = textRule(text, { allowed: ",.-/#'’()&", digits: true, startLetter: false, endOk: ").", startOk: "#" });
+    ok = ok && chars(text).filter(isLetter).length >= 2;
+  } else if (rule === "work_pattern") {
+    ok = textRule(text, { allowed: ",.-–:/()&+", digits: true, startLetter: false, endOk: ")." });
+    ok = ok && chars(text).filter(isLetter).length >= 2;
   } else {
     throw new Error(`unknown rule ${rule}`);
   }
@@ -375,7 +383,7 @@ export function bankAccountInputFilter(value, country) {
 }
 
 // ── the API ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-const FREE_TEXT = ["person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address"];
+const FREE_TEXT = ["person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address", "location", "work_pattern"];
 export const RULES = [...FREE_TEXT, "industry", "country", "state", "email", "phone", "postal_code", "org_registration",
   "tax_id_person", "social_payroll_ref", "bank_account", "bank_routing"];
 

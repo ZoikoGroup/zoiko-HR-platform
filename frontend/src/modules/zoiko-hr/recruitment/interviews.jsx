@@ -8,6 +8,7 @@ import InterviewResultDialog from "./InterviewResultDialog";
 import { getEmployees } from "../../../service/employee";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { STATUS_LABELS, cardActions, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
+import { searchQuery } from "./recruitmentRules";
 import { Avatar, AvatarStack, Card, DetailPanel, DetailSection, EmptyState, FilterSelect, KpiCard, KpiGrid, Pagination, PersonCell,
   PrimaryButton, QuickAction, RecruitmentLayout, SearchInput, SecondaryButton,SegmentTabs, StatusPill, Table, td, useInsights } from "./ui";
 
@@ -419,9 +420,11 @@ function RecordPicker({ id, label, placeholder, items, itemKey, itemText, render
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  // A query is only ever a filter, never a saved value. One without a single letter or digit ("^%$#") matches nothing.
   const list = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return (s ? items.filter((it) => itemText(it).toLowerCase().includes(s)) : items).slice(0, 50);
+    if (!q.trim()) return items.slice(0, 50);
+    const s = searchQuery(q).toLowerCase();
+    return s ? items.filter((it) => itemText(it).toLowerCase().includes(s)).slice(0, 50) : [];
   }, [q, items, itemText]);
   const pick = (it) => { onPick(it); setQ(""); setOpen(false); };
   const onKeyDown = (e) => {
@@ -436,7 +439,7 @@ function RecordPicker({ id, label, placeholder, items, itemKey, itemText, render
       <label htmlFor={id} className="sr-only">{label}</label>
       <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-gray-400" aria-hidden="true" />
       <input id={id} type="text" role="combobox" autoComplete="off" aria-expanded={open} aria-controls={`${id}-list`} aria-autocomplete="list"
-        aria-activedescendant={open && list[active] ? optId(active) : undefined} value={q} placeholder={placeholder}
+        aria-activedescendant={open && list[active] ? optId(active) : undefined} value={q} placeholder={placeholder} maxLength={100}
         onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(0); }} onClick={() => setOpen(true)} onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown} className={`${fieldLook(false)} pl-9`} />
       {open && (
@@ -637,7 +640,7 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                   <div className="space-y-3">
                     {candidates.length > 0 && (
                       <RecordPicker id="iv-cand-search" label="Search candidates" placeholder={`Search ${candidates.length} candidate${candidates.length === 1 ? "" : "s"} by name, role or email…`}
-                        items={candidates} itemKey={(c) => c.id} itemText={candidateText} emptyText="No candidate matches. Enter the details below."
+                        items={candidates} itemKey={(c) => c.id} itemText={candidateText} emptyText="No matching candidates. Enter the details below."
                         onPick={(c) => pickCandidate(String(c.id))}
                         renderItem={(c) => (
                           <div className="flex items-center gap-3">
@@ -655,13 +658,13 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                       <div>
                         <label htmlFor="iv-name" className={labelCls}>Candidate name <span className="text-rose-500">*</span></label>
                         <input id="iv-name" value={form.candidate_name} maxLength={150} aria-invalid={!!err("candidate_name")} aria-describedby={described("candidate_name")}
-                          onChange={(e) => setField("candidate_name", e.target.value)} className={fieldLook(err("candidate_name"))} />
+                          onChange={(e) => setField("candidate_name", e.target.value)} onBlur={() => form.candidate_name && validateField("candidate_name")} className={fieldLook(err("candidate_name"))} />
                         <FieldError id="iv-name-err">{err("candidate_name")}</FieldError>
                       </div>
                       <div>
                         <label htmlFor="iv-position" className={labelCls}>Position <span className="text-rose-500">*</span></label>
                         <input id="iv-position" value={form.position} maxLength={150} aria-invalid={!!err("position")} aria-describedby={described("position")}
-                          onChange={(e) => setField("position", e.target.value)} className={fieldLook(err("position"))} />
+                          onChange={(e) => setField("position", e.target.value)} onBlur={() => form.position && validateField("position")} className={fieldLook(err("position"))} />
                         <FieldError id="iv-position-err">{err("position")}</FieldError>
                       </div>
                     </div>
@@ -768,11 +771,11 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                     )}
                     {showLocation && (
                       <div>
-                        <label htmlFor="iv-loc" className={labelCls}>Location{form.interview_type === "in_person" ? "" : " (if on site)"}</label>
+                        <label htmlFor="iv-loc" className={labelCls}>Location{form.interview_type === "in_person" ? <span className="text-rose-500"> *</span> : " (if on site)"}</label>
                         <div className="relative">
                           <MapPin className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-gray-400" aria-hidden="true" />
-                          <input id="iv-loc" maxLength={255} placeholder="Office, floor or room" value={form.location} aria-invalid={!!err("location")} aria-describedby={described("location")}
-                            onChange={(e) => setField("location", e.target.value)} className={`${fieldLook(err("location"))} pl-9`} />
+                          <input id="iv-loc" maxLength={150} placeholder="e.g. Floor 3, Room 4B, Bengaluru" value={form.location} aria-invalid={!!err("location")} aria-describedby={described("location")}
+                            onChange={(e) => setField("location", e.target.value)} onBlur={() => validateField("location")} className={`${fieldLook(err("location"))} pl-9`} />
                         </div>
                         <FieldError id="iv-loc-err">{err("location")}</FieldError>
                       </div>
@@ -791,7 +794,7 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                   <div className="space-y-3">
                     {people.length > 0 && (
                       <RecordPicker id="iv-person-search" label="Search employees" placeholder="Search employees by name, title or email…"
-                        items={people} itemKey={(p) => p.id} itemText={personText} emptyText="No employee matches. Type the name below."
+                        items={people} itemKey={(p) => p.id} itemText={personText} emptyText="No matching employees. Type the name below."
                         onPick={pickPerson}
                         renderItem={(p) => (
                           <div className="flex items-center gap-3">
@@ -809,7 +812,7 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                       </label>
                       <input id="iv-interviewer-name" aria-label="Interviewer name" value={form.interviewer} maxLength={150} placeholder="Interviewer name"
                         aria-invalid={!!err("interviewer")} aria-describedby={described("interviewer")}
-                        onChange={(e) => setField("interviewer", e.target.value)} className={fieldLook(err("interviewer"))} />
+                        onChange={(e) => setField("interviewer", e.target.value)} onBlur={() => form.interviewer && validateField("interviewer")} className={fieldLook(err("interviewer"))} />
                       <FieldError id="iv-interviewer-name-err">{err("interviewer")}</FieldError>
                       {form.interviewer.trim() && <p className="mt-1 text-[11px] text-gray-500">Someone outside the system is not emailed; send them the details yourself.</p>}
                     </div>
@@ -1121,8 +1124,9 @@ export default function Interviews() {
     try {
       const payload = {
         candidate_id: form.candidate_id ? Number(form.candidate_id) : null,
-        candidate_name: form.candidate_name.trim() || null,
-        position: form.position.trim() || null,
+        // a linked candidate's name and position come from their record (the server fills them)
+        candidate_name: form.candidate_id ? null : (form.candidate_name.trim().replace(/\s+/g, " ") || null),
+        position: form.candidate_id ? null : (form.position.trim().replace(/\s+/g, " ") || null),
         interview_type: form.interview_type,
         interview_date: form.interview_date,
         start_time: form.start_time || null,
@@ -1132,7 +1136,7 @@ export default function Interviews() {
         meeting_link: SHOWS_LINK.has(form.interview_type) ? form.meeting_link.trim() || null : null,
         location: SHOWS_LOCATION.has(form.interview_type) ? form.location.trim() || null : null,
         interviewer_id: form.interviewer_id ? Number(form.interviewer_id) : null,
-        interviewer: form.interviewer_id ? null : (form.interviewer.trim() || null),
+        interviewer: form.interviewer_id ? null : (form.interviewer.trim().replace(/\s+/g, " ") || null),
         notes: form.notes.trim() || null,
         notify: form.notify,
       };

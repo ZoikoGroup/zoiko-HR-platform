@@ -1132,6 +1132,56 @@ def _package_view(db, hire) -> dict:
             "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
 
 
+# ── the organisation's board: the 10 documents of every new hire (Onboarding › Checklists) ─────────────────────────────
+BOARD_STATES = ("not_sent", "awaiting_signature", "awaiting_acknowledgement", "awaiting_upload", "needs_review", "completed",
+                "available", "declined", "rejected")
+_BOARD_ACTIVE = ("offer_sent", "offer_accepted", "pre_joining", "in_progress")
+
+
+def status_board(db, organization_id: int, *, include_finished: bool = False) -> dict:
+    """The state of each of the 10 package documents for every new hire of the organisation, in a fixed number of queries
+    (hires, their documents, the signing records; offer lookups only for a linked recruitment offer letter). No document is
+    rendered here: the per-hire panel (package_view) is where readiness and missing data are worked out."""
+    with values_cache(db):
+        q = db.query(OnboardingNewHire).filter(OnboardingNewHire.organization_id == organization_id,
+                                               OnboardingNewHire.is_deleted == False)  # noqa: E712
+        q = q.filter(OnboardingNewHire.status != "cancelled") if include_finished else             q.filter(OnboardingNewHire.status.in_(_BOARD_ACTIVE))
+        hires = q.order_by(OnboardingNewHire.joining_date.is_(None), OnboardingNewHire.joining_date, OnboardingNewHire.id).all()
+        by_hire: dict = {}
+        if hires:
+            rows = (db.query(OnboardingDocument)
+                    .filter(OnboardingDocument.onboarding_new_hire_id.in_([h.id for h in hires]),
+                            OnboardingDocument.is_deleted == False,  # noqa: E712
+                            OnboardingDocument.category.in_(C.CATEGORIES))
+                    .order_by(OnboardingDocument.id.desc()).all())
+            gen_ids = {r.document_id for r in rows if r.document_id}
+            if gen_ids:                                   # loaded once: _gen() then finds them in the session
+                db.query(GeneratedDocument).filter(GeneratedDocument.id.in_(gen_ids)).all()
+            for r in rows:
+                by_hire.setdefault(r.onboarding_new_hire_id, {}).setdefault(r.category, r)
+        documents = [{"category": d["category"], "title": d["title"], "mode": d["mode"], "mode_label": C.MODE_LABELS[d["mode"]]}
+                     for d in C.documents()]
+        totals = {s: 0 for s in BOARD_STATES}
+        out = []
+        for hire in hires:
+            rows = by_hire.get(hire.id, {})
+            docs, counts = {}, {s: 0 for s in BOARD_STATES}
+            for d in documents:
+                row = rows.get(d["category"])
+                state = _row_state(db, row)
+                counts[state] += 1
+                totals[state] += 1
+                docs[d["category"]] = {"state": state, "onboarding_document_id": row.id if row else None,
+                                       "updated_at": (row.updated_at or row.created_at).isoformat()
+                                       if row is not None and (row.updated_at or row.created_at) else None}
+            pkg = (hire.profile_details or {}).get("_package") or {}
+            out.append({"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "position": hire.position,
+                        "status": hire.status, "joining_date": hire.joining_date.isoformat() if hire.joining_date else None,
+                        "sent_at": pkg.get("sent_at"), "documents": docs, "counts": counts,
+                        "done": counts["completed"] + counts["available"]})
+        return {"documents": documents, "hires": out, "totals": totals}
+
+
 # ── issuing ──────────────────────────────────────────────────────────────────────────────────────────────────────────
 def _ensure_definition(db, d: dict) -> TemplateDefinition:
     t = db.get(TemplateDefinition, d["template_id"])

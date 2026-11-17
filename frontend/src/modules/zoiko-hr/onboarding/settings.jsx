@@ -5,7 +5,6 @@
  * offer package and finance viewers keep their own Save buttons because they save item by item.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { NavLink } from "react-router-dom";
 import {
   AlertCircle, BellRing, Check, CheckCircle2, ClipboardCheck, FileText, Info, Layers, Link2, ListChecks, MinusCircle,
 } from "lucide-react";
@@ -329,7 +328,7 @@ export default function OnboardingSettings() {
           <SettingsCard id="os-step-1" icon={ClipboardCheck} title="Checklists assigned automatically" help="Every new hire gets a copy of these templates as soon as they are created.">
             {templates.length === 0 ? (
               <p className="text-sm text-gray-500">
-                No checklist templates yet. Create one on the <NavLink to="/zoiko-hr/onboarding/checklists" className="text-blue-600 hover:underline">Checklists</NavLink> page.
+                No checklist templates yet.
               </p>
             ) : (
               <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

@@ -1,6 +1,9 @@
 // Checks for the Add / Edit Candidate form. Mirrors backend/app/modules/hr/schemas.py so the person sees the same
 // field-level message whether the browser or the server catches the problem.
-import { phoneError } from "./phone";
+// QA report #13 (BUG-7…10): name, position and location follow the shared field rules (utils/fieldRules.js = the server's
+// app/core/field_rules.py); the phone is checked for its country like everywhere else.
+import { fieldProblem } from "./fieldRules";
+import { personEmailError } from "./realEmail";
 
 export const CANDIDATE_LABELS = {
   name: "Name", email: "Email", phone: "Phone", position: "Position", location: "Location", source: "Source",
@@ -18,19 +21,21 @@ export function validateCandidateForm(f) {
   const position = String(f.position ?? "").trim();
 
   if (!name) errors.name = "Name is required.";
-  else if (name.length > 150) errors.name = "Name can be at most 150 characters.";
+  else if (fieldProblem("person_full_name", name)) errors.name = fieldProblem("person_full_name", name);
 
   if (!email) errors.email = "Email is required.";
   else if (!EMAIL.test(email)) errors.email = "Enter a valid email address, for example name@company.com.";
   else if (email.length > 255) errors.email = "Email can be at most 255 characters.";
+  else if (personEmailError(email)) errors.email = personEmailError(email);
 
   if (!position) errors.position = "Position is required.";
-  else if (position.length > 150) errors.position = "Position can be at most 150 characters.";
+  else if (fieldProblem("job_title", position)) errors.position = fieldProblem("job_title", position);
 
-  const phone = phoneError(f.phone);
+  const phone = fieldProblem("phone", f.phone);
   if (phone) errors.phone = phone;
 
-  if (String(f.location ?? "").trim().length > 150) errors.location = "Location can be at most 150 characters.";
+  const location = fieldProblem("location", f.location);
+  if (location) errors.location = location;
 
   if (f.experience !== "" && f.experience != null) {
     const n = Number(f.experience);
@@ -79,7 +84,7 @@ export function candidatePayload(f) {
     phone: text(f.phone),
     status: f.status,
     source: text(f.source),
-    location: text(f.location),
+    location: text(f.location) && text(f.location).replace(/\s+/g, " "),
     experience: f.experience === "" || f.experience == null ? null : Number(f.experience),
     resume_link: text(f.resume_link),
     notes: text(f.notes),

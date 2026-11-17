@@ -43,12 +43,16 @@ MESSAGES = {
     "email": "Enter a valid email address, for example name@company.com.",
     "email_no_mail": "This email domain can't receive email. Check the address.",
     "country_first": "Select the employee's country first so this number can be checked.",
+    "location": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and "
+                ", . - / # ' ( ) & only.",
+    "work_pattern": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and "
+                    ", . - : / ( ) & + only.",
 }
 
 # (min, max) characters after trimming
 LENGTHS = {
     "person_name": (1, 50), "person_full_name": (2, 100), "org_name": (2, 150), "org_unit": (2, 100), "job_title": (2, 100),
-    "place_name": (2, 80), "address": (5, 250), "industry_other": (2, 100),
+    "place_name": (2, 80), "address": (5, 250), "industry_other": (2, 100), "location": (2, 150), "work_pattern": (2, 200),
 }
 
 
@@ -137,6 +141,12 @@ def _free_text(rule: str, value, label: Optional[str]) -> str:
         if ok:
             words = [w for w in re.split(r"[\s,]+", text) if w]
             ok = any(_is_digit(ch) for ch in text) or len([w for w in words if any(_is_letter(c) for c in w)]) >= 2
+    elif rule == "location":                           # a city, office or room: "Floor 3, Room 4B", "#12 MG Road, Pune"
+        ok = _text_rule(text, allowed=",.-/#'’()&", digits=True, start_letter=False, end_ok=").", start_ok="#")
+        ok = ok and sum(1 for ch in text if _is_letter(ch)) >= 2
+    elif rule == "work_pattern":                       # "Mon–Fri, 9:30–18:30", "Shifts (4 on / 4 off)"
+        ok = _text_rule(text, allowed=",.-–:/()&+", digits=True, start_letter=False, end_ok=").")
+        ok = ok and sum(1 for ch in text if _is_letter(ch)) >= 2
     else:  # pragma: no cover
         raise KeyError(rule)
     if not ok:
@@ -440,7 +450,8 @@ def _statutory(rule: str, value, country, label) -> str:
 
 
 # ── the API ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-FREE_TEXT = ("person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address")
+FREE_TEXT = ("person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address", "location",
+             "work_pattern")
 RULES = (*FREE_TEXT, "industry", "country", "state", "email", "phone", "postal_code", "org_registration", "tax_id_person",
          "social_payroll_ref", "bank_account", "bank_routing")
 
