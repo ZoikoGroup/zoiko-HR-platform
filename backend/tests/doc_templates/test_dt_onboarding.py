@@ -16,7 +16,8 @@ BANK = "GB29NWBK60161331926819"
 
 
 def _hire(world, **kw):
-    h = OnboardingNewHire(organization_id=1, candidate_name="Nora Newstarter", email="nora.newstarter@example.com", position="Analyst",
+    kw = {"candidate_name": "Nora Newstarter", "email": "nora.newstarter@example.com", **kw}
+    h = OnboardingNewHire(organization_id=1, position="Analyst",
                           joining_date=date.today() + timedelta(days=14), status="offer_accepted", work_country="GB",
                           manager_id=world.u["a_manager"].id, **kw)
     world.db.add(h)
@@ -221,3 +222,20 @@ def test_completion_produces_the_checklist_and_completion_records(world):
     assert "Right-to-work or eligibility check where required" in t
     t = " ".join(renderer.pdf_text(storage.get_store().get(docs["HR-ONB-022"].pdf_path)).split())
     assert "Onboarding Completion Record — Nora Newstarter" in t and "Harper People" in t
+
+
+def test_the_new_starter_form_opens_with_the_address_already_given_and_the_other_way_round(world):
+    h, token = _hire(world, profile_details={"address": "17, 7th Main Road", "city": "Bengaluru", "state": "Karnataka",
+                                            "postal_code": "560038", "country": "India", "phone": "+919876543210"})
+    forms = {f["canonical_id"]: f for f in world.client.get(f"/public/onboarding/{token}/forms").json()["items"]}
+    vals = forms["HR-ONB-001"]["values"]
+    assert (vals["address_line1"], vals["city"], vals["region"], vals["postal_code"], vals["country"]) ==         ("17, 7th Main Road", "Bengaluru", "Karnataka", "560038", "India"), "typed once, not asked again"
+    assert vals["mobile_phone"] == "+919876543210" and vals["legal_first_name"] == "Nora"
+
+    # a hire who fills the form first finds the contact & address details filled in
+    h2, token2 = _hire(world, email="second.starter@example.com", candidate_name="Sam Second")
+    r = world.client.put(f"/public/onboarding/{token2}/forms/HR-ONB-001", json={"values": {
+        "address_line1": "4 Lake View", "city": "Hyderabad", "region": "Telangana", "postal_code": "500001", "country": "India"}})
+    assert r.status_code == 200, r.text
+    details = world.client.get(f"/public/onboarding/{token2}").json()["details"]
+    assert (details["address"], details["city"], details["state"], details["postal_code"]) ==         ("4 Lake View", "Hyderabad", "Telangana", "500001")

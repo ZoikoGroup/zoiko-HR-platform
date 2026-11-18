@@ -1243,7 +1243,10 @@ class RecruitmentCandidate(Base):
     position       = Column(String(150), nullable=False)
     source         = Column(String(100), nullable=True)
     status         = Column(Enum(RecruitmentCandidateStatus), default=RecruitmentCandidateStatus.APPLIED, nullable=False, index=True)
-    location       = Column(String(150), nullable=True)
+    location       = Column(String(150), nullable=True)          # display text; built from city, region, country when given
+    country        = Column(String(2), nullable=True)            # ISO 3166-1 alpha-2
+    region         = Column(String(120), nullable=True)          # state / province / emirate
+    city           = Column(String(120), nullable=True)
     experience     = Column(Integer, nullable=True)
     resume_link    = Column(String(500), nullable=True)
     applied_at     = Column(DateTime, server_default=func.now())

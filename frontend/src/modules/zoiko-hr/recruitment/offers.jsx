@@ -24,6 +24,7 @@ import { previewGeneratedDocument, downloadGeneratedDocument } from "../../../se
 import * as docApi from "../../../service/docTemplatesService";
 import SandboxedHtmlPreview from "../../../components/documents/SandboxedHtmlPreview";
 import OfferLetterSetupPanel from "./OfferLetterSetupPanel";
+import OfferLetterLoading from "./OfferLetterLoading";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { validateOfferForm, blockKeys, pasteOnly, PERCENT_BLOCKED, PERCENT_PASTE, serverFieldErrors } from "./recruitmentRules";
 
@@ -232,6 +233,15 @@ export default function OfferManagement({ mode = "all" }) {
   const [loadError, setLoadError] = useState(null);
   const [actionError, setActionError] = useState(null);
   const [notice, setNotice] = useState(null);
+  // the offer whose letter was just sent: a "Sent" confirmation stays in its dialog and its detail panel opens on "Sent"
+  const [sentNow, setSentNow] = useState(null);
+  const markSent = (o) => {
+    const cand = candidates.find((c) => String(c.id) === String(o.candidate_id));
+    setSentNow({ offerId: o.id, name: o.candidate_name, email: cand?.email || "", at: new Date().toISOString() });
+    setDetailId(o.id);
+    setDetailTab("sent");
+    loadDetail(o.id);
+  };
   const [busyId, setBusyId] = useState(null);
 
   const [tab, setTab] = useState(issuedOnly ? "issued" : "all");
@@ -458,7 +468,7 @@ export default function OfferManagement({ mode = "all" }) {
         candidate_name: cand ? cand.name : prev.candidate_name,
         position: cand ? cand.position || prev.position : prev.position,
       };
-      const country = cand ? guessCountry(regions, cand.location) : null;
+      const country = cand ? (cand.country || guessCountry(regions, cand.location)) : null;
       if (country) next = setWorkCountry(country, { ...next, pay: { ...next.pay, currencyTouched: false } });
       return next;
     });
@@ -596,13 +606,14 @@ export default function OfferManagement({ mode = "all" }) {
     }
   };
 
-  const runAction = async (o, fn, { confirm, ok }) => {
+  const runAction = async (o, fn, { confirm, ok, sends = false }) => {
     if (confirm && !window.confirm(confirm)) return;
     setBusyId(o.id);
     setActionError(null);
     try {
       const res = await fn(o.id);
       setNotice(typeof ok === "function" ? ok(res) : ok);
+      if (sends) markSent(o);
       refreshAll();
       if (detailId === o.id) loadDetail(o.id);
     } catch (err) {
@@ -660,13 +671,14 @@ export default function OfferManagement({ mode = "all" }) {
     setWorkflowForm((prev) => ({ ...prev, mode: "" }));
   };
 
-  const manageLetter = async (action, successText) => {
+  const manageLetter = async (action, successText, { sends = false } = {}) => {
     if (!previewOffer) return;
     setBusyId(previewOffer.id);
     setActionError(null);
     try {
       const response = await action();
       setNotice(typeof successText === "function" ? successText(response) : successText);
+      if (sends) markSent(previewOffer);
       setWorkflowForm((prev) => ({ ...prev, mode: "" }));
       await refreshLetter(previewOffer.id);
     } catch (e) {
@@ -682,7 +694,7 @@ export default function OfferManagement({ mode = "all" }) {
     if (!previewOffer) return;
     if (workflowForm.mode === "approve") return manageLetter(() => approveOfferDocument(previewOffer.id, workflowForm.comment.trim() || null), "Offer approved.");
     if (workflowForm.mode === "generate") return manageLetter(() => generateOfferLetter(previewOffer.id), "Offer letter generated.");
-    if (workflowForm.mode === "issue") return manageLetter(() => sendOfferLetter(previewOffer.id), "Offer letter sent to the candidate by email.");
+    if (workflowForm.mode === "issue") return manageLetter(() => sendOfferLetter(previewOffer.id), "Offer letter sent to the candidate by email.", { sends: true });
     if (workflowForm.mode === "amend") {
       const changes = {};
       if (workflowForm.position.trim() !== (previewOffer.position || "")) changes.position = workflowForm.position.trim();
@@ -746,6 +758,7 @@ export default function OfferManagement({ mode = "all" }) {
   const sendLetter = (o) => runAction(o, sendOfferLetter, {
     confirm: `Send the offer letter to ${o.candidate_name}?`,
     ok: `Offer letter sent to ${o.candidate_name}. A secure signing link was emailed to the candidate.`,
+    sends: true,
   });
   const resendLetter = (o) => runAction(o, resendOfferLetter, {
     confirm: `Send a fresh signing link to ${o.candidate_name}?`,
@@ -1165,9 +1178,12 @@ export default function OfferManagement({ mode = "all" }) {
             </div>
             <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 lg:grid-cols-[minmax(0,1fr)_20rem]">
               <div className="space-y-4">
-                {letterState.loading ? <p role="status" className="py-8 text-center text-sm text-gray-500">Loading server document status…</p> : null}
                 {letterState.error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700">{letterState.error}</div>}
-                {letterState.data?.letter ? (
+                {sentNow?.offerId === previewOffer.id && <OfferSentCard sent={sentNow} />}
+                {letterState.loading ? (
+                  <OfferLetterLoading candidateName={previewOffer.candidate_name}
+                    title={busyId === previewOffer.id ? "Updating the offer letter" : "Preparing the offer letter"} />
+                ) : letterState.data?.letter ? (
                   <div className="space-y-2">
                     {letterState.data.letter.release_mode === "STARTER_PREVIEW" && (
                       <p className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs font-medium text-amber-900">
@@ -1190,7 +1206,7 @@ export default function OfferManagement({ mode = "all" }) {
                   </div>
                 ) : (
                   <div className="flex min-h-56 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-gray-50 p-6 text-center text-sm text-gray-500">
-                    {letterState.loading ? "Checking offer documents…" : "No offer letter has been generated yet."}
+                    No offer letter has been generated yet.
                   </div>
                 )}
                 {letterState.data?.documents?.length > 0 && (
@@ -1274,7 +1290,7 @@ export default function OfferManagement({ mode = "all" }) {
                       && !letterState.data?.issued_at
                       && !["ISSUED", "EXECUTED"].includes(letterState.data?.letter?.status)
                       && !CLOSED.includes(letterState.data?.status || previewOffer.status) && (
-                      <button type="button" onClick={() => manageLetter(() => sendOfferLetter(previewOffer.id), "Offer letter sent. A secure signing link was emailed to the candidate.")} disabled={Boolean(busyId)} className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Send to candidate</button>
+                      <button type="button" onClick={() => manageLetter(() => sendOfferLetter(previewOffer.id), "Offer letter sent. A secure signing link was emailed to the candidate.", { sends: true })} disabled={Boolean(busyId)} className="w-full rounded-lg bg-emerald-600 px-3 py-2 text-sm font-medium text-white hover:bg-emerald-700 disabled:opacity-50">Send to candidate</button>
                     )}
                     {["ISSUED"].includes(letterState.data?.letter?.status)
                       && !CLOSED.includes(letterState.data?.status || previewOffer.status) && (
@@ -1442,6 +1458,29 @@ function LetterReadiness({ readiness, onSetup }) {
   );
 }
 
+/** The confirmation that an offer letter reached the candidate (kept as the offer's "Sent" tab). */
+export function OfferSentCard({ sent, openedAt }) {
+  return (
+    <div role="status" data-testid="offer-sent-card"
+      className="flex items-start gap-3 rounded-2xl border border-emerald-200 bg-gradient-to-br from-emerald-50 to-white p-4">
+      <span className="grid h-10 w-10 shrink-0 place-items-center rounded-full bg-emerald-600 text-white shadow-sm shadow-emerald-200">
+        <CheckCircle2 className="h-5 w-5" aria-hidden="true" />
+      </span>
+      <div className="min-w-0 text-sm">
+        <p className="font-semibold text-emerald-900">Offer letter sent successfully</p>
+        <p className="mt-0.5 break-words text-emerald-800">
+          {sent?.name || "The candidate"} was emailed a secure link to review and sign the offer letter
+          {sent?.email ? <> at <span className="font-medium">{sent.email}</span></> : null}.
+        </p>
+        <p className="mt-1 text-xs text-emerald-700">
+          {sent?.at && sent.at !== true ? `Sent ${formatDate(sent.at)} · ${relativeTime(sent.at)}` : "Sent"}
+          {openedAt ? ` · Opened ${relativeTime(openedAt)}` : " · Not opened yet"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, departmentName, managerName, delivery, approvedByName, onSetup, busy, onPreview, onEdit, onSend, onResend, onWithdraw, onAmend }) {
   const cand = info.cand;
   const mine = detail.id === o.id;
@@ -1505,9 +1544,21 @@ function OfferDetail({ offer: o, detail, tab, onTab, onClose, info, departmentNa
 
   return (
     <DetailPanel title="Offer Details" onClose={onClose} header={header}>
-      <UnderlineTabs label="Offer detail sections" value={tab} onChange={onTab} tabs={[
+      <UnderlineTabs label="Offer detail sections" value={issued || tab !== "sent" ? tab : "overview"} onChange={onTab} tabs={[
+        ...(issued ? [{ value: "sent", label: "✓ Sent" }] : []),
         { value: "overview", label: "Overview" }, { value: "acad", label: "Acad & Exp" }, { value: "notes", label: "Notes" }, { value: "activity", label: "Activity" },
       ]} />
+      {issued && tab === "sent" && (
+        <div className="mt-4 space-y-3">
+          <OfferSentCard sent={{ name: o.candidate_name, email: cand?.email || "", at: sentAt }} openedAt={openedAt} />
+          {!closed && (
+            <button type="button" onClick={onResend} disabled={busy}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-blue-200 px-3 py-1.5 text-xs font-semibold text-blue-700 hover:bg-blue-50 disabled:opacity-50">
+              <RefreshCw className="h-3.5 w-3.5" />Resend signing link
+            </button>
+          )}
+        </div>
+      )}
       {mine && detail.error && <p role="alert" className="mt-3 rounded-lg bg-rose-50 px-3 py-2 text-xs text-rose-700">{detail.error}</p>}
 
       {tab === "overview" && (

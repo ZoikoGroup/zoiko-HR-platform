@@ -181,6 +181,19 @@ def test_uploaded_organization_logo_is_inlined_in_the_header(monkeypatch):
     assert related.get_content_type() == "multipart/related"
     _html, image = related.get_payload()
     assert image["Content-ID"] == "<org-logo>" and image.get_payload(decode=True) == logo[0]
+    assert image["Content-Disposition"] == "inline" and image.get_filename() is None,         "a named inline part is listed by Gmail as an attachment (org-logo.png)"
+
+
+def test_a_public_api_serves_the_organization_logo_by_url_instead_of_attaching_it(monkeypatch):
+    logo = email_service._org_logo_for_email(_png((900, 300)))
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding(org_logo=logo))
+    monkeypatch.setattr(settings, "API_BASE_URL", "https://api.zoikohr.com")
+    from app.modules.hr import onboarding_package
+    monkeypatch.setattr(onboarding_package, "get_config", lambda db, org: {"logo_key": "1/org-logo-abc.png"})
+    out = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1, db=object())
+    url = f"https://api.zoikohr.com/public/onboarding/email-logo/1/{email_service.org_logo_token('1/org-logo-abc.png')}.png"
+    assert f'<img class="org-logo" src="{url}"' in out.html
+    assert out.inline_data == (), "nothing is attached, so no org-logo.png chip"
 
 
 def test_small_organization_logo_is_not_shrunk_unreadably():

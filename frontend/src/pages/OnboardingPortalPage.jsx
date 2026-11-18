@@ -61,7 +61,7 @@ const detailsFromView = (view) => {
   const d = view?.details || {};
   const out = {};
   DETAIL_FIELDS.forEach(({ key }) => {
-    out[key] = (key === "phone" ? view?.phone : d[key]) || "";
+    out[key] = (key === "phone" ? view?.phone || d.phone : d[key]) || "";   // blanks come pre-filled from the new starter form
   });
   return out;
 };
@@ -705,7 +705,7 @@ export default function OnboardingPortalPage() {
 
   if (loading && !view) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 relative overflow-hidden">
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 flex flex-col items-center justify-center px-4 relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-200/30 blur-3xl rounded-full pointer-events-none" />
         <div className="relative flex flex-col items-center">
           <div className="h-10 w-10 animate-spin rounded-full border-3 border-blue-600 border-b-transparent shadow-sm" />
@@ -717,7 +717,7 @@ export default function OnboardingPortalPage() {
 
   if (invalid || (!view && loadError)) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-50/60 to-slate-100 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 flex items-center justify-center px-4">
         <div className="bg-white rounded-3xl shadow-lg border border-blue-100/80 max-w-md w-full p-8 text-center relative overflow-hidden">
           <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-blue-600 ring-8 ring-blue-50/50">
             <Lock className="h-7 w-7" />
@@ -785,12 +785,13 @@ export default function OnboardingPortalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/70 text-slate-800 antialiased relative overflow-hidden">
-      {/* Ambient background soft light */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1200px] h-[550px] bg-gradient-to-b from-blue-200/40 via-sky-100/25 to-transparent blur-3xl opacity-80" />
-        <div className="absolute top-1/3 -right-40 w-[500px] h-[500px] bg-blue-100/30 blur-3xl rounded-full" />
-        <div className="absolute bottom-10 -left-40 w-[500px] h-[500px] bg-indigo-50/40 blur-3xl rounded-full" />
+    <div className="isolate min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 text-slate-800 antialiased relative overflow-hidden">
+      {/* Light blue background: soft glows and a faint dot grid (isolate keeps them above the page colour) */}
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-48 left-1/2 -translate-x-1/2 w-[1200px] h-[560px] rounded-full bg-gradient-to-b from-blue-200/70 via-sky-100/50 to-transparent blur-3xl" />
+        <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-sky-200/50 blur-3xl" />
+        <div className="absolute bottom-0 -left-40 w-[520px] h-[520px] rounded-full bg-indigo-200/40 blur-3xl" />
+        <div className="absolute inset-0 opacity-[0.35] [background-image:radial-gradient(rgb(147_197_253/0.55)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_70%)]" />
       </div>
 
       {/* Modern Top Header Bar */}

@@ -225,6 +225,33 @@ def hire_for_token(db: Session, token: str) -> OnboardingNewHire:
     return hire
 
 
+def _details_with_form_answers(db, hire) -> dict:
+    """The contact & address details for the portal, with blanks filled from the new starter form the hire already
+    filled in (the same address is asked in both places; it is typed once)."""
+    details = dict(hire.profile_details or {})
+    try:
+        from app.modules.hr import onboarding_documents as OD
+        from app.modules.hr.models import OnboardingFormSubmission
+        sub = (db.query(OnboardingFormSubmission)
+               .filter(OnboardingFormSubmission.new_hire_id == hire.id,
+                       OnboardingFormSubmission.canonical_id.in_(list(OD.FORMS)))
+               .order_by(OnboardingFormSubmission.id.desc()).all())
+        for s in sub:
+            vals = OD._values(s)
+            if not vals.get("address_line1"):
+                continue
+            line = ", ".join(v for v in (vals.get("address_line1"), vals.get("address_line2")) if v)
+            if not OD.details_address_line(details):
+                details["address"] = line
+            for form_key, detail_key in OD.PREFILL_FROM_DETAILS.items():
+                if form_key != "address_line1" and vals.get(form_key) and not str(details.get(detail_key) or "").strip():
+                    details[detail_key] = vals[form_key]
+            break
+    except Exception:
+        logger.warning("could not prefill the portal details of new hire %s from their forms", hire.id)
+    return details
+
+
 def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
     from app.modules.hr import onboarding_package
 
@@ -283,7 +310,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "department_name": hire.department_name,
         "welcome_message": get_settings(db, hire.organization_id).welcome_message,
         "expires_at": hire.portal_expires_at,
-        "details": hire.profile_details or {},
+        "details": _details_with_form_answers(db, hire),
         "phone": hire.phone,
         "documents": doc_items,
         "package": onboarding_package.portal_package_status(db, hire),

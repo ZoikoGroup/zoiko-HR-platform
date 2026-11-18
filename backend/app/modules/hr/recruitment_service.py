@@ -406,9 +406,36 @@ def _after_candidate_status_change(db: Session, candidate: RecruitmentCandidate,
     notify.notify_candidate_status(db, candidate, candidate.status.value)
 
 
+_CANDIDATE_PLACE = ("city", "region", "country")
+
+
+def _candidate_place(values: dict, current=None) -> None:
+    """City, state / region and country are kept as entered; the location shown in lists (and used to guess the work
+    country) is built from them: "Hyderabad, Telangana, India". A request with only a free-text location keeps it as typed."""
+    if not any(k in values for k in _CANDIDATE_PLACE):
+        return
+    from app.core import business_ids, regions
+
+    def cur(k):
+        return values[k] if k in values else (getattr(current, k, None) if current is not None else None)
+
+    country, region = cur("country"), cur("region")
+    listed = business_ids.REGIONS.get(country) if country else None
+    if region and listed and region not in listed:
+        label = business_ids.format_for(country).get("region_label") or "state / region"
+        raise BadRequestException(f"Choose a valid {label.lower()}.")
+    parts = [cur("city"), region, regions.country_name(country) if country else None]
+    text = ", ".join(p for p in parts if p)
+    if text:
+        values["location"] = text[:150]
+    elif "location" not in values:
+        values["location"] = None
+
+
 def create_candidate(db: Session, data: CandidateCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentCandidate:
     _check_candidate(db, organization_id, data.email, data.position, data.requisition_id)
     safe = data.model_dump(exclude_unset=True)
+    _candidate_place(safe)
     if safe.get("status") in (RecruitmentCandidateStatus.HIRED, RecruitmentCandidateStatus.REJECTED):
         raise BadRequestException("A new candidate starts in the pipeline; mark them hired through an accepted offer.")
     candidate = RecruitmentCandidate(**safe)
@@ -638,6 +665,7 @@ def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, orga
     check_candidate_transition(previous_status, update_data.get("status"))
     if "email" in update_data and str(update_data["email"]).lower() != str(candidate.email or "").lower():
         candidate.email_status = None                  # a new address has not bounced
+    _candidate_place(update_data, candidate)
     for field, value in update_data.items():
         setattr(candidate, field, value)
     db.commit()

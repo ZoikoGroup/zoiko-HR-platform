@@ -197,7 +197,8 @@ def test_without_clauses_only_hook_free_documents_are_sent(world):
     from app.modules.hr import onboarding_flow
     assert onboarding_flow.progress(world.db, h)["documents_total"] == 1, "information documents never block completion"
     preview = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/nda/preview.pdf")
-    assert preview.status_code == 200 and "DRAFT – NOT FOR ISSUE" in _text(preview.content)
+    assert preview.status_code == 200 and "DRAFT – NOT FOR ISSUE" not in _text(preview.content), \
+        "a hire's preview has no draft watermark (an incomplete document is simply not sendable)"
 
 
 def test_settings_validation_and_tenant_isolation(world):

@@ -246,6 +246,39 @@ def _get_or_create(db, hire: OnboardingNewHire, canonical_id: str) -> Onboarding
     return sub
 
 
+# The new starter form asks again for what the hire already gave in "Your contact & address details" (and the other way
+# round): the form opens with those answers filled in, and the details section with the form's (see onboarding_flow).
+PREFILL_FROM_DETAILS = {"address_line1": "address", "city": "city", "region": "state", "postal_code": "postal_code",
+                        "country": "country", "mobile_phone": "phone"}
+
+
+def details_address_line(details: dict) -> Optional[str]:
+    """The street address from the portal details: the one-line address, else the structured house / street parts."""
+    one = str(details.get("address") or "").strip()
+    if one:
+        return one
+    parts = [str(details.get(k) or "").strip() for k in ("house", "building", "street", "locality")]
+    return ", ".join(p for p in parts if p) or None
+
+
+def prefill_values(hire: OnboardingNewHire, fields: list[dict], saved: dict) -> dict:
+    """Blank fields of a portal form filled from what the hire (or the hire record) already holds; saved answers win."""
+    details = hire.profile_details or {}
+    keys = {f.get("key") for f in fields}
+    known = {"address_line1": details_address_line(details), "mobile_phone": details.get("phone") or hire.phone,
+             "personal_email": hire.email}
+    for form_key, detail_key in PREFILL_FROM_DETAILS.items():
+        known.setdefault(form_key, details.get(detail_key))
+    names = str(hire.candidate_name or "").split()
+    if len(names) >= 2:
+        known["legal_first_name"], known["legal_last_name"] = names[0], " ".join(names[1:])
+    out = dict(saved)
+    for key, value in known.items():
+        if key in keys and value not in (None, "") and str(out.get(key) or "").strip() == "":
+            out[key] = str(value).strip()
+    return out
+
+
 def portal_forms(db, hire: OnboardingNewHire) -> list[dict]:
     country, region = _hire_location(hire)
     out = []
@@ -255,11 +288,14 @@ def portal_forms(db, hire: OnboardingNewHire) -> list[dict]:
                                                          OnboardingFormSubmission.canonical_id == cid)
                .order_by(OnboardingFormSubmission.id.desc()).first())
         if sub is None:
-            out.append({"canonical_id": cid, "title": FORMS[cid], "status": "NOT_STARTED", "values": {}, "fields": fields,
+            out.append({"canonical_id": cid, "title": FORMS[cid], "status": "NOT_STARTED", "fields": fields,
+                        "values": prefill_values(hire, fields, {}),
                         "declaration": _declaration(db, cid), "declaration_version": DECLARATION_VERSION, "masked_keys": [],
                         "errors": {}})
         else:
             view = serialize_submission(db, sub, fields)
+            if sub.status in ("DRAFT", "RETURNED"):
+                view["values"] = prefill_values(hire, fields, view["values"] or {})
             # values saved before the rules existed: shown as errors so the hire corrects them before submitting
             view["errors"] = field_problems(fields, _values(sub), work_country=country, check_mail=False)[1] \
                 if sub.status in ("DRAFT", "RETURNED") else {}
