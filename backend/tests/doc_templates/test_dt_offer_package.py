@@ -165,10 +165,10 @@ def _all_clauses():
     return {k: {"text": f"Counsel wording for {k}.\nSecond line."} for k, (_t, _n, req) in C.CLAUSES.items() if req}
 
 
-def _new_hire(world):
-    h = OnboardingNewHire(organization_id=1, candidate_name="Nora Newstarter", email="nora.newstarter@example.com", position="Analyst",
+def _new_hire(world, employment_type=None, email="nora.newstarter@example.com"):
+    h = OnboardingNewHire(organization_id=1, candidate_name="Nora Newstarter", email=email, position="Analyst",
                           joining_date=date.today() + timedelta(days=14), status="offer_accepted", work_country="GB",
-                          manager_id=world.u["a_manager"].id)
+                          manager_id=world.u["a_manager"].id, employment_type=employment_type)
     world.db.add(h)
     world.db.commit()
     from app.modules.hr import onboarding_flow
@@ -968,9 +968,8 @@ def _profiles(world):
 
 def test_a_full_time_hire_gets_the_full_time_profile_and_its_notice_not_the_programme_default(world):
     _profiles(world)
-    h, _token = _new_hire(world)
-    h.employment_type = "full_time"
-    world.db.commit()
+    # each hire is created with its employment type (changing it afterwards could be read stale by the API's session)
+    h, _token = _new_hire(world, "full_time")
     pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()
     assert pkg["engagement"] == {"slug": "full-time-employee", "name": "Full-time Employee", "source": "employment_type"}
     with P.values_cache(world.db):
@@ -979,10 +978,8 @@ def test_a_full_time_hire_gets_the_full_time_profile_and_its_notice_not_the_prog
     assert values["engagement.remuneration_label"] == "Salary"
 
     # an internship hire keeps the programme (the organisation default)
-    h.employment_type = "internship"
-    world.db.commit()
-    world.db.expire_all()
-    assert world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()["engagement"]["slug"] == "ascend-associate"
+    intern, _token = _new_hire(world, "internship", email="ian.intern@example.com")
+    assert world.get("a_admin", f"/hr/onboarding/new-hires/{intern.id}/package").json()["engagement"]["slug"] == "ascend-associate"
 
 
 def test_the_offer_type_chosen_on_the_offer_decides_the_hires_documents(world):
