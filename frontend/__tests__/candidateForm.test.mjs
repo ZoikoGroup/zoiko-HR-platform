@@ -19,7 +19,7 @@ test("an empty form says which fields are required, in plain words", () => {
 test("invalid values get a specific message", () => {
   const e = validateCandidateForm({ ...GOOD, email: "ann@", phone: "12345", experience: "99", resume_link: "abc" });
   assert.match(e.email, /valid email/);
-  assert.match(e.phone, /10-digit/);
+  assert.match(e.phone, /valid phone number for India/);                    // QA #13: the country-aware phone rule
   assert.match(e.experience, /between 0 and 60/);
   assert.match(e.resume_link, /http/);
   assert.deepEqual(validateCandidateForm({ ...GOOD, experience: "2.5" }), { experience: "Experience must be a whole number of years." });
@@ -153,7 +153,7 @@ test("the candidate record shows every detail that was entered", async (t) => {
   assert.doesNotMatch(text, /No activity recorded/);
   // opening Edit shows the saved values
   fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
-  assert.equal(document.getElementById("cand-phone").value, "+919876543210");
+  assert.match(document.getElementById("cand-phone").value, /98765 43210$/);      // QA #13: the country code is its own dropdown
   assert.equal(document.getElementById("cand-location").value, "Pune");
   assert.equal(document.getElementById("cand-exp").value, "5");
 });

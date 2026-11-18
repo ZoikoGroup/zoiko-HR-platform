@@ -32,11 +32,23 @@ export const MESSAGES = {
   email: "Enter a valid email address, for example name@company.com.",
   email_no_mail: "This email domain can't receive email. Check the address.",
   country_first: "Select the employee's country first so this number can be checked.",
+  location: "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only.",
+  work_pattern: "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only.",
+  bank_name: "Enter your bank's name, for example State Bank of India.",
+  language: "Choose a language from the list.",
 };
+
+/** Languages offered for communications ([BCP 47 code, name]); the same list as LANGUAGES in field_rules.py. */
+export const LANGUAGES = [
+  ["en", "English"], ["hi", "Hindi"], ["ta", "Tamil"], ["te", "Telugu"], ["kn", "Kannada"], ["ml", "Malayalam"],
+  ["mr", "Marathi"], ["bn", "Bengali"], ["gu", "Gujarati"], ["pa", "Punjabi"], ["ur", "Urdu"], ["es", "Spanish"],
+  ["fr", "French"], ["de", "German"], ["ar", "Arabic"], ["zh", "Chinese"], ["ja", "Japanese"], ["pt", "Portuguese"],
+];
 
 export const LENGTHS = {
   person_name: [1, 50], person_full_name: [2, 100], org_name: [2, 150], org_unit: [2, 100], job_title: [2, 100],
-  place_name: [2, 80], address: [5, 250], industry_other: [2, 100],
+  place_name: [2, 80], address: [5, 250], industry_other: [2, 100], location: [2, 150], work_pattern: [2, 200],
+  bank_name: [2, 100],
 };
 
 export const lengthMessage = (rule) => `Use ${LENGTHS[rule][0]} to ${LENGTHS[rule][1]} characters.`;
@@ -105,6 +117,15 @@ function freeText(rule, value) {
       const words = text.split(/[\s,]+/).filter(Boolean);
       ok = chars(text).some(isDigit) || words.filter((w) => chars(w).some(isLetter)).length >= 2;
     }
+  } else if (rule === "location") {
+    ok = textRule(text, { allowed: ",.-/#'’()&", digits: true, startLetter: false, endOk: ").", startOk: "#" });
+    ok = ok && chars(text).filter(isLetter).length >= 2;
+  } else if (rule === "bank_name") {
+    ok = textRule(text, { allowed: "&.,'’-()", digits: true, startLetter: false, endOk: ")." });
+    ok = ok && chars(text).filter(isLetter).length >= 2;
+  } else if (rule === "work_pattern") {
+    ok = textRule(text, { allowed: ",.-–:/()&+", digits: true, startLetter: false, endOk: ")." });
+    ok = ok && chars(text).filter(isLetter).length >= 2;
   } else {
     throw new Error(`unknown rule ${rule}`);
   }
@@ -336,6 +357,8 @@ function statutory(rule, value, country, label) {
     return result;
   }
   if (rule === "bank_account") {
+    // an IBAN with valid check digits is an account number anywhere (forms ask for "Account number / IBAN")
+    if (!IBAN_COUNTRIES.includes(iso) && ibanOk(compact)) return compact;
     if (IBAN_COUNTRIES.includes(iso)) {
       ok = ibanOk(compact);
       bad = `Enter a valid IBAN (for example ${example || "DE89 3704 0044 0532 0130 00"}).`;
@@ -375,14 +398,21 @@ export function bankAccountInputFilter(value, country) {
 }
 
 // ── the API ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-const FREE_TEXT = ["person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address"];
-export const RULES = [...FREE_TEXT, "industry", "country", "state", "email", "phone", "postal_code", "org_registration",
+const FREE_TEXT = ["person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address", "location", "work_pattern",
+  "bank_name"];
+export const RULES = [...FREE_TEXT, "language", "industry", "country", "state", "email", "phone", "postal_code", "org_registration",
   "tax_id_person", "social_payroll_ref", "bank_account", "bank_routing"];
 
 export function cleanField(rule, value, { country, label, idKey } = {}) {
   if (value === null || value === undefined || String(value).trim() === "") return "";
   if (FREE_TEXT.includes(rule)) return freeText(rule, value);
   switch (rule) {
+    case "language": {
+      const text = tidy(value).toLowerCase();
+      const hit = LANGUAGES.find(([code, name]) => text === code || text === name.toLowerCase());
+      if (!hit) throw new FieldRuleError(MESSAGES.language);
+      return hit[0];
+    }
     case "industry": return industry(value);
     case "country": {
       const iso = countryIso(value);

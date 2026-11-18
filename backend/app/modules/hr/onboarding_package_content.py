@@ -184,6 +184,9 @@ STANDARD_CLAUSES: dict[str, str] = {
         "The {party} will not, directly or indirectly, solicit or try to entice away any employee, client or supplier of the "
         "Company with whom the {party} worked or had material dealings during the {engagement}. General advertising that is "
         "not aimed at them is not solicitation.",
+    "non_competition":
+        "While the {engagement} continues, the {party} will not, without the Company's written consent, work for or provide "
+        "services to a business that competes with the Company.{non_compete_after}",
 }
 
 # ── Clause hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────

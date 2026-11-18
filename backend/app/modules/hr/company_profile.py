@@ -89,7 +89,7 @@ FIELDS: dict[str, tuple] = {
     "notice_period_unit": ("legal", "Notice period unit (employee)", "enum", NOTICE_UNITS),
     "employer_notice_value": ("legal", "Notice period (employer)", "int", (0, 365)),
     "employer_notice_unit": ("legal", "Notice period unit (employer)", "enum", NOTICE_UNITS),
-    "non_solicit_post_termination_months": ("legal", "Non-solicitation after termination (months)", "int", (0, 60)),
+    "non_solicit_post_termination_months": ("legal", "Non-solicitation after the engagement ends (months)", "int", (0, 60)),
     "nda_non_solicit_months": ("legal", "NDA non-solicitation (months)", "int", (0, 60)),
     "nda_non_compete_months": ("legal", "NDA non-compete (months)", "int", (0, 60)),
     "nda_confidentiality_duration": ("legal", "NDA confidentiality duration", "choice", (120, CONFIDENTIALITY_DURATIONS)),
@@ -117,6 +117,19 @@ FIELDS: dict[str, tuple] = {
     "currency": ("formatting", "Currency", "currency", None),
     "number_grouping": ("formatting", "Number grouping", "enum", ("indian", "international")),
 }
+
+# Clause details: values for the merge fields used inside counsel clause wording ({{speak_up_channel}}, ...). Blank fields
+# print the hire's own data or standard wording (onboarding_clause_tokens.CATALOG); a merge field with neither holds the
+# document back until it is entered here.
+def _clause_fields() -> dict:
+    from app.modules.hr import onboarding_clause_tokens as T
+    out = {}
+    for token, (label, _derive, _standard, kind) in T.CATALOG.items():
+        out[T.profile_key(token)] = ("clauses", label, kind, 255 if kind in ("url", "email") else 300)
+    return out
+
+
+FIELDS.update(_clause_fields())
 LIST_MAX_ITEMS = {"compliance_documents": 20, "brands": 30}
 REGISTRATION_KEYS = {"cin", "gstin", "pan", "other_registration_number"}      # masked in the audit log
 
@@ -503,9 +516,28 @@ def completeness(profile: dict) -> dict:
             "complete": not missing}
 
 
+# one non-solicitation period (the NDA prints the post-termination one); the NDA-only value is kept for old profiles but no
+# longer shown, so the two can never disagree again
+HIDDEN = {"nda_non_solicit_months"}
+
+
+def _hint(key: str) -> Optional[str]:
+    from app.modules.hr import onboarding_clause_tokens as T
+    if not key.startswith(T.PROFILE_PREFIX):
+        return None
+    token = key[len(T.PROFILE_PREFIX):]
+    _label, derive, standard, _kind = T.CATALOG[token]
+    if standard:
+        return f"Blank prints: {standard}"
+    if derive is not None:
+        return "Blank uses the new hire's records or the HR contact"
+    return "Needed when your clause wording uses {{" + token + "}}"
+
+
 def fields_spec() -> list[dict]:
-    return [{"key": k, "group": g, "label": l, "kind": kind, "required": k in REQUIRED,
-             "options": list(o) if kind == "enum" else list(o[1]) if kind == "choice" else None} for k, (g, l, kind, o) in FIELDS.items()]
+    return [{"key": k, "group": g, "label": l, "kind": kind, "required": k in REQUIRED, "hint": _hint(k),
+             "options": list(o) if kind == "enum" else list(o[1]) if kind == "choice" else None}
+            for k, (g, l, kind, o) in FIELDS.items() if k not in HIDDEN]
 
 
 def profile_view(db, organization_id: int) -> dict:

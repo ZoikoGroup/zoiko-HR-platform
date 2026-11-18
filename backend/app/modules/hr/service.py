@@ -3609,6 +3609,8 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
             raise BadRequestException("Onboarding cannot be completed yet: " + "; ".join(blockers) + ".")
     restore = {f: getattr(new_hire, f) for f in set(update_data) | {"completed_at", "joining_status", "portal_token_hash",
                                                                      "portal_token_enc"} if hasattr(new_hire, f)}
+    if "email" in update_data and str(update_data["email"]).lower() != str(new_hire.email or "").lower():
+        new_hire.email_status = None                   # a new address has not bounced
     for field, value in update_data.items():
         setattr(new_hire, field, value)
     if completing:

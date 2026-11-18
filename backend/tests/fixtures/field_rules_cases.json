@@ -1220,6 +1220,755 @@
    "valid": false,
    "country": "BR",
    "message": "That doesn't look like a valid Tax / registration number. The business's tax or company registration number."
+  },
+  {
+   "rule": "location",
+   "value": "Bengaluru, India",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Floor 3, Room 4B",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Floor 3, Room 4B, Bengaluru",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Hyderabad, India",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "Pune, India",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "#12 MG Road, Pune",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "São Paulo",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "R&D Centre (Block A)",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "  Pune ,  India ",
+   "valid": true,
+   "normalized": "Pune , India"
+  },
+  {
+   "rule": "location",
+   "value": "मुंबई",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "St. John's",
+   "valid": true
+  },
+  {
+   "rule": "location",
+   "value": "@#$Main",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "uytresdfty#$%$#@",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "*&^%$%^&88",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "@#$#^%$#$",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "12345",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "A1",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune!!",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune---East",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune 🙂",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "-Pune",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "Pune​India",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "<script>alert(1)</script>",
+   "valid": false,
+   "message": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and , . - / # ' ( ) & only."
+  },
+  {
+   "rule": "location",
+   "value": "PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPP",
+   "valid": false,
+   "message": "Use 2 to 150 characters."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon–Fri, 9:30–18:30",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon-Fri, 9:30-18:30",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Shifts (4 on / 4 off)",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Monday to Friday, 40 hours",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Flexible + core hours 11:00-16:00",
+   "valid": true
+  },
+  {
+   "rule": "work_pattern",
+   "value": "*&^%$#%^&*9gh&",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "9:30-18:30",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon-Fri#",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon...Fri",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "!Mon-Fri",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "x",
+   "valid": false,
+   "message": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and , . - : / ( ) & + only."
+  },
+  {
+   "rule": "work_pattern",
+   "value": "Mon aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "valid": false,
+   "message": "Use 2 to 200 characters."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$##$%$TR$%$",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "U^%$#$%^&*876",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$#@",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$#@#%$",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "%$#",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Neha3",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Anil Kumar",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Rahul Mehta",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "Neha Verma",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "José",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "अनिल",
+   "valid": true
+  },
+  {
+   "rule": "person_full_name",
+   "value": "O'Brien",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "#$%$#TRF",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "*&^%$45^&87",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "#$%#",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "*&^%",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "*&^%^&*876",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) + # only. Include at least one letter."
+  },
+  {
+   "rule": "job_title",
+   "value": "Senior Engineer II",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "QA Analyst",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "Product Designer",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "HR Executive",
+   "valid": true
+  },
+  {
+   "rule": "job_title",
+   "value": "R&D Engineer",
+   "valid": true
+  },
+  {
+   "rule": "org_unit",
+   "value": "765$%^&*",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) only. Include at least one letter."
+  },
+  {
+   "rule": "org_unit",
+   "value": "8765$%^&*(8",
+   "valid": false,
+   "message": "Use letters, numbers, spaces and & - / , . ( ) only. Include at least one letter."
+  },
+  {
+   "rule": "bank_name",
+   "value": "State Bank of India",
+   "valid": true
+  },
+  {
+   "rule": "bank_name",
+   "value": "HDFC Bank Ltd.",
+   "valid": true
+  },
+  {
+   "rule": "bank_name",
+   "value": "ICICI Bank",
+   "valid": true
+  },
+  {
+   "rule": "bank_name",
+   "value": "Lloyds Bank (UK)",
+   "valid": true
+  },
+  {
+   "rule": "bank_name",
+   "value": "Bank of America, N.A.",
+   "valid": true
+  },
+  {
+   "rule": "bank_name",
+   "value": "AU Small Finance Bank",
+   "valid": true
+  },
+  {
+   "rule": "bank_name",
+   "value": "4323",
+   "valid": false,
+   "message": "Enter your bank's name, for example State Bank of India."
+  },
+  {
+   "rule": "bank_name",
+   "value": "##%^",
+   "valid": false,
+   "message": "Enter your bank's name, for example State Bank of India."
+  },
+  {
+   "rule": "bank_name",
+   "value": "Bank!!!",
+   "valid": false,
+   "message": "Enter your bank's name, for example State Bank of India."
+  },
+  {
+   "rule": "bank_name",
+   "value": "-HDFC",
+   "valid": false,
+   "message": "Enter your bank's name, for example State Bank of India."
+  },
+  {
+   "rule": "bank_name",
+   "value": "Bank 🙂",
+   "valid": false,
+   "message": "Enter your bank's name, for example State Bank of India."
+  },
+  {
+   "rule": "bank_name",
+   "value": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+   "valid": false,
+   "message": "Use 2 to 100 characters."
+  },
+  {
+   "rule": "language",
+   "value": "en",
+   "valid": true,
+   "normalized": "en"
+  },
+  {
+   "rule": "language",
+   "value": "English",
+   "valid": true,
+   "normalized": "en"
+  },
+  {
+   "rule": "language",
+   "value": "hi",
+   "valid": true,
+   "normalized": "hi"
+  },
+  {
+   "rule": "language",
+   "value": "Hindi",
+   "valid": true,
+   "normalized": "hi"
+  },
+  {
+   "rule": "language",
+   "value": "ta",
+   "valid": true,
+   "normalized": "ta"
+  },
+  {
+   "rule": "language",
+   "value": "Tamil",
+   "valid": true,
+   "normalized": "ta"
+  },
+  {
+   "rule": "language",
+   "value": "te",
+   "valid": true,
+   "normalized": "te"
+  },
+  {
+   "rule": "language",
+   "value": "Telugu",
+   "valid": true,
+   "normalized": "te"
+  },
+  {
+   "rule": "language",
+   "value": "kn",
+   "valid": true,
+   "normalized": "kn"
+  },
+  {
+   "rule": "language",
+   "value": "Kannada",
+   "valid": true,
+   "normalized": "kn"
+  },
+  {
+   "rule": "language",
+   "value": "ml",
+   "valid": true,
+   "normalized": "ml"
+  },
+  {
+   "rule": "language",
+   "value": "Malayalam",
+   "valid": true,
+   "normalized": "ml"
+  },
+  {
+   "rule": "language",
+   "value": "mr",
+   "valid": true,
+   "normalized": "mr"
+  },
+  {
+   "rule": "language",
+   "value": "Marathi",
+   "valid": true,
+   "normalized": "mr"
+  },
+  {
+   "rule": "language",
+   "value": "bn",
+   "valid": true,
+   "normalized": "bn"
+  },
+  {
+   "rule": "language",
+   "value": "Bengali",
+   "valid": true,
+   "normalized": "bn"
+  },
+  {
+   "rule": "language",
+   "value": "gu",
+   "valid": true,
+   "normalized": "gu"
+  },
+  {
+   "rule": "language",
+   "value": "Gujarati",
+   "valid": true,
+   "normalized": "gu"
+  },
+  {
+   "rule": "language",
+   "value": "pa",
+   "valid": true,
+   "normalized": "pa"
+  },
+  {
+   "rule": "language",
+   "value": "Punjabi",
+   "valid": true,
+   "normalized": "pa"
+  },
+  {
+   "rule": "language",
+   "value": "ur",
+   "valid": true,
+   "normalized": "ur"
+  },
+  {
+   "rule": "language",
+   "value": "Urdu",
+   "valid": true,
+   "normalized": "ur"
+  },
+  {
+   "rule": "language",
+   "value": "es",
+   "valid": true,
+   "normalized": "es"
+  },
+  {
+   "rule": "language",
+   "value": "Spanish",
+   "valid": true,
+   "normalized": "es"
+  },
+  {
+   "rule": "language",
+   "value": "fr",
+   "valid": true,
+   "normalized": "fr"
+  },
+  {
+   "rule": "language",
+   "value": "French",
+   "valid": true,
+   "normalized": "fr"
+  },
+  {
+   "rule": "language",
+   "value": "de",
+   "valid": true,
+   "normalized": "de"
+  },
+  {
+   "rule": "language",
+   "value": "German",
+   "valid": true,
+   "normalized": "de"
+  },
+  {
+   "rule": "language",
+   "value": "ar",
+   "valid": true,
+   "normalized": "ar"
+  },
+  {
+   "rule": "language",
+   "value": "Arabic",
+   "valid": true,
+   "normalized": "ar"
+  },
+  {
+   "rule": "language",
+   "value": "zh",
+   "valid": true,
+   "normalized": "zh"
+  },
+  {
+   "rule": "language",
+   "value": "Chinese",
+   "valid": true,
+   "normalized": "zh"
+  },
+  {
+   "rule": "language",
+   "value": "ja",
+   "valid": true,
+   "normalized": "ja"
+  },
+  {
+   "rule": "language",
+   "value": "Japanese",
+   "valid": true,
+   "normalized": "ja"
+  },
+  {
+   "rule": "language",
+   "value": "pt",
+   "valid": true,
+   "normalized": "pt"
+  },
+  {
+   "rule": "language",
+   "value": "Portuguese",
+   "valid": true,
+   "normalized": "pt"
+  },
+  {
+   "rule": "language",
+   "value": "@#$%$#4",
+   "valid": false,
+   "message": "Choose a language from the list."
+  },
+  {
+   "rule": "language",
+   "value": "xx",
+   "valid": false,
+   "message": "Choose a language from the list."
+  },
+  {
+   "rule": "language",
+   "value": "Klingon",
+   "valid": false,
+   "message": "Choose a language from the list."
+  },
+  {
+   "rule": "language",
+   "value": "e n",
+   "valid": false,
+   "message": "Choose a language from the list."
+  },
+  {
+   "rule": "person_name",
+   "value": "##%^%^346",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_name",
+   "value": "234567@#$%$",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_name",
+   "value": "@#$%234554",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "person_name",
+   "value": "4565",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens (-), apostrophes (') and full stops are allowed."
+  },
+  {
+   "rule": "email",
+   "value": "yash.pagidipalli95gmail.com",
+   "valid": false,
+   "message": "Enter a valid email address, for example name@company.com."
+  },
+  {
+   "rule": "phone",
+   "value": "ggfghjkh#$%",
+   "valid": false,
+   "message": "Enter a valid phone number for India.",
+   "country": "IN"
+  },
+  {
+   "rule": "place_name",
+   "value": "345676$%$#",
+   "valid": false,
+   "message": "Use letters only. Spaces, hyphens, apostrophes and full stops are allowed."
+  },
+  {
+   "rule": "state",
+   "value": "98765#$%%$",
+   "valid": false,
+   "message": "Select a state/region.",
+   "country": "India"
+  },
+  {
+   "rule": "postal_code",
+   "value": "sfgfgh#$%",
+   "valid": false,
+   "message": "Enter a valid postal code for India (for example 560001).",
+   "country": "IN"
+  },
+  {
+   "rule": "country",
+   "value": "#$%45",
+   "valid": false,
+   "message": "Select a country."
+  },
+  {
+   "rule": "bank_account",
+   "value": "jhhj",
+   "valid": false,
+   "message": "Enter a valid bank account number (digits only, 9–18 for India).",
+   "country": "IN"
+  },
+  {
+   "rule": "bank_routing",
+   "value": "jh78",
+   "valid": false,
+   "message": "Enter a valid IFSC code (for example SBIN0001234).",
+   "country": "IN"
+  },
+  {
+   "rule": "bank_routing",
+   "value": "SBIN0001234",
+   "valid": true,
+   "country": "IN"
+  },
+  {
+   "rule": "postal_code",
+   "value": "500081",
+   "valid": true,
+   "country": "IN"
+  },
+  {
+   "rule": "state",
+   "value": "Telangana",
+   "valid": true,
+   "country": "India"
+  },
+  {
+   "rule": "bank_account",
+   "value": "GB29 NWBK 6016 1331 9268 19",
+   "country": "GB",
+   "valid": true,
+   "normalized": "GB29NWBK60161331926819"
+  },
+  {
+   "rule": "bank_account",
+   "value": "GB29NWBK60161331926818",
+   "country": "GB",
+   "valid": false,
+   "message": "Enter a valid bank account number (digits only, 6–20)."
   }
  ]
 }

@@ -585,6 +585,16 @@ export default function OnboardingPortalPage() {
     }
   };
 
+  // after a structured form is saved: the checklist, progress and Submit button follow; details being typed are kept
+  const refreshStatus = async () => {
+    try {
+      const data = await getPortal(token);
+      if (data) setView(data);
+    } catch {
+      /* the next full load shows any problem */
+    }
+  };
+
   useEffect(() => {
     document.title = "Pre-onboarding Portal | Zoiko HR";
     load();
@@ -640,7 +650,7 @@ export default function OnboardingPortalPage() {
 
   // Group documents by what the new hire must do: sign, acknowledge, upload/complete, or nothing (for information / voluntary)
   const documents = view?.documents || [];
-  const { signableDocs, ackDocs, operationalDocs, uploadableDocs, progress } = useMemo(() => {
+  const { signableDocs, ackDocs, operationalDocs, uploadableDocs, progress: docProgress } = useMemo(() => {
     const signable = [];
     const acks = [];
     const operational = [];
@@ -672,6 +682,14 @@ export default function OnboardingPortalPage() {
       progress: { completed, total, percent: total ? Math.round((completed / total) * 100) : 0 },
     };
   }, [documents]);
+  // QA report #17 (BUG-16): the contact details and the structured forms count too, so 100% means everything is done
+  const steps = view?.submission?.steps;
+  const progress = useMemo(() => {
+    const list = steps || [];
+    const total = docProgress.total + list.length;
+    const completed = docProgress.completed + list.filter((s) => s.done).length;
+    return { total, completed, percent: total ? Math.round((completed / total) * 100) : 0 };
+  }, [docProgress, steps]);
   const needs = useMemo(() => {
     const base = view?.package?.needs || [];
     const affidavitWaiting = documents.some((d) => d.needs_declaration && d.status !== "approved");
@@ -761,7 +779,7 @@ export default function OnboardingPortalPage() {
         position={view.position}
         joiningDate={view.joining_date}
         submittedAt={submission.submitted_at}
-        documentsCount={progress.total}
+        documentsCount={docProgress.total}
       />
     );
   }
@@ -1005,7 +1023,7 @@ export default function OnboardingPortalPage() {
         )}
 
         {/* Section 2: Structured Forms (Cleaned, Emergency Contacts Excluded) */}
-        <PortalStructuredForms token={token} />
+        <PortalStructuredForms token={token} onChanged={refreshStatus} />
 
         {/* Section 3: Operational Templates & Corporate Handbooks */}
         {operationalDocs.length > 0 && (
@@ -1105,7 +1123,6 @@ export default function OnboardingPortalPage() {
                       required
                       describedBy={err ? `pd-${f.key}-error` : undefined}
                       className={inputCls}
-                      selectClassName={inputCls.replace("w-full", "w-28 shrink-0")}
                     />
                   ) : (
                     <input

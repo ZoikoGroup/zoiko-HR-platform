@@ -53,6 +53,7 @@ def test_requisition_to_employee(world):
     name, email = "Ishaan Candidate", "ishaan.candidate@example.com"
 
     # ── recruitment ──
+    world.department("Engineering")
     req = _ok(world.post("a_hr", "/hr/recruitment/requisitions", json={
         "title": "Backend Engineer", "department": "Engineering", "location": "Hyderabad", "openings": 1, "priority": "high",
         "employment_type": "full_time", "currency": "INR", "status": "pending",
@@ -121,7 +122,8 @@ def test_requisition_to_employee(world):
     early = world.client.post(f"/public/onboarding/{token}/submit-signed-package")
     assert early.status_code == 409 and early.json()["detail"]["outstanding"], "nothing can be submitted before it is done"
     view = _ok(world.client.put(f"/public/onboarding/{token}/details", json={
-        "address": "4 Lake View Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500032", "country": "India"}))
+        "address": "4 Lake View Road", "city": "Hyderabad", "state": "Telangana", "postal_code": "500032", "country": "India",
+        "phone": "+91 98765 43210", "submit": True}))
     view = _ok(world.client.post(f"/public/onboarding/{token}/outside-activities", json={"none": True}))
     docs = {d["category"]: d for d in view["documents"]}
     assert view["package"]["needs"] == []
@@ -140,6 +142,16 @@ def test_requisition_to_employee(world):
         if d["status"] == "requested" and not d["package_mode"]:
             _ok(world.client.post(f"/public/onboarding/{token}/documents/{d['id']}",
                                   files={"file": (f"{d['category']}.pdf", b"%PDF-1.4 test", "application/pdf")}))
+
+    # the structured forms on the portal (QA report #17: part of "everything")
+    assert {"title": "New starter information", "action": "complete and submit"} in         _ok(world.client.get(f"/public/onboarding/{token}"))["submission"]["outstanding"]
+    _ok(world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-001/submit", json={"declaration_accepted": True, "values": {
+        "legal_first_name": "Ishaan", "legal_last_name": "Candidate", "date_of_birth": "1998-04-02",
+        "personal_email": "ishaan.candidate@gmail.com", "mobile_phone": "+91 98765 43210", "address_line1": "4 Lake View Road",
+        "city": "Hyderabad", "region": "Telangana", "postal_code": "500032", "country": "India", "preferred_language": "en"}}))
+    _ok(world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-017/submit", json={"declaration_accepted": True, "values": {
+        "account_holder": "Ishaan Candidate", "bank_name": "State Bank of India", "account_number": "123456789012",
+        "routing_code": "SBIN0001234"}}))
 
     # ── the new hire submits: everything they owe is done ──
     portal = _ok(world.client.get(f"/public/onboarding/{token}"))

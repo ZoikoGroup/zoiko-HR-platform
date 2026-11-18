@@ -25,6 +25,19 @@ import * as docApi from "../../../service/docTemplatesService";
 import SandboxedHtmlPreview from "../../../components/documents/SandboxedHtmlPreview";
 import OfferLetterSetupPanel from "./OfferLetterSetupPanel";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import { validateOfferForm, blockKeys, pasteOnly, PERCENT_BLOCKED, PERCENT_PASTE, serverFieldErrors } from "./recruitmentRules";
+
+// QA report #13 (BUG-17…23): the offer form's own checks, the same rules and words as the server.
+const OFFER_FIELDS = ["candidate_name", "position", "work_location", "work_pattern", "salary", "equity"];
+const OFFER_FIELD_IDS = { candidate_name: "offer-name", position: "offer-position", work_location: "offer-location",
+  work_pattern: "offer-pattern", salary: "offer-pay", equity: "offer-equity" };
+// a candidate can receive an offer while they are still in the pipeline (not hired, not rejected)
+const OFFER_STAGES = new Set(["applied", "screening", "interview", "offer"]);
+
+function OfferFieldError({ id, children }) {
+  if (!children) return null;
+  return <p id={id} role="alert" className="mt-1 text-xs font-medium text-rose-600">{children}</p>;
+}
 import { EMPLOYMENT_TYPES, DEFAULT_PERIOD, PAY_PERIODS, remunerationFor, remunerationLabel } from "../../../utils/money";
 import {
   RecruitmentLayout, PrimaryButton, SecondaryButton, QuickAction, KpiCard, KpiGrid, Card, StatusPill, Avatar,
@@ -193,6 +206,7 @@ export default function OfferManagement({ mode = "all" }) {
   const [editItem, setEditItem] = useState(null);
   const [form, setForm] = useState(emptyForm());
   const [formError, setFormError] = useState(null);
+  const [offerErrors, setOfferErrors] = useState({});        // { field: message } for the New / Edit offer form
   const [saving, setSaving] = useState(false);
   const [showEntity, setShowEntity] = useState(false);
 
@@ -237,6 +251,9 @@ export default function OfferManagement({ mode = "all" }) {
 
   // ── lookups ──────────────────────────────────────────────────────────────────────────────────────────────────────
   const candById = useMemo(() => Object.fromEntries(candidates.map((c) => [String(c.id), c])), [candidates]);
+  const offerCandidates = useMemo(() => candidates
+    .filter((c) => OFFER_STAGES.has(String(c.status || "").toLowerCase()) || String(c.id) === String(form.candidate_id))
+    .sort((a, b) => String(a.name || "").localeCompare(String(b.name || ""))), [candidates, form.candidate_id]);
   const reqById = useMemo(() => Object.fromEntries(requisitions.map((r) => [String(r.id), r])), [requisitions]);
   const managerNames = useMemo(() => Object.fromEntries([
     ...(insights.data?.hiring_managers || []).map((m) => [String(m.id), m.name]),
@@ -329,6 +346,7 @@ export default function OfferManagement({ mode = "all" }) {
     setForm(f);
     setFormError(null);
     setShowEntity(false);
+    setOfferErrors({});
     setShowModal(true);
   };
 
@@ -366,6 +384,7 @@ export default function OfferManagement({ mode = "all" }) {
     });
     setFormError(null);
     setShowEntity(!!(o.entity_name || o.entity_tax_id));
+    setOfferErrors({});
     setShowModal(true);
   };
 
@@ -386,15 +405,15 @@ export default function OfferManagement({ mode = "all" }) {
 
   const handleSave = async () => {
     setFormError(null);
-    if (!form.candidate_name.trim() || !form.position.trim()) {
-      setFormError("Candidate name and position are required.");
+    const found = validateOfferForm(form);
+    setOfferErrors(found);
+    if (Object.keys(found).length) {
+      const first = OFFER_FIELDS.find((k) => found[k]);
+      setFormError(`${Object.keys(found).length === 1 ? "One field needs" : "Some fields need"} attention before this offer can be saved.`);
+      setTimeout(() => document.getElementById(OFFER_FIELD_IDS[first])?.focus(), 0);
       return;
     }
     const amount = form.pay.amount === "" ? null : Number(form.pay.amount);
-    if (amount !== null && (Number.isNaN(amount) || amount < 0)) {
-      setFormError("Enter a valid amount.");
-      return;
-    }
     const ent = form.entity;
     const hasEntity = ENTITY_TEXT.some((k) => String(ent[k] || "").trim());
     if (hasEntity) {
@@ -415,15 +434,15 @@ export default function OfferManagement({ mode = "all" }) {
     }
     const payload = {
       candidate_id: form.candidate_id ? Number(form.candidate_id) : null,
-      candidate_name: form.candidate_name.trim(),
-      position: form.position.trim(),
+      candidate_name: form.candidate_name.trim().replace(/\s+/g, " "),
+      position: form.position.trim().replace(/\s+/g, " "),
       employment_type: form.employment_type,
       work_country: form.work_country || null,
       department_id: form.department_id ? Number(form.department_id) : null,
       reporting_manager_id: form.reporting_manager_id ? Number(form.reporting_manager_id) : null,
-      work_location: form.work_location.trim() || null,
+      work_location: form.work_location.trim().replace(/\s+/g, " ") || null,
       work_arrangement: form.work_arrangement || null,
-      work_pattern: form.work_pattern.trim() || null,
+      work_pattern: form.work_pattern.trim().replace(/\s+/g, " ") || null,
       remuneration_type: form.pay.remuneration_type,
       salary: amount,
       currency: form.pay.currency,
@@ -459,10 +478,37 @@ export default function OfferManagement({ mode = "all" }) {
       // approval" approves it and generates the letter; supported countries get a starter draft). Follow that briefly.
       if (saved?.id) watchLetter(saved.id, verb, editItem?.status);
     } catch (err) {
-      setFormError(err.message || "Failed to save offer.");
+      const fieldErrs = serverFieldErrors(err, OFFER_FIELDS);
+      if (Object.keys(fieldErrs).length) {
+        setOfferErrors(fieldErrs);
+        setFormError("The server did not accept some values. Check the highlighted fields.");
+      } else {
+        setFormError(err.message || "Failed to save offer.");
+      }
     } finally {
       setSaving(false);
     }
+  };
+
+  // one field checked when the person leaves it
+  const checkOfferField = (key) => () => {
+    const message = validateOfferForm(form)[key];
+    setOfferErrors((prev) => {
+      if (message) return { ...prev, [key]: message };
+      const { [key]: _drop, ...rest } = prev;
+      return rest;
+    });
+  };
+  const offerInput = (key) => ({
+    id: OFFER_FIELD_IDS[key],
+    "aria-invalid": offerErrors[key] ? true : undefined,
+    "aria-describedby": offerErrors[key] ? `${OFFER_FIELD_IDS[key]}-error` : undefined,
+    onBlur: checkOfferField(key),
+    className: offerErrors[key] ? `${field} border-rose-300 focus:border-rose-400` : field,
+  });
+  const setOfferField = (key, value) => {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    setOfferErrors((prev) => (prev[key] ? (({ [key]: _drop, ...rest }) => rest)(prev) : prev));
   };
 
   const letterWatch = useRef(0);
@@ -891,7 +937,7 @@ export default function OfferManagement({ mode = "all" }) {
                 <label className={labelCls}>Link to candidate</label>
                 <select value={form.candidate_id} onChange={(e) => handleCandidateSelect(e.target.value)} className={field}>
                   <option value="">No candidate linked (name only)</option>
-                  {candidates.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.email}){c.location ? ` · ${c.location}` : ""}</option>)}
+                  {offerCandidates.map((c) => <option key={c.id} value={c.id}>{c.name} ({c.email}){c.location ? ` · ${c.location}` : ""}</option>)}
                 </select>
                 {!form.candidate_id && (
                   <p className="text-xs text-amber-600 mt-1">Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding.</p>
@@ -899,12 +945,14 @@ export default function OfferManagement({ mode = "all" }) {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Candidate name *</label>
-                  <input value={form.candidate_name} onChange={(e) => setForm({ ...form, candidate_name: e.target.value })} className={field} maxLength={150} />
+                  <label htmlFor="offer-name" className={labelCls}>Candidate name *</label>
+                  <input value={form.candidate_name} onChange={(e) => setOfferField("candidate_name", e.target.value)} maxLength={150} {...offerInput("candidate_name")} />
+                  <OfferFieldError id="offer-name-error">{offerErrors.candidate_name}</OfferFieldError>
                 </div>
                 <div>
-                  <label className={labelCls}>Position title *</label>
-                  <input value={form.position} onChange={(e) => setForm({ ...form, position: e.target.value })} className={field} maxLength={150} />
+                  <label htmlFor="offer-position" className={labelCls}>Position title *</label>
+                  <input value={form.position} onChange={(e) => setOfferField("position", e.target.value)} maxLength={150} {...offerInput("position")} />
+                  <OfferFieldError id="offer-position-error">{offerErrors.position}</OfferFieldError>
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -943,9 +991,10 @@ export default function OfferManagement({ mode = "all" }) {
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className={labelCls}>Work location</label>
-                  <input value={form.work_location} onChange={(e) => setForm((prev) => ({ ...prev, work_location: e.target.value }))}
-                    className={field} maxLength={200} placeholder="City, office, or site" />
+                  <label htmlFor="offer-location" className={labelCls}>Work location</label>
+                  <input value={form.work_location} onChange={(e) => setOfferField("work_location", e.target.value)}
+                    maxLength={150} placeholder="e.g. Pune, India" {...offerInput("work_location")} />
+                  <OfferFieldError id="offer-location-error">{offerErrors.work_location}</OfferFieldError>
                 </div>
                 <div>
                   <label className={labelCls}>Working arrangement</label>
@@ -957,22 +1006,27 @@ export default function OfferManagement({ mode = "all" }) {
                   </select>
                 </div>
                 <div className="sm:col-span-2">
-                  <label className={labelCls}>Working pattern</label>
-                  <input value={form.work_pattern} onChange={(e) => setForm((prev) => ({ ...prev, work_pattern: e.target.value }))}
-                    className={field} maxLength={200} placeholder="e.g. Monday–Friday, 9:00–17:00" />
+                  <label htmlFor="offer-pattern" className={labelCls}>Working pattern</label>
+                  <input value={form.work_pattern} onChange={(e) => setOfferField("work_pattern", e.target.value)}
+                    maxLength={200} placeholder="e.g. Mon–Fri, 9:30–18:30" {...offerInput("work_pattern")} />
+                  <OfferFieldError id="offer-pattern-error">{offerErrors.work_pattern}</OfferFieldError>
                 </div>
               </div>
 
               <div className="rounded-xl border border-gray-100 bg-gray-50/50 p-3 sm:p-4">
                 <RemunerationFields regions={regions} value={form.pay} lockedType={lockedType} currencyHint={currencyHint}
-                  onChange={(pay) => setForm((prev) => ({ ...prev, pay }))} />
+                  onChange={(pay) => { setForm((prev) => ({ ...prev, pay })); setOfferErrors(({ salary: _drop, ...rest }) => rest); }} />
+                <OfferFieldError id="offer-pay-error">{offerErrors.salary}</OfferFieldError>
               </div>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {form.employment_type !== "internship" && (
                   <div>
-                    <label className={labelCls}>Equity (%)</label>
-                    <input type="number" step="0.01" min="0" max="100" value={form.equity} onChange={(e) => setForm({ ...form, equity: e.target.value })} className={field} />
+                    <label htmlFor="offer-equity" className={labelCls}>Equity (%)</label>
+                    <input type="number" inputMode="decimal" step="0.01" min="0" max="100" value={form.equity} placeholder="e.g. 0.25"
+                      onChange={(e) => setOfferField("equity", e.target.value)} onKeyDown={blockKeys(PERCENT_BLOCKED)} onPaste={pasteOnly(PERCENT_PASTE)}
+                      {...offerInput("equity")} />
+                    <OfferFieldError id="offer-equity-error">{offerErrors.equity}</OfferFieldError>
                   </div>
                 )}
                 <div>

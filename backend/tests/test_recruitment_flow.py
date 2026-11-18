@@ -26,6 +26,9 @@ def env(monkeypatch):
     s = sessionmaker(bind=engine, expire_on_commit=False)()
     s.add(Organization(id=1, name="Acme", organization_name="Acme", status=OrganizationStatus.ACTIVE, country="India", currency="INR"))
     s.commit()
+    from app.modules.hr.models import Department
+    s.add(Department(name="Eng", code="ENG", organization_id=1, is_active=True))     # a requisition names a real department
+    s.commit()
 
     def emp(email, role, first):
         e = Employee(email=email, hashed_password="x", employee_code=f"C-{email}", role=role, first_name=first, last_name="T", job_title="t",
@@ -111,7 +114,8 @@ def test_interview_invites_candidate_and_interviewer_with_a_calendar_file_and_tr
 
 
 def test_interview_validation(env):
-    base = {"candidate_name": "A", "position": "B", "interview_date": FUTURE}
+    base = {"candidate_name": "Ann Lee", "position": "Backend Developer", "interview_type": "video", "interviewer": "Rahul Mehta",
+            "interview_date": FUTURE}
     assert env.c.post("/hr/recruitment/interviews", json={**base, "start_time": "11:00", "end_time": "10:00"}).status_code == 422
     assert env.c.post("/hr/recruitment/interviews", json={**base, "meeting_link": "http://x.com"}).status_code == 422
     assert env.c.post("/hr/recruitment/interviews", json={**base, "timezone": "Mars/Base"}).status_code == 422
@@ -133,14 +137,14 @@ def test_offer_currency_follows_the_region_and_internships_pay_a_stipend(env):
     plain = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_name": "No Link", "position": "Ops", "salary": 1}))
     assert plain["currency"] == "INR"                                                  # organization default
 
-    uk = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_name": "X", "position": "Y", "work_country": "GB", "salary": 1}))
+    uk = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_name": "Xavier Young", "position": "Data Analyst", "work_country": "GB", "salary": 1}))
     assert uk["currency"] == "GBP"
 
-    intern = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_name": "I", "position": "Intern", "employment_type": "internship", "salary": 25000}))
+    intern = _ok(env.c.post("/hr/recruitment/offers", json={"candidate_name": "Ira Iyer", "position": "Intern", "employment_type": "internship", "salary": 25000}))
     assert intern["remuneration_type"] == "stipend" and intern["pay_period"] == "monthly"
-    r = env.c.post("/hr/recruitment/offers", json={"candidate_name": "I", "position": "Intern", "employment_type": "internship", "remuneration_type": "salary"})
+    r = env.c.post("/hr/recruitment/offers", json={"candidate_name": "Ira Iyer", "position": "Intern", "employment_type": "internship", "remuneration_type": "salary"})
     assert r.status_code == 400
-    assert env.c.post("/hr/recruitment/offers", json={"candidate_name": "I", "position": "P", "currency": "XXX"}).status_code == 400
+    assert env.c.post("/hr/recruitment/offers", json={"candidate_name": "Ira Iyer", "position": "Product Manager", "currency": "XXX"}).status_code == 400
 
 
 def test_legacy_offers_are_answered_by_hand_and_new_ones_go_through_documents(env):
@@ -172,7 +176,8 @@ def test_legacy_offers_are_answered_by_hand_and_new_ones_go_through_documents(en
 
 def test_a_candidate_with_history_is_deleted_with_their_interviews(env):
     cand = _ok(env.c.post("/hr/recruitment/candidates", json={"name": "Sam", "email": "sam@mail.com", "position": "Dev"}))
-    iv = _ok(env.c.post("/hr/recruitment/interviews", json={"candidate_id": cand["id"], "interview_date": FUTURE, "notify": False}))
+    iv = _ok(env.c.post("/hr/recruitment/interviews", json={"candidate_id": cand["id"], "interview_date": FUTURE, "notify": False,
+                                                             "interview_type": "video", "interviewer": "Lee T"}))
     r = env.c.delete(f"/hr/recruitment/candidates/{cand['id']}")
     assert r.status_code == 200, r.text
     assert env.c.get(f"/hr/recruitment/candidates/{cand['id']}").status_code == 404
@@ -193,7 +198,7 @@ def test_country_matching():
 
 
 def test_contracting_entity_follows_its_country(env):
-    base = {"candidate_name": "F", "position": "Consultant", "employment_type": "freelance", "salary": 1}
+    base = {"candidate_name": "Fatima Khan", "position": "Consultant", "employment_type": "freelance", "salary": 1}
     r = env.c.post("/hr/recruitment/offers", json={**base, "entity_name": "X", "entity_country": "IN", "entity_id_type": "gstin",
                                                     "entity_tax_id": "27AAPFU0939F1ZX"})
     assert r.status_code == 400 and "check digit" in r.json()["message"]

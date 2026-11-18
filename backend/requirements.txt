@@ -25,6 +25,8 @@ freezegun>=1.5.0
 httpx==0.28.1
 openpyxl==3.1.5
 email-validator==2.3.0
+# the MX check in app/core/email_quality.py (arrived only through email-validator before; if missing the check allows everything)
+dnspython==2.8.0
 psycopg2-binary==2.9.12
 certifi>=2024.2.2
 alembic==1.19.1

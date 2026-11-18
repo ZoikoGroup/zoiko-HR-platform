@@ -23,8 +23,11 @@ test("there is no way between completed and cancelled", () => {
 
 test("the form names what is missing", () => {
   assert.deepEqual(validateInterviewForm({ candidate_name: " ", position: "", interview_date: "" }),
-    { candidate_name: "Candidate name is required.", position: "Position is required.", interview_date: "Interview date is required." });
-  assert.deepEqual(validateInterviewForm({ candidate_name: "Ann", position: "Dev", interview_date: "2026-11-01" }), {});
+    { candidate_name: "Candidate name is required.", position: "Position is required.", interview_date: "Interview date is required.",
+      interviewer: "Choose an interviewer, or enter the name of someone outside the system." });
+  assert.deepEqual(validateInterviewForm({ candidate_name: "Ann", position: "Dev", interview_date: "2026-11-01" }),
+    { interviewer: "Choose an interviewer, or enter the name of someone outside the system." });          // QA #13 BUG-16
+  assert.deepEqual(validateInterviewForm({ candidate_name: "Ann", position: "Dev", interview_date: "2026-11-01", interviewer: "Rahul Mehta" }), {});
 });
 
 const IV = (id, status, name) => ({ id, candidate_name: name, position: "Dev", interview_type: "video", interview_date: "2026-11-01", status });

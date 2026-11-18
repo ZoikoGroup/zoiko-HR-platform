@@ -36,20 +36,23 @@
           "label": "Legal first name",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_BASIC"
+          "classification": "PERSONAL_BASIC",
+          "rule": "person_name"
         },
         {
           "key": "legal_last_name",
           "label": "Legal last name",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_BASIC"
+          "classification": "PERSONAL_BASIC",
+          "rule": "person_name"
         },
         {
           "key": "preferred_name",
           "label": "Preferred name",
           "type": "text",
-          "classification": "PERSONAL_BASIC"
+          "classification": "PERSONAL_BASIC",
+          "rule": "person_name"
         },
         {
           "key": "date_of_birth",
@@ -63,14 +66,18 @@
           "label": "Personal email",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_CONFIDENTIAL"
+          "classification": "PERSONAL_CONFIDENTIAL",
+          "rule": "email",
+          "input": "email"
         },
         {
           "key": "mobile_phone",
           "label": "Mobile phone",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_BASIC"
+          "classification": "PERSONAL_BASIC",
+          "rule": "phone",
+          "input": "phone"
         },
         {
           "key": "address_line1",
@@ -90,45 +97,56 @@
           "label": "City",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_CONFIDENTIAL"
+          "classification": "PERSONAL_CONFIDENTIAL",
+          "rule": "place_name"
         },
         {
           "key": "region",
           "label": "Region / state",
           "type": "text",
-          "classification": "PERSONAL_CONFIDENTIAL"
+          "classification": "PERSONAL_CONFIDENTIAL",
+          "rule": "state",
+          "input": "region"
         },
         {
           "key": "postal_code",
           "label": "Postal code",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_CONFIDENTIAL"
+          "classification": "PERSONAL_CONFIDENTIAL",
+          "rule": "postal_code"
         },
         {
           "key": "country",
           "label": "Country",
           "type": "text",
           "required": true,
-          "classification": "PERSONAL_CONFIDENTIAL"
+          "classification": "PERSONAL_CONFIDENTIAL",
+          "rule": "country",
+          "input": "country"
         },
         {
           "key": "nationality",
           "label": "Nationality (only where the law requires it)",
           "type": "text",
-          "classification": "PERSONAL_CONFIDENTIAL"
+          "classification": "PERSONAL_CONFIDENTIAL",
+          "rule": "country",
+          "input": "country"
         },
         {
           "key": "national_identifier",
           "label": "National / tax identifier (only where required)",
           "type": "text",
-          "classification": "FINANCIAL"
+          "classification": "FINANCIAL",
+          "rule": "tax_id_person"
         },
         {
           "key": "preferred_language",
           "label": "Preferred language for communications",
           "type": "text",
-          "classification": "PERSONAL_BASIC"
+          "classification": "PERSONAL_BASIC",
+          "rule": "language",
+          "input": "language"
         }
       ]
     },

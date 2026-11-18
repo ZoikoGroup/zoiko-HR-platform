@@ -28,6 +28,8 @@ const GROUPS = [
   ["signatory", "Signatory", PenLine, "The person who signs the documents for the company."],
   ["legal", "Legal & policy defaults", FileText, null],
   ["formatting", "Formatting", Palette, "Paper, spelling, dates and number style of the documents."],
+  ["clauses", "Clause details", FileText, "Values for the merge fields in your clause wording, such as {{speak_up_channel}}. A blank field "
+    + "prints the new hire's own details, the HR contact or standard wording; a document is only held when a field it uses has neither."],
 ];
 const WIDE = new Set(["legal_name", "address_line1", "address_line2", "governing_law_text", "affidavit_stamp_paper_note",
   "compliance_documents", "brands", "task_system_name", "reports_channel_text", "velocity_motto", "velocity_deadline_text"]);
@@ -111,7 +113,7 @@ function Field({ spec, value, error, onChange, country }) {
     );
   } else if (spec.kind === "list") {
     control = (
-      <textarea id={id} rows={4} className={cls} value={(value || []).join("\n")} placeholder={HINTS[spec.key]}
+      <textarea id={id} rows={4} className={cls} value={(value || []).join("\n")} placeholder={HINTS[spec.key] || spec.hint || undefined}
         aria-invalid={!!error} aria-describedby={describedBy}
         onChange={(e) => onChange(e.target.value.split("\n").map((s) => s.replace(/^\s+/, "")))} />
     );
@@ -130,7 +132,7 @@ function Field({ spec, value, error, onChange, country }) {
       : inIndia && (spec.key === "city" || spec.key === "jurisdiction_city") ? ["cp-in-cities", IN_CITIES] : null;
     control = (
       <>
-        <input id={id} className={cls} value={value ?? ""} placeholder={HINTS[spec.key]} aria-invalid={!!error} aria-describedby={describedBy}
+        <input id={id} className={cls} value={value ?? ""} placeholder={HINTS[spec.key] || spec.hint || undefined} aria-invalid={!!error} aria-describedby={describedBy}
           type={spec.kind === "int" ? "number" : spec.kind === "email" ? "email" : "text"}
           inputMode={spec.key === "postal_code" && inIndia ? "numeric" : undefined}
           list={suggest ? `${suggest[0]}-${spec.key}` : undefined}

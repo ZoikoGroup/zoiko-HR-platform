@@ -36,3 +36,34 @@ export function realEmailError(value) {
   for (let i = 0; i < parts.length - 1; i++) if (DISPOSABLE.has(parts.slice(i).join("."))) return DISPOSABLE_MESSAGE;
   return "";
 }
+
+// System / role mailboxes nobody reads: refused for a person's own address (same list as the server's ROLE_LOCAL_PARTS).
+const ROLE_LOCAL_PARTS = new Set(["noreply", "no-reply", "no_reply", "donotreply", "do-not-reply", "do_not_reply", "mailer-daemon", "postmaster"]);
+export const ROLE_ADDRESS_MESSAGE = "Enter the person's own email address. System addresses such as noreply@ or postmaster@ are not accepted.";
+
+/** realEmailError plus the person-only check (candidates, new hires). */
+export function personEmailError(value) {
+  const base = realEmailError(value);
+  if (base) return base;
+  const local = String(value ?? "").trim().split("@")[0].toLowerCase();
+  return ROLE_LOCAL_PARTS.has(local) ? ROLE_ADDRESS_MESSAGE : "";
+}
+
+// Frequent typos of the big providers: shown as "Did you mean …?", never a refusal (same table as the server's DOMAIN_TYPOS).
+const DOMAIN_TYPOS = {
+  "gmial.com": "gmail.com", "gmai.com": "gmail.com", "gmal.com": "gmail.com", "gamil.com": "gmail.com", "gnail.com": "gmail.com",
+  "gmail.co": "gmail.com", "gmail.con": "gmail.com", "gmail.cm": "gmail.com", "gmaill.com": "gmail.com",
+  "yahooo.com": "yahoo.com", "yaho.com": "yahoo.com", "yahoo.co": "yahoo.com", "yahoo.con": "yahoo.com",
+  "hotmial.com": "hotmail.com", "hotmal.com": "hotmail.com", "hotmai.com": "hotmail.com", "hotmail.co": "hotmail.com",
+  "hotmail.con": "hotmail.com", "outlok.com": "outlook.com", "outllook.com": "outlook.com", "outlook.co": "outlook.com",
+  "outlook.con": "outlook.com", "iclod.com": "icloud.com", "icloud.co": "icloud.com", "rediffmial.com": "rediffmail.com",
+};
+
+/** "name@gmail.com" for "name@gmial.com"; "" when the domain is not a known typo. */
+export function suggestEmail(value) {
+  const text = String(value ?? "").trim();
+  const at = text.lastIndexOf("@");
+  if (at < 1) return "";
+  const fixed = DOMAIN_TYPOS[text.slice(at + 1).toLowerCase()];
+  return fixed ? `${text.slice(0, at)}@${fixed}` : "";
+}

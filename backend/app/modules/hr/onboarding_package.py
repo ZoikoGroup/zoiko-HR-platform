@@ -472,6 +472,13 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     if values.get("employment.base_pay") and values.get("employment.pay_frequency"):
         values["employment.pay_terms"] = f"{values['employment.base_pay']}, paid {values['employment.pay_frequency']}"
     values.update(_v2_values(db, hire, cfg, offer, values))
+    # merge fields used inside counsel clause wording ({{speak_up_channel}}, {{ip_assignment_term}}, ...)
+    from app.modules.hr import company_profile as CP
+    from app.modules.hr import onboarding_clause_tokens as T
+    profile = _profile_for(db, hire.organization_id)
+    eng, _role = hire_profiles(db, hire)
+    values.update(T.resolve_all(profile, values, eng, CP.notice_for(profile, (eng or {}).get("slug")),
+                                getattr(offer, "hours_per_week", None) if offer else None))
     if any((details.get(k) or "").strip() for k in ("house", "building", "street", "landmark", "locality", "district")):
         values["worker.postal_address"] = values.get("worker.address_inline") or values.get("worker.postal_address")
     return values
@@ -794,7 +801,9 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "role.work_setup": _list(role.get("work_setup")),
         "role.performance_structure": _list(role.get("performance_structure")),
         "kpi.areas": _list(role.get("kpi_areas")),
-        "company.nda_non_solicit_months": profile.get("nda_non_solicit_months"),
+        # one non-solicitation period: the NDA prints the post-termination period (the older NDA-only value as a fallback)
+        "company.nda_non_solicit_months": profile.get("non_solicit_post_termination_months") or profile.get("nda_non_solicit_months"),
+        "company.nda_non_compete_months": profile.get("nda_non_compete_months"),
         "company.non_solicit_months": profile.get("non_solicit_post_termination_months"),
         "company.confidentiality_duration": profile.get("nda_confidentiality_duration") or None,
         "company.affidavit_hours": profile.get("affidavit_submission_hours"),
@@ -852,10 +861,7 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
     if emp[0] is not None and er[0] is not None and tuple(emp) != er:
         warn("notice_mismatch", f"The employee gives {F.notice_text(*emp)} but the employer gives {F.notice_text(*er)}. "
                                 "Check this is intended.")
-    a, b = profile.get("non_solicit_post_termination_months"), profile.get("nda_non_solicit_months")
-    if a is not None and b is not None and a != b:
-        warn("non_solicit_mismatch",
-             f"Non-solicitation is {a} months after termination in the contract but {b} months in the NDA.")
+    # (non-solicitation: the NDA and the contract print the one post-termination period, so they cannot disagree)
     rule = (eng or {}).get("leave_rule") or ""
     if rule and (eng or {}).get("leave_accrual_days_per_month") and re.search(r"unpaid|no pro-?rata", rule, re.I):
         warn("leave_rule_conflict",
@@ -967,6 +973,11 @@ def readiness(ctx: R.RenderContext, category: str) -> dict:
         if ck:
             if ctx.clause_value(ck) is None:
                 clauses.append(ck)
+            else:
+                for gap in ctx.clause_gaps(ck):            # a merge field in the wording with no value: never print "{{…}}"
+                    key = "clause." + gap
+                    if key not in fields:
+                        fields.append(key)
         elif ctx.field_value(tok) is None and tok not in ("offer.secure_link", "contract.id"):
             for src in DERIVED_FROM.get(tok, (tok,)):
                 if ctx.field_value(src) is None and src not in fields:
@@ -1091,6 +1102,19 @@ def _reported_missing(keys: list) -> list:
     return list(out)
 
 
+def field_meaning(key: str) -> str:
+    if key.startswith("clause."):
+        from app.modules.hr import onboarding_clause_tokens as T
+        return T.label(key.split(".", 1)[1])
+    return C.FIELDS[key][0] if key in C.FIELDS else key
+
+
+def field_source(key: str) -> str:
+    if key.startswith("clause."):
+        return "Settings › Company Profile › Clause details"
+    return C.FIELDS[key][1] if key in C.FIELDS else ""
+
+
 def package_view(db, hire) -> dict:
     with values_cache(db):
         return _package_view(db, hire)
@@ -1114,7 +1138,7 @@ def _package_view(db, hire) -> dict:
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
             "filled_online": d["mode"] == "COMPLETE" and row is not None and FORMS.submitted(db, hire, cat) is not None,
-            "missing_fields": [{"key": k, "meaning": C.FIELDS[k][0], "source": C.FIELDS[k][1],
+            "missing_fields": [{"key": k, "meaning": field_meaning(k), "source": field_source(k),
                                 "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == ADDRESS_INPUT,
                                 "hr_may_enter": k == ADDRESS_INPUT}
                                for k in _reported_missing(gaps["missing_fields"])],
@@ -1130,6 +1154,56 @@ def _package_view(db, hire) -> dict:
             "warnings": consistency_warnings(db, hire, cfg),
             "printed_values": printed_values(values),
             "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
+
+
+# ── the organisation's board: the 10 documents of every new hire (Onboarding › Checklists) ─────────────────────────────
+BOARD_STATES = ("not_sent", "awaiting_signature", "awaiting_acknowledgement", "awaiting_upload", "needs_review", "completed",
+                "available", "declined", "rejected")
+_BOARD_ACTIVE = ("offer_sent", "offer_accepted", "pre_joining", "in_progress")
+
+
+def status_board(db, organization_id: int, *, include_finished: bool = False) -> dict:
+    """The state of each of the 10 package documents for every new hire of the organisation, in a fixed number of queries
+    (hires, their documents, the signing records; offer lookups only for a linked recruitment offer letter). No document is
+    rendered here: the per-hire panel (package_view) is where readiness and missing data are worked out."""
+    with values_cache(db):
+        q = db.query(OnboardingNewHire).filter(OnboardingNewHire.organization_id == organization_id,
+                                               OnboardingNewHire.is_deleted == False)  # noqa: E712
+        q = q.filter(OnboardingNewHire.status != "cancelled") if include_finished else             q.filter(OnboardingNewHire.status.in_(_BOARD_ACTIVE))
+        hires = q.order_by(OnboardingNewHire.joining_date.is_(None), OnboardingNewHire.joining_date, OnboardingNewHire.id).all()
+        by_hire: dict = {}
+        if hires:
+            rows = (db.query(OnboardingDocument)
+                    .filter(OnboardingDocument.onboarding_new_hire_id.in_([h.id for h in hires]),
+                            OnboardingDocument.is_deleted == False,  # noqa: E712
+                            OnboardingDocument.category.in_(C.CATEGORIES))
+                    .order_by(OnboardingDocument.id.desc()).all())
+            gen_ids = {r.document_id for r in rows if r.document_id}
+            if gen_ids:                                   # loaded once: _gen() then finds them in the session
+                db.query(GeneratedDocument).filter(GeneratedDocument.id.in_(gen_ids)).all()
+            for r in rows:
+                by_hire.setdefault(r.onboarding_new_hire_id, {}).setdefault(r.category, r)
+        documents = [{"category": d["category"], "title": d["title"], "mode": d["mode"], "mode_label": C.MODE_LABELS[d["mode"]]}
+                     for d in C.documents()]
+        totals = {s: 0 for s in BOARD_STATES}
+        out = []
+        for hire in hires:
+            rows = by_hire.get(hire.id, {})
+            docs, counts = {}, {s: 0 for s in BOARD_STATES}
+            for d in documents:
+                row = rows.get(d["category"])
+                state = _row_state(db, row)
+                counts[state] += 1
+                totals[state] += 1
+                docs[d["category"]] = {"state": state, "onboarding_document_id": row.id if row else None,
+                                       "updated_at": (row.updated_at or row.created_at).isoformat()
+                                       if row is not None and (row.updated_at or row.created_at) else None}
+            pkg = (hire.profile_details or {}).get("_package") or {}
+            out.append({"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "position": hire.position,
+                        "status": hire.status, "joining_date": hire.joining_date.isoformat() if hire.joining_date else None,
+                        "sent_at": pkg.get("sent_at"), "documents": docs, "counts": counts,
+                        "done": counts["completed"] + counts["available"]})
+        return {"documents": documents, "hires": out, "totals": totals}
 
 
 # ── issuing ──────────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1273,7 +1347,9 @@ def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[
     if issued or not automatic:
         pkg.update({"sent_at": pkg.get("sent_at") or datetime.utcnow().isoformat(), "last_sent_at": datetime.utcnow().isoformat(),
                     "sent_by": getattr(actor, "id", None) if actor else pkg.get("sent_by")})
-    pkg["held"] = [h["category"] for h in held]
+    # documents held for the new hire's details are released automatically later; a send of a chosen few changes the hold
+    # of those documents only (an earlier hold of another document stays)
+    pkg["held"] = [c for c in (pkg.get("held") or []) if c not in wanted] + [h["category"] for h in held]
     if issued:
         pkg.pop("submitted_at", None)          # new documents to act on: the hire's earlier submission no longer covers them
     details["_package"] = pkg
@@ -1629,6 +1705,10 @@ def _outstanding_for_hire(db, hire) -> list[dict]:
     for d in others:
         if d.id not in package_ids and is_blocking(d) and d.status in ("requested", "rejected"):
             out.append({"title": d.title, "action": "upload" if d.status == "requested" else "upload again"})
+    # QA report #17 (BUG-16): the contact & address details and the structured forms are part of "everything"
+    if not contact_details_complete(hire):
+        out.append({"title": "Your contact and address details", "action": "complete"})
+    out.extend(_open_portal_forms(db, hire))
     needs = portal_package_status(db, hire)["needs"]
     for need in needs:
         out.append({"title": {"address": "Your residential address",
@@ -1646,10 +1726,47 @@ def _outstanding_for_hire(db, hire) -> list[dict]:
     return out
 
 
+def contact_details_complete(hire) -> bool:
+    """Submitted on the portal, every required detail present and within its rule (the phone is kept on the hire)."""
+    from app.core import field_rules
+    from app.modules.hr.onboarding_flow import PORTAL_DETAIL_REQUIRED, PORTAL_DETAIL_RULES
+    details = hire.profile_details or {}
+    if not details.get("details_submitted_at"):
+        return False
+    country = details.get("country")
+    for key in PORTAL_DETAIL_REQUIRED:
+        value = hire.phone if key == "phone" else details.get(key)
+        if not str(value or "").strip():
+            return False
+        rule = PORTAL_DETAIL_RULES.get(key)
+        if rule and field_rules.problem(rule, value, country if rule in field_rules.COUNTRY_DRIVEN else None):
+            return False
+    return True
+
+
+def _open_portal_forms(db, hire) -> list[dict]:
+    """The structured forms the hire fills in on the portal that are not submitted yet (not started, draft or returned)."""
+    from app.modules.hr.models import OnboardingFormSubmission
+    from app.modules.hr.onboarding_documents import FORMS, PORTAL_FORMS
+    subs = (db.query(OnboardingFormSubmission)
+            .filter(OnboardingFormSubmission.new_hire_id == hire.id, OnboardingFormSubmission.canonical_id.in_(PORTAL_FORMS))
+            .order_by(OnboardingFormSubmission.id.desc()).all())
+    latest: dict = {}
+    for sub in subs:
+        latest.setdefault(sub.canonical_id, sub)
+    return [{"title": FORMS[cid], "action": "complete and submit"} for cid in PORTAL_FORMS
+            if getattr(latest.get(cid), "status", None) not in ("SUBMITTED", "VERIFIED")]
+
+
 def submission_status(db, hire) -> dict:
     pkg = (hire.profile_details or {}).get("_package") or {}
     outstanding = outstanding_for_hire(db, hire)
-    return {"submitted_at": pkg.get("submitted_at"), "outstanding": outstanding, "can_submit": not outstanding}
+    # the steps besides documents, for the portal's progress counter (contact details and the structured forms)
+    open_titles = {o["title"] for o in outstanding}
+    from app.modules.hr.onboarding_documents import FORMS, PORTAL_FORMS
+    steps = [{"title": t, "done": t not in open_titles}
+             for t in ("Your contact and address details", *(FORMS[c] for c in PORTAL_FORMS))]
+    return {"submitted_at": pkg.get("submitted_at"), "outstanding": outstanding, "can_submit": not outstanding, "steps": steps}
 
 
 def submit_package(db, hire) -> dict:

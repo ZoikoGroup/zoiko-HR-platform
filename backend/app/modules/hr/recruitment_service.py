@@ -26,7 +26,6 @@ from app.modules.hr.schemas import (
 from fastapi import HTTPException
 
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
-from app.core.sanitize import sanitize_dict
 
 
 
@@ -99,10 +98,39 @@ def get_recruitment_dashboard(db: Session, organization_id: Optional[int] = None
     }
 
 
+DEPARTMENT_CHOICE_MESSAGE = "Choose a department from the list."
+
+
+def _resolve_requisition_department(db: Session, values: dict, organization_id: Optional[int]) -> None:
+    """The requisition's department is one of the organization's active departments: by id when the form sends one, else by
+    name (case-insensitive, trimmed). The stored name is the department record's own name. 422 on the field otherwise."""
+    from app.core.field_rules import raise_if_errors
+    from app.modules.hr.models import Department
+    if "department" not in values and "department_id" not in values:
+        return
+    q = db.query(Department).filter(Department.is_active.is_(True))
+    if organization_id:
+        q = q.filter(Department.organization_id == organization_id)
+    dept = None
+    if values.get("department_id"):
+        dept = q.filter(Department.id == values["department_id"]).first()
+    elif values.get("department"):
+        name = " ".join(str(values["department"]).split()).lower()
+        dept = q.filter(func.lower(func.trim(Department.name)) == name).first()
+    if dept is None:
+        raise_if_errors({"department": DEPARTMENT_CHOICE_MESSAGE})
+    values["department"] = dept.name
+    values["department_id"] = dept.id
+
+
+PAY_AMOUNT_MESSAGE = "Enter an amount greater than 0."
+
+
 def create_requisition(db: Session, data: RequisitionCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentRequisition:
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     from app.modules.hr.recruitment_documents import json_safe
     json_safe(safe)
+    _resolve_requisition_department(db, safe, organization_id)
     status_value = safe.pop("status", None) or "draft"
     req = RecruitmentRequisition(**safe)
     req.status = RequisitionStatus.PENDING if status_value == "pending" else RequisitionStatus.DRAFT
@@ -193,12 +221,15 @@ def update_requisition(db: Session, req_id: int, data: RequisitionUpdate, organi
     req = get_requisition_by_id(db, req_id, organization_id)
     if req.status == RequisitionStatus.CLOSED:
         raise BadRequestException("A closed requisition can no longer be edited.")
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     from app.modules.hr.recruitment_documents import json_safe
     json_safe(update_data)
     for required in ("title", "department", "openings", "priority"):
         if required in update_data and update_data[required] is None:
             update_data.pop(required)
+    if update_data.get("department_id") is None:
+        update_data.pop("department_id", None)
+    _resolve_requisition_department(db, update_data, organization_id)
     if "openings" in update_data and update_data["openings"] < (req.filled or 0):
         raise BadRequestException(f"{req.filled} opening(s) are already filled; openings cannot be lower than that.")
     for field, value in update_data.items():
@@ -377,7 +408,7 @@ def _after_candidate_status_change(db: Session, candidate: RecruitmentCandidate,
 
 def create_candidate(db: Session, data: CandidateCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentCandidate:
     _check_candidate(db, organization_id, data.email, data.position, data.requisition_id)
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     if safe.get("status") in (RecruitmentCandidateStatus.HIRED, RecruitmentCandidateStatus.REJECTED):
         raise BadRequestException("A new candidate starts in the pipeline; mark them hired through an accepted offer.")
     candidate = RecruitmentCandidate(**safe)
@@ -595,7 +626,7 @@ def _handle_candidate_hired(db: Session, candidate: RecruitmentCandidate, organi
 def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, organization_id: Optional[int] = None) -> RecruitmentCandidate:
     candidate = get_candidate_by_id(db, candidate_id, organization_id)
     previous_status = candidate.status
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     for required in ("name", "email", "position", "status"):
         if update_data.get(required) is None:
             update_data.pop(required, None)
@@ -605,6 +636,8 @@ def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, orga
     if {"email", "position"} & set(update_data) or new_req:
         _check_candidate(db, organization_id, update_data.get("email", candidate.email), update_data.get("position", candidate.position), new_req, exclude_id=candidate.id)
     check_candidate_transition(previous_status, update_data.get("status"))
+    if "email" in update_data and str(update_data["email"]).lower() != str(candidate.email or "").lower():
+        candidate.email_status = None                  # a new address has not bounced
     for field, value in update_data.items():
         setattr(candidate, field, value)
     db.commit()
@@ -681,8 +714,11 @@ def _check_interview_links(db: Session, values: dict, organization_id: Optional[
                                                      RecruitmentCandidate.organization_id == organization_id).first()
         if cand is None:
             raise BadRequestException("The selected candidate was not found.")
-        values.setdefault("candidate_name", cand.name)
-        values.setdefault("position", cand.position)
+        # the candidate's own record names them (the form shows these read-only once a candidate is chosen)
+        if not values.get("candidate_name"):
+            values["candidate_name"] = cand.name
+        if not values.get("position"):
+            values["position"] = cand.position
     if values.get("interviewer_id"):
         emp = db.query(Employee).filter(Employee.id == values["interviewer_id"], Employee.organization_id == organization_id,
                                         Employee.is_active.is_(True)).first()
@@ -696,7 +732,7 @@ def _interview_when(interview) -> str:
 
 
 def create_interview(db: Session, data: InterviewCreate, organization_id: Optional[int] = None) -> RecruitmentInterview:
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     send = safe.pop("notify", True)
     if safe.get("interview_date") and safe["interview_date"] < date.today():
         raise BadRequestException("An interview cannot be scheduled in the past.")
@@ -786,7 +822,7 @@ def check_interview_transition(current, new) -> None:
 def update_interview(db: Session, interview_id: int, data: InterviewUpdate, organization_id: Optional[int] = None) -> RecruitmentInterview:
     interview = get_interview_by_id(db, interview_id, organization_id)
     check_interview_transition(interview.status, data.status)
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     send = update_data.pop("notify", True)
     for required in ("status", "candidate_name", "position", "interview_date", "interview_type"):
         if required in update_data and update_data[required] is None:
@@ -801,6 +837,11 @@ def update_interview(db: Session, interview_id: int, data: InterviewUpdate, orga
         setattr(interview, field, value)
     if interview.start_time and interview.end_time and interview.end_time <= interview.start_time:
         raise BadRequestException("The end time must be after the start time.")
+    from app.modules.hr.schemas import IN_PERSON_LOCATION_MESSAGE, INTERVIEWER_MESSAGE
+    if {"interview_type", "location"} & set(update_data) and interview.interview_type == "in_person" and not interview.location:
+        raise BadRequestException(IN_PERSON_LOCATION_MESSAGE)
+    if {"interviewer", "interviewer_id"} & set(update_data) and not interview.interviewer_id and not interview.interviewer:
+        raise BadRequestException(INTERVIEWER_MESSAGE)
     moved = before != (interview.interview_date, interview.start_time, interview.end_time, interview.timezone)
     if moved and interview.interview_date < date.today():
         raise BadRequestException("An interview cannot be moved into the past.")
@@ -918,6 +959,9 @@ def _apply_offer_pay_rules(db: Session, values: dict, organization_id: Optional[
 
     if not cur("pay_period"):
         values["pay_period"] = _DEFAULT_PAY_PERIOD[remuneration]
+    if remuneration in ("salary", "stipend") and "salary" in values and values["salary"] is not None and values["salary"] <= 0:
+        from app.core.field_rules import raise_if_errors
+        raise_if_errors({"salary": PAY_AMOUNT_MESSAGE})
 
     # Country controls the legal template pack even when HR explicitly chooses a
     # cross-border currency. Resolve it independently from currency defaults.
@@ -999,7 +1043,7 @@ def _check_offer_candidate(db: Session, candidate_id: Optional[int], organizatio
 
 
 def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     from app.modules.hr import recruitment_documents
     recruitment_documents.json_safe(safe)
     recruitment_documents.check_offer_fields(db, safe, organization_id)
@@ -1063,7 +1107,7 @@ def get_offer_by_id(db: Session, offer_id: int, organization_id: Optional[int] =
 
 def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     for required in ("candidate_name", "position", "status", "remuneration_type"):
         if required in update_data and update_data[required] is None:
             update_data.pop(required)

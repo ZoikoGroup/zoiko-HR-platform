@@ -83,11 +83,15 @@ def test_personal_and_emergency_forms_update_the_record_in_the_ess_shape(world):
     activate(world.db, "HR-ONB-003")
     h, token = _hire(world)
     personal = {"legal_first_name": "Nora", "legal_last_name": "Newstarter", "date_of_birth": "1995-04-03", "personal_email": "nora@example.com",
-                "mobile_phone": "+44 7700 900123", "address_line1": "4 Sample Road", "city": "Leeds", "postal_code": "LS2 2AA", "country": "United Kingdom"}
-    s1 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-001/submit", json={"values": personal, "declaration_accepted": True}).json()
-    s3 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-003/submit",
-                           json={"values": {"contact1_name": "Pat Parent", "contact1_relationship": "Parent", "contact1_phone": "+44 7700 900456"},
-                                 "declaration_accepted": True}).json()
+                "mobile_phone": "+44 7911 123456", "address_line1": "4 Sample Road", "city": "Leeds", "postal_code": "LS2 2AA", "country": "United Kingdom"}
+    r1 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-001/submit", json={"values": personal, "declaration_accepted": True})
+    assert r1.status_code == 200, r1.text
+    s1 = r1.json()
+    r3 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-003/submit",
+                           json={"values": {"contact1_name": "Pat Parent", "contact1_relationship": "Parent", "contact1_phone": "+44 7400 123456"},
+                                 "declaration_accepted": True})
+    assert r3.status_code == 200, r3.text
+    s3 = r3.json()
     assert world.post("a_hr", f"/hr/onboarding/forms/{s3['id']}/return", json={"reason": "Add a second contact"}).json()["status"] == "RETURNED"
     world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-003/submit", json={"values": {}, "declaration_accepted": True})
     for sid in (s1["id"], s3["id"]):
@@ -95,7 +99,7 @@ def test_personal_and_emergency_forms_update_the_record_in_the_ess_shape(world):
     world.db.refresh(h)
     from app.modules.hr.service import _profile_fields
     fields = _profile_fields(h)
-    assert fields["emergency_contacts"][0] == {"name": "Pat Parent", "relationship": "Parent", "primaryPhone": "+44 7700 900456",
+    assert fields["emergency_contacts"][0] == {"name": "Pat Parent", "relationship": "Parent", "primaryPhone": "+447400123456",
                                                "alternatePhone": "", "address": "", "isPrimary": True}
     assert fields["date_of_birth"] == date(1995, 4, 3) and fields["personal_email"] == "nora@example.com"
     assert {d.canonical_id for d in world.db.query(GeneratedDocument).all()} >= {"HR-ONB-001", "HR-ONB-003"}

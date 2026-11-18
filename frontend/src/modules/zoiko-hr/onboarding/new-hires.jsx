@@ -26,6 +26,11 @@ import { getEmployees } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
 import { downloadCSV } from "../../../utils/export-helpers";
 import OnboardingFormsReview from "./OnboardingFormsReview";
+import PhoneField from "../../../components/PhoneField";
+import EmailSuggestion from "../../../components/EmailSuggestion";
+import { fieldProblem } from "../../../utils/fieldRules";
+import { personEmailError } from "../../../utils/realEmail";
+import { serverFieldErrors } from "../recruitment/recruitmentRules";
 import ProbationScheduleForm from "./ProbationScheduleForm";
 
 const STATUS_OPTIONS = [
@@ -351,15 +356,17 @@ function FormSection({ icon: Icon, title, helper, children }) {
   );
 }
 
+/** QA report #13 (BUG-24…27): the shared field rules, the server's own words (app/core/field_rules.py). */
 function validateHire(form) {
   const errors = {};
+  const put = (key, message) => { if (message) errors[key] = message; };
   if (!form.candidate_name.trim()) errors.candidate_name = "Name is required";
-  else if (form.candidate_name.trim().length > LIMITS.candidate_name) errors.candidate_name = `Keep the name under ${LIMITS.candidate_name} characters`;
+  else put("candidate_name", fieldProblem("person_full_name", form.candidate_name));
   if (!form.email.trim()) errors.email = "Email is required";
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "Invalid email";
-  if (form.phone.trim().length > LIMITS.phone) errors.phone = `Keep the phone under ${LIMITS.phone} characters`;
+  else put("email", fieldProblem("email", form.email) || personEmailError(form.email));
+  put("phone", fieldProblem("phone", form.phone));
   if (!form.position.trim()) errors.position = "Position is required";
-  else if (form.position.trim().length > LIMITS.position) errors.position = `Keep the position under ${LIMITS.position} characters`;
+  else put("position", fieldProblem("job_title", form.position));
   return errors;
 }
 
@@ -455,9 +462,25 @@ function NewHireFormPanel({ editRecord, departments, employees, onClose, onSubmi
     try {
       await onSubmit(form);
     } catch (err) {
-      setBanner(err?.message || "Failed to save record");
+      const fieldErrs = serverFieldErrors(err, ["candidate_name", "email", "phone", "position"]);
+      if (Object.keys(fieldErrs).length) {
+        setErrors(fieldErrs);
+        setBanner("The server did not accept some values. Check the highlighted fields.");
+      } else {
+        setBanner(err?.message || "Failed to save record");
+      }
       setSaving(false);
     }
+  };
+
+  // a field is checked when the person leaves it
+  const checkOnBlur = (key) => () => {
+    const message = validateHire(form)[key];
+    setErrors((er) => {
+      if (message) return { ...er, [key]: message };
+      const { [key]: _drop, ...rest } = er;
+      return rest;
+    });
   };
 
   const aria = (key, hint) => ({ "aria-invalid": errors[key] ? true : undefined,
@@ -505,25 +528,26 @@ function NewHireFormPanel({ editRecord, departments, employees, onClose, onSubmi
 
             <FormSection icon={UserRound} title="Personal details" helper="How to reach the new hire. The pre-onboarding link and login details go to this email.">
               <Field id="nh-name" label="Candidate name" required error={errors.candidate_name}>
-                <input id="nh-name" value={form.candidate_name} onChange={set("candidate_name")} maxLength={LIMITS.candidate_name + 20} autoComplete="off"
-                  {...aria("candidate_name")} className={inputCls(errors.candidate_name)} />
+                <input id="nh-name" value={form.candidate_name} onChange={set("candidate_name")} onBlur={checkOnBlur("candidate_name")}
+                  maxLength={LIMITS.candidate_name + 20} autoComplete="off" {...aria("candidate_name")} className={inputCls(errors.candidate_name)} />
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field id="nh-email" label="Email" required error={errors.email}>
-                  <input id="nh-email" type="email" value={form.email} onChange={set("email")} maxLength={LIMITS.email} autoComplete="off"
-                    {...aria("email")} className={inputCls(errors.email)} />
+                  <input id="nh-email" type="email" value={form.email} onChange={set("email")} onBlur={checkOnBlur("email")} maxLength={LIMITS.email}
+                    autoComplete="off" {...aria("email")} className={inputCls(errors.email)} />
+                  {!errors.email && <EmailSuggestion value={form.email} onAccept={set("email")} />}
                 </Field>
                 <Field id="nh-phone" label="Phone" error={errors.phone}>
-                  <input id="nh-phone" type="tel" value={form.phone} onChange={set("phone")} maxLength={LIMITS.phone + 10} autoComplete="off"
-                    {...aria("phone")} className={inputCls(errors.phone)} />
+                  <PhoneField id="nh-phone" value={form.phone} onChange={set("phone")} onBlur={checkOnBlur("phone")}
+                    invalid={!!errors.phone} describedBy={errors.phone ? "nh-phone-error" : undefined} className={inputCls(errors.phone)} />
                 </Field>
               </div>
             </FormSection>
 
             <FormSection icon={Briefcase} title="Role" helper="The position they are joining, the team and who they report to.">
               <Field id="nh-position" label="Position" required error={errors.position}>
-                <input id="nh-position" value={form.position} onChange={set("position")} maxLength={LIMITS.position + 20} autoComplete="off"
-                  {...aria("position")} className={inputCls(errors.position)} />
+                <input id="nh-position" value={form.position} onChange={set("position")} onBlur={checkOnBlur("position")}
+                  maxLength={LIMITS.position + 20} autoComplete="off" {...aria("position")} className={inputCls(errors.position)} />
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field id="nh-department" label="Department">
@@ -662,7 +686,12 @@ function HireDetail({ rec, progress, panel, link, busy, employees, act, onClose 
               </p>
             )}
             <div className="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 p-4">
-              <InfoItem icon={Mail} label="Email"><span className="break-all">{rec.email || "—"}</span></InfoItem>
+              <InfoItem icon={Mail} label="Email">
+                <span className="break-all">{rec.email || "—"}</span>
+                {rec.email_status === "bounced" && (
+                  <span className="mt-1 inline-block rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">Email bounced – check the address</span>
+                )}
+              </InfoItem>
               <InfoItem icon={Phone} label="Phone">{rec.phone || "—"}</InfoItem>
               <InfoItem icon={Building2} label="Department">{rec.department_name || "—"}</InfoItem>
               <InfoItem icon={UserRound} label="Manager">{rec.manager_name || "—"}</InfoItem>
@@ -977,7 +1006,23 @@ export default function NewHires() {
     fetchPanel(id);
   };
 
-  // all departments for the form; the filter only offers the ones present in the loaded list
+  // ?open=<id> (a hire's row on Onboarding › Checklists) opens that hire's details and documents on arrival
+  useEffect(() => {
+    const id = Number(searchParams.get("open"));
+    if (!id) return;
+    setShowAllRecords(true);
+    setDetailId(id);
+    fetchPanel(id);
+    const next = new URLSearchParams(searchParams);
+    next.delete("open");
+    setSearchParams(next, { replace: true });
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the form offers only the organization's active department records (never names copied from old hire records)
+  const formDepartments = useMemo(() => departmentList.filter((d) => d && d.is_active !== false)
+    .map((d) => ({ id: d.id, name: d.name || d.department_name })).filter((d) => d.name)
+    .sort((a, b) => a.name.localeCompare(b.name)), [departmentList]);
+  // all departments for the filter; the filter only offers the ones present in the loaded list
   const departments = useMemo(() => {
     if (departmentList.length) return departmentList.map((d) => ({ id: d.id, name: d.name || d.department_name }));
     const seen = new Set();
@@ -1035,10 +1080,10 @@ export default function NewHires() {
   const submitForm = async (formData) => {
     const editId = formFor?.record?.id;
     const payload = {
-      candidate_name: formData.candidate_name.trim(),
+      candidate_name: formData.candidate_name.trim().replace(/\s+/g, " "),
       email: formData.email.trim(),
       phone: formData.phone.trim() || null,
-      position: formData.position.trim(),
+      position: formData.position.trim().replace(/\s+/g, " "),
       department_id: formData.department_id ? Number(formData.department_id) : null,
       manager_id: formData.manager_id ? Number(formData.manager_id) : null,
       joining_date: formData.joining_date || null,
@@ -1460,7 +1505,7 @@ export default function NewHires() {
       </div>
 
       {formFor && (
-        <NewHireFormPanel editRecord={formFor.record || null} departments={departments} employees={employees}
+        <NewHireFormPanel editRecord={formFor.record || null} departments={formDepartments} employees={employees}
           onClose={() => setFormFor(null)} onSubmit={submitForm} />
       )}
 

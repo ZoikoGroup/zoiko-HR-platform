@@ -210,7 +210,7 @@ def test_rules_and_tenant_boundaries(env):
 
 def test_dashboard_and_report_numbers(env):
     _setup_template_and_settings(env)
-    _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "A B", "email": "a@mail.com", "position": "P", "joining_date": JOIN.isoformat()}))
+    _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "A B", "email": "a@mail.com", "position": "Designer", "joining_date": JOIN.isoformat()}))
     dash = _ok(env.c.get("/hr/onboarding/dashboard"))
     assert dash["documentsPending"] == 2 and dash["checklistsPending"] == 2 and dash["upcomingJoinersTotal"] == 1
     rep = _ok(env.c.get("/hr/onboarding/reports/joining"))
@@ -221,7 +221,7 @@ def test_reminders_go_to_new_hires_who_still_owe_documents(env):
     from app.modules.hr import onboarding_flow
     from app.modules.hr.models import OnboardingNewHire
     _setup_template_and_settings(env)
-    hire = _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "R M", "email": "r@mail.com", "position": "P"}))
+    hire = _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "R M", "email": "r@mail.com", "position": "Designer"}))
     row = env.db.get(OnboardingNewHire, hire["id"])
     before = len(env.sent)
     assert onboarding_flow.run_document_reminders(env.db, today=row.portal_invited_at.date() + timedelta(days=3)) == 1

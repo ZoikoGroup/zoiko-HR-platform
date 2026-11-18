@@ -43,12 +43,26 @@ MESSAGES = {
     "email": "Enter a valid email address, for example name@company.com.",
     "email_no_mail": "This email domain can't receive email. Check the address.",
     "country_first": "Select the employee's country first so this number can be checked.",
+    "location": "Enter a real place, for example Bengaluru, India or Floor 3, Room 4B. Use letters, numbers, spaces and "
+                ", . - / # ' ( ) & only.",
+    "work_pattern": "Describe the working pattern, for example Mon–Fri, 9:30–18:30. Use letters, numbers, spaces and "
+                    ", . - : / ( ) & + only.",
+    "bank_name": "Enter your bank's name, for example State Bank of India.",
+    "language": "Choose a language from the list.",
 }
+
+# Languages offered for communications (BCP 47 code, name); the same list is in fieldRules.js (kept equal by the fixture).
+LANGUAGES = (
+    ("en", "English"), ("hi", "Hindi"), ("ta", "Tamil"), ("te", "Telugu"), ("kn", "Kannada"), ("ml", "Malayalam"),
+    ("mr", "Marathi"), ("bn", "Bengali"), ("gu", "Gujarati"), ("pa", "Punjabi"), ("ur", "Urdu"), ("es", "Spanish"),
+    ("fr", "French"), ("de", "German"), ("ar", "Arabic"), ("zh", "Chinese"), ("ja", "Japanese"), ("pt", "Portuguese"),
+)
 
 # (min, max) characters after trimming
 LENGTHS = {
     "person_name": (1, 50), "person_full_name": (2, 100), "org_name": (2, 150), "org_unit": (2, 100), "job_title": (2, 100),
-    "place_name": (2, 80), "address": (5, 250), "industry_other": (2, 100),
+    "place_name": (2, 80), "address": (5, 250), "industry_other": (2, 100), "location": (2, 150), "work_pattern": (2, 200),
+    "bank_name": (2, 100),
 }
 
 
@@ -137,6 +151,15 @@ def _free_text(rule: str, value, label: Optional[str]) -> str:
         if ok:
             words = [w for w in re.split(r"[\s,]+", text) if w]
             ok = any(_is_digit(ch) for ch in text) or len([w for w in words if any(_is_letter(c) for c in w)]) >= 2
+    elif rule == "location":                           # a city, office or room: "Floor 3, Room 4B", "#12 MG Road, Pune"
+        ok = _text_rule(text, allowed=",.-/#'’()&", digits=True, start_letter=False, end_ok=").", start_ok="#")
+        ok = ok and sum(1 for ch in text if _is_letter(ch)) >= 2
+    elif rule == "bank_name":                          # "State Bank of India", "HDFC Bank Ltd.", "Lloyds (UK)"
+        ok = _text_rule(text, allowed="&.,'’-()", digits=True, start_letter=False, end_ok=").")
+        ok = ok and sum(1 for ch in text if _is_letter(ch)) >= 2
+    elif rule == "work_pattern":                       # "Mon–Fri, 9:30–18:30", "Shifts (4 on / 4 off)"
+        ok = _text_rule(text, allowed=",.-–:/()&+", digits=True, start_letter=False, end_ok=").")
+        ok = ok and sum(1 for ch in text if _is_letter(ch)) >= 2
     else:  # pragma: no cover
         raise KeyError(rule)
     if not ok:
@@ -145,6 +168,15 @@ def _free_text(rule: str, value, label: Optional[str]) -> str:
     if not (lo <= len(text) <= hi):
         raise FieldRuleError(length_message(rule))
     return text
+
+
+# ── language (a fixed list: the code is stored; the name is accepted too) ──────────────────────────────────────────
+def _language(value) -> str:
+    text = _tidy(value).lower()
+    for code, name in LANGUAGES:
+        if text in (code, name.lower()):
+            return code
+    raise FieldRuleError(MESSAGES["language"])
 
 
 # ── industry (a fixed list; "Other" carries a free-text name under org_unit rules) ────────────────────────────────────
@@ -406,6 +438,9 @@ def _statutory(rule: str, value, country, label) -> str:
             raise FieldRuleError(bad)
         return result
     if rule == "bank_account":
+        # an IBAN with valid check digits is an account number anywhere (forms ask for "Account number / IBAN")
+        if iso not in IBAN_COUNTRIES and re.match(r"^[A-Z]{2}\d{2}[A-Z0-9]{10,30}$", compact) and iban_ok(compact):
+            return compact
         if iso in IBAN_COUNTRIES:
             ok = iban_ok(compact)
             bad = f"Enter a valid IBAN (for example {example or 'DE89 3704 0044 0532 0130 00'})."
@@ -440,8 +475,9 @@ def _statutory(rule: str, value, country, label) -> str:
 
 
 # ── the API ─────────────────────────────────────────────────────────────────────────────────────────────────────────
-FREE_TEXT = ("person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address")
-RULES = (*FREE_TEXT, "industry", "country", "state", "email", "phone", "postal_code", "org_registration", "tax_id_person",
+FREE_TEXT = ("person_name", "person_full_name", "org_name", "org_unit", "job_title", "place_name", "address", "location",
+             "work_pattern", "bank_name")
+RULES = (*FREE_TEXT, "language", "industry", "country", "state", "email", "phone", "postal_code", "org_registration", "tax_id_person",
          "social_payroll_ref", "bank_account", "bank_routing")
 
 
@@ -453,6 +489,8 @@ def clean(rule: str, value, country=None, label: Optional[str] = None, *, id_key
         value = int(value)                             # a spreadsheet cell holding a number
     if rule in FREE_TEXT:
         return _free_text(rule, value, label)
+    if rule == "language":
+        return _language(value)
     if rule == "industry":
         return _industry(value, label)
     if rule == "country":

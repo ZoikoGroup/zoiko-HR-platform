@@ -324,6 +324,28 @@ def test_full_package_journey(world):
     assert not any("Velocity" in t or "Daily Work Report" in t for t in items), "information documents are not checklist items"
 
 
+def test_the_admin_sends_only_the_documents_they_choose(world):
+    """Onboarding › Documents: HR ticks how many of the 10 documents go now; the others stay unsent, and a document held for
+    the new hire's address keeps its automatic release when a later send covers other documents."""
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, _token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    url = f"/hr/onboarding/new-hires/{h.id}/send-package"
+
+    first = world.post("a_admin", url, json={"categories": ["daily_kpi", "nda"]}).json()
+    assert [i["category"] for i in first["issued"]] == ["daily_kpi"]
+    assert [x["category"] for x in first["held"]] == ["nda"], "waiting for the new hire's address"
+
+    second = world.post("a_admin", url, json={"categories": ["job_description"]}).json()
+    assert [i["category"] for i in second["issued"]] == ["job_description"]
+    world.db.refresh(h)
+    assert h.profile_details["_package"]["held"] == ["nda"], "the earlier hold is kept"
+
+    states = {d["category"]: d["state"] for d in world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()["documents"]}
+    assert states["offer_letter"] == "not_sent" and states["velocity_report"] == "not_sent", "documents not chosen are not sent"
+    assert states["daily_kpi"] != "not_sent" and states["job_description"] != "not_sent"
+
+
 def test_old_upload_requests_are_replaced_and_deleting_revokes_the_signing_link(world):
     from app.modules.hr import onboarding_flow
     assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
@@ -867,3 +889,60 @@ def test_new_hire_fills_in_the_complete_and_return_forms_online_and_hr_sees_the_
     assert panel["job_application"]["filled_online"] and panel["job_application"]["state"] == "needs_review"
     preview = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/job_application/preview.pdf")
     assert "University of York" in _text(preview.content), "Preview shows the filled form"
+
+
+def test_merge_fields_in_counsel_wording_are_filled_and_never_printed_raw(world):
+    """2026-11-18: counsel wording written with merge fields ({{conflict_disclosure_channel}}, {{ip_assignment_term}}, ...)
+    printed the braces in the NDA the new hire signs. They are filled from the hire's records, the HR contact or standard
+    wording; one with no value at all holds the document instead of printing "{{…}}"."""
+    clauses = _all_clauses()
+    clauses["conflict_of_opportunities"] = {"text": "The employee should seek guidance through {{conflict_disclosure_channel}}."}
+    clauses["confidentiality_and_ip"] = {"text": "Rights pass for {{ip_assignment_term}} and within {{ip_assignment_territory}}; "
+                                                 "pre-existing works are declared in {{pre_existing_ip_schedule}}. Employer: "
+                                                 "{{legal_employer_name}}; role: {{job_title}}."}
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": clauses}).status_code == 200
+    h, _token = _new_hire(world)
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": INPUTS})
+    world.db.expire_all()
+    with P.values_cache(world.db):
+        ctx = P.render_context(world.db, h, "nda", final=True)
+        conflict = ctx.clause_value("conflict_of_opportunities")[1]
+        ip = ctx.clause_value("confidentiality_and_ip")[1]
+    assert conflict == "The employee should seek guidance through the HR team at hr@tenant-a.example.com."
+    assert "the full term of each right" in ip and "all countries of the world" in ip and "Analyst" in ip and "{{" not in ip
+    assert "a written list given to the Employer before the start date" in ip
+
+    # an organisation-specific merge field nobody entered holds the document, it is not printed raw
+    clauses["confidentiality_and_ip"] = {"text": "See the notice at {{employee_privacy_notice_url}}."}
+    world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": clauses})
+    nda = next(d for d in world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()["documents"] if d["category"] == "nda")
+    assert not nda["ready"]
+    missing = {f["key"]: f for f in nda["missing_fields"]}
+    assert missing["clause.employee_privacy_notice_url"]["meaning"] == "Employee privacy notice link"
+    assert "Clause details" in missing["clause.employee_privacy_notice_url"]["source"]
+    # entered once in Company Profile › Clause details: the NDA prints it
+    r = world.put("a_admin", "/hr/onboarding/company-profile", json={"clause_employee_privacy_notice_url": "https://tenant-a.example.com/privacy"})
+    assert r.status_code == 200, r.text
+    world.db.expire_all()
+    with P.values_cache(world.db):
+        ctx = P.render_context(world.db, h, "nda", final=True)
+        assert ctx.clause_value("confidentiality_and_ip")[1] == "See the notice at https://tenant-a.example.com/privacy."
+        assert "clause.employee_privacy_notice_url" not in P.readiness(ctx, "nda")["missing_fields"]
+
+
+def test_the_nda_prints_the_one_non_solicitation_period_and_a_real_non_competition_clause(world):
+    from types import SimpleNamespace
+    from app.modules.hr import company_profile
+    actor = SimpleNamespace(id=world.u["a_admin"].id, organization_id=1)
+    company_profile.save_profile(world.db, actor, {"non_solicit_post_termination_months": 24, "nda_non_solicit_months": 12,
+                                                   "nda_non_compete_months": 6})
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, _token = _new_hire(world)
+    world.db.expire_all()
+    with P.values_cache(world.db):
+        ctx = P.render_context(world.db, h, "nda", final=True)
+        assert ctx.field_value("company.nda_non_solicit_months") == "24", "the period set under Legal & policy defaults"
+        kind, text = ctx.clause_value("non_competition")
+    assert kind == "text" and "For 6 months after the" in text and "only to the extent the law" in text
+    spec = {f["key"] for f in company_profile.fields_spec()}
+    assert "nda_non_solicit_months" not in spec and "clause_speak_up_channel" in spec
