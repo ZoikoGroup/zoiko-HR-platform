@@ -25,7 +25,7 @@ test("onboarding portal forms and hire review and probation views are integrated
   const portal = read("src/pages/OnboardingPortalPage.jsx");
   const hires = read("src/modules/zoiko-hr/onboarding/new-hires.jsx");
   assert.match(app, /path="\/onboarding-portal\/:token"/);
-  assert.match(portal, /<PortalStructuredForms token=\{token\} \/>/);
+  assert.match(portal, /<PortalStructuredForms token=\{token\} onChanged=\{refreshStatus\} \/>/);
   assert.match(hires, /<OnboardingFormsReview hireId=\{rec\.id\} \/>/);
   assert.match(hires, /<ProbationScheduleForm employeeId=\{rec\.employee_id\}/);
 });

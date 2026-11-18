@@ -1705,6 +1705,10 @@ def _outstanding_for_hire(db, hire) -> list[dict]:
     for d in others:
         if d.id not in package_ids and is_blocking(d) and d.status in ("requested", "rejected"):
             out.append({"title": d.title, "action": "upload" if d.status == "requested" else "upload again"})
+    # QA report #17 (BUG-16): the contact & address details and the structured forms are part of "everything"
+    if not contact_details_complete(hire):
+        out.append({"title": "Your contact and address details", "action": "complete"})
+    out.extend(_open_portal_forms(db, hire))
     needs = portal_package_status(db, hire)["needs"]
     for need in needs:
         out.append({"title": {"address": "Your residential address",
@@ -1722,10 +1726,47 @@ def _outstanding_for_hire(db, hire) -> list[dict]:
     return out
 
 
+def contact_details_complete(hire) -> bool:
+    """Submitted on the portal, every required detail present and within its rule (the phone is kept on the hire)."""
+    from app.core import field_rules
+    from app.modules.hr.onboarding_flow import PORTAL_DETAIL_REQUIRED, PORTAL_DETAIL_RULES
+    details = hire.profile_details or {}
+    if not details.get("details_submitted_at"):
+        return False
+    country = details.get("country")
+    for key in PORTAL_DETAIL_REQUIRED:
+        value = hire.phone if key == "phone" else details.get(key)
+        if not str(value or "").strip():
+            return False
+        rule = PORTAL_DETAIL_RULES.get(key)
+        if rule and field_rules.problem(rule, value, country if rule in field_rules.COUNTRY_DRIVEN else None):
+            return False
+    return True
+
+
+def _open_portal_forms(db, hire) -> list[dict]:
+    """The structured forms the hire fills in on the portal that are not submitted yet (not started, draft or returned)."""
+    from app.modules.hr.models import OnboardingFormSubmission
+    from app.modules.hr.onboarding_documents import FORMS, PORTAL_FORMS
+    subs = (db.query(OnboardingFormSubmission)
+            .filter(OnboardingFormSubmission.new_hire_id == hire.id, OnboardingFormSubmission.canonical_id.in_(PORTAL_FORMS))
+            .order_by(OnboardingFormSubmission.id.desc()).all())
+    latest: dict = {}
+    for sub in subs:
+        latest.setdefault(sub.canonical_id, sub)
+    return [{"title": FORMS[cid], "action": "complete and submit"} for cid in PORTAL_FORMS
+            if getattr(latest.get(cid), "status", None) not in ("SUBMITTED", "VERIFIED")]
+
+
 def submission_status(db, hire) -> dict:
     pkg = (hire.profile_details or {}).get("_package") or {}
     outstanding = outstanding_for_hire(db, hire)
-    return {"submitted_at": pkg.get("submitted_at"), "outstanding": outstanding, "can_submit": not outstanding}
+    # the steps besides documents, for the portal's progress counter (contact details and the structured forms)
+    open_titles = {o["title"] for o in outstanding}
+    from app.modules.hr.onboarding_documents import FORMS, PORTAL_FORMS
+    steps = [{"title": t, "done": t not in open_titles}
+             for t in ("Your contact and address details", *(FORMS[c] for c in PORTAL_FORMS))]
+    return {"submitted_at": pkg.get("submitted_at"), "outstanding": outstanding, "can_submit": not outstanding, "steps": steps}
 
 
 def submit_package(db, hire) -> dict:

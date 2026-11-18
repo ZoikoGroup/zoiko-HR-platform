@@ -9,6 +9,10 @@ import { useEffect, useMemo, useState } from "react";
 import { parsePhoneNumberFromString } from "libphonenumber-js/max";
 import { COUNTRY_CHOICES, callingCode, countryIso, DEFAULT_PHONE_REGION, phoneInputFilter } from "../utils/fieldRules";
 
+/** Width / flex classes a page may pass for a plain input; this component sets its own (w-full, flex-1, min-w-0 …). */
+const stripLayout = (cls) => String(cls || "").replace(/(^|\s)(?:[a-z]+:)?(?:w|min-w|max-w|flex|grow|shrink|basis)(?:-\S+)?(?=\s|$)/g, " ")
+  .replace(/\s+/g, " ").trim();
+
 function split(value, fallbackIso) {
   const text = String(value || "").trim();
   if (text.startsWith("+")) {
@@ -53,7 +57,9 @@ export default function PhoneField({
   );
 
   return (
-    <div className="flex gap-2">
+    // The layout belongs to this component (QA report #17, BUG-15): whatever classes a page passes, the code box keeps a fixed
+    // width and the number box keeps room to type; on very narrow screens the number box wraps below instead of collapsing.
+    <div className="flex w-full flex-wrap gap-2 sm:flex-nowrap">
       <select
         aria-label="Phone country code"
         value={iso}
@@ -61,11 +67,11 @@ export default function PhoneField({
         onChange={(e) => { setIso(e.target.value); emit(e.target.value, national); }}
         // the code box is always narrow: a width class passed in for the number box (w-full) must not stretch it and push
         // the number box off the screen
-        className={`${`${className} ${selectClassName}`.replace(/(^|\s)w-\S+/g, " ")} w-28 shrink-0`}
+        className={`${stripLayout(`${className} ${selectClassName}`)} w-28 shrink-0 grow-0`}
       >
         {options.map((c) => <option key={c.code} value={c.code}>{`${c.dial} ${c.name}`}</option>)}
       </select>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-[9rem] flex-1">
         <input
           id={id}
           type="tel"
@@ -86,7 +92,7 @@ export default function PhoneField({
             emit(iso, allowed);
           }}
           onBlur={onBlur}
-          className={`${className} w-full`}
+          className={`${stripLayout(className)} w-full`}
         />
         {cleanedNote && <p id={`${id}-cleaned`} className="mt-1 text-xs text-amber-700">{cleanedNote}</p>}
       </div>
