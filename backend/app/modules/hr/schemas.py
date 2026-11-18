@@ -4449,6 +4449,7 @@ class _OfferPayFields(BaseModel):
     currency: Optional[str] = Field(None, min_length=3, max_length=3)
     pay_period: Optional[PayPeriod] = None
     employment_type: Optional[OfferEmploymentType] = None
+    engagement_profile_slug: Optional[str] = Field(None, max_length=60)   # offer type (Onboarding engagement profile)
     work_country: Optional[str] = Field(None, min_length=2, max_length=2)
     entity_name: Optional[str] = Field(None, max_length=200)
     entity_tax_id: Optional[str] = Field(None, max_length=40)
@@ -4541,6 +4542,7 @@ class OfferResponse(BaseModel):
     currency: Optional[str] = None
     pay_period: Optional[str] = None
     employment_type: Optional[str] = None
+    engagement_profile_slug: Optional[str] = None
     work_country: Optional[str] = None
     entity_name: Optional[str] = None
     entity_tax_id: Optional[str] = None

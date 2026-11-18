@@ -159,7 +159,7 @@ def hire_package(new_hire_id: int, db: Session = Depends(get_db), user=Depends(g
 @router.put("/new-hires/{new_hire_id}/package/inputs", summary="Values HR enters for a new hire's missing package data")
 def hire_package_inputs(new_hire_id: int, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
     hire = _hire(db, user, new_hire_id)
-    onboarding_package.save_hire_inputs(db, hire, (data or {}).get("values") or {})
+    onboarding_package.save_hire_inputs(db, hire, (data or {}).get("values") or {}, actor=user)
     return onboarding_package.package_view(db, hire)
 
 

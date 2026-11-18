@@ -587,12 +587,15 @@ export default function OnboardingDocuments() {
     </div>
   );
 
-  const docRow = (doc, category, key) => {
+  const docRow = (doc, category, key, onWhy) => {
     if (!doc) {
       return (
-        <li key={key} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2.5">
+        <li key={key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2.5">
           <span className="flex min-w-0 items-center gap-2 text-sm text-gray-500"><FileText className="h-4 w-4 shrink-0 text-gray-300" />{categoryLabel(category)}</span>
-          <span className="text-xs text-gray-400">Not sent yet</span>
+          {onWhy ? (
+            <button type="button" onClick={onWhy} data-testid={`why-not-sent-${category}`}
+              className="text-xs font-semibold text-amber-700 underline hover:text-amber-900">Not sent yet – see why</button>
+          ) : <span className="text-xs text-gray-400">Not sent yet</span>}
         </li>
       );
     }
@@ -660,7 +663,8 @@ export default function OnboardingDocuments() {
             <section>
               <h3 className="mb-2 text-sm font-semibold text-gray-900">Onboarding package <span className="font-normal text-gray-500">({sum.packageSent} of 10 sent)</span></h3>
               <ol className="space-y-2">
-                {PACKAGE_CATEGORIES.map((c) => docRow(pkgDocs[c.value], c.value, c.value))}
+                {PACKAGE_CATEGORIES.map((c) => docRow(pkgDocs[c.value], c.value, c.value,
+                  active ? () => openSendPackageModal(String(rec.id)) : undefined))}
               </ol>
             </section>
           )}

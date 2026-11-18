@@ -1042,6 +1042,29 @@ def _check_offer_candidate(db: Session, candidate_id: Optional[int], organizatio
             raise BadRequestException("The linked candidate was not found.")
 
 
+def _apply_offer_type(db: Session, values: dict, organization_id: Optional[int]) -> None:
+    """The offer type is an Onboarding engagement profile. It must exist in this organisation; terms the form left out
+    (probation, remuneration type, employment type) are filled from it so the offer and the 10 onboarding documents agree."""
+    if "engagement_profile_slug" not in values:
+        return
+    slug = str(values.get("engagement_profile_slug") or "").strip().lower() or None
+    values["engagement_profile_slug"] = slug
+    if slug is None or not organization_id:
+        return
+    from app.modules.hr import onboarding_profiles as PR
+    profile = PR.engagement_for(db, organization_id, slug)
+    if profile is None:
+        raise BadRequestException("Choose an offer type from the list (Onboarding › Settings › Engagement profiles).")
+    if values.get("probation_months") is None and profile.get("assessment_months") is not None:
+        values["probation_months"] = int(profile["assessment_months"])
+    if not values.get("remuneration_type") and profile.get("remuneration_type"):
+        values["remuneration_type"] = profile["remuneration_type"]
+    if not values.get("employment_type"):
+        kind = PR.offer_employment_type(profile)
+        if kind:
+            values["employment_type"] = kind
+
+
 def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
     safe = data.model_dump(exclude_unset=True)
     from app.modules.hr import recruitment_documents
@@ -1052,6 +1075,7 @@ def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] 
     elif safe["status"] not in (OfferStatus.DRAFT, OfferStatus.PENDING):
         raise BadRequestException("A new offer starts as Draft or Pending.")
     _check_offer_candidate(db, safe.get("candidate_id"), organization_id)
+    _apply_offer_type(db, safe, organization_id)
     safe = _apply_offer_pay_rules(db, safe, organization_id)
     offer = RecruitmentOffer(**safe)
     offer.created_by = getattr(actor, "id", None)
@@ -1127,6 +1151,7 @@ def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id:
         _check_offer_candidate(db, update_data["candidate_id"], organization_id)
     if "work_country" in update_data and "currency" not in update_data:
         update_data["currency"] = None                      # a new work country brings its own currency unless one is given
+    _apply_offer_type(db, update_data, organization_id)
     update_data = _apply_offer_pay_rules(db, update_data, organization_id, offer)
     if terms_changed and offer.document_id:
         # An unissued letter is a snapshot of the old offer terms. Retire it before editing so the

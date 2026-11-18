@@ -87,6 +87,22 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
     return [...keys.values()];
   }, [pkg]);
 
+  // missing values set once for the organisation (not typed per hire), with where to set each
+  const missingSettings = useMemo(() => {
+    if (!pkg) return [];
+    const m = new Map();
+    pkg.documents.forEach((d) => {
+      if (!UNSENT.includes(d.state)) return;
+      d.missing_fields.forEach((f) => {
+        if (f.editable || f.candidate_provides || !f.settings_path) return;
+        const cur = m.get(f.key) || { ...f, docs: [] };
+        cur.docs.push(d.title);
+        m.set(f.key, cur);
+      });
+    });
+    return [...m.values()];
+  }, [pkg]);
+
   const missingClauses = useMemo(() => {
     if (!pkg) return [];
     const m = new Map();
@@ -276,23 +292,48 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
           </div>
         )}
 
+        {missingSettings.length > 0 && (
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            <p className="flex items-start gap-2 font-semibold"><Info className="mt-0.5 h-4 w-4 shrink-0" />Set once in Settings</p>
+            <ul className="mt-1 space-y-1 text-xs leading-5">
+              {missingSettings.map((f) => (
+                <li key={f.key}>
+                  <Link to={f.settings_path} className="font-semibold underline">{f.meaning}</Link>
+                  <span className="text-amber-800"> – {f.source || "Onboarding settings"} · used in {f.docs.join(", ")}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+
         {missingInputs.length > 0 && (
-          <fieldset className="rounded-2xl border border-gray-200 bg-white p-4">
-            <legend className="px-1 text-sm font-semibold text-gray-800">Missing details for {pkg?.candidate_name}</legend>
-            <p className="mb-3 text-xs text-gray-500">These values are printed in the documents. They are saved for this new hire only.</p>
+          <fieldset id="pkg-missing" className="scroll-mt-4 rounded-2xl border border-amber-200 bg-white p-4">
+            <legend className="px-1 text-sm font-semibold text-gray-800">Fill in to send – {pkg?.candidate_name}</legend>
+            <p className="mb-3 text-xs text-gray-500">
+              These values are printed in the documents. Details for this new hire are saved for them only; clause details
+              (marked “all new hires”) are saved once in Settings › Company profile and used for everyone.
+            </p>
             <div className="space-y-3">
               {missingInputs.map((f) => (
                 <div key={f.key}>
                   <label htmlFor={`pkg-in-${f.key}`} className="mb-1 block text-sm font-medium text-gray-700">
                     {f.hr_may_enter ? "Postal address" : f.meaning}{" "}
-                    <span className="text-xs font-normal text-gray-400">({f.hr_may_enter ? `optional – or ${pkg?.candidate_name} enters it in the portal` : f.source})</span>
+                    <span className="text-xs font-normal text-gray-400">
+                      ({f.hr_may_enter ? `optional – or ${pkg?.candidate_name} enters it in the portal` : f.org_wide ? "all new hires" : f.source})
+                    </span>
                   </label>
                   {f.key === "job.role_purpose" ? (
                     <textarea id={`pkg-in-${f.key}`} rows={3} maxLength={1200} className={fieldCls} value={inputs[f.key] || ""}
                       placeholder="2–3 sentences on why the role exists" onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
                   ) : (
-                    <input id={`pkg-in-${f.key}`} className={fieldCls} value={inputs[f.key] || ""} maxLength={300}
-                      placeholder={PLACEHOLDERS[f.key] || ""} onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
+                    <input id={`pkg-in-${f.key}`} className={fieldCls} value={inputs[f.key] || ""} maxLength={f.org_wide ? 255 : 300}
+                      type={f.key === "employment.start_date" ? "date" : "text"}
+                      inputMode={f.key === "employment.base_pay" ? "decimal" : undefined}
+                      placeholder={PLACEHOLDERS[f.key] || (f.key.includes("_url") ? "https://…" : "")}
+                      onChange={(e) => setInputs((p) => ({ ...p, [f.key]: e.target.value }))} />
+                  )}
+                  {f.key === "employment.base_pay" && (
+                    <p className="mt-0.5 text-xs text-gray-500">Type the amount (e.g. 12000): it is printed with the currency and pay period, e.g. “₹12,000 per month”.</p>
                   )}
                   <p className="mt-0.5 text-xs text-gray-400">Used in: {f.docs.join(", ")}</p>
                 </div>
@@ -366,7 +407,22 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
                   <ul className="mt-2 space-y-1 text-xs">
                     {hrFields.length > 0 && (
                       <li className="flex gap-1.5 text-amber-800"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-                        Missing data: {hrFields.map((f) => f.meaning).join("; ")}</li>
+                        <span>
+                          Not sent yet – missing: {hrFields.map((f) => f.meaning).join("; ")}.{" "}
+                          {hrFields.some((f) => f.editable) && (
+                            <button type="button" className="font-semibold underline"
+                              onClick={() => document.getElementById("pkg-missing")?.scrollIntoView({ behavior: "smooth", block: "start" })}>
+                              Fill in above
+                            </button>
+                          )}
+                          {hrFields.some((f) => !f.editable && f.settings_path) && (
+                            <>
+                              {hrFields.some((f) => f.editable) ? " · " : ""}
+                              <Link to={hrFields.find((f) => !f.editable && f.settings_path).settings_path} className="font-semibold underline">Open Settings</Link>
+                            </>
+                          )}
+                        </span>
+                      </li>
                     )}
                     {d.missing_clauses.length > 0 && (
                       <li className="flex gap-1.5 text-amber-800"><ShieldAlert className="mt-0.5 h-3.5 w-3.5 shrink-0" />
@@ -428,10 +484,9 @@ function Stat({ label, value, tone }) {
 const PLACEHOLDERS = {
   "employment.work_location": "e.g. Leeds office, 1 Sample Street",
   "employment.working_hours": "e.g. 37.5 hours per week",
-  "employment.base_pay": "e.g. GBP 42,000 per year",
+  "employment.base_pay": "e.g. 12000",
   "employment.pay_frequency": "e.g. monthly",
   "employment.employment_type": "e.g. Full-time, permanent",
   "employment.leave_entitlement": "e.g. 25 days plus public holidays",
-  "employment.start_date": "e.g. 01 December 2026",
   "worker.postal_address": "Street, town, postcode",
 };

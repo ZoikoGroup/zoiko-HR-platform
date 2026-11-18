@@ -133,6 +133,58 @@ def engagement_for(db, organization_id: int, slug: Optional[str]) -> Optional[di
     return next((p for p in profiles if p.get("default")), profiles[0])
 
 
+OFFER_EMPLOYMENT_TYPES = ("full_time", "part_time", "contract", "internship", "freelance")
+
+
+def _norm_kind(text: Optional[str]) -> Optional[str]:
+    """"Full-time", "full time", "Full-time, permanent", "Internship programme" -> an offer employment type, or None."""
+    t = re.sub(r"[\s_-]+", " ", (text or "").casefold()).strip()
+    if not t:
+        return None
+    for key, words in (("internship", ("intern", "trainee", "apprentice")), ("part_time", ("part time",)),
+                       ("full_time", ("full time", "permanent")), ("contract", ("contract", "fixed term")),
+                       ("freelance", ("freelance", "consultant"))):
+        if any(w in t for w in words):
+            return key
+    return None
+
+
+def offer_employment_type(profile: dict) -> Optional[str]:
+    """The offer employment type an engagement profile stands for (its employment type, else a stipend means an
+    internship)."""
+    kind = _norm_kind(profile.get("employment_type")) or _norm_kind(profile.get("name"))
+    if kind is None and profile.get("remuneration_type") == "stipend":
+        kind = "internship"
+    return kind
+
+
+def engagement_for_hire(db, organization_id: int, chosen: Optional[str], offer_slug: Optional[str],
+                        employment_type: Optional[str]) -> tuple[Optional[dict], str]:
+    """(profile, source) for a new hire's documents: HR's choice in the package panel, else the offer type the offer was
+    made on, else the one profile made for the hire's employment type (e.g. the full-time profile for a full-time hire),
+    else the organisation default (the neutral built-in profile when the default is made for another kind of engagement).
+    source: chosen | offer | employment_type | standard | default."""
+    if chosen:
+        return engagement_for(db, organization_id, chosen), "chosen"
+    profiles = engagement_profiles(db, organization_id)
+    if offer_slug:
+        found = next((p for p in profiles if p["slug"] == offer_slug), None)
+        if found is not None:
+            return found, "offer"
+    kind = (employment_type or "").strip().lower() or None
+    if kind:
+        default = next((p for p in profiles if p.get("default")), profiles[0])
+        if offer_employment_type(default) != kind:
+            matches = [p for p in profiles if not p.get("builtin") and offer_employment_type(p) == kind]
+            if len(matches) == 1:
+                return matches[0], "employment_type"
+            if offer_employment_type(default) is not None:
+                # the default is made for another kind of engagement (e.g. an internship programme): never print its terms
+                # for this hire; the neutral built-in profile is used and the panel asks HR to choose
+                return next(p for p in profiles if p.get("builtin")), "standard"
+    return engagement_for(db, organization_id, None), "default"
+
+
 def _norm_title(t: Optional[str]) -> str:
     return re.sub(r"[\s–—-]+", " ", (t or "")).strip().casefold()
 

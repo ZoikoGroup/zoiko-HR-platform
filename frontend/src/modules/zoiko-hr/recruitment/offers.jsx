@@ -28,8 +28,8 @@ import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { validateOfferForm, blockKeys, pasteOnly, PERCENT_BLOCKED, PERCENT_PASTE, serverFieldErrors } from "./recruitmentRules";
 
 // QA report #13 (BUG-17…23): the offer form's own checks, the same rules and words as the server.
-const OFFER_FIELDS = ["candidate_name", "position", "work_location", "work_pattern", "salary", "equity"];
-const OFFER_FIELD_IDS = { candidate_name: "offer-name", position: "offer-position", work_location: "offer-location",
+const OFFER_FIELDS = ["candidate_name", "position", "engagement_profile_slug", "work_location", "work_pattern", "salary", "equity"];
+const OFFER_FIELD_IDS = { candidate_name: "offer-name", position: "offer-position", engagement_profile_slug: "offer-type", work_location: "offer-location",
   work_pattern: "offer-pattern", salary: "offer-pay", equity: "offer-equity" };
 // a candidate can receive an offer while they are still in the pipeline (not hired, not rejected)
 const OFFER_STAGES = new Set(["applied", "screening", "interview", "offer"]);
@@ -124,7 +124,7 @@ const EMPTY_ENTITY = {
 const ENTITY_TEXT = ["entity_tax_id", "entity_name", "entity_address", "entity_city", "entity_region", "entity_postal_code"];
 
 const emptyForm = (orgCurrency = "USD") => ({
-  candidate_id: "", candidate_name: "", position: "", employment_type: "full_time", work_country: null,
+  candidate_id: "", candidate_name: "", position: "", employment_type: "full_time", engagement_profile_slug: "", work_country: null,
   department_id: "", reporting_manager_id: "", work_location: "", work_arrangement: "", work_pattern: "",
   pay: { remuneration_type: "salary", amount: "", currency: orgCurrency, pay_period: "annual", currencyTouched: false },
   equity: "", joining_date: "", response_deadline: "", notes: "",
@@ -133,6 +133,40 @@ const emptyForm = (orgCurrency = "USD") => ({
 });
 
 const asList = (d) => (Array.isArray(d) ? d : d?.items || d?.data || []);
+
+// ── offer type: an Onboarding engagement profile (Onboarding › Settings › Engagement & role profiles) ────────────────
+// Choosing one fills the offer's terms from it, and the new hire's 10 onboarding documents use its notice, probation, pay
+// wording and schedule. Mirrors onboarding_profiles.offer_employment_type on the server.
+export function offerTypeEmployment(p) {
+  const norm = (t) => String(t || "").toLowerCase().replace(/[\s_-]+/g, " ").trim();
+  const pick = (t) => {
+    const x = norm(t);
+    if (!x) return null;
+    if (["intern", "trainee", "apprentice"].some((w) => x.includes(w))) return "internship";
+    if (x.includes("part time")) return "part_time";
+    if (["full time", "permanent"].some((w) => x.includes(w))) return "full_time";
+    if (["contract", "fixed term"].some((w) => x.includes(w))) return "contract";
+    if (["freelance", "consultant"].some((w) => x.includes(w))) return "freelance";
+    return null;
+  };
+  return pick(p?.employment_type) || pick(p?.name) || (p?.remuneration_type === "stipend" ? "internship" : null);
+}
+
+const DAY_SHORT = { MON: "Mon", TUE: "Tue", WED: "Wed", THU: "Thu", FRI: "Fri", SAT: "Sat", SUN: "Sun" };
+const DAY_ORDER = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"];
+/** "Mon–Fri, 09:00–18:00 IST" from a profile's working days and hours (or its own schedule wording). */
+export function offerTypePattern(p) {
+  if (!p) return "";
+  // only the characters the working-pattern rule accepts (letters, digits, spaces and , . - – : / ( ) & +)
+  if (p.work_schedule) return String(p.work_schedule).replace(/[^\p{L}\p{N}\s,.\-–:/()&+]/gu, "").replace(/\s+/g, " ").trim().slice(0, 200);
+  const days = DAY_ORDER.filter((d) => (p.working_days || []).includes(d));
+  if (!days.length) return "";
+  const idx = days.map((d) => DAY_ORDER.indexOf(d));
+  const run = idx.every((v, i) => i === 0 || v === idx[i - 1] + 1);
+  const span = run && days.length > 1 ? `${DAY_SHORT[days[0]]}–${DAY_SHORT[days[days.length - 1]]}` : days.map((d) => DAY_SHORT[d]).join(", ");
+  const tz = p.timezone_label ? ` ${p.timezone_label}` : "";
+  return p.start_time && p.end_time ? `${span}, ${p.start_time}–${p.end_time}${tz}` : span;
+}
 
 function RowMenu({ label, items }) {
   const [open, setOpen] = useState(false);
@@ -181,6 +215,14 @@ export default function OfferManagement({ mode = "all" }) {
   const businessFormats = useBusinessFormats();
   const insights = useInsights("offers");
   const orgCurrency = regions?.organization?.currency || "USD";
+  const [offerTypes, setOfferTypes] = useState([]);
+  useEffect(() => {
+    let live = true;
+    const fetchTypes = hrApi.getOnboardingProfiles;
+    if (typeof fetchTypes !== "function") return undefined;
+    Promise.resolve().then(fetchTypes).then((res) => { if (live) setOfferTypes(res?.engagement_profiles || []); }).catch(() => {});
+    return () => { live = false; };
+  }, []);
   const [offers, setOffers] = useState([]);
   const [candidates, setCandidates] = useState([]);
   const [requisitions, setRequisitions] = useState([]);
@@ -335,6 +377,24 @@ export default function OfferManagement({ mode = "all" }) {
     };
   });
 
+  // choosing the offer type fills the terms it decides; anything typed afterwards is kept
+  const setOfferType = (slug) => setForm((prev) => {
+    const p = offerTypes.find((t) => t.slug === slug);
+    if (!p) return { ...prev, engagement_profile_slug: "" };
+    const type = offerTypeEmployment(p) || prev.employment_type;
+    const remuneration_type = type === "internship" ? "stipend" : (p.remuneration_type || remunerationFor(type, prev.pay.remuneration_type));
+    const period = remuneration_type === prev.pay.remuneration_type ? prev.pay.pay_period
+      : (remuneration_type === "stipend" ? "monthly" : DEFAULT_PERIOD[remuneration_type]);
+    return {
+      ...prev,
+      engagement_profile_slug: slug,
+      employment_type: type,
+      equity: type === "internship" ? "" : prev.equity,
+      work_pattern: offerTypePattern(p) || prev.work_pattern,
+      pay: { ...prev.pay, remuneration_type, pay_period: period },
+    };
+  });
+
   const openCreate = () => {
     setEditItem(null);
     const f = emptyForm(orgCurrency);
@@ -357,6 +417,7 @@ export default function OfferManagement({ mode = "all" }) {
       candidate_name: o.candidate_name || "",
       position: o.position || "",
       employment_type: o.employment_type || (o.remuneration_type === "stipend" ? "internship" : "full_time"),
+      engagement_profile_slug: o.engagement_profile_slug || "",
       work_country: o.work_country || null,
       department_id: o.department_id ? String(o.department_id) : "",
       reporting_manager_id: o.reporting_manager_id ? String(o.reporting_manager_id) : "",
@@ -406,6 +467,7 @@ export default function OfferManagement({ mode = "all" }) {
   const handleSave = async () => {
     setFormError(null);
     const found = validateOfferForm(form);
+    if (offerTypes.length > 0 && !form.engagement_profile_slug) found.engagement_profile_slug = "Choose the offer type.";
     setOfferErrors(found);
     if (Object.keys(found).length) {
       const first = OFFER_FIELDS.find((k) => found[k]);
@@ -437,6 +499,7 @@ export default function OfferManagement({ mode = "all" }) {
       candidate_name: form.candidate_name.trim().replace(/\s+/g, " "),
       position: form.position.trim().replace(/\s+/g, " "),
       employment_type: form.employment_type,
+      ...(offerTypes.length || form.engagement_profile_slug ? { engagement_profile_slug: form.engagement_profile_slug || null } : {}),
       work_country: form.work_country || null,
       department_id: form.department_id ? Number(form.department_id) : null,
       reporting_manager_id: form.reporting_manager_id ? Number(form.reporting_manager_id) : null,
@@ -977,6 +1040,23 @@ export default function OfferManagement({ mode = "all" }) {
                   </select>
                 </div>
               </div>
+              {offerTypes.length > 0 && (
+                <div>
+                  <label htmlFor="offer-type" className={labelCls}>Offer type</label>
+                  <select id="offer-type" value={form.engagement_profile_slug} aria-invalid={!!offerErrors.engagement_profile_slug}
+                    aria-describedby={offerErrors.engagement_profile_slug ? "offer-type-error" : undefined}
+                    onChange={(e) => { setOfferType(e.target.value); setOfferErrors(({ engagement_profile_slug: _drop, ...rest }) => rest); }}
+                    className={`${field}${offerErrors.engagement_profile_slug ? " border-rose-400" : ""}`}>
+                    <option value="">Choose the offer type</option>
+                    {offerTypes.map((t) => <option key={t.slug} value={t.slug}>{t.name}{t.default ? " (default)" : ""}</option>)}
+                  </select>
+                  <p className="mt-1 text-xs text-gray-500">
+                    Fills the employment type, pay type, working pattern and probation. The new hire&apos;s onboarding documents use this
+                    type&apos;s notice period, probation and pay wording (Onboarding › Settings › Engagement profiles).
+                  </p>
+                  <OfferFieldError id="offer-type-error">{offerErrors.engagement_profile_slug}</OfferFieldError>
+                </div>
+              )}
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className={labelCls}>Employment type</label>

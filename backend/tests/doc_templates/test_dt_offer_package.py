@@ -946,3 +946,107 @@ def test_the_nda_prints_the_one_non_solicitation_period_and_a_real_non_competiti
     assert kind == "text" and "For 6 months after the" in text and "only to the extent the law" in text
     spec = {f["key"] for f in company_profile.fields_spec()}
     assert "nda_non_solicit_months" not in spec and "clause_speak_up_channel" in spec
+
+
+# ── 2026-11-18: offer type, typed pay, where held documents are fixed ─────────────────────────────────────────────────
+
+def _profiles(world):
+    from types import SimpleNamespace
+    from app.modules.hr import company_profile, onboarding_profiles
+    actor = SimpleNamespace(id=world.u["a_admin"].id, organization_id=1)
+    onboarding_profiles.save_engagement(world.db, actor, "ascend-associate", {
+        "name": "Ascend Associate", "remuneration_type": "stipend", "remuneration_label": "Monthly Stipend",
+        "assessment_months": 6, "default": True})
+    onboarding_profiles.save_engagement(world.db, actor, "full-time-employee", {
+        "name": "Full-time Employee", "employment_type": "Full-time, permanent", "remuneration_type": "salary",
+        "remuneration_label": "Salary", "assessment_months": 3})
+    company_profile.save_profile(world.db, actor, {"notice_rules": [
+        {"employee_type": "all", "applies_when": "any", "value": 15, "unit": "business_days", "active": True},
+        {"employee_type": "full-time-employee", "applies_when": "any", "value": 1, "unit": "months", "active": True}]})
+    return actor
+
+
+def test_a_full_time_hire_gets_the_full_time_profile_and_its_notice_not_the_programme_default(world):
+    _profiles(world)
+    h, _token = _new_hire(world)
+    h.employment_type = "full_time"
+    world.db.commit()
+    pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()
+    assert pkg["engagement"] == {"slug": "full-time-employee", "name": "Full-time Employee", "source": "employment_type"}
+    with P.values_cache(world.db):
+        values = P._values_for(world.db, h, P._config_for(world.db, 1))
+    assert values["employment.notice_text"] == "1 month's written notice"
+    assert values["engagement.remuneration_label"] == "Salary"
+
+    # an internship hire keeps the programme (the organisation default)
+    h.employment_type = "internship"
+    world.db.commit()
+    world.db.expire_all()
+    assert world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()["engagement"]["slug"] == "ascend-associate"
+
+
+def test_the_offer_type_chosen_on_the_offer_decides_the_hires_documents(world):
+    from app.modules.hr.models import RecruitmentCandidate, RecruitmentOffer
+    _profiles(world)
+    h, _token = _new_hire(world)
+    cand = RecruitmentCandidate(organization_id=1, name=h.candidate_name, email=h.email, position="Analyst",
+                                onboarding_new_hire_id=h.id)
+    world.db.add(cand)
+    world.db.commit()
+    r = world.post("a_admin", "/hr/recruitment/offers", json={
+        "candidate_id": cand.id, "candidate_name": h.candidate_name, "position": "Analyst",
+        "engagement_profile_slug": "full-time-employee", "salary": "12000", "pay_period": "monthly", "work_country": "IN"})
+    assert r.status_code in (200, 201), r.text
+    body = r.json()
+    assert body["engagement_profile_slug"] == "full-time-employee"
+    assert body["employment_type"] == "full_time" and body["probation_months"] == 3, "terms filled from the offer type"
+    bad = world.post("a_admin", "/hr/recruitment/offers", json={"candidate_name": "X Person", "position": "Analyst",
+                                                                "engagement_profile_slug": "no-such-type"})
+    assert bad.status_code in (400, 422)
+    world.db.expire_all()
+    pkg = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package").json()
+    assert pkg["engagement"]["source"] == "offer" and pkg["engagement"]["slug"] == "full-time-employee"
+    with P.values_cache(world.db):
+        values = P._values_for(world.db, h, P._config_for(world.db, 1))
+    assert values["employment.pay_statement"].startswith("₹12,000 per month"), values["employment.pay_statement"]
+    assert world.db.get(RecruitmentOffer, body["id"]).engagement_profile_slug == "full-time-employee"
+
+
+def test_a_missing_salary_is_typed_in_the_panel_and_printed_formatted(world):
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": _all_clauses()}).status_code == 200
+    h, _token = _new_hire(world)
+    inputs = {k: v for k, v in INPUTS.items() if k != "employment.base_pay"}
+    world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": inputs})
+    offer = _states(world, h)["offer_letter"]
+    pay = next(f for f in offer["missing_fields"] if f["key"] == "employment.base_pay")
+    assert pay["editable"] is True, "the salary gap is offered as a box HR can type in (it was a computed, untypeable value)"
+    assert not any(f["key"] == "employment.pay_statement" for f in offer["missing_fields"])
+
+    r = world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs", json={"values": {"employment.base_pay": "42000"}})
+    assert r.status_code == 200, r.text
+    world.db.expire_all()
+    with P.values_cache(world.db):
+        values = P._values_for(world.db, h, P._config_for(world.db, 1))
+    assert values["employment.pay_statement"] == "£42,000.00 per month"
+    assert values["employment.base_pay"] == "£42,000.00 per month", "the contract's base pay prints the same formatted amount"
+    offer = next(d for d in r.json()["documents"] if d["category"] == "offer_letter")
+    assert not any(f["key"] == "employment.base_pay" for f in offer["missing_fields"])
+
+
+def test_clause_details_can_be_filled_from_the_panel_and_settings_gaps_say_where_to_go(world):
+    clauses = _all_clauses()
+    clauses["confidentiality_and_ip"] = {"text": "See the notice at {{employee_privacy_notice_url}}."}
+    assert world.put("a_admin", "/hr/onboarding/package/settings", json={**SETTINGS, "clauses": clauses}).status_code == 200
+    h, _token = _new_hire(world)
+    nda = _states(world, h)["nda"]
+    f = next(x for x in nda["missing_fields"] if x["key"] == "clause.employee_privacy_notice_url")
+    assert f["editable"] and f["org_wide"] and f["settings_path"].endswith("#company-profile-clauses")
+    r = world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs",
+                  json={"values": {"clause.employee_privacy_notice_url": "https://tenant-a.example.com/privacy"}})
+    assert r.status_code == 200, r.text
+    nda = next(d for d in r.json()["documents"] if d["category"] == "nda")
+    assert not any(x["key"] == "clause.employee_privacy_notice_url" for x in nda["missing_fields"])
+    from app.modules.hr import company_profile
+    assert company_profile.get_profile(world.db, 1)["clause_employee_privacy_notice_url"] == "https://tenant-a.example.com/privacy"
+    assert world.put("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/inputs",
+                     json={"values": {"clause.made_up": "x"}}).status_code == 422
