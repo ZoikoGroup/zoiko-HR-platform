@@ -53,6 +53,7 @@ def test_requisition_to_employee(world):
     name, email = "Ishaan Candidate", "ishaan.candidate@example.com"
 
     # ── recruitment ──
+    world.department("Engineering")
     req = _ok(world.post("a_hr", "/hr/recruitment/requisitions", json={
         "title": "Backend Engineer", "department": "Engineering", "location": "Hyderabad", "openings": 1, "priority": "high",
         "employment_type": "full_time", "currency": "INR", "status": "pending",

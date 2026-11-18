@@ -44,6 +44,7 @@ def test_setup_needs_an_org_admin_and_the_typed_name(world):
 
 def test_the_whole_recruitment_flow_for_india_with_one_admin(world):
     # 1. requisition, approved by someone other than its author
+    world.department("Engineering")
     r = world.post("a_hr", "/hr/recruitment/requisitions", json={"title": "Backend Engineer", "department": "Engineering",
                                                                   "location": "Hyderabad", "openings": 2, "priority": "high",
                                                                   "employment_type": "full_time", "budget_min": 1200000,

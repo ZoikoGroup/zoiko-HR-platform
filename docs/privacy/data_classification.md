@@ -601,7 +601,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `onboarding_new_hires` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 6)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `manager_id`, `created_by`
-- **PERSONAL_CONFIDENTIAL**: `employee_id`, `candidate_name`, `email`, `phone`, `position`, `department_id`, `joining_date`, `status`, `joining_status`, `notes`, `employment_type`, `work_country`, `work_region`, `completed_at`, `portal_expires_at`, `portal_invited_at`, `profile_details`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `candidate_name`, `email`, `email_status`, `phone`, `position`, `department_id`, `joining_date`, `status`, `joining_status`, `notes`, `employment_type`, `work_country`, `work_region`, `completed_at`, `portal_expires_at`, `portal_invited_at`, `profile_details`
 - **SECRET**: `portal_token_hash`, `portal_token_enc`
 
 ## `onboarding_orientation_attendees` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
@@ -690,7 +690,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_candidates` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`, `requisition_id`
-- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`, `hired_at`, `rejection_note`, `stage_reached`
+- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`, `email_status`, `hired_at`, `rejection_note`, `stage_reached`
 
 ## `recruitment_documents` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
@@ -723,7 +723,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_requisitions` (default TENANT_CUSTOMER; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `created_by`, `hiring_manager_id`, `headcount_id`, `job_description_id`
-- **TENANT_CUSTOMER**: `title`, `department`, `location`, `openings`, `filled`, `priority`, `status`, `description`, `requirements`, `employment_type`, `replaces_employee_id`, `budget_min`, `budget_max`, `currency`, `target_start_date`, `justification`, `scorecard_criteria`, `decided_by`, `decided_at`, `decision_comment`
+- **TENANT_CUSTOMER**: `title`, `department`, `department_id`, `location`, `openings`, `filled`, `priority`, `status`, `description`, `requirements`, `employment_type`, `replaces_employee_id`, `budget_min`, `budget_max`, `currency`, `target_start_date`, `justification`, `scorecard_criteria`, `decided_by`, `decided_at`, `decision_comment`
 - **SPECIAL_CATEGORY**: `reason`
 
 ## `salary_components` (default FINANCIAL; most sensitive column rank 4)

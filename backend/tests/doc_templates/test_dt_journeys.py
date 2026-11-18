@@ -30,6 +30,7 @@ def test_journey_1_hire_to_confirmation(world, monkeypatch):
     set_recruitment_privacy(world)
     policy_settings(world)
     # requisition authorised (HIR-001) and job description (ORG-005)
+    world.department("Operations")
     req = world.post("a_hr", "/hr/recruitment/requisitions", json={"title": "Analyst", "department": "Operations", "status": "pending",
                                                                     "reason": "growth", "justification": "Demand doubled."}).json()
     world.put("a_admin", f"/hr/recruitment/requisitions/{req['id']}/approve")
