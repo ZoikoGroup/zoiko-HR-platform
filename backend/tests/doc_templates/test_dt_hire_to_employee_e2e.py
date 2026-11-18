@@ -49,7 +49,13 @@ def _v2_terms(world, title):
         "kpi_areas": [{"title": "Delivery", "bullets": ["Work shipped on time."], "success": "Every release is on time."}]})
 
 
-def test_requisition_to_employee(world):
+def test_requisition_to_employee(world, monkeypatch):
+    # onboarding documents send no "document completed" email each; HR gets one email when the package is submitted
+    from app.services import email_service
+    mails = {"executed": [], "submitted": []}
+    monkeypatch.setattr(email_service, "send_document_executed_email", lambda *a, **k: mails["executed"].append(a) or True)
+    monkeypatch.setattr(email_service, "send_onboarding_documents_submitted",
+                        lambda *a, **k: mails["submitted"].append(a) or True)
     name, email = "Ishaan Candidate", "ishaan.candidate@example.com"
 
     # ── recruitment ──
@@ -160,6 +166,14 @@ def test_requisition_to_employee(world):
     assert sub["submitted_at"] and sub["first_submission"] and sub["view"]["submission"]["submitted_at"]
     again = _ok(world.client.post(f"/public/onboarding/{token}/submit-signed-package"))
     assert again["first_submission"] is False and again["submitted_at"] == sub["submitted_at"]
+    # (the offer letter signed in Recruitment, before onboarding began, still tells HR it was signed)
+    assert all("offer letter" in a[2].lower() for a in mails["executed"]),         f"no per-document completed email for onboarding documents: {[a[2] for a in mails['executed']]}"
+    assert mails["submitted"], "one summary email when the package is submitted"
+    statuses = {d["title"]: d["status"] for d in mails["submitted"][0][5]}
+    assert statuses["Employment Contract"] == "Signed" and statuses["Job Description"] == "Acknowledged"
+    count = len(mails["submitted"])
+    _ok(world.client.post(f"/public/onboarding/{token}/submit-signed-package"))
+    assert len(mails["submitted"]) == count, "sent once, not on every repeat submit"
 
     # contract text carries the offer terms and counsel's wording
     world.db.expire_all()

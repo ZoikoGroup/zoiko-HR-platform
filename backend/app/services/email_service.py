@@ -1127,6 +1127,18 @@ def send_onboarding_completed(email, recipient_name, candidate_name, employee_co
     }, db=db, organization_id=organization_id)
 
 
+def send_onboarding_documents_submitted(email, recipient_name, candidate_name, position, organization_name, documents,
+                                        review_url, joining_date_display=None, db=None, organization_id=None):
+    """The one email HR gets when a new hire has signed and submitted the whole onboarding package (each document's own
+    "completed" email is not sent for onboarding documents). documents: [{"title", "status"}]."""
+    return send_approval_email(email, "onboarding_documents_submitted.html", {
+        "subject": f"Onboarding documents completed: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "documents": list(documents or []), "review_url": review_url,
+        "joining_date_display": joining_date_display,
+    }, db=db, organization_id=organization_id)
+
+
 def send_leave_request_submitted(
     email: str,
     first_name: str,

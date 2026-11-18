@@ -1912,7 +1912,43 @@ def submit_package(db, hire) -> dict:
         except Exception:
             logger.exception("submission notification failed for new hire %s", hire.id)
         db.commit()
+        _email_package_submitted(db, hire)
     return {**submission_status(db, hire), "first_submission": first}
+
+
+_DONE_WORDS = {"SIGN": "Signed", "ACKNOWLEDGE": "Acknowledged", "COMPLETE": "Completed", "VOLUNTARY": "Completed",
+               "INFO": "Received"}
+
+
+def _email_package_submitted(db, hire) -> int:
+    """One email to the organisation's admins and the hire's manager: every onboarding document is done."""
+    try:
+        from app.modules.hr import onboarding_flow
+        from app.services.email_service import send_onboarding_documents_submitted
+        rows = _rows(db, hire)
+        documents = []
+        for d in C.documents():
+            row = rows.get(d["category"])
+            if row is None:
+                continue
+            state = _row_state(db, row)
+            done = state in ("completed", "available", "needs_review")
+            word = _DONE_WORDS.get(mode_of(row), "Completed") if done else state.replace("_", " ").capitalize()
+            documents.append({"title": d["title"], "status": word})
+        recipients = {a.email: a.first_name or "there" for a in onboarding_flow._admins(db, hire.organization_id) if a.email}
+        if hire.manager is not None and hire.manager.email:
+            recipients.setdefault(hire.manager.email, hire.manager.first_name or "there")
+        org = onboarding_flow._org_name(db, hire.organization_id)
+        url = f"{onboarding_flow.app_base()}/zoiko-hr/onboarding/checklists"
+        sent = 0
+        for email, name in recipients.items():
+            sent += bool(send_onboarding_documents_submitted(
+                email, name, hire.candidate_name, hire.position, org, documents, url,
+                onboarding_flow._date_display(hire.joining_date), db=db, organization_id=hire.organization_id))
+        return sent
+    except Exception:
+        logger.exception("package submitted email failed for new hire %s", hire.id)
+        return 0
 
 
 def hire_for_document(db, doc: GeneratedDocument) -> Optional[OnboardingNewHire]:
