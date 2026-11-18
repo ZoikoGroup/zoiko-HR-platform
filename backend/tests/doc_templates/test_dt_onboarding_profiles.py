@@ -169,7 +169,8 @@ def test_consistency_warnings(world):
     _setup_tenant_a(world)
     h = _hire(world, "Ravuri Rugvedh", ROLE["title"], 12000, date.today() - timedelta(days=3), {})
     codes = {w["code"] for w in P.consistency_warnings(world.db, h)}
-    assert {"notice_mismatch", "non_solicit_mismatch", "leave_rule_conflict", "start_before_issue"} <= codes
+    assert {"notice_mismatch", "leave_rule_conflict", "start_before_issue"} <= codes
+    assert "non_solicit_mismatch" not in codes, "the NDA prints the contract's non-solicitation period: one value"
     view = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package"))
     assert {w["code"] for w in view["warnings"]} == codes
     groups = {g["group"]: {r["key"]: r["value"] for r in g["values"]} for g in view["printed_values"]}

@@ -79,7 +79,7 @@ async function load(t, over = {}) {
     requestOnboardingDocuments: async (id, cats) => { calls.request.push([id, cats]); return cats.map((c, i) => ({ id: 100 + i, category: c, status: "requested" })); },
     deleteOnboardingDocument: async () => ({}),
     getOnboardingDocumentFile: async () => ({ blob: new Blob(["x"]), filename: "NDA copy.pdf" }),
-    sendOnboardingPackage: async (id) => { CURRENT.calls.sendPackage.push(id); return CURRENT.over.sendResult ?? { success: true, message: "1 document(s) sent to Ann Lee.", issued: [{ category: "daily_kpi", title: "Daily Key Performance Indicators", mode: "ACKNOWLEDGE" }], held: [], email_sent: true }; },
+    sendOnboardingPackage: async (id, categories) => { CURRENT.calls.sendPackage.push(id); CURRENT.calls.sendCategories = categories; return CURRENT.over.sendResult ?? { success: true, message: "1 document(s) sent to Ann Lee.", issued: [{ category: "daily_kpi", title: "Daily Key Performance Indicators", mode: "ACKNOWLEDGE" }], held: [], email_sent: true }; },
     getHirePackage: async (id) => CURRENT.over.pkg ?? PACKAGE(id),
     saveHirePackageInputs: async (id, values) => { CURRENT.calls.inputs = values; return PACKAGE(id); },
     getHirePackagePreview: async () => ({ blob: new Blob(["%PDF"]), filename: "preview.pdf" }),
@@ -246,10 +246,34 @@ test("the offer package panel shows readiness, takes missing data, and sends onl
   fireEvent.click(screen.getByRole("button", { name: "Save details" }));
   await settle();
   assert.deepEqual(calls.inputs, { "employment.base_pay": "GBP 40,000 per year" });
-  fireEvent.click(screen.getByRole("button", { name: /Send 1 ready document/ }));
+  // every document that can go is ticked; HR can leave any of them out
+  const boxes = [...document.querySelectorAll('input[type="checkbox"][id^="pkg-pick-"]')];
+  assert.ok(boxes.length >= 1 && boxes.every((b) => b.checked));
+  const ticked = boxes.map((b) => b.id.replace("pkg-pick-", ""));
+  fireEvent.click(screen.getByRole("button", { name: /Send 1 selected document/ }));
   await settle();
   assert.deepEqual(calls.sendPackage, [7]);
+  assert.deepEqual(calls.sendCategories, ticked);
   assert.match(document.body.textContent, /Sent: Daily Key Performance Indicators/);
+});
+
+test("the org admin chooses how many of the documents to send", async (t) => {
+  const calls = await load(t);
+  fireEvent.click(screen.getByRole("button", { name: "Send 10 Onboarding Docs" }));
+  await settle();
+  const box = document.getElementById("pkg-pick-daily_kpi");
+  assert.ok(box && box.checked, "a ready document starts ticked");
+  fireEvent.click(box);
+  assert.equal(box.checked, false);
+  assert.ok(screen.getByRole("button", { name: /Send\s+selected documents/ }).disabled, "nothing ready is ticked: nothing to send");
+  fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+  assert.equal(document.getElementById("pkg-pick-daily_kpi").checked, true);
+  fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+  assert.ok([...document.querySelectorAll('input[id^="pkg-pick-"]')].every((b) => !b.checked));
+  fireEvent.click(document.getElementById("pkg-pick-daily_kpi"));
+  fireEvent.click(screen.getByRole("button", { name: /Send 1 selected document/ }));
+  await settle();
+  assert.deepEqual(calls.sendCategories, ["daily_kpi"]);
 });
 
 test("the upload request lists only upload categories, never package documents", async (t) => {

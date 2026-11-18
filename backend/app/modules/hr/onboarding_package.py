@@ -472,6 +472,13 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     if values.get("employment.base_pay") and values.get("employment.pay_frequency"):
         values["employment.pay_terms"] = f"{values['employment.base_pay']}, paid {values['employment.pay_frequency']}"
     values.update(_v2_values(db, hire, cfg, offer, values))
+    # merge fields used inside counsel clause wording ({{speak_up_channel}}, {{ip_assignment_term}}, ...)
+    from app.modules.hr import company_profile as CP
+    from app.modules.hr import onboarding_clause_tokens as T
+    profile = _profile_for(db, hire.organization_id)
+    eng, _role = hire_profiles(db, hire)
+    values.update(T.resolve_all(profile, values, eng, CP.notice_for(profile, (eng or {}).get("slug")),
+                                getattr(offer, "hours_per_week", None) if offer else None))
     if any((details.get(k) or "").strip() for k in ("house", "building", "street", "landmark", "locality", "district")):
         values["worker.postal_address"] = values.get("worker.address_inline") or values.get("worker.postal_address")
     return values
@@ -794,7 +801,9 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "role.work_setup": _list(role.get("work_setup")),
         "role.performance_structure": _list(role.get("performance_structure")),
         "kpi.areas": _list(role.get("kpi_areas")),
-        "company.nda_non_solicit_months": profile.get("nda_non_solicit_months"),
+        # one non-solicitation period: the NDA prints the post-termination period (the older NDA-only value as a fallback)
+        "company.nda_non_solicit_months": profile.get("non_solicit_post_termination_months") or profile.get("nda_non_solicit_months"),
+        "company.nda_non_compete_months": profile.get("nda_non_compete_months"),
         "company.non_solicit_months": profile.get("non_solicit_post_termination_months"),
         "company.confidentiality_duration": profile.get("nda_confidentiality_duration") or None,
         "company.affidavit_hours": profile.get("affidavit_submission_hours"),
@@ -852,10 +861,7 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
     if emp[0] is not None and er[0] is not None and tuple(emp) != er:
         warn("notice_mismatch", f"The employee gives {F.notice_text(*emp)} but the employer gives {F.notice_text(*er)}. "
                                 "Check this is intended.")
-    a, b = profile.get("non_solicit_post_termination_months"), profile.get("nda_non_solicit_months")
-    if a is not None and b is not None and a != b:
-        warn("non_solicit_mismatch",
-             f"Non-solicitation is {a} months after termination in the contract but {b} months in the NDA.")
+    # (non-solicitation: the NDA and the contract print the one post-termination period, so they cannot disagree)
     rule = (eng or {}).get("leave_rule") or ""
     if rule and (eng or {}).get("leave_accrual_days_per_month") and re.search(r"unpaid|no pro-?rata", rule, re.I):
         warn("leave_rule_conflict",
@@ -967,6 +973,11 @@ def readiness(ctx: R.RenderContext, category: str) -> dict:
         if ck:
             if ctx.clause_value(ck) is None:
                 clauses.append(ck)
+            else:
+                for gap in ctx.clause_gaps(ck):            # a merge field in the wording with no value: never print "{{…}}"
+                    key = "clause." + gap
+                    if key not in fields:
+                        fields.append(key)
         elif ctx.field_value(tok) is None and tok not in ("offer.secure_link", "contract.id"):
             for src in DERIVED_FROM.get(tok, (tok,)):
                 if ctx.field_value(src) is None and src not in fields:
@@ -1091,6 +1102,19 @@ def _reported_missing(keys: list) -> list:
     return list(out)
 
 
+def field_meaning(key: str) -> str:
+    if key.startswith("clause."):
+        from app.modules.hr import onboarding_clause_tokens as T
+        return T.label(key.split(".", 1)[1])
+    return C.FIELDS[key][0] if key in C.FIELDS else key
+
+
+def field_source(key: str) -> str:
+    if key.startswith("clause."):
+        return "Settings › Company Profile › Clause details"
+    return C.FIELDS[key][1] if key in C.FIELDS else ""
+
+
 def package_view(db, hire) -> dict:
     with values_cache(db):
         return _package_view(db, hire)
@@ -1114,7 +1138,7 @@ def _package_view(db, hire) -> dict:
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
             "filled_online": d["mode"] == "COMPLETE" and row is not None and FORMS.submitted(db, hire, cat) is not None,
-            "missing_fields": [{"key": k, "meaning": C.FIELDS[k][0], "source": C.FIELDS[k][1],
+            "missing_fields": [{"key": k, "meaning": field_meaning(k), "source": field_source(k),
                                 "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == ADDRESS_INPUT,
                                 "hr_may_enter": k == ADDRESS_INPUT}
                                for k in _reported_missing(gaps["missing_fields"])],
@@ -1323,7 +1347,9 @@ def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[
     if issued or not automatic:
         pkg.update({"sent_at": pkg.get("sent_at") or datetime.utcnow().isoformat(), "last_sent_at": datetime.utcnow().isoformat(),
                     "sent_by": getattr(actor, "id", None) if actor else pkg.get("sent_by")})
-    pkg["held"] = [h["category"] for h in held]
+    # documents held for the new hire's details are released automatically later; a send of a chosen few changes the hold
+    # of those documents only (an earlier hold of another document stays)
+    pkg["held"] = [c for c in (pkg.get("held") or []) if c not in wanted] + [h["category"] for h in held]
     if issued:
         pkg.pop("submitted_at", None)          # new documents to act on: the hire's earlier submission no longer covers them
     details["_package"] = pkg

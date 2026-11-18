@@ -99,19 +99,39 @@ class RenderContext:
         """('text', str) | ('na', None) | None (unresolved)."""
         if self.mode == "template":
             return None
+        raw = self.clause_text(key)
+        if raw is None:
+            return ("na", None) if (self.clauses.get(key) or {}).get("not_applicable") or not C.CLAUSES.get(key, ("", "", True))[2]                 else None
+        from app.modules.hr import onboarding_clause_tokens as T
+        return ("text", T.fill(raw, self.field_value)[0])      # merge fields filled; any left hold the document (readiness)
+
+    def clause_text(self, key: str) -> Optional[str]:
+        """The clause wording before its merge fields are filled: the organisation's own wording, else the standard wording;
+        None when the clause is not used or has no wording."""
         c = self.clauses.get(key) or {}
         if c.get("not_applicable"):
-            return ("na", None)
+            return None
         if (c.get("text") or "").strip():
-            return ("text", c["text"].strip())
+            return c["text"].strip()
         standard = C.STANDARD_CLAUSES.get(key)
-        if standard:
-            party = self.field_value("engagement.party_term") or "Employee"
-            engagement = self.field_value("engagement.engagement_term") or "employment"
-            return ("text", standard.format(party=party, engagement=engagement))
-        if not C.CLAUSES.get(key, ("", "", True))[2]:
-            return ("na", None)
-        return None
+        if not standard:
+            return None
+        party = self.field_value("engagement.party_term") or "Employee"
+        engagement = self.field_value("engagement.engagement_term") or "employment"
+        months = self.field_value("company.nda_non_compete_months")
+        after = (f" For {months} months after the {engagement} ends, this restriction applies only to the extent the law that "
+                 f"governs this agreement allows it." if months not in (None, "", "0") else "")
+        return standard.format(party=party, engagement=engagement, non_compete_after=after).strip()
+
+    def clause_gaps(self, key: str) -> list[str]:
+        """The merge fields in this clause's wording that have no value (the document is held until they do)."""
+        if self.mode == "template":
+            return []
+        raw = self.clause_text(key)
+        if not raw:
+            return []
+        from app.modules.hr import onboarding_clause_tokens as T
+        return T.fill(raw, self.field_value)[1]
 
     def spell(self, text: str) -> str:
         if self.spelling != "US":

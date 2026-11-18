@@ -2,8 +2,9 @@
  * Offer package panel (Onboarding › Documents › Offer package): the 10 standard onboarding documents for one new hire.
  * For each document it shows the action the new hire takes (sign, acknowledge, complete, voluntary, information), where it
  * stands, and — before it is sent — exactly what is missing: HR data (typed in here) or counsel wording (Settings › Offer
- * package). Any document can be previewed. "Send" issues only the documents that are ready; the rest are held, and documents
- * waiting for the new hire's address or outside-activities declaration are released automatically when they enter it.
+ * package). Any document can be previewed. HR ticks which documents to send (all that can go are ticked at first); "Send"
+ * issues the ticked documents that are ready, and ticked documents waiting for the new hire's address or outside-activities
+ * declaration are released automatically when they enter it.
  */
 import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
@@ -27,6 +28,11 @@ const STATE = {
   rejected: { label: "Returned to new hire", tone: "red", icon: AlertTriangle },
 };
 
+const UNSENT = ["not_sent", "declined"];
+/** Can HR choose to send this document now? Ready, or waiting only for something the new hire enters in the portal. */
+const sendable = (d) => UNSENT.includes(d.state) && (d.ready
+  || (d.missing_clauses.length === 0 && d.missing_fields.length > 0 && d.missing_fields.every((f) => f.candidate_provides)));
+
 const fieldCls = "w-full rounded-xl border border-gray-200 bg-white px-3 py-2 text-sm text-gray-900 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100";
 
 export default function OfferPackagePanel({ hireId, onSent, onError, footer: Footer }) {
@@ -38,6 +44,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   const [sending, setSending] = useState(false);
   const [previewing, setPreviewing] = useState("");
   const [result, setResult] = useState(null);
+  const [chosen, setChosen] = useState(() => new Set());     // the documents HR ticked to send
 
   const load = async () => {
     if (!hireId) return;
@@ -53,6 +60,15 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   };
 
   useEffect(() => { setResult(null); load(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [hireId]);
+
+  // every document that can go is ticked when the package (re)loads; HR unticks what should wait
+  const choosable = useMemo(() => (pkg?.documents || []).filter(sendable).map((d) => d.category), [pkg]);
+  useEffect(() => { setChosen(new Set(choosable)); }, [choosable]);
+  const toggle = (category) => setChosen((prev) => {
+    const next = new Set(prev);
+    if (next.has(category)) next.delete(category); else next.add(category);
+    return next;
+  });
 
   // HR-editable data that at least one unsent document is missing
   const missingInputs = useMemo(() => {
@@ -81,6 +97,8 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
   }, [pkg]);
 
   const ready = pkg?.ready_to_send || [];
+  const chosenReady = ready.filter((c) => chosen.has(c));
+  const chosenWaiting = [...chosen].filter((c) => !ready.includes(c));
 
   // Why nothing can be sent right now, in plain words (the Send button is disabled then)
   const status = useMemo(() => {
@@ -164,7 +182,7 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
     setSending(true);
     setError("");
     try {
-      const res = await sendOnboardingPackage(hireId);
+      const res = await sendOnboardingPackage(hireId, [...chosen]);
       setResult(res);
       onSent?.(res);
       await load();
@@ -299,6 +317,20 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
           </div>
         )}
 
+        {choosable.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 text-sm">
+            <p className="text-blue-900" aria-live="polite">
+              <span className="font-semibold">{chosen.size} of {choosable.length}</span> document{choosable.length === 1 ? "" : "s"} selected to send
+            </p>
+            <span className="flex gap-1">
+              <button type="button" onClick={() => setChosen(new Set(choosable))} disabled={chosen.size === choosable.length}
+                className="rounded-lg px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-40">Select all</button>
+              <button type="button" onClick={() => setChosen(new Set())} disabled={chosen.size === 0}
+                className="rounded-lg px-2 py-1 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-40">Clear</button>
+            </span>
+          </div>
+        )}
+
         <ol className="space-y-2">
           {pkg?.documents.map((d, i) => {
             const base = STATE[d.state] || STATE.not_sent;
@@ -309,11 +341,19 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
             const addressOnly = candidateFields.length > 0 && candidateFields.every((f) => f.hr_may_enter);
             const hrFields = d.missing_fields.filter((f) => !f.candidate_provides);
             return (
-              <li key={d.category} className="rounded-2xl border border-gray-200 bg-white p-3">
+              <li key={d.category} className={`rounded-2xl border bg-white p-3 ${chosen.has(d.category) ? "border-blue-300 ring-1 ring-blue-100" : "border-gray-200"}`}>
                 <div className="flex flex-wrap items-start justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="text-sm font-semibold text-gray-900">{i + 1}. {d.title}</p>
+                  <div className="flex min-w-0 items-start gap-2.5">
+                    {sendable(d) && (
+                      <input id={`pkg-pick-${d.category}`} type="checkbox" checked={chosen.has(d.category)} onChange={() => toggle(d.category)}
+                        aria-label={`Send ${d.title}`} className="mt-0.5 h-4 w-4 shrink-0 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+                    )}
+                    <div className="min-w-0">
+                    <p className="text-sm font-semibold text-gray-900">
+                      {sendable(d) ? <label htmlFor={`pkg-pick-${d.category}`} className="cursor-pointer">{i + 1}. {d.title}</label> : `${i + 1}. ${d.title}`}
+                    </p>
                     <p className="text-xs text-gray-500">{d.template_id} · {d.doc_type} · {d.risk} / {d.sensitivity}{d.orientation === "landscape" ? " · landscape" : ""}</p>
+                    </div>
                   </div>
                   <div className="flex flex-wrap items-center gap-1.5">
                     <StatusPill tone={MODE_TONE[d.mode]}>{d.mode_label}</StatusPill>
@@ -364,11 +404,12 @@ export default function OfferPackagePanel({ hireId, onSent, onError, footer: Foo
       </div>
       <Footer>
         <p className="mr-auto self-center text-xs text-gray-500">
-          {ready.length ? `${ready.length} document(s) ready`
+          {ready.length ? `${chosenReady.length} of ${ready.length} ready document${ready.length === 1 ? "" : "s"} selected`
+            + (chosenWaiting.length ? ` · ${chosenWaiting.length} more sent when ${pkg?.candidate_name} adds their details` : "")
             : status?.waitingForHire.length ? `Waiting for ${pkg?.candidate_name}` : status?.blocked.length ? "Some documents are not ready" : "All documents sent"}
         </p>
-        <PrimaryButton icon={Send} onClick={send} disabled={sending || !ready.length}>
-          {sending ? "Sending…" : `Send ${ready.length || ""} ready document${ready.length === 1 ? "" : "s"}`}
+        <PrimaryButton icon={Send} onClick={send} disabled={sending || !chosenReady.length}>
+          {sending ? "Sending…" : `Send ${chosenReady.length || ""} selected document${chosenReady.length === 1 ? "" : "s"}`}
         </PrimaryButton>
       </Footer>
     </>
