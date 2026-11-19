@@ -150,6 +150,35 @@
 .google-unavailable,.provider-note { margin: -2px 0 0; color: #728096; font-size: 12px; text-align: center; }
 .provider-note { color: #8a5a00; }
 
+/* The address has an account in several organizations: pick one (same look as the sign-in buttons above). */
+.org-picker { margin-top: 18px; }
+.org-picker h2 { margin: 0; color: #11152b; font-size: 18px; font-weight: 600; }
+.org-picker-list { display: grid; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.org-picker-option {
+  display: flex;
+  width: 100%;
+  min-height: 52px;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px 8px 14px;
+  border: 1px solid #dde1e6;
+  border-radius: 6px;
+  background: #fff;
+  color: #11152b;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  transition: background .15s, border-color .15s;
+}
+.org-picker-option:not(:disabled):hover { background: #f8fbff; border-color: #a9c5e1; }
+.org-picker-option:disabled { cursor: wait; opacity: .7; }
+.org-picker-option:focus-visible { outline: 2px solid #1487d0; outline-offset: 1px; }
+.org-picker-name { min-width: 0; flex: 1; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.org-picker-role { flex: 0 0 auto; color: #6e7584; font-size: 13px; }
+.org-picker-option > svg { width: 20px; height: 20px; flex: 0 0 20px; }
+.org-picker-back { margin-top: 14px; padding: 0; border: 0; background: none; color: #1487d0; cursor: pointer; font: inherit; font-size: 14px; }
+.org-picker-back:focus-visible { outline: 2px solid #1487d0; outline-offset: 2px; }
+
 .login-divider { display: flex; align-items: center; gap: 11px; margin: 18px 0 14px; color: #787f92; font-size: 13px; white-space: nowrap; }
 .login-divider span { height: 1px; flex: 157 1 0; background: #d6dade; }
 .login-divider span:last-child { flex-grow: 189; }

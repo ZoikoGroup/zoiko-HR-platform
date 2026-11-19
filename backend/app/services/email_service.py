@@ -1645,9 +1645,13 @@ def send_org_admin_password_reset_email(
     action_url: str,
     organization_id=None,
     db=None,
+    workspace_name: str = None,
 ) -> bool:
+    # workspace_name: set when the address has an account in several organizations, so each e-mail says which account its
+    # link resets (every link resets ONE account).
     return send_approval_email(email, "org_admin_password_reset.html", {
-        "subject": "Reset your Zoiko HR password",
+        "subject": f"Reset your Zoiko HR password for {workspace_name}" if workspace_name else "Reset your Zoiko HR password",
+        "workspace_name": workspace_name or "",
         "first_name": first_name,
         "expires_at_local": expires_at_local,
         "timezone": timezone,

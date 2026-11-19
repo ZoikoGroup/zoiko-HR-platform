@@ -100,7 +100,8 @@ def bootstrap_super_admin(data: SuperAdminBootstrapRequest, db: Session = Depend
     from app.modules.employee.models import Employee, EmploymentType, EmployeeStatus, UserRole, Gender
     from app.core.code_generation import generate_employee_code
 
-    existing = db.query(Employee).filter(Employee.email == data.email).first()
+    from app.modules.employee import identity
+    existing = identity.account_in_organization(db, data.email, None)       # platform accounts only (organization_id IS NULL)
     if existing:
         return {"message": "Super Admin already exists for this email.", "created": False}
 
@@ -288,8 +289,11 @@ def create_organization(
     from app.modules.hr.models import Organization
     if db.query(Organization).filter(func.lower(Organization.organization_name) == name.lower()).first():
         raise BadRequestException(f"An organization named '{name}' already exists.")
-    if db.query(Employee).filter(func.lower(Employee.email) == email.lower()).first():
-        raise BadRequestException("That email address is already used by another user.")
+    # The organization is new, so the admin's address cannot clash inside it: an address used in ANOTHER organization is fine
+    # (it becomes a separate account here). register_enterprise refuses only a platform account's address, before anything
+    # is written.
+    from app.modules.employee import identity
+    email = identity.normalize_email(email)
 
     temp_password = employee_service._generate_temp_password()
     result = employee_service.register_enterprise(db, RegisterRequest(
@@ -297,7 +301,7 @@ def create_organization(
         plan_code=body.plan_code, billing_cycle=body.billing_cycle, industry=body.industry,
         country=body.country, timezone=body.timezone, phone=body.phone,
     ))
-    admin = db.query(Employee).filter(Employee.email == email).first()
+    admin = identity.account_in_organization(db, email, result["organization_id"])   # THIS organization's admin, not a namesake
     if admin is not None:
         admin.must_change_password = True
     db.add(AuditLog(

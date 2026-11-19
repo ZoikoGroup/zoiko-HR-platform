@@ -28,9 +28,9 @@ from app.core.privacy import context as ctx
 logger = logging.getLogger("zoiko.privacy")
 
 ALLOWED_SYSTEM_MODULES = (
-    "app.modules.employee.service",          # sign-in and e-mail identity are looked up across organizations by design
+    "app.modules.employee.service",          # sign-in, refresh, MFA enrolment: no tenant is known yet
     "app.modules.employee.router",
-    "app.modules.hr.service",                # the e-mail identity check (one address, one person, across organizations)           # sign-in, refresh, MFA enrolment: no tenant is known yet
+    "app.modules.hr.service",                # schedulers and cross-tenant jobs; e-mail uniqueness is checked PER organization
     "app.modules.super_admin",               # platform control-plane code
     "app.modules.billing",                   # subscription billing, webhooks, schedulers
     "app.modules.integrations",
