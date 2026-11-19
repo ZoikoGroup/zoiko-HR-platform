@@ -51,6 +51,8 @@ export function addEmployeePayload(form) {
   };
 }
 
+export const DUPLICATE_EMAIL_MESSAGE = "An employee with this email already exists in this organization.";
+
 /** Maps a refusal from the server onto the form: { fieldErrors, message }. */
 export function serverAddEmployeeErrors(err) {
   const fieldErrors = {};
@@ -63,6 +65,7 @@ export function serverAddEmployeeErrors(err) {
     }
   }
   const message = err?.message || "";
-  if (!Object.keys(fieldErrors).length && /already exists|already.*email|email.*already/i.test(message)) fieldErrors.email = "An employee with this email already exists";
+  // An address must be unique only inside the organization (the same person may work in another one): say so.
+  if (!Object.keys(fieldErrors).length && /already exists|already.*email|email.*already/i.test(message)) fieldErrors.email = DUPLICATE_EMAIL_MESSAGE;
   return { fieldErrors, message: Object.keys(fieldErrors).length ? "" : message || "The employee could not be added." };
 }

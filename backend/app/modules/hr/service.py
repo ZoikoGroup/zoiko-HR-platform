@@ -158,108 +158,15 @@ ROLE_PERMISSIONS = {
 }
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
-    # STEP 1: Find user by email (User exists check)
-    employee = _identity_query(db).filter(Employee.email == data.email).first()
-    if not employee:
-        logger.warning(f"[AUTH] User not found: email={data.email}")
-        raise UnauthorizedException("Invalid email or password.")
+    """Kept for old imports. The one sign-in implementation is employee/service.py (per-organization identity: an address can
+    have an account in several organizations, and the person chooses when more than one password matches)."""
+    from app.modules.employee import service as employee_service
+    return employee_service.login_employee(db, data)
 
-    logger.info(f"[AUTH] User found: id={employee.id}, email={employee.email}, "
-                f"is_active={employee.is_active}, status={employee.status}, "
-                f"organization_id={employee.organization_id}, role={employee.role}")
 
-    # STEP 2: Verify Organization and Organization Status
-    org = None
-    if employee.organization_id:
-        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
-        if not org:
-            logger.warning(f"[AUTH] Organization not found: id={employee.organization_id} for user {employee.email}")
-            raise UnauthorizedException("Your organization account does not exist.")
-        
-        logger.info(f"[AUTH] Organization found: id={org.id}, name={org.name}, status={org.status}, is_active={org.is_active}")
-        
-        if not org.is_active or org.status not in [OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED]:
-            logger.warning(f"[AUTH] Login blocked: org inactive or status={org.status} for user {employee.email}")
-            if org.status == OrganizationStatus.PENDING:
-                raise UnauthorizedException("Your organization is awaiting Super Admin approval. Please try again after approval.")
-            elif org.status == OrganizationStatus.REJECTED:
-                reason = getattr(org, "rejection_reason", None)
-                msg = "Your organization registration has been rejected."
-                if reason:
-                    msg += f" Reason: {reason}"
-                raise UnauthorizedException(msg)
-            elif org.status == OrganizationStatus.ON_HOLD:
-                raise UnauthorizedException("Your organization account is currently on hold. Please contact support.")
-            elif org.status == OrganizationStatus.SUSPENDED:
-                raise UnauthorizedException("Your organization has been suspended. Please contact support.")
-            else:
-                raise UnauthorizedException("Your organization account has been deactivated.")
-            
-        logger.info(f"[AUTH] Organization status OK: {org.status} for user {employee.email}")
-    else:
-        # Orphan user check
-        if employee.role != UserRole.SUPER_ADMIN:
-            logger.warning(f"[AUTH] Login blocked: Non-superadmin user has no organization_id (orphan user).")
-            raise UnauthorizedException("Your account is not associated with any organization.")
-
-    # STEP 3: Verify User Status (User active check)
-    if not employee.is_active:
-        logger.warning(f"[AUTH] Login blocked: user is_active={employee.is_active} for email={employee.email}")
-        raise UnauthorizedException("Your account has been deactivated.")
-    if employee.status == EmployeeStatus.DEACTIVATED:
-        logger.warning(f"[AUTH] Login blocked: user status={employee.status} for email={employee.email}")
-        raise UnauthorizedException("Your account has been deactivated.")
-    if employee.status == EmployeeStatus.LOCKED:
-        logger.warning(f"[AUTH] Login blocked: user LOCKED for email={employee.email}")
-        raise UnauthorizedException("Your account has been locked by the administrator.")
-
-    # STEP 4: Verify Password hash (Password hash valid check)
-    password_valid = verify_password(data.password, employee.hashed_password)
-    if not password_valid:
-        logger.warning(f"[AUTH] Invalid password for user: email={data.email}, id={employee.id}")
-        raise UnauthorizedException("Invalid email or password.")
-
-    logger.info(f"[AUTH] Password valid for user: email={data.email}, id={employee.id}")
-
-    # STEP 5: Verify Role
-    role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
-    if not role_val:
-        logger.warning(f"[AUTH] Login blocked: user has invalid/empty role.")
-        raise UnauthorizedException("User role is invalid.")
-
-    # STEP 6: Generate JWT (with organization_id, role, permissions, tenant_id, organization_code)
-    org_code = org.organization_code if org else None
-    
-    token = create_access_token(data={
-        "sub": employee.email,
-        "role": role_val,
-        "id": employee.id,
-        "organization_id": employee.organization_id,
-        "permissions": ROLE_PERMISSIONS.get(role_val, []),
-        "tenant_id": str(employee.organization_id) if employee.organization_id else None,
-        "organization_code": org_code,
-    })
-
-    refresh_token = create_access_token(
-        data={"sub": employee.email, "id": employee.id},
-        expires_delta=timedelta(days=7),
-    )
-
-    logger.info(f"[AUTH] Login successful: email={employee.email}, id={employee.id}, role={employee.role}")
-
-    return {
-        "access_token": token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "employee": employee,
-    }
-
-def _identity_query(db):
-    """An e-mail address is ONE identity across every organization (sign-in finds a person by it), so uniqueness is checked across
-    all of them, not just the caller's. The only intentionally cross-tenant read in the tenant plane."""
-    from app.core.privacy.tenant_scope import unscoped_for_system
-    return unscoped_for_system(db.query(Employee), reason="e-mail is one identity across organizations")
-
+# E-mail identity is scoped PER ORGANIZATION (app/modules/employee/identity.py, shared with employee/service.py). There is no
+# cross-organization uniqueness check any more: the same address may hold one account in each organization.
+from app.modules.employee import identity  # noqa: E402
 
 
 def refresh_access_token(db: Session, refresh_token_str: str) -> dict:
@@ -353,9 +260,7 @@ def create_organization_user(
     Super Admin can specify target_org_id to create user in a different organization.
     """
     target_org = target_org_id or organization_id
-    existing = _identity_query(db).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("User", "email")
+    identity.ensure_email_free(db, data.email, target_org)      # unique within the target organization only
 
     temp_password = _generate_temp_password()
     role = data.role
@@ -756,18 +661,15 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
 # ════════════════════════════════════════════════════════════════════════════
 
 def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional[int] = None) -> Employee:
-    existing = _identity_query(db).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("Employee", "email")
+    resolved_org_id = organization_id or data.organization_id
+    if not resolved_org_id:
+        raise BadRequestException("organization_id is required to create an employee")
+    identity.ensure_email_free(db, data.email, resolved_org_id)  # unique within this organization only
 
     if data.department_id:
         get_department_by_id(db, data.department_id, organization_id)
 
     from app.core.code_generation import generate_employee_code
-
-    resolved_org_id = organization_id or data.organization_id
-    if not resolved_org_id:
-        raise BadRequestException("organization_id is required to create an employee")
 
     employee_data = data.model_dump(exclude={"password"})
     employee = Employee(
@@ -3457,13 +3359,11 @@ def create_pending_employee_for_hire(db: Session, new_hire: OnboardingNewHire, o
     if new_hire is None or not (new_hire.email or "").strip() or new_hire.employee_id:
         return None
     try:
-        existing = _identity_query(db).filter(func.lower(EmpModel.email) == new_hire.email.strip().lower()).first()
+        # Only THIS organization matters: an account with the same address in another organization is a separate account,
+        # so the hire still gets a normal account here.
+        existing = _hire_account(db, new_hire, organization_id)
         if existing is not None:
-            if existing.organization_id != organization_id:
-                log_onboarding_activity(db, new_hire.id, "Employee Account Not Created",
-                                        f"{new_hire.email} already signs in to another organization, so no account was created "
-                                        "for it here. Use a different e-mail address for this hire.", organization_id)
-            elif _status_of(existing) == EmployeeStatus.ARCHIVED.value and not existing.is_active:
+            if _status_of(existing) == EmployeeStatus.ARCHIVED.value and not existing.is_active:
                 existing.status = EmployeeStatus.PENDING             # a cancelled hire was reopened
                 db.commit()
                 return existing
@@ -3471,7 +3371,7 @@ def create_pending_employee_for_hire(db: Session, new_hire: OnboardingNewHire, o
         fields = _hire_employee_fields(db, new_hire, organization_id)
         with db.begin_nested():
             employee = EmpModel(
-                email=new_hire.email.strip(),
+                email=identity.normalize_email(new_hire.email),
                 hashed_password=hash_password(secrets.token_urlsafe(32)),   # never sent; replaced when the account is activated
                 employee_code=generate_employee_code(db, organization_id=organization_id),
                 role=UserRole.EMPLOYEE, status=EmployeeStatus.PENDING, is_active=False,
@@ -3519,9 +3419,9 @@ def _move_pending_account_email(db: Session, new_hire: OnboardingNewHire, old_em
                                         EmpModel.organization_id == organization_id).first()
         if emp is None or not _is_pending_hire_account(emp):
             return
-        if _identity_query(db).filter(func.lower(EmpModel.email) == new_hire.email.strip().lower()).first() is not None:
-            return
-        emp.email = new_hire.email.strip()
+        if identity.account_in_organization(db, new_hire.email, organization_id, exclude_id=emp.id) is not None:
+            return                                          # the new address is already taken in THIS organization
+        emp.email = identity.normalize_email(new_hire.email)
         db.commit()
     except Exception:
         db.rollback()

@@ -485,8 +485,11 @@ def test_reset_link_from_public_forgot_password_ends_to_end(world, monkeypatch):
 
 def test_forgot_password_matches_the_address_ignoring_case_and_spaces(world, monkeypatch):
     calls = _capture_forgot_emails(world, monkeypatch)
-    world["u"]["emp1"].email = "Emp1@Example.com"          # stored with capitals, as some accounts are
+    # stored with capitals, as some older accounts are (new writes are lower-cased by Employee's validator, so write it raw)
+    from sqlalchemy import text
+    world["db"].execute(text("UPDATE employees SET email = 'Emp1@Example.com' WHERE id = :id"), {"id": world["u"]["emp1"].id})
     world["db"].commit()
+    world["db"].expire_all()
     r = world["c"].post("/auth/forgot-password", json={"email": "emp1@example.com"})
     assert r.status_code == 200 and r.json()["message"] == GENERIC_FORGOT_MESSAGE
     assert len(calls) == 1 and calls[0][1]["email"] == "Emp1@Example.com", "a typed address in other case still finds the account"

@@ -459,6 +459,30 @@ class LoginRequest(BaseModel):
     email: EmailStr = Field(..., example="admin@zoiko.com")
     password: str = Field(..., example="SecurePassword123")
     mfa_code: Optional[str] = Field(None, max_length=12, description="6-digit authenticator code (platform accounts)")
+    # Optional: the organization to sign in to, when the address has an account in several. Skips the organization choice.
+    organization_id: Optional[int] = Field(None, description="Sign in to the account in this organization")
+    organization_code: Optional[str] = Field(None, max_length=50, description="Same, by organization code")
+
+
+class OrganizationChoice(BaseModel):
+    id: Optional[int] = Field(None, description="Organization id; null for the platform administration account")
+    name: str
+    code: Optional[str] = None
+    role: str
+
+
+class OrganizationSelectionResponse(BaseModel):
+    """/auth/login when the password matches accounts in more than one organization: no tokens yet."""
+    requires_org_selection: bool = True
+    message: str
+    organizations: List[OrganizationChoice]
+    selection_token: str
+
+
+class SelectOrganizationRequest(BaseModel):
+    selection_token: str = Field(..., max_length=4096)
+    organization_id: Optional[int] = Field(None, description="One of the listed organization ids (null: the platform account)")
+    mfa_code: Optional[str] = Field(None, max_length=12, description="6-digit authenticator code (platform accounts)")
 
 
 class MfaEnrollRequest(BaseModel):

@@ -74,15 +74,31 @@ def test_creates_org_and_first_admin_with_one_time_temp_password(client):
     assert len(event) == 1 and event[0].performed_by_email == "root@example.com"
 
 
-def test_duplicate_name_and_email_are_rejected_with_clear_messages(client):
+def test_duplicate_name_is_rejected_and_bad_input_too(client):
     assert client.post("/super-admin/organizations", json=BODY).status_code == 201
     dup_name = client.post("/super-admin/organizations", json={**BODY, "organization": "initech corp", "admin_email": "x@example.com"})
     assert dup_name.status_code == 400 and "already exists" in dup_name.json()["message"]
-    dup_email = client.post("/super-admin/organizations", json={**BODY, "organization": "Other Co"})
-    assert dup_email.status_code == 400 and "already used" in dup_email.json()["message"]
     bad = client.post("/super-admin/organizations", json={**BODY, "organization": "Third", "admin_email": "not-an-email"})
     assert bad.status_code == 400
     assert client.db.query(Organization).count() == 1
+
+
+def test_an_admin_email_already_used_in_another_organization_gets_its_own_account(client):
+    """E-mail identity is per organization: the same address becomes a separate admin account in the new organization."""
+    first = client.post("/super-admin/organizations", json=BODY)
+    second = client.post("/super-admin/organizations", json={**BODY, "organization": "Other Co", "admin_email": "  OLIVIA@example.com "})
+    assert first.status_code == 201 and second.status_code == 201, second.text
+    admins = client.db.query(Employee).filter(Employee.email == "olivia@example.com").order_by(Employee.id).all()
+    assert [a.organization_id for a in admins] == [first.json()["organization_id"], second.json()["organization_id"]]
+    assert all(a.must_change_password for a in admins), "each organization's admin got its own one-time password"
+    assert verify_password(second.json()["temporary_password"], admins[1].hashed_password)
+    assert not verify_password(second.json()["temporary_password"], admins[0].hashed_password), "the first account is untouched"
+
+
+def test_a_platform_account_address_cannot_become_an_organization_admin(client):
+    r = client.post("/super-admin/organizations", json={**BODY, "admin_email": "root@example.com"})
+    assert r.status_code == 409 and "platform account" in r.json()["message"]
+    assert client.db.query(Organization).count() == 0, "refused before the organization was written"
 
 
 @pytest.mark.parametrize("role", [UserRole.ADMIN, UserRole.HR_ADMIN, UserRole.EMPLOYEE])

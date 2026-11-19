@@ -20,9 +20,16 @@ CANARY = {
 }
 
 
+def _code_for(email: str) -> str:
+    """A unique employee code that fits employees.employee_code (VARCHAR(20), which PostgreSQL enforces and SQLite does not)."""
+    import hashlib
+    code = f"C-{email}"
+    return code if len(code) <= 20 else "C-" + hashlib.sha1(email.encode()).hexdigest()[:18]
+
+
 def _emp(db, email, role, org, first, last, **extra):
     e = Employee(
-        email=email, hashed_password=hash_password(PW), employee_code=f"C-{email}", role=role, first_name=first, last_name=last,
+        email=email, hashed_password=hash_password(PW), employee_code=_code_for(email), role=role, first_name=first, last_name=last,
         job_title="t", is_active=True, employment_type=EmploymentType.FULL_TIME, status=EmployeeStatus.ACTIVE,
         date_of_joining=date.today(), organization_id=org, email_verified=True, **extra,
     )

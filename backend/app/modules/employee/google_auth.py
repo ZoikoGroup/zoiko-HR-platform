@@ -242,8 +242,12 @@ def signup_proof_matches(proof: Optional[str], email: str) -> bool:
     return bool(payload) and hmac.compare_digest(str(payload.get("email", "")), (email or "").strip().lower())
 
 
-def make_ticket(employee_id: int) -> str:
-    return _sign("ticket", {"eid": employee_id, "jti": secrets.token_urlsafe(12), "exp": time.time() + TICKET_TTL_SECONDS})
+def make_ticket(employee_ids) -> str:
+    """A one-time ticket for the accounts Google confirmed. One id, or a list when the verified address has an account in
+    several organizations (the exchange then asks which one)."""
+    ids = [int(i) for i in employee_ids] if isinstance(employee_ids, (list, tuple)) else [int(employee_ids)]
+    body = {"eid": ids[0]} if len(ids) == 1 else {"eids": ids}
+    return _sign("ticket", {**body, "jti": secrets.token_urlsafe(12), "exp": time.time() + TICKET_TTL_SECONDS})
 
 
 # ── step 3
@@ -267,12 +271,21 @@ def _claim_once(jti: str, expires_at: float) -> bool:
     return True
 
 
-def redeem_ticket(ticket: str) -> Optional[int]:
-    """The employee id the ticket was made for, once; None when it is forged, expired or already used."""
+def redeem_ticket_accounts(ticket: str) -> list:
+    """The employee ids the ticket was made for, once; [] when it is forged, expired or already used."""
     payload = _open("ticket", ticket or "")
     if not payload:
-        return None
+        return []
     jti = payload.get("jti")
     if not jti or not _claim_once(jti, payload["exp"]):
-        return None
-    return payload.get("eid")
+        return []
+    if payload.get("eids"):
+        return [int(i) for i in payload["eids"]]
+    return [payload["eid"]] if payload.get("eid") is not None else []
+
+
+def redeem_ticket(ticket: str) -> Optional[int]:
+    """The employee id of a single-account ticket, once; None when it is forged, expired, already used, or names several
+    accounts (use redeem_ticket_accounts for those)."""
+    ids = redeem_ticket_accounts(ticket)
+    return ids[0] if len(ids) == 1 else None
