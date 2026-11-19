@@ -50,9 +50,11 @@ hint to reactivate the existing account in User Management, which keeps the pers
 
 - Wrong password, unknown address and an address in several organizations all get the same answer: *"Invalid email or
   password."*
-- An unknown address still costs one password check, so it takes as long as a wrong password on a known address.
-- The work does grow with the number of accounts the address has (one password check per account). That reveals at most how
-  many accounts an address has, never which organizations they are in.
+- Every sign-in does the same number of password checks: `HR_SIGN_IN_PASSWORD_CHECKS`, default 3, padded with checks
+  against a dummy hash. That holds for an unknown address and for one with one, two or three accounts, and for a right or
+  a wrong password. So the response time does not reveal how many organizations an address belongs to.
+- Only an address with more accounts than that number costs one check per account. Each check is a bcrypt verify
+  (~250 ms at cost 12).
 
 ## Forgot password with several accounts
 
@@ -64,3 +66,13 @@ Each active account gets its own e-mail, naming its organization in the subject.
   and links.
 - `backend/tests/privacy/test_same_email_isolation.py` covers one address in two tenants across every read and write route,
   changes to one account, links, the selection token and sign-in answers.
+- `backend/tests/test_migration_email_per_org.py` covers the migration: lower-casing, the indexes, repeatability, stopping on
+  collisions, and downgrade.
+
+These tests, and the privacy suite's `world` fixture, run on SQLite by default. To run them on a real PostgreSQL, point
+`HR_TEST_PG_URL` at a throwaway database. The schema there is dropped and rebuilt.
+
+```
+HR_TEST_PG_URL=postgresql+psycopg://postgres@127.0.0.1:5432/zoiko_hr_test \
+  python -m pytest tests/test_email_identity_per_org.py tests/privacy/test_same_email_isolation.py tests/test_migration_email_per_org.py
+```

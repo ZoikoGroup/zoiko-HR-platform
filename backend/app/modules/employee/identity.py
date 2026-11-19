@@ -140,17 +140,28 @@ def _dummy_hash() -> str:
     return _TIMING_DUMMY_HASH
 
 
+def sign_in_password_checks() -> int:
+    """How many password checks every sign-in performs at least (HR_SIGN_IN_PASSWORD_CHECKS, default 3)."""
+    import os
+    try:
+        return max(1, int(os.environ.get("HR_SIGN_IN_PASSWORD_CHECKS", "3")))
+    except ValueError:
+        return 3
+
+
 def password_matches(db: Session, email, password: str) -> list:
     """The accounts for this address whose OWN password is `password`.
 
-    An unknown address still costs one password check (against a dummy hash), so the response time does not tell an
-    unknown address from a known one with a wrong password."""
+    Constant work: every attempt costs the same number of password checks (sign_in_password_checks(), padded with checks
+    against a dummy hash), whether the address is unknown or has one, two or three accounts, and whether the password is
+    right or wrong. So neither an answer nor its timing tells how many organizations an address belongs to. Only an address
+    with MORE accounts than that floor costs more (one check per account)."""
     from app.core.security import verify_password
     candidates = [e for e in sign_in_candidates(db, email) if e.hashed_password]
-    if not candidates:
+    matches = [e for e in candidates if verify_password(password, e.hashed_password)]
+    for _ in range(sign_in_password_checks() - len(candidates)):
         verify_password(password, _dummy_hash())
-        return []
-    return [e for e in candidates if verify_password(password, e.hashed_password)]
+    return matches
 
 
 def narrow_to_organization(db: Session, accounts: list, organization_id: Optional[int] = None,
