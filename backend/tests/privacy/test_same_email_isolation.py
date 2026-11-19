@@ -241,6 +241,11 @@ def test_an_invite_link_affects_only_its_account(world, twins):
 
 def test_the_selection_token_is_short_lived_single_use_and_bound_to_its_accounts(world, twins):
     a, b = twins
+    from app.modules.hr.models import Organization, OrganizationStatus
+    from tests.db_backend import sync_sequences
+    world.db.add(Organization(id=3, name="TENANT-C", organization_name="TENANT-C", status=OrganizationStatus.ACTIVE))
+    world.db.commit()
+    sync_sequences(world.db)
     third = _emp(world.db, TWIN, UserRole.EMPLOYEE, 3, "TwinCharlie", "ZZTWINC")      # same address, DIFFERENT password
     a.hashed_password = b.hashed_password = hash_password("SharedPw1")
     world.db.commit()
@@ -258,6 +263,17 @@ def test_the_selection_token_is_short_lived_single_use_and_bound_to_its_accounts
     assert ok.status_code == 200 and decode_access_token(ok.json()["access_token"])["id"] == b.id
     again = world.client.post("/auth/login/select-organization", json={"selection_token": tok, "organization_id": 1})
     assert again.status_code == 401, "single use: the same token cannot sign in a second time"
+
+
+def test_an_expired_selection_token_is_refused(world, twins, monkeypatch):
+    from datetime import timedelta
+    a, b = twins
+    a.hashed_password = b.hashed_password = hash_password("SharedPw1")
+    world.db.commit()
+    monkeypatch.setattr(identity, "SELECTION_TOKEN_TTL", timedelta(seconds=-5))       # minted already expired
+    tok = _login(world, "SharedPw1").json()["selection_token"]
+    r = world.client.post("/auth/login/select-organization", json={"selection_token": tok, "organization_id": 1})
+    assert r.status_code == 401 and r.json()["detail"] == identity.SELECTION_EXPIRED_MESSAGE
 
 
 def test_a_selection_token_is_not_an_access_or_refresh_token(world, twins):
@@ -295,5 +311,28 @@ def test_login_errors_are_identical_and_cost_the_same_password_checks(world, twi
     single = attempt("admin@tenant-a.example.com", "WrongPass1")
     multi = attempt(TWIN, "WrongPass1")
     assert unknown[:2] == single[:2] == multi[:2] == (401, "Invalid email or password.")
-    assert unknown[2] == single[2] == 1, "an unknown address costs the same one password check as a known one"
-    assert multi[2] == 2, "one check per account of the address (see the docs: the count, never the organizations)"
+    floor = identity.sign_in_password_checks()
+    assert floor == 3
+    assert unknown[2] == single[2] == multi[2] == floor, (unknown, single, multi)
+
+    # and a right password costs exactly the same, with one account or with two
+    a, b = twins
+    calls.clear()
+    assert world.client.post("/auth/login", json={"email": "admin@tenant-a.example.com", "password": "Passw0rd1"}).status_code == 200
+    one_right = len(calls)
+    calls.clear()
+    assert world.client.post("/auth/login", json={"email": TWIN, "password": PW_A}).status_code == 200
+    assert one_right == len(calls) == floor
+
+
+def test_an_address_with_more_accounts_than_the_floor_costs_one_check_per_account(world, monkeypatch):
+    import app.core.security as security
+    monkeypatch.setenv("HR_SIGN_IN_PASSWORD_CHECKS", "2")
+    for org in (1, 2):
+        _emp(world.db, "many@shared-co.example.com", UserRole.EMPLOYEE, org, "Many", "Accounts")
+    _emp(world.db, "many@shared-co.example.com", UserRole.SUPER_ADMIN, None, "Many", "Platform")
+    calls = []
+    real = security.verify_password
+    monkeypatch.setattr(security, "verify_password", lambda p, h: calls.append(1) or real(p, h))
+    world.client.post("/auth/login", json={"email": "many@shared-co.example.com", "password": "Wrong1234"})
+    assert len(calls) == 3, "above the floor: one check per account (documented)"

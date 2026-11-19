@@ -38,14 +38,15 @@ PASS_A, PASS_B = "AlphaPass1", "BravoPass2"
 
 @pytest.fixture
 def db(monkeypatch):
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine)
+    from tests.db_backend import make_engine
+    engine = make_engine()                         # in-memory SQLite, or a real PostgreSQL when HR_TEST_PG_URL is set
     session = sessionmaker(bind=engine, expire_on_commit=False)()
     ids = iter(range(1, 10000))
     monkeypatch.setattr(employee_service, "_generate_employee_id", lambda db_, organization_id=None: f"ID{next(ids):04d}")
     yield session
     session.close()
-    engine.dispose()
+    from tests.db_backend import dispose
+    dispose(engine)
 
 
 @pytest.fixture
@@ -278,6 +279,46 @@ def test_forgot_password_with_a_multi_org_address_resets_only_the_chosen_account
     assert verify_password("NewPass77", client.db.get(Employee, in_b.id).hashed_password)
 
 
+def test_forgot_password_emails_one_link_per_account_naming_each_organization_with_a_mocked_send(db, two_orgs, monkeypatch):
+    """The real e-mail path (template, subject, link) down to the send, which is mocked: no SMTP is touched."""
+    from app.services import email_service
+    a, b = two_orgs
+    _employee(db, b, EMAIL, PASS_B)
+    sent = []
+    monkeypatch.setattr("app.core.privacy.jobs.run_in_thread", lambda fn, *args, **kw: fn())      # send now, not in a thread
+    monkeypatch.setattr(email_service, "send_approval_email",
+                        lambda email, template, context, **kw: sent.append((email, template, dict(context), kw)) or True)
+
+    employee_service.request_password_reset(db, " SAM@Acme-Corp.com ")
+
+    assert len(sent) == 2, "one e-mail per account"
+    assert {s[0] for s in sent} == {EMAIL}
+    assert {s[1] for s in sent} == {"org_admin_password_reset.html"}
+    assert {s[2]["subject"] for s in sent} == {"Reset your Zoiko HR password for Acme Org",
+                                               "Reset your Zoiko HR password for Beta Org"}
+    assert {s[2]["workspace_name"] for s in sent} == {"Acme Org", "Beta Org"}
+    assert {s[3]["organization_id"] for s in sent} == {a, b}
+    links = [s[2]["action_url"] for s in sent]
+    assert len(set(links)) == 2 and all("/reset-password?token=" in l for l in links), "one distinct link each"
+
+    # each link resets its own account only
+    by_org = {s[3]["organization_id"]: s[2]["action_url"].split("token=", 1)[1] for s in sent}
+    employee_service.complete_action_token(db, by_org[a], employee_service.SecurityActionPurpose.RESET, "OnlyAcme99")
+    db.expire_all()
+    rows = {e.organization_id: e for e in db.query(Employee).filter(Employee.email == EMAIL)}
+    assert verify_password("OnlyAcme99", rows[a].hashed_password) and verify_password(PASS_B, rows[b].hashed_password)
+
+
+def test_forgot_password_with_a_single_account_keeps_the_plain_subject(db, two_orgs, monkeypatch):
+    from app.services import email_service
+    sent = []
+    monkeypatch.setattr("app.core.privacy.jobs.run_in_thread", lambda fn, *args, **kw: fn())
+    monkeypatch.setattr(email_service, "send_approval_email",
+                        lambda email, template, context, **kw: sent.append(dict(context)) or True)
+    employee_service.request_password_reset(db, EMAIL)
+    assert len(sent) == 1 and sent[0]["subject"] == "Reset your Zoiko HR password" and sent[0]["workspace_name"] == ""
+
+
 def test_a_reset_link_is_bound_to_its_organization(db, two_orgs):
     a, b = two_orgs
     _employee(db, b, EMAIL, PASS_B)
@@ -353,9 +394,14 @@ def test_the_database_refuses_a_same_org_duplicate_in_any_case_but_allows_other_
     from sqlalchemy import text
     from sqlalchemy.exc import IntegrityError
     a, b = two_orgs
+    template_id = db.query(Employee.id).filter(Employee.organization_id == a).scalar()
+    # every other column is copied from an existing row, so the statement is valid on SQLite and PostgreSQL alike
     insert = text("INSERT INTO employees (email, hashed_password, employee_code, role, first_name, last_name, job_title, "
-                  "employment_type, status, date_of_joining, organization_id, is_active) VALUES "
-                  "(:email, 'x', :code, 'EMPLOYEE', 'Raw', 'Insert', 't', 'FULL_TIME', 'ACTIVE', '2026-01-01', :org, 1)")
+                  "employment_type, status, date_of_joining, organization_id, is_active, must_change_password, email_verified, "
+                  "mfa_enabled) SELECT :email, 'x', :code, role, 'Raw', 'Insert', 't', employment_type, status, date_of_joining, "
+                  ":org, is_active, must_change_password, email_verified, mfa_enabled FROM employees WHERE id = :template")
+    _execute = db.execute
+    db.execute = lambda stmt, params=None: _execute(stmt, {**(params or {}), "template": template_id})
     with pytest.raises(IntegrityError) as ei:        # raw SQL bypasses every app check: only the index stands in the way
         db.execute(insert, {"email": "SAM@acme-corp.com", "code": "RAW1", "org": a})
     db.rollback()
@@ -374,8 +420,12 @@ def test_two_simultaneous_adds_of_one_address_in_one_org_one_wins_the_other_gets
     holds them there), both insert; the unique index lets exactly one through and the loser gets the friendly 409."""
     import threading
     from sqlalchemy.orm import sessionmaker as _sm
-    engine = create_engine(f"sqlite:///{tmp_path / 'race.db'}", connect_args={"check_same_thread": False, "timeout": 30})
-    Base.metadata.create_all(engine)
+    from tests.db_backend import make_engine, on_postgres
+    if on_postgres():
+        engine = make_engine()                     # real PostgreSQL: two connections race at the unique index
+    else:
+        engine = create_engine(f"sqlite:///{tmp_path / 'race.db'}", connect_args={"check_same_thread": False, "timeout": 30})
+        Base.metadata.create_all(engine)
     Session_ = _sm(bind=engine, expire_on_commit=False)
     setup = Session_()
     org = _register(setup, "boss@race-corp.com", "BossPass9", "Race Org")

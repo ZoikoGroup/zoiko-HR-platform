@@ -18,7 +18,17 @@ def _load():
 
 
 def _db(rows):
-    engine = sa.create_engine("sqlite:///:memory:")
+    from tests.db_backend import PG_URL
+    if PG_URL:
+        # a real PostgreSQL: the migration runs in its own throwaway schema, beside (not on) the test schema
+        admin = sa.create_engine(PG_URL)
+        with admin.begin() as conn:
+            conn.execute(sa.text("DROP SCHEMA IF EXISTS migtest CASCADE"))
+            conn.execute(sa.text("CREATE SCHEMA migtest"))
+        admin.dispose()
+        engine = sa.create_engine(PG_URL, connect_args={"options": "-csearch_path=migtest"})
+    else:
+        engine = sa.create_engine("sqlite:///:memory:")
     with engine.begin() as conn:
         conn.execute(sa.text("CREATE TABLE employees (id INTEGER PRIMARY KEY, email VARCHAR(255) NOT NULL, organization_id INTEGER)"))
         for i, (email, org) in enumerate(rows, start=1):
