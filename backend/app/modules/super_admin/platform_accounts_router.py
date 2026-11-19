@@ -71,8 +71,10 @@ def list_platform_accounts(db: Session = Depends(get_db)):
 def request_platform_account(data: PlatformAccountRequest, db: Session = Depends(get_db), current_user=Depends(get_current_super_admin)):
     if accounts.is_generic_account(data.email):
         raise BadRequestException(accounts.GENERIC_MESSAGE)
-    if db.query(Employee.id).filter(Employee.email == data.email).first():
-        raise BadRequestException("An account with this address already exists.")
+    from app.modules.employee import identity
+    # platform accounts (organization_id IS NULL) are their own scope: an organization account with this address is separate
+    if identity.account_in_organization(db, data.email, None) is not None:
+        raise BadRequestException(identity.DUPLICATE_PLATFORM_EMAIL_MESSAGE)
     req = approvals.request_approval(db, "platform_account_create", current_user,
                                      {"email": str(data.email), "first_name": data.first_name.strip(), "last_name": data.last_name.strip()})
     db.add(AuditLog(action=AuditAction.CREATE, entity_type="ApprovalRequest", entity_id=req.id, performed_by=current_user.id,
