@@ -1,0 +1,317 @@
+{
+ "canonical_id": "PKG-HR-TIM-101",
+ "template_id": "HR-TIM-101",
+ "category": "daily_work_report",
+ "title": "Daily Work Report (DWR)",
+ "family_id": "HR-TIM",
+ "doc_type": "RECORD",
+ "risk": "L1",
+ "sensitivity": "C2",
+ "mode": "INFO",
+ "orientation": "portrait",
+ "pages": "1–2",
+ "signers": "Employee; manager review",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "Daily Work Report",
+   "level": 1,
+   "id": "b1"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "Employee name",
+     "{{worker.full_name}}"
+    ],
+    [
+     "Employee ID",
+     "{{worker.employee_id}}"
+    ],
+    [
+     "Project / module",
+     {
+      "ex": "Enter the project or module"
+     }
+    ],
+    [
+     "Reporting to",
+     "{{employment.reports_to}}"
+    ],
+    [
+     "Date",
+     {
+      "ex": "DD Month YYYY"
+     }
+    ]
+   ],
+   "id": "b2"
+  },
+  {
+   "type": "heading",
+   "text": "1. Summary",
+   "level": 3,
+   "id": "b3"
+  },
+  {
+   "type": "textbox",
+   "label": "Summary of the day",
+   "lines": 2,
+   "hint": "",
+   "id": "b4"
+  },
+  {
+   "type": "checks",
+   "label": "Overall outcome",
+   "options": [
+    "On track",
+    "Partly on track",
+    "Behind"
+   ],
+   "id": "b5"
+  },
+  {
+   "type": "heading",
+   "text": "2. Tasks Completed",
+   "level": 3,
+   "id": "b6"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.14,
+    0.46,
+    0.24,
+    0.16
+   ],
+   "compact": true,
+   "columns": [
+    "Task ID",
+    "Description",
+    "Status (Done / Partial / Pending)",
+    "Time spent"
+   ],
+   "id": "b7"
+  },
+  {
+   "type": "heading",
+   "text": "3. Work in Progress",
+   "level": 3,
+   "id": "b8"
+  },
+  {
+   "type": "textbox",
+   "label": "Work in progress",
+   "lines": 2,
+   "hint": "",
+   "id": "b9"
+  },
+  {
+   "type": "heading",
+   "text": "4. Blockers",
+   "level": 3,
+   "id": "b10"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.4,
+    0.3,
+    0.3
+   ],
+   "compact": true,
+   "columns": [
+    "Issue",
+    "Impact",
+    "Required support"
+   ],
+   "id": "b11"
+  },
+  {
+   "type": "heading",
+   "text": "5. Solutions Applied",
+   "level": 3,
+   "id": "b12"
+  },
+  {
+   "type": "textbox",
+   "label": "Solutions applied",
+   "lines": 2,
+   "hint": "",
+   "id": "b13"
+  },
+  {
+   "type": "heading",
+   "text": "6. AI Tools Usage",
+   "level": 3,
+   "id": "b14"
+  },
+  {
+   "type": "textbox",
+   "label": "AI tools used and for what",
+   "lines": 2,
+   "hint": "",
+   "id": "b15"
+  },
+  {
+   "type": "heading",
+   "text": "7. Code / Technical Contributions",
+   "level": 3,
+   "id": "b16"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.25,
+    0.25,
+    0.25,
+    0.25
+   ],
+   "compact": true,
+   "columns": [
+    "Backend",
+    "Frontend",
+    "Database / API",
+    "AI / ML"
+   ],
+   "id": "b17"
+  },
+  {
+   "type": "heading",
+   "text": "8. Key Learnings",
+   "level": 3,
+   "id": "b18"
+  },
+  {
+   "type": "textbox",
+   "label": "Key learnings",
+   "lines": 2,
+   "hint": "",
+   "id": "b19"
+  },
+  {
+   "type": "heading",
+   "text": "9. Tomorrow's Plan",
+   "level": 3,
+   "id": "b20"
+  },
+  {
+   "type": "textbox",
+   "label": "Tomorrow's plan",
+   "lines": 2,
+   "hint": "",
+   "id": "b21"
+  },
+  {
+   "type": "heading",
+   "text": "10. Self Rating (1–10)",
+   "level": 3,
+   "id": "b22"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.2,
+    0.8
+   ],
+   "compact": true,
+   "columns": [
+    "Self rating",
+    "Reason"
+   ],
+   "id": "b23"
+  },
+  {
+   "type": "notice",
+   "items": [
+    "Submit by e-mail to {{company.reports_email}}{{company.reports_channel}} each working day."
+   ],
+   "id": "b24"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "{{worker.full_name}}",
+     ""
+    ]
+   ],
+   "widths": [
+    0.6,
+    0.4
+   ],
+   "compact": true,
+   "columns": [
+    "Submitted by",
+    "Time of submission"
+   ],
+   "id": "b25"
+  }
+ ]
+}

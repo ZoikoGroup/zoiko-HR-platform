@@ -1,0 +1,289 @@
+{
+ "canonical_id": "PKG-HR-PRF-102",
+ "template_id": "HR-PRF-102",
+ "category": "velocity_report",
+ "title": "Project Velocity Report",
+ "family_id": "HR-PRF",
+ "doc_type": "RECORD",
+ "risk": "L1",
+ "sensitivity": "C2",
+ "mode": "INFO",
+ "orientation": "portrait",
+ "pages": "1–2",
+ "signers": "Team member",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "{{company.group_name_caps}} — PROJECT VELOCITY",
+   "level": 1,
+   "style": "center",
+   "id": "b1"
+  },
+  {
+   "type": "paragraph",
+   "text": "**Weekly Execution Report (MANDATORY)**",
+   "id": "b2"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{company.velocity_motto}}",
+   "style": "note",
+   "include_when": {
+    "field": "company.velocity_motto",
+    "op": "present"
+   },
+   "id": "b3"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "Owner",
+     "Each team member, for their own work"
+    ],
+    [
+     "Deadline",
+     "{{company.velocity_deadline}}"
+    ],
+    [
+     "Where",
+     "{{company.task_system}}"
+    ],
+    [
+     "Length",
+     "One page; short and specific"
+    ],
+    [
+     "Hard rule",
+     "Three answers: What did I finish? What will I finish next? What is blocking me?"
+    ]
+   ],
+   "id": "b4"
+  },
+  {
+   "type": "heading",
+   "text": "1. Identification",
+   "level": 2,
+   "id": "b5"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "Name",
+     "{{worker.full_name}}"
+    ],
+    [
+     "Role",
+     "{{role.title}}"
+    ],
+    [
+     "Team",
+     "{{employment.department}}"
+    ],
+    [
+     "Velocity lead / manager",
+     "{{employment.reports_to}}"
+    ],
+    [
+     "Work location",
+     "{{employment.work_arrangement}}"
+    ],
+    [
+     "Time zone",
+     "{{engagement.timezone}}"
+    ],
+    [
+     "Reporting week",
+     {
+      "ex": "e.g. 3–7 August"
+     }
+    ],
+    [
+     "{{company.brand_label}}",
+     {
+      "ex": "Enter the brand"
+     }
+    ]
+   ],
+   "id": "b6"
+  },
+  {
+   "type": "paragraph",
+   "text": "**{{company.brand_label}} options:**",
+   "include_when": {
+    "field": "company.brands",
+    "op": "present"
+   },
+   "id": "b7"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "company.brands",
+   "include_when": {
+    "field": "company.brands",
+    "op": "present"
+   },
+   "id": "b8"
+  },
+  {
+   "type": "heading",
+   "text": "2. Top 3 Completed",
+   "level": 2,
+   "id": "b9"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "1",
+     "",
+     ""
+    ],
+    [
+     "2",
+     "",
+     ""
+    ],
+    [
+     "3",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.06,
+    0.6,
+    0.34
+   ],
+   "compact": true,
+   "columns": [
+    "#",
+    "What was completed",
+    "Evidence / link"
+   ],
+   "id": "b10"
+  },
+  {
+   "type": "heading",
+   "text": "3. Top 3 Priorities for Next Week",
+   "level": 2,
+   "id": "b11"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "1",
+     "",
+     ""
+    ],
+    [
+     "2",
+     "",
+     ""
+    ],
+    [
+     "3",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.06,
+    0.7,
+    0.24
+   ],
+   "compact": true,
+   "columns": [
+    "#",
+    "Priority",
+    "Target date"
+   ],
+   "id": "b12"
+  },
+  {
+   "type": "heading",
+   "text": "4. Blockers",
+   "level": 2,
+   "id": "b13"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "1",
+     "",
+     ""
+    ],
+    [
+     "2",
+     "",
+     ""
+    ],
+    [
+     "3",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.06,
+    0.6,
+    0.34
+   ],
+   "compact": true,
+   "columns": [
+    "#",
+    "Blocker",
+    "Help needed from"
+   ],
+   "id": "b14"
+  },
+  {
+   "type": "heading",
+   "text": "5. Quality / Errors",
+   "level": 2,
+   "id": "b15"
+  },
+  {
+   "type": "textbox",
+   "label": "Quality issues or errors this week",
+   "lines": 2,
+   "hint": "",
+   "id": "b16"
+  },
+  {
+   "type": "heading",
+   "text": "Declaration",
+   "level": 2,
+   "id": "b17"
+  },
+  {
+   "type": "paragraph",
+   "text": "I confirm that this report is accurate.",
+   "id": "b18"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "Team member",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ]
+   ],
+   "id": "b19",
+   "locked": true
+  },
+  {
+   "type": "paragraph",
+   "text": "**Summarise in three answers, every week, on time.**",
+   "id": "b20"
+  }
+ ]
+}

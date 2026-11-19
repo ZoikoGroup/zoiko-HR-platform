@@ -1,0 +1,482 @@
+{
+ "canonical_id": "PKG-HR-HIR-005",
+ "template_id": "HR-HIR-005",
+ "category": "job_application",
+ "title": "Job Application Form",
+ "family_id": "HR-HIR",
+ "doc_type": "FORM",
+ "risk": "L2",
+ "sensitivity": "C3",
+ "mode": "COMPLETE",
+ "orientation": "portrait",
+ "pages": "3–4",
+ "signers": "Applicant (declaration)",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "Job Application Form",
+   "level": 1,
+   "id": "b1"
+  },
+  {
+   "type": "fields",
+   "rows": [
+    [
+     "Post applied for",
+     "{{role.title}}",
+     ""
+    ],
+    [
+     "Job reference number",
+     "Enter the reference",
+     ""
+    ]
+   ],
+   "cols": 2,
+   "id": "b2"
+  },
+  {
+   "type": "paragraph",
+   "text": "Complete the form in black ink or electronically, in BLOCK CAPITALS where asked. Every section applies unless it says otherwise.",
+   "style": "note",
+   "id": "b3"
+  },
+  {
+   "type": "heading",
+   "text": "1. Personal Details",
+   "level": 2,
+   "id": "b4"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "{{worker.initials}}",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.3,
+    0.15,
+    0.3,
+    0.25
+   ],
+   "columns": [
+    "Surname",
+    "Initials",
+    "Former surnames",
+    "Preferred name"
+   ],
+   "id": "b5"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.75,
+    0.25
+   ],
+   "columns": [
+    "Address",
+    "Postcode / PIN"
+   ],
+   "id": "b6"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "{{worker.phone}}",
+     "{{worker.email}}"
+    ]
+   ],
+   "widths": [
+    0.2,
+    0.2,
+    0.2,
+    0.4
+   ],
+   "columns": [
+    "Home phone",
+    "Business phone",
+    "Mobile",
+    "E-mail"
+   ],
+   "id": "b7"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "XXXX XXXX ____"
+    ]
+   ],
+   "widths": [
+    0.5,
+    0.5
+   ],
+   "columns": [
+    "PAN",
+    "Aadhaar (last 4 digits only)"
+   ],
+   "include_when": {
+    "field": "employment.country_is_in",
+    "op": "present"
+   },
+   "id": "b8"
+  },
+  {
+   "type": "paragraph",
+   "text": "Never write your full Aadhaar number on this form.",
+   "style": "note",
+   "include_when": {
+    "field": "employment.country_is_in",
+    "op": "present"
+   },
+   "id": "b9"
+  },
+  {
+   "type": "checks",
+   "label": "Do you have the right to work in {{employment.country}}?",
+   "options": [
+    "Yes",
+    "No"
+   ],
+   "id": "b10"
+  },
+  {
+   "type": "checks",
+   "label": "Preferred work arrangement",
+   "options": [
+    "On-site",
+    "Hybrid",
+    "Remote"
+   ],
+   "id": "b11"
+  },
+  {
+   "type": "heading",
+   "text": "2. Education",
+   "level": 2,
+   "id": "b12"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.26,
+    0.1,
+    0.1,
+    0.24,
+    0.12,
+    0.18
+   ],
+   "columns": [
+    "Institution",
+    "From",
+    "To",
+    "Examinations",
+    "Date",
+    "Result"
+   ],
+   "id": "b13"
+  },
+  {
+   "type": "heading",
+   "text": "3. Professional Qualifications",
+   "level": 2,
+   "id": "b14"
+  },
+  {
+   "type": "textbox",
+   "label": "Professional qualifications",
+   "lines": 3,
+   "hint": "Body, qualification and year.",
+   "id": "b15"
+  },
+  {
+   "type": "heading",
+   "text": "4. Other Courses",
+   "level": 2,
+   "id": "b16"
+  },
+  {
+   "type": "textbox",
+   "label": "Other courses",
+   "lines": 2,
+   "hint": "",
+   "id": "b17"
+  },
+  {
+   "type": "heading",
+   "text": "5. Present Post",
+   "level": 2,
+   "id": "b18"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.34,
+    0.18,
+    0.14,
+    0.16,
+    0.18
+   ],
+   "columns": [
+    "Employer name and address",
+    "Job title",
+    "Date started",
+    "Salary",
+    "Notice period"
+   ],
+   "id": "b19"
+  },
+  {
+   "type": "textbox",
+   "label": "Main duties",
+   "lines": 3,
+   "hint": "",
+   "id": "b20"
+  },
+  {
+   "type": "heading",
+   "text": "6. Previous Employment",
+   "level": 2,
+   "id": "b21"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.26,
+    0.2,
+    0.12,
+    0.12,
+    0.3
+   ],
+   "columns": [
+    "Employer",
+    "Job title",
+    "From",
+    "To",
+    "Reason for leaving"
+   ],
+   "id": "b22"
+  },
+  {
+   "type": "heading",
+   "text": "7. Relevant Skills and Reasons for Applying",
+   "level": 2,
+   "id": "b23"
+  },
+  {
+   "type": "textbox",
+   "label": "Skills and reasons",
+   "lines": 8,
+   "hint": "How your skills and experience match the role.",
+   "id": "b24"
+  },
+  {
+   "type": "heading",
+   "text": "8. Other Information",
+   "level": 2,
+   "id": "b25"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.25,
+    0.15,
+    0.3,
+    0.3
+   ],
+   "columns": [
+    "Interests",
+    "Driving licence",
+    "Internet and workspace",
+    "Adjustments needed for interview"
+   ],
+   "id": "b26"
+  },
+  {
+   "type": "heading",
+   "text": "9. Criminal Record",
+   "level": 2,
+   "id": "b27"
+  },
+  {
+   "type": "clause",
+   "key": "criminal_record_question",
+   "id": "b28",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "10. References",
+   "level": 2,
+   "id": "b29"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.22,
+    0.17,
+    0.21,
+    0.24,
+    0.16
+   ],
+   "columns": [
+    "Referee name",
+    "Relationship",
+    "Organisation",
+    "E-mail",
+    "Phone"
+   ],
+   "id": "b30"
+  },
+  {
+   "type": "heading",
+   "text": "11. Declaration",
+   "level": 2,
+   "id": "b31"
+  },
+  {
+   "type": "paragraph",
+   "text": "I confirm that the information in this form is true and complete to the best of my knowledge.",
+   "id": "b32",
+   "locked": true
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "Applicant",
+     "{{worker.full_name}}",
+     "Applicant",
+     ""
+    ]
+   ],
+   "id": "b33",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "12. Privacy Notice",
+   "level": 2,
+   "id": "b34"
+  },
+  {
+   "type": "clause",
+   "key": "applicant_privacy_notice",
+   "id": "b35",
+   "locked": true
+  }
+ ]
+}

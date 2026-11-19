@@ -70,6 +70,11 @@ class RenderContext:
     answers_signed_on: str = ""                                # the date the new hire signed the filled-in form
     logo_png: Optional[bytes] = None                           # the organisation's uploaded logo (PNG); None -> no logo
                                                                # (the dashed "insert logo" box is shown on the template set only)
+    content: Optional[list] = None                             # renderer blocks of the template version to draw (None ->
+                                                               # the platform default); see onboarding_package.resolve_content
+    source: Optional[dict] = None                              # which template version `content` is (variant id/version/checksum)
+    meta: Optional[dict] = None                                # the document's description (title, template id, orientation…)
+                                                               # None -> onboarding_package_content.DOCS[category]
 
     @property
     def header_text(self) -> str:
@@ -274,8 +279,14 @@ def expand(blocks: list, ctx: "RenderContext") -> list:
     return out
 
 
+def content_for(category: str, ctx: "RenderContext") -> list:
+    """The document's content: what the context carries (the organisation's released version, or the version a document was
+    issued under), else the platform default."""
+    return ctx.content if ctx.content is not None else C.blocks_for(category)
+
+
 def blocks(category: str, ctx: "RenderContext") -> list:
-    out = expand(C.blocks_for(category), ctx)
+    out = expand(content_for(category, ctx), ctx)
     if ctx.answers is not None:                      # a form the new hire filled in online: their answers written in
         from app.modules.hr import onboarding_package_forms as FORMS
         out = FORMS.fill_blocks(out, ctx.answers, ctx.answers_signed_on)
@@ -874,8 +885,13 @@ def blank_rows(n, cols):
     return [[""] * cols for _ in range(n)]
 
 
+def doc_meta(category: str, ctx: RenderContext) -> dict:
+    """The document's description: the context's (organisation documents, the organisation's mode), else the platform's."""
+    return ctx.meta or C.DOCS[category]
+
+
 def render_pdf(category: str, ctx: RenderContext) -> bytes:
-    d = C.DOCS[category]
+    d = doc_meta(category, ctx)
     b = PdfBuilder(ctx)
     b.add_document(d, blocks(category, ctx))
     return b.build()
@@ -933,7 +949,7 @@ def render_template_set(ctx: RenderContext) -> bytes:
 
 # ── HTML (what the candidate reads before signing) ──────────────────────────────────────────────────────────────────
 def render_html(category: str, ctx: RenderContext, *, document_number: str = "") -> str:
-    d = C.DOCS[category]
+    d = doc_meta(category, ctx)
     hx = _Html(ctx)
     body = "".join(hx.block(b) for b in blocks(category, ctx))
     status = ctx.status_text or DRAFT_STATUS
@@ -1008,6 +1024,8 @@ class _Html:
         if t == "center":
             return f'<p class="center">{self.il(b["text"])}</p>'
         if t == "note":
+            if "{{" in b["text"]:                # v2 notes carry a value token (velocity motto), as in the PDF
+                return f'<div class="note">{self.il(b["text"])}</div>'
             return f'<div class="note">{_html.escape(ctx.spell(b["text"]))}</div>'
         if t in ("bullets", "numbered"):
             tag = "ol" if t == "numbered" else "ul"

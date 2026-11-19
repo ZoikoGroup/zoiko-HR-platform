@@ -170,6 +170,7 @@ class Employee(Base):
     emergency_contacts  = Column(JSON, default=list, nullable=True)
     notification_preferences = Column(JSON, nullable=True)      # {email, sms, push}; None = never saved, defaults apply
     language            = Column(String(30), nullable=True)
+    custom_fields       = Column(JSON, nullable=True)           # the organisation's own portal form fields (verified values)
     travel_preferences  = Column(JSON, nullable=True)           # {currency, per_diem, auto_notify}; None = never saved
     timezone            = Column(String(50), nullable=True)
     # Worker jurisdiction facts (doc_templates, ZHR-ELT-TPL-001 §4): where the person habitually works, not nationality.

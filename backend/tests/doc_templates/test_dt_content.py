@@ -45,8 +45,8 @@ def _release(w, pack, *, reason="first version"):
     assert w.post("a_hr", f"/hr/templates/variants/{v['id']}/approve-legal", json=approval).status_code == 403
     r = w.post("a_admin", f"/hr/templates/variants/{v['id']}/approve-legal", json={**approval, "signed_name": "Avery Admin"})
     assert r.status_code == 200, r.text
-    assert w.post("a_admin", f"/hr/templates/variants/{v['id']}/release").json()["detail"]["code"] == "SEPARATION_OF_DUTIES"
-    r = w.post("a_admin2", f"/hr/templates/variants/{v['id']}/release")
+    # an organisation's own (tenant-attested) template: the approving admin may release it too (one-admin organisations)
+    r = w.post("a_admin", f"/hr/templates/variants/{v['id']}/release")
     assert r.status_code == 200 and r.json()["status"] == "ACTIVE", r.text
     return v
 
@@ -138,3 +138,34 @@ def test_preview_uses_synthetic_data_only(world, starter):
     out = world.post("a_hr", f"/hr/templates/variants/{v['id']}/preview", json={}).json()
     assert "Alex Example" in out["html"] and "Canaryworker" not in out["html"]
     assert out["missing_clauses"] == ["notice_and_termination"]
+
+
+def test_one_admin_can_write_approve_and_release_their_own_template(world, starter):
+    implement(world.db, "HR-ONB-007")
+    pack = world.post("a_admin", "/hr/templates/packs", json={"country": "GB"}).json()
+    assert world.post("a_admin", f"/hr/templates/packs/{pack['id']}/submit").status_code == 200
+    r = world.post("a_admin", f"/hr/templates/packs/{pack['id']}/activate", json={"accepted": True})
+    assert r.status_code == 200 and r.json()["status"] == "ACTIVE", r.text
+    _clause(world, pack["id"])   # the starter's mandatory clause (its own lifecycle is not under test here)
+    v = world.post("a_admin", "/hr/templates/HR-ONB-007/variants", json={"pack_id": pack["id"]})
+    assert v.status_code == 201, v.text
+    v = v.json()
+    assert world.put("a_admin", f"/hr/templates/variants/{v['id']}", json={"change_reason": "solo"}).status_code == 200
+    assert world.post("a_admin", f"/hr/templates/variants/{v['id']}/submit-review").json()["status"] == "LEGAL_REVIEW"
+    r = world.post("a_admin", f"/hr/templates/variants/{v['id']}/approve-legal",
+                   json={"attestation_accepted": True, "signed_name": "Avery Admin"})
+    assert r.status_code == 200, r.text
+    r = world.post("a_admin", f"/hr/templates/variants/{v['id']}/release")
+    assert r.status_code == 200 and r.json()["status"] == "ACTIVE", r.text
+    rec = world.db.query(TemplateApprovalRecord).filter_by(variant_id=v["id"]).one()
+    assert rec.review.get("self_approved") is True
+
+
+def test_hr_admin_still_cannot_approve_what_they_wrote(world, starter):
+    implement(world.db, "HR-ONB-007")
+    pack = _pack(world)
+    v = world.post("a_hr", "/hr/templates/HR-ONB-007/variants", json={"pack_id": pack["id"]}).json()
+    world.put("a_hr", f"/hr/templates/variants/{v['id']}", json={"change_reason": "x"})
+    world.post("a_hr", f"/hr/templates/variants/{v['id']}/submit-review")
+    r = world.post("a_hr", f"/hr/templates/variants/{v['id']}/approve-legal", json={"attestation_accepted": True, "signed_name": "H"})
+    assert r.status_code == 403

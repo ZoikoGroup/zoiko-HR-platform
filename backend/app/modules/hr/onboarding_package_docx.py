@@ -62,7 +62,7 @@ def _field(paragraph, code: str) -> None:
 
 class _Docx:
     def __init__(self, category: str, ctx: R.RenderContext):
-        self.cat, self.ctx, self.d = category, ctx, C.DOCS[category]
+        self.cat, self.ctx, self.d = category, ctx, R.doc_meta(category, ctx)
         self.doc = Document()
         self.primary = _rgb(ctx.primary)
         self._setup()
@@ -363,6 +363,6 @@ class _Docx:
 
 
 def render_docx(category: str, ctx: R.RenderContext) -> bytes:
-    if category not in C.DOCS:
+    if category not in C.DOCS and ctx.meta is None:
         raise KeyError(category)
     return _Docx(category, ctx).build()
