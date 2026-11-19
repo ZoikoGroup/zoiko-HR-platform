@@ -690,7 +690,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_candidates` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`, `requisition_id`
-- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`, `email_status`, `hired_at`, `rejection_note`, `stage_reached`
+- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `country`, `region`, `city`, `experience`, `resume_link`, `applied_at`, `notes`, `email_status`, `hired_at`, `rejection_note`, `stage_reached`
 
 ## `recruitment_documents` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
