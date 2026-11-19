@@ -1,7 +1,7 @@
 """Employee e-mail: stored lower-cased, unique per organization regardless of case
 
 Revision ID: d1e2f3a4b5c6
-Revises: c6d7e8f9a0b4
+Revises: c6d7e8f9a0b6
 Create Date: 2026-11-19
 
 The rule (see docs/email-identity-per-organization.md):
@@ -25,7 +25,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "d1e2f3a4b5c6"
-down_revision = "c6d7e8f9a0b4"
+down_revision = "c6d7e8f9a0b6"
 branch_labels = None
 depends_on = None
 
@@ -56,7 +56,7 @@ def _collisions(bind) -> list:
 def _index_names(bind) -> set:
     """Index names on employees, read from the catalog: the inspector leaves out expression indexes on some dialects."""
     if bind.dialect.name == "postgresql":
-        sql = "SELECT indexname FROM pg_indexes WHERE tablename = 'employees'"
+        sql = "SELECT indexname FROM pg_indexes WHERE tablename = 'employees' AND schemaname = current_schema()"
     elif bind.dialect.name == "sqlite":
         sql = "SELECT name FROM sqlite_master WHERE type = 'index' AND tbl_name = 'employees'"
     else:
