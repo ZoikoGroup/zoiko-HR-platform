@@ -304,13 +304,21 @@ def test_pending_account_follows_the_hire_cancel_reopen_and_email_change(world):
     assert world.db.get(Employee, emp.id).status.value == "archived"
 
 
-def test_no_account_is_created_for_an_email_that_signs_in_to_another_organization(world):
+def test_a_hire_whose_email_is_used_in_another_organization_gets_an_account_here(world):
+    """E-mail identity is per organization: the other organization's account is a separate account and is not touched."""
     from app.modules.hr import service as hr_service
+    from app.modules.employee.models import Employee
 
-    other = world.db.query(__import__("app.modules.employee.models", fromlist=["Employee"]).Employee) \
-        .filter(__import__("app.modules.employee.models", fromlist=["Employee"]).Employee.organization_id != 1).first()
-    hire = OnboardingNewHire(candidate_name="Dup Person", email=other.email, position="Analyst",
+    other = world.db.query(Employee).filter(Employee.organization_id != 1).first()
+    other_org, other_password = other.organization_id, other.hashed_password
+    hire = OnboardingNewHire(candidate_name="Dup Person", email=other.email.upper(), position="Analyst",
                              status="offer_accepted", organization_id=1)
     world.db.add(hire)
     world.db.commit()
-    assert hr_service.create_pending_employee_for_hire(world.db, hire, 1) is None
+    emp = hr_service.create_pending_employee_for_hire(world.db, hire, 1)
+    assert emp is not None and emp.organization_id == 1 and emp.id != other.id
+    assert emp.email == other.email.lower(), "stored normalised"
+    world.db.expire_all()
+    same = world.db.get(Employee, other.id)
+    assert same.organization_id == other_org and same.hashed_password == other_password
+    assert hr_service.create_pending_employee_for_hire(world.db, hire, 1) is None, "still never a second account here"

@@ -23,7 +23,9 @@ test("rules: nothing about a password, and every required box is named", () => {
   assert.match(validateAddEmployee({ ...GOOD, basic_salary: "500", ctc: "100" }).ctc, /less than the basic/);
   assert.match(validateAddEmployee({ ...GOOD, first_name: "R2D2" }).first_name, /letters only/);   // B16
   assert.deepEqual(addEmployeePayload({ ...GOOD, email: " Aarav@gmail.com ", department_id: "4", basic_salary: "100" }).department_id, 4);
-  assert.equal(serverAddEmployeeErrors({ message: "Employee with this email already exists" }).fieldErrors.email, "An employee with this email already exists");
+  assert.equal(serverAddEmployeeErrors({ message: "Employee with this email already exists" }).fieldErrors.email, "An employee with this email already exists in this organization.");
+  assert.equal(serverAddEmployeeErrors({ message: "An employee with this email already exists in this organization." }).fieldErrors.email,
+    "An employee with this email already exists in this organization.");
   assert.equal(serverAddEmployeeErrors({ validation: [{ loc: ["body", "password"], msg: "Field required" }] }).fieldErrors.password, "This is required");
 });
 
