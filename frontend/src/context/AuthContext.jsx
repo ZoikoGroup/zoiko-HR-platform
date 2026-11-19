@@ -4,6 +4,7 @@ import {
   login as loginRequest,
   loginWithGoogleTicket as googleTicketRequest,
   mfaEnrollConfirm as mfaEnrollConfirmRequest,
+  selectOrganization as selectOrganizationRequest,
   register as registerRequest,
   sendRegistrationOtp as sendRegistrationOtpRequest,
   logout as logoutRequest,
@@ -63,6 +64,7 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const loggedInUser = await loginRequest(credentials);
+      if (loggedInUser?.requiresOrgSelection) return loggedInUser;   // several organizations: not signed in until one is chosen
       setUser(loggedInUser);
       prefetchAfterLogin(loggedInUser?.role);     // warm the next likely pages' code once the landing page has rendered
       return loggedInUser;
@@ -72,6 +74,15 @@ export function AuthProvider({ children }) {
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  // The second step of a sign-in whose address has accounts in several organizations.
+  const chooseOrganization = useCallback(async (selection) => {
+    setError(null);
+    const signedIn = await selectOrganizationRequest(selection);
+    setUser(signedIn);
+    prefetchAfterLogin(signedIn?.role);
+    return signedIn;
   }, []);
 
   // Platform accounts: confirming the authenticator app also signs the person in.
@@ -88,6 +99,7 @@ export function AuthProvider({ children }) {
     setLoading(true);
     try {
       const loggedInUser = await googleTicketRequest(ticket);
+      if (loggedInUser?.requiresOrgSelection) return loggedInUser;   // the Google address has accounts in several organizations
       setUser(loggedInUser);
       prefetchAfterLogin(loggedInUser?.role);     // warm the next likely pages' code once the landing page has rendered
       return loggedInUser;
@@ -217,6 +229,7 @@ export function AuthProvider({ children }) {
     login,
     loginWithGoogle,
     confirmMfaEnrollment,
+    chooseOrganization,
     register,
     sendRegistrationOtp,
     logout,
