@@ -4,7 +4,9 @@ import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefc
 import { Avatar, Card, KpiCard, KpiGrid, PersonCell, PrimaryButton, RecruitmentLayout, SecondaryButton, StatusPill, th, useInsights } from "./ui";
 import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions, parseCV } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
-import { validateCandidateForm, serverFieldErrors, candidatePayload } from "../../../utils/candidateForm";
+import { validateCandidateForm, serverFieldErrors, candidatePayload, placeFromLocation } from "../../../utils/candidateForm";
+import { CountrySelect, guessCountry, useRegions } from "../../../components/RemunerationFields";
+import { useBusinessFormats } from "../../../components/BusinessLookupFields";
 import PhoneField from "../../../components/PhoneField";
 import EmailSuggestion from "../../../components/EmailSuggestion";
 import { experienceText, sourceLabel, shown, candidateCsv, candidateTimeline } from "../../../utils/candidateDisplay";
@@ -52,10 +54,10 @@ const EMAILED_STAGES = { screening: "The candidate is emailed that their applica
 const STAGE_TONE = { applied: "blue", screening: "violet", interview: "amber", offer: "teal", hired: "green", rejected: "red" };
 
 // ── Add / Edit candidate form ───────────────────────────────────────────────────────────────────────────────────────
-const EMPTY_FORM = { name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", resume_link: "", notes: "", requisition_id: "" };
+const EMPTY_FORM = { name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", country: "", region: "", city: "", experience: "", resume_link: "", notes: "", requisition_id: "" };
 // the order fields appear in the panel: the first one with a problem gets the focus
-const FIELD_ORDER = ["name", "email", "phone", "requisition_id", "position", "status", "source", "location", "experience", "resume_link", "notes"];
-const FIELD_IDS = { name: "cand-name", email: "cand-email", phone: "cand-phone", requisition_id: "cand-req", position: "cand-position", status: "cand-status", source: "cand-source", location: "cand-location", experience: "cand-exp", resume_link: "cand-resume", notes: "cand-notes" };
+const FIELD_ORDER = ["name", "email", "phone", "requisition_id", "position", "status", "source", "location", "country", "region", "city", "experience", "resume_link", "notes"];
+const FIELD_IDS = { name: "cand-name", email: "cand-email", phone: "cand-phone", requisition_id: "cand-req", position: "cand-position", status: "cand-status", source: "cand-source", location: "cand-location", country: "cand-country", region: "cand-region", city: "cand-city", experience: "cand-exp", resume_link: "cand-resume", notes: "cand-notes" };
 const CV_ACCEPT_RE = /\.(pdf|docx?|txt)$/i;
 const SOURCE_OPTIONS = [
   { value: "referral", label: "Referral" }, { value: "linkedin", label: "LinkedIn" }, { value: "indeed", label: "Indeed" },
@@ -235,7 +237,9 @@ export default function Candidates() {
 
   const openEdit = (c) => {
     setCvError(""); setCvFileName("");
-    openPanel(c, { name: c.name || "", email: c.email || "", phone: c.phone || "", position: c.position || "", status: c.status || "applied", source: c.source || "referral", location: c.location || "", experience: c.experience ?? "", resume_link: c.resume_link || "", notes: c.notes || "", requisition_id: c.requisition_id ? String(c.requisition_id) : "" });
+    // an older candidate saved with a free-text location is split into city / state / country for the form
+    const place = c.country || c.region || c.city ? { country: c.country || "", region: c.region || "", city: c.city || "" } : splitPlace(c.location);
+    openPanel(c, { name: c.name || "", email: c.email || "", phone: c.phone || "", position: c.position || "", status: c.status || "applied", source: c.source || "referral", location: c.location || "", ...place, experience: c.experience ?? "", resume_link: c.resume_link || "", notes: c.notes || "", requisition_id: c.requisition_id ? String(c.requisition_id) : "" });
   };
 
   const closePanel = () => {
@@ -260,6 +264,12 @@ export default function Candidates() {
     for (const key of ["name", "email", "phone", "position", "location"]) {
       const v = parsed?.[key];
       if (v != null && String(v).trim() !== "") { next[key] = String(v).trim(); filled[key] = true; }
+    }
+    if (filled.location) {                     // the CV's location fills the country, state and city it names
+      const place = splitPlace(next.location);
+      for (const key of ["country", "region", "city"]) {
+        if (place[key]) { next[key] = place[key]; filled[key] = true; }
+      }
     }
     if (parsed?.experience != null && String(parsed.experience).trim() !== "") {
       next.experience = String(parsed.experience); filled.experience = true;
@@ -305,6 +315,26 @@ export default function Candidates() {
     }
   };
   const handleImportCV = (e) => importCV(e.target.files?.[0], { fresh: true });
+
+  const regions = useRegions();
+  const businessFormats = useBusinessFormats();
+  const regionsOf = (code) => businessFormats?.countries?.[code]?.regions || null;
+  const regionLabel = (code) => businessFormats?.countries?.[code]?.region_label || "State / region";
+  function splitPlace(location) {
+    const names = ["usa", "us", "u.s.", "uk", "u.k.", "uae", "england"];
+    const isCountryName = (p) => names.includes(p.toLowerCase())
+      || (regions?.countries || []).some((c) => c.name.toLowerCase() === p.toLowerCase() || c.code === p.toUpperCase());
+    return placeFromLocation(location, (text) => guessCountry(regions, text), regionsOf, isCountryName);
+  }
+  const setCountry = (code) => {
+    setForm((prev) => {
+      const listed = regionsOf(code);
+      const region = listed && !listed.includes(prev.region) ? "" : prev.region;   // a state of another country is cleared
+      return { ...prev, country: code || "", region };
+    });
+    setErrors((prev) => ({ ...prev, country: undefined, region: undefined }));
+    setCvFilled((prev) => ({ ...prev, country: false, region: false }));
+  };
 
   // typing in a field clears that field's message (and its "From CV" badge: the value is now the person's own)
   const setField = (key, value) => {
@@ -650,9 +680,26 @@ export default function Candidates() {
 
               <FormSection icon={MapPin} title="Profile" helper="Background that helps the hiring team shortlist.">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field id="cand-location" label="Location" error={errors.location} badge={fromCv("location")}>
-                    <input id="cand-location" value={form.location} maxLength={150} autoComplete="off" placeholder="e.g. Hyderabad, India" aria-invalid={!!errors.location} aria-describedby={errors.location ? "cand-location-error" : undefined}
-                      onChange={(e) => setField("location", e.target.value)} onBlur={checkField("location")} className={inputCls(errors.location)} />
+                  <Field id="cand-country" label="Country" error={errors.country} badge={fromCv("country")}>
+                    <CountrySelect id="cand-country" regions={regions} value={form.country} onChange={setCountry} className={inputCls(errors.country)} />
+                  </Field>
+                  <Field id="cand-region" label={regionLabel(form.country)} error={errors.region} badge={fromCv("region")}>
+                    {regionsOf(form.country) ? (
+                      <select id="cand-region" value={form.region} onChange={(e) => setField("region", e.target.value)}
+                        aria-describedby={errors.region ? "cand-region-error" : undefined} className={inputCls(errors.region)}>
+                        <option value="">Select {regionLabel(form.country).toLowerCase()}</option>
+                        {regionsOf(form.country).map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    ) : (
+                      <input id="cand-region" value={form.region} maxLength={80} autoComplete="address-level1" placeholder="e.g. Telangana"
+                        aria-invalid={!!errors.region} aria-describedby={errors.region ? "cand-region-error" : undefined}
+                        onChange={(e) => setField("region", e.target.value)} onBlur={checkField("region")} className={inputCls(errors.region)} />
+                    )}
+                  </Field>
+                  <Field id="cand-city" label="City" error={errors.city} badge={fromCv("city")}>
+                    <input id="cand-city" value={form.city} maxLength={80} autoComplete="address-level2" placeholder="e.g. Hyderabad"
+                      aria-invalid={!!errors.city} aria-describedby={errors.city ? "cand-city-error" : undefined}
+                      onChange={(e) => setField("city", e.target.value)} onBlur={checkField("city")} className={inputCls(errors.city)} />
                   </Field>
                   <Field id="cand-exp" label="Experience" error={errors.experience} badge={fromCv("experience")} hint="Whole years, 0–60.">
                     <div className="relative">

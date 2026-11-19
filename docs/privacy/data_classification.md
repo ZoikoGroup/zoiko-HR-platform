@@ -690,7 +690,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_candidates` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`, `requisition_id`
-- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`, `email_status`, `hired_at`, `rejection_note`, `stage_reached`
+- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `country`, `region`, `city`, `experience`, `resume_link`, `applied_at`, `notes`, `email_status`, `hired_at`, `rejection_note`, `stage_reached`
 
 ## `recruitment_documents` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
@@ -716,7 +716,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_offers` (default TENANT_CUSTOMER; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `candidate_id`, `created_by`, `employer_entity_id`, `mentor_id`, `document_id`, `amends_offer_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `work_country`, `entity_name`, `entity_id_type`, `entity_country`, `entity_address`, `entity_city`, `entity_region`, `entity_postal_code`, `equity`, `joining_date`, `status`, `notes`, `department_id`, `reporting_manager_id`, `work_location`, `work_region`, `work_arrangement`, `hours_per_week`, `work_pattern`, `contract_end_date`, `internship_end_date`, `probation_months`, `response_deadline`, `conditions`, `benefits_summary`, `components`, `learning_objectives`, `academic_institution`, `approved_by`, `approved_at`, `issued_at`, `accepted_at`, `withdrawal_reason_category`, `withdrawal_reason_note`, `withdrawal_condition`, `withdrawal_legal_review`, `withdrawal_requested_by`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `engagement_profile_slug`, `work_country`, `entity_name`, `entity_id_type`, `entity_country`, `entity_address`, `entity_city`, `entity_region`, `entity_postal_code`, `equity`, `joining_date`, `status`, `notes`, `department_id`, `reporting_manager_id`, `work_location`, `work_region`, `work_arrangement`, `hours_per_week`, `work_pattern`, `contract_end_date`, `internship_end_date`, `probation_months`, `response_deadline`, `conditions`, `benefits_summary`, `components`, `learning_objectives`, `academic_institution`, `approved_by`, `approved_at`, `issued_at`, `accepted_at`, `withdrawal_reason_category`, `withdrawal_reason_note`, `withdrawal_condition`, `withdrawal_legal_review`, `withdrawal_requested_by`
 - **FINANCIAL**: `salary`, `entity_tax_id`
 - **SPECIAL_CATEGORY**: `fixed_term_reason`, `decline_reason`
 

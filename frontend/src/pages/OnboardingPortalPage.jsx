@@ -31,6 +31,7 @@ import { formatDate } from "../utils/dateTime";
 import PortalStructuredForms from "../modules/zoiko-hr/onboarding/PortalStructuredForms";
 import { rememberOnboardingPortal } from "./public/onboardingReturn";
 import PackageFormFiller from "../components/documents/PackageFormFiller";
+import WelcomeMessage from "../components/WelcomeMessage";
 
 // The new hire's own pre-onboarding page. Public: the link token is the credential.
 
@@ -61,7 +62,7 @@ const detailsFromView = (view) => {
   const d = view?.details || {};
   const out = {};
   DETAIL_FIELDS.forEach(({ key }) => {
-    out[key] = (key === "phone" ? view?.phone : d[key]) || "";
+    out[key] = (key === "phone" ? view?.phone || d.phone : d[key]) || "";   // blanks come pre-filled from the new starter form
   });
   return out;
 };
@@ -705,7 +706,7 @@ export default function OnboardingPortalPage() {
 
   if (loading && !view) {
     return (
-      <div className="min-h-screen bg-slate-50 flex flex-col items-center justify-center px-4 relative overflow-hidden">
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 flex flex-col items-center justify-center px-4 relative overflow-hidden">
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-200/30 blur-3xl rounded-full pointer-events-none" />
         <div className="relative flex flex-col items-center">
           <div className="h-10 w-10 animate-spin rounded-full border-3 border-blue-600 border-b-transparent shadow-sm" />
@@ -717,7 +718,7 @@ export default function OnboardingPortalPage() {
 
   if (invalid || (!view && loadError)) {
     return (
-      <div className="min-h-screen bg-gradient-to-b from-blue-50/60 to-slate-100 flex items-center justify-center px-4">
+      <div className="min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 flex items-center justify-center px-4">
         <div className="bg-white rounded-3xl shadow-lg border border-blue-100/80 max-w-md w-full p-8 text-center relative overflow-hidden">
           <div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-2xl bg-blue-50 text-blue-600 ring-8 ring-blue-50/50">
             <Lock className="h-7 w-7" />
@@ -785,12 +786,13 @@ export default function OnboardingPortalPage() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50/70 text-slate-800 antialiased relative overflow-hidden">
-      {/* Ambient background soft light */}
-      <div className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
-        <div className="absolute -top-40 left-1/2 -translate-x-1/2 w-[1200px] h-[550px] bg-gradient-to-b from-blue-200/40 via-sky-100/25 to-transparent blur-3xl opacity-80" />
-        <div className="absolute top-1/3 -right-40 w-[500px] h-[500px] bg-blue-100/30 blur-3xl rounded-full" />
-        <div className="absolute bottom-10 -left-40 w-[500px] h-[500px] bg-indigo-50/40 blur-3xl rounded-full" />
+    <div className="isolate min-h-screen bg-gradient-to-br from-sky-50 via-blue-50 to-indigo-50 text-slate-800 antialiased relative overflow-hidden">
+      {/* Light blue background: soft glows and a faint dot grid (isolate keeps them above the page colour) */}
+      <div aria-hidden="true" className="pointer-events-none fixed inset-0 -z-10 overflow-hidden">
+        <div className="absolute -top-48 left-1/2 -translate-x-1/2 w-[1200px] h-[560px] rounded-full bg-gradient-to-b from-blue-200/70 via-sky-100/50 to-transparent blur-3xl" />
+        <div className="absolute top-1/3 -right-40 w-[520px] h-[520px] rounded-full bg-sky-200/50 blur-3xl" />
+        <div className="absolute bottom-0 -left-40 w-[520px] h-[520px] rounded-full bg-indigo-200/40 blur-3xl" />
+        <div className="absolute inset-0 opacity-[0.35] [background-image:radial-gradient(rgb(147_197_253/0.55)_1px,transparent_1px)] [background-size:22px_22px] [mask-image:linear-gradient(to_bottom,black,transparent_70%)]" />
       </div>
 
       {/* Modern Top Header Bar */}
@@ -852,18 +854,18 @@ export default function OnboardingPortalPage() {
         )}
 
         {/* Hero Card */}
-        <section className="relative overflow-hidden rounded-3xl border border-blue-100/90 bg-white p-6 sm:p-8 shadow-sm">
+        <section className="relative overflow-hidden rounded-3xl border border-blue-100/90 bg-white p-4 sm:p-8 shadow-sm">
           {/* Top highlight bar */}
           <div className="absolute top-0 left-0 right-0 h-1.5 bg-gradient-to-r from-blue-600 via-indigo-600 to-sky-400" />
 
           <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
             <div className="flex items-start gap-4">
-              <div className="grid h-14 w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold text-xl shadow-md ring-4 ring-blue-50">
+              <div className="grid h-12 w-12 sm:h-14 sm:w-14 shrink-0 place-items-center rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 text-white font-bold text-lg sm:text-xl shadow-md ring-4 ring-blue-50">
                 {(view.candidate_name || "NH").slice(0, 2).toUpperCase()}
               </div>
               <div className="min-w-0">
                 <div className="flex flex-wrap items-center gap-2">
-                  <h1 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
+                  <h1 className="break-words text-xl sm:text-2xl font-bold tracking-tight text-slate-900">
                     Welcome, {view.candidate_name}!
                   </h1>
                   <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize ${
@@ -883,21 +885,22 @@ export default function OnboardingPortalPage() {
                     Status: {overallStatus.label}
                   </span>
                 </div>
-                <p className="mt-1 text-sm text-slate-500">
-                  {view.welcome_message || "We are thrilled to welcome you to our team. Please complete your onboarding steps below."}
-                </p>
               </div>
             </div>
           </div>
 
+          {/* full width under the name (not squeezed beside the avatar on a phone); long messages fold behind "Read more" */}
+          <WelcomeMessage text={view.welcome_message}
+            fallback="We are thrilled to welcome you to our team. Please complete your onboarding steps below." />
+
           {/* Key metadata grid */}
-          <div className="mt-6 grid grid-cols-2 sm:grid-cols-4 gap-3">
+          <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3">
             <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:p-3.5 transition">
               <div className="flex items-center gap-2 text-xs font-medium text-slate-400 mb-1">
                 <Briefcase className="h-3.5 w-3.5 text-blue-600" />
                 Position
               </div>
-              <p className="text-sm font-semibold text-slate-800 truncate">{view.position || "—"}</p>
+              <p className="text-sm font-semibold text-slate-800 break-words">{view.position || "—"}</p>
             </div>
 
             <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:p-3.5 transition">
@@ -905,7 +908,7 @@ export default function OnboardingPortalPage() {
                 <Building2 className="h-3.5 w-3.5 text-blue-600" />
                 Department
               </div>
-              <p className="text-sm font-semibold text-slate-800 truncate">{view.department_name || "—"}</p>
+              <p className="text-sm font-semibold text-slate-800 break-words">{view.department_name || "—"}</p>
             </div>
 
             <div className="rounded-2xl border border-slate-100 bg-slate-50/70 p-3 sm:p-3.5 transition">
@@ -923,7 +926,7 @@ export default function OnboardingPortalPage() {
                 <User className="h-3.5 w-3.5 text-blue-600" />
                 Manager
               </div>
-              <p className="text-sm font-semibold text-slate-800 truncate">{view.manager_name || "HR Team"}</p>
+              <p className="text-sm font-semibold text-slate-800 break-words">{view.manager_name || "HR Team"}</p>
             </div>
           </div>
 

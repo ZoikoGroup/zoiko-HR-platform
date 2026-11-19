@@ -143,11 +143,23 @@ def _hr_people(db, doc: GeneratedDocument) -> list:
 
 def executed(db, doc: GeneratedDocument) -> None:
     from app.services import email_service
+    if _is_onboarding_document(db, doc):
+        return          # onboarding documents: HR gets one summary email when the new hire submits the package
     for person in _hr_people(db, doc):
         _safe(lambda p=person: email_service.send_document_executed_email(
             p.work_email or p.email, _first_name(p), label(doc), doc.document_number,
             doc.status_changed_at.strftime("%b %d, %Y %H:%M UTC") if doc.status_changed_at else "",
             app_url(f"/zoiko-hr/documents/generated?id={doc.id}"), db=db, organization_id=doc.organization_id), doc.id, "executed")
+
+
+def _is_onboarding_document(db, doc: GeneratedDocument) -> bool:
+    if getattr(doc, "subject_type", None) == "new_hire":
+        return True
+    try:
+        from app.modules.hr import onboarding_package
+        return onboarding_package.hire_for_document(db, doc) is not None
+    except Exception:
+        return False
 
 
 def declined(db, doc: GeneratedDocument, party: str) -> None:

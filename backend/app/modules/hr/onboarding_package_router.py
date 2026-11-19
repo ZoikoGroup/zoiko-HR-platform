@@ -159,7 +159,7 @@ def hire_package(new_hire_id: int, db: Session = Depends(get_db), user=Depends(g
 @router.put("/new-hires/{new_hire_id}/package/inputs", summary="Values HR enters for a new hire's missing package data")
 def hire_package_inputs(new_hire_id: int, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
     hire = _hire(db, user, new_hire_id)
-    onboarding_package.save_hire_inputs(db, hire, (data or {}).get("values") or {})
+    onboarding_package.save_hire_inputs(db, hire, (data or {}).get("values") or {}, actor=user)
     return onboarding_package.package_view(db, hire)
 
 
@@ -296,3 +296,19 @@ def hire_package_form(new_hire_id: int, category: str, db: Session = Depends(get
     if view is None:
         raise HTTPException(404, "The new hire has not submitted this form yet.")
     return view
+
+
+@portal_router.get("/email-logo/{organization_id}/{token}.png", include_in_schema=False)
+def email_logo(organization_id: int, token: str, db: Session = Depends(get_db)):
+    """The organization's logo as printed in the header of its emails. Public (mail clients fetch it without signing in);
+    the token names the current upload, so an old or guessed address finds nothing."""
+    from app.core.privacy import context as privacy_ctx
+    from app.services import email_service
+    with privacy_ctx.tenant_context(organization_id):             # no signed-in user: read as that organisation
+        key = onboarding_package.get_config(db, organization_id).get("logo_key")
+        if not key or token != email_service.org_logo_token(key):
+            raise HTTPException(404, "Not found.")
+        logo = email_service._uploaded_org_logo(db, organization_id)
+    if not logo:
+        raise HTTPException(404, "Not found.")
+    return Response(content=logo[0], media_type="image/png", headers={"Cache-Control": "public, max-age=31536000, immutable"})

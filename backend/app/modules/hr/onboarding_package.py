@@ -369,9 +369,25 @@ def hire_inputs(hire) -> dict:
     return dict((hire.profile_details or {}).get("_package_inputs") or {})
 
 
-def save_hire_inputs(db, hire, values: dict) -> dict:
+def save_hire_inputs(db, hire, values: dict, actor=None) -> dict:
     if not isinstance(values, dict):
         raise HTTPException(422, "values must be an object.")
+    # merge fields of the clause wording ("clause.<token>") are the organisation's: saved once in the Company Profile
+    # (Clause details) for every hire, straight from the panel
+    clause_values = {k: v for k, v in values.items() if isinstance(k, str) and k.startswith("clause.")}
+    if clause_values:
+        from app.modules.hr import company_profile as CP
+        from app.modules.hr import onboarding_clause_tokens as T
+        if actor is None or getattr(actor, "organization_id", None) != hire.organization_id:
+            raise HTTPException(403, "Clause details can only be saved by the organisation's admin.")
+        data = {}
+        for key, val in clause_values.items():
+            token = key.split(".", 1)[1]
+            if token not in T.CATALOG:
+                raise HTTPException(422, f"{key} cannot be set here.")
+            data[T.profile_key(token)] = str(val or "").strip()
+        CP.save_profile(db, actor, data)
+        values = {k: v for k, v in values.items() if k not in clause_values}
     current = hire_inputs(hire)
     for key, val in values.items():
         if key not in HIRE_INPUT_FIELDS:
@@ -462,7 +478,7 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "kpi.review_cycle": cfg.get("kpi_review_cycle") or None,
     }
     for key, val in hire_inputs(hire).items():                    # HR's per-hire entries win
-        values[key] = val
+        values[key] = _fmt_date(val, cfg) if key == "employment.start_date" else val
     if address:                                                   # ... except the address the new hire entered themselves
         values["worker.postal_address"] = address
     if values.get("employment.work_pattern") is None:
@@ -472,6 +488,11 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     if values.get("employment.base_pay") and values.get("employment.pay_frequency"):
         values["employment.pay_terms"] = f"{values['employment.base_pay']}, paid {values['employment.pay_frequency']}"
     values.update(_v2_values(db, hire, cfg, offer, values))
+    typed_base = values.pop("_typed_base_pay", None)
+    if typed_base:                                                # HR typed a bare amount: print it formatted everywhere
+        values["employment.base_pay"] = typed_base
+        if values.get("employment.pay_frequency"):
+            values["employment.pay_terms"] = f"{typed_base}, paid {values['employment.pay_frequency']}"
     # merge fields used inside counsel clause wording ({{speak_up_channel}}, {{ip_assignment_term}}, ...)
     from app.modules.hr import company_profile as CP
     from app.modules.hr import onboarding_clause_tokens as T
@@ -543,13 +564,24 @@ def worker_address_parts(details: dict) -> dict:
     return parts
 
 
+def engagement_with_source(db, hire) -> tuple:
+    """(engagement profile, source) — see onboarding_profiles.engagement_for_hire."""
+    from app.modules.hr import onboarding_profiles as PR
+    _cand, offer, _req = _offer_for(db, hire)
+    chosen = hire_inputs(hire).get("engagement_profile_slug")
+    offer_slug = getattr(offer, "engagement_profile_slug", None) if offer is not None else None
+    kind = hire.employment_type or (offer.employment_type if offer is not None else None)
+    return _cached(db, ("engagement", hire.id, chosen, offer_slug, kind),
+                   lambda: PR.engagement_for_hire(db, hire.organization_id, chosen, offer_slug, kind))
+
+
 def hire_profiles(db, hire) -> tuple:
     """(engagement profile, role profile) for the hire; the role is None when none was chosen and none matches."""
     from app.modules.hr import onboarding_profiles as PR
     inputs = hire_inputs(hire)
 
     def load():
-        eng = PR.engagement_for(db, hire.organization_id, inputs.get("engagement_profile_slug"))
+        eng, _source = engagement_with_source(db, hire)
         role = PR.role_for(db, hire.organization_id, inputs.get("role_profile_slug"), hire.position)
         if role is None:          # no saved profile for this position: build one from the hire's own records
             role = generated_role(db, hire)
@@ -715,25 +747,34 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     if not worker_lines and v1.get("worker.postal_address"):          # HR typed the address as one line
         worker_lines = [ln.strip() for ln in str(v1["worker.postal_address"]).split(",") if ln.strip()]
 
-    # pay
-    currency = ((offer.currency if offer else None) or profile.get("currency") or "").upper() or None
-    amount = None
-    if offer is not None and offer.salary and currency:
-        amount = F.format_money(offer.salary, currency, profile.get("number_grouping"))
-    statement = None
-    if amount:
-        period = PER_PERIOD.get((offer.pay_period or "annual"), "")
+    # pay: the offer's amount, else the amount HR typed for this hire in the package panel
+    currency = _pay_currency(offer, profile, hire)
+    typed = (hire_inputs(hire).get("employment.base_pay") or "").strip()
+    raw_amount, period_key = None, None
+    if offer is not None and offer.salary:
+        raw_amount, period_key = offer.salary, (offer.pay_period or "annual")
+    elif typed and _BARE_AMOUNT.match(typed):                         # "12000" / "12,000.50": format it like an offer
+        raw_amount = typed.replace(",", "").replace(" ", "")
+        period_key = _default_pay_period(eng, profile)
+    amount, statement, typed_base = None, None, None
+    if raw_amount is not None and currency:
+        amount = F.format_money(raw_amount, currency, profile.get("number_grouping"))
+        period = PER_PERIOD.get(period_key, "")
+        if not (offer is not None and offer.salary):
+            typed_base = f"{amount} {period}".strip()                 # also printed where the documents show "base pay"
         gross = " (gross)" if profile.get("stipend_gross_label") else ""
         statement = f"{amount} {period}{gross}".strip()
-        if (offer.pay_period or "") == "monthly" and profile.get("pay_day_of_month"):
+        if period_key == "monthly" and profile.get("pay_day_of_month"):
             day = F.ordinal(int(profile["pay_day_of_month"]))
             statement += f", paid on the {day} of each month for the preceding period"
-
-    if amount is None and v1.get("employment.base_pay"):             # no offer: the pay HR typed for this hire
-        amount = v1["employment.base_pay"]
+    if amount is None and typed:                                      # HR typed the full wording ("GBP 42,000 per year")
+        amount = typed
         # the statement carries the period too ("GBP 42,000 per year, paid monthly"), as the v1 pay terms did
+        statement = v1.get("employment.pay_terms") or typed
+    if amount is None and v1.get("employment.base_pay"):
+        amount = v1["employment.base_pay"]
         statement = v1.get("employment.pay_terms") or amount
-    start = hire.joining_date or (offer.joining_date if offer else None)
+    start = hire.joining_date or (offer.joining_date if offer else None) or F.to_date(inputs.get("employment.start_date"))
     issue = F.to_date(inputs.get("document.issue_date")) or date.today()
     duties = role.get("contract_duties") or " ".join(role.get("offer_responsibilities") or []) or None
     initials = F.initials(hire.candidate_name)
@@ -786,6 +827,7 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "employment.employer_notice_text": F.notice_text(profile.get("employer_notice_value"),
                                                          profile.get("employer_notice_unit")) or None,
         "employment.pay_amount": amount,
+        "_typed_base_pay": typed_base,
         "employment.pay_statement": statement,
         "employment.duties_paragraph": duties,
         "offer.candidate_fit_summary": inputs.get("offer.candidate_fit_summary") or None,
@@ -822,6 +864,30 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     }
 
 
+_BARE_AMOUNT = re.compile(r"^\d{1,3}(?:[, ]?\d{2,3})*(?:\.\d{1,2})?$")
+
+
+def _pay_currency(offer, profile: dict, hire) -> Optional[str]:
+    """The offer's currency, else the Company Profile's, else the work country's."""
+    cur = (offer.currency if offer is not None else None) or profile.get("currency")
+    if not cur:
+        country = (offer.work_country if offer is not None else None) or hire.work_country or profile.get("country")
+        if country:
+            from app.core import regions
+            try:
+                cur = regions.currency_for(country, None)
+            except Exception:
+                cur = None
+    return (cur or "").upper() or None
+
+
+def _default_pay_period(eng: dict, profile: dict) -> str:
+    """The period of an amount HR typed without one: a stipend or a monthly payroll is per month, otherwise per year."""
+    if (eng or {}).get("remuneration_type") == "stipend" or (profile.get("pay_frequency") or "monthly") == "monthly":
+        return "monthly"
+    return "annual"
+
+
 def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
     """Non-blocking checks shown in amber in the package panel: inconsistent terms, dates and names. They never stop a
     send."""
@@ -856,6 +922,21 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
         if a != b:
             warn("name_mismatch",
                  f"The name on the offer ({cand.name}) differs from the new hire record ({hire.candidate_name}).")
+    _eng, source = engagement_with_source(db, hire)
+    kind = _pretty(hire.employment_type or (offer.employment_type if offer else None))
+    if source == "standard":
+        warn("no_engagement_for_type",
+             f"No engagement profile is set up for {kind or 'this'} hires, so the neutral Standard Employee terms are used. "
+             "Choose the offer type on the offer, or the engagement profile above.")
+    slug = (eng or {}).get("slug")
+    rules = [r for r in profile.get("notice_rules") or [] if r.get("active") and r.get("value") is not None]
+    if slug and rules and not any(r.get("employee_type") == slug for r in rules) and not (eng or {}).get("default"):
+        printed = _employee_notice_text(profile, eng)
+        if printed:
+            warn("notice_from_all_employees_rule",
+                 f"The notice printed ({printed}) is the all-employees rule: there is no notice rule for "
+                 f"{(eng or {}).get('name') or slug}. If these hires give a different notice, add a rule for them in "
+                 "Settings › Company Profile › Notice period rules.")
     emp = CP.notice_for(profile, (eng or {}).get("slug"))["after"] or (None, None)       # after probation: the lasting term
     er = (profile.get("employer_notice_value"), profile.get("employer_notice_unit"))
     if emp[0] is not None and er[0] is not None and tuple(emp) != er:
@@ -1095,10 +1176,15 @@ ADDRESS_INPUT = "worker.postal_address"
 _ADDRESS_FORMS = {"worker.address_block", "worker.address_inline"}
 
 
+# computed values with a gap are reported as the input HR types for this hire (so the panel offers a box to fill)
+_COMPUTED_FROM_INPUT = {"employment.pay_statement": "employment.base_pay", "employment.pay_amount": "employment.base_pay",
+                        "employment.start_date_long": "employment.start_date"}
+
+
 def _reported_missing(keys: list) -> list:
     out: dict = {}
     for k in keys:
-        out.setdefault(ADDRESS_INPUT if k in _ADDRESS_FORMS else k, None)
+        out.setdefault(ADDRESS_INPUT if k in _ADDRESS_FORMS else _COMPUTED_FROM_INPUT.get(k, k), None)
     return list(out)
 
 
@@ -1113,6 +1199,29 @@ def field_source(key: str) -> str:
     if key.startswith("clause."):
         return "Settings › Company Profile › Clause details"
     return C.FIELDS[key][1] if key in C.FIELDS else ""
+
+
+def _clause_token_known(key: str) -> bool:
+    if not key.startswith("clause."):
+        return False
+    from app.modules.hr import onboarding_clause_tokens as T
+    return key.split(".", 1)[1] in T.CATALOG
+
+
+def _settings_path(key: str) -> Optional[str]:
+    """Where in Onboarding › Settings an organisation-wide value that is missing is set (None: typed per hire)."""
+    base = "/zoiko-hr/onboarding/settings#"
+    if key in HIRE_INPUT_FIELDS or key == ADDRESS_INPUT:
+        return None
+    if key.startswith("clause."):
+        return base + "company-profile-clauses"
+    if key in ("employment.notice_text", "employment.employer_notice_text"):
+        return base + "company-profile-legal"
+    if key.startswith(("engagement.", "role.")) or key == "kpi.areas":
+        return base + "onboarding-profiles"
+    if key.startswith(("company.", "employer.")):
+        return base + "company-profile"
+    return base + "offer-package"
 
 
 def package_view(db, hire) -> dict:
@@ -1139,8 +1248,10 @@ def _package_view(db, hire) -> dict:
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
             "filled_online": d["mode"] == "COMPLETE" and row is not None and FORMS.submitted(db, hire, cat) is not None,
             "missing_fields": [{"key": k, "meaning": field_meaning(k), "source": field_source(k),
-                                "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == ADDRESS_INPUT,
-                                "hr_may_enter": k == ADDRESS_INPUT}
+                                "editable": k in HIRE_INPUT_FIELDS or _clause_token_known(k),
+                                "org_wide": k.startswith("clause."),
+                                "candidate_provides": k == ADDRESS_INPUT, "hr_may_enter": k == ADDRESS_INPUT,
+                                "settings_path": _settings_path(k)}
                                for k in _reported_missing(gaps["missing_fields"])],
             "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
         })
@@ -1152,8 +1263,14 @@ def _package_view(db, hire) -> dict:
                               "value": values.get(k) if k in C.FIELDS else hire_inputs(hire).get(k),
                               "required": C.FIELDS[k][2] if k in C.FIELDS else False} for k in HIRE_INPUT_FIELDS],
             "warnings": consistency_warnings(db, hire, cfg),
+            "engagement": _engagement_summary(db, hire),
             "printed_values": printed_values(values),
             "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
+
+
+def _engagement_summary(db, hire) -> dict:
+    eng, source = engagement_with_source(db, hire)
+    return {"slug": (eng or {}).get("slug"), "name": (eng or {}).get("name"), "source": source}
 
 
 # ── the organisation's board: the 10 documents of every new hire (Onboarding › Checklists) ─────────────────────────────
@@ -1795,7 +1912,43 @@ def submit_package(db, hire) -> dict:
         except Exception:
             logger.exception("submission notification failed for new hire %s", hire.id)
         db.commit()
+        _email_package_submitted(db, hire)
     return {**submission_status(db, hire), "first_submission": first}
+
+
+_DONE_WORDS = {"SIGN": "Signed", "ACKNOWLEDGE": "Acknowledged", "COMPLETE": "Completed", "VOLUNTARY": "Completed",
+               "INFO": "Received"}
+
+
+def _email_package_submitted(db, hire) -> int:
+    """One email to the organisation's admins and the hire's manager: every onboarding document is done."""
+    try:
+        from app.modules.hr import onboarding_flow
+        from app.services.email_service import send_onboarding_documents_submitted
+        rows = _rows(db, hire)
+        documents = []
+        for d in C.documents():
+            row = rows.get(d["category"])
+            if row is None:
+                continue
+            state = _row_state(db, row)
+            done = state in ("completed", "available", "needs_review")
+            word = _DONE_WORDS.get(mode_of(row), "Completed") if done else state.replace("_", " ").capitalize()
+            documents.append({"title": d["title"], "status": word})
+        recipients = {a.email: a.first_name or "there" for a in onboarding_flow._admins(db, hire.organization_id) if a.email}
+        if hire.manager is not None and hire.manager.email:
+            recipients.setdefault(hire.manager.email, hire.manager.first_name or "there")
+        org = onboarding_flow._org_name(db, hire.organization_id)
+        url = f"{onboarding_flow.app_base()}/zoiko-hr/onboarding/checklists"
+        sent = 0
+        for email, name in recipients.items():
+            sent += bool(send_onboarding_documents_submitted(
+                email, name, hire.candidate_name, hire.position, org, documents, url,
+                onboarding_flow._date_display(hire.joining_date), db=db, organization_id=hire.organization_id))
+        return sent
+    except Exception:
+        logger.exception("package submitted email failed for new hire %s", hire.id)
+        return 0
 
 
 def hire_for_document(db, doc: GeneratedDocument) -> Optional[OnboardingNewHire]:

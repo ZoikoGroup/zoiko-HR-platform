@@ -103,7 +103,7 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getCandidates: async () => ({ items: [candidate] }), getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   } });
   t.mock.module("../src/service/recruitmentDocumentsService.js", { exports: {
     getCandidateDocumentsStatus: async () => { calls.privacy += 1; return { privacy_notice_sent_at: "2026-10-20T10:00:00Z", documents: [] }; },

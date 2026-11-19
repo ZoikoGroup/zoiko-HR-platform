@@ -55,7 +55,7 @@ async function load(t, over = {}) {
     getRequisitions: async () => (over.requisitions ? over.requisitions() : { items: [] }),
     createCandidate: async (p) => { calls.create.push(p); if (over.createError) throw over.createError; return {}; },
     updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
-    parseCV: async () => ({}),
+    parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: {
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
@@ -119,7 +119,7 @@ test("the candidates list shows phone, location and experience for each candidat
   const svc = {
     getCandidates: async () => ({ items: [CAND, { ...CAND, id: 6, name: "Bo Fresh", email: "bo@x.com", phone: null, location: null, experience: 0 }] }),
     getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -140,7 +140,7 @@ test("the candidates list shows phone, location and experience for each candidat
 test("the candidate record shows every detail that was entered", async (t) => {
   const svc = {
     getCandidates: async () => ({ items: [] }), getCandidateById: async () => CAND, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({ id: "5" }), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -154,7 +154,8 @@ test("the candidate record shows every detail that was entered", async (t) => {
   // opening Edit shows the saved values
   fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
   assert.match(document.getElementById("cand-phone").value, /98765 43210$/);      // QA #13: the country code is its own dropdown
-  assert.equal(document.getElementById("cand-location").value, "Pune");
+  assert.equal(document.getElementById("cand-city").value, "Pune");             // an older free-text location is split into city / state / country
+  assert.equal(document.getElementById("cand-country").value, "IN");
   assert.equal(document.getElementById("cand-exp").value, "5");
 });
 
