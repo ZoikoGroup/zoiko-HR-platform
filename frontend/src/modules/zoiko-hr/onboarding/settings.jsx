@@ -154,6 +154,21 @@ export default function OnboardingSettings() {
   const [errors, setErrors] = useState({});
   const [banner, setBanner] = useState({ type: "", text: "" });
 
+  // a link such as ".../settings#company-profile-clauses" (from the package panel) opens on that section once the
+  // sections have rendered (they load their own data, so the target may appear a moment later)
+  useEffect(() => {
+    const id = typeof window !== "undefined" ? decodeURIComponent(window.location.hash.slice(1)) : "";
+    if (!id) return undefined;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = document.getElementById(id);
+      tries += 1;
+      if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); clearInterval(timer); }
+      else if (tries > 40) clearInterval(timer);
+    }, 150);
+    return () => clearInterval(timer);
+  }, []);
+
   // sections saved by the header buttons (the company profile) register here
   const registry = useRef({});
   const [sectionDirty, setSectionDirty] = useState({});

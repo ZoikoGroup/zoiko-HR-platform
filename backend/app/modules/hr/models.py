@@ -1243,7 +1243,10 @@ class RecruitmentCandidate(Base):
     position       = Column(String(150), nullable=False)
     source         = Column(String(100), nullable=True)
     status         = Column(Enum(RecruitmentCandidateStatus), default=RecruitmentCandidateStatus.APPLIED, nullable=False, index=True)
-    location       = Column(String(150), nullable=True)
+    location       = Column(String(150), nullable=True)          # display text; built from city, region, country when given
+    country        = Column(String(2), nullable=True)            # ISO 3166-1 alpha-2
+    region         = Column(String(120), nullable=True)          # state / province / emirate
+    city           = Column(String(120), nullable=True)
     experience     = Column(Integer, nullable=True)
     resume_link    = Column(String(500), nullable=True)
     applied_at     = Column(DateTime, server_default=func.now())
@@ -1340,6 +1343,7 @@ class RecruitmentOffer(Base):
     currency       = Column(String(3), nullable=True)               # ISO 4217; defaults from the work country
     pay_period     = Column(String(20), nullable=True)              # annual | monthly | weekly | hourly | one_time
     employment_type = Column(String(30), nullable=True)             # full_time | part_time | contract | internship | freelance
+    engagement_profile_slug = Column(String(60), nullable=True)     # the offer type: an Onboarding engagement profile (its terms fill the 10 documents)
     work_country   = Column(String(2), nullable=True)               # ISO 3166-1 alpha-2
     entity_name    = Column(String(200), nullable=True)             # employing / contracting business (from its registration number)
     entity_tax_id  = Column(String(40), nullable=True)

@@ -8,7 +8,7 @@ Global formatting standards applied here, once, for all 10 documents:
   header row repeated on each page.
 * Every page: header "<ORG> | HR" left, document title right, a marked logo placeholder box; footer template ID and version,
   "Private and Confidential", "Page X of Y" (counted per document).
-* A document-control block on page 1 of every document; a diagonal "DRAFT – NOT FOR ISSUE" watermark on every draft page.
+* A document-control block on page 1 of every document; a diagonal "DRAFT – NOT FOR ISSUE" watermark on the template set's pages (never on a hire's documents).
 * {{placeholders}} highlighted yellow when unresolved; clause hooks followed by a grey italic drafting note.
 """
 from __future__ import annotations
@@ -380,7 +380,9 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
     w, h = c._pagesize
     primary = colors.HexColor(ctx.primary)
     c.saveState()
-    if info.get("draft", ctx.draft):
+    # the diagonal watermark marks the blank template set only: a hire's documents never carry it (an incomplete one is
+    # held back by readiness and cannot be sent, and its preview shows the gaps highlighted instead)
+    if ctx.mode == "template" and info.get("draft", ctx.draft):
         c.setFillColor(colors.Color(0.55, 0.58, 0.62, alpha=0.13))
         c.setFont(FONT_B(), 54 if w < h else 64)
         c.translate(w / 2, h / 2)
@@ -939,7 +941,7 @@ def render_html(category: str, ctx: RenderContext, *, document_number: str = "")
         ("Template ID", d["template_id"]), ("Template version", f"v{ctx.version}"), ("Document type", d["doc_type"]),
         ("Legal risk level", d["risk"]), ("Sensitivity level", d["sensitivity"]), ("Owner", "HR"),
         ("Effective date", ctx.effective_date or "—"), ("Status", status)])
-    wm = f'<div class="wm">{WATERMARK}</div>' if ctx.draft else ""
+    wm = f'<div class="wm">{WATERMARK}</div>' if ctx.draft and ctx.mode == "template" else ""
     p, a = ctx.primary, ctx.accent
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_html.escape(d['title'])}</title><style>

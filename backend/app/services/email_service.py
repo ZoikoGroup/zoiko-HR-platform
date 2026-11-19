@@ -223,7 +223,35 @@ def _uploaded_org_logo(db, organization_id):
     return _ORG_LOGO_CACHE[key]
 
 
-def _layout_context(branding: dict, context: dict, org_logo=None) -> dict:
+def org_logo_token(logo_key: str) -> str:
+    """The public name of an uploaded logo version: changes with every upload, so mail clients never show an old one."""
+    import hashlib
+    return hashlib.sha256(str(logo_key).encode("utf-8")).hexdigest()[:20]
+
+
+def _org_logo_public_url(db, organization_id) -> str:
+    """A public https address of the organization's email logo (served by GET /public/onboarding/email-logo/...), or "" when
+    this API is not reachable from the internet (local development): the logo is then attached as an inline image."""
+    api = (getattr(_app_settings, "API_BASE_URL", "") or "").strip().rstrip("/")
+    if not organization_id or not (_safe_https_url(api) and _is_public_host(api)):
+        return ""
+    try:
+        from app.modules.hr import onboarding_package
+        key = onboarding_package.get_config(db, organization_id).get("logo_key") if db is not None else None
+        if key is None and db is None:
+            from app.database import SessionLocal
+            own = SessionLocal()
+            try:
+                key = onboarding_package.get_config(own, organization_id).get("logo_key")
+            finally:
+                own.close()
+    except Exception as e:
+        logger.warning(f"[email] Could not read the logo setting of organization_id={organization_id}: {e}")
+        return ""
+    return f"{api}/public/onboarding/email-logo/{int(organization_id)}/{org_logo_token(key)}.png" if key else ""
+
+
+def _layout_context(branding: dict, context: dict, org_logo=None, org_logo_url: str = "") -> dict:
     """Variables owned by the base layout. Applied last so a caller's context
     can never replace the Zoiko HR logo (§5.2 immutable identity).
 
@@ -243,7 +271,9 @@ def _layout_context(branding: dict, context: dict, org_logo=None) -> dict:
         "logo_dark_src": _logo(LOGO_DARK_FILE),
         "favicon_src": _logo(FAVICON_FILE),
         "org_brand": bool(branding.get("tenant_name")),
-        "org_logo_src": f"cid:{ORG_LOGO_CID}" if org_logo else _safe_https_url(branding.get("logo_url")),
+        # a hosted logo (public https) shows in the header like an image on a web page; only when there is no public
+        # address is it attached inline (cid:), which some clients also list as an attachment
+        "org_logo_src": (org_logo_url or f"cid:{ORG_LOGO_CID}") if org_logo else _safe_https_url(branding.get("logo_url")),
         "org_logo_width": org_logo[1] if org_logo else 0,
         "org_logo_height": org_logo[2] if org_logo else 0,
         "tenant_name": branding.get("tenant_name", ""),
@@ -303,7 +333,8 @@ def render_email(
     branding = dict(_get_org_branding(organization_id, db=db))
     org_logo = branding.pop("org_logo", None)
     full_context = {**branding, **context}
-    full_context.update(_layout_context(branding, context, org_logo))
+    org_logo_url = _org_logo_public_url(db, organization_id) if org_logo else ""
+    full_context.update(_layout_context(branding, context, org_logo, org_logo_url))
 
     try:
         if template_body is not None:
@@ -318,7 +349,7 @@ def render_email(
     inline = ()
     if full_context["logo_src"].startswith("cid:"):
         inline = tuple((cid, filename) for filename, cid in _LOGO_CIDS.items())
-    inline_data = ((ORG_LOGO_CID, org_logo[0]),) if org_logo and full_context["org_brand"] else ()
+    inline_data = ((ORG_LOGO_CID, org_logo[0]),) if org_logo and full_context["org_brand"] and not org_logo_url else ()
     return RenderedEmail(
         subject=subject, html=html_body, text=_html_to_text(html_body),
         inline_images=inline, branding=branding, inline_data=inline_data,
@@ -612,10 +643,13 @@ def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
             with open(os.path.join(TEMPLATE_DIR, "assets", filename), "rb") as f:
                 images.append((cid, filename, f.read()))
         images += [(cid, f"{cid}.png", data) for cid, data in rendered.inline_data]
-        for cid, filename, data in images:
+        for cid, _filename, data in images:
             image = MIMEImage(data, _subtype="png")
             image.add_header("Content-ID", f"<{cid}>")
-            image.add_header("Content-Disposition", "inline", filename=filename)
+            # inline, with no file name: a named part is listed by Gmail as an attachment (org-logo.png) under the
+            # subject even though it is shown in the email
+            image.add_header("Content-Disposition", "inline")
+            image.add_header("X-Attachment-Id", cid)
             related.attach(image)
         alternative.attach(related)
     else:
@@ -1089,6 +1123,18 @@ def send_onboarding_completed(email, recipient_name, candidate_name, employee_co
         "subject": f"Onboarding completed: {candidate_name} | Zoiko HR",
         "recipient_name": recipient_name, "candidate_name": candidate_name, "employee_code": employee_code,
         "position": position, "organization_name": organization_name, "employees_url": employees_url,
+        "joining_date_display": joining_date_display,
+    }, db=db, organization_id=organization_id)
+
+
+def send_onboarding_documents_submitted(email, recipient_name, candidate_name, position, organization_name, documents,
+                                        review_url, joining_date_display=None, db=None, organization_id=None):
+    """The one email HR gets when a new hire has signed and submitted the whole onboarding package (each document's own
+    "completed" email is not sent for onboarding documents). documents: [{"title", "status"}]."""
+    return send_approval_email(email, "onboarding_documents_submitted.html", {
+        "subject": f"Onboarding documents completed: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "documents": list(documents or []), "review_url": review_url,
         "joining_date_display": joining_date_display,
     }, db=db, organization_id=organization_id)
 
