@@ -60,6 +60,14 @@ def screens() -> list[dict]:
     return json.loads(_NAV_FILE.read_text(encoding="utf-8"))["screens"]
 
 
+# Task words that point at more than one menu word: a new "employee" is added as a new hire on this platform.
+_EXPANSIONS = {
+    "employee": {"hire", "hires"}, "employees": {"hire", "hires"}, "staff": {"hire", "hires"},
+    "joiner": {"hire", "hires"}, "person": {"hire", "hires"}, "people": {"hire", "hires", "employees"},
+    "profile": {"organization", "details"}, "company": {"organization"}, "organisation": {"organization"},
+}
+
+
 def _terms(text: str, synonyms: bool = False) -> set[str]:
     """Words of `text` (plus singular forms). Synonyms expand the QUESTION
     only — expanding menu labels too would turn "Salary Structures" into a
@@ -67,6 +75,7 @@ def _terms(text: str, synonyms: bool = False) -> set[str]:
     words = {w for w in _WORD_RE.findall(text.lower()) if w not in _IGNORED}
     if synonyms:
         words |= {_SYNONYMS.get(w, w) for w in words}
+        words |= {x for w in list(words) for x in _EXPANSIONS.get(w, ())}
     # singular forms too, so "request" matches "Requests"
     return words | {w[:-1] for w in words if len(w) > 3 and w.endswith("s") and not w.endswith("ss")}
 
@@ -126,19 +135,53 @@ def describe(screen: dict, visible: bool) -> str:
             "Ask your HR team, or choose 'Talk to HR' and they can help.")
 
 
-def screens_for_prompt(text: str, role: str | None, limit: int = 3) -> list[str]:
-    """A few screens relevant to `text` that the asker can open, for the
-    general-guidance prompt (so the model names real screens only)."""
+def _relevance(terms: set[str], screen: dict) -> float:
+    """Menu-label score plus half a point per word shared with the page's own
+    text (heading, description, section titles) — the page text tells what a
+    screen is FOR ("add a new hire" lives on New Hires, not on Employees)."""
+    about = _terms(screen.get("about", "")) - _WEAK
+    return _score(terms, screen) + 0.5 * len(terms & about)
+
+
+def _line(screen: dict, about_chars: int) -> str:
+    about = screen.get("about", "")
+    if len(about) > about_chars:
+        about = about[:about_chars].rsplit(" · ", 1)[0]
+    return f"- {_label(screen)} ({screen['href']})" + (f": {about}" if about else "")
+
+
+def screens_for_prompt(text: str, role: str | None, limit: int = 3, about_chars: int = 160) -> list[str]:
+    """A few screens relevant to `text` that the asker can open, with what
+    each page is for — for the answer prompts (the model names real screens only)."""
     terms = _terms(text, synonyms=True)
-    scored = []
-    for screen in screens():
-        if not visible_to(screen, role):
-            continue
-        score = _score(terms, screen)
-        if score:
-            scored.append((score, _label(screen), screen["href"]))
-    scored.sort(key=lambda s: -s[0])
-    return [f"{label} ({href})" for _, label, href in scored[:limit]]
+    scored = [(_relevance(terms, s), s) for s in screens() if visible_to(s, role)]
+    scored = [x for x in scored if x[0] > 0]
+    scored.sort(key=lambda x: -x[0])
+    return [_line(s, about_chars)[2:] for _, s in scored[:limit]]
+
+
+def catalog_for(text: str, role: str | None, about_chars: int = 170) -> str:
+    """Every screen in the asker's menu with what its page says it is for,
+    most relevant to `text` first — the material for step-by-step "how do I /
+    where do I start" answers."""
+    terms = _terms(text, synonyms=True)
+    visible = [s for s in screens() if visible_to(s, role)]
+    visible.sort(key=lambda s: -_relevance(terms, s))
+    return "\n".join(_line(s, about_chars) for s in visible)
+
+
+def other_roles_for(text: str, role: str | None, limit: int = 3) -> list[str]:
+    """Screens relevant to `text` that the asker's menu does NOT have, with
+    the roles that do — so an answer can say who does the task."""
+    terms = _terms(text, synonyms=True)
+    # only when nothing in the asker's own menu fits — otherwise it pulls answers toward screens they can't open
+    if any(_relevance(terms, s) >= 2 for s in screens() if visible_to(s, role)):
+        return []
+    scored = [(_relevance(terms, s), s) for s in screens() if not visible_to(s, role)]
+    scored = [x for x in scored if x[0] >= 2]
+    scored.sort(key=lambda x: -x[0])
+    return [f"{_label(s)} — used by {', '.join(_ROLE_NAMES[r] for r in _ROLES if r in s['roles'])}"
+            for _, s in scored[:limit]]
 
 
 _MODULE_SUMMARIES = {
@@ -184,6 +227,6 @@ def guide_text() -> str:
         who = ", ".join(_ROLE_NAMES[r] for r in roles)
         summary = _MODULE_SUMMARIES.get(module)
         head = f"{module} ({section.title()} menu)" + (f" — {summary}" if summary else "")
-        lines = [f"- {_label(s)}: {s['href']}" for s in items]
+        lines = [_line(s, 300) for s in items]
         parts.append(f"{head}. Available to {who}.\n" + "\n".join(lines))
     return "\n\n".join(parts)
