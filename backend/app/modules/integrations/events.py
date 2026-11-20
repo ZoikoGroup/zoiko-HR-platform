@@ -30,14 +30,32 @@ EVENT_CATALOG = {
 }
 
 
-def emit_event(db: Session, event_type: str, data: dict, organization_id: int | None = None) -> None:
-    """Queue webhook deliveries and workflow executions for an event.
+def _register_documents_events() -> None:
+    # Documents module events (ZHR-DOCS-ARCH-001 §11). Their payload models live with the module.
+    try:
+        from app.modules.hr.documents.automation.events import catalog_entries
+        EVENT_CATALOG.update(catalog_entries())
+    except Exception:  # never break the catalog over an optional module
+        logger.exception("documents event catalog could not be registered")
 
-    Call AFTER the originating transaction is committed. Never raises: an
-    integration problem must not break the business action that caused it."""
+
+_register_documents_events()
+
+
+def emit_event(db: Session, event_type: str, data: dict, organization_id: int | None = None, *,
+               in_tx: bool = False) -> str | None:
+    """Queue webhook deliveries, workflow executions and documents automation runs for an event.
+
+    Default (legacy) form: call AFTER the originating transaction is committed; it commits its own rows. Never raises: an
+    integration problem must not break the business action that caused it.
+
+    in_tx=True: add the rows to the CALLER's transaction and do not commit (an outbox): the event exists exactly when the
+    business change is committed, and disappears with it on rollback. Problems are logged, never raised.
+
+    Returns the event id, or None when nothing could be queued."""
     if event_type not in EVENT_CATALOG:
         logger.warning("emit_event: unknown event %s", event_type)
-        return
+        return None
     try:
         from app.modules.integrations.models import (
             Webhook, WebhookDelivery, Workflow, WorkflowExecution,
@@ -52,9 +70,11 @@ def emit_event(db: Session, event_type: str, data: dict, organization_id: int | 
             "organization_id": organization_id,
             "data": data,
         }
+        # Everything is read and built first and added in one step, so a failure part-way adds nothing.
+        rows = []
         for wh in db.query(Webhook).filter(Webhook.is_active.is_(True)).all():
             if event_type in (wh.events or []):
-                db.add(WebhookDelivery(
+                rows.append(WebhookDelivery(
                     webhook_id=wh.id, event_id=event_id, event_type=event_type,
                     payload=envelope, status="pending", attempt=0, next_attempt_at=now,
                 ))
@@ -66,12 +86,21 @@ def emit_event(db: Session, event_type: str, data: dict, organization_id: int | 
             scope = wf.workspace.organization_id if wf.workspace is not None else None
             if scope is not None and scope != organization_id:
                 continue
-            db.add(WorkflowExecution(
+            rows.append(WorkflowExecution(
                 workflow_id=wf.id, workflow_name=wf.name, trigger_event=event_type,
                 organization_id=organization_id, trigger_payload=envelope, triggered_by="event",
                 steps_snapshot=wf.steps or [], status="pending",
             ))
-        db.commit()
+        if organization_id is not None:
+            from app.modules.hr.documents.automation.runner import build_runs
+            rows.extend(build_runs(db, envelope))
+        db.add_all(rows)
+        if not in_tx:
+            db.commit()
+        return event_id
     except Exception:
-        db.rollback()
+        if not in_tx:
+            db.rollback()
         logger.exception("emit_event(%s) failed", event_type)
+        return None
+

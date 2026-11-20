@@ -94,16 +94,16 @@ class BadRequestException(ZoikoException):
 
 async def zoiko_exception_handler(request: Request, exc: ZoikoException):
     """Handles all our custom ZoikoException errors."""
-    return JSONResponse(
-        status_code=exc.status_code,
-        content={
-            "success": False,
-            "error": exc.error_code,
-            "message": exc.message,
-            "detail": exc.message,
-        },
-        headers=_cors_headers(request),
-    )
+    content = {
+        "success": False,
+        "error": exc.error_code,
+        "message": exc.message,
+        "detail": exc.message,
+    }
+    # Optional structured details (e.g. the failed upload checks); never overrides the standard keys.
+    for key, value in (getattr(exc, "extra", None) or {}).items():
+        content.setdefault(key, value)
+    return JSONResponse(status_code=exc.status_code, content=content, headers=_cors_headers(request))
 
 
 async def generic_exception_handler(request: Request, exc: Exception):

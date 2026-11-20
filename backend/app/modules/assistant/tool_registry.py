@@ -50,7 +50,7 @@ TOOLS: dict[str, Tool] = {t.intent: t for t in (
 
 # intents that call no tool (no tenant data): greetings, the hand-off prompt,
 # and product-navigation guidance (a static screen map, no tenant record read)
-NO_DATA_INTENTS = ("chitchat:greeting", "chitchat:thanks", "chitchat:farewell", "chitchat:ack", "handoff_request", "navigation_help",
+NO_DATA_INTENTS = ("chitchat:greeting", "chitchat:thanks", "chitchat:farewell", "chitchat:ack", "chitchat:capabilities", "handoff_request", "navigation_help", "navigation_guide",
                    # a fixed refusal of any document operation, and catalogue metadata (platform data, no tenant record)
                    "document_refused", "template_explain")
 

@@ -1,30 +1,10 @@
 import { useState, useEffect, useMemo, useCallback } from "react";
-import { NavLink } from "react-router-dom";
 import { TrendingUp, TrendingDown, Minus, BarChart3, Users, Clock, Sun, Download, Calendar, Loader2, Percent, Building2, Zap, LayoutDashboard } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getAttendanceKpis, getAttendanceTrends, getDepartmentAnalysis, getOvertimeAnalytics, getShiftEfficiency } from "../../../service/hrService";
+import SubNav from "./components/AttendanceSubNav";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/zoiko-hr/attendance" },
-  { label: "Attendance Records", href: "/zoiko-hr/attendance/daily" },
-  { label: "Holiday Calendar", href: "/zoiko-hr/attendance/holidays" },
-  { label: "Attendance Analytics", href: "/zoiko-hr/attendance/analytics" },
-];
 
-function SubNav() {
-  return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
-      {NAV_ITEMS.map((item) => (
-        <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
-          className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
-          }>
-          {item.label}
-        </NavLink>
-      ))}
-    </div>
-  );
-}
 
 function KpiCard({ title, value, icon: Icon, change, trend, suffix }) {
   const TrendIcon = trend === "up" ? TrendingUp : trend === "down" ? TrendingDown : Minus;

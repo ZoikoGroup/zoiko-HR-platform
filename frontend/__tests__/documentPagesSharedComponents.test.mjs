@@ -25,8 +25,11 @@ import { render, screen, cleanup, act } from "@testing-library/react";
 async function flushRender(importPath) {
   const mod = await import(`${importPath}?t=${Date.now()}-${Math.random()}`);
   render(React.createElement(MemoryRouter, null, React.createElement(mod.default)));
-  for (let i = 0; i < 4; i++) {
+  // Wait until the page has finished loading (Company Documents shows one loader until BOTH of its lists are in), with a
+  // cap, instead of a fixed delay that a busy test machine can outrun.
+  for (let i = 0; i < 100; i++) {
     await act(async () => { await new Promise((r) => setTimeout(r, 20)); });
+    if (i >= 3 && !document.body.textContent.includes("Loading documents...")) break;
   }
 }
 
@@ -78,45 +81,20 @@ const SAMPLE_DOCS = [
 // Each entry: page under test, its data-source module path (relative to this
 // test file), the named exports that module must provide, and how to make it
 // return SAMPLE_DOCS vs. an empty list for the two mock variants below.
-// org-admin's EmployeeDocumentsPage keeps a real <table> for its document
-// list, not DocumentRow — a deliberate call documented in the PR description:
-// its 8 admin-facing columns (ID/Employee/Document/Type/Status/Expiry/Date/
-// Actions) serve a different job than a personal document list, and forcing
-// DocumentRow's card shape into that would either bloat every row or require
-// DocumentRow to support two incompatible layouts. It still uses the shared
-// DocumentEmptyState/DocumentErrorState, which is what's asserted below.
-const ORG_ADMIN_PAGE = {
-  name: "org-admin EmployeeDocumentsPage",
-  path: "../src/modules/organization-admin/EmployeeDocumentsPage.jsx",
-  dataModule: "../src/service/hrService.js",
-  exportsFor: (docs) => ({
-    getDocuments: async () => ({ data: docs }),
-    uploadDocument: async () => ({}),
-    getHrEmployees: async () => ({ items: [] }),
-    getDocumentVersions: async () => ({ items: [] }),
-    uploadDocumentVersion: async () => ({}),
-    getDocumentVersionFile: async () => ({ blob: new Blob(["x"]), filename: "f" }),
-  }),
-};
-
 // The six employee-facing pages: all use DocumentRow for their list.
 const PAGES = [
   {
     name: "Employee_CompanyDocuments",
     path: "../src/pages/Peoples/Employees/Documents/Employee_CompanyDocuments.jsx",
-    dataModule: "../src/service/hrService.js",
-    exportsFor: (docs) => ({ getMyAssignedDocuments: async () => ({ data: docs }) }),
-  },
-  {
-    name: "Employee_MyFiles",
-    path: "../src/pages/Peoples/Employees/Documents/Employee_MyFiles.jsx",
-    dataModule: "../src/service/employee.js",
+    // ZHR-DOCS-ARCH-001 Phase 6: only what the access rules share, grouped by category
+    dataModule: "../src/service/documentsService.js",
     exportsFor: (docs) => ({
-      getDocuments: async () => ({ data: docs }),
-      uploadDocument: async () => ({}),
-      deleteDocument: async () => ({}),
+      getMyCompanyDocuments: async () => ({ total: docs.length, groups: docs.length ? [{ category: { id: 1, key: "company_policies", name: "Company Policies" },
+        items: docs.map((d) => ({ ...d, can_download: true, require_ack: false, needs_ack: false })) }] : [] }),
+      acknowledgeCompanyDocument: async () => ({}), getMyDocumentCounts: async () => ({}),
     }),
   },
+  // Employee_MyFiles moved to category containers (ZHR-DOCS-ARCH-001 Phase 2): covered by documentsPhase2.test.mjs.
   {
     name: "Employee_Payslips",
     path: "../src/pages/Peoples/Employees/Documents/Employee_Payslips.jsx",
@@ -167,42 +145,5 @@ for (const page of PAGES) {
   });
 }
 
-test(`${ORG_ADMIN_PAGE.name}: renders the shared DocumentEmptyState (not a look-alike) when there are no documents`, async (t) => {
-  mockSharedDocComponents(t);
-  mockUseDocumentFile(t);
-  t.mock.module(ORG_ADMIN_PAGE.dataModule, { exports: ORG_ADMIN_PAGE.exportsFor([]) });
-
-  await flushRender(ORG_ADMIN_PAGE.path);
-
-  assert.ok(screen.queryByTestId("stub-empty"), "org-admin page must render the shared empty state with zero documents");
-  cleanup();
-});
-
-test(`${ORG_ADMIN_PAGE.name}: renders the shared DocumentErrorState (not a look-alike) on a fetch error`, async (t) => {
-  mockSharedDocComponents(t);
-  mockUseDocumentFile(t);
-  t.mock.module(ORG_ADMIN_PAGE.dataModule, {
-    exports: {
-      ...ORG_ADMIN_PAGE.exportsFor([]),
-      getDocuments: async () => { throw new Error("Failed to load documents."); },
-    },
-  });
-
-  await flushRender(ORG_ADMIN_PAGE.path);
-
-  assert.ok(screen.queryByTestId("stub-error"), "org-admin page must render the shared error state on a fetch failure");
-  cleanup();
-});
-
-test(`${ORG_ADMIN_PAGE.name}: real document rows still render as table rows (kept as a table by design, not DocumentRow)`, async (t) => {
-  mockSharedDocComponents(t);
-  mockUseDocumentFile(t);
-  t.mock.module(ORG_ADMIN_PAGE.dataModule, { exports: ORG_ADMIN_PAGE.exportsFor(SAMPLE_DOCS) });
-
-  await flushRender(ORG_ADMIN_PAGE.path);
-
-  const table = screen.getByRole("table");
-  const rows = table.querySelectorAll("tbody tr");
-  assert.equal(rows.length, SAMPLE_DOCS.length);
-  cleanup();
-});
+// The org-admin EmployeeDocumentsPage was retired (ZHR-DOCS-ARCH-001 Phase 9): Admin → Employee Documents is the
+// read-only drill-down covered by documentsPhase4.test.mjs.

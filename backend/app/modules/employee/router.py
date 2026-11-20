@@ -24,6 +24,7 @@ logger = logging.getLogger("zoiko.employee.router")
 
 from app.modules.super_admin.models import AuditLog, AuditAction, LoginActivity
 
+from app.modules.employee import ownership
 from app.modules.employee import roles as roles_mod
 from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
@@ -809,6 +810,8 @@ def update_user(
             {"event": "user.role_changed", "from": old_role, "to": data.role.value, "target_email": updated.email},
         )
         db.commit()
+        from app.modules.hr.documents.hooks import on_employee_role_changed
+        on_employee_role_changed(db, updated, from_role=old_role, to_role=data.role.value, changed_by=current_user.id)
     return updated
 
 
@@ -1220,10 +1223,9 @@ def create_travel(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    is_employee = current_user.role == UserRole.EMPLOYEE
-    if data.employee_id is None or is_employee:
-        data.employee_id = current_user.id          # an employee raises requests for themselves only
-    hr_service.check_travel_dates(data.start_date, data.end_date, allow_past=not is_employee)
+    # only an organization admin or HR admin may raise a trip for someone else (audit T2); everyone else raises their own
+    data.employee_id = ownership.on_behalf_employee_id(current_user, data.employee_id)
+    hr_service.check_travel_dates(data.start_date, data.end_date, allow_past=ownership.is_admin(current_user))
     return hr_service.create_travel_request(db, data, organization_id=current_user.organization_id)
 
 
@@ -1238,9 +1240,9 @@ def create_travel_expense(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if data.employee_id is None or current_user.role == UserRole.EMPLOYEE:
-        data.employee_id = current_user.id          # a claim is always raised for yourself
-    hr_service.check_expense_trip(db, data, current_user.organization_id)
+    # only an organization admin or HR admin may file a claim for someone else (audit T2)
+    data.employee_id = ownership.on_behalf_employee_id(current_user, data.employee_id)
+    hr_service.check_expense_trip(db, data, current_user.organization_id)       # same organization, own trip (audit T4)
     return hr_service.create_travel_expense(db, data, organization_id=current_user.organization_id)
 
 

@@ -89,6 +89,14 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/documents/policies",
     "/employee/documents/to-action",
     "/employee/documents/signatory-queue",
+    // their own attendance: an organization admin punches in and requests corrections too (attendance plan Q9)
+    "/employee/ess/attendance",
+    "/employee/ess/time-requests",
+    // their own files: an organization admin is also an employee (every Documents tab is shown to them)
+    "/employee/documents/my-files",
+    "/employee/documents/payslips",
+    "/employee/documents/contracts",
+    "/employee/documents/tax",
     "/employee/compensation",
     // ── HR Assistant admin tools (knowledge base + support tickets) ──
     "/hr-admin/assistant-knowledge",
@@ -134,6 +142,14 @@ export const ROLE_ALLOWED_PREFIXES = {
     "/employee/documents/policies",
     "/employee/documents/to-action",
     "/employee/documents/signatory-queue",
+    // their own attendance: an HR admin punches in and requests corrections too (attendance plan Q9)
+    "/employee/ess/attendance",
+    "/employee/ess/time-requests",
+    // their own files: an HR admin is also an employee (every Documents tab is shown to them)
+    "/employee/documents/my-files",
+    "/employee/documents/payslips",
+    "/employee/documents/contracts",
+    "/employee/documents/tax",
     "/employee/compensation",
     "/employee/performance",
     // ── All product paths ──
@@ -234,7 +250,20 @@ export const ROLE_DISALLOWED_PREFIXES = {
     "/zoiko-hr/workforce-planning/job-descriptions",
     "/zoiko-hr/compensation/approvals",
     "/zoiko-hr/employee-management/reports",
+    // Admin document management (organization-wide files, uploads, approvals). A manager still opens the
+    // generated documents of their reports under /zoiko-hr/documents/generated.
+    "/zoiko-hr/documents/employee-upload",
+    "/zoiko-hr/documents/employees",
+    "/zoiko-hr/documents/settings",
+    "/zoiko-hr/documents/company-documents",
+    "/zoiko-hr/documents/approvals",
   ],
+};
+
+// Exact paths blocked for specific roles, for pages whose path is also the prefix of pages the role may open.
+export const ROLE_DISALLOWED_PATHS = {
+  // The admin Documents dashboard; /zoiko-hr/documents/generated stays open to managers.
+  [ROLES.MANAGER]: ["/zoiko-hr/documents"],
 };
 
 export const VALID_ROLES = Object.values(ROLES);

@@ -233,6 +233,10 @@ SENDER_SAMPLES = [
         email="sam@acme.test", first_name="Sam", document_label="Document AC-2026-000042", document_number="AC-2026-000042",
         action_label="Read and acknowledge", action_phrase="read and acknowledge", issuer_name="Acme Corp HR",
         due_at_local="Oct 15, 2026", action_url=f"{APP}/zoiko-hr/ess/my-documents", organization_id=42)),
+    ("send_document_notice_email", dict(
+        email="sam@acme.test", first_name="Sam", subject="Your passport was not approved", heading="Document not approved",
+        message="Your Passport was not approved. Open My Files to upload a new copy.", reason="The scan is too blurry to read.",
+        action_label="Open My Files", badge_tone="warning", organization_id=42)),
     ("send_document_reminder_email", dict(
         email="sam@acme.test", first_name="Sam", document_label="Document AC-2026-000042", document_number="AC-2026-000042",
         action_phrase="sign", due_at_local="Oct 15, 2026", organization_id=42)),

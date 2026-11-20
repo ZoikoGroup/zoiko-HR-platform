@@ -15,6 +15,8 @@ from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin
 
 from app.modules.hr import learning_service
+from app.modules.employee import ownership
+from app.core.exceptions import NotFoundException
 from app.modules.hr.schemas import (
     SuccessResponse,
     CourseCreate, CourseUpdate, CourseResponse,
@@ -47,7 +49,7 @@ learning_router = APIRouter(prefix="/hr/learning", tags=["Learning"])
 )
 def learning_dashboard(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return learning_service.get_learning_dashboard(db, organization_id=current_user.organization_id)
 
@@ -61,12 +63,24 @@ def _is_learner(user) -> bool:
     return str(role) not in ("admin", "hr_admin", "super_admin")
 
 
-def _own_attempt_or_404(attempt, user, attempt_id):
-    """A learner can open and submit only their own quiz attempts; anyone else's looks like it does not exist."""
+# Whose learning records a caller sees (enrollments, certifications, skills, quiz attempts, program participants):
+# the organization admin and HR admin see everyone's; a manager sees their own and their direct reports'; anyone else sees
+# only their own. A record outside that answers 404. Organization-wide reports, their exports and the dashboard are admin only.
+
+def _visible_or_404(db, user, employee_id, resource: str, record_id):
+    if not ownership.can_see_employee(db, user, employee_id):
+        raise NotFoundException(resource, record_id)
+
+
+def _own_attempt_or_404(attempt, user, attempt_id, db=None):
+    """A quiz attempt can be opened by its learner, their direct manager and an admin; anyone else gets a 404.
+    Without `db` (submitting) only the learner or an admin qualifies."""
     owner = attempt["employee_id"] if isinstance(attempt, dict) else attempt.employee_id
-    if _is_learner(user) and owner != user.id:
-        from app.core.exceptions import NotFoundException
-        raise NotFoundException("LearningQuizAttempt", attempt_id)
+    if owner == user.id or ownership.is_admin(user):
+        return
+    if db is not None and ownership.is_direct_report(db, user, owner):
+        return
+    raise NotFoundException("LearningQuizAttempt", attempt_id)
 
 
 @learning_router.get(
@@ -169,7 +183,8 @@ def list_enrollments(
     course_id: Optional[int] = Query(None, description="Filter by course ID"),
     status: Optional[str] = Query(None, description="Filter by enrollment status"),
 ):
-    return learning_service.get_enrollments(db, page, per_page, employee_id, course_id, status, organization_id=current_user.organization_id)
+    return learning_service.get_enrollments(db, page, per_page, None, course_id, status, organization_id=current_user.organization_id,
+                                            employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id))
 
 
 @learning_router.post(
@@ -183,6 +198,8 @@ def create_enrollment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # an employee or manager can enroll only themselves; an admin can enroll anyone working in the organization (audit L2)
+    data = data.model_copy(update={"employee_id": ownership.on_behalf_employee_id(current_user, data.employee_id)})
     return learning_service.create_enrollment(db, data, organization_id=current_user.organization_id)
 
 
@@ -196,7 +213,9 @@ def get_enrollment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_enrollment_by_id(db, id)
+    enrollment = learning_service.get_enrollment_by_id(db, id, organization_id=current_user.organization_id)
+    _visible_or_404(db, current_user, enrollment.employee_id, "LearningEnrollment", id)
+    return enrollment
 
 
 @learning_router.put(
@@ -367,7 +386,8 @@ def list_certifications(
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_certifications(db, employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
+    return learning_service.get_certifications(db, None, organization_id=current_user.organization_id, page=page, per_page=per_page,
+                                               employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id))
 
 
 @learning_router.post(
@@ -394,7 +414,9 @@ def get_certification(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_certification_by_id(db, id)
+    cert = learning_service.get_certification_by_id(db, id, organization_id=current_user.organization_id)
+    _visible_or_404(db, current_user, cert.employee_id, "LearningCertification", id)
+    return cert
 
 
 @learning_router.put(
@@ -444,7 +466,8 @@ def list_skills(
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    return learning_service.get_skills(db, employee_id, organization_id=current_user.organization_id, page=page, per_page=per_page)
+    return learning_service.get_skills(db, None, organization_id=current_user.organization_id, page=page, per_page=per_page,
+                                       employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id))
 
 
 @learning_router.post(
@@ -471,7 +494,9 @@ def get_skill(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_skill_by_id(db, id, organization_id=current_user.organization_id)
+    skill = learning_service.get_skill_by_id(db, id, organization_id=current_user.organization_id)
+    _visible_or_404(db, current_user, skill.employee_id, "LearningSkill", id)
+    return skill
 
 
 @learning_router.put(
@@ -519,7 +544,7 @@ def start_quiz(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if _is_learner(current_user):
+    if not ownership.is_admin(current_user):
         data = data.model_copy(update={"employee_id": current_user.id})     # a learner can only start a quiz for themselves
     return learning_service.start_quiz(db, data, organization_id=current_user.organization_id)
 
@@ -535,7 +560,7 @@ def get_quiz_attempt(
     current_user=Depends(get_current_user),
 ):
     attempt = learning_service.get_quiz_attempt_by_id(db, attempt_id, organization_id=current_user.organization_id)
-    _own_attempt_or_404(attempt, current_user, attempt_id)
+    _own_attempt_or_404(attempt, current_user, attempt_id, db)
     return attempt
 
 
@@ -711,9 +736,8 @@ def list_quiz_attempts(
     current_user=Depends(get_current_user),
     employee_id: Optional[int] = Query(None, description="Filter by employee ID"),
 ):
-    if _is_learner(current_user):
-        employee_id = current_user.id        # a learner sees their own attempts only
-    return learning_service.get_quiz_attempts(db, assessment_id=id, employee_id=employee_id, organization_id=current_user.organization_id)
+    return learning_service.get_quiz_attempts(db, assessment_id=id, organization_id=current_user.organization_id,
+                                              employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id))
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -807,7 +831,8 @@ def list_program_assignments(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.get_program_assignments(db, prog_id, organization_id=current_user.organization_id)
+    return learning_service.get_program_assignments(db, prog_id, organization_id=current_user.organization_id,
+                                                    employee_ids=ownership.scoped_employee_filter(db, current_user, None))
 
 
 @learning_router.post(
@@ -823,6 +848,7 @@ def assign_program(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    data = data.model_copy(update={"program_id": prog_id})              # the program in the URL, never one named in the body
     return learning_service.assign_program(db, data, organization_id=current_user.organization_id)
 
 
@@ -945,7 +971,7 @@ def delete_calendar_event(
 )
 def course_completion_report(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return learning_service.get_course_completion_report(db, current_user.organization_id)
 
@@ -956,7 +982,7 @@ def course_completion_report(
 )
 def export_course_completion_report_csv(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     csv_data = learning_service.export_course_completion_csv(db, current_user.organization_id)
     return Response(
@@ -972,7 +998,7 @@ def export_course_completion_report_csv(
 )
 def export_course_completion_report_excel(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     xlsx_data = learning_service.export_course_completion_excel(db, current_user.organization_id)
     return Response(
@@ -990,7 +1016,7 @@ def export_course_completion_report_excel(
 )
 def certification_report(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return learning_service.get_certifications(db, organization_id=current_user.organization_id)
 
@@ -1001,7 +1027,7 @@ def certification_report(
 )
 def export_certifications_report_csv(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     csv_data = learning_service.export_certifications_csv(db, current_user.organization_id)
     return Response(
@@ -1017,7 +1043,7 @@ def export_certifications_report_csv(
 )
 def export_certifications_report_excel(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     xlsx_data = learning_service.export_certifications_excel(db, current_user.organization_id)
     return Response(
@@ -1034,7 +1060,7 @@ def export_certifications_report_excel(
 )
 def skill_gap_report(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return learning_service.get_skill_gap_analysis(db, current_user.organization_id)
 
@@ -1045,7 +1071,7 @@ def skill_gap_report(
 )
 def export_skill_gap_report_csv(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     csv_data = learning_service.export_skill_gap_csv(db, current_user.organization_id)
     return Response(
@@ -1061,7 +1087,7 @@ def export_skill_gap_report_csv(
 )
 def export_skill_gap_report_excel(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     xlsx_data = learning_service.export_skill_gap_excel(db, current_user.organization_id)
     return Response(

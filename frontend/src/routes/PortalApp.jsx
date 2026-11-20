@@ -15,7 +15,7 @@ import { lazyRoute } from "../lib/lazyRoute";
 import { registerRoutes } from "../lib/prefetch";
 import AppLayout, { RouteBoundary } from "../components/AppLayout";
 import { flatRoutes } from "../navigation";
-import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES } from "../config/roles";
+import { ROLE_ALLOWED_PREFIXES, ROLE_DISALLOWED_PREFIXES, ROLE_DISALLOWED_PATHS } from "../config/roles";
 import PlanGate from "../components/PlanGate";
 import ProtectedRoute from "../components/ProtectedRoute";
 import NotFoundPage from "../components/NotFoundPage";
@@ -71,9 +71,6 @@ const ZoikoHRLearning = lazyRoute(() => import("../modules/zoiko-hr/learning/lea
 const EssDashboard = lazyRoute(() => import("../modules/zoiko-hr/ess/dashboard.jsx"));
 const EssProfile = lazyRoute(() => import("../modules/zoiko-hr/ess/profile.jsx"));
 const EssLeaveManagement = lazyRoute(() => import("../modules/zoiko-hr/ess/leave-management.jsx"));
-const EssAttendance = lazyRoute(() => import("../modules/zoiko-hr/ess/attendance.jsx"));
-const EssMyDocuments = lazyRoute(() => import("../modules/zoiko-hr/ess/my-documents.jsx"));
-const EssAssignedDocuments = lazyRoute(() => import("../modules/zoiko-hr/ess/assigned-documents.jsx"));
 const EssRequests = lazyRoute(() => import("../modules/zoiko-hr/ess/requests.jsx"));
 const EssSettings = lazyRoute(() => import("../modules/zoiko-hr/ess/settings.jsx"));
 
@@ -93,8 +90,15 @@ const AssetReports = lazyRoute(() => import("../modules/zoiko-hr/assets/reports"
 const AssetSettings = lazyRoute(() => import("../modules/zoiko-hr/assets/settings"));
 
 const DocumentsDashboard = lazyRoute(() => import("../modules/zoiko-hr/documents/dashboard.jsx"));
-const CompanyDocuments = lazyRoute(() => import("../modules/zoiko-hr/documents/company-documents.jsx"));
-const ApprovalWorkflow = lazyRoute(() => import("../modules/zoiko-hr/documents/approvals.jsx"));
+const CompanyDocuments = lazyRoute(() => import("../modules/zoiko-hr/documents/company-documents/CompanyCategoriesPage.jsx"));
+const CompanyCategory = lazyRoute(() => import("../modules/zoiko-hr/documents/company-documents/CompanyCategoryPage.jsx"));
+const EmployeeDocumentsList = lazyRoute(() => import("../modules/zoiko-hr/documents/employee-documents/EmployeeDocumentsListPage.jsx"));
+const EmployeeDocumentCategories = lazyRoute(() => import("../modules/zoiko-hr/documents/employee-documents/EmployeeDocumentCategoriesPage.jsx"));
+const EmployeeCategoryFiles = lazyRoute(() => import("../modules/zoiko-hr/documents/employee-documents/EmployeeCategoryFilesPage.jsx"));
+const DocumentsAutomation = lazyRoute(() => import("../modules/zoiko-hr/documents/automation/AutomationSettingsPage.jsx"));
+const DocumentCategorySettings = lazyRoute(() => import("../modules/zoiko-hr/documents/settings/DocumentCategorySettingsPage.jsx"));
+const AttendanceApprovals = lazyRoute(() => import("../modules/zoiko-hr/attendance/ApprovalsPage.jsx"));
+const ApprovalWorkflow = lazyRoute(() => import("../modules/zoiko-hr/documents/approvals/ApprovalWorkflowPage.jsx"));
 // Document template engine (docs/templates)
 const TemplateLibraryPage = lazyRoute(() => import("../modules/zoiko-hr/documents/templates/TemplateLibraryPage.jsx"));
 const TemplateDetailPage = lazyRoute(() => import("../modules/zoiko-hr/documents/templates/TemplateDetailPage.jsx"));
@@ -155,7 +159,6 @@ const OrgAdminDashboardPage = lazyRoute(() => import("../modules/organization-ad
 const OrgAdminOrganizationPage = lazyRoute(() => import("../modules/organization-admin/OrganizationPage"));
 const OrgAdminAssetRequestsPage = lazyRoute(() => import("../modules/organization-admin/AssetRequestsPage"));
 const OrgAdminAssetsPage = lazyRoute(() => import("../modules/organization-admin/AssetsPage"));
-const OrgAdminEmployeeDocumentsPage = lazyRoute(() => import("../modules/organization-admin/EmployeeDocumentsPage"));
 const OrgAdminUserManagementPage = lazyRoute(() => import("../modules/organization-admin/UserManagementPage"));
 const OrgAdminMetricsPage = lazyRoute(() => import("../modules/organization-admin/MetricsPage"));
 const OrgAdminPayrollGuidancePage = lazyRoute(() => import("../modules/organization-admin/PayrollGuidancePage"));
@@ -268,6 +271,7 @@ const routeOverrides = {
   "/zoiko-hr/leave/reports": <ZoikoHRLeaveReports />,
   // Attendance
   "/zoiko-hr/attendance": <ZoikoHRAttendanceDashboard />,
+  "/zoiko-hr/attendance/approvals": <AttendanceApprovals />,
   "/zoiko-hr/attendance/daily": <ZoikoHRAttendanceDailyRecords />,
   "/zoiko-hr/attendance/leaves": <ZoikoHRAttendanceLeaves />,
   "/zoiko-hr/attendance/shifts": <ZoikoHRAttendanceShifts />,
@@ -312,9 +316,11 @@ const routeOverrides = {
   "/zoiko-hr/ess": <EssDashboard />,
   "/zoiko-hr/ess/profile": <EssProfile />,
   "/zoiko-hr/ess/leave": <EssLeaveManagement />,
-  "/zoiko-hr/ess/attendance": <EssAttendance />,
-  "/zoiko-hr/ess/my-documents": <EssMyDocuments />,
-  "/zoiko-hr/ess/assigned-documents": <EssAssignedDocuments />,
+  // the old ESS attendance page had a pretend clock-in (attendance plan M3): everyone uses My Attendance now
+  "/zoiko-hr/ess/attendance": <Navigate to="/employee/ess/attendance" replace />,
+  // retired ESS document pages (ZHR-DOCS-ARCH-001 Phase 9): old links land on the employee Documents tabs
+  "/zoiko-hr/ess/my-documents": <Navigate to="/employee/documents/my-files" replace />,
+  "/zoiko-hr/ess/assigned-documents": <Navigate to="/employee/documents/company" replace />,
   "/zoiko-hr/ess/requests": <EssRequests />,
   "/zoiko-hr/ess/settings": <EssSettings />,
   // Travel (HR admin view)
@@ -345,8 +351,15 @@ const routeOverrides = {
   // Documents
   "/zoiko-hr/documents": <DocumentsDashboard />,
   "/zoiko-hr/documents/company-documents": <CompanyDocuments />,
+  "/zoiko-hr/documents/company-documents/:categoryId": <CompanyCategory />,
   "/zoiko-hr/documents/approvals": <ApprovalWorkflow />,
-  "/zoiko-hr/documents/employee-upload": <OrgAdminEmployeeDocumentsPage />,
+  // Employee Documents is a read-only drill-down (ZHR-DOCS-ARCH-001 Module A); the old upload page's address redirects.
+  "/zoiko-hr/documents/employee-upload": <Navigate to="/zoiko-hr/documents/employees" replace />,
+  "/zoiko-hr/documents/employees": <EmployeeDocumentsList />,
+  "/zoiko-hr/documents/employees/:employeeId": <EmployeeDocumentCategories />,
+  "/zoiko-hr/documents/employees/:employeeId/:categoryId": <EmployeeCategoryFiles />,
+  "/zoiko-hr/documents/settings/categories": <DocumentCategorySettings />,
+  "/zoiko-hr/documents/settings/automation": <DocumentsAutomation />,
   // ("variants" is matched before ":canonicalId": react-router ranks the static segment higher)
   "/zoiko-hr/documents/templates": <TemplateLibraryPage />,
   "/zoiko-hr/documents/templates/variants/:variantId": <TemplateEditorPage />,
@@ -490,6 +503,7 @@ function getAllowedRolesForPath(path) {
     if (disallowed.some((prefix) => path === prefix || path.startsWith(prefix.endsWith('/') ? prefix : prefix + '/'))) {
       return false;
     }
+    if ((ROLE_DISALLOWED_PATHS[role] || []).includes(path)) return false;
     const prefixes = ROLE_ALLOWED_PREFIXES[role] || [];
     return prefixes.some((prefix) => {
       if (prefix === "/") return path === "/";

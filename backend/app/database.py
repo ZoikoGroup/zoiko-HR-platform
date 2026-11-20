@@ -163,6 +163,9 @@ import app.modules.support_access.models  # noqa: F401,E402
 import app.modules.support_access.audit  # noqa: F401,E402
 import app.modules.support_login.models  # noqa: F401,E402
 import app.modules.doc_templates.models  # noqa: F401,E402
+import app.modules.hr.documents.models  # noqa: F401,E402
+import app.modules.hr.documents.automation.models  # noqa: F401,E402
+import app.modules.hr.attendance.models  # noqa: F401,E402
 import app.modules.hr.docs_setup_models  # noqa: F401,E402
 
 # Plan seat limits (Core 50, Advanced 250) hold on every write path, not only the routes that check them up front.
@@ -222,6 +225,12 @@ _SELF_HEALED_TABLES = (
     "hr_documents",
     "jurisdiction_packs", "template_variants", "template_clauses", "decision_receipts", "policy_distributions",
     "doc_template_settings", "generated_documents",
+    # documents module (ZHR-DOCS-ARCH-001, migrations e1a2b3c4d5f0 …): existing tables that gained columns
+    "hr_document_versions", "hr_document_folders", "document_approval_steps", "document_approval_logs",
+    # attendance engine (attendance plan, migration a7c1d2e3f4a0): attendance_records / shifts / shift_rosters are listed
+    # above; the correction requests gained kind / requested_status / requested_breaks. The duplicate merge, UTC backfill
+    # and unique index run only through `alembic upgrade head` (never on boot).
+    "attendance_correction_requests",
 )
 
 
@@ -372,6 +381,15 @@ def initialize_database() -> None:
         "ALTER TABLE billing_audit_logs ALTER COLUMN organization_id DROP NOT NULL",
     ]
     _ensure_model_columns(_SELF_HEALED_TABLES)
+
+    # Documents module: the same idempotent backfill that migration e1a2b3c4d5f2 runs in production. Without it, rows that
+    # predate organization_id on versions / approval steps would be invisible to tenant requests on a development database.
+    try:
+        from app.modules.hr.documents.backfill import run_all as _documents_backfill
+        with engine.begin() as conn:
+            _documents_backfill(conn)
+    except Exception as exc_info:                      # never block the boot over this
+        logger.warning("Documents backfill skipped (run `alembic upgrade head`): %s", exc_info)
 
     # Each ALTER is a network round trip (~15s for the full list), so probe the
     # newest sentinel columns first and skip the whole list once they exist.

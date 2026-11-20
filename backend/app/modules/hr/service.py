@@ -683,6 +683,9 @@ def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional
     db.commit()
     db.refresh(employee)
 
+    from app.modules.hr.documents.hooks import on_employee_created   # onboarding document checklist
+    on_employee_created(db, employee)
+
     _send_welcome_email(db, employee, data.password)
 
     return employee
@@ -750,11 +753,17 @@ def update_employee(db: Session, employee_id: int, data: EmployeeUpdate, organiz
         get_department_by_id(db, data.department_id, organization_id)
 
     update_data = data.model_dump(exclude_unset=True)
+    before = (employee.department_id, getattr(employee, "designation_id", None), employee.role)
     for field, value in update_data.items():
         setattr(employee, field, value)
 
     db.commit()
     db.refresh(employee)
+    after = (employee.department_id, getattr(employee, "designation_id", None), employee.role)
+    if before != after:
+        from app.modules.hr.documents.hooks import on_employee_role_changed
+        on_employee_role_changed(db, employee, from_role=before[2], to_role=employee.role, from_department_id=before[0],
+                                 from_designation_id=before[1])
     return employee
 
 
@@ -774,6 +783,8 @@ def deactivate_employee(db: Session, employee_id: int, organization_id: Optional
     db.add(event)
     db.commit()
     db.refresh(employee)
+    from app.modules.hr.documents.hooks import on_employee_exited
+    on_employee_exited(db, employee, exit_date=event.event_date, exit_type="deactivated")
     return employee
 
 
@@ -4675,9 +4686,8 @@ def check_travel_dates(start: Optional[date], end: Optional[date], *, allow_past
 
 def create_travel_request(db: Session, data: TravelRequestCreate, organization_id: int) -> TravelRequest:
     if data.employee_id is not None:
-        found = db.query(Employee.id).filter(Employee.id == data.employee_id, Employee.organization_id == organization_id).first()
-        if not found:
-            raise BadRequestException("The selected staff member was not found in this organization. Choose someone from the list.")
+        from app.modules.employee.ownership import get_org_employee_or_404
+        get_org_employee_or_404(db, organization_id, data.employee_id)        # this organization, still working here
     if data.start_date and data.end_date and data.end_date < data.start_date:
         raise BadRequestException("The end date cannot be before the start date.")
     request = TravelRequest(**data.model_dump(), organization_id=organization_id)
@@ -4698,9 +4708,12 @@ def get_travel_requests(
     status: Optional[RequestStatus] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    employee_ids: Optional[list[int]] = None,
 ) -> dict:
+    from app.modules.employee.ownership import filter_ids
     query = db.query(TravelRequest).filter(TravelRequest.organization_id == organization_id)
-    
+    query = filter_ids(query, TravelRequest.employee_id, employee_ids)    # who the caller may see (None = everyone)
+
     if employee_id:
         query = query.filter(TravelRequest.employee_id == employee_id)
     if status:
@@ -4855,7 +4868,9 @@ def get_travel_approval_history(db: Session, request_id: int) -> list[TravelAppr
 # ════════════════════════════════════════════════════════════════════════════
 
 def check_expense_trip(db: Session, data, organization_id: int) -> None:
-    """A claim that names a trip must name one of that person's own trips in this organization."""
+    """The claimant must work in this organization, and a claim that names a trip must name one of their own trips here."""
+    from app.modules.employee.ownership import get_org_employee_or_404
+    get_org_employee_or_404(db, organization_id, data.employee_id)            # also when no trip is named (audit T4)
     if getattr(data, "request_id", None) is None:
         return
     trip = db.query(TravelRequest).filter(TravelRequest.id == data.request_id, TravelRequest.organization_id == organization_id,
@@ -4885,9 +4900,12 @@ def get_travel_expenses(
     page: int = 1,
     per_page: int = 20,
     search: Optional[str] = None,
+    employee_ids: Optional[list[int]] = None,
 ) -> dict:
+    from app.modules.employee.ownership import filter_ids
     query = db.query(TravelExpense).filter(TravelExpense.organization_id == organization_id)
-    
+    query = filter_ids(query, TravelExpense.employee_id, employee_ids)    # who the caller may see (None = everyone)
+
     if request_id:
         query = query.filter(TravelExpense.request_id == request_id)
     if employee_id:
@@ -5716,28 +5734,9 @@ def resign_employee(db: Session, data: ResignationRequest, organization_id: Opti
 
 
 def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:
-    employee = get_employee_by_id(db, data.employee_id, organization_id)
-    
-    employee.status = EmployeeStatus.TERMINATED
-    employee.is_active = False
-    
-    event = EmployeeLifecycle(
-        employee_id=data.employee_id,
-        organization_id=employee.organization_id,
-        event_type="exit",
-        event_date=data.exit_date,
-        status="completed",
-        new_value={
-            "status": data.exit_type,
-            "final_settlement_date": str(data.final_settlement_date)
-        },
-        reason=data.reason
-    )
-    db.add(event)
-    db.commit()
-    db.refresh(event)
-    
-    return event
+    """Delegates to the single implementation in the employee module (status, lifecycle event and exit email)."""
+    from app.modules.employee.service import exit_employee as _exit_employee
+    return _exit_employee(db, data, organization_id)
 
 
 def get_employee_reports(db: Session, filters: Optional[dict] = None, organization_id: Optional[int] = None, visible_roles: Optional[list] = None) -> list:
@@ -6188,9 +6187,12 @@ def get_hr_documents(
     current_user=None,
     page: Optional[int] = None,
     per_page: Optional[int] = None,
+    mine: bool = False,
 ):
     """
     Return all non-deleted HR documents, with optional filtering.
+    mine=True limits the list to the caller's own documents (about them or uploaded by them) for every role, so the
+    employee-portal tabs show an admin their own files and not the whole organization's.
     Resolves employee_name, employee_id_str, employee_code, legacy_code and
     uploader_name for the response.
     `employee_id_str` matches employee_id / employee_code / legacy_code / numeric
@@ -6205,7 +6207,17 @@ def get_hr_documents(
     if current_user:
         role_val = current_user.role.value if hasattr(current_user.role, 'value') else str(current_user.role)
         is_admin = role_val in ["admin", "hr_admin", "super_admin"]
-        if not is_admin:
+        if mine:
+            # "My documents": about me, or uploaded by me and about nobody else. Files an admin uploaded for other
+            # employees are theirs, not the admin's.
+            query = query.filter(
+                HrDocument.organization_id == current_user.organization_id,
+                or_(
+                    HrDocument.employee_id == current_user.id,
+                    and_(HrDocument.uploaded_by == current_user.id, HrDocument.employee_id.is_(None)),
+                ),
+            )
+        elif not is_admin:
             # Organization membership is necessary but not sufficient: a plain
             # employee may only see documents they uploaded or that are
             # assigned to them via employee_id, not every document in the org
@@ -6387,6 +6399,16 @@ def update_hr_document(db: Session, document_id: int, data, organization_id: int
         raise NotFoundException("HrDocument", document_id)
 
     update_data = data.model_dump(exclude_unset=True)
+    if update_data.get("category") is not None:
+        from app.modules.hr.models import HrDocumentCategory
+        try:
+            update_data["category"] = HrDocumentCategory(update_data["category"])
+        except ValueError:
+            raise BadRequestException(
+                f"Invalid category '{update_data['category']}'. Valid values: {[e.value for e in HrDocumentCategory]}"
+            )
+    if update_data.get("employee_id") is not None:
+        _assert_employees_in_org(db, [update_data["employee_id"]], organization_id)
     for field, value in update_data.items():
         setattr(doc, field, value)
 
@@ -6398,10 +6420,25 @@ def update_hr_document(db: Session, document_id: int, data, organization_id: int
     return d
 
 
-def update_hr_document_status(db: Session, document_id: int, data, organization_id: int) -> object:
+def _assert_employees_in_org(db: Session, employee_ids, organization_id: int) -> None:
+    """Every id must be an employee of this organization; otherwise 404 (never reveal other tenants' ids)."""
+    ids = {int(i) for i in employee_ids if i is not None}
+    if not ids:
+        return
+    found = {row[0] for row in db.query(Employee.id).filter(
+        Employee.id.in_(ids), Employee.organization_id == organization_id).all()}
+    missing = sorted(ids - found)
+    if missing:
+        raise NotFoundException("Employee", missing[0])
+
+
+def update_hr_document_status(db: Session, document_id: int, data, organization_id: int, current_user=None) -> object:
     """
-    Change the approval status of a document (approve / reject / expire).
-    Accepts HrDocumentStatusUpdate schema.
+    Change the status of a document.
+
+    `approved` and `rejected` go through the approval chain (approve_document / reject_document), so the steps, the
+    approval log and approved_by stay consistent with the Approval Workflow. `pending` and `expired` are set directly
+    and logged.
     """
     from app.modules.hr.models import HrDocument, HrDocumentStatus
 
@@ -6413,19 +6450,31 @@ def update_hr_document_status(db: Session, document_id: int, data, organization_
     if not doc:
         raise NotFoundException("HrDocument", document_id)
 
-    # Validate the incoming status value against the enum
     try:
-        doc.status = HrDocumentStatus(data.status)
+        new_status = HrDocumentStatus(data.status)
     except ValueError:
         raise BadRequestException(
             f"Invalid status '{data.status}'. "
             f"Valid values: {[e.value for e in HrDocumentStatus]}"
         )
 
-    if data.rejection_reason is not None:
-        doc.rejection_reason = data.rejection_reason
+    if new_status == HrDocumentStatus.APPROVED and current_user is not None:
+        approve_document(db, document_id, current_user, comment=data.rejection_reason)
+    elif new_status == HrDocumentStatus.REJECTED and current_user is not None:
+        reason = (data.rejection_reason or "").strip()
+        if not reason:
+            raise BadRequestException("A reason is required to reject a document.")
+        reject_document(db, document_id, current_user, comment=reason)
+    else:
+        doc.status = new_status
+        if data.rejection_reason is not None:
+            doc.rejection_reason = data.rejection_reason
+        db.commit()
+        if current_user is not None:
+            role_val = current_user.role.value if hasattr(current_user.role, "value") else str(current_user.role)
+            _log_approval_action(db, document_id, f"status_{new_status.value}"[:20], performed_by=current_user.id,
+                                 role_at_time=role_val, comment=data.rejection_reason)
 
-    db.commit()
     db.refresh(doc)
     d = doc.__dict__.copy()
     d.pop("_sa_instance_state", None)
@@ -6750,9 +6799,11 @@ def get_pending_approvals(db: Session, current_user) -> list:
         if power < step_power:
             continue
         emp_name = None
+        emp_id_str = None
         if doc.employee_id:
             emp = people.get(doc.employee_id)
             emp_name = f"{emp.first_name} {emp.last_name}" if emp else None
+            emp_id_str = (emp.employee_id or emp.employee_code) if emp else None
         uploader_name = None
         if doc.uploaded_by:
             uploader = people.get(doc.uploaded_by)
@@ -6763,6 +6814,7 @@ def get_pending_approvals(db: Session, current_user) -> list:
             "document_title": doc.title,
             "category": doc.category.value if hasattr(doc.category, 'value') else str(doc.category),
             "employee_name": emp_name,
+            "employee_id_str": emp_id_str,
             "uploader_name": uploader_name,
             "step_order": step.step_order,
             "required_role": _effective_step_role(step.required_role),
@@ -6794,6 +6846,12 @@ def _log_approval_action(
 
 
 def approve_document(db: Session, document_id: int, current_user, comment: Optional[str] = None) -> dict:
+    # Documents with a version waiting in the versioned workflow (ZHR-DOCS-ARCH-001) are decided there: separation of
+    # duties, the review lock, per-version status and the employee's notification all apply.
+    from app.modules.hr.documents import approval_service
+    if approval_service.has_versioned_review(db, document_id):
+        approval_service.approve(db, current_user, document_id, None, comment)
+        return {"message": "Document approved", "status": "approved"}
     from app.modules.hr.models import (
         HrDocument, HrDocumentStatus,
         DocumentApprovalStep, ApprovalStepStatus,
@@ -6860,6 +6918,10 @@ def approve_document(db: Session, document_id: int, current_user, comment: Optio
 
 
 def reject_document(db: Session, document_id: int, current_user, comment: Optional[str] = None) -> dict:
+    from app.modules.hr.documents import approval_service
+    if approval_service.has_versioned_review(db, document_id):
+        approval_service.reject(db, current_user, document_id, None, "other", comment or "")
+        return {"message": "Document rejected", "status": "rejected"}
     from app.modules.hr.models import HrDocument, HrDocumentStatus, DocumentApprovalStep, ApprovalStepStatus
 
     doc = db.query(HrDocument).filter(
@@ -7012,6 +7074,9 @@ def upload_hr_document_with_approval(
 
     create_default_approval_steps(db, doc.id, uploader_role or "employee")
     db.refresh(doc)
+    from app.modules.hr.documents.company_service import adopt_legacy_upload   # company scope, v1, admin-only until shared
+    adopt_legacy_upload(db, doc)
+    db.refresh(doc)
 
     d = doc.__dict__.copy()
     d.pop("_sa_instance_state", None)
@@ -7039,8 +7104,9 @@ def assign_document_to_employees(
     ).first()
     if not doc:
         raise NotFoundException("HrDocument", document_id)
-    if organization_id is not None and doc.organization_id != organization_id and doc.uploaded_by is None:
+    if doc.organization_id != organization_id:
         raise NotFoundException("HrDocument", document_id)
+    _assert_employees_in_org(db, employee_ids, organization_id)
 
     created = []
     for emp_id in employee_ids:
@@ -7090,9 +7156,11 @@ def assign_folder_to_employees(
     ).first()
     if not folder:
         raise NotFoundException("HrDocumentFolder", folder_id)
+    _assert_employees_in_org(db, employee_ids, organization_id)
 
     docs = db.query(HrDocument).filter(
         HrDocument.folder_id == folder_id,
+        HrDocument.organization_id == organization_id,
         HrDocument.is_deleted == False,
     ).all()
 
@@ -7136,7 +7204,7 @@ def get_document_assignments(db: Session, document_id: int, organization_id: int
     ).first()
     if not doc:
         raise NotFoundException("HrDocument", document_id)
-    if organization_id is not None and doc.organization_id != organization_id and doc.uploaded_by is None:
+    if doc.organization_id != organization_id:
         raise NotFoundException("HrDocument", document_id)
 
     assignments = db.query(DocumentAssignment).filter(
@@ -7256,15 +7324,22 @@ def get_document_folders(db: Session, organization_id: int, parent_id: int | Non
     return result
 
 
-def get_folder_breadcrumb(db: Session, folder_id: int | None) -> list:
+def get_folder_breadcrumb(db: Session, folder_id: int | None, organization_id: int) -> list:
     from app.modules.hr.models import HrDocumentFolder
     if not folder_id:
         return []
     chain = []
+    seen = set()
     current_id = folder_id
-    while current_id:
-        folder = db.query(HrDocumentFolder).filter(HrDocumentFolder.id == current_id).first()
+    while current_id and current_id not in seen:
+        seen.add(current_id)
+        folder = db.query(HrDocumentFolder).filter(
+            HrDocumentFolder.id == current_id,
+            HrDocumentFolder.organization_id == organization_id,
+        ).first()
         if not folder:
+            if current_id == folder_id:
+                raise NotFoundException("HrDocumentFolder", folder_id)
             break
         chain.append({"id": folder.id, "name": folder.name})
         current_id = folder.parent_id
@@ -7272,13 +7347,25 @@ def get_folder_breadcrumb(db: Session, folder_id: int | None) -> list:
     return chain
 
 
-def create_document_folder(db: Session, name: str, organization_id: int, parent_id: int | None = None, created_by: int | None = None) -> dict:
+def create_document_folder(db: Session, name: str, organization_id: int, parent_id: int | None = None, created_by: int | None = None,
+                           company_category_id: int | None = None) -> dict:
     from app.modules.hr.models import HrDocumentFolder
+    from app.modules.hr.documents.models import HrCompanyDocumentCategory
+    if parent_id is not None and company_category_id is None:
+        parent = db.query(HrDocumentFolder).filter(HrDocumentFolder.id == parent_id, HrDocumentFolder.organization_id == organization_id).first()
+        company_category_id = parent.company_category_id if parent else None
+    if company_category_id is not None and not db.query(HrCompanyDocumentCategory.id).filter(
+            HrCompanyDocumentCategory.id == company_category_id, HrCompanyDocumentCategory.organization_id == organization_id).first():
+        raise NotFoundException("Category", company_category_id)
+    if parent_id is not None and not db.query(HrDocumentFolder.id).filter(
+            HrDocumentFolder.id == parent_id, HrDocumentFolder.organization_id == organization_id).first():
+        raise NotFoundException("HrDocumentFolder", parent_id)
     folder = HrDocumentFolder(
         name=name.strip(),
         parent_id=parent_id,
         organization_id=organization_id,
         created_by=created_by,
+        company_category_id=company_category_id,
     )
     db.add(folder)
     db.commit()
@@ -7293,7 +7380,7 @@ def rename_document_folder(db: Session, folder_id: int, name: str, organization_
         HrDocumentFolder.organization_id == organization_id,
     ).first()
     if not folder:
-        raise ValueError("Folder not found")
+        raise NotFoundException("HrDocumentFolder", folder_id)
     folder.name = name.strip()
     db.commit()
     db.refresh(folder)

@@ -38,6 +38,14 @@ SETTINGS: dict[str, tuple[type, Any, str]] = {
     # working time
     "attendance.standard_workday_hours": (Decimal, None, "Standard working day for timekeeping (hours)"),
     "attendance.shift_change_notice_days": (int, None, "Normal notice for a shift change (days)"),
+    # attendance engine (attendance plan §4): grace, half day, overtime, default shift, punching, edits
+    "attendance.grace_minutes": (int, 10, "Minutes after the shift start before a check-in counts as late (when the shift sets none)"),
+    "attendance.half_day_min_hours": (Decimal, Decimal("4"), "Net hours below which a worked day counts as a half day"),
+    "attendance.overtime_requires_approval": (bool, True, "Overtime counts only when an overtime request is approved"),
+    "attendance.default_shift_id": (int, None, "Shift used for people with no roster entry or assigned shift"),
+    "attendance.auto_close_punch_out": (bool, True, "Close a day with no punch-out as a missed punch at the end of the day"),
+    "attendance.allow_web_punch": (bool, True, "Employees may punch in and out in the browser"),
+    "attendance.edit_lock_days": (int, None, "Days after which past attendance can no longer be edited (empty: no limit)"),
     # leave
     "leave.document_map": (dict, None, "Leave type -> documents generated on creation / decision"),
     "leave.bereavement_evidence_enabled": (bool, False, "Ask for evidence of bereavement (only where policy allows)"),

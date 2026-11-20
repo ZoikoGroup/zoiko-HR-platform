@@ -2322,6 +2322,18 @@ def send_reporting_line_changed_email(email, first_name, change_reference, actio
     }, db=db, organization_id=organization_id)
 
 
+def send_document_notice_email(email, first_name, subject, heading, message, action_url=None, action_label=None,
+                               reason=None, badge_tone="info", db=None, organization_id=None,
+                               template_body=None):
+    """Documents module notices (ZHR-DOCS-ARCH-001): decisions, upload requests, reminders, expiry, escalations.
+    `template_body` is an organization's own wording (notification_templates); the layout stays the platform's."""
+    return send_approval_email(email, "document_notice.html", {
+        "subject": subject, "first_name": first_name or "there", "heading": heading, "message": message,
+        "reason": reason, "badge_tone": badge_tone,
+        "action_url": action_url or _login_url(), "action_label": action_label or "Open Zoiko HR",
+    }, db=db, organization_id=organization_id, template_body=template_body)
+
+
 def send_documents_to_action_email(email, first_name, pending_count, action_url=None, db=None, organization_id=None):
     """Weekly nudge: how many documents wait for the person (a count only)."""
     return send_approval_email(email, "documents_to_action.html", {

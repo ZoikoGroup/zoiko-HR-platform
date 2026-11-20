@@ -110,7 +110,8 @@ export default function DocumentPreviewModal({ preview, onClose, onDownload }) {
   );
 }
 
-function PreviewBody({ kind, blob, url, filename, zoom }) {
+// Also used by the documents FilePreviewDrawer (side panel / drawer), so both render every format the same way.
+export function PreviewBody({ kind, blob, url, filename, zoom = 1 }) {
   if (kind === PDF) {
     return (
       <div className="border border-doc-border dark:border-[#334155] rounded-lg overflow-hidden bg-white" style={{ height: "72vh" }}>

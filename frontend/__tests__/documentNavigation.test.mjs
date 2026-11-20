@@ -47,7 +47,7 @@ test("navigation.js no longer links /zoiko-hr/ess/my-documents from the sidebar 
   assert.doesNotMatch(navSource, /href:\s*["']\/zoiko-hr\/ess\/my-documents["']/);
 });
 
-test("App.jsx still registers a route for /zoiko-hr/ess/my-documents (kept per option (a): other zoiko-hr/ess pages cross-link to it internally)", () => {
+test("App.jsx still registers /zoiko-hr/ess/my-documents, now as a redirect to My Files (old bookmarks keep working)", () => {
   assert.match(appSource, /["']\/zoiko-hr\/ess\/my-documents["']/);
 });
 

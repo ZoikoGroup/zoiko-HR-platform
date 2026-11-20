@@ -27,6 +27,7 @@ logger = logging.getLogger("zoiko.notifications.hr")
 EVENTS = {
     "overtime.approved": ("attendance", "Overtime approved", "Your overtime request for {date} has been approved."),
     "overtime.rejected": ("attendance", "Overtime not approved", "Your overtime request for {date} was not approved."),
+    "attendance.missed_punch": ("attendance", "You did not punch out", "You punched in on {date} but never punched out, so the day counts 0 hours. Request a correction in My Attendance."),
     "correction.approved": ("attendance", "Attendance correction approved", "Your attendance correction for {date} has been approved."),
     "correction.rejected": ("attendance", "Attendance correction not approved", "Your attendance correction for {date} was not approved."),
     "expense.approved": ("expense", "Expense claim approved", "Your expense claim has been approved."),
@@ -37,6 +38,19 @@ EVENTS = {
     "document.to_sign": ("document", "Document to sign", "“{title}” is ready for your signature."),
     "document.to_acknowledge": ("document", "Document to acknowledge", "Please read and acknowledge “{title}”."),
     "document.issued": ("document", "New document", "“{title}” has been issued to you."),
+    # documents module (ZHR-DOCS-ARCH-001): uploads, decisions, reminders and expiry
+    "document.approved": ("document", "Document approved", "Your “{title}” has been approved."),
+    "document.rejected": ("document", "Document not approved", "Your “{title}” was not approved. Open My Files to see why and upload a new copy."),
+    "document.reupload_requested": ("document", "New copy requested", "HR asked for a new copy of your “{title}”. Open My Files to upload it."),
+    "document.upload_requested": ("document", "Documents to upload", "Please upload your {title} in My Files."),
+    "document.upload_reminder": ("document", "Reminder: documents to upload", "Your {title} still need to be uploaded in My Files."),
+    "document.expiring": ("document", "Document expiring soon", "Your “{title}” expires on {date}. Upload a valid copy in My Files."),
+    "document.expired": ("document", "Document expired", "Your “{title}” has expired. Upload a valid copy in My Files."),
+    "document.review_needed": ("document", "Document to review", "“{title}” is waiting for review in Approval Workflow."),
+    "document.task_escalated": ("document", "Overdue document task", "{title} is overdue."),
+    "document.signed_filed": ("document", "Signed copy saved", "The signed copy of “{title}” is saved in your documents."),
+    "document.retention_due": ("document", "Retention period ended", "The retention period ended for {title}. Review them before anything is removed."),
+    "document.weekly_digest": ("document", "Weekly documents summary", "This week: {title}. Open Approval Workflow for details."),
     "onboarding.tasks_assigned": ("onboarding", "Onboarding tasks assigned", "You have new onboarding tasks to complete."),
     "performance.review_shared": ("performance", "Performance review shared", "Your performance review has been shared with you."),
 }
@@ -50,14 +64,17 @@ def _fmt_date(value) -> str:
 
 
 def notify_employee(db: Session, org_id: Optional[int], employee_ids, event: str, *, link: Optional[str] = None,
-                    date=None, title: Optional[str] = None, commit: bool = True) -> None:
+                    date=None, title: Optional[str] = None, commit: bool = True,
+                    heading: Optional[str] = None, message: Optional[str] = None) -> None:
     """Notify one or more employees (login ids = employees.id) of ``event``. Never raises."""
     if org_id is None or event not in EVENTS:
         return
     ids: Iterable = employee_ids if isinstance(employee_ids, (list, tuple, set)) else [employee_ids]
-    kind, heading, template = EVENTS[event]
+    kind, default_heading, template = EVENTS[event]
     safe_title = (title or "a document").strip()[:120]
-    message = template.format(date=_fmt_date(date), title=safe_title)
+    # heading / message: an organization's own wording (documents notification templates), already rendered
+    heading = (heading or default_heading)[:200]
+    message = message or template.format(date=_fmt_date(date), title=safe_title)
     try:
         from app.modules.super_admin.admin_notifications import notify_users
         with db.begin_nested():

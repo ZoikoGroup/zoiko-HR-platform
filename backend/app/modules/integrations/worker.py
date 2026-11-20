@@ -24,6 +24,16 @@ def run_once() -> None:
     finally:
         db.close()
 
+    # Documents automation runs (ZHR-DOCS-ARCH-001 §15.2): own session, so a failure here never affects the above.
+    db = SessionLocal()
+    try:
+        from app.modules.hr.documents.automation.runner import process_due_runs
+        process_due_runs(db)
+    except Exception:
+        logger.exception("documents automation tick failed")
+    finally:
+        db.close()
+
 
 def start_worker():
     global _scheduler
