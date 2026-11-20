@@ -13,7 +13,8 @@ export async function fetchAllPages(fetcher, params = {}) {
     const items = Array.isArray(data?.items) ? data.items : [];
     all.push(...items);
     const total = Number(data?.total);
-    if (items.length < PAGE_SIZE || (Number.isFinite(total) && all.length >= total)) break;
+    const size = Number(data?.per_page) || PAGE_SIZE;          // a list may page smaller than asked
+    if (items.length === 0 || items.length < size || (Number.isFinite(total) && all.length >= total)) break;
   }
   return all;
 }

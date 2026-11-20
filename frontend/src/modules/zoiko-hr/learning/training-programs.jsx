@@ -9,6 +9,8 @@ import {
   getHrEmployees,
 } from "../../../service/hrService";
 import { formatDateTime } from "../../../utils/dateTime";
+import { isLearningAdmin } from "../../../utils/learningAccess";
+import ProgramParticipants from "./ProgramParticipants.jsx";
 import {
   PROGRAM_STATUSES, EMPTY_PROGRAM, statusOptions, programToForm, validateProgramForm, programPayload,
   serverProgramErrors, missingProgramDetails, dateText,
@@ -169,6 +171,7 @@ export default function TrainingPrograms({ isTab }) {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [editItem, setEditItem] = useState(null);
   const [detailItem, setDetailItem] = useState(null);
+  const [admin] = useState(() => isLearningAdmin());        // participants are managed by an admin only (the API agrees)
   const [submitting, setSubmitting] = useState(false);
   const [formData, setFormData] = useState({ ...EMPTY_PROGRAM });
   const [formErrors, setFormErrors] = useState({});
@@ -472,6 +475,7 @@ export default function TrainingPrograms({ isTab }) {
                   </dd>
                 </div>
               </dl>
+              {admin && <ProgramParticipants program={detailItem} onChanged={fetchPrograms} />}
               <div className="pt-4 border-t border-gray-100 text-xs text-gray-600 space-y-1">
                 <div>Created: {detailItem.created_at ? formatDateTime(detailItem.created_at) : "-"}</div>
                 <div>Updated: {detailItem.updated_at ? formatDateTime(detailItem.updated_at) : "-"}</div>

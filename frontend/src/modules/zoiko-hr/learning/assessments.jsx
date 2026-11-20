@@ -14,6 +14,8 @@ import {
   getQuizAttempts,
 } from "../../../service/hrService";
 import { formatDateTime } from "../../../utils/dateTime";
+import { isLearningAdmin } from "../../../utils/learningAccess";
+import ReviewQueue from "./review-queue.jsx";
 import { fetchAllPages } from "../../../utils/learningPaging";
 import {
   QUESTION_TYPES, EMPTY_ASSESSMENT, EMPTY_QUESTION, assessmentToForm, validateAssessmentForm, assessmentPayload,
@@ -23,7 +25,7 @@ import {
 
 const ITEMS_PER_PAGE = 10;
 const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
-const TONES = { green: "bg-green-100 text-green-800", red: "bg-red-100 text-red-800", blue: "bg-blue-100 text-blue-800" };
+const TONES = { green: "bg-green-100 text-green-800", red: "bg-red-100 text-red-800", blue: "bg-blue-100 text-blue-800", amber: "bg-amber-100 text-amber-800" };
 
 function Pager({ page, total, onPage, count }) {
   if (total <= 1) return null;
@@ -386,7 +388,9 @@ export default function ZoikoHRAssessments({ isTab }) {
     }
   };
 
-  const tabs = [{ key: "assessments", label: "Assessments" }, { key: "attempts", label: "Quiz Attempts" }];
+  // the essay review queue is for an admin (the API answers 403 to anyone else)
+  const tabs = [{ key: "assessments", label: "Assessments" }, { key: "attempts", label: "Quiz Attempts" },
+    ...(isLearningAdmin() ? [{ key: "review", label: "Awaiting Review" }] : [])];
 
   const content = (
     <>
@@ -535,6 +539,8 @@ export default function ZoikoHRAssessments({ isTab }) {
           )}
         </>
       )}
+
+      {activeTab === "review" && <ReviewQueue />}
 
       {showCreate && (
         <AssessmentForm title="Add Assessment" form={formData} setForm={setFormData} errors={formErrors} setErrors={setFormErrors} courses={courses}

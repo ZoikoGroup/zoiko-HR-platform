@@ -50,6 +50,10 @@ async function load(t, over = {}) {
     getHrEmployees: async () => ({ items: [{ id: 5, first_name: "Sam", last_name: "Lee" }, { id: 6, first_name: "Ann", last_name: "Roy" }] }),
   };
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+  Object.assign(svc, {                                  // the participants panel (batch 3)
+    getProgramParticipants: async () => [], addProgramParticipant: async () => ({}), removeProgramParticipant: async () => ({}),
+    searchLearningPeople: async () => ({ items: [] }),
+  });
   t.mock.module("../src/service/hrService.js", { exports: svc });
   const { default: Page } = await import(`../src/modules/zoiko-hr/learning/training-programs.jsx?t=${Math.random()}`);
   render(React.createElement(Page));

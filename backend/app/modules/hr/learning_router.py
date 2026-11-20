@@ -200,7 +200,9 @@ def create_enrollment(
 ):
     # an employee or manager can enroll only themselves; an admin can enroll anyone working in the organization (audit L2)
     data = data.model_copy(update={"employee_id": ownership.on_behalf_employee_id(current_user, data.employee_id)})
-    return learning_service.create_enrollment(db, data, organization_id=current_user.organization_id)
+    # a learner enrolls from the catalogue, which lists active courses only; an admin may also enroll people in a draft course
+    return learning_service.create_enrollment(db, data, organization_id=current_user.organization_id,
+                                              self_service=not ownership.is_admin(current_user))
 
 
 @learning_router.get(
@@ -550,6 +552,20 @@ def start_quiz(
 
 
 @learning_router.get(
+    "/assessments/review-queue",
+    response_model=list[QuizAttemptResponse],
+    summary="Quiz attempts waiting for essay grading",
+    description="Admin only. Submitted attempts with status pending_review in the organization, oldest first, optionally for one assessment.",
+)
+def quiz_review_queue(
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+    assessment_id: Optional[int] = Query(None, description="Only this assessment's attempts"),
+):
+    return learning_service.get_attempts_awaiting_review(db, organization_id=current_user.organization_id, assessment_id=assessment_id)
+
+
+@learning_router.get(
     "/assessments/attempts/{attempt_id}",
     response_model=QuizAttemptResponse,
     summary="Get a quiz attempt by ID",
@@ -883,7 +899,7 @@ def update_program_assignment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return learning_service.update_program_assignment(db, assign_id, data, organization_id=current_user.organization_id)
+    return learning_service.update_program_assignment(db, assign_id, data, organization_id=current_user.organization_id, program_id=prog_id)
 
 
 @learning_router.delete(
@@ -898,7 +914,7 @@ def remove_program_assignment(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    learning_service.remove_program_assignment(db, assign_id, organization_id=current_user.organization_id)
+    learning_service.remove_program_assignment(db, assign_id, organization_id=current_user.organization_id, program_id=prog_id)
     return {"message": f"Assignment {assign_id} has been removed successfully."}
 
 

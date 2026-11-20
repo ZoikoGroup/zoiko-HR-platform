@@ -1833,11 +1833,24 @@ class EnrollmentCreate(BaseModel):
     notes: Optional[str] = None
 
 
+ENROLLMENT_STATUSES = ("enrolled", "in_progress", "completed", "dropped")
+
+
 class EnrollmentUpdate(BaseModel):
     status: Optional[str] = None
     progress_pct: Optional[int] = Field(None, ge=0, le=100)
     score: Optional[int] = Field(None, ge=0, le=100)
     notes: Optional[str] = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_enrollment_status(cls, v):
+        if v is None:
+            return v
+        value = str(v).strip().lower().replace(" ", "_")
+        if value not in ENROLLMENT_STATUSES:
+            raise ValueError("Status must be enrolled, in progress, completed or dropped.")
+        return value
 
 
 class EnrollmentResponse(BaseModel):
@@ -1957,6 +1970,7 @@ class SkillUpdate(BaseModel):
 class SkillResponse(BaseModel):
     id: int
     employee_id: int
+    employee_name: Optional[str] = None          # the skills list names the holder
     skill_name: str
     category: Optional[str]
     proficiency_level: int
@@ -2221,6 +2235,8 @@ class QuizAttemptResponse(BaseModel):
     assessment_id: int
     employee_id: int
     employee_name: Optional[str] = None
+    assessment_title: Optional[str] = None       # set on the review queue
+    course_name: Optional[str] = None
     enrollment_id: Optional[int]
     started_at: Optional[datetime]
     completed_at: Optional[datetime]

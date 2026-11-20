@@ -4,8 +4,45 @@ import { BookOpen } from "lucide-react";
 const TYPE_LABELS = { online: "Online", classroom: "Classroom", workshop: "Workshop", webinar: "Webinar", self_paced: "Self-paced", "self-paced": "Self-paced", blended: "Blended" };
 const typeLabel = (t) => TYPE_LABELS[String(t || "").toLowerCase()] || String(t || "").replace(/[_-]+/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
+const ENROLLMENT_LABELS = { enrolled: "Enrolled", in_progress: "In progress", completed: "Completed", dropped: "Dropped" };
+
+/** Enroll yourself, or see that you already are (audit L4). */
+function EnrollControl({ course, enrollment, onEnroll }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (enrollment) {
+    return (
+      <span className="inline-flex items-center px-2.5 py-1 rounded-full bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300 text-[11px] font-semibold">
+        {ENROLLMENT_LABELS[enrollment.status] || "Enrolled"}
+      </span>
+    );
+  }
+  if (!onEnroll) return null;
+  const go = async () => {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    try {
+      await onEnroll(course);
+    } catch (err) {
+      setError(err?.message || "You could not be enrolled. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div>
+      <button type="button" onClick={go} disabled={busy} aria-label={`Enroll in ${course.course_name}`}
+        className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg text-xs font-semibold">
+        {busy ? "Enrolling..." : "Enroll"}
+      </button>
+      {error && <p role="alert" className="mt-1 text-xs text-red-600 dark:text-red-400">{error}</p>}
+    </div>
+  );
+}
+
 /** A course as the organization set it up: its details and where to learn it. Quizzes are on the Assessments tab. */
-function CourseCard({ course }) {
+function CourseCard({ course, enrollment, onEnroll }) {
   const meta = [
     course.duration_hours != null && course.duration_hours !== "" ? `${course.duration_hours} hour${Number(course.duration_hours) === 1 ? "" : "s"}` : null,
     course.provider || null,
@@ -37,6 +74,8 @@ function CourseCard({ course }) {
           </div>
         )}
 
+        <div className="mb-3"><EnrollControl course={course} enrollment={enrollment} onEnroll={onEnroll} /></div>
+
         {course.resource_link && (
           <a href={course.resource_link} target="_blank" rel="noopener noreferrer" className="mt-auto inline-flex items-center gap-1 text-xs font-semibold text-blue-600 dark:text-blue-400 hover:text-blue-800">
             Open course material &rarr;
@@ -47,7 +86,7 @@ function CourseCard({ course }) {
   );
 }
 
-export default function LearnerCourses({ courses, department }) {
+export default function LearnerCourses({ courses, department, enrollments = {}, onEnroll }) {
   const [search, setSearch] = useState("");
   const term = search.trim().toLowerCase();
   const filtered = useMemo(
@@ -83,7 +122,7 @@ export default function LearnerCourses({ courses, department }) {
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {filtered.map((course) => (
-            <CourseCard key={course.id} course={course} />
+            <CourseCard key={course.id} course={course} enrollment={enrollments?.[course.id]} onEnroll={onEnroll} />
           ))}
         </div>
       )}

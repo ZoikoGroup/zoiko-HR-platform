@@ -155,9 +155,19 @@ def _in_use(*counts) -> str:
     return parts[0] if parts else ""
 
 
-def create_enrollment(db: Session, data: EnrollmentCreate, organization_id: Optional[int] = None) -> LearningEnrollment:
-    get_course_by_id(db, data.course_id, organization_id)                          # a course of this organization
+ENROLLED_ALREADY_MESSAGE = "This person is already enrolled in this course."
+COURSE_CLOSED_MESSAGE = "This course is not open for enrollment."
+
+
+def create_enrollment(db: Session, data: EnrollmentCreate, organization_id: Optional[int] = None,
+                      self_service: bool = False) -> LearningEnrollment:
+    course = get_course_by_id(db, data.course_id, organization_id)                 # a course of this organization
     get_org_employee_or_404(db, organization_id, data.employee_id)                # someone working in this organization
+    if self_service and course.status != "active":
+        raise BadRequestException(COURSE_CLOSED_MESSAGE)                         # a learner joins only courses they can see
+    if db.query(LearningEnrollment.id).filter(LearningEnrollment.course_id == course.id,
+                                              LearningEnrollment.employee_id == data.employee_id).first():
+        raise ZoikoException(status_code=409, error_code="ALREADY_EXISTS", message=ENROLLED_ALREADY_MESSAGE)
     enrollment = LearningEnrollment(**data.model_dump())
     if organization_id is not None:
         enrollment.organization_id = organization_id
@@ -177,7 +187,7 @@ def get_enrollments(
     organization_id: Optional[int] = None,
     employee_ids: Optional[list[int]] = None,
 ) -> dict:
-    per_page = min(per_page, 100)
+    per_page = min(per_page, MAX_LIST_PAGE)                         # the router allows 200 (audit L9)
     query = filter_ids(db.query(LearningEnrollment), LearningEnrollment.employee_id, employee_ids)
 
     if employee_id:
@@ -233,10 +243,19 @@ def get_enrollment_by_id(db: Session, enrollment_id: int, organization_id: Optio
 
 
 def update_enrollment(db: Session, enrollment_id: int, data: EnrollmentUpdate, organization_id: Optional[int] = None) -> LearningEnrollment:
-    enrollment = get_enrollment_by_id(db, enrollment_id)
+    enrollment = get_enrollment_by_id(db, enrollment_id, organization_id)           # another organization's is not found
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(enrollment, field, value)
+    now = datetime.utcnow()
+    if enrollment.status in ("in_progress", "completed") and enrollment.started_at is None:
+        enrollment.started_at = now
+    if enrollment.status == "completed":
+        enrollment.completed_at = enrollment.completed_at or now
+        if "progress_pct" not in update_data:
+            enrollment.progress_pct = 100
+    elif "status" in update_data:
+        enrollment.completed_at = None
     db.commit()
     db.refresh(enrollment)
     # a completed mandatory course gets its completion record (HR-PRF-018); never fails the update
@@ -249,7 +268,11 @@ def update_enrollment(db: Session, enrollment_id: int, data: EnrollmentUpdate, o
 
 
 def delete_enrollment(db: Session, enrollment_id: int, organization_id: Optional[int] = None) -> None:
-    enrollment = get_enrollment_by_id(db, enrollment_id)
+    enrollment = get_enrollment_by_id(db, enrollment_id, organization_id)
+    attempts = db.query(LearningQuizAttempt.id).filter(LearningQuizAttempt.enrollment_id == enrollment.id).count()
+    if attempts:
+        raise BadRequestException(f"This enrollment has {attempts} quiz attempt{'s' if attempts != 1 else ''} and cannot be removed. "
+                                  "Mark it Dropped instead.")
     db.delete(enrollment)
     db.commit()
 
@@ -352,6 +375,8 @@ def update_path_item(db: Session, path_id: int, item_id: int, data: LearningPath
 
 
 def create_certification(db: Session, data: CertificationCreate, created_by: int, organization_id: Optional[int] = None) -> LearningCertification:
+    if data.expiry_date and data.expiry_date < data.issue_date:
+        raise BadRequestException("The expiry date cannot be before the issue date.")
     if organization_id is not None:
         # a certificate can be recorded for anyone of this organization, including someone who has since left
         get_org_employee_or_404(db, organization_id, data.employee_id, active_only=False)
@@ -413,8 +438,12 @@ def get_certification_by_id(db: Session, cert_id: int, organization_id: Optional
 
 
 def update_certification(db: Session, cert_id: int, data: CertificationUpdate, organization_id: Optional[int] = None) -> LearningCertification:
-    cert = get_certification_by_id(db, cert_id)
+    cert = get_certification_by_id(db, cert_id, organization_id)
     update_data = data.model_dump(exclude_unset=True)
+    issue = update_data.get("issue_date", cert.issue_date)
+    expiry = update_data.get("expiry_date", cert.expiry_date)
+    if issue and expiry and expiry < issue:
+        raise BadRequestException("The expiry date cannot be before the issue date.")
     previous_expiry = cert.expiry_date
     for field, value in update_data.items():
         setattr(cert, field, value)
@@ -430,7 +459,7 @@ def update_certification(db: Session, cert_id: int, data: CertificationUpdate, o
 
 
 def delete_certification(db: Session, cert_id: int, organization_id: Optional[int] = None) -> None:
-    cert = get_certification_by_id(db, cert_id)
+    cert = get_certification_by_id(db, cert_id, organization_id)
     db.delete(cert)
     db.commit()
 
@@ -451,13 +480,21 @@ def create_skill(db: Session, data: SkillCreate, organization_id: Optional[int] 
 
 def get_skills(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None,
                employee_ids: Optional[list[int]] = None):
-    """Skills of the caller's organization (organization_id None = platform super admin: every org)."""
+    """Skills of the caller's organization (organization_id None = platform super admin: every org), each naming its holder."""
     query = filter_ids(db.query(LearningSkill), LearningSkill.employee_id, employee_ids)
     if organization_id is not None:
         query = query.filter(LearningSkill.organization_id == organization_id)
     if employee_id:
         query = query.filter(LearningSkill.employee_id == employee_id)
-    return list_or_page(query.order_by(LearningSkill.skill_name), page, per_page, label="/skills")
+    result = list_or_page(query.order_by(LearningSkill.skill_name, LearningSkill.id), page, per_page, label="/skills")
+    rows = result["items"] if isinstance(result, dict) else result
+    names = _employee_names(db, (r.employee_id for r in rows))
+    columns = [col.name for col in LearningSkill.__table__.columns]
+    serialized = [{**{name: getattr(r, name) for name in columns}, "employee_name": names.get(r.employee_id)} for r in rows]
+    if isinstance(result, dict):
+        result["items"] = serialized
+        return result
+    return serialized
 
 
 def get_skill_by_id(db: Session, skill_id: int, organization_id: Optional[int] = None) -> LearningSkill:
@@ -888,6 +925,21 @@ def get_quiz_attempts(
     return [_attempt_dict(a, names) for a in attempts]
 
 
+def get_attempts_awaiting_review(db: Session, organization_id: Optional[int] = None, assessment_id: Optional[int] = None) -> list[dict]:
+    """Attempts with status pending_review in the organization, oldest first, each with its quiz and course names."""
+    query = db.query(LearningQuizAttempt, LearningAssessment.title, LearningCourse.course_name) \
+        .join(LearningAssessment, LearningAssessment.id == LearningQuizAttempt.assessment_id) \
+        .join(LearningCourse, LearningCourse.id == LearningAssessment.course_id) \
+        .filter(LearningQuizAttempt.status == PENDING_REVIEW)
+    if organization_id is not None:
+        query = query.filter(LearningCourse.organization_id == organization_id)
+    if assessment_id:
+        query = query.filter(LearningQuizAttempt.assessment_id == assessment_id)
+    rows = query.order_by(LearningQuizAttempt.completed_at.asc(), LearningQuizAttempt.id.asc()).all()
+    names = _employee_names(db, (a.employee_id for a, _, _ in rows))
+    return [{**_attempt_dict(a, names), "assessment_title": title, "course_name": course} for a, title, course in rows]
+
+
 def get_quiz_attempt_by_id(db: Session, attempt_id: int, organization_id: Optional[int] = None) -> LearningQuizAttempt:
     attempt = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.id == attempt_id).first()
     if not attempt:
@@ -1104,10 +1156,22 @@ def assign_program(db: Session, data: ProgramAssignmentCreate, organization_id: 
     return assignment
 
 
-def update_program_assignment(db: Session, assignment_id: int, data: ProgramAssignmentUpdate, organization_id: Optional[int] = None) -> LearningTrainingProgramAssignment:
-    assignment = db.query(LearningTrainingProgramAssignment).filter(LearningTrainingProgramAssignment.id == assignment_id).first()
+def _assignment_row(db: Session, assignment_id: int, organization_id: Optional[int], program_id: Optional[int]) -> LearningTrainingProgramAssignment:
+    query = db.query(LearningTrainingProgramAssignment).filter(LearningTrainingProgramAssignment.id == assignment_id)
+    if program_id is not None:
+        query = query.filter(LearningTrainingProgramAssignment.program_id == program_id)
+    if organization_id is not None:
+        query = query.join(LearningTrainingProgram, LearningTrainingProgram.id == LearningTrainingProgramAssignment.program_id) \
+                     .filter(LearningTrainingProgram.organization_id == organization_id)
+    assignment = query.first()
     if not assignment:
         raise NotFoundException("LearningTrainingProgramAssignment", assignment_id)
+    return assignment
+
+
+def update_program_assignment(db: Session, assignment_id: int, data: ProgramAssignmentUpdate, organization_id: Optional[int] = None,
+                              program_id: Optional[int] = None) -> LearningTrainingProgramAssignment:
+    assignment = _assignment_row(db, assignment_id, organization_id, program_id)
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(assignment, field, value)
@@ -1116,10 +1180,9 @@ def update_program_assignment(db: Session, assignment_id: int, data: ProgramAssi
     return assignment
 
 
-def remove_program_assignment(db: Session, assignment_id: int, organization_id: Optional[int] = None) -> None:
-    assignment = db.query(LearningTrainingProgramAssignment).filter(LearningTrainingProgramAssignment.id == assignment_id).first()
-    if not assignment:
-        raise NotFoundException("LearningTrainingProgramAssignment", assignment_id)
+def remove_program_assignment(db: Session, assignment_id: int, organization_id: Optional[int] = None,
+                              program_id: Optional[int] = None) -> None:
+    assignment = _assignment_row(db, assignment_id, organization_id, program_id)
     db.delete(assignment)
     db.commit()
 

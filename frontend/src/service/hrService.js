@@ -392,6 +392,34 @@ export const createCourse = (payload) => api.post("/hr/learning/courses", payloa
 export const updateCourse = (id, payload) => api.put(`/hr/learning/courses/${id}`, payload);
 export const deleteCourse = (id) => api.delete(`/hr/learning/courses/${id}`);
 
+// ── LEARNING RECORDS (audit L4): enrollments, certifications, skills, program participants ──
+// Lists take { page, per_page, employee_id, ... }; an admin sees the organization, anyone else only what is theirs.
+export const getEnrollments = (params = {}) => api.get("/hr/learning/enrollments", { params });
+/** An admin may name anyone in the organization; anyone else is always enrolled themselves. */
+export const createEnrollment = (courseId, employeeId) => api.post("/hr/learning/enrollments", { course_id: courseId, employee_id: employeeId });
+export const updateEnrollment = (id, payload) => api.put(`/hr/learning/enrollments/${id}`, payload);
+export const deleteEnrollment = (id) => api.delete(`/hr/learning/enrollments/${id}`);
+
+export const getCertifications = (params = {}) => api.get("/hr/learning/certifications", { params });
+export const createCertification = (payload) => api.post("/hr/learning/certifications", payload);
+export const updateCertification = (id, payload) => api.put(`/hr/learning/certifications/${id}`, payload);
+export const deleteCertification = (id) => api.delete(`/hr/learning/certifications/${id}`);
+
+export const getSkills = (params = {}) => api.get("/hr/learning/skills", { params });
+export const createSkill = (payload) => api.post("/hr/learning/skills", payload);
+export const updateSkill = (id, payload) => api.put(`/hr/learning/skills/${id}`, payload);
+export const deleteSkill = (id) => api.delete(`/hr/learning/skills/${id}`);
+
+export const getProgramParticipants = (programId) => api.get(`/hr/learning/programs/${programId}/assignments`);
+export const addProgramParticipant = (programId, employeeId) =>
+  api.post(`/hr/learning/programs/${programId}/assignments`, { employee_id: employeeId });
+export const removeProgramParticipant = (programId, assignmentId) =>
+  api.delete(`/hr/learning/programs/${programId}/assignments/${assignmentId}`);
+
+/** People of the organization matching a name, email or code, for the Learning pickers (any role). */
+export const searchLearningPeople = (search, perPage = 20) =>
+  api.get("/hr/employees", { params: { search: search || undefined, per_page: perPage, include_all_roles: true } });
+
 
 
 // ── TRAINING PROGRAMS ──────────────────────────────────────────────────────
@@ -424,6 +452,12 @@ export const getQuizAttempts = (assessmentId, employeeId) => {
 export const startQuiz = (assessmentId, employeeId) => api.post("/hr/learning/assessments/start", { assessment_id: assessmentId, employee_id: employeeId });
 export const submitQuiz = (assessmentId, attemptId, answers) =>
   api.post(`/hr/learning/assessments/${assessmentId}/attempts/${attemptId}/submit`, { answers: JSON.stringify(answers) });
+
+/** Attempts waiting for their essays to be marked (admin only), and marking one: { [questionId]: points }. */
+export const getQuizReviewQueue = (assessmentId) =>
+  api.get("/hr/learning/assessments/review-queue", { params: { assessment_id: assessmentId || undefined } });
+export const gradeQuizAttempt = (attemptId, essayPoints) =>
+  api.post(`/hr/learning/assessments/attempts/${attemptId}/grade`, { essay_points: essayPoints });
 
 // ── LEARNING REPORTS ───────────────────────────────────────────────────────
 export const getCourseCompletionReport = () => api.get("/hr/learning/reports/course-completion");
