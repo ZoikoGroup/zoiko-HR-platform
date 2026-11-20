@@ -154,6 +154,9 @@ _WRITE_INVALIDATION = [
     # employee account, and cancelling / deleting the hire archives it: User Management must show that at once
     (r"/hr/recruitment", "/hr/employee"),
     (r"/hr/onboarding", "/hr/employee"),
+    # template work (customise, edit, review, release, suspend, retire) changes which version each onboarding package
+    # document uses: the cached package settings and new-hire package reads must show it at once
+    (r"/hr/templates", "/hr/onboarding"),
     (r"/public/documents/sign", "/hr/employee"),
     (r"/public/documents/sign", "/hr/recruitment"),
     (r"/public/documents/sign", "/hr/onboarding"),

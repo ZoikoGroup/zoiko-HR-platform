@@ -136,8 +136,8 @@ def activate_pack(db, actor, pack: JurisdictionPack, attestation: dict) -> Juris
     access.require_org_admin(actor)
     if pack.status != "LEGAL_REVIEW":
         raise HTTPException(409, "Submit the pack for review first.")
-    if actor.id == pack.created_by:
-        raise HTTPException(403, {"code": "SEPARATION_OF_DUTIES", "message": "The person who created the pack cannot activate it."})
+    # an organisation admin may activate the organisation's own pack themselves (one-admin organisations); the attestation
+    # below records who did it
     if not attestation.get("accepted"):
         raise HTTPException(422, "Confirm the attestation to activate the pack.")
     pack.status = "ACTIVE"
@@ -197,6 +197,8 @@ def create_tenant_variant(db, actor, *, canonical_id: str, pack_id: int, languag
         raise HTTPException(404, "Template not found")
     if canonical_id in registry.SYSTEM_RECORDS:
         raise HTTPException(409, "Governance records are produced by the engine and have no editable content.")
+    if canonical_id.startswith("ORG") and not canonical_id.startswith(f"ORG{org_id}-"):
+        raise HTTPException(404, "Template not found")
     if not d.implemented:
         raise HTTPException(409, {"code": "NOT_IMPLEMENTED", "message": "This template is not available yet."})
     pack = get_pack(db, org_id, pack_id)
@@ -243,10 +245,20 @@ def variant_checksum(v: TemplateVariant) -> str:
     return blocks.checksum(v.content, v.field_contract, v.clause_rules, v.applicability, v.options, v.language)
 
 
+def is_package(canonical_id: str) -> bool:
+    """Onboarding package documents (PKG-…) and the organisation's own documents (ORG<id>-…) use the package vocabulary and
+    the package renderer (doc_templates/package_blocks.py)."""
+    return str(canonical_id or "").startswith(("PKG-", "ORG"))
+
+
 def validate_variant(db, v: TemplateVariant, content=None, field_contract=None, clause_rules=None) -> list[str]:
     content = v.content if content is None else content
     field_contract = v.field_contract if field_contract is None else field_contract
     clause_rules = v.clause_rules if clause_rules is None else clause_rules
+    if is_package(v.canonical_id):
+        # placeholders are the package's dictionary, clause wording the counsel clause library; locked blocks can be neither
+        # changed, removed nor moved
+        return blocks.validate_package_content(content) + blocks.locked_blocks_in_place(base_content(db, v), content)
     problems = blocks.validate_content(content, field_contract, clause_rules)
     problems += blocks.locked_blocks_preserved(base_content(db, v), content)
     return problems
@@ -316,7 +328,10 @@ def approve_legal(db, actor, v: TemplateVariant, review: dict, *, ip: Optional[s
     d = db.get(TemplateDefinition, v.canonical_id)
     if access.role_of(actor) != "admin" and not _is_signatory(db, actor, d.canonical_id, d.family_id, d.legal_risk):
         raise HTTPException(403, "Only an organization admin or an authorised signatory can approve template content.")
-    if actor.id == v.authored_by:
+    # An organisation admin may approve the organisation's own template (TENANT_ATTESTED) even when they wrote it: the
+    # attestation and the typed name are recorded, and the record says it was self-approved.
+    self_approved = actor.id == v.authored_by
+    if self_approved and not (v.release_mode == "TENANT_ATTESTED" and access.role_of(actor) == "admin"):
         raise HTTPException(403, {"code": "SEPARATION_OF_DUTIES", "message": "You cannot approve a template version you authored."})
     pack = db.get(JurisdictionPack, v.pack_id)
     review = dict(review or {})
@@ -344,7 +359,7 @@ def approve_legal(db, actor, v: TemplateVariant, review: dict, *, ip: Optional[s
         or "Tenant attestation (TENANT_ATTESTED release mode)",
         "date": review.get("review_date") or now.date().isoformat(), "conditions": review.get("conditions"),
         "sources": [s for s in (review.get("sources") or []) if isinstance(s, dict)][:50],
-        "attestation": ATTESTATION_TEXT.format(country=pack.country), "attested_by": actor.id,
+        "attestation": ATTESTATION_TEXT.format(country=pack.country), "attested_by": actor.id, "self_approved": self_approved,
         "signed_name": review.get("signed_name"), "signed_at": now.isoformat(),
     }
     v.reviewed_by = actor.id
@@ -378,6 +393,12 @@ def release_test(db, v: TemplateVariant) -> list[str]:
     problems = validate_variant(db, v)
     if problems:
         return problems
+    if is_package(v.canonical_id):
+        try:
+            package_preview_pdf(db, v, v.content)
+        except Exception as exc:                                 # the release test reports, never raises
+            return [f"render failed: {type(exc).__name__}: {exc}"[:300]]
+        return []
     from app.modules.hr.models import Organization
     sample_org = Organization(id=0, organization_name="Example Organisation", display_name="Example Organisation", currency="GBP")
     ctx = fields.FieldContext(db=db, organization=sample_org, language=v.language, sample=True)
@@ -398,6 +419,34 @@ def release_test(db, v: TemplateVariant) -> list[str]:
     return []
 
 
+def _package_ctx(db, v: TemplateVariant, content: list):
+    """Render context for previewing package content: every placeholder shown, watermarked DRAFT – NOT FOR ISSUE."""
+    from app.modules.doc_templates import package_blocks, package_templates
+    from app.modules.hr import onboarding_package_render as R
+    d = db.get(TemplateDefinition, v.canonical_id) if db is not None else None
+    meta = {"category": "_preview", "title": d.title if d else v.canonical_id, "template_id": v.canonical_id,
+            "doc_type": d.kind if d else "", "risk": d.legal_risk if d else "", "sensitivity": d.sensitivity if d else "",
+            "orientation": "portrait", "family_id": d.family_id if d else "", "initials": False}
+    starter = package_templates.starter_by_canonical(v.canonical_id)
+    if starter:
+        meta.update({k: starter[k] for k in ("category", "title", "template_id", "doc_type", "risk", "sensitivity", "orientation",
+                                             "family_id", "initials")})
+    return R.RenderContext(mode="template", content=package_blocks.to_package(content), meta=meta,
+                           version=f"draft v{v.version}", draft=True)
+
+
+def package_preview_pdf(db, v: TemplateVariant, content: list) -> bytes:
+    from app.modules.hr import onboarding_package_render as R
+    ctx = _package_ctx(db, v, content)
+    return R.render_pdf(ctx.meta["category"], ctx)
+
+
+def package_preview_html(db, v: TemplateVariant, content: list) -> str:
+    from app.modules.hr import onboarding_package_render as R
+    ctx = _package_ctx(db, v, content)
+    return R.render_html(ctx.meta["category"], ctx)
+
+
 def release_variant(db, actor, v: TemplateVariant) -> TemplateVariant:
     """LEGAL_APPROVED → RELEASE_TESTED → ACTIVE. Released by an organization admin who neither wrote nor approved it."""
     if v.owner_organization_id != actor.organization_id:
@@ -405,7 +454,7 @@ def release_variant(db, actor, v: TemplateVariant) -> TemplateVariant:
     access.require_org_admin(actor)
     if v.status != "LEGAL_APPROVED":
         raise HTTPException(409, "Only a legally approved version can be released.")
-    if actor.id in (v.authored_by, v.reviewed_by):
+    if actor.id in (v.authored_by, v.reviewed_by) and v.release_mode != "TENANT_ATTESTED":   # organisation admins release their own
         raise HTTPException(403, {"code": "SEPARATION_OF_DUTIES",
                                   "message": "The releaser must be a different person from the author and the legal reviewer."})
     d = db.get(TemplateDefinition, v.canonical_id)

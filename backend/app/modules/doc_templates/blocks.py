@@ -257,3 +257,185 @@ def locked_blocks_preserved(base: list, new: list) -> list[str]:
             problems.append(f"locked {b.get('type')} block cannot be removed or edited"
                             + (f" (id {b['id']})" if b.get("id") else ""))
     return problems
+
+
+def locked_blocks_in_place(base: list, new: list) -> list[str]:
+    """Stricter rule for onboarding package documents: every locked block stays unchanged AND keeps its position relative to
+    the other locked blocks (a locked block cannot be removed, edited or moved past another one). Each problem names the block."""
+    problems = locked_blocks_preserved(base, new)
+    if problems:
+        return problems
+    base_ids = [b.get("id") for b in base or [] if isinstance(b, dict) and b.get("locked")]
+    new_ids = [b.get("id") for b in new or [] if isinstance(b, dict) and b.get("id") in set(base_ids)]
+    if base_ids != new_ids:
+        moved = next((a for a, b in zip(base_ids, new_ids) if a != b), None)
+        problems.append(f"locked block {moved} cannot be moved")
+    return problems
+
+
+# ── onboarding package documents ─────────────────────────────────────────────────────────────────────────────────────
+# The package documents (hr/onboarding_package*) use the engine's block names where one exists and add these types.
+# Their placeholders are the package's Placeholder Dictionary (onboarding_package_content.FIELDS) and their clause hooks
+# the counsel clause library (onboarding_package_content.CLAUSES); package_blocks.py converts them for the renderer.
+PACKAGE_BLOCK_TYPES = ("letterhead", "heading", "paragraph", "list", "table", "clause", "signature_block", "page_break",
+                       "kv", "notice", "consent", "checks", "textbox", "columns", "toc", "cover", "kpis", "groups", "chart",
+                       "activities", "anchor", "fields", "section")
+_PACKAGE_ALLOWED_KEYS = {
+    "letterhead": {"name", "address"},
+    "heading": {"text", "level", "style"},
+    "paragraph": {"text", "style"},
+    "list": {"style", "items", "items_from"},
+    "table": {"columns", "rows", "widths", "total", "compact"},
+    "clause": {"key"},
+    "signature_block": {"rows", "statement"},
+    "page_break": set(),
+    "kv": {"rows", "optional"},
+    "notice": {"items"},
+    "consent": {"text", "after"},
+    "checks": {"label", "options", "hook"},
+    "textbox": {"label", "lines", "hint"},
+    "columns": {"left", "right"},
+    "toc": {"entries"},
+    "cover": {"lines"},
+    "kpis": {"items_from"},
+    "groups": {"items_from"},
+    "chart": {"title", "note"},
+    "activities": set(),
+    "anchor": {"name"},
+    "fields": {"rows", "cols"},
+    "section": {"num", "title", "items", "anchor"},
+}
+PACKAGE_PARAGRAPH_STYLES = (None, "normal", "body", "small", "note")
+PACKAGE_LIST_SOURCES = ("role.offer_responsibilities", "role.about", "role.required_skills", "role.work_setup",
+                        "role.performance_structure", "role.responsibility_groups", "kpi.areas", "offer.compliance_documents",
+                        "engagement.workspace_requirements", "company.brands")
+PACKAGE_COMPUTED_ONLY = {"company.affidavit_notary", "employment.country_is_in"}   # set by the system, used only in conditions
+
+
+def _package_known_field(key: str) -> bool:
+    from app.modules.hr import onboarding_package_content as C
+    return key in C.FIELDS or key in PACKAGE_COMPUTED_ONLY
+
+
+def _package_strings(obj):
+    if isinstance(obj, str):
+        yield obj
+    elif isinstance(obj, dict):
+        for k, v in obj.items():
+            if k not in ("type", "id", "locked", "include_when"):
+                yield from _package_strings(v)
+    elif isinstance(obj, (list, tuple)):
+        for v in obj:
+            yield from _package_strings(v)
+
+
+def package_references(content: list) -> dict:
+    """{fields, clauses} used by package content (placeholders, hooks, list sources and conditions)."""
+    from app.modules.hr import onboarding_package_content as C
+    fields_, clauses_ = set(), set()
+
+    def walk(b):
+        if not isinstance(b, dict):
+            return
+        if b.get("type") == "clause" and isinstance(b.get("key"), str):
+            clauses_.add(b["key"])
+        if b.get("type") == "checks" and isinstance(b.get("hook"), str):
+            clauses_.add(b["hook"])
+        if isinstance(b.get("items_from"), str):
+            fields_.add(b["items_from"])
+        if b.get("include_when"):
+            fields_.update(conditions.fields_in(b["include_when"]))
+        for key in ("items", "left", "right"):
+            for child in b.get(key) or [] if isinstance(b.get(key), list) else []:
+                walk(child)
+
+    for b in content or []:
+        walk(b)
+    for text in _package_strings(content):
+        for m in C.TOKEN_RE.finditer(text):
+            tok = m.group(1)
+            ck = C.clause_key(tok)
+            (clauses_.add(ck) if ck else fields_.add(tok))
+    return {"fields": fields_, "clauses": clauses_}
+
+
+def validate_package_content(content) -> list[str]:
+    """All problems with onboarding package content ([] = valid): block grammar, placeholders and clause hooks."""
+    from app.modules.hr import onboarding_package_content as C
+    problems: list[str] = []
+    if not isinstance(content, list) or not content:
+        return ["content must be a non-empty list of blocks"]
+    if len(content) > MAX_BLOCKS:
+        problems.append(f"content has more than {MAX_BLOCKS} blocks")
+
+    def check(block, where):
+        if not isinstance(block, dict):
+            problems.append(f"{where}: must be an object")
+            return
+        t = block.get("type")
+        if t not in PACKAGE_BLOCK_TYPES:
+            problems.append(f"{where}: unknown block type {t!r}")
+            return
+        extra = set(block) - _COMMON - _PACKAGE_ALLOWED_KEYS[t]
+        if extra:
+            problems.append(f"{where} ({t}): unknown keys {sorted(extra)}")
+        if "locked" in block and not isinstance(block["locked"], bool):
+            problems.append(f"{where}: 'locked' must be true or false")
+        if block.get("include_when") is not None:
+            problems.extend(f"{where}: {p}" for p in conditions.validate(block["include_when"], _package_known_field))
+        if t == "heading" and (block.get("level", 1) not in (1, 2, 3) or not str(block.get("text") or "").strip()):
+            problems.append(f"{where} (heading): needs text and a level of 1, 2 or 3")
+        if t == "paragraph" and (not isinstance(block.get("text"), str) or block.get("style") not in PACKAGE_PARAGRAPH_STYLES):
+            problems.append(f"{where} (paragraph): needs text; style must be normal, small or note")
+        if t == "list":
+            if block.get("style", "bullet") not in ("bullet", "number"):
+                problems.append(f"{where} (list): style must be bullet or number")
+            if "items_from" in block:
+                if block["items_from"] not in PACKAGE_LIST_SOURCES:
+                    problems.append(f"{where} (list): items_from must be one of {PACKAGE_LIST_SOURCES}")
+            elif not isinstance(block.get("items"), list) or not all(isinstance(i, str) for i in block["items"]):
+                problems.append(f"{where} (list): needs a list of text items (or items_from)")
+        if t in ("groups", "kpis") and block.get("items_from") not in PACKAGE_LIST_SOURCES:
+            problems.append(f"{where} ({t}): items_from must be one of {PACKAGE_LIST_SOURCES}")
+        if t == "table":
+            cols = block.get("columns")
+            if not isinstance(cols, list) or not cols:
+                problems.append(f"{where} (table): needs column headings")
+            elif not isinstance(block.get("rows"), list) or any(not isinstance(r, list) or len(r) != len(cols)
+                                                                 for r in block["rows"]):
+                problems.append(f"{where} (table): every row needs one cell per column")
+        if t == "clause" and (not isinstance(block.get("key"), str)
+                              or (block["key"] not in C.CLAUSES and block["key"] != "required_clause_block")):
+            problems.append(f"{where} (clause): unknown clause {block.get('key')!r}")
+        if t == "checks" and (not isinstance(block.get("options"), list) or not str(block.get("label") or "").strip()):
+            problems.append(f"{where} (checks): needs a label and a list of options")
+        if t == "signature_block" and (not isinstance(block.get("rows"), list) or not block["rows"]
+                                       or any(not isinstance(r, list) or len(r) != 4 for r in block["rows"])):
+            problems.append(f"{where} (signature_block): rows of [party, name, title, date] are required")
+        if t == "kv" and (not isinstance(block.get("rows"), list) or any(not isinstance(r, list) or len(r) != 2 for r in block["rows"])):
+            problems.append(f"{where} (kv): rows of [label, value] are required")
+        if t in ("section", "notice"):
+            for j, item in enumerate(block.get("items") or []):
+                if isinstance(item, dict):
+                    check(item, f"{where}.{j + 1}")
+                elif not isinstance(item, str):
+                    problems.append(f"{where}.{j + 1}: must be text or a block")
+        if t == "columns":
+            for side in ("left", "right"):
+                for j, child in enumerate(block.get(side) or []):
+                    check(child, f"{where}.{side}.{j + 1}")
+
+    for i, block in enumerate(content):
+        check(block, f"block {i + 1}")
+    for text in _package_strings(content):
+        if not isinstance(text, str) or len(text) > MAX_TEXT:
+            problems.append(f"text must be a string of at most {MAX_TEXT} characters")
+            break
+    refs = package_references(content)
+    for key in sorted(refs["fields"]):
+        if not _package_known_field(key):
+            problems.append(f"unknown field {{{{{key}}}}}")
+    for key in sorted(refs["clauses"]):
+        if key not in C.CLAUSES and key != "required_clause_block":
+            problems.append(f"unknown clause {{{{clause:{key}}}}}")
+    return problems

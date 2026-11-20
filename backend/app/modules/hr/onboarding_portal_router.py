@@ -56,6 +56,8 @@ async def portal_upload(request: Request, token: str, document_id: int, file: Up
         raise HTTPException(status_code=400, detail="The selected file is empty.")
     if len(contents) > MAX_FILE_SIZE_BYTES:
         raise HTTPException(status_code=400, detail=f"File too large. Maximum size is {MAX_FILE_SIZE_MB}MB.")
+    from app.modules.hr import onboarding_org_settings as OS
+    OS.check_upload(db, hire.organization_id, doc.category, file.filename or "", len(contents))   # the category's own limits
     os.makedirs(_ONBOARDING_DOC_UPLOAD_DIR, exist_ok=True)
     ext = os.path.splitext(file.filename or "")[1][:10]
     path = tenant_upload_path(_ONBOARDING_DOC_UPLOAD_DIR, hire.organization_id, f"{uuid.uuid4().hex}{ext}")

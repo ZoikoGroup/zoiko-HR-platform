@@ -100,7 +100,7 @@ def _run(organization_id: int, job_id: str, bind) -> None:
                 folder = (F.transliterate(hire.candidate_name or "").upper().replace(" ", "_") or f"NEW_HIRE_{hire.id}")
                 folder = "".join(ch for ch in folder if ch.isalnum() or ch in "_-") + f"_{hire.id}"
                 try:
-                    for cat in C.CATEGORIES:
+                    for cat in P.package_categories(db, hire):
                         data, name, _s = P.document_file(db, hire, cat)
                         zf.writestr(f"{folder}/{name}", data)
                 except Exception as e:                      # one hire's problem never stops the others

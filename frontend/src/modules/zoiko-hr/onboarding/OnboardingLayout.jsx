@@ -13,7 +13,7 @@ export const ONBOARDING_NAV = [
 
 // headings that belong to a tab with a different label
 const PAGE_OF_TITLE = { "Onboarding Dashboard": "Dashboard", "Onboarding Documents": "Documents", "Onboarding Checklists": "Checklists",
-  "Onboarding Reports": "Reports", "Onboarding Settings": "Settings", "Orientation Sessions": "Orientation", "Payroll Verifications": "Payroll Verification" };
+  "Onboarding Reports": "Reports", "Onboarding Settings": "Settings", "Set up docs for your organisation": "Settings", "Orientation Sessions": "Orientation", "Payroll Verifications": "Payroll Verification" };
 
 export default function OnboardingLayout(props) {
   return <ModuleLayout module="Onboarding" items={ONBOARDING_NAV} pageOfTitle={PAGE_OF_TITLE} {...props} />;

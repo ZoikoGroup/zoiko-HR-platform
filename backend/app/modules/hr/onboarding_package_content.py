@@ -66,6 +66,7 @@ FIELDS: dict[str, tuple[str, str, bool, str | None]] = {
     "employment.pay_range": ("Pay range for the role, where pay-transparency law requires it", PAYROLL, False,
                              "Available from HR on request"),
     "employment.leave_entitlement": ("Annual leave entitlement", ZHR, True, None),
+    "employment.probation_months": ("Probation (months)", ZHR, True, None),     # blanks in an organisation's own templates
     "employment.country": ("Country of employment", ZHR, True, None),
     "offer.response_deadline": ("Date by which the candidate must respond to the offer", ZHR, True, None),
     "offer.secure_link": ("Secure onboarding portal link for the candidate", ZHR, True, None),
@@ -187,6 +188,12 @@ STANDARD_CLAUSES: dict[str, str] = {
     "non_competition":
         "While the {engagement} continues, the {party} will not, without the Company's written consent, work for or provide "
         "services to a business that competes with the Company.{non_compete_after}",
+    # a protection for the person only (it takes nothing away from them), so it is safe as the standard wording everywhere
+    "protected_disclosure_and_whistleblowing":
+        "Nothing in this document stops the {party} from reporting a possible breach of the law to a regulator, a government "
+        "or law-enforcement authority or any other person the law protects such a report to, from making any disclosure that "
+        "whistleblowing law protects, or from giving truthful evidence. The {party} does not need the Company's permission for "
+        "this and does not have to tell the Company about it.",
 }
 
 # ── Clause hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────
@@ -926,6 +933,19 @@ EXTRA_TEMPLATES = {"diversity_monitoring": {"category": "diversity_monitoring", 
 
 
 def blocks_for(category: str) -> list[dict]:
+    """The platform default content of a package document. v2: the platform starter template (seeds/content/HR-PKG, written
+    from the builders and proved identical by tests/hr/test_package_starters_parity.py); the builder only when no starter
+    exists. v1 (ONBOARDING_PACKAGE_V2=false): the v1 builders, as before."""
+    if V2:
+        from app.modules.doc_templates import package_templates as PT
+        blocks = PT.starter_package_blocks(category)
+        if blocks:
+            return blocks
+    return DOCS[category]["builder"]()
+
+
+def builder_blocks(category: str) -> list[dict]:
+    """The Python builder's blocks (kept for the parity test and ONBOARDING_PACKAGE_V2=false)."""
     return DOCS[category]["builder"]()
 
 
@@ -946,10 +966,11 @@ def _strings(obj):
             yield from _strings(v)
 
 
-def tokens_in(category: str) -> list[str]:
-    """Every placeholder token used by one document, in first-use order (e.g. 'worker.full_name', 'clause:probation')."""
+def tokens_in(category: str, blocks: list | None = None) -> list[str]:
+    """Every placeholder token used by one document (or by the given content), in first-use order (e.g. 'worker.full_name',
+    'clause:probation')."""
     seen: dict[str, None] = {}
-    for s in _strings(blocks_for(category)):
+    for s in _strings(blocks_for(category) if blocks is None else blocks):
         for m in TOKEN_RE.finditer(s):
             seen.setdefault(m.group(1), None)
     return list(seen)

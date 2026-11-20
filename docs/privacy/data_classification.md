@@ -319,6 +319,21 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `organization_id`, `updated_at`
 - **PERSONAL_BASIC**: `tenant_attestation_enabled`, `prefer_tenant_variants`, `expiry_warning_days`, `approval_overrides`, `retention_durations`, `automation_rules`, `updated_by`
 
+## `docs_setup_files` (default TENANT_FILE; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`, `deleted_at`, `created_at`
+- **PERSONAL_BASIC**: `session_id`
+- **TENANT_FILE**: `filename`, `label`, `media_type`, `size`, `sha256`, `storage_key`, `page_count`, `scan_status`, `extract_status`, `chunks_key`, `detected_kind`, `kind_confidence`, `detected_language`, `warnings`, `mapping`, `delete_after`
+
+## `docs_setup_proposals` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `session_id`
+- **PERSONAL_CONFIDENTIAL**: `target`, `target_key`, `label`, `proposed_value`, `current_value`, `confidence`, `sources`, `conflict_group`, `problem`, `origin`, `decision`, `final_value`, `decided_by`, `decided_at`
+
+## `docs_setup_sessions` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `created_by`
+- **PERSONAL_CONFIDENTIAL**: `status`, `step`, `progress`, `ai_used`, `settings_snapshot_before`, `applied_summary`, `idempotency_key`, `applied_at`, `applied_by`, `undone_at`, `error`
+
 ## `document_acknowledgements` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
 - **PERSONAL_BASIC**: `document_id`, `assignment_id`
@@ -403,7 +418,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `employees` (default PERSONAL_BASIC; most sensitive column rank 6)
 - **PLATFORM_META**: `id`, `role`, `is_active`, `status`, `organization_id`, `created_at`, `updated_at`, `must_change_password`, `email_verified`
-- **PERSONAL_BASIC**: `email`, `employee_id`, `employee_code`, `legacy_code`, `first_name`, `last_name`, `phone`, `profile_picture`, `job_title`, `employment_type`, `date_of_joining`, `department_id`, `designation_id`, `reporting_manager_id`, `work_email`, `confirmation_date`, `company`, `business_unit`, `division`, `team`, `city`, `state`, `country`, `notification_preferences`, `language`, `travel_preferences`, `timezone`, `work_country`, `work_region`, `work_city`, `employing_entity_id`, `worker_category`, `contract_end_date`, `created_by`, `updated_by`, `email_verified_at`, `mfa_enabled`, `mfa_enrolled_at`, `mfa_last_step`
+- **PERSONAL_BASIC**: `email`, `employee_id`, `employee_code`, `legacy_code`, `first_name`, `last_name`, `phone`, `profile_picture`, `job_title`, `employment_type`, `date_of_joining`, `department_id`, `designation_id`, `reporting_manager_id`, `work_email`, `confirmation_date`, `company`, `business_unit`, `division`, `team`, `city`, `state`, `country`, `notification_preferences`, `language`, `custom_fields`, `travel_preferences`, `timezone`, `work_country`, `work_region`, `work_city`, `employing_entity_id`, `worker_category`, `contract_end_date`, `created_by`, `updated_by`, `email_verified_at`, `mfa_enabled`, `mfa_enrolled_at`, `mfa_last_step`
 - **PERSONAL_CONFIDENTIAL**: `date_of_birth`, `gender`, `address`, `personal_email`, `current_address`, `permanent_address`, `pincode`, `emergency_contacts`
 - **FINANCIAL**: `basic_salary`, `ctc`
 - **SECRET**: `hashed_password`, `password_changed_at`, `mfa_secret`
@@ -622,6 +637,18 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `onboarding_settings` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `updated_at`
 - **PERSONAL_CONFIDENTIAL**: `auto_template_ids`, `required_document_categories`, `auto_send_portal_invite`, `portal_link_days`, `reminder_days`, `require_checklists_complete`, `require_documents_approved`, `welcome_message`, `last_reminder_run`
+
+## `org_document_request_categories` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `sort_order`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `key`, `label`, `description`, `required_by_default`, `accepted_types`, `max_size_mb`, `active`, `is_system`, `created_by_session_id`
+
+## `org_form_overrides` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `version`, `updated_at`
+- **PERSONAL_BASIC**: `canonical_id`, `hidden_keys`, `added_fields`, `field_order`, `updated_by`
+
+## `org_package_documents` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `sort_order`, `updated_at`
+- **PERSONAL_BASIC**: `source`, `category`, `canonical_id`, `title`, `variant_id`, `mode`, `enabled`, `mandatory`, `applies_to_engagement_slugs`, `excluded_engagement_slugs`, `signers`, `created_by_session_id`, `updated_by`
 
 ## `organization_configs` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`

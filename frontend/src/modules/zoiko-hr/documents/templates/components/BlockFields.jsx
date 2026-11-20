@@ -18,13 +18,65 @@ export const BLOCK_TYPES = [
   { type: "letterhead", label: "Letterhead" },
   { type: "page_break", label: "Page break" },
 ];
-export const BLOCK_LABEL = Object.fromEntries(BLOCK_TYPES.map((b) => [b.type, b.label]));
+// Onboarding package documents (and the organisation's own documents) use the package vocabulary
+// (backend doc_templates/blocks.PACKAGE_BLOCK_TYPES): placeholders from the package's Placeholder Dictionary, clause hooks
+// from the counsel clause library.
+export const PACKAGE_BLOCK_TYPES = [
+  { type: "heading", label: "Heading" },
+  { type: "paragraph", label: "Paragraph" },
+  { type: "list", label: "List" },
+  { type: "table", label: "Table" },
+  { type: "kv", label: "Label and value rows" },
+  { type: "section", label: "Numbered section" },
+  { type: "clause", label: "Counsel clause" },
+  { type: "notice", label: "Highlighted notice" },
+  { type: "checks", label: "Tick-box question" },
+  { type: "textbox", label: "Answer box" },
+  { type: "consent", label: "Consent statement" },
+  { type: "signature_block", label: "Signature block" },
+  { type: "letterhead", label: "Letterhead" },
+  { type: "groups", label: "Role responsibility groups" },
+  { type: "kpis", label: "KPI areas" },
+  { type: "chart", label: "Chart placeholder" },
+  { type: "anchor", label: "Link target" },
+  { type: "page_break", label: "Page break" },
+  { type: "toc", label: "Table of contents" },
+  { type: "cover", label: "Cover page" },
+  { type: "columns", label: "Two columns" },
+  { type: "fields", label: "Fill-in fields" },
+  { type: "activities", label: "Outside activities table" },
+];
+export const BLOCK_LABEL = Object.fromEntries([...PACKAGE_BLOCK_TYPES, ...BLOCK_TYPES].map((b) => [b.type, b.label]));
 
 export const SIGNATURE_PARTIES = ["employer", "employee", "candidate", "witness", "reviewer"];
 const FORM_FIELD_TYPES = ["text", "textarea", "date", "number", "select", "checkbox"];
 const DEFAULT_CLASSIFICATIONS = ["PERSONAL_BASIC", "PERSONAL_CONFIDENTIAL", "FINANCIAL", "SPECIAL_CATEGORY", "TENANT_CUSTOMER", "PLATFORM_META"];
 
-export function newBlock(type) {
+export function newBlock(type, pkg = false) {
+  if (pkg) {
+    switch (type) {
+      case "paragraph": return { type, text: "" };
+      case "list": return { type, style: "bullet", items: [""] };
+      case "kv": return { type, rows: [["Label", ""]] };
+      case "section": return { type, num: "", title: "", items: [""] };
+      case "clause": return { type, key: "" };
+      case "notice": return { type, items: [""] };
+      case "checks": return { type, label: "", options: ["Yes", "No"] };
+      case "textbox": return { type, label: "", lines: 3, hint: "" };
+      case "consent": return { type, text: "", after: [] };
+      case "signature_block": return { type, rows: [["{{engagement.party_term}}", "{{worker.full_name}}", "{{role.title}}", ""]] };
+      case "letterhead": return { type, name: "{{company.legal_name}}", address: "{{company.address_block}}" };
+      case "groups": return { type, items_from: "role.responsibility_groups" };
+      case "kpis": return { type, items_from: "kpi.areas" };
+      case "chart": return { type, title: "", note: "" };
+      case "anchor": return { type, name: "" };
+      case "toc": return { type, entries: [] };
+      case "cover": return { type, lines: [""] };
+      case "columns": return { type, left: [], right: [] };
+      case "fields": return { type, rows: [["Label", "", ""]], cols: 2 };
+      default: break;
+    }
+  }
   switch (type) {
     case "heading": return { type, text: "", level: 2 };
     case "paragraph": return { type, text: "", style: "normal" };
@@ -50,7 +102,14 @@ export function blockSummary(b) {
     case "form_fields": return (b.fields || []).map((f) => f.label || f.key).join(", ") || "(no fields)";
     case "checklist": return `${(b.items || []).length} item(s)`;
     case "clause": return b.key ? `{{clause:${b.key}}}${b.required ? " · required" : ""}` : "(no clause chosen)";
-    case "signature_block": return (b.parties || []).join(", ");
+    case "signature_block": return b.rows ? b.rows.map((r) => r[0]).join(", ") : (b.parties || []).join(", ");
+    case "section": return `${b.num ? `${b.num}. ` : ""}${clip(b.title)}`;
+    case "kv": return `${(b.rows || []).length} row(s)`;
+    case "checks": case "textbox": return clip(b.label);
+    case "consent": return clip(b.text);
+    case "notice": return clip((b.items || []).filter((x) => typeof x === "string").join(" "));
+    case "groups": case "kpis": return `from ${b.items_from}`;
+    case "letterhead": return b.name ? "Company letterhead" : "";
     default: return "";
   }
 }
@@ -105,7 +164,60 @@ function FieldMultiSelect({ uid, selected, onChange, fields, disabled }) {
   );
 }
 
-export default function BlockFields({ block, onChange, fields = [], clauseKeys = [], disabled = false }) {
+/** Editable list of short texts (items, options, lines). Non-text items (nested blocks) are kept as they are. */
+function TextList({ uid, label, items, onChange, disabled }) {
+  return (
+    <fieldset>
+      <legend className="mb-1 text-xs font-semibold text-gray-600">{label}</legend>
+      <ol className="space-y-1.5">
+        {items.map((it, i) => (
+          <li key={i} className="flex items-center gap-1.5">
+            <span className="w-6 text-right text-xs text-gray-400">{i + 1}.</span>
+            {typeof it === "string" ? (
+              <SmartText id={`${uid}-tl${i}`} aria-label={`${label} ${i + 1}`} value={it} disabled={disabled}
+                onChange={(v) => onChange(replaceAt(items, i, v))} />
+            ) : (
+              <code className="min-w-0 flex-1 truncate rounded bg-gray-50 px-2 py-1 text-xs text-gray-600">{JSON.stringify(it)}</code>
+            )}
+            <RowControls index={i} count={items.length} label={`${label} ${i + 1}`} disabled={disabled}
+              onMove={(x, d) => onChange(move(items, x, d))} onRemove={(x) => onChange(removeAt(items, x))} />
+          </li>
+        ))}
+      </ol>
+      {!disabled && <button type="button" className={`${btnSmall} mt-2`} onClick={() => onChange([...items, ""])}><Plus className="h-3.5 w-3.5" /> Add</button>}
+    </fieldset>
+  );
+}
+
+/** Rows of a fixed number of text cells (label/value rows, signature rows). */
+function RowsEditor({ uid, legend, headings, rows, onChange, disabled }) {
+  return (
+    <fieldset>
+      <legend className="mb-1 text-xs font-semibold text-gray-600">{legend}</legend>
+      <ul className="space-y-2">
+        {rows.map((r, ri) => (
+          <li key={ri} className="flex flex-wrap items-end gap-1.5">
+            {headings.map((h, ci) => (
+              <Labeled key={ci} id={`${uid}-rw${ri}-${ci}`} label={h} className="min-w-[9rem] flex-1">
+                {typeof r[ci] === "object" && r[ci] !== null ? (
+                  <code className="block rounded bg-gray-50 px-2 py-1 text-xs">{JSON.stringify(r[ci])}</code>
+                ) : (
+                  <SmartText id={`${uid}-rw${ri}-${ci}`} value={r[ci] ?? ""} disabled={disabled}
+                    onChange={(v) => onChange(replaceAt(rows, ri, headings.map((_, k) => (k === ci ? v : r[k] ?? ""))))} />
+                )}
+              </Labeled>
+            ))}
+            <RowControls index={ri} count={rows.length} label={`row ${ri + 1}`} disabled={disabled}
+              onMove={(x, d) => onChange(move(rows, x, d))} onRemove={(x) => onChange(removeAt(rows, x))} />
+          </li>
+        ))}
+      </ul>
+      {!disabled && <button type="button" className={`${btnSmall} mt-2`} onClick={() => onChange([...rows, headings.map(() => "")])}><Plus className="h-3.5 w-3.5" /> Add row</button>}
+    </fieldset>
+  );
+}
+
+export default function BlockFields({ block, onChange, fields = [], clauseKeys = [], disabled = false, pkg = false, listSources = [] }) {
   const uid = useId();
   const b = block;
   const set = (patch) => onChange({ ...b, ...patch });
@@ -130,7 +242,139 @@ export default function BlockFields({ block, onChange, fields = [], clauseKeys =
   };
 
   let body = null;
-  switch (b.type) {
+  const pkgBody = pkg ? packageBody() : null;
+
+  function packageBody() {
+    const sourceSelect = (label) => (
+      <Labeled id={`${uid}-src`} label={label} className="max-w-md" hint="Filled from the hire's role and engagement profiles.">
+        <select id={`${uid}-src`} className={inputClass} disabled={disabled} value={b.items_from || ""} onChange={(e) => set({ items_from: e.target.value })}>
+          {listSources.map((k) => <option key={k} value={k}>{k}</option>)}
+        </select>
+      </Labeled>
+    );
+    switch (b.type) {
+      case "heading":
+        return (
+          <div className="grid gap-3 sm:grid-cols-[1fr_8rem_10rem]">
+            <Labeled id={`${uid}-t`} label="Heading text"><SmartText id={`${uid}-t`} value={b.text} onChange={(text) => set({ text })} disabled={disabled} /></Labeled>
+            <Labeled id={`${uid}-l`} label="Level">
+              <select id={`${uid}-l`} className={inputClass} value={b.level || 2} disabled={disabled} onChange={(e) => set({ level: Number(e.target.value) })}>
+                <option value={1}>1 (title)</option><option value={2}>2</option><option value={3}>3</option>
+              </select>
+            </Labeled>
+            <label className="flex items-center gap-2 self-end py-2 text-sm text-gray-700">
+              <input type="checkbox" className="h-4 w-4 accent-blue-600" disabled={disabled} checked={b.style === "center"}
+                onChange={(e) => { const { style: _s, ...rest } = b; onChange(e.target.checked ? { ...rest, style: "center", level: 1 } : rest); }} /> Centred title
+            </label>
+          </div>
+        );
+      case "paragraph":
+        return (
+          <div className="space-y-3">
+            <Labeled id={`${uid}-t`} label="Text" hint="**bold** and {{placeholders}} are allowed. <br/> starts a new line.">
+              <SmartText id={`${uid}-t`} multiline rows={5} value={b.text} onChange={(text) => set({ text })} disabled={disabled} />
+            </Labeled>
+            <Labeled id={`${uid}-s`} label="Style" className="max-w-[12rem]">
+              <select id={`${uid}-s`} className={inputClass} value={b.style || "normal"} disabled={disabled}
+                onChange={(e) => { const { style: _s, ...rest } = b; onChange(e.target.value === "normal" ? rest : { ...rest, style: e.target.value }); }}>
+                <option value="normal">Normal</option><option value="small">Small print</option><option value="note">Note (grey italic)</option>
+              </select>
+            </Labeled>
+          </div>
+        );
+      case "list":
+        return (
+          <div className="space-y-3">
+            <Labeled id={`${uid}-s`} label="List style" className="max-w-[12rem]">
+              <select id={`${uid}-s`} className={inputClass} value={b.style || "bullet"} disabled={disabled} onChange={(e) => set({ style: e.target.value })}>
+                <option value="bullet">Bullets</option><option value="number">Numbered</option>
+              </select>
+            </Labeled>
+            {b.items_from ? sourceSelect("Items come from") : <TextList uid={uid} label="Items" items={b.items || []} disabled={disabled} onChange={(items) => set({ items })} />}
+          </div>
+        );
+      case "kv":
+        return <RowsEditor uid={uid} legend="Rows" headings={["Label", "Value"]} rows={b.rows || []} disabled={disabled} onChange={(rows) => set({ rows })} />;
+      case "section":
+        return (
+          <div className="space-y-3">
+            <div className="grid gap-3 sm:grid-cols-[6rem_1fr]">
+              <Labeled id={`${uid}-n`} label="Number"><input id={`${uid}-n`} className={inputClass} disabled={disabled} value={b.num || ""} onChange={(e) => set({ num: e.target.value })} /></Labeled>
+              <Labeled id={`${uid}-ti`} label="Title"><SmartText id={`${uid}-ti`} value={b.title || ""} disabled={disabled} onChange={(title) => set({ title })} /></Labeled>
+            </div>
+            <TextList uid={uid} label="Sub-clauses" items={b.items || []} disabled={disabled} onChange={(items) => set({ items })} />
+          </div>
+        );
+      case "clause":
+        return (
+          <Labeled id={`${uid}-ck`} label="Counsel clause" className="max-w-md" hint="Prints the wording saved in Onboarding › Settings › Counsel clause library.">
+            <select id={`${uid}-ck`} className={inputClass} disabled={disabled} value={b.key || ""} onChange={(e) => set({ key: e.target.value })}>
+              <option value="">Choose…</option>
+              {clauseKeys.map((k) => <option key={k} value={k}>{k}</option>)}
+            </select>
+          </Labeled>
+        );
+      case "notice":
+        return <TextList uid={uid} label="Paragraphs" items={b.items || []} disabled={disabled} onChange={(items) => set({ items })} />;
+      case "checks":
+        return (
+          <div className="space-y-3">
+            <Labeled id={`${uid}-q`} label="Question"><SmartText id={`${uid}-q`} value={b.label || ""} disabled={disabled} onChange={(label) => set({ label })} /></Labeled>
+            <TextList uid={uid} label="Options" items={b.options || []} disabled={disabled} onChange={(options) => set({ options })} />
+          </div>
+        );
+      case "textbox":
+        return (
+          <div className="grid gap-3 sm:grid-cols-[1fr_6rem]">
+            <Labeled id={`${uid}-q`} label="Question"><SmartText id={`${uid}-q`} value={b.label || ""} disabled={disabled} onChange={(label) => set({ label })} /></Labeled>
+            <Labeled id={`${uid}-ln`} label="Lines"><input id={`${uid}-ln`} type="number" min={1} max={20} className={inputClass} disabled={disabled} value={b.lines || 3} onChange={(e) => set({ lines: Number(e.target.value) || 1 })} /></Labeled>
+            <Labeled id={`${uid}-h`} label="Hint" className="sm:col-span-2"><input id={`${uid}-h`} className={inputClass} disabled={disabled} value={b.hint || ""} onChange={(e) => set({ hint: e.target.value })} /></Labeled>
+          </div>
+        );
+      case "consent":
+        return (
+          <Labeled id={`${uid}-t`} label="Consent statement">
+            <SmartText id={`${uid}-t`} multiline rows={3} value={b.text || ""} disabled={disabled} onChange={(text) => set({ text })} />
+          </Labeled>
+        );
+      case "signature_block":
+        return (
+          <div className="space-y-3">
+            <Labeled id={`${uid}-st`} label="Statement above the signatures (optional)">
+              <SmartText id={`${uid}-st`} value={b.statement || ""} disabled={disabled} onChange={(statement) => set({ statement: statement || undefined })} />
+            </Labeled>
+            <RowsEditor uid={uid} legend="Signers" headings={["Party", "Name", "Title", "Date"]} rows={b.rows || []} disabled={disabled} onChange={(rows) => set({ rows })} />
+          </div>
+        );
+      case "letterhead":
+        return (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Labeled id={`${uid}-nm`} label="Name"><SmartText id={`${uid}-nm`} value={b.name || ""} disabled={disabled} onChange={(name) => set({ name })} /></Labeled>
+            <Labeled id={`${uid}-ad`} label="Address"><SmartText id={`${uid}-ad`} value={b.address || ""} disabled={disabled} onChange={(address) => set({ address })} /></Labeled>
+          </div>
+        );
+      case "groups": return sourceSelect("Groups come from");
+      case "kpis": return sourceSelect("KPI areas come from");
+      case "chart":
+        return (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Labeled id={`${uid}-ct`} label="Title"><input id={`${uid}-ct`} className={inputClass} disabled={disabled} value={b.title || ""} onChange={(e) => set({ title: e.target.value })} /></Labeled>
+            <Labeled id={`${uid}-cn`} label="Note"><input id={`${uid}-cn`} className={inputClass} disabled={disabled} value={b.note || ""} onChange={(e) => set({ note: e.target.value })} /></Labeled>
+          </div>
+        );
+      case "anchor":
+        return <Labeled id={`${uid}-an`} label="Name (for links)" className="max-w-xs"><input id={`${uid}-an`} className={inputClass} disabled={disabled} value={b.name || ""} onChange={(e) => set({ name: e.target.value })} /></Labeled>;
+      case "activities":
+        return <p className="text-sm text-gray-500">The new hire's declared outside activities are printed here. Nothing to configure.</p>;
+      default:
+        return null;
+    }
+  }
+
+  switch (pkgBody ? "__package__" : b.type) {
+    case "__package__":
+      body = pkgBody;
+      break;
     case "letterhead":
       body = <p className="text-sm text-gray-500">Prints the employer's letterhead (name, address, logo). Nothing to configure.</p>;
       break;

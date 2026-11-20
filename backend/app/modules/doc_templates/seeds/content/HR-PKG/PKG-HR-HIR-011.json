@@ -1,0 +1,275 @@
+{
+ "canonical_id": "PKG-HR-HIR-011",
+ "template_id": "HR-HIR-011",
+ "category": "offer_letter",
+ "title": "Offer Letter",
+ "family_id": "HR-HIR",
+ "doc_type": "LETTER_NOTICE",
+ "risk": "L2",
+ "sensitivity": "C2",
+ "mode": "SIGN",
+ "orientation": "portrait",
+ "pages": "2–3",
+ "signers": "Employer (issues); Candidate (accepts)",
+ "initials": false,
+ "optional_fields": [
+  "worker.address_block",
+  "worker.postal_address"
+ ],
+ "blocks": [
+  {
+   "type": "letterhead",
+   "name": "{{company.legal_name}}",
+   "address": "{{company.address_block}}",
+   "id": "b1"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{document.issue_date}}",
+   "id": "b2"
+  },
+  {
+   "type": "paragraph",
+   "text": "**{{worker.full_name_caps}}**<br/>{{worker.address_block}}",
+   "id": "b3"
+  },
+  {
+   "type": "heading",
+   "text": "CONGRATULATIONS",
+   "level": 1,
+   "style": "center",
+   "id": "b4"
+  },
+  {
+   "type": "paragraph",
+   "text": "**Subject: Offer of Engagement – {{role.title}}**",
+   "id": "b5"
+  },
+  {
+   "type": "paragraph",
+   "text": "Dear {{worker.full_name}},",
+   "id": "b6"
+  },
+  {
+   "type": "paragraph",
+   "text": "We are pleased to offer you the role of **{{role.title}}** with {{company.legal_name}}. This letter sets out the main terms of your engagement; the full terms are in the enclosed agreements.",
+   "id": "b7"
+  },
+  {
+   "type": "paragraph",
+   "text": "The role is part of the **{{engagement.programme_name}}**, and you will join as a {{engagement.party_term}}.",
+   "include_when": {
+    "field": "engagement.programme_name",
+    "op": "present"
+   },
+   "id": "b8"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{offer.candidate_fit_summary}}",
+   "include_when": {
+    "field": "offer.candidate_fit_summary",
+    "op": "present"
+   },
+   "id": "b9"
+  },
+  {
+   "type": "heading",
+   "text": "Engagement Details",
+   "level": 2,
+   "id": "b10"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "Role",
+     "{{role.title}}"
+    ],
+    [
+     "Company",
+     "{{company.legal_name}}"
+    ],
+    [
+     "Start date",
+     "{{employment.start_date_long}}"
+    ],
+    [
+     "Engagement type",
+     "{{employment.employment_type}}"
+    ],
+    [
+     "{{engagement.assessment_label}}",
+     "{{engagement.assessment_months}} months"
+    ],
+    [
+     "Work arrangement",
+     "{{employment.work_arrangement}}"
+    ],
+    [
+     "Work schedule",
+     "{{engagement.work_schedule}}"
+    ],
+    [
+     "{{engagement.remuneration_label}}",
+     "{{employment.pay_statement}}"
+    ],
+    [
+     "Reports to",
+     "{{employment.reports_to}}"
+    ]
+   ],
+   "id": "b11"
+  },
+  {
+   "type": "paragraph",
+   "text": "Work may also be required on {{engagement.saturday_rule}}.",
+   "include_when": {
+    "field": "engagement.saturday_rule",
+    "op": "present"
+   },
+   "id": "b12"
+  },
+  {
+   "type": "heading",
+   "text": "{{engagement.conversion_heading}}",
+   "level": 2,
+   "include_when": {
+    "field": "engagement.conversion_text",
+    "op": "present"
+   },
+   "id": "b13"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{engagement.conversion_text}}",
+   "include_when": {
+    "field": "engagement.conversion_text",
+    "op": "present"
+   },
+   "id": "b14"
+  },
+  {
+   "type": "heading",
+   "text": "Role Responsibilities",
+   "level": 2,
+   "id": "b15"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "role.offer_responsibilities",
+   "id": "b16"
+  },
+  {
+   "type": "heading",
+   "text": "Work Standards, Tools and Accountability",
+   "level": 2,
+   "id": "b17"
+  },
+  {
+   "type": "paragraph",
+   "text": "Working time is recorded in {{company.time_tracking_tool}}, and work is planned and tracked in {{company.task_system}}. A Daily Work Report is submitted each working day.",
+   "id": "b18"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "engagement.workspace_requirements",
+   "include_when": {
+    "field": "engagement.workspace_requirements",
+    "op": "present"
+   },
+   "id": "b19"
+  },
+  {
+   "type": "heading",
+   "text": "Compensation, Leave and Notice Period",
+   "level": 2,
+   "id": "b20"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items": [
+    "**{{engagement.remuneration_label}}:** {{employment.pay_statement}}.",
+    "**Notice:** either party may end the engagement by giving {{employment.notice_text}}."
+   ],
+   "id": "b21"
+  },
+  {
+   "type": "paragraph",
+   "text": "**Leave:** {{engagement.leave_rule}}",
+   "include_when": {
+    "field": "engagement.leave_rule",
+    "op": "present"
+   },
+   "id": "b22"
+  },
+  {
+   "type": "heading",
+   "text": "Acceptance and Confirmation",
+   "level": 2,
+   "id": "b23"
+  },
+  {
+   "type": "paragraph",
+   "text": "Your start date is **{{employment.start_date_long}}**. Please sign this letter through your secure onboarding link ({{offer.secure_link}}) by **{{offer.response_deadline}}**, and send the following documents to {{company.onboarding_return_email}} so that they can be verified before your start date:",
+   "id": "b24"
+  },
+  {
+   "type": "list",
+   "style": "number",
+   "items_from": "offer.compliance_documents",
+   "id": "b25"
+  },
+  {
+   "type": "paragraph",
+   "text": "If you have any questions, please contact {{employer.hr_contact}}.",
+   "id": "b26"
+  },
+  {
+   "type": "paragraph",
+   "text": "Yours sincerely,",
+   "id": "b27"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{company.sign_off}}<br/>{{company.legal_name}}",
+   "id": "b28"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "For {{company.legal_name}}",
+     "{{employer.signatory_name}}",
+     "{{employer.signatory_title}}",
+     "{{document.issue_date}}"
+    ]
+   ],
+   "id": "b29",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "Acknowledgement and Acceptance",
+   "level": 2,
+   "id": "b30"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ]
+   ],
+   "statement": "I, {{worker.full_name_caps}}, accept the terms of engagement set out in this letter.",
+   "id": "b31",
+   "locked": true
+  }
+ ]
+}

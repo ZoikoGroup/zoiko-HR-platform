@@ -1745,8 +1745,10 @@ async def upload_onboarding_document(
         problems["title"] = "Title can be at most 200 characters."
     if not category:
         problems["category"] = "Category is required."
-    elif category not in ONBOARDING_DOC_CATEGORIES:
-        problems["category"] = "Choose one of the listed categories."
+    else:
+        from app.modules.hr import onboarding_org_settings as OS
+        if category not in ONBOARDING_DOC_CATEGORIES and category not in OS.active_keys(db, current_user.organization_id):
+            problems["category"] = "Choose one of the listed categories."
     if file is None or not (file.filename or "").strip():
         problems["file"] = "Choose a file to upload."
     record_id = None

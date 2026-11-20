@@ -1,0 +1,159 @@
+{
+ "canonical_id": "PKG-HR-CON-101",
+ "template_id": "HR-CON-101",
+ "category": "exclusivity_affidavit",
+ "title": "Affidavit of Employment Exclusivity",
+ "family_id": "HR-CON",
+ "doc_type": "AGREEMENT",
+ "risk": "L3",
+ "sensitivity": "C3",
+ "mode": "SIGN",
+ "orientation": "portrait",
+ "pages": "2",
+ "signers": "Deponent; notary if required",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "AFFIDAVIT OF EMPLOYMENT EXCLUSIVITY",
+   "level": 1,
+   "style": "center",
+   "id": "b1"
+  },
+  {
+   "type": "paragraph",
+   "text": "Date: {{document.issue_date}}",
+   "id": "b2"
+  },
+  {
+   "type": "paragraph",
+   "text": "I, **{{worker.full_name_caps}}**, residing at {{worker.address_inline}}, hereby affirm and declare as follows:",
+   "id": "b3",
+   "locked": true
+  },
+  {
+   "type": "list",
+   "style": "number",
+   "items": [
+    "I have been offered the role of {{role.title}} with {{company.legal_name}}, starting on {{employment.start_date_long}}.",
+    "I will devote my full working time and attention to {{company.legal_name}}.",
+    "I will not take up any other employment, consultancy or business activity without the Company's prior written approval.",
+    "I understand that a breach of this affidavit is a breach of my terms of engagement.",
+    "I understand that a breach may lead to action under the Company's disciplinary procedure.",
+    "I certify that, apart from the activities I list in Schedule A, I have no other employment, consultancy or business activity.",
+    "I will tell the Company promptly about any change to the statements in this affidavit.",
+    "I understand that this affidavit is legally binding.",
+    "I make this affidavit believing its contents to be true."
+   ],
+   "id": "b4",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "Schedule A – Disclosed outside activities",
+   "level": 3,
+   "id": "b5"
+  },
+  {
+   "type": "paragraph",
+   "text": "I complete Schedule A when I sign this affidavit. It lists every outside activity, paid or unpaid, or confirms that I have none, and forms part of this affidavit.",
+   "id": "b6"
+  },
+  {
+   "type": "heading",
+   "text": "Scope",
+   "level": 3,
+   "id": "b7"
+  },
+  {
+   "type": "clause",
+   "key": "outside_employment_lawful_scope",
+   "id": "b8",
+   "locked": true
+  },
+  {
+   "type": "clause",
+   "key": "false_statement_consequences",
+   "id": "b9",
+   "locked": true
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "Deponent",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ]
+   ],
+   "id": "b10",
+   "locked": true
+  },
+  {
+   "type": "paragraph",
+   "text": "Sworn and declared before me on this ______ day of ____________, 20____, by {{worker.full_name_caps}}.",
+   "id": "b11",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "Notary Public",
+   "level": 3,
+   "include_when": {
+    "field": "company.affidavit_notary",
+    "op": "present"
+   },
+   "id": "b12"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.26,
+    0.2,
+    0.18,
+    0.18,
+    0.18
+   ],
+   "columns": [
+    "Name of Notary Public",
+    "Registration number",
+    "Seal",
+    "Signature",
+    "Date"
+   ],
+   "include_when": {
+    "field": "company.affidavit_notary",
+    "op": "present"
+   },
+   "id": "b13"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{company.affidavit_stamp_note}}",
+   "style": "note",
+   "include_when": {
+    "field": "company.affidavit_stamp_note",
+    "op": "present"
+   },
+   "id": "b14"
+  },
+  {
+   "type": "notice",
+   "items": [
+    "**Submission deadline:** submit this affidavit within {{company.affidavit_hours}} hours of receiving the offer letter."
+   ],
+   "id": "b15"
+  }
+ ]
+}

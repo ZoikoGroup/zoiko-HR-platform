@@ -67,11 +67,14 @@ const detailsFromView = (view) => {
   return out;
 };
 
-function validateFile(file) {
+/** The organisation's upload category may set its own file types and maximum size (Settings › Documents requested). */
+function validateFile(file, doc) {
   if (!file) return "Choose a file first.";
   const ext = (file.name.split(".").pop() || "").toLowerCase();
-  if (!ALLOWED_EXT.includes(ext)) return "Allowed file types: PDF, JPG, JPEG, PNG, DOC, DOCX.";
-  if (file.size > MAX_BYTES) return "The file is larger than 10 MB.";
+  const types = doc?.accepted_types?.length ? doc.accepted_types : ALLOWED_EXT;
+  const maxMb = doc?.max_size_mb ? Math.min(doc.max_size_mb, MAX_BYTES / (1024 * 1024)) : MAX_BYTES / (1024 * 1024);
+  if (!types.includes(ext)) return `Allowed file types: ${types.map((t) => t.toUpperCase()).join(", ")}.`;
+  if (file.size > maxMb * 1024 * 1024) return `The file is larger than ${maxMb} MB.`;
   return null;
 }
 
@@ -345,7 +348,7 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
   };
 
   const upload = async () => {
-    const problem = validateFile(file);
+    const problem = validateFile(file, doc);
     if (problem) { setFileError(problem); return; }
     setUploading(true);
     try {
@@ -369,6 +372,7 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
         <StatusBadge status={doc.status} requiresSignature={false} />
       </div>
 
+      {doc.description && <p className="mt-1.5 text-xs text-slate-600 break-words">{doc.description}</p>}
       {doc.status === "rejected" && doc.rejection_reason && (
         <p className="mt-2 text-xs text-rose-600 bg-rose-50 border border-rose-100 rounded-lg p-2.5 break-words">
           Revision requested: {doc.rejection_reason}
@@ -408,11 +412,12 @@ function UploadableDocRow({ doc, token, onUpdated, onError }) {
         <div className="mt-3 flex flex-col sm:flex-row sm:items-center gap-2">
           <input
             type="file"
-            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
+            accept={(doc.accepted_types?.length ? doc.accepted_types : ALLOWED_EXT).map((t) => `.${t}`).join(",")}
+            aria-label={`File for ${doc.title}`}
             onChange={(e) => {
               const f = e.target.files?.[0] || null;
               setFile(f);
-              setFileError(f ? validateFile(f) : null);
+              setFileError(f ? validateFile(f, doc) : null);
             }}
             className="block w-full min-w-0 text-xs text-slate-600 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100"
           />

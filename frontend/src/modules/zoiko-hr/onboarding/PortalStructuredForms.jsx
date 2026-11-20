@@ -65,6 +65,10 @@ export default function PortalStructuredForms({ token, onChanged }) {
 
   useEffect(() => { load(); }, [token]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // bank and tax numbers follow the work country; when HR has not set one, the country the new hire entered in their address
+  const homeCountry = forms.find((f) => f.canonical_id === "HR-ONB-001")?.values?.country || "";
+  const withCountry = (form) => (form.work_country || !homeCountry ? form : { ...form, work_country: homeCountry });
+
   const isKeptMasked = (form, key) => (form.masked_keys || []).includes(key) && !!form.values?.[key] && !touched[`${form.canonical_id}:${key}`];
 
   const setField = (form, key, value) => {
@@ -79,7 +83,7 @@ export default function PortalStructuredForms({ token, onChanged }) {
       const next = { ...current, [`${id}:${key}`]: "" };
       if (key === "country") {                                 // postal code, region and phone follow the country
         (form.fields || []).filter((f) => COUNTRY_DEPENDENT.includes(f.key)).forEach((f) => {
-          if (current[`${id}:${f.key}`] || nextValues[f.key]) next[`${id}:${f.key}`] = problemFor(form, f, nextValues, false);
+          if (current[`${id}:${f.key}`] || nextValues[f.key]) next[`${id}:${f.key}`] = problemFor(withCountry(form), f, nextValues, false);
         });
       }
       return next;
@@ -88,7 +92,7 @@ export default function PortalStructuredForms({ token, onChanged }) {
 
   const checkField = (form, field) => {
     const id = form.canonical_id;
-    const message = problemFor(form, field, form.values || {}, isKeptMasked(form, field.key));
+    const message = problemFor(withCountry(form), field, form.values || {}, isKeptMasked(form, field.key));
     setFieldErrors((current) => ({ ...current, [`${id}:${field.key}`]: message }));
   };
 
@@ -102,7 +106,7 @@ export default function PortalStructuredForms({ token, onChanged }) {
         errors[`${id}:${field.key}`] = `${field.label} is required.`;
         return;
       }
-      const message = problemFor(form, field, values, kept);
+      const message = problemFor(withCountry(form), field, values, kept);
       if (message) errors[`${id}:${field.key}`] = message;
     });
     if (submitting && !declarations[id] && form.declaration) errors[`${id}:declaration`] = "Confirm the declaration before submitting.";

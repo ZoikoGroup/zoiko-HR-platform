@@ -34,8 +34,15 @@ def _days(value_unit) -> Optional[str]:
     if not value_unit or value_unit[0] is None:
         return None
     value, unit = value_unit
-    per = {"days": 1, "day": 1, "weeks": 7, "week": 7, "months": 30, "month": 30}.get(str(unit or "").lower())
-    return str(int(value) * per) if per else None
+    unit = str(unit or "").lower()
+    try:
+        n = int(value)
+    except (TypeError, ValueError):
+        return None
+    if unit in ("business_days", "business_day", "working_days", "working_day"):
+        return str(-(-n * 7 // 5))                     # 5 business days = 7 calendar days, rounded up in the worker's favour
+    per = {"calendar_days": 1, "days": 1, "day": 1, "weeks": 7, "week": 7, "months": 30, "month": 30}.get(unit)
+    return str(n * per) if per else None
 
 
 def _hours_between(eng: dict) -> Optional[float]:

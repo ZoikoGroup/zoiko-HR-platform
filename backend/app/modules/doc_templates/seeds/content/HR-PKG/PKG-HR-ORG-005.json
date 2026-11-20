@@ -1,0 +1,188 @@
+{
+ "canonical_id": "PKG-HR-ORG-005",
+ "template_id": "HR-ORG-005",
+ "category": "job_description",
+ "title": "Job Description",
+ "family_id": "HR-ORG",
+ "doc_type": "RECORD",
+ "risk": "L1",
+ "sensitivity": "C1",
+ "mode": "ACKNOWLEDGE",
+ "orientation": "portrait",
+ "pages": "2",
+ "signers": "Employee and manager (acknowledgement)",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "Job Description",
+   "level": 1,
+   "id": "b1"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "Job title",
+     "{{role.title}}"
+    ],
+    [
+     "Programme",
+     "{{engagement.programme_name}}"
+    ],
+    [
+     "Employment type",
+     "{{employment.employment_type}}"
+    ],
+    [
+     "Work mode",
+     "{{employment.work_arrangement}}"
+    ],
+    [
+     "Start date",
+     "{{employment.start_date_long}}"
+    ],
+    [
+     "Reports to",
+     "{{employment.reports_to}}"
+    ],
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}"
+    ]
+   ],
+   "optional": [
+    "{{engagement.programme_name}}",
+    "{{employment.employment_type}}"
+   ],
+   "id": "b2"
+  },
+  {
+   "type": "heading",
+   "text": "About the Role",
+   "level": 2,
+   "id": "b3"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "role.about",
+   "id": "b4"
+  },
+  {
+   "type": "heading",
+   "text": "Key Responsibilities",
+   "level": 2,
+   "id": "b5"
+  },
+  {
+   "type": "groups",
+   "items_from": "role.responsibility_groups",
+   "id": "b6"
+  },
+  {
+   "type": "heading",
+   "text": "Required Skills",
+   "level": 2,
+   "id": "b7"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "role.required_skills",
+   "id": "b8"
+  },
+  {
+   "type": "heading",
+   "text": "Work Setup Requirements",
+   "level": 2,
+   "include_when": {
+    "field": "role.work_setup",
+    "op": "present"
+   },
+   "id": "b9"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "role.work_setup",
+   "include_when": {
+    "field": "role.work_setup",
+    "op": "present"
+   },
+   "id": "b10"
+  },
+  {
+   "type": "heading",
+   "text": "Work Schedule",
+   "level": 2,
+   "id": "b11"
+  },
+  {
+   "type": "paragraph",
+   "text": "{{engagement.work_schedule}}.",
+   "id": "b12"
+  },
+  {
+   "type": "paragraph",
+   "text": "Work may also be required on {{engagement.saturday_rule}}.",
+   "include_when": {
+    "field": "engagement.saturday_rule",
+    "op": "present"
+   },
+   "id": "b13"
+  },
+  {
+   "type": "heading",
+   "text": "Performance Structure",
+   "level": 2,
+   "include_when": {
+    "field": "role.performance_structure",
+    "op": "present"
+   },
+   "id": "b14"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items_from": "role.performance_structure",
+   "include_when": {
+    "field": "role.performance_structure",
+    "op": "present"
+   },
+   "id": "b15"
+  },
+  {
+   "type": "paragraph",
+   "text": "This job description is not exhaustive. Duties may change, after discussion with the {{engagement.party_term}}, as the needs of the role change.",
+   "id": "b16"
+  },
+  {
+   "type": "heading",
+   "text": "Acknowledgement",
+   "level": 2,
+   "id": "b17"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ],
+    [
+     "Manager",
+     "{{employment.reports_to}}",
+     "Line manager",
+     ""
+    ]
+   ],
+   "statement": "Signing below acknowledges receipt of this job description. It does not change the Employment Contract.",
+   "id": "b18",
+   "locked": true
+  }
+ ]
+}

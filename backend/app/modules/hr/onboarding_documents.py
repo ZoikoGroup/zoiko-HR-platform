@@ -91,9 +91,14 @@ def _pack_requirements(db, organization_id: int, country: Optional[str], region:
 
 
 def visible_fields(db, organization_id: int, canonical_id: str, country: Optional[str], region: Optional[str]) -> list[dict]:
+    """starter fields → minus the organisation's hidden fields → plus its added fields, in its order → pack requirements."""
+    from app.modules.hr import onboarding_org_settings as OS
     reqs = _pack_requirements(db, organization_id, country, region)
     out = []
-    for f in _starter_fields(db, canonical_id):
+    fields = _starter_fields(db, canonical_id)
+    if canonical_id in OS.CUSTOMISABLE_FORMS:
+        fields = OS.apply_override(fields, OS.get_override(db, organization_id, canonical_id))
+    for f in fields:
         flag = OPTIONAL_BY_PACK.get(f["key"])
         if flag and not reqs.get(flag):
             continue                                       # only collected when the jurisdiction pack requires it
@@ -198,12 +203,22 @@ def _audit(db, actor, action_type, entity_type, entity_id, target_name):
 
 # ── submissions ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
+_META_KEYS = ("_declaration", "_form_version", "_fields")
+
+
 def _values(sub: OnboardingFormSubmission) -> dict:
     vals = dict(sub.data or {})
     if sub.data_encrypted:
         vals.update(json.loads(storage.decrypt_text(sub.data_encrypted)))
-    vals.pop("_declaration", None)
+    for k in _META_KEYS:
+        vals.pop(k, None)
     return vals
+
+
+def fields_for(db, sub: OnboardingFormSubmission, country, region) -> list[dict]:
+    """A submitted form keeps the field list it was submitted with; a draft follows the organisation's current form."""
+    snap = (sub.data or {}).get("_fields") if sub is not None and sub.status in ("SUBMITTED", "VERIFIED") else None
+    return list(snap) if snap else visible_fields(db, sub.organization_id if sub is not None else None, sub.canonical_id, country, region)
 
 
 def _store_values(sub: OnboardingFormSubmission, values: dict, fields: list[dict]) -> None:
@@ -215,8 +230,8 @@ def _store_values(sub: OnboardingFormSubmission, values: dict, fields: list[dict
             continue
         v = (str(v).strip()[:500] if v is not None else None) or None
         (secret if k in fin else plain)[k] = v
-    keep_decl = (sub.data or {}).get("_declaration")
-    sub.data = {**plain, **({"_declaration": keep_decl} if keep_decl else {})}
+    keep = {k: (sub.data or {}).get(k) for k in _META_KEYS if (sub.data or {}).get(k) is not None}
+    sub.data = {**plain, **keep}
     sub.data_encrypted = storage.encrypt_text(json.dumps(secret)) if any(secret.values()) else None
 
 
@@ -225,14 +240,49 @@ def serialize_submission(db, sub: OnboardingFormSubmission, fields: list[dict], 
     fin = _financial_keys(fields)
     shown = {k: (v if reveal or k not in fin else (mask(v) if v else None)) for k, v in vals.items()}
     return {"id": sub.id, "canonical_id": sub.canonical_id, "title": FORMS.get(sub.canonical_id), "status": sub.status,
+            "form_version": (sub.data or {}).get("_form_version"),
             "values": shown, "masked_keys": sorted(fin) if not reveal else [], "submitted_at": sub.submitted_at,
             "verified_by": sub.verified_by, "verified_at": sub.verified_at, "return_reason": sub.return_reason,
             "document_id": sub.document_id, "fields": fields, "declaration": _declaration(db, sub.canonical_id),
             "declaration_version": DECLARATION_VERSION}
 
 
+def _iso(value) -> Optional[str]:
+    from app.core import regions
+    if not value or not str(value).strip():
+        return None
+    code = regions.country_code_strict(str(value).strip())
+    return code.upper() if code else None
+
+
 def _hire_location(hire: OnboardingNewHire):
-    return hire.work_country, hire.work_region
+    """(country, region) the bank and tax rules follow: the hire's work country; when HR has not set one, the work country on
+    the accepted offer, then the country of the address the hire entered (contact details, then the New starter form), then
+    the organisation's own country. A new hire cannot set a work country themselves, so the check must never wait for one."""
+    if hire.work_country:
+        return hire.work_country, hire.work_region
+    from sqlalchemy.orm import object_session
+    db = object_session(hire)
+    country = None
+    if db is not None:
+        try:
+            from app.modules.hr.models import RecruitmentCandidate, RecruitmentOffer
+            cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.onboarding_new_hire_id == hire.id).first()
+            offer = (db.query(RecruitmentOffer).filter(RecruitmentOffer.candidate_id == cand.id)
+                     .order_by(RecruitmentOffer.id.desc()).first()) if cand is not None else None
+            country = _iso(getattr(offer, "work_country", None))
+        except Exception:
+            country = None
+    country = country or _iso((hire.profile_details or {}).get("country"))
+    if not country and db is not None:
+        sub = (db.query(OnboardingFormSubmission).filter(OnboardingFormSubmission.new_hire_id == hire.id,
+                                                         OnboardingFormSubmission.canonical_id == "HR-ONB-001")
+               .order_by(OnboardingFormSubmission.id.desc()).first())
+        country = _iso((sub.data or {}).get("country")) if sub is not None else None
+    if not country and db is not None:
+        from app.modules.hr import company_profile as CP
+        country = _iso(CP.get_profile(db, hire.organization_id).get("country"))
+    return country, hire.work_region
 
 
 def _get_or_create(db, hire: OnboardingNewHire, canonical_id: str) -> OnboardingFormSubmission:
@@ -293,6 +343,7 @@ def portal_forms(db, hire: OnboardingNewHire) -> list[dict]:
                         "declaration": _declaration(db, cid), "declaration_version": DECLARATION_VERSION, "masked_keys": [],
                         "errors": {}})
         else:
+            fields = fields_for(db, sub, country, region)
             view = serialize_submission(db, sub, fields)
             if sub.status in ("DRAFT", "RETURNED"):
                 view["values"] = prefill_values(hire, fields, view["values"] or {})
@@ -317,6 +368,10 @@ def save_portal_form(db, hire: OnboardingNewHire, canonical_id: str, values: dic
     current = _values(sub)
     current.update(values or {})
     cleaned, errors = field_problems(fields, current, work_country=country)
+    for f in fields:                                       # an organisation's own list fields accept only their options
+        v = current.get(f["key"])
+        if f.get("custom") and f.get("type") == "select" and v not in (None, "") and v not in (f.get("options") or []):
+            errors[f["key"]] = "Choose one of the options."
     _raise_invalid(errors)                                  # nothing invalid is stored, not even in a draft
     current.update(cleaned)
     _store_values(sub, current, fields)
@@ -328,8 +383,11 @@ def save_portal_form(db, hire: OnboardingNewHire, canonical_id: str, values: dic
             raise HTTPException(422, {"code": "MISSING_FIELDS", "message": "Complete the required fields.", "missing": missing})
         if not declaration_accepted:
             raise HTTPException(422, "Confirm the declaration to submit.")
+        from app.modules.hr import onboarding_org_settings as OS
         sub.data = {**(sub.data or {}), "_declaration": {"version": DECLARATION_VERSION, "accepted_at": datetime.utcnow().isoformat(),
-                                                         "ip": ip, "user_agent": (user_agent or "")[:300]}}
+                                                         "ip": ip, "user_agent": (user_agent or "")[:300]},
+                    # the form as it was submitted: later changes to the organisation's form never change it
+                    "_form_version": OS.form_version(db, hire.organization_id, canonical_id), "_fields": fields}
         sub.status, sub.submitted_at, sub.return_reason = "SUBMITTED", datetime.utcnow(), None
     db.commit()
     return serialize_submission(db, sub, fields)
@@ -345,10 +403,12 @@ def _sub(db, actor, sub_id) -> OnboardingFormSubmission:
 def _location_of(db, sub):
     if sub.new_hire_id:
         hire = db.get(OnboardingNewHire, sub.new_hire_id)
-        return hire.work_country, hire.work_region
+        return _hire_location(hire)
     from app.modules.employee.models import Employee
     e = db.get(Employee, sub.employee_id)
-    return (e.work_country, e.work_region) if e else (None, None)
+    if e is None:
+        return None, None
+    return (e.work_country or _iso(getattr(e, "country", None))), e.work_region
 
 
 def return_submission(db, actor, sub: OnboardingFormSubmission, reason: str) -> OnboardingFormSubmission:
@@ -371,7 +431,7 @@ def verify_submission(db, actor, sub: OnboardingFormSubmission) -> OnboardingFor
     if sub.status != "SUBMITTED":
         raise HTTPException(409, "Only a submitted form can be verified.")
     country, region = _location_of(db, sub)
-    fields = visible_fields(db, sub.organization_id, sub.canonical_id, country, region)
+    fields = fields_for(db, sub, country, region)
     errors = field_problems(fields, _values(sub), work_country=country)[1]
     if errors:
         labels = {f["key"]: f["label"] for f in fields}
@@ -422,6 +482,15 @@ def _apply(db, actor, sub: OnboardingFormSubmission) -> None:
     elif sub.canonical_id == "HR-ONB-003":
         updates = {"emergency_contacts": emergency_contacts(vals)}
     updates = {k: v for k, v in updates.items() if v not in (None, "", [])}
+    custom = {k: v for k, v in vals.items() if k.startswith("custom_") and v not in (None, "")}
+    if custom:                       # the organisation's own fields: kept under custom_fields, never in core columns
+        if emp is not None:
+            emp.custom_fields = {**(emp.custom_fields or {}), **custom}
+        elif hire is not None:
+            details = dict(hire.profile_details or {})
+            details["custom_fields"] = {**(details.get("custom_fields") or {}), **custom}
+            hire.profile_details = details
+        db.commit()
     if not updates:
         return
     if emp is not None:
@@ -479,7 +548,7 @@ def _form_context(ctx):
     if sub is None or type(sub).__name__ != "OnboardingFormSubmission":
         return
     country, region = _location_of(ctx.db, sub)
-    fields = visible_fields(ctx.db, sub.organization_id, sub.canonical_id, country, region)
+    fields = fields_for(ctx.db, sub, country, region)
     fin = _financial_keys(fields)
     vals = _values(sub)
     ctx.form_values = {k: (mask(v) if k in fin else v) for k, v in vals.items() if v}
@@ -876,14 +945,14 @@ def hire_documents(hire_id: int, db: Session = Depends(get_db), user=Depends(get
 def verify(sub_id: int, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sub = verify_submission(db, user, _sub(db, user, sub_id))
     country, region = _location_of(db, sub)
-    return serialize_submission(db, sub, visible_fields(db, sub.organization_id, sub.canonical_id, country, region))
+    return serialize_submission(db, sub, fields_for(db, sub, country, region))
 
 
 @router.post("/forms/{sub_id}/return")
 def return_form(sub_id: int, body: ReturnBody, db: Session = Depends(get_db), user=Depends(get_current_user)):
     sub = return_submission(db, user, _sub(db, user, sub_id), body.reason)
     country, region = _location_of(db, sub)
-    return serialize_submission(db, sub, visible_fields(db, sub.organization_id, sub.canonical_id, country, region))
+    return serialize_submission(db, sub, fields_for(db, sub, country, region))
 
 
 @router.get("/forms/{sub_id}/reveal")
@@ -893,7 +962,7 @@ def reveal(sub_id: int, db: Session = Depends(get_db), user=Depends(get_current_
         raise HTTPException(403, {"code": "FINANCE_PERMISSION_REQUIRED", "message": "Only people with finance permission can see these details."})
     _audit(db, user, "payroll.details_revealed", "OnboardingFormSubmission", sub.id, FORMS.get(sub.canonical_id))
     country, region = _location_of(db, sub)
-    return serialize_submission(db, sub, visible_fields(db, sub.organization_id, sub.canonical_id, country, region), reveal=True)
+    return serialize_submission(db, sub, fields_for(db, sub, country, region), reveal=True)
 
 
 @router.get("/payroll-verifications")
@@ -906,7 +975,7 @@ def payroll_queue(db: Session = Depends(get_db), user=Depends(get_current_user))
     out = []
     for s in rows:
         country, region = _location_of(db, s)
-        out.append({**serialize_submission(db, s, visible_fields(db, s.organization_id, s.canonical_id, country, region)),
+        out.append({**serialize_submission(db, s, fields_for(db, s, country, region)),
                     "new_hire_id": s.new_hire_id, "employee_id": s.employee_id})
     return {"items": out, "total": len(out)}
 

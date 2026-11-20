@@ -1,0 +1,287 @@
+{
+ "canonical_id": "PKG-HR-CON-017",
+ "template_id": "HR-CON-017",
+ "category": "nda",
+ "title": "Non-Disclosure Agreement",
+ "family_id": "HR-CON",
+ "doc_type": "AGREEMENT",
+ "risk": "L3",
+ "sensitivity": "C3",
+ "mode": "SIGN",
+ "orientation": "portrait",
+ "pages": "5–7",
+ "signers": "Employer; Employee; two witnesses",
+ "initials": true,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "Non-Disclosure Agreement",
+   "level": 1,
+   "id": "b1"
+  },
+  {
+   "type": "paragraph",
+   "text": "This Non-Disclosure Agreement (the **Agreement**) is made on the {{document.issue_date_legal}}.",
+   "id": "b2"
+  },
+  {
+   "type": "section",
+   "num": "",
+   "title": "Parties",
+   "items": [
+    "**{{company.legal_name_with_associates}}**, having its registered office at {{company.address_inline}} (the **Company**), OF THE FIRST PART;",
+    "AND",
+    "**{{worker.full_name}}**, residing at {{worker.address_inline}} (the **{{engagement.party_term}}**), OF THE SECOND PART."
+   ],
+   "id": "b3"
+  },
+  {
+   "type": "section",
+   "num": "",
+   "title": "Background",
+   "items": [
+    "The {{engagement.party_term}} is engaged by the Company as {{role.title}} from {{employment.start_date_long}}, and will receive Confidential Information for the purpose of performing that role (the **Permitted Purpose**).",
+    "In consideration of the engagement and of the Confidential Information made available, the parties agree as follows."
+   ],
+   "id": "b4"
+  },
+  {
+   "type": "section",
+   "num": "1",
+   "title": "Confidential Information",
+   "items": [
+    "**Confidential Information** means information, in any form, that is not public and that the {{engagement.party_term}} receives or creates through the engagement, including:",
+    {
+     "type": "list",
+     "style": "bullet",
+     "items": [
+      "(a) business plans, strategies, forecasts and financial information;",
+      "(b) customer, client, supplier and partner information;",
+      "(c) personal data about employees, customers or other people;",
+      "(d) software, source code, algorithms, designs, data models and technical documentation;",
+      "(e) products, product roadmaps, research and unreleased work;",
+      "(f) pricing, contracts and commercial terms;",
+      "(g) marketing, sales and growth plans;",
+      "(h) know-how, processes and methods of working;",
+      "(i) security arrangements, credentials and access methods;",
+      "(j) information about the Company's associated companies;",
+      "(k) any information marked confidential, or that a reasonable person would treat as confidential."
+     ]
+    },
+    "Confidential Information does **not** include information that:",
+    {
+     "type": "list",
+     "style": "bullet",
+     "items": [
+      "(a) is or becomes public other than through a breach of this Agreement;",
+      "(b) the {{engagement.party_term}} lawfully knew before receiving it from the Company;",
+      "(c) the {{engagement.party_term}} lawfully receives from a third party who owes no duty of confidence;",
+      "(d) the {{engagement.party_term}} develops independently, without using Confidential Information, Company equipment or Company time;",
+      "(e) the Company agrees in writing may be disclosed."
+     ]
+    }
+   ],
+   "id": "b5"
+  },
+  {
+   "type": "section",
+   "num": "2",
+   "title": "Obligations of Non-Disclosure",
+   "items": [
+    "The {{engagement.party_term}} must keep Confidential Information secret and secure, use it only for the Permitted Purpose, and not copy, remove or transfer it outside Company systems unless authorised.",
+    "The {{engagement.party_term}} may disclose Confidential Information only:",
+    {
+     "type": "list",
+     "style": "bullet",
+     "items": [
+      "(a) to colleagues or advisers who need it for the Permitted Purpose and owe a duty of confidence;",
+      "(b) with the Company's prior written consent; or",
+      "(c) where required by (i) law, (ii) a court order, (iii) a regulator or (iv) a competent authority — and then only what is required, telling the Company first where the law allows."
+     ]
+    },
+    {
+     "type": "clause",
+     "key": "protected_disclosure_and_whistleblowing"
+    }
+   ],
+   "id": "b6",
+   "locked": true
+  },
+  {
+   "type": "section",
+   "num": "3",
+   "title": "Avoiding Conflict of Opportunities",
+   "items": [
+    {
+     "type": "clause",
+     "key": "conflict_of_opportunities"
+    }
+   ],
+   "id": "b7"
+  },
+  {
+   "type": "section",
+   "num": "4",
+   "title": "Non-Solicitation",
+   "items": [
+    "This clause applies during the engagement and for {{company.nda_non_solicit_months}} months after it ends.",
+    {
+     "type": "clause",
+     "key": "non_solicitation"
+    }
+   ],
+   "id": "b8"
+  },
+  {
+   "type": "section",
+   "num": "5",
+   "title": "Non-Competition",
+   "items": [
+    {
+     "type": "clause",
+     "key": "non_competition"
+    }
+   ],
+   "id": "b9"
+  },
+  {
+   "type": "section",
+   "num": "6",
+   "title": "Ownership and Title",
+   "items": [
+    {
+     "type": "clause",
+     "key": "confidentiality_and_ip"
+    }
+   ],
+   "id": "b10"
+  },
+  {
+   "type": "section",
+   "num": "7",
+   "title": "Remedies",
+   "items": [
+    {
+     "type": "clause",
+     "key": "remedies"
+    }
+   ],
+   "id": "b11"
+  },
+  {
+   "type": "section",
+   "num": "8",
+   "title": "Return of Confidential Information",
+   "items": [
+    "When the engagement ends, or earlier on request, the {{engagement.party_term}} must return all Company property and Confidential Information, delete it from personal devices and accounts, and confirm this in writing if asked."
+   ],
+   "id": "b12"
+  },
+  {
+   "type": "section",
+   "num": "9",
+   "title": "Notices",
+   "items": [
+    "Notices under this Agreement are given in writing to the Company at {{company.address_inline}}, and to the {{engagement.party_term}} at {{worker.address_inline}} or the e-mail address held by the Company."
+   ],
+   "id": "b13"
+  },
+  {
+   "type": "section",
+   "num": "10",
+   "title": "Representations",
+   "items": [
+    "Each party confirms that it is free to enter into this Agreement."
+   ],
+   "id": "b14"
+  },
+  {
+   "type": "section",
+   "num": "11",
+   "title": "Duration and Termination",
+   "items": [
+    "The obligations of confidentiality continue {{company.confidentiality_duration}} after the engagement ends, unless the information ceases to be confidential."
+   ],
+   "id": "b15"
+  },
+  {
+   "type": "section",
+   "num": "12",
+   "title": "Assignment",
+   "items": [
+    "The {{engagement.party_term}} may not assign this Agreement. The Company may assign it to an associated company or a successor."
+   ],
+   "id": "b16"
+  },
+  {
+   "type": "section",
+   "num": "13",
+   "title": "Amendments",
+   "items": [
+    "A change to this Agreement is valid only if it is in writing and signed by both parties."
+   ],
+   "id": "b17"
+  },
+  {
+   "type": "section",
+   "num": "14",
+   "title": "Governing Law",
+   "items": [
+    "This Agreement is governed by {{company.governing_law}}."
+   ],
+   "id": "b18"
+  },
+  {
+   "type": "section",
+   "num": "15",
+   "title": "General Provisions",
+   "items": [
+    "If any part of this Agreement cannot be enforced, the rest continues to apply. This Agreement, with the Employment Contract, is the whole agreement between the parties on confidentiality."
+   ],
+   "id": "b19"
+  },
+  {
+   "type": "anchor",
+   "name": "signatures",
+   "id": "b20"
+  },
+  {
+   "type": "heading",
+   "text": "Signatures",
+   "level": 2,
+   "id": "b21"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "For {{company.legal_name}} (Per)",
+     "{{employer.signatory_name}}",
+     "{{employer.signatory_title}}",
+     "{{document.issue_date}}"
+    ],
+    [
+     "Witness 1 (name, address)",
+     "",
+     "",
+     ""
+    ],
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ],
+    [
+     "Witness 2 (name, address)",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "id": "b22",
+   "locked": true
+  }
+ ]
+}

@@ -45,29 +45,31 @@ class ModelRunResult:
         self.model = model or settings.GROQ_MODEL
 
 
-def _model_kwargs(model: str) -> dict:
+def _model_kwargs(model: str, reasoning_effort: str | None = None) -> dict:
     """Per-model request options. gpt-oss models reason before their first
     visible token; a low effort keeps time-to-first-token inside the
-    architecture spec's 2.5s budget."""
-    if model.startswith("openai/gpt-oss") and settings.GROQ_REASONING_EFFORT:
-        return {"reasoning_effort": settings.GROQ_REASONING_EFFORT}
+    architecture spec's 2.5s budget. `reasoning_effort` overrides the setting
+    for one call (harder questions)."""
+    effort = reasoning_effort or settings.GROQ_REASONING_EFFORT
+    if model.startswith("openai/gpt-oss") and effort:
+        return {"reasoning_effort": effort}
     return {}
 
 
-def _create_with_fallback(kwargs: dict):
+def _create_with_fallback(kwargs: dict, reasoning_effort: str | None = None):
     """Model gateway retry (architecture spec: approved model routing,
     timeout/retry, provider fallback): one retry on the fallback model when
     the main model fails before any output. Returns (completion, model)."""
     client = _get_client()
     model = kwargs["model"]
     try:
-        return client.chat.completions.create(**kwargs, **_model_kwargs(model)), model
+        return client.chat.completions.create(**kwargs, **_model_kwargs(model, reasoning_effort)), model
     except Exception as e:
         fallback = settings.GROQ_FALLBACK_MODEL
         if not fallback or fallback == model:
             raise
         logger.warning("Model %s failed (%s); retrying on %s", model, e, fallback)
-        return client.chat.completions.create(**{**kwargs, "model": fallback}, **_model_kwargs(fallback)), fallback
+        return client.chat.completions.create(**{**kwargs, "model": fallback}, **_model_kwargs(fallback, reasoning_effort)), fallback
 
 
 def generate(messages: list[dict], json_mode: bool = False, temperature: float = 0.2,
@@ -150,7 +152,8 @@ def stream(messages: list[dict], temperature: float = 0.2):
 META_DELIMITER = "§§META§§"
 
 
-def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max_tokens: int | None = None):
+def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max_tokens: int | None = None,
+                             reasoning_effort: str | None = None):
     """Streams the plain-language answer as real per-token deltas, then
     parses a trailing metadata block once the stream ends. Yields
     ("delta", text) for each new chunk of the answer (holding back enough
@@ -172,7 +175,7 @@ def stream_text_and_metadata(messages: list[dict], temperature: float = 0.2, max
     }
     if max_tokens is not None:
         kwargs["max_tokens"] = max_tokens
-    completion, used_model = _create_with_fallback(kwargs)
+    completion, used_model = _create_with_fallback(kwargs, reasoning_effort)
 
     raw = ""
     emitted_len = 0

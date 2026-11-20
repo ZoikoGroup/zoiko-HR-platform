@@ -164,7 +164,8 @@ def test_navigation_answer_points_at_a_real_screen():
     original = orch._finalize
     orch._finalize = fake_finalize
     try:
-        orch._answer_navigation_help(_DB(), _Turn())
+        # issuing onboarding documents is an HR admin's screen: an exact match in their menu is answered instantly
+        orch._answer_navigation_help(_DB(), _Turn(), type("_HrAdmin", (), {"role": "hr_admin", "id": 1})())
     finally:
         orch._finalize = original
     assert "/zoiko-hr/onboarding/documents" in captured["text"]

@@ -12,6 +12,7 @@ import { CheckCircle2, ChevronDown, Download, FileText, ImagePlus, Loader2, Save
 import { PrimaryButton, SecondaryButton, StatusPill } from "../recruitment/ui";
 import { deleteOfferPackageLogo, getOfferPackageLogo, getOfferPackageSettings, getOfferPackageTemplateSet, saveOfferPackageSettings,
   uploadOfferPackageLogo } from "../../../service/hrService";
+import { decidePendingClause } from "../../../service/docsSetupService";
 
 const LOGO_TYPES = ["image/png", "image/jpeg", "image/webp"];
 const LOGO_MAX_MB = 2;
@@ -90,6 +91,36 @@ function LogoCard({ hasLogo, onChanged, onMessage }) {
             </button>
           )}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Wording proposed by "Set up docs for your organisation": never printed until counsel approves it here. */
+function PendingClause({ clause, onDone, onMessage }) {
+  const [ref, setRef] = useState("");
+  const [busy, setBusy] = useState(false);
+  const decide = async (approve) => {
+    if (approve && !ref.trim()) { onMessage({ tone: "error", text: "Give counsel's reference before approving the wording." }); return; }
+    setBusy(true);
+    try {
+      onDone(await decidePendingClause(clause.key, approve, ref.trim()));
+      onMessage({ tone: "ok", text: approve ? `${clause.title}: the proposed wording is now used.` : `${clause.title}: the proposed wording was discarded.` });
+    } catch (e) {
+      onMessage({ tone: "error", text: e?.message || "The decision could not be saved." });
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+      <p className="text-xs font-semibold text-amber-900">Proposed wording from your own documents – needs counsel sign-off. It is not printed until it is approved.</p>
+      <p className="whitespace-pre-line text-sm text-gray-800">{clause.pending.text}</p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+        <input aria-label="Counsel reference for the proposed wording" className={`${inputCls} sm:max-w-xs`} value={ref}
+          placeholder="Counsel reference (required to approve)" onChange={(e) => setRef(e.target.value)} />
+        <PrimaryButton onClick={() => decide(true)} disabled={busy}>Approve wording</PrimaryButton>
+        <SecondaryButton onClick={() => decide(false)} disabled={busy}>Discard</SecondaryButton>
       </div>
     </div>
   );
@@ -180,7 +211,7 @@ export default function OfferPackageSettings() {
           <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-blue-50 text-blue-600" aria-hidden="true"><FileText className="h-5 w-5" /></span>
           <div className="min-w-0">
             <h2 id="offer-package-title" className="text-base font-semibold text-gray-900">Offer package documents</h2>
-            <p className="text-sm text-gray-500">What the 10 onboarding documents print, and the clause wording your counsel approved.</p>
+            <p className="text-sm text-gray-500">What your onboarding documents print, and the clause wording your counsel approved.</p>
             <p className="mt-1 text-xs text-gray-500">
               You can change anything here at any time. Changes apply to documents generated from now on (new employees, and
               documents not sent yet). Documents already sent to an employee are final and are never changed.
@@ -252,6 +283,7 @@ export default function OfferPackageSettings() {
                         <span className="block truncate text-xs text-gray-500"><code>{c.token}</code> · {c.used_in.join(", ")}</span>
                       </span>
                       <span className="flex shrink-0 items-center gap-2">
+                        {c.pending && <StatusPill tone="amber">Proposed wording waiting for counsel</StatusPill>}
                         {done
                           ? <StatusPill tone="green">{v.not_applicable ? "Not used" : "Supplied"}</StatusPill>
                           : c.standard_text ? <StatusPill tone="blue">Standard wording</StatusPill>
@@ -262,6 +294,7 @@ export default function OfferPackageSettings() {
                     {isOpen && (
                       <div className="space-y-2 px-4 pb-4">
                         <p className="text-xs italic text-gray-500">Drafting note: {c.note}</p>
+                        {c.pending && <PendingClause clause={c} onDone={hydrate} onMessage={setMsg} />}
                         {c.standard_text && !(v.text || "").trim() && !v.not_applicable && (
                           <p className="rounded-xl border border-blue-100 bg-blue-50/60 px-3 py-2 text-xs text-blue-900">
                             Until you add your own wording, the documents print this standard wording (with your engagement's terms, e.g. "Employee"):

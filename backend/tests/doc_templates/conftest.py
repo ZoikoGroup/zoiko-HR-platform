@@ -46,14 +46,17 @@ class World:
             self.db.commit()
         return found
 
-    def get(self, who, url, **kw):
-        return self.client.get(url, headers=self._h(who), **kw)
+    def get(self, who, url, headers=None, **kw):
+        return self.client.get(url, headers={**self._h(who), **(headers or {})}, **kw)
 
-    def post(self, who, url, **kw):
-        return self.client.post(url, headers=self._h(who), **kw)
+    def post(self, who, url, headers=None, **kw):
+        return self.client.post(url, headers={**self._h(who), **(headers or {})}, **kw)
 
-    def put(self, who, url, **kw):
-        return self.client.put(url, headers=self._h(who), **kw)
+    def put(self, who, url, headers=None, **kw):
+        return self.client.put(url, headers={**self._h(who), **(headers or {})}, **kw)
+
+    def delete(self, who, url, headers=None, **kw):
+        return self.client.delete(url, headers={**self._h(who), **(headers or {})}, **kw)
 
     def codes(self, template):
         """Six-digit codes sent in captured sign-code e-mails, newest last."""
