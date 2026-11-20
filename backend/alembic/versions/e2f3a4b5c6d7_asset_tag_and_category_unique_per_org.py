@@ -1,7 +1,7 @@
 """Asset tags and asset category names: unique per organization, not across all organizations
 
 Revision ID: e2f3a4b5c6d7
-Revises: d1e2f3a4b5c6
+Revises: 4f39f5164151
 Create Date: 2026-11-20
 
 Before: assets.asset_tag and asset_categories.name each had a column-level UNIQUE across the whole table, while the app only
@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "e2f3a4b5c6d7"
-down_revision = "d1e2f3a4b5c6"
+down_revision = "4f39f5164151"
 branch_labels = None
 depends_on = None
 
