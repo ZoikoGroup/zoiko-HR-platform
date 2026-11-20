@@ -161,6 +161,13 @@ def put_mapping(session_id: int, file_id: int, data: dict = Body(...), db: Sessi
     return DS.set_mapping(db, user, _s(db, user, session_id), file_id, data or {})
 
 
+@router.get("/sessions/{session_id}/mapping-options",
+            summary="What Map documents offers: the package documents, how a new hire uses a document, who signs, profiles")
+def get_mapping_options(session_id: int, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    _s(db, user, session_id)
+    return DS.mapping_options(db, user.organization_id)
+
+
 @router.get("/sessions/{session_id}/mapping/{file_id}")
 def get_mapping(session_id: int, file_id: int, db: Session = Depends(get_db), user=Depends(get_current_admin)):
     from app.modules.hr.docs_setup_models import DocsSetupFile

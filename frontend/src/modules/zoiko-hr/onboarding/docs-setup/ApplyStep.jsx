@@ -25,6 +25,7 @@ export default function ApplyStep({ session, onSession }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [undoMsg, setUndoMsg] = useState(null);
+  const [released, setReleased] = useState(false);
   const applied = session.status === "applied";
 
   useEffect(() => {
@@ -85,8 +86,8 @@ export default function ApplyStep({ session, onSession }) {
         {counts.filter(([n]) => n).map(([n, l]) => `${n} ${l}`).join(", ") || "No changes chosen yet."}
       </p>
       <ul className="space-y-1.5 text-sm">
-        <li className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Templates are created as drafts. After applying, you approve and release them here; only then are they used.</li>
-        <li className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Clause wording is held for counsel sign-off and is not printed until it is approved.</li>
+        <li className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Templates are created as drafts. After applying, one click approves and releases them here; from then on new hires' documents are generated from them automatically.</li>
+        <li className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />Clause wording taken from your documents is approved together with the templates when you approve and release them.</li>
         <li className="flex items-start gap-2"><ShieldCheck className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />No document is sent to anyone.</li>
       </ul>
       {pkg && !applied && (
@@ -99,17 +100,9 @@ export default function ApplyStep({ session, onSession }) {
               <span className="block text-xs text-gray-600">Every other onboarding document is switched off. You can switch any back on later in Settings.</span>
             </span>
           </label>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="text-xs font-semibold text-emerald-700">New hires will get ({pkg.sent.length})</p>
-              <ul className="mt-1 list-disc pl-5 text-sm text-gray-800">{pkg.sent.map((t) => <li key={t}>{t}</li>)}</ul>
-            </div>
-            {pkg.off.length > 0 && (
-              <div>
-                <p className="text-xs font-semibold text-gray-600">Switched off ({pkg.off.length})</p>
-                <ul className="mt-1 list-disc pl-5 text-sm text-gray-500">{pkg.off.map((t) => <li key={t}>{t}</li>)}</ul>
-              </div>
-            )}
+          <div>
+            <p className="text-xs font-semibold text-emerald-700">New hires will get ({pkg.sent.length})</p>
+            <ul className="mt-1 list-disc pl-5 text-sm text-gray-800">{pkg.sent.map((t) => <li key={t}>{t}</li>)}</ul>
           </div>
         </div>
       )}
@@ -140,12 +133,12 @@ export default function ApplyStep({ session, onSession }) {
         </button>
       ) : (
         <div className="space-y-3">
-          {!session.undone_at && <ReleasePanel sessionId={session.id} variantIds={created.variants || []} />}
+          {!session.undone_at && <ReleasePanel sessionId={session.id} variantIds={created.variants || []} onReleased={() => setReleased(true)} />}
           <div className="flex flex-wrap gap-2">
             <Link to="/zoiko-hr/onboarding/settings#package-documents" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50">
               Open Settings
             </Link>
-            {(created.clauses_pending || []).length > 0 && (
+            {(created.clauses_pending || []).length > 0 && !released && (
               <Link to="/zoiko-hr/onboarding/settings#offer-package" className="rounded-xl border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-800 hover:bg-gray-50">
                 Clause wording waiting for counsel ({created.clauses_pending.length})
               </Link>

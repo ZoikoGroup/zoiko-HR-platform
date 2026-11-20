@@ -532,6 +532,45 @@ def test_one_admin_approves_and_releases_the_uploaded_templates(world, no_ai):
     assert again["released"] == 1, "already-live templates stay live"
 
 
+def test_approve_releases_contracts_too_in_one_click_on_the_admins_attestation(world, no_ai, monkeypatch):
+    """Approve in the last step releases every template, high-risk (L3) contract included: no typed name and no counsel
+    details are needed. The record says the admin attested it and that no external counsel review was recorded."""
+    from app.config import settings
+    from app.modules.doc_templates.models import TemplateApprovalRecord
+    monkeypatch.setattr(settings, "TEMPLATES_TENANT_ATTESTATION_L3_ENABLED", True)
+    s = _session(world)
+    sid = s["id"]
+    assert _upload(world, sid, "offer_letter.docx", label="tpl:offer_letter").status_code == 200
+    assert _upload(world, sid, "contract.pdf", label="tpl:auto").status_code == 200
+    world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/analyse")
+    r = world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/apply", headers={"Idempotency-Key": "l3"})
+    assert r.status_code == 200, r.text
+    out = world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/approve-release", json={"attestation_accepted": True}).json()
+    assert out["total"] == 2 and out["released"] == 2, out
+    world.db.expire_all()
+    v = world.db.query(TemplateVariant).filter_by(canonical_id="PKG-HR-CON-001", owner_organization_id=1).one()
+    assert v.status == "ACTIVE"
+    rec = world.db.query(TemplateApprovalRecord).filter_by(variant_id=v.id).one()
+    assert rec.signed_name_typed == "Avery Admin" and rec.review["reviewer_role"] == "Organization admin"
+    assert "no external counsel review recorded" in rec.review["qualification_statement"]
+    rows = {d["category"]: d for d in world.get("a_admin", "/hr/onboarding/package/documents").json()["documents"]}
+    assert rows["employment_contract"]["template_state"]["label"].startswith("Your version v1 – released")
+    # the clause wording taken from the documents is approved in the same click, on the admin's attestation
+    cfg = P.get_config(world.db, 1)
+    for key in out["clauses_approved"]:
+        assert key not in (cfg.get("clauses_pending") or {})
+        assert cfg["clauses"][key]["counsel_reference"].startswith("Organisation admin attestation – Avery Admin")
+
+
+def test_the_whistleblowing_protection_has_standard_wording_so_an_nda_is_not_held_for_it():
+    from app.modules.hr import onboarding_package_content as C
+    from app.modules.hr import onboarding_package_render as R
+    ctx = R.RenderContext(mode="issue", values={}, clauses={})
+    kind, text = ctx.clause_value("protected_disclosure_and_whistleblowing")
+    assert kind == "text" and "Employee" in text and "{" not in text
+    assert "protected_disclosure_and_whistleblowing" in C.STANDARD_CLAUSES
+
+
 def test_an_unreleased_version_in_legal_review_is_replaced_not_a_blocker(world, no_ai):
     from app.modules.doc_templates.models import TemplateVariant
     first = world.post("a_admin", "/hr/onboarding/package/documents/offer_letter/customise")
@@ -585,3 +624,70 @@ def test_a_bare_leave_number_prints_as_days_and_probation_is_never_blank():
     assert P._leave_text("") is None
     assert C.FIELDS["employment.probation_months"][2] is True, "an uploaded template never prints 'Probation:  months'"
     assert "employment.probation_months" in P.HIRE_INPUT_FIELDS, "HR can give the probation for one hire"
+
+
+def test_map_documents_fills_every_detail_automatically_previews_and_edits_each_document(world, no_ai):
+    s = _session(world)
+    sid = s["id"]
+    assert _upload(world, sid, "offer_letter.docx", label="tpl:offer_letter").status_code == 200
+    world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/analyse")
+    opts = world.get("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/mapping-options").json()
+    assert "offer_letter" in {d["category"] for d in opts["documents"]} and {m["value"] for m in opts["modes"]} >= {"SIGN", "INFO"}
+    assert world.get("b_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/mapping-options").status_code == 404
+    fid = next(f["id"] for f in world.get("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}").json()["files"])
+    base = f"/hr/onboarding/docs-setup/sessions/{sid}/mapping/{fid}"
+    got = world.get("a_admin", base).json()
+    assert got["preview"]["fields"] and got["preview"]["blocks"], "details are placeholders already; the wording is editable"
+    assert all(p["confirmed"] is True for p in got["file"]["mapping"]["placeholders"]), "nothing to confirm one by one"
+    # saving the choice without a placeholder list keeps every placeholder, confirmed
+    r = world.put("a_admin", base, json={"action": "variant_of", "category": "offer_letter"}).json()
+    assert r["preview"]["fields"] == got["preview"]["fields"]
+    # edit the wording: the edited version is what the preview and Apply use
+    blocks = r["preview"]["blocks"]
+    blocks.insert(1, {"type": "paragraph", "text": "OUR OWN EDITED LINE for {{worker.full_name}}."})
+    r = world.put("a_admin", base, json={"action": "variant_of", "category": "offer_letter", "blocks": blocks})
+    assert r.status_code == 200, r.text
+    assert r.json()["preview"]["edited"] is True
+    assert world.get("a_admin", f"{base}/preview.pdf").status_code == 200
+    assert world.put("a_admin", base, json={"action": "variant_of", "category": "offer_letter",
+                                            "blocks": [{"type": "script", "text": "x"}]}).status_code == 422
+    assert world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/apply", headers={"Idempotency-Key": "ed"}).status_code == 200
+    v = world.db.query(TemplateVariant).filter_by(canonical_id="PKG-HR-HIR-011", owner_organization_id=1).one()
+    text = json.dumps(v.content)
+    assert "OUR OWN EDITED LINE for {{worker.full_name}}." in text
+
+
+def test_resetting_edits_uses_the_uploaded_wording_again(world, no_ai):
+    s = _session(world)
+    sid = s["id"]
+    assert _upload(world, sid, "offer_letter.docx", label="tpl:offer_letter").status_code == 200
+    world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/analyse")
+    fid = next(f["id"] for f in world.get("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}").json()["files"])
+    base = f"/hr/onboarding/docs-setup/sessions/{sid}/mapping/{fid}"
+    world.put("a_admin", base, json={"action": "variant_of", "category": "offer_letter",
+                                     "blocks": [{"type": "paragraph", "text": "ONLY THIS"}]})
+    r = world.put("a_admin", base, json={"action": "variant_of", "category": "offer_letter", "blocks": None}).json()
+    assert r["preview"]["edited"] is False and "ONLY THIS" not in json.dumps(r["preview"]["blocks"])
+
+
+def test_notice_written_as_days_of_written_notice_is_found():
+    for text, n in (("Either party may terminate employment by providing 30 days of written notice or salary in lieu.", "30"),
+                    ("by giving thirty (30) days of written notice", "thirty"), ("one month's notice", "one")):
+        m = DS.NOTICE_RE.search(text)
+        assert m and m.group(1) == n, text
+
+
+def test_a_signatory_the_documents_do_not_name_comes_from_the_admin_setting_them_up(world, no_ai):
+    from app.modules.hr import company_profile as CP
+    s = _session(world)
+    sid = s["id"]
+    template = _docx([(1, "Offer of Employment"), "Dear [Candidate Name],", "Yours sincerely,", "[Authorised Signatory Name]"])
+    assert _upload(world, sid, "offer_template.docx", template, label="tpl:offer_letter").status_code == 200
+    world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/analyse")
+    props = {p["target_key"]: p for p in world.get("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/proposals").json()["items"]
+             if p["target"] == "company_profile"}
+    assert props["signatory_name"]["proposed_value"] == "Avery Admin" and props["signatory_name"]["decision"] == "accepted"
+    assert props["signatory_title"]["proposed_value"]
+    r = world.post("a_admin", f"/hr/onboarding/docs-setup/sessions/{sid}/apply", headers={"Idempotency-Key": "sig"})
+    assert r.status_code == 200, r.text
+    assert CP.get_profile(world.db, 1)["signatory_name"] == "Avery Admin"
