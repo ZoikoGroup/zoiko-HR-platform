@@ -5,7 +5,7 @@
  * Handbook, Guide, Forms) must be visible in two places:
  *
  *   1. the Assistant Knowledge admin page (the only screen that authors them), and
- *   2. the employee-facing Company Documents list — testers on an employee login
+ *   2. (until ZHR-DOCS-ARCH-001 Phase 6) the employee-facing Company Documents list — testers on an employee login
  *      cannot open /hr-admin/assistant-knowledge (every knowledge route is
  *      get_current_admin, and roles.js gives the employee role no /hr-admin
  *      prefix), so this is the surface they can actually reach.
@@ -49,33 +49,12 @@ test("Assistant Knowledge admin displays readable labels for every category", ()
   assert.match(src, /SOURCE_TYPES\.map\(\(t\) =>/, "the category chip row must render every type");
 });
 
-test("employee Company Documents shows every category for employee logins", () => {
+// ZHR-DOCS-ARCH-001 Phase 6: employee Company Documents no longer hard-codes a category list. It shows the organization's
+// own company-document categories, and only the files the access rules share with that person (documentsPhase6 renders
+// it). The assistant knowledge vocabulary above stays on the Assistant Knowledge page.
+test("employee Company Documents builds its category filter from what is shared, not a fixed list", () => {
   const src = fs.readFileSync(EMPLOYEE, "utf8");
-  const categories = arrayLiteral(src, "CATEGORIES", EMPLOYEE);
-  assert.equal(categories[0], "All categories");
-  assert.deepEqual(categories.slice(1), EXPECTED_LABELS);
-
-  // Each category needs an icon/badge style, or a rendered row would throw on
-  // an undefined style object.
-  for (const label of EXPECTED_LABELS) {
-    assert.match(
-      src,
-      new RegExp(`^\\s+${label}: \\{ icon:`, "m"),
-      `${EMPLOYEE} must style the "${label}" category`,
-    );
-  }
-});
-
-test("admin and employee categories stay in sync with each other", () => {
-  const admin = fs.readFileSync(ADMIN, "utf8");
-  const employee = fs.readFileSync(EMPLOYEE, "utf8");
-  const codes = arrayLiteral(admin, "SOURCE_TYPES", ADMIN);
-  const labels = arrayLiteral(employee, "CATEGORIES", EMPLOYEE).slice(1);
-
-  assert.equal(codes.length, labels.length, "a category was added to one surface but not the other");
-  // Every code must be rendered under a label of the same first letters, so a
-  // category can't silently display as its raw code.
-  for (const label of labels) {
-    assert.match(admin, new RegExp(`\\b${label}\\b`), `admin must know how to display "${label}"`);
-  }
+  assert.match(src, /getMyCompanyDocuments/, "the list comes from /hr/me/company-documents");
+  assert.match(src, /groups\.map\(\(g\) => g\.category\)/, "the filter lists the categories the server returned");
+  assert.doesNotMatch(src, /const CATEGORIES = \[/, "no fixed category vocabulary on the employee page");
 });

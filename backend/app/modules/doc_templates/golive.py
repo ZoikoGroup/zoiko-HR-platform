@@ -40,7 +40,7 @@ def _label(doc: GeneratedDocument) -> str:
 ACTION_TEXT = {"ACKNOWLEDGE": "acknowledge", "SIGN_EMPLOYEE": "sign", "SIGN_BOTH": "sign", "SIGN_CANDIDATE": "sign"}
 
 
-def my_actions(db, user) -> dict:
+def my_actions(db, user, kind: Optional[str] = None) -> dict:
     from app.modules.hr.models import Appraisal, ProbationReview
     docs = (db.query(GeneratedDocument).filter(access.list_filter(db, user), GeneratedDocument.recipient_employee_id == user.id,
                                                GeneratedDocument.status == "ISSUED", GeneratedDocument.execution_mode != "NONE")
@@ -56,7 +56,17 @@ def my_actions(db, user) -> dict:
                                         Appraisal.finalised_at.is_(None)).all():
         items.append({"kind": "self_assessment", "id": a.id, "title": f"Self-assessment for {a.cycle}", "action": "complete",
                       "due_by": None, "overdue": False, "link": "/employee/performance"})
-    return {"items": items, "count": len(items), "overdue": sum(1 for i in items if i["overdue"])}
+    # Uploaded documents (ZHR-DOCS-ARCH-001 §17 D1): open document tasks (upload, re-upload, renew, read-confirm).
+    from app.modules.hr.documents import portal_service
+    items.extend(portal_service.task_actions(db, user))
+    items.sort(key=lambda i: (not i["overdue"], i["due_by"] is None, str(i["due_by"] or "")))
+    by_chip = {c: 0 for c in portal_service.CHIPS}
+    for i in items:
+        c = portal_service.chip_of(i)
+        if c in by_chip:
+            by_chip[c] += 1
+    items = portal_service.filter_kind(items, kind)
+    return {"items": items, "count": len(items), "overdue": sum(1 for i in items if i["overdue"]), "by_kind": by_chip}
 
 
 def team_actions(db, user) -> dict:
@@ -460,8 +470,9 @@ class RetentionReviewIn(BaseModel):
 
 
 @me_router.get("")
-def actions_mine(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    return my_actions(db, user)
+def actions_mine(kind: Optional[str] = Query(None, pattern="^(all|sign|acknowledge|upload)$"),
+                 db: Session = Depends(get_db), user=Depends(get_current_user)):
+    return my_actions(db, user, kind)
 
 
 @router.get("/team-actions")

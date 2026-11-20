@@ -17,7 +17,7 @@ export function getEssDashboard() {
     quickLinks: [
       { label: "Apply Leave", href: "/zoiko-hr/ess/leave" },
       { label: "Request Time Off", href: "/zoiko-hr/ess/requests" },
-      { label: "View Documents", href: "/zoiko-hr/ess/my-documents" },
+      { label: "View Documents", href: "/employee/documents/my-files" },
       { label: "Update Profile", href: "/zoiko-hr/ess/profile" },
     ],
   };

@@ -1,8 +1,9 @@
 import { useState, useEffect } from "react";
 import {
   FileText, Clock, AlertTriangle, CheckCircle, XCircle, TrendingUp,
-  RefreshCw, CalendarClock, Users, Ban
+  RefreshCw, CalendarClock, Users, Ban, Settings2
 } from "lucide-react";
+import { Link } from "react-router-dom";
 import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recharts";
 import { OrganizationDocumentsLayout } from "./ui";
 import { getDocuments, getDocumentDashboardStats } from "../../../service/hrService";
@@ -104,9 +105,14 @@ export default function DocumentsDashboard() {
       title="Dashboard"
       subtitle="Document readiness, review activity and expiry tracking across your organization."
       actions={
-        <button onClick={load} className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300">
-          <RefreshCw className="h-4 w-4" /> Refresh
-        </button>
+        <>
+          <Link to="/zoiko-hr/documents/settings/automation" className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300">
+            <Settings2 className="h-4 w-4" aria-hidden="true" /> Automation
+          </Link>
+          <button onClick={load} className="flex items-center gap-2 rounded-xl bg-white/10 px-3 py-2 text-sm font-semibold text-white ring-1 ring-white/20 transition-colors hover:bg-white/20 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-300">
+            <RefreshCw className="h-4 w-4" /> Refresh
+          </button>
+        </>
       }
     >
       <div className="space-y-8 pb-10">

@@ -916,14 +916,14 @@ def my_statements():
             "consent": {"version": governance.CONSENT_VERSION, "text": governance.CONSENT_TEXT}}
 
 
-@ess_router.get("/signatory-queue")
-def signatory_queue(db: Session = Depends(get_db), user=Depends(get_current_user)):
-    """Documents waiting for the signed-in person as an authorised signatory: an L3 approval step or an employer signature."""
+def signatory_items(db: Session, user):
+    """Documents waiting for the signed-in person as an authorised signatory: an L3 approval step or an employer signature.
+    None when the person is not an authorised signatory at all (the portal hides the tab)."""
     from app.modules.doc_templates import approvals
     from app.modules.doc_templates.models import AuthorisedSignatory
     if not db.query(AuthorisedSignatory.id).filter(AuthorisedSignatory.organization_id == user.organization_id,
                                                    AuthorisedSignatory.employee_id == user.id).first():
-        return {"items": [], "total": 0}
+        return None
     rows = db.query(GeneratedDocument).filter(GeneratedDocument.organization_id == user.organization_id,
                                               GeneratedDocument.status.in_(["PENDING_APPROVAL", "HUMAN_APPROVED", "ISSUED"]))         .order_by(GeneratedDocument.id.desc()).limit(500).all()
     items = []
@@ -943,7 +943,13 @@ def signatory_queue(db: Session = Depends(get_db), user=Depends(get_current_user
         if action:
             items.append({**service.serialize(doc, viewer_is_hr=False), "my_action": action,
                           "needs_otp": action == "sign" and signing.needs_otp(doc, "employer")})
-    return {"items": items, "total": len(items)}
+    return items
+
+
+@ess_router.get("/signatory-queue")
+def signatory_queue(db: Session = Depends(get_db), user=Depends(get_current_user)):
+    items = signatory_items(db, user)
+    return {"items": items or [], "total": len(items or []), "is_signatory": items is not None}
 
 
 @ess_router.get("/signatory-queue/{document_id}/preview")

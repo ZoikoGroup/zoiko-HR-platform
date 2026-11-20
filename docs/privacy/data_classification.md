@@ -56,6 +56,18 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `entity_id`, `employee_id`, `signatory_title`, `authority_scope`, `max_risk_level`, `valid_from`, `valid_to`, `approved_by`, `status`, `created_by`
 
+## `automation_rules` (default PLATFORM_META; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `key`, `description`, `trigger_event`, `trigger_cron`, `definition`, `status`, `is_system`, `version`, `created_by`, `updated_by`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `name`
+
+## `automation_runs` (default PERSONAL_BASIC; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `rule_id`, `rule_version`, `event_id`, `event_type`, `trigger_payload`, `definition_snapshot`, `mode`, `status`, `current_step`, `step_results`, `attempt`, `next_attempt_at`, `resume_at`, `error`, `idempotency_key`, `started_at`, `finished_at`
+- **SPECIAL_CATEGORY**: `skip_reason`
+
+## `automation_settings` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `organization_id`, `paused`, `features`, `quiet_hours`, `rate_limits`, `approval_sla_hours`, `default_ladder`, `lock_after_exit_days`, `updated_by`, `updated_at`
+
 ## `benefits` (default FINANCIAL; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **FINANCIAL**: `name`, `description`, `is_active`
@@ -325,14 +337,14 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_CONFIDENTIAL**: `employee_id`, `acknowledgement_text_version`, `document_sha256`, `acknowledged_at`, `ip_address`, `user_agent`
 
 ## `document_approval_logs` (default TENANT_FILE; most sensitive column rank 3)
-- **PLATFORM_META**: `id`, `created_at`
-- **PERSONAL_BASIC**: `document_id`, `step_id`
-- **TENANT_FILE**: `action`, `performed_by`, `role_at_time`, `comment`
+- **PLATFORM_META**: `id`, `created_at`, `organization_id`
+- **PERSONAL_BASIC**: `document_id`, `step_id`, `version_id`
+- **TENANT_FILE**: `action`, `performed_by`, `role_at_time`, `comment`, `reason_code`
 
 ## `document_approval_steps` (default TENANT_FILE; most sensitive column rank 3)
-- **PLATFORM_META**: `id`, `created_at`
-- **PERSONAL_BASIC**: `document_id`
-- **TENANT_FILE**: `step_order`, `required_role`, `status`, `approved_by`, `approved_at`, `comment`
+- **PLATFORM_META**: `id`, `created_at`, `organization_id`
+- **PERSONAL_BASIC**: `document_id`, `version_id`
+- **TENANT_FILE**: `step_order`, `required_role`, `status`, `approved_by`, `approved_at`, `comment`, `sla_level`
 
 ## `document_assignments` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`
@@ -366,6 +378,11 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_CONFIDENTIAL**: `signer_party`, `signer_employee_id`, `signer_email`, `signer_name_typed`, `signature_method`, `signature_image_path`, `consent_text_version`, `ip_address`, `user_agent`, `signed_document_sha256`, `signed_at`, `decision`
 - **SPECIAL_CATEGORY**: `decline_reason`
 - **SECRET**: `otp_verified_at`
+
+## `document_tasks` (default PERSONAL_BASIC; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `kind`, `employee_id`, `assignee_role`, `document_id`, `version_id`, `employee_category_id`, `generated_document_id`, `ack_round_id`, `open_key`, `status`, `due_at`, `escalation_level`, `ladder`, `source`, `rule_id`, `created_by`, `closed_at`
+- **SPECIAL_CATEGORY**: `close_reason`
 
 ## `downgrade_impact_item` (default PLATFORM_META; most sensitive column rank 0)
 - **PLATFORM_META**: `id`, `plan_change_id`, `feature_key`, `resource_type`, `resource_id`, `severity`, `remediation`, `resolved_at`, `created_at`
@@ -437,21 +454,53 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `name`, `date`, `type`, `is_recurring`, `description`, `is_active`, `created_by`
 
+## `hr_company_document_categories` (default PLATFORM_META; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `key`, `icon`, `requires_approval`, `default_require_ack`, `ack_reminder_after_days`, `reack_interval_months`, `auto_unpublish_on_expiry`, `locked_by_org_admin`, `escalation_ladder`, `is_system`, `is_active`, `sort_order`, `created_by`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `name`
+
+## `hr_document_access_rules` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `updated_at`
+- **PERSONAL_BASIC**: `target_type`, `target_id`, `inherit`, `visibility`, `department_ids`, `roles`, `employee_ids`, `permission`, `require_ack`, `updated_by`
+
+## `hr_document_ack_rounds` (default PERSONAL_BASIC; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `organization_id`
+- **PERSONAL_BASIC**: `document_id`, `version_id`, `round_no`, `opened_at`, `due_at`
+- **SPECIAL_CATEGORY**: `reason`
+
+## `hr_document_acknowledgements` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`
+- **PERSONAL_BASIC**: `document_id`, `version_id`
+- **PERSONAL_CONFIDENTIAL**: `round_no`, `employee_id`, `acknowledged_at`, `ip_address`, `user_agent`, `document_sha256`
+
+## `hr_document_audit_logs` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
+- **PLATFORM_META**: `id`, `organization_id`, `created_at`
+- **PERSONAL_BASIC**: `actor_id`, `automation_run_id`, `rule_id`, `target_id`, `document_id`
+- **PERSONAL_CONFIDENTIAL**: `actor_type`, `actor_role`, `action`, `target_type`, `employee_id`, `ip_address`, `user_agent`, `before`, `after`
+
 ## `hr_document_folders` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`
-- **PERSONAL_BASIC**: `parent_id`, `created_by`
+- **PERSONAL_BASIC**: `parent_id`, `created_by`, `company_category_id`
 - **TENANT_FILE**: `name`
 
-## `hr_document_versions` (default TENANT_FILE; most sensitive column rank 3)
-- **PLATFORM_META**: `id`, `version`, `created_at`
+## `hr_document_reminders` (default PERSONAL_BASIC; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`
+- **PERSONAL_BASIC**: `task_id`, `kind`, `level`, `dedupe_key`, `employee_id`, `document_id`, `employee_category_id`, `sent_by`, `channel`, `message`, `sent_at`, `resolved_at`
+
+## `hr_document_versions` (default TENANT_FILE; most sensitive column rank 5)
+- **PLATFORM_META**: `id`, `version`, `created_at`, `organization_id`
 - **PERSONAL_BASIC**: `document_id`
-- **TENANT_FILE**: `file_path`, `file_name`, `file_size`, `mime_type`, `uploaded_by`, `change_notes`
+- **TENANT_FILE**: `file_path`, `file_name`, `file_size`, `mime_type`, `uploaded_by`, `change_notes`, `status`, `expiry_date`, `reason_code`, `decided_by`, `decided_role`, `decided_at`, `storage_key`, `is_encrypted`, `sha256`, `scan_status`, `precheck`, `material_change`
+- **SPECIAL_CATEGORY**: `rejection_reason`
 
 ## `hr_documents` (default TENANT_FILE; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `is_deleted`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `canonical_id`, `folder_id`
-- **TENANT_FILE**: `title`, `description`, `category`, `document_type`, `file_path`, `file_name`, `file_size`, `mime_type`, `status`, `employee_id`, `uploaded_by`, `expiry_date`, `tags`, `is_legacy`, `current_version`, `access_control`, `approved_by`, `approved_at`, `is_template`
+- **PERSONAL_BASIC**: `canonical_id`, `folder_id`, `employee_category_id`, `company_category_id`, `approved_version_id`
+- **TENANT_FILE**: `title`, `description`, `category`, `document_type`, `file_path`, `file_name`, `file_size`, `mime_type`, `status`, `employee_id`, `uploaded_by`, `expiry_date`, `tags`, `is_legacy`, `current_version`, `access_control`, `approved_by`, `approved_at`, `is_template`, `scope`, `source`, `reason_code`, `storage_key`, `is_encrypted`, `sha256`, `review_locked_by`, `review_locked_until`, `publish_state`, `publish_at`, `is_archived`, `retention_until`, `legal_hold`
 - **SPECIAL_CATEGORY**: `rejection_reason`
+
+## `hr_employee_document_categories` (default PLATFORM_META; most sensitive column rank 2)
+- **PLATFORM_META**: `id`, `organization_id`, `key`, `description`, `is_required`, `uploader`, `requires_expiry`, `max_files`, `sensitivity`, `applies_to`, `id_number_field`, `human_approval_required`, `escalation_ladder`, `sort_order`, `is_system`, `is_active`, `created_by`, `created_at`, `updated_at`
+- **PERSONAL_BASIC**: `name`
 
 ## `hub_webhook_deliveries` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `created_at`
@@ -568,6 +617,9 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `leave_type_configs` (default PERSONAL_BASIC; most sensitive column rank 2)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `name`, `code`, `default_days_per_year`, `carry_forward_allowed`, `carry_forward_max_days`, `min_notice_days`, `max_consecutive_days`, `requires_approval`, `is_active`, `color`, `icon`
+
+## `notification_templates` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `organization_id`, `key`, `channel`, `subject`, `body`, `locale`, `is_active`, `updated_by`, `updated_at`
 
 ## `onboarding_activities` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`
@@ -725,6 +777,9 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PERSONAL_BASIC**: `created_by`, `hiring_manager_id`, `headcount_id`, `job_description_id`
 - **TENANT_CUSTOMER**: `title`, `department`, `department_id`, `location`, `openings`, `filled`, `priority`, `status`, `description`, `requirements`, `employment_type`, `replaces_employee_id`, `budget_min`, `budget_max`, `currency`, `target_start_date`, `justification`, `scorecard_criteria`, `decided_by`, `decided_at`, `decision_comment`
 - **SPECIAL_CATEGORY**: `reason`
+
+## `retention_policies` (default PLATFORM_META; most sensitive column rank 0)
+- **PLATFORM_META**: `id`, `organization_id`, `scope`, `category_key`, `retain_years`, `clock`, `action`, `review_days`, `updated_by`, `updated_at`
 
 ## `salary_components` (default FINANCIAL; most sensitive column rank 4)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`

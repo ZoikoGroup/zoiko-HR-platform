@@ -2132,6 +2132,8 @@ class HrDocumentStatus(str, enum.Enum):
     APPROVED = "approved"
     REJECTED = "rejected"
     EXPIRED  = "expired"
+    # ZHR-DOCS-ARCH-001: an approver asked for a fresh copy (the document's last approved version stays visible)
+    REUPLOAD_REQUESTED = "reupload_requested"
 
 class HrDocumentCategory(str, enum.Enum):
     COMPANY  = "company"
@@ -2179,11 +2181,32 @@ class HrDocument(Base):
     is_template     = Column(Boolean, default=False, nullable=False)
     folder_id       = Column(Integer, ForeignKey("hr_document_folders.id"), nullable=True, index=True)
 
+    # ── ZHR-DOCS-ARCH-001 §6.3: employee containers vs company documents ──────────────────────────────────────────
+    scope                = Column(String(10), nullable=False, default="employee", server_default="employee")  # employee | company
+    employee_category_id = Column(Integer, ForeignKey("hr_employee_document_categories.id"), nullable=True, index=True)
+    company_category_id  = Column(Integer, ForeignKey("hr_company_document_categories.id"), nullable=True, index=True)
+    # employee | company | payroll | system_issue | template | legacy_admin
+    source               = Column(String(20), nullable=False, default="employee", server_default="employee")
+    # The version readers see. Plain integer (no FK): hr_document_versions already points back at hr_documents.
+    approved_version_id  = Column(Integer, nullable=True)
+    reason_code          = Column(String(40), nullable=True)
+    storage_key          = Column(String(500), nullable=True)     # DocumentStore key; file_path is the legacy location
+    is_encrypted         = Column(Boolean, nullable=False, default=False, server_default="0")
+    sha256               = Column(String(64), nullable=True)
+    review_locked_by     = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    review_locked_until  = Column(DateTime, nullable=True)
+    publish_state        = Column(String(12), nullable=False, default="published", server_default="published")
+    publish_at           = Column(DateTime, nullable=True)
+    is_archived          = Column(Boolean, nullable=False, default=False, server_default="0")
+    retention_until      = Column(Date, nullable=True)
+    legal_hold           = Column(Boolean, nullable=False, default=False, server_default="0")
+
     employee        = relationship("Employee", foreign_keys=[employee_id], backref="hr_documents")
     uploader        = relationship("Employee", foreign_keys=[uploaded_by])
     organization    = relationship("Organization")
     approver        = relationship("Employee", foreign_keys=[approved_by])
-    versions        = relationship("HrDocumentVersion", back_populates="document", order_by="HrDocumentVersion.version.desc()")
+    versions        = relationship("HrDocumentVersion", back_populates="document", order_by="HrDocumentVersion.version.desc()",
+                                   foreign_keys="HrDocumentVersion.document_id")
     approval_steps  = relationship("DocumentApprovalStep", back_populates="document", order_by="DocumentApprovalStep.step_order")
     approval_logs   = relationship("DocumentApprovalLog", back_populates="document", order_by="DocumentApprovalLog.created_at.desc()")
     assignments     = relationship("DocumentAssignment", back_populates="document", order_by="DocumentAssignment.assigned_at.desc()")
@@ -2199,6 +2222,7 @@ class HrDocumentFolder(Base):
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_by      = Column(Integer, ForeignKey("employees.id"), nullable=True)
     created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    company_category_id = Column(Integer, ForeignKey("hr_company_document_categories.id"), nullable=True, index=True)
 
     organization    = relationship("Organization")
     creator         = relationship("Employee", foreign_keys=[created_by])
@@ -2224,8 +2248,25 @@ class HrDocumentVersion(Base):
     change_notes    = Column(Text, nullable=True)
     created_at      = Column(DateTime, server_default=func.now(), nullable=False)
 
-    document        = relationship("HrDocument", back_populates="versions")
-    uploader        = relationship("Employee")
+    # ── ZHR-DOCS-ARCH-001 §4/§6.3: status is kept per version ───────────────────────────────────────────────────
+    organization_id  = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)  # backfilled, see documents/backfill.py
+    # pending_approval | approved | rejected | reupload_requested | expired | superseded
+    status           = Column(String(20), nullable=False, default="approved", server_default="approved")
+    expiry_date      = Column(Date, nullable=True)
+    rejection_reason = Column(Text, nullable=True)
+    reason_code      = Column(String(40), nullable=True)
+    decided_by       = Column(Integer, ForeignKey("employees.id"), nullable=True)
+    decided_role     = Column(String(20), nullable=True)
+    decided_at       = Column(DateTime, nullable=True)
+    storage_key      = Column(String(500), nullable=True)
+    is_encrypted     = Column(Boolean, nullable=False, default=False, server_default="0")
+    sha256           = Column(String(64), nullable=True, index=True)
+    scan_status      = Column(String(12), nullable=False, default="skipped", server_default="skipped")
+    precheck         = Column(JSON, nullable=True)
+    material_change  = Column(Boolean, nullable=False, default=True, server_default="1")
+
+    document        = relationship("HrDocument", back_populates="versions", foreign_keys=[document_id])
+    uploader        = relationship("Employee", foreign_keys=[uploaded_by])
 
 
 # ════════════════════════════════════════════════════════════════════════════════
@@ -2256,6 +2297,9 @@ class DocumentApprovalStep(Base):
     approved_at     = Column(DateTime, nullable=True)
     comment         = Column(Text, nullable=True)
     created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)  # backfilled from the document
+    version_id      = Column(Integer, ForeignKey("hr_document_versions.id"), nullable=True)
+    sla_level       = Column(Integer, nullable=False, default=0, server_default="0")
 
     document        = relationship("HrDocument", back_populates="approval_steps")
     approver        = relationship("Employee", foreign_keys=[approved_by])
@@ -2273,6 +2317,9 @@ class DocumentApprovalLog(Base):
     role_at_time    = Column(String(50), nullable=True)
     comment         = Column(Text, nullable=True)
     created_at      = Column(DateTime, server_default=func.now(), nullable=False)
+    organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=True, index=True)  # backfilled from the document
+    version_id      = Column(Integer, ForeignKey("hr_document_versions.id"), nullable=True)
+    reason_code     = Column(String(40), nullable=True)
 
     document        = relationship("HrDocument", back_populates="approval_logs")
     step            = relationship("DocumentApprovalStep")

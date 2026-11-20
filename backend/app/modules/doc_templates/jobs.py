@@ -227,3 +227,9 @@ def register(scheduler) -> None:
         scheduler.add_job(fn, trigger, id=job_id, name=name, replace_existing=True, misfire_grace_time=3600)
     scheduler.add_job(new_joiners_job, "interval", minutes=30, id="doc_templates_new_joiners", name="Policies for new joiners",
                       replace_existing=True, coalesce=True, max_instances=1, misfire_grace_time=600)
+    # Documents module jobs (ZHR-DOCS-ARCH-001 §12): expiry, expiry alerts, task escalation.
+    try:
+        from app.modules.hr.documents.automation.jobs import register as register_documents_jobs
+        register_documents_jobs(scheduler)
+    except Exception:
+        logger.exception("documents jobs could not be registered")

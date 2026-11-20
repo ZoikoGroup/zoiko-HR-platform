@@ -24,16 +24,8 @@ const HOOK = {
 };
 const DOCS = [{ id: 1, title: "Handbook", file_name: "handbook.pdf", status: "approved", created_at: "2026-09-01" }];
 
-test("employee My Files has no upload card, no delete button and no status badge", async (t) => {
-  t.mock.module("../src/hooks/useDocumentFile.js", { exports: { useDocumentFile: () => HOOK } });
-  t.mock.module("../src/service/employee.js", { exports: { getDocuments: async () => ({ data: DOCS }) } });
-  await flush("../src/pages/Peoples/Employees/Documents/Employee_MyFiles.jsx");
-  assert.ok(screen.getByText("Handbook"));
-  assert.equal(screen.queryByText("Upload Document"), null);
-  assert.equal(screen.queryByText(/Browse Files/), null);
-  assert.equal(screen.queryByRole("button", { name: /Delete/ }), null);
-  assert.equal(screen.queryByText(/Pending|Approved|Rejected/), null);
-});
+// ZHR-DOCS-ARCH-001 reverses ZHR-46 for My Files: employees upload their own documents (approved by HR). That contract is
+// tested in documentsPhase2.test.mjs. Admins still never upload on an employee's behalf from the employee pages.
 
 test("the Upload Request page is gone from the employee area", () => {
   assert.equal(fs.existsSync("src/pages/Peoples/Employees/Documents/Employee_UploadRequest.jsx"), false);
@@ -48,11 +40,14 @@ test("no employee-facing document page imports the upload service", () => {
   }
 });
 
-test("Company Documents (admin) has no Pending / Approved / Rejected filters or badges", () => {
-  const src = fs.readFileSync("src/modules/zoiko-hr/documents/company-documents.jsx", "utf8");
-  assert.match(src, /STATUS_FILTERS = \["all", "expired"\]/);
-  assert.doesNotMatch(src, /label: "Pending"|label: "Approved"|label: "Rejected"/);
-  assert.match(src, /Only organization admins upload company documents/);
+// ZHR-DOCS-ARCH-001 Module B replaced the folder-only page: category cards, an All / Expiring soon / Expired segment and
+// no employee search on company documents.
+test("Company Documents (admin) is organized by category with an expiry segment and no employee search", () => {
+  for (const f of ["CompanyCategoriesPage", "CompanyCategoryPage"]) {
+    const src = fs.readFileSync(`src/modules/zoiko-hr/documents/company-documents/${f}.jsx`, "utf8");
+    assert.match(src, /\["expiring_soon", "Expiring soon"\]/, f);
+    assert.doesNotMatch(src, /Search by Employee|employee_id_str/, f);
+  }
 });
 
 // ── ZHR-47: preview of an uploaded document ─────────────────────────────────
@@ -75,19 +70,19 @@ test("a PDF or image stored with a generic content type is previewed with the ri
   assert.equal(normalizePreviewBlob(null, "x.pdf"), null);
 });
 
-test("Company Documents disables Preview and says why when the file is missing on the server", () => {
-  const src = fs.readFileSync("src/modules/zoiko-hr/documents/company-documents.jsx", "utf8");
-  assert.match(src, /disabled=\{busyId === d\.id \|\| d\.file_missing\}/);
-  assert.match(src, /The file is missing on the server/);
+test("a file missing on the server is reported, not shown as a broken preview", () => {
+  // The server answers 410 with the reason; the preview drawer shows it as an error (documentsPhase1 renders it).
+  const src = fs.readFileSync("src/modules/zoiko-hr/documents/components/FilePreviewDrawer.jsx", "utf8");
+  assert.match(src, /state\.status === "error" && <DocumentErrorState message=\{state\.message\}/);
 });
 
 // ── ZHR-49: no Manager approval stage ────────────────────────────────────────
 
 test("the Document Approval Workflow page has no Manager stage", () => {
-  const src = fs.readFileSync("src/modules/zoiko-hr/documents/approvals.jsx", "utf8");
-  assert.match(src, /Approval Chain: HR Admin → Org Admin/);
+  const src = fs.readFileSync("src/modules/zoiko-hr/documents/approvals/ApprovalWorkflowPage.jsx", "utf8");
+  assert.match(src, /Approval chain: HR Admin → Org Admin/);
   assert.doesNotMatch(src, /Manager → HR Admin/);
   assert.doesNotMatch(src, /Managers approve only their step/);
-  // a legacy "manager" step is displayed as the HR Admin stage that now owns it
-  assert.match(src, /manager: "HR Admin"/);
+  // the server reports a legacy "manager" step as the HR Admin stage that now owns it (queue_service)
+  assert.match(fs.readFileSync("../backend/app/modules/hr/documents/queue_service.py", "utf8"), /"hr_admin" if s\.required_role == "manager"/);
 });

@@ -10,10 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
+
+logger = logging.getLogger("zoiko.doc_templates")
 
 from app.modules.doc_templates import access, approvals, fields, hooks, notify, preflight, registry, renderer, resolver, state, storage
 from app.modules.doc_templates.models import (DocumentNumberSequence, DocumentSignature, GeneratedDocument, JurisdictionPack,
@@ -424,9 +427,20 @@ def _deliver(db, doc: GeneratedDocument, actor, *, wait_for_email: bool = False)
 
 
 def link_hr_document(db, doc: GeneratedDocument, actor) -> None:
-    """Show the issued document in the existing Documents / ESS "My documents" screens (plain files only: an encrypted C3/C4
-    file has no servable plain path, so it is reachable only through the generated-documents endpoints)."""
-    if doc.files_encrypted or doc.hr_document_id or doc.recipient_employee_id is None:
+    """Show the issued document in the person's documents. Offers, contracts, letters and tax statements are filed as an
+    approved file in the matching employee container (ZHR-DOCS-ARCH-001 §13.3, hr/documents/filing.py); policies keep the
+    plain link below (the policy hub carries them)."""
+    if doc.hr_document_id or doc.recipient_employee_id is None:
+        return
+    from app.modules.hr.documents import filing
+    if filing.category_key_for(doc) is not None:
+        try:
+            with db.begin_nested():
+                filing.file_generated(db, doc, actor)
+        except Exception:
+            logger.exception("filing generated document %s failed", doc.id)
+        return
+    if doc.files_encrypted:
         return
     from app.modules.hr.models import DocumentAssignment, HrDocument, HrDocumentCategory, HrDocumentStatus, AssignmentStatus
     store = storage.get_store()
