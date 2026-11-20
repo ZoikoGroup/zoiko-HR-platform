@@ -53,6 +53,7 @@ test("the stepper resumes on the saved step, saves each move, and step 3 cannot 
     decideDocsSetupProposal: async () => ({}), bulkDocsSetupProposals: async () => ({}), openDocsSetupSource: async () => {},
     analyseDocsSetup: async () => session, getDocsSetupSession: async () => session, uploadDocsSetupFile: async () => session,
     deleteDocsSetupFile: async () => session, setDocsSetupFileLabel: async () => session, getDocsSetupMapping: async () => ({}), setDocsSetupMapping: async () => ({}),
+    getDocsSetupMappingOptions: async () => ({}),
     getDocsSetupPreviewPdf: async () => new Blob(), getPackageDocuments: async () => ({ documents: [] }), addDocsSetupChange: async () => ({}),
     getDocsSetupSummary: async () => ({}), applyDocsSetup: async () => session, undoDocsSetup: async () => ({}),
     approveReleaseDocsSetup: async () => ({}), setDocsSetupOptions: async () => ({}),
@@ -137,12 +138,11 @@ test("after Apply one admin approves and releases the templates, and contracts a
   const { default: Panel } = await import(`../src/modules/zoiko-hr/onboarding/docs-setup/ReleasePanel.jsx?t=${Math.random()}`);
   render(React.createElement(Panel, { sessionId: 5, variantIds: [11, 12] }));
   const button = screen.getByRole("button", { name: /Approve and release/ });
-  assert.equal(button.disabled, true, "needs the name and the attestation");
-  fireEvent.change(screen.getByLabelText("Your full name"), { target: { value: "Avery Admin" } });
+  assert.equal(button.disabled, true, "needs the attestation");
   fireEvent.click(screen.getByRole("checkbox"));
   fireEvent.click(button);
   await settle();
-  assert.deepEqual(calls[0], { attestation_accepted: true, signed_name: "Avery Admin" });
+  assert.deepEqual(calls[0], { attestation_accepted: true });
   assert.ok(screen.getByText(/1 of 2 released/));
   assert.ok(screen.getByText(/need the details of the legal counsel/));
   fireEvent.change(screen.getByLabelText("Counsel name"), { target: { value: "R. Rao" } });

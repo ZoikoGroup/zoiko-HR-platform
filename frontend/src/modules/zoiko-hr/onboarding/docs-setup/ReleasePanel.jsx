@@ -7,8 +7,14 @@ import { CheckCircle2, Loader2, Rocket } from "lucide-react";
 import { approveReleaseDocsSetup } from "../../../../service/docsSetupService";
 import { Banner, errorText } from "./shared";
 
+const input = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none";
+const COUNSEL = [["counsel_name", "Counsel name"], ["counsel_firm", "Counsel firm"],
+  ["counsel_qualification", "Counsel qualification"], ["review_date", "Review date", "date"]];
+
 export default function ReleasePanel({ sessionId, variantIds, onReleased }) {
   const [agree, setAgree] = useState(false);
+  const [counsel, setCounsel] = useState({});
+  const [needCounsel, setNeedCounsel] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -19,8 +25,11 @@ export default function ReleasePanel({ sessionId, variantIds, onReleased }) {
     setBusy(true);
     setError("");
     try {
-      const res = await approveReleaseDocsSetup(sessionId, { attestation_accepted: true });
+      const body = { attestation_accepted: true };
+      if (needCounsel) Object.entries(counsel).forEach(([k, v]) => { if (v.trim()) body[k] = v.trim(); });
+      const res = await approveReleaseDocsSetup(sessionId, body);
       setResult(res);
+      if ((res.results || []).some((r) => r.code === "COUNSEL_DETAILS_REQUIRED")) setNeedCounsel(true);
       if (res.total > 0 && res.released === res.total) onReleased?.();
     } catch (e) {
       setError(errorText(e, "The templates could not be released. Try again."));
@@ -55,6 +64,21 @@ export default function ReleasePanel({ sessionId, variantIds, onReleased }) {
       </ul>
       {!allLive && (
         <>
+          {needCounsel && (
+            <div className="grid gap-2 rounded-lg border border-amber-200 bg-amber-50/50 p-3 sm:grid-cols-2">
+              <p className="sm:col-span-2 text-sm text-amber-800">
+                Some templates need the details of the legal counsel who reviewed them. Add them below and release again,
+                or release again to record your own attestation.
+              </p>
+              {COUNSEL.map(([k, label, type]) => (
+                <label key={k} className="block text-sm">
+                  <span className="mb-1 block text-gray-700">{label}</span>
+                  <input type={type || "text"} className={input} value={counsel[k] || ""} aria-label={label}
+                    onChange={(e) => setCounsel((c) => ({ ...c, [k]: e.target.value }))} />
+                </label>
+              ))}
+            </div>
+          )}
           <label className="flex items-start gap-2 text-sm text-gray-700">
             <input type="checkbox" className="mt-0.5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
             I have reviewed these templates (including any contract or NDA) and accept responsibility for their content on behalf of my organisation.
