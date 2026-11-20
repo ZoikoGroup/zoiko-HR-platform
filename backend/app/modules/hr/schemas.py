@@ -3446,6 +3446,12 @@ class TravelExpenseResponse(BaseModel):
     reimbursed_at: Optional[datetime]
     created_at: Optional[datetime]
     within_policy: Optional[bool] = None      # False: above the daily expense limit (flagged for the reviewer, not blocked)
+    # two-step approval (audit T16): status stays in_progress after the first of two approvals
+    first_approver_id: Optional[int] = None
+    first_approver_name: Optional[str] = None
+    first_approved_at: Optional[datetime] = None
+    awaiting_second_approval: bool = False
+    first_approved_by_me: bool = False         # the caller gave the first approval, so a different person must decide
 
     model_config = {"from_attributes": True}
 

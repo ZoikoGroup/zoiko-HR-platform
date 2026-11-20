@@ -4616,12 +4616,24 @@ def _name_travel_rows(db: Session, rows) -> list:
     The name is looked up from the employee the row points at (one query for the whole list)."""
     rows = [r for r in rows if r is not None]
     ids = {r.employee_id for r in rows if getattr(r, "employee_id", None)}
+    ids |= {r.first_approver_id for r in rows if getattr(r, "first_approver_id", None)}
     names = {}
     if ids:
         for e in db.query(Employee).filter(Employee.id.in_(ids)).all():
             names[e.id] = (f"{e.first_name or ''} {e.last_name or ''}".strip()) or e.email
     for r in rows:
         r.employee_name = names.get(getattr(r, "employee_id", None))
+        if isinstance(r, TravelExpense):          # audit T16: who gave the first of two approvals
+            r.first_approver_name = names.get(r.first_approver_id)
+            r.awaiting_second_approval = bool(r.first_approver_id) and r.status == RequestStatus.IN_PROGRESS
+    return rows
+
+
+def mark_first_approver(rows, user_id: int) -> list:
+    """Tells the caller which claims they gave the first approval to, so the page can hide their Approve button (T16)."""
+    for r in (rows if isinstance(rows, list) else [rows]):
+        if isinstance(r, TravelExpense):
+            r.first_approved_by_me = bool(r.first_approver_id) and r.first_approver_id == user_id
     return rows
 
 
@@ -4785,6 +4797,12 @@ def update_travel_request(db: Session, request_id: int, data: TravelRequestUpdat
 
 def delete_travel_request(db: Session, request_id: int, organization_id: Optional[int] = None) -> None:
     request = get_travel_request(db, request_id, organization_id)
+    # a trip with expense claims is not deleted: the claims would lose their trip without anyone noticing (audit T13)
+    claims = db.query(TravelExpense.id).filter(TravelExpense.request_id == request.id).order_by(TravelExpense.id).all()
+    if claims:
+        refs = ", ".join(f"EXP-{c.id:05d}" for c in claims[:10]) + (f" and {len(claims) - 10} more" if len(claims) > 10 else "")
+        raise _trip_conflict(f"This trip has {len(claims)} expense claim{'s' if len(claims) != 1 else ''} ({refs}), so it cannot "
+                             "be deleted. Cancel the trip instead; its claims stay on record.")
     db.delete(request)
     db.commit()
 
@@ -5018,6 +5036,12 @@ def review_travel_expense(db: Session, expense_id: int, organization_id: int, st
     if status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
         if current not in (RequestStatus.PENDING, RequestStatus.IN_PROGRESS):
             raise BadRequestException(f"This claim is already {getattr(current, 'value', current)}; it has been decided and cannot be decided again.")
+        if status == RequestStatus.APPROVED and expense.request_id is not None:
+            # the trip may have been rejected or cancelled after the claim was filed (audit T12); refusing is still allowed
+            trip = db.query(TravelRequest).filter(TravelRequest.id == expense.request_id).first()
+            if trip is not None and trip.status in (RequestStatus.REJECTED, RequestStatus.CANCELLED):
+                raise _trip_conflict(f"The trip for this claim (TRV-{trip.id:05d}) was {_status_label(trip.status)}, so the claim "
+                                     "cannot be approved. Reject it instead.")
         # one decision path: the claimant can never decide their own claim, large claims need a second approver,
         # and the decision record (HR-CMP-024) is produced
         from app.modules.hr import compensation_documents

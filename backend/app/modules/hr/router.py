@@ -2672,11 +2672,13 @@ def list_travel_expenses(
     # admins: everyone in the organization; a manager: their own claims and their direct reports'; anyone else: their own.
     # With page / per_page: {items, total, page, per_page, totals} where totals cover every matching claim, per currency;
     # without: the plain list, as before (audit T6).
-    return service.get_travel_expenses(
+    result = service.get_travel_expenses(
         db, organization_id=current_user.organization_id,
         request_id=request_id, employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id),
         status=status, page=page, per_page=per_page, search=search,
     )
+    service.mark_first_approver(result["items"] if isinstance(result, dict) else result, current_user.id)   # audit T16
+    return result
 
 
 @hr_router.put(
@@ -2694,6 +2696,7 @@ def review_travel_expense(
     if set(changes) != {"status"} or changes["status"] is None:
         raise BadRequestException("Send the decision as a status: approved, rejected or completed.")
     result = service.review_travel_expense(db, expense_id, current_user.organization_id, changes["status"], current_user.id)
+    service.mark_first_approver(result, current_user.id)                                                    # audit T16
     # Notify org admins about expense review decision
     try:
         status_label = str(changes["status"]).replace("_", " ").title()
