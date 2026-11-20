@@ -133,8 +133,8 @@ def to_csv(record: Record) -> str:
 
 def _csv_safe(v: str) -> str:
     """Neutralise spreadsheet formula injection (=, +, -, @ at the start of a cell)."""
-    v = _s(v)
-    return "'" + v if v[:1] in ("=", "+", "-", "@", "\t", "\r") else v
+    from app.core.spreadsheet import safe_cell
+    return safe_cell(_s(v))
 
 
 def _name(db, employee_id) -> str:
