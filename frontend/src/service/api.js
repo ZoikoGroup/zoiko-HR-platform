@@ -149,6 +149,10 @@ export async function apiRequest(path, { method = "GET", body, headers = {}, aut
         detail = detail.message || (Array.isArray(detail.problems) ? detail.problems.join("; ") : JSON.stringify(detail));
       }
       if (typeof data?.error === "string") extra = { ...extra, code: data.error };
+      // Documents module details: the failed upload checks, who holds a review lock, which field is wrong.
+      for (const key of ["checks", "locked_by_name", "locked_until", "field", "problems"]) {
+        if (data?.[key] !== undefined) extra = { ...extra, [key]: data[key] };
+      }
       if (data?.feature_key && data?.upgrade_url) {
         extra = { entitlement: { entitlement_state: data.state, feature_key: data.feature_key, required_plan: data.required_plan, upgrade_url: data.upgrade_url } };
       }

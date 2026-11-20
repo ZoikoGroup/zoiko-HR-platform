@@ -120,6 +120,17 @@ TABLES: dict[str, Level] = {
     # Prompt 3 working-time and compensation requests
     "overtime_requests": L.PERSONAL_CONFIDENTIAL, "attendance_correction_requests": L.PERSONAL_CONFIDENTIAL,
     "shift_notices": L.PERSONAL_BASIC, "compensation_statement_requests": L.FINANCIAL,
+    # documents module (ZHR-DOCS-ARCH-001): category settings are configuration; access rules, acknowledgements, the audit
+    # trail, reminders and tasks name people; automation runs carry event payloads (ids only, but about people).
+    "hr_employee_document_categories": L.PLATFORM_META, "hr_company_document_categories": L.PLATFORM_META,
+    "hr_document_access_rules": L.PERSONAL_BASIC, "hr_document_ack_rounds": L.PERSONAL_BASIC,
+    "hr_document_acknowledgements": L.PERSONAL_CONFIDENTIAL, "hr_document_audit_logs": L.PERSONAL_CONFIDENTIAL,
+    "hr_document_reminders": L.PERSONAL_BASIC, "document_tasks": L.PERSONAL_BASIC,
+    "automation_rules": L.PLATFORM_META, "automation_runs": L.PERSONAL_BASIC, "automation_settings": L.PLATFORM_META,
+    "notification_templates": L.PLATFORM_META, "retention_policies": L.PLATFORM_META,
+    # attendance engine (attendance plan M1): breaks and the edit trail are about a person's working day
+    "attendance_breaks": L.PERSONAL_CONFIDENTIAL, "attendance_audit_log": L.PERSONAL_CONFIDENTIAL,
+    "employee_shifts": L.PERSONAL_BASIC, "attendance_day_closures": L.PLATFORM_META,
     # Prompt 4: probation reviews and improvement plans hold performance concerns (C3 documents)
     "probation_reviews": L.PERSONAL_CONFIDENTIAL, "performance_improvement_plans": L.SPECIAL_CATEGORY,
     # child tables of tenant tables (no organization_id of their own)

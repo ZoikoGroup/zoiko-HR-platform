@@ -9,7 +9,7 @@ const NAV_ITEMS = [
   { label: "Profile", href: "/zoiko-hr/ess/profile" },
   { label: "Leave Management", href: "/zoiko-hr/ess/leave" },
   { label: "Attendance", href: "/zoiko-hr/ess/attendance" },
-  { label: "My Documents", href: "/zoiko-hr/ess/my-documents" },
+  { label: "My Documents", href: "/employee/documents/my-files" },
   { label: "Learning", href: "/zoiko-hr/ess/requests" },
   { label: "Settings", href: "/zoiko-hr/ess/settings" },
 ];

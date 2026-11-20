@@ -441,12 +441,20 @@ def payroll_summary(db: Session = Depends(get_db), _=Depends(get_current_user)):
 
 @hr_router.post(
     "/attendance",
-    response_model=AttendanceResponse,
     summary="Record attendance",
     description="Create a new attendance record for an employee."
 )
-def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
-    return service.create_attendance_record(db, data, current_user.organization_id)
+def create_attendance(data: AttendanceCreate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    # Admins and HR admins only (anyone signed in could create records for anyone before). Same checks as
+    # POST /hr/attendance/records: the employee must belong to the caller's organization.
+    from app.modules.hr.attendance import records_service
+    body = data.model_dump()
+    body["status"] = getattr(body.get("status"), "value", body.get("status"))
+    body["reason"] = "Added through the attendance API"
+    for key in ("check_in", "check_out"):
+        if body.get(key) is not None:
+            body[key] = body[key].isoformat()
+    return records_service.create(db, current_user, body)
 
 
 
@@ -2888,9 +2896,11 @@ def list_hr_documents(
     search:         Optional[str] = Query(None, description="Search by title, document type, employee name/code/ID"),
     exclude_categories: Optional[str] = Query(None, description="Comma-separated categories to exclude (e.g. employee,contract)"),
     folder_id:      Optional[int] = Query(None, description="Filter by folder ID (null = root)"),
+    mine:           bool = Query(False, description="Only the caller's own documents (about them or uploaded by them), whatever their role"),
 ):
     return service.get_hr_documents(
         db,
+        mine=mine,
         category=category,
         status=doc_status,
         employee_id=employee_id,
@@ -2933,6 +2943,11 @@ async def upload_hr_document_route(
     folder_id: Optional[int] = Form(None),
 ):
     _require_document_uploader(current_user)
+    # ZHR-DOCS-ARCH-001 Module A: admins never upload on an employee's behalf. Employees upload their own documents in My
+    # Files (POST /hr/me/documents); this route only adds company documents.
+    if employee_id is not None or (category or "").lower() in ("employee", "contract", "payslip", "tax"):
+        raise HTTPException(status_code=403, detail="Employees upload their own documents in My Files. "
+                                                    "Use this upload for company documents only.")
     _validate_upload_file(file)
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE_BYTES:
@@ -2948,7 +2963,7 @@ async def upload_hr_document_route(
     # The upload form only sends document_type (not a separate title), so
     # fall back sensibly rather than 422-ing on a missing required field.
     resolved_title = title or document_type or file.filename or "Untitled Document"
-    resolved_employee_id = employee_id or current_user.id
+    resolved_employee_id = None          # company documents are about nobody (employees upload their own in My Files)
 
     doc = service.upload_hr_document_with_approval(
         db=db,
@@ -3006,10 +3021,19 @@ def get_hr_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from app.modules.hr.documents.file_access import get_readable_document
+    get_readable_document(db, current_user, document_id)          # 404 unless the caller may read it (P30)
     return service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)
 
 
 import os as _os
+from fastapi import Request as _Request
+from fastapi.responses import Response
+
+
+def _document_request_ctx(request: _Request):
+    from app.modules.hr.documents.audit_service import request_ctx
+    return request_ctx(request)
 
 
 @hr_router.get(
@@ -3020,32 +3044,17 @@ import os as _os
 )
 def get_hr_document_file(
     document_id: int,
+    download: bool = Query(False, description="Send as an attachment instead of inline"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
+    ctx=Depends(_document_request_ctx),
 ):
-    doc_data = service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)
-    file_path = doc_data.get("file_path")
-    from app.core.privacy.files import belongs_to_tenant
-    resolved = file_storage.resolve_stored_file(file_path) if belongs_to_tenant(file_path, current_user.organization_id) else None
-    if not resolved:
-        # 410: the document record exists, the bytes are not on this host.
-        # A plain 404 read as "no such document" in the UI and hid the fact
-        # that the file simply is not there (ZHR 44).
-        raise HTTPException(
-            status_code=410,
-            detail=(
-                "The file for this document is not available on the server. "
-                "Ask an administrator to upload it again."
-            ),
-        )
-    file_name = doc_data.get("file_name") or _os.path.basename(file_path)
-    media_type = file_storage.effective_media_type(file_name, doc_data.get("mime_type"))
-    return FileResponse(
-        path=resolved,
-        media_type=media_type,
-        filename=file_name,
-        headers={"Content-Disposition": f'inline; filename="{file_name}"'},
-    )
+    # P30: only people who may read the document get its bytes (admins, the person it is about, or readers of a shared
+    # company document); the latest version for admins and owners, the approved one for everyone else.
+    from app.modules.hr.documents import file_access
+    doc = file_access.get_readable_document(db, current_user, document_id)
+    version = file_access.readable_version(db, current_user, doc)
+    return file_access.serve(db, current_user, doc, version, disposition="attachment" if download else "inline", ctx=ctx)
 
 
 @hr_router.post(
@@ -3055,44 +3064,48 @@ def get_hr_document_file(
 )
 def create_document_download_link(document_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_user)):
     from app.core.privacy.files import MAX_TTL_SECONDS, sign_download
-    service.get_hr_document_by_id(db, document_id, organization_id=current_user.organization_id)       # the normal authorization: org-scoped lookup
+    from app.modules.hr.documents.file_access import get_readable_document
+    get_readable_document(db, current_user, document_id)          # 404 unless the caller may read it (P30)
     token = sign_download("hr_document", document_id, current_user.organization_id)
     return {"url": f"/hr/files/signed/{token}", "expires_in": MAX_TTL_SECONDS}
 
 
 @hr_router.get("/files/signed/{token}", summary="Open a file through a short-lived signed link", tags=["📄 HR Documents"])
 def open_signed_file(token: str, db: Session = Depends(get_db)):
-    from app.core.privacy.files import belongs_to_tenant, verify_download
+    from app.core.privacy.files import verify_download
+    from app.modules.hr.documents import storage_service
+    from app.modules.hr.models import HrDocument, HrDocumentVersion
     try:
         claims = verify_download(token)
     except ValueError:
         raise HTTPException(status_code=404, detail="Not Found")                  # a bad, expired or tampered link looks like no link
     if claims["kind"] != "hr_document":
         raise HTTPException(status_code=404, detail="Not Found")
-    try:
-        doc = service.get_hr_document_by_id(db, claims["object_id"], organization_id=claims["organization_id"])
-    except Exception:
+    doc = (db.query(HrDocument).filter(HrDocument.id == claims["object_id"], HrDocument.organization_id == claims["organization_id"],
+                                       HrDocument.is_deleted.is_(False)).first())
+    if doc is None:
         raise HTTPException(status_code=404, detail="Not Found")
-    resolved = file_storage.resolve_stored_file(doc.get("file_path")) if belongs_to_tenant(doc.get("file_path"), claims["organization_id"]) else None
-    if not resolved:
+    version = db.get(HrDocumentVersion, doc.approved_version_id) if doc.approved_version_id else None
+    source = version if version is not None and (version.storage_key or version.file_path) else doc
+    data = storage_service.open_for_read(source) or (storage_service.open_for_read(doc) if source is not doc else None)
+    if data is None:
         raise HTTPException(status_code=404, detail="Not Found")
-    name = doc.get("file_name") or _os.path.basename(resolved)
-    return FileResponse(path=resolved, media_type=file_storage.effective_media_type(name, doc.get("mime_type")), filename=name,
-                        headers={"Content-Disposition": f'inline; filename="{name}"', "Cache-Control": "private, no-store"})
+    name = (getattr(source, "file_name", None) or doc.file_name or f"document-{doc.id}").replace('"', "")
+    return Response(content=data, media_type=file_storage.effective_media_type(name, getattr(source, "mime_type", None) or doc.mime_type),
+                    headers={"Content-Disposition": f'inline; filename="{name}"', "Cache-Control": "private, no-store"})
 
 
 @hr_router.put(
     "/documents/{document_id}",
     response_model=HrDocumentResponse,
-    summary="Update HR document metadata",
+    summary="Update HR document metadata (admins only)",
     tags=["📄 HR Documents"],
-    dependencies=[Depends(get_current_user)],
 )
 def update_hr_document(
     document_id: int,
     data: HrDocumentUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.update_hr_document(db, document_id, data, organization_id=current_user.organization_id)
 
@@ -3111,7 +3124,8 @@ def update_hr_document_status(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    result = service.update_hr_document_status(db, document_id, data, organization_id=current_user.organization_id)
+    result = service.update_hr_document_status(db, document_id, data, organization_id=current_user.organization_id,
+                                               current_user=current_user)
     # Notify org admins about document status change
     try:
         new_status = (data.status or "updated").replace("_", " ").title()
@@ -3174,6 +3188,11 @@ def list_document_versions(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from app.modules.hr.documents import errors as doc_errors, file_access
+    from app.modules.hr.documents.permissions import is_document_admin
+    doc = file_access.get_readable_document(db, current_user, document_id)
+    if not (is_document_admin(current_user) or file_access.is_owner(current_user, doc)):
+        raise doc_errors.not_found()                                # readers see the current version only
     return service.get_document_versions(db, document_id, organization_id=current_user.organization_id)
 
 
@@ -3191,6 +3210,11 @@ async def upload_document_version(
     change_notes: Optional[str] = Form(None),
 ):
     _require_document_uploader(current_user)
+    from app.modules.hr.models import HrDocument as _HrDocument
+    _target = db.query(_HrDocument).filter(_HrDocument.id == document_id,
+                                           _HrDocument.organization_id == current_user.organization_id).first()
+    if _target is not None and (_target.scope or "employee") == "employee" and _target.employee_id is not None:
+        raise HTTPException(status_code=403, detail="Only the employee can upload a new copy of their document (in My Files).")
     _validate_upload_file(file)
     contents = await file.read()
     if len(contents) > MAX_FILE_SIZE_BYTES:
@@ -3239,31 +3263,15 @@ async def upload_document_version(
 def get_document_version_file(
     document_id: int,
     version_id: int,
+    download: bool = Query(False),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
+    ctx=Depends(_document_request_ctx),
 ):
-    version_data = service.get_document_version_file(
-        db, document_id, version_id, organization_id=current_user.organization_id
-    )
-    file_path = version_data.get("file_path")
-    from app.core.privacy.files import belongs_to_tenant
-    resolved = file_storage.resolve_stored_file(file_path) if belongs_to_tenant(file_path, current_user.organization_id) else None
-    if not resolved:
-        raise HTTPException(
-            status_code=410,
-            detail=(
-                "The file for this document version is not available on the server. "
-                "Ask an administrator to upload it again."
-            ),
-        )
-    file_name = version_data.get("file_name") or _os.path.basename(file_path)
-    media_type = file_storage.effective_media_type(file_name, version_data.get("mime_type"))
-    return FileResponse(
-        path=resolved,
-        media_type=media_type,
-        filename=file_name,
-        headers={"Content-Disposition": f'inline; filename="{file_name}"'},
-    )
+    from app.modules.hr.documents import file_access
+    doc = file_access.get_readable_document(db, current_user, document_id)
+    version = file_access.readable_version(db, current_user, doc, version_id)
+    return file_access.serve(db, current_user, doc, version, disposition="attachment" if download else "inline", ctx=ctx)
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -3353,7 +3361,7 @@ def reject_document(
 def get_approval_audit_log(
     document_id: Optional[int] = Query(None, description="Filter by document ID"),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.get_approval_audit_log(db, organization_id=current_user.organization_id, document_id=document_id)
 
@@ -3437,7 +3445,7 @@ def folder_breadcrumb(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return service.get_folder_breadcrumb(db, folder_id)
+    return service.get_folder_breadcrumb(db, folder_id, current_user.organization_id)
 
 
 @hr_router.post(
@@ -3451,6 +3459,7 @@ def create_folder(
     current_user=Depends(get_current_user),
     name: str = Form(...),
     parent_id: Optional[int] = Form(None),
+    company_category_id: Optional[int] = Form(None),
 ):
     _require_document_uploader(current_user)
     return service.create_document_folder(
@@ -3459,6 +3468,7 @@ def create_folder(
         organization_id=current_user.organization_id,
         parent_id=parent_id,
         created_by=current_user.id,
+        company_category_id=company_category_id,
     )
 
 
@@ -3470,7 +3480,7 @@ def create_folder(
 def rename_folder(
     folder_id: int,
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
     name: str = Form(...),
 ):
     return service.rename_document_folder(db, folder_id, name, current_user.organization_id)

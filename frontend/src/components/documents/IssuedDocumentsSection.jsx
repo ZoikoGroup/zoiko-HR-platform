@@ -89,7 +89,12 @@ function PreviewModal({ doc, onClose, onDownload }) {
   );
 }
 
-export default function IssuedDocumentsSection({ className = "", onPendingCount }) {
+/**
+ * `embedded`: the host page owns the toolbar. The section then shows no Refresh button of its own, renders nothing
+ * during its first load (the page shows the one loader, told via `onLoadingChange`), and reloads whenever
+ * `refreshKey` changes (the page's single Refresh button).
+ */
+export default function IssuedDocumentsSection({ className = "", onPendingCount, embedded = false, refreshKey = 0, onLoadingChange }) {
   const headingId = useId();
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
@@ -134,6 +139,18 @@ export default function IssuedDocumentsSection({ className = "", onPendingCount 
 
   useEffect(() => { load(1); }, [load]);
 
+  // The host page's Refresh button (embedded mode). The initial value is skipped: the effect above already loaded.
+  const lastRefreshKey = useRef(refreshKey);
+  useEffect(() => {
+    if (refreshKey === lastRefreshKey.current) return;
+    lastRefreshKey.current = refreshKey;
+    load(1);
+  }, [refreshKey, load]);
+
+  const loadingCb = useRef(onLoadingChange);
+  loadingCb.current = onLoadingChange;
+  useEffect(() => { loadingCb.current?.(loading && !hidden); }, [loading, hidden]);
+
   // Open the document named in ?generated=<id> once.
   useEffect(() => {
     if (deepLinkHandled.current) return;
@@ -166,6 +183,8 @@ export default function IssuedDocumentsSection({ className = "", onPendingCount 
   };
 
   if (hidden) return null;
+  // Embedded first load: the host page shows the single loader for the whole page.
+  if (embedded && loading && items.length === 0 && !error && !action && !viewing) return null;
   // Nothing issued yet and nothing to say: keep the page as it was.
   if (!loading && !error && total === 0 && !pendingOnly && !action && !viewing) return null;
 
@@ -185,13 +204,15 @@ export default function IssuedDocumentsSection({ className = "", onPendingCount 
             />
             Needs my action only
           </label>
-          <button
-            type="button"
-            onClick={() => load(1)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-[#334155] dark:text-[#cbd5e1]"
-          >
-            <RefreshCw size={14} aria-hidden="true" /> Refresh
-          </button>
+          {!embedded && (
+            <button
+              type="button"
+              onClick={() => load(1)}
+              className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-[#334155] dark:text-[#cbd5e1]"
+            >
+              <RefreshCw size={14} aria-hidden="true" /> Refresh
+            </button>
+          )}
         </div>
       </div>
 
@@ -214,9 +235,11 @@ export default function IssuedDocumentsSection({ className = "", onPendingCount 
       )}
 
       {loading && items.length === 0 ? (
-        <div role="status" className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
-          <Loader2 size={18} className="animate-spin" aria-hidden="true" /> Loading...
-        </div>
+        embedded ? null : (
+          <div role="status" className="flex items-center justify-center gap-2 py-8 text-sm text-slate-500">
+            <Loader2 size={18} className="animate-spin" aria-hidden="true" /> Loading...
+          </div>
+        )
       ) : items.length === 0 ? (
         <p className="py-6 text-center text-sm text-slate-500">{pendingOnly ? "Nothing needs your action." : "No documents have been issued to you yet."}</p>
       ) : (

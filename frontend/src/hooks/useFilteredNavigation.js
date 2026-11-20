@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import { sections as allSections } from "../navigation.js";
-import { ROLE_ALLOWED_PREFIXES, VALID_ROLES, PRODUCT_ALLOWED_PREFIXES, PRODUCTS, ROLES, ROLE_DISALLOWED_PREFIXES } from "../config/roles.js";
+import { ROLE_ALLOWED_PREFIXES, VALID_ROLES, PRODUCT_ALLOWED_PREFIXES, PRODUCTS, ROLES, ROLE_DISALLOWED_PREFIXES, ROLE_DISALLOWED_PATHS } from "../config/roles.js";
 
 const SECTION_EXCLUSIONS = {
   // "ADMINISTRATION" duplicates the "USER MANAGEMENT" section for super admin
@@ -24,6 +24,7 @@ function isAllowedPathForRole(pathname, role) {
   if (!role || !VALID_ROLES.includes(role)) return false;
   const disallowed = ROLE_DISALLOWED_PREFIXES[role] || [];
   if (disallowed.some((prefix) => pathname === prefix || pathname.startsWith(prefix))) return false;
+  if ((ROLE_DISALLOWED_PATHS[role] || []).includes(pathname)) return false;
   const prefixes = ROLE_ALLOWED_PREFIXES[role] ?? [];
   return prefixes.some((prefix) => {
     if (prefix === "/") return pathname === "/";

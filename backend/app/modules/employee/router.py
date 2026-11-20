@@ -810,6 +810,8 @@ def update_user(
             {"event": "user.role_changed", "from": old_role, "to": data.role.value, "target_email": updated.email},
         )
         db.commit()
+        from app.modules.hr.documents.hooks import on_employee_role_changed
+        on_employee_role_changed(db, updated, from_role=old_role, to_role=data.role.value, changed_by=current_user.id)
     return updated
 
 

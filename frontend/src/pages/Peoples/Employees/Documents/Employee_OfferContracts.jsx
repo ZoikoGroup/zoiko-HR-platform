@@ -39,8 +39,8 @@ export default function OfferContracts() {
       setError(null);
       try {
         // category "employee" is deliberate here (not "contract") — must stay in
-        // sync with the TABS mapping in organization-admin/EmployeeDocumentsPage.jsx.
-        const res = await getDocuments({ category: "employee" });
+        // sync with the offer_contracts category mapping (backend documents/constants.py).
+        const res = await getDocuments({ category: "employee", mine: true });
         const data = res?.data || res?.items || res?.data?.items || [];
         if (!mounted) return;
 

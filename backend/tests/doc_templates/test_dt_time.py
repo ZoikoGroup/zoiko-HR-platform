@@ -96,7 +96,8 @@ def test_short_notice_shift_change_needs_a_reason_and_an_approver(world):
     activate(world.db, "HR-TIM-004")
     early, late = _shift(world, "Early", "06:00", "14:00"), _shift(world, "Late", "14:00", "22:00")
     day = date.today() + timedelta(days=2)
-    world.db.add(ShiftRoster(employee_id=world.u["a_emp"].id, shift_id=early.id, date=day, is_active=True))
+    world.db.add(ShiftRoster(employee_id=world.u["a_emp"].id, shift_id=early.id, date=day, is_active=True,
+                             organization_id=world.u["a_emp"].organization_id))
     world.db.commit()
     world.put("a_hr", "/hr/time/settings", json={"shift_change_notice_days": 7})
     body = {"employee_id": world.u["a_emp"].id, "new_shift_id": late.id, "dates": [day.isoformat()], "reason": "Cover for a vacancy"}

@@ -489,6 +489,24 @@ offer_package_routers = _safe_import(lambda: [
 ], "hr.onboarding_package")
 for _r in offer_package_routers or []:
     app.include_router(_r)
+# Documents module (ZHR-DOCS-ARCH-001): mounted before hr_router so literal paths under /hr/documents/... are not captured
+# by hr_router's /hr/documents/{document_id}.
+documents_routers = _safe_import(lambda: [
+    __import__("app.modules.hr.documents.me_router", fromlist=["x"]).router,
+    __import__("app.modules.hr.documents.approval_router", fromlist=["x"]).router,
+    __import__("app.modules.hr.documents.admin_router", fromlist=["x"]).router,
+    __import__("app.modules.hr.documents.company_router", fromlist=["x"]).router,
+    __import__("app.modules.hr.documents.company_router", fromlist=["x"]).me_router,
+    __import__("app.modules.hr.documents.automation.router", fromlist=["x"]).router,
+], "hr.documents")
+for _r in documents_routers or []:
+    app.include_router(_r)
+# Attendance engine (attendance plan): self-service punching under /hr/me/attendance, mounted before hr_router.
+attendance_routers = _safe_import(lambda: [
+    __import__("app.modules.hr.attendance.me_router", fromlist=["x"]).router,
+], "hr.attendance")
+for _r in attendance_routers or []:
+    app.include_router(_r)
 app.include_router(support_data_router)
 app.include_router(support_login_operator_router)
 app.include_router(support_login_tenant_router)

@@ -214,14 +214,46 @@ SORTABLE_FIELDS_RECORDS = {
 }
 
 
+ORG_WIDE_ROLES = ("super_admin", "admin", "hr_admin")
+
+
+def viewer_scope(db: Session, user) -> Optional[frozenset]:
+    """Whose attendance `user` may see: None = the whole organization (Org Admin, HR Admin); a manager sees
+    themselves and the people who report to them (directly or further down); everyone else only themselves."""
+    role = getattr(getattr(user, "role", None), "value", getattr(user, "role", None))
+    if role in ORG_WIDE_ROLES:
+        return None
+    if role == "manager":
+        from app.modules.doc_templates.access import report_ids
+        return frozenset({user.id}) | report_ids(db, user)
+    return frozenset({user.id})
+
+
+def can_view_employee(db: Session, user, employee_id: Optional[int]) -> bool:
+    scope = viewer_scope(db, user)
+    return scope is None or employee_id in scope
+
+
+def _ensure_employee_in_org(db: Session, employee_id: Optional[int], organization_id: Optional[int]) -> None:
+    """A record, roster or shift assignment may only name a person of the caller's own organization."""
+    if employee_id is None or organization_id is None:
+        return
+    exists = db.query(Employee.id).filter(Employee.id == employee_id, Employee.organization_id == organization_id).first()
+    if not exists:
+        raise NotFoundException("Employee", employee_id)
+
+
 def _get_records_query(
     db: Session, search=None, status=None, department=None,
-    date_from=None, date_to=None, employee_id=None, organization_id=None,
+    date_from=None, date_to=None, employee_id=None, organization_id=None, employee_ids=None,
 ):
     query = db.query(AttendanceRecord)
 
     if organization_id:
         query = query.filter(AttendanceRecord.organization_id == organization_id)
+
+    if employee_ids is not None:
+        query = query.filter(AttendanceRecord.employee_id.in_(list(employee_ids) or [-1]))
 
     if search:
         stmt = f"%{search}%"
@@ -253,13 +285,15 @@ def _get_records_query(
 
 
 def get_all_attendance_records(db: Session, organization_id: Optional[int] = None, employee_id: Optional[int] = None,
-                               page: Optional[int] = None, per_page: Optional[int] = None):
+                               page: Optional[int] = None, per_page: Optional[int] = None, employee_ids=None):
     """Every record, newest first: a plain list (capped) without page/per_page, else a page dict."""
     query = db.query(AttendanceRecord)
     if organization_id:
         query = query.filter(AttendanceRecord.organization_id == organization_id)
     if employee_id:
         query = query.filter(AttendanceRecord.employee_id == employee_id)
+    if employee_ids is not None:
+        query = query.filter(AttendanceRecord.employee_id.in_(list(employee_ids) or [-1]))
     # employee (and its department) were lazy-loaded per record: one query per distinct employee. Batch them.
     loaded = query.options(selectinload(AttendanceRecord.employee).joinedload(Employee.department))
     if wants_page(page, per_page):
@@ -301,9 +335,11 @@ def get_attendance_records(
     sort_by: Optional[str] = "date",
     sort_order: Optional[str] = "desc",
     organization_id: Optional[int] = None,
+    employee_ids=None,
 ) -> dict:
-    per_page = min(per_page, 100)
-    query = _get_records_query(db, search, status, department, date_from, date_to, employee_id, organization_id)
+    per_page = min(per_page, 200)
+    query = _get_records_query(db, search, status, department, date_from, date_to, employee_id, organization_id,
+                               employee_ids=employee_ids)
     total = query.count()
 
     sort_col = SORTABLE_FIELDS_RECORDS.get(sort_by, AttendanceRecord.date)
@@ -327,12 +363,14 @@ def get_attendance_records(
     return {"total": total, "page": page, "per_page": per_page, "items": items}
 
 
-def get_attendance_record_by_id(db: Session, record_id: int, organization_id: Optional[int] = None) -> AttendanceRecord:
+def get_attendance_record_by_id(db: Session, record_id: int, organization_id: Optional[int] = None,
+                                viewer=None) -> AttendanceRecord:
     query = db.query(AttendanceRecord).filter(AttendanceRecord.id == record_id)
     if organization_id:
         query = query.filter(AttendanceRecord.organization_id == organization_id)
     record = query.first()
-    if not record:
+    # someone else's record is reported as missing: its existence is not revealed
+    if not record or (viewer is not None and not can_view_employee(db, viewer, record.employee_id)):
         raise NotFoundException("AttendanceRecord", record_id)
     return record
 
@@ -340,6 +378,7 @@ def get_attendance_record_by_id(db: Session, record_id: int, organization_id: Op
 def create_attendance_record(db: Session, data: AttendanceCreate, created_by: int = None, organization_id: int = None) -> AttendanceRecord:
     raw = data.model_dump()
     safe = sanitize_dict(raw)
+    _ensure_employee_in_org(db, safe.get("employee_id"), organization_id)
     _strip_times_for_non_working_day(safe, safe.get("status"))
     record = AttendanceRecord(**safe)
     if organization_id:
@@ -353,6 +392,8 @@ def create_attendance_record(db: Session, data: AttendanceCreate, created_by: in
 def update_attendance_record(db: Session, record_id: int, data: AttendanceUpdate, organization_id: Optional[int] = None) -> AttendanceRecord:
     record = get_attendance_record_by_id(db, record_id, organization_id)
     update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    if "employee_id" in update_data:
+        _ensure_employee_in_org(db, update_data["employee_id"], organization_id or record.organization_id)
     effective_status = update_data.get("status", record.status)
     _strip_times_for_non_working_day(update_data, effective_status)
     for field, value in update_data.items():
@@ -456,8 +497,14 @@ def get_shift_rosters(
     return {"total": total, "page": page, "per_page": per_page, "items": result}
 
 
-def create_shift_roster(db: Session, data: ShiftRosterCreate, assigned_by: int = None) -> ShiftRoster:
-    roster = ShiftRoster(**data.model_dump(), assigned_by=assigned_by)
+def create_shift_roster(db: Session, data: ShiftRosterCreate, assigned_by: int = None,
+                        organization_id: Optional[int] = None) -> ShiftRoster:
+    # shift_rosters has no organization column yet (added in the attendance M1 migration): check both ids here
+    _ensure_employee_in_org(db, data.employee_id, organization_id)
+    if organization_id is not None and not db.query(Shift.id).filter(Shift.id == data.shift_id,
+                                                                     Shift.organization_id == organization_id).first():
+        raise NotFoundException("Shift", data.shift_id)
+    roster = ShiftRoster(**data.model_dump(), assigned_by=assigned_by, organization_id=organization_id)
     db.add(roster)
     db.commit()
     db.refresh(roster)
@@ -965,6 +1012,13 @@ def _leave_activity(db: Session, action_type: str, actor, leave: LeaveRequest, c
 def create_leave_request(db: Session, data: dict, created_by: int = None, organization_id: Optional[int] = None) -> LeaveRequest:
     if organization_id:
         data["organization_id"] = organization_id
+    _ensure_employee_in_org(db, data.get("employee_id"), organization_id)
+    for key in ("start_date", "end_date"):          # the raw JSON body carries ISO strings
+        if isinstance(data.get(key), str):
+            try:
+                data[key] = date.fromisoformat(data[key][:10])
+            except ValueError:
+                raise BadRequestException(f"{key} must be a date (YYYY-MM-DD).")
     from app.modules.hr import leave_documents
     leave = LeaveRequest(**data)  # LeaveRequest has no created_by column; created_by is the activity actor
     leave_documents.protect_reason(leave)
@@ -1178,7 +1232,7 @@ def _hours_worked(rec) -> Optional[float]:
     return None
 
 
-def _export_rows(db: Session, organization_id: Optional[int], date_from, date_to, employee_id):
+def _export_rows(db: Session, organization_id: Optional[int], date_from, date_to, employee_id, record_ids=None):
     """Attendance rows for an export: this organization only, soft-deleted rows excluded, with
     the employee's code, name and department instead of a bare database id."""
     query = (
@@ -1189,6 +1243,8 @@ def _export_rows(db: Session, organization_id: Optional[int], date_from, date_to
     )
     if organization_id is not None:
         query = query.filter(AttendanceRecord.organization_id == organization_id)
+    if record_ids is not None:                     # the attendance log's filters (status, department, search, source)
+        query = query.filter(AttendanceRecord.id.in_(list(record_ids) or [-1]))
     if date_from:
         query = query.filter(AttendanceRecord.date >= date_from)
     if date_to:
@@ -1228,13 +1284,14 @@ def export_attendance_csv(
     date_to: Optional[date] = None,
     employee_id: Optional[int] = None,
     organization_id: Optional[int] = None,
+    record_ids=None,
 ):
     """A real CSV: plain text, one line per record, ISO dates and 24h HH:MM times. The UTF-8 BOM
     lets Excel open names with accents correctly."""
     import csv
     import io
 
-    rows = _export_rows(db, organization_id, date_from, date_to, employee_id)
+    rows = _export_rows(db, organization_id, date_from, date_to, employee_id, record_ids)
     output = io.StringIO()
     writer = csv.writer(output, lineterminator="\r\n")
     writer.writerow(EXPORT_COLUMNS)
@@ -1260,6 +1317,7 @@ def export_attendance_excel(
     date_to: Optional[date] = None,
     employee_id: Optional[int] = None,
     organization_id: Optional[int] = None,
+    record_ids=None,
 ):
     """A real workbook: typed date / time / number cells, a styled frozen header with filters, sized
     columns, and a Summary sheet with totals by status."""
@@ -1269,7 +1327,7 @@ def export_attendance_excel(
     from openpyxl.styles import Alignment, Font, PatternFill
     from openpyxl.utils import get_column_letter
 
-    rows = _export_rows(db, organization_id, date_from, date_to, employee_id)
+    rows = _export_rows(db, organization_id, date_from, date_to, employee_id, record_ids)
     wb = openpyxl.Workbook()
     ws = wb.active
     ws.title = "Attendance"

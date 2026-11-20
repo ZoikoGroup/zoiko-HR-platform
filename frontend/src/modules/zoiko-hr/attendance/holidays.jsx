@@ -1,32 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { NavLink } from "react-router-dom";
 import { Plus, Upload, Download, Trash2, CalendarDays, List, ChevronLeft, ChevronRight, X, Calendar as CalendarIcon, Loader2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
 import { getHolidays, createHoliday, updateHoliday, deleteHoliday, importHolidays } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { parseHolidayFile, parseHolidayText, validateRows, downloadHolidayTemplate, MAX_ROWS } from "../../../utils/holidayImport";
+import SubNav from "./components/AttendanceSubNav";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/zoiko-hr/attendance" },
-  { label: "Attendance Records", href: "/zoiko-hr/attendance/daily" },
-  { label: "Holiday Calendar", href: "/zoiko-hr/attendance/holidays" },
-  { label: "Attendance Analytics", href: "/zoiko-hr/attendance/analytics" },
-];
 
-function SubNav() {
-  return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
-      {NAV_ITEMS.map((item) => (
-        <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
-          className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
-          }>
-          {item.label}
-        </NavLink>
-      ))}
-    </div>
-  );
-}
 
 const TYPE_OPTIONS = ["Public", "Company", "Optional"];
 

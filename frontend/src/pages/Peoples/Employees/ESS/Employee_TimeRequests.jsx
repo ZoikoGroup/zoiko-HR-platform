@@ -1,10 +1,13 @@
-// ESS "Time requests": ask for overtime (before the work, or record it afterwards) and correct a check-in or check-out.
+// ESS "Time requests": ask for overtime (before the work, or record it afterwards) and correct a day: a missed punch,
+// wrong times, a wrong status or wrong breaks (attendance plan M4).
 // Your manager or HR decides; you receive the decision record. A correction changes your attendance only once approved,
 // and the original times are kept.
 import { useCallback, useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Clock, Loader2, Send } from "lucide-react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
-import { listCorrections, listOvertime, requestCorrection, requestOvertime } from "../../../../service/workDocumentsService";
+import CorrectionForm, { KIND_LABEL } from "../../../../modules/zoiko-hr/attendance/components/CorrectionForm";
+import { listCorrections, listOvertime, requestOvertime } from "../../../../service/workDocumentsService";
 import { formatDate } from "../../../../utils/dateTime";
 
 const STATUS = { PENDING: "Waiting for a decision", APPROVED: "Approved", REJECTED: "Refused" };
@@ -14,7 +17,9 @@ export default function EmployeeTimeRequests() {
   const [overtime, setOvertime] = useState([]);
   const [corrections, setCorrections] = useState([]);
   const [ot, setOt] = useState({ date: "", start_time: "", end_time: "", reason: "", emergency: false });
-  const [cr, setCr] = useState({ date: "", requested_check_in: "", requested_check_out: "", reason: "forgot", reason_detail: "", confirm_accurate: false });
+  // ?date=YYYY-MM-DD (from a day in My Attendance) prefills the correction form
+  const [params] = useSearchParams();
+  const [formKey, setFormKey] = useState(0);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState(null);
 
@@ -55,24 +60,12 @@ export default function EmployeeTimeRequests() {
         </section>
         <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Correct attendance">
           <h2 className="mb-2 text-base font-semibold">Attendance correction</h2>
-          <div className="grid gap-2 sm:grid-cols-3">
-            <label className="text-sm">Date<input type="date" value={cr.date} onChange={(e) => setCr({ ...cr, date: e.target.value })} className={input} /></label>
-            <label className="text-sm">Check-in<input type="time" value={cr.requested_check_in} onChange={(e) => setCr({ ...cr, requested_check_in: e.target.value })} className={input} /></label>
-            <label className="text-sm">Check-out<input type="time" value={cr.requested_check_out} onChange={(e) => setCr({ ...cr, requested_check_out: e.target.value })} className={input} /></label>
-          </div>
-          <label className="mt-2 block text-sm">Reason
-            <select value={cr.reason} onChange={(e) => setCr({ ...cr, reason: e.target.value })} className={input}>
-              <option value="forgot">Forgot to check in/out</option><option value="system_issue">System issue</option><option value="off_site">Working off-site</option><option value="other">Other</option>
-            </select></label>
-          <label className="mt-2 block text-sm">Details{cr.reason === "other" ? " (required)" : " (optional)"}<input value={cr.reason_detail} onChange={(e) => setCr({ ...cr, reason_detail: e.target.value })} className={input} /></label>
-          <label className="mt-2 flex items-start gap-2 text-sm"><input type="checkbox" checked={cr.confirm_accurate} onChange={(e) => setCr({ ...cr, confirm_accurate: e.target.checked })} className="mt-1 accent-blue-600" />
-            I confirm the corrected times are accurate.</label>
-          <button type="button" disabled={busy || !cr.date || !cr.requested_check_in || !cr.requested_check_out || !cr.confirm_accurate}
-            onClick={() => send(requestCorrection, cr, "Correction sent. Your record changes only if it is approved.")}
-            className="mt-3 inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
-            <Send size={16} aria-hidden="true" /> Send correction</button>
+          <p className="mb-2 text-xs text-slate-500">Missed a punch, or the times, status or breaks are wrong? Your manager or HR decides; the
+            day changes only once it is approved and the original times are kept.</p>
+          <CorrectionForm key={formKey} initial={{ date: params.get("date") || "" }}
+            onSubmitted={() => { setNotice({ ok: true, text: "Correction sent. Your record changes only if it is approved." }); setFormKey((k) => k + 1); load(); }} />
           <ul className="mt-4 divide-y divide-slate-100 text-sm" aria-label="My corrections">
-            {corrections.map((c) => <li key={c.id} className="py-1.5">{formatDate(c.date)} · {STATUS[c.status] || c.status}{c.decision_reason ? ` · ${c.decision_reason}` : ""}</li>)}
+            {corrections.map((c) => <li key={c.id} className="py-1.5">{formatDate(c.date)} · {KIND_LABEL[c.kind] || "Correction"} · {STATUS[c.status] || c.status}{c.decision_reason ? ` · ${c.decision_reason}` : ""}</li>)}
           </ul>
         </section>
       </div>

@@ -891,6 +891,8 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.commit()
     db.refresh(org)
     emit_event(db, "organization.created", {"id": org.id, "name": org.name, "code": org.organization_code}, org.id)
+    from app.modules.hr.documents.hooks import on_organization_created   # document categories + automation rules
+    on_organization_created(db, org.id)
     try:                                             # every organisation has its (empty) Company Profile in Settings
         from app.modules.hr import company_profile
         company_profile.ensure_profile(db, org.id)
@@ -1243,6 +1245,8 @@ def create_organization_user(
         db.commit()
         db.refresh(employee)
         emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(role)}, organization_id)
+        from app.modules.hr.documents.hooks import on_employee_created
+        on_employee_created(db, employee)
         _record(
             db, "employee.invited", actor or created_by_id, organization_id,
             entity_type="Employee", entity_id=employee.id,
@@ -1822,6 +1826,8 @@ def create_employee(
         db.commit()
         db.refresh(employee)
         emit_event(db, "user.created", {"id": employee.id, "email": employee.email, "role": role_str(employee.role)}, resolved_org_id)
+        from app.modules.hr.documents.hooks import on_employee_created
+        on_employee_created(db, employee)
 
         _record_employee_added(db, actor, employee, resolved_org_id)
         begin_email_verification(db, employee)
@@ -3721,7 +3727,8 @@ def resign_employee(db: Session, data: ResignationRequest, organization_id: Opti
 
 
 def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optional[int] = None) -> EmployeeLifecycle:
-    employee = get_employee_by_id(db, data.employee_id)
+    """The single implementation of an employee exit (hr.service.exit_employee delegates here)."""
+    employee = get_employee_by_id(db, data.employee_id, organization_id)
 
     employee.status = EmployeeStatus.TERMINATED
     employee.is_active = False
@@ -3741,6 +3748,8 @@ def exit_employee(db: Session, data: ExitEmployeeRequest, organization_id: Optio
     db.add(event)
     db.commit()
     db.refresh(event)
+    from app.modules.hr.documents.hooks import on_employee_exited
+    on_employee_exited(db, employee, exit_date=data.exit_date, exit_type=data.exit_type)
 
     _notify_email(
         "send_employee_lifecycle_email",

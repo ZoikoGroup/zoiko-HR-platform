@@ -1,464 +1,200 @@
-import { useState, useEffect, useCallback, useMemo } from "react";
-import { NavLink } from "react-router-dom";
-import { Search, Download, Plus, Pencil, Trash2, Calendar, Filter, Loader2, UserX } from "lucide-react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { Download, History, Loader2, Pencil, Plus, Search, Trash2 } from "lucide-react";
 import HRPage from "../../../components/HRPage";
-import { getAttendanceRecords, createAttendanceRecord, updateAttendanceRecord, deleteAttendanceRecord, exportAttendanceCsv, exportAttendanceExcel, getHrEmployees } from "../../../service/hrService";
-import { formatDate as formatDateUtil } from "../../../utils/dateTime";
+import AttendanceSubNav from "./components/AttendanceSubNav";
+import AttendanceStatusChip from "./components/AttendanceStatusChip";
+import AuditTrailDrawer from "./components/AuditTrailDrawer";
+import DateRangeFilter from "./components/DateRangeFilter";
+import RecordFormDialog from "./components/RecordFormDialog";
+import Pager from "../documents/components/Pager";
+import { formatMinutes, SOURCE_LABEL, STATUS } from "./constants";
+import {
+  useAttendanceRecords, useCreateAttendanceRecord, useDeleteAttendanceRecord, useUpdateAttendanceRecord,
+} from "./hooks/useAttendanceAdmin";
+import { getAttendanceRecord } from "../../../service/attendanceService";
+import { exportAttendanceCsv, exportAttendanceExcel, getDepartments, getHrEmployees } from "../../../service/hrService";
+import { keys } from "../../../service/queryKeys";
+import { formatDate } from "../../../utils/dateTime";
 
-const NAV_ITEMS = [
-  { label: "Dashboard", href: "/zoiko-hr/attendance" },
-  { label: "Attendance Records", href: "/zoiko-hr/attendance/daily" },
-  { label: "Holiday Calendar", href: "/zoiko-hr/attendance/holidays" },
-  { label: "Attendance Analytics", href: "/zoiko-hr/attendance/analytics" },
-];
+const PER_PAGE = 25;
+const STATUS_FILTERS = ["present", "late", "half_day", "absent", "on_leave", "remote", "holiday", "weekly_off", "missed_punch"];
 
-function SubNav() {
-  return (
-    <div className="flex gap-1 overflow-x-auto pb-1 mb-6 border-b border-gray-100">
-      {NAV_ITEMS.map((item) => (
-        <NavLink key={item.href} to={item.href} end={item.href === "/zoiko-hr/attendance"}
-          className={({ isActive }) =>
-            `whitespace-nowrap px-4 py-2.5 text-sm font-bold rounded-t-xl transition-all ${isActive ? "text-blue-600 border-b-2 border-blue-600 bg-blue-50/50" : "text-gray-500 hover:text-gray-800 hover:bg-gray-50"}`
-          }>
-          {item.label}
-        </NavLink>
-      ))}
-    </div>
-  );
+function useDebounced(value, ms = 300) {
+  const [v, setV] = useState(value);
+  useEffect(() => { const t = setTimeout(() => setV(value), ms); return () => clearTimeout(t); }, [value, ms]);
+  return v;
 }
 
-const ITEMS_PER_PAGE = 15;
-
-const STATUS_COLORS = {
-  present: "bg-emerald-100 text-emerald-800 border-emerald-200",
-  absent: "bg-red-100 text-red-800 border-red-200",
-  late: "bg-blue-100 text-blue-800 border-blue-200",
-  on_leave: "bg-blue-100 text-blue-800 border-blue-200",
-  remote: "bg-blue-100 text-blue-800 border-blue-200",
-  half_day: "bg-yellow-100 text-yellow-800 border-yellow-200",
-  holiday: "bg-pink-100 text-pink-800 border-pink-200",
-  weekend: "bg-gray-100 text-gray-800 border-gray-200",
-};
-
-const STATUS_OPTIONS = ["present", "absent", "late", "on_leave", "remote", "half_day"];
-
-// No time is worked on these days: switching to one clears the times, and the table never shows them.
-const NO_TIME_STATUSES = ["absent", "on_leave", "holiday"];
-
-const initialForm = {
-  employee_id: "", date: "", status: "present", check_in: "", check_out: "", notes: "",
-};
-
-function StatusBadge({ status }) {
-  const colorClass = STATUS_COLORS[status] || "bg-gray-100 text-gray-800 border-gray-200";
-  return (
-    <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold border ${colorClass} capitalize`}>
-      {status.replace(/_/g, " ")}
-    </span>
-  );
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return "-";
-  return formatDateUtil(dateStr);
-}
-
-// Check-in/out are wall-clock times with no timezone: read the components straight out of the
-// string so the browser never shifts them ("2026-10-16T00:00:00" stays 12:00 AM, never 5:30 AM).
-function wallParts(value) {
-  const m = typeof value === "string" && /^(\d{4})-(\d{2})-(\d{2})[T ](\d{2}):(\d{2})(?::\d{2}(?:\.\d+)?)?(Z|[+-]\d{2}:?\d{2})?$/.exec(value.trim());
-  return m ? { date: `${m[1]}-${m[2]}-${m[3]}`, time: `${m[4]}:${m[5]}` } : null;
-}
-
-function formatTime(timeStr) {
-  if (!timeStr) return "-";
-  const w = wallParts(timeStr);
-  if (!w) return timeStr;
-  let h = Number(w.time.slice(0, 2));
-  const suffix = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
-  return `${h}:${w.time.slice(3)} ${suffix}`;
-}
-
-function wallInput(value) {
-  const w = wallParts(value);
-  return w ? `${w.date}T${w.time}` : "";
-}
-
-export default function DailyRecords() {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+/**
+ * Admin → Daily Attendance Records (attendance plan M5): the attendance log with server-side filters, date presets and
+ * paging; columns for department, break, hours, overtime and source; add / edit with a required reason; removal with a
+ * reason; each record's history; exports that follow the current filters.
+ */
+export default function DailyAttendanceRecords() {
+  const [range, setRange] = useState({ preset: "today" });
   const [search, setSearch] = useState("");
-  const [filters, setFilters] = useState({ status: "", department: "", date: "" });
-  const [currentPage, setCurrentPage] = useState(1);
-  const [showModal, setShowModal] = useState(false);
-  const [editRecord, setEditRecord] = useState(null);
-  const [form, setForm] = useState({ ...initialForm });
-  const [formErrors, setFormErrors] = useState({});
-  const [submitting, setSubmitting] = useState(false);
+  const [status, setStatus] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
+  const [source, setSource] = useState("");
+  const [page, setPage] = useState(1);
+  const [dialog, setDialog] = useState(null);          // { mode: "new" } | { mode: "edit", record }
+  const [history, setHistory] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [exporting, setExporting] = useState(null);
+  const [departments, setDepartments] = useState([]);
   const [employees, setEmployees] = useState([]);
+  const qc = useQueryClient();
+  const term = useDebounced(search);
 
-  const fetchData = useCallback(async (params = {}) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const data = await getAttendanceRecords(params);
-      setRecords(data?.items || (Array.isArray(data) ? data : []));
-    } catch (err) {
-      setError(err.message || "Failed to load records");
-      setRecords([]);
-    } finally {
-      setLoading(false);
-    }
+  const filters = useMemo(() => ({
+    ...range, search: term.trim() || undefined, status: status || undefined, department_id: departmentId || undefined,
+    source: source || undefined, page, per_page: PER_PAGE,
+  }), [range, term, status, departmentId, source, page]);
+  const query = useAttendanceRecords(filters);
+  const create = useCreateAttendanceRecord();
+  const update = useUpdateAttendanceRecord();
+  const remove = useDeleteAttendanceRecord();
+
+  useEffect(() => {
+    getDepartments().then((r) => setDepartments(Array.isArray(r?.data) ? r.data : r?.data?.items || [])).catch(() => setDepartments([]));
+    getHrEmployees({ per_page: 200 }).then((r) => setEmployees(r?.items || r?.data || (Array.isArray(r) ? r : []))).catch(() => setEmployees([]));
   }, []);
+  useEffect(() => { setPage(1); }, [range, term, status, departmentId, source]);
 
-  const fetchEmployees = useCallback(async () => {
+  const exportParams = () => {
+    const { page: _p, per_page: _pp, ...rest } = filters;
+    return Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined && v !== ""));
+  };
+  const doExport = async (kind) => {
+    setExporting(kind);
+    setNotice(null);
+    try { await (kind === "csv" ? exportAttendanceCsv : exportAttendanceExcel)(exportParams()); }
+    catch (e) { setNotice({ ok: false, text: e?.message || "The export failed." }); }
+    finally { setExporting(null); }
+  };
+  const openEdit = async (row) => {
     try {
-      const data = await getHrEmployees({ per_page: 100 });
-      const list = data?.items || (Array.isArray(data) ? data : []);
-      setEmployees(list);
-    } catch {
-      setEmployees([]);
-    }
-  }, []);
-
-  useEffect(() => { fetchData(); }, [fetchData]);
-  useEffect(() => { fetchEmployees(); }, [fetchEmployees]);
-
-  const departments = useMemo(() => {
-    const depts = new Set(records.map((r) => r.department || r.department_name).filter(Boolean));
-    return [...depts].sort();
-  }, [records]);
-
-  const filtered = useMemo(() => {
-    let result = records;
-    if (search) {
-      const q = search.toLowerCase();
-      result = result.filter((r) =>
-        (r.employee_name || r.employee || "").toLowerCase().includes(q) ||
-        (r.department || "").toLowerCase().includes(q)
-      );
-    }
-    if (filters.status) result = result.filter((r) => r.status === filters.status);
-    if (filters.department) result = result.filter((r) => (r.department || r.department_name || "") === filters.department);
-    if (filters.date) result = result.filter((r) => r.date === filters.date);
-    return result;
-  }, [records, search, filters]);
-
-  const paginated = useMemo(() => {
-    const start = (currentPage - 1) * ITEMS_PER_PAGE;
-    return filtered.slice(start, start + ITEMS_PER_PAGE);
-  }, [filtered, currentPage]);
-
-  const openCreate = () => {
-    setEditRecord(null);
-    setForm({ ...initialForm, date: new Date().toISOString().split("T")[0] });
-    setFormErrors({});
-    setShowModal(true);
-  };
-
-  const openEdit = (record) => {
-    setEditRecord(record);
-    setForm({
-      employee_id: record.employee_id || "",
-      date: record.date || "",
-      status: record.status || "present",
-      check_in: wallInput(record.check_in),
-      check_out: wallInput(record.check_out),
-      notes: record.notes || "",
-    });
-    setFormErrors({});
-    setShowModal(true);
-  };
-
-  const handleStatusChange = (e) => {
-    const status = e.target.value;
-    setForm((prev) => (NO_TIME_STATUSES.includes(status) ? { ...prev, status, check_in: "", check_out: "" } : { ...prev, status }));
-  };
-
-  const validate = (d) => {
-    const e = {};
-    if (!d.employee_id) e.employee_id = "Employee is required";
-    if (!d.date) e.date = "Date is required";
-    return e;
-  };
-
-  const handleSubmit = async (ev) => {
-    ev.preventDefault();
-    const errors = validate(form);
-    setFormErrors(errors);
-    if (Object.keys(errors).length > 0) return;
-    setSubmitting(true);
-    try {
-      const noTime = NO_TIME_STATUSES.includes(form.status);
-      const payload = {
-        employee_id: Number(form.employee_id),
-        date: form.date,
-        status: form.status,
-        check_in: noTime ? null : form.check_in || null,
-        check_out: noTime ? null : form.check_out || null,
-        notes: form.notes || null,
-      };
-      if (editRecord) {
-        await updateAttendanceRecord(editRecord.id, payload);
-      } else {
-        await createAttendanceRecord(payload);
-      }
-      setShowModal(false);
-      await fetchData();
-    } catch (err) {
-      setFormErrors({ submit: err.message || "Failed to save record" });
-    } finally {
-      setSubmitting(false);
+      const full = await qc.fetchQuery({ queryKey: keys.attendance.records.detail(row.id), queryFn: () => getAttendanceRecord(row.id) });
+      setDialog({ mode: "edit", record: full });
+    } catch (e) {
+      setNotice({ ok: false, text: e?.message || "This record could not be opened." });
     }
   };
-
-  const handleDelete = async (id) => {
-    if (!window.confirm("Are you sure you want to delete this attendance record?")) return;
-    try {
-      await deleteAttendanceRecord(id);
-      await fetchData();
-    } catch (err) {
-      setError(err.message || "Failed to delete record");
-    }
+  const doDelete = async (row) => {
+    const reason = typeof window !== "undefined" ? window.prompt(`Why remove ${row.employee_name}'s record for ${formatDate(row.date)}? (kept in the history)`) : null;
+    if (!reason || reason.trim().length < 3) return;
+    try { await remove.mutateAsync({ id: row.id, reason: reason.trim() }); setNotice({ ok: true, text: "Record removed. It stays in the history." }); }
+    catch (e) { setNotice({ ok: false, text: e?.message || "The record was not removed." }); }
   };
+
+  const data = query.data;
+  const rows = data?.items || [];
+  const filtered = Boolean(term || status || departmentId || source);
+  const control = "rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm";
 
   return (
-    <HRPage title="Daily Attendance Records" subtitle="Track and manage daily employee attendance logs">
-      <SubNav />
-
-      <div className="space-y-6">
-        {error && (
-          <div className="px-4 py-3 bg-red-50 border border-red-200 text-red-700 font-medium rounded-xl flex items-center justify-between shadow-sm">
-            <span>{error}</span>
-            <button onClick={() => setError(null)} className="text-red-500 hover:text-red-800 text-lg">&times;</button>
-          </div>
-        )}
-
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 bg-white p-5 rounded-2xl border border-gray-100 shadow-sm">
-          <div>
-            <h1 className="text-xl font-extrabold text-gray-900">Attendance Log</h1>
-            <p className="text-sm text-gray-500 font-medium mt-1">Review check-ins, check-outs, and daily statuses</p>
-          </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <button onClick={async () => { try { await exportAttendanceCsv(); } catch (err) { setError(err.message); } }}
-              className="flex justify-center items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 bg-gray-50 rounded-xl hover:bg-gray-100 text-sm font-bold transition-colors">
-              <Download className="w-4 h-4" /> CSV
-            </button>
-            <button onClick={async () => { try { await exportAttendanceExcel(); } catch (err) { setError(err.message); } }}
-              className="flex justify-center items-center gap-2 px-4 py-2.5 border border-gray-200 text-gray-700 bg-gray-50 rounded-xl hover:bg-gray-100 text-sm font-bold transition-colors">
-              <Download className="w-4 h-4" /> Excel
-            </button>
-            <button onClick={openCreate} className="flex items-center gap-2 px-5 py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl text-sm font-bold shadow transition-colors">
-              <Plus className="w-4 h-4" /> Add Record
-            </button>
-          </div>
+    <HRPage title="Daily Attendance Records" subtitle="Every punch, correction and change, with who made it and why."
+      actions={(
+        <div className="flex flex-wrap gap-2">
+          <button type="button" onClick={() => doExport("csv")} disabled={Boolean(exporting)}
+            className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-60">
+            {exporting === "csv" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />} CSV
+          </button>
+          <button type="button" onClick={() => doExport("excel")} disabled={Boolean(exporting)}
+            className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-60">
+            {exporting === "excel" ? <Loader2 size={16} className="animate-spin" aria-hidden="true" /> : <Download size={16} aria-hidden="true" />} Excel
+          </button>
+          <button type="button" onClick={() => setDialog({ mode: "new" })}
+            className="flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700">
+            <Plus size={16} aria-hidden="true" /> Add Record
+          </button>
         </div>
-
-        {/* Filter Bar */}
-        <div className="flex flex-wrap items-center gap-3 bg-gray-50/50 p-4 rounded-2xl border border-gray-100">
-          <div className="relative flex-1 min-w-[240px]">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <input type="text" placeholder="Search employee or department..." value={search}
-              onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-              className="w-full pl-9 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm" />
-          </div>
-          <div className="relative w-full sm:w-auto">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select value={filters.status} onChange={(e) => { setFilters({ ...filters, status: e.target.value }); setCurrentPage(1); }}
-              className="w-full sm:w-auto pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none shadow-sm cursor-pointer">
-              <option value="">All Statuses</option>
-              {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
-            </select>
-          </div>
-          <div className="relative w-full sm:w-auto">
-            <Filter className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-            <select value={filters.department} onChange={(e) => { setFilters({ ...filters, department: e.target.value }); setCurrentPage(1); }}
-              className="w-full sm:w-auto pl-9 pr-8 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 appearance-none shadow-sm cursor-pointer">
-              <option value="">All Departments</option>
-              {departments.map((d) => (<option key={d} value={d}>{d}</option>))}
-            </select>
-          </div>
-          <div className="relative w-full sm:w-auto flex-1 md:flex-none max-w-[200px]">
-            <input type="date" value={filters.date} onChange={(e) => { setFilters({ ...filters, date: e.target.value }); setCurrentPage(1); }}
-              className="w-full px-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 shadow-sm" />
-          </div>
+      )}>
+      <AttendanceSubNav />
+      <div className="space-y-4">
+        <DateRangeFilter value={range} onChange={setRange} />
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="relative min-w-[220px] flex-1">
+            <span className="sr-only">Search employee, code or department</span>
+            <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+            <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search employee, code or department"
+              className={`${control} w-full pl-8`} />
+          </label>
+          <select aria-label="Status" value={status} onChange={(e) => setStatus(e.target.value)} className={control}>
+            <option value="">All statuses</option>
+            {STATUS_FILTERS.map((s) => <option key={s} value={s}>{STATUS[s]?.label || s}</option>)}
+          </select>
+          <select aria-label="Department" value={departmentId} onChange={(e) => setDepartmentId(e.target.value)} className={control}>
+            <option value="">All departments</option>
+            {departments.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}
+          </select>
+          <select aria-label="Source" value={source} onChange={(e) => setSource(e.target.value)} className={control}>
+            <option value="">All sources</option>
+            {Object.entries(SOURCE_LABEL).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          </select>
         </div>
+        {notice && <p role={notice.ok ? "status" : "alert"} className={`rounded-xl px-4 py-2 text-sm ${notice.ok ? "bg-emerald-50 text-emerald-900" : "bg-rose-50 text-rose-800"}`}>{notice.text}</p>}
 
-        {/* Data Table */}
-        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
-          {loading ? (
-            <div className="flex flex-col justify-center items-center py-24">
-              <Loader2 className="w-8 h-8 animate-spin text-blue-500 mb-4" />
-              <p className="text-sm font-bold text-gray-500">Loading attendance records...</p>
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center py-24 text-center px-4">
-              <div className="w-16 h-16 bg-blue-50 rounded-full flex items-center justify-center mb-4">
-                <UserX className="w-8 h-8 text-blue-300" />
-              </div>
-              <p className="text-lg font-bold text-gray-800 mb-1">No records found</p>
-              <p className="text-sm text-gray-500 max-w-sm">
-                {records.length === 0 ? "You haven't added any attendance records yet." : "Try adjusting your search or filters."}
-              </p>
-            </div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead className="bg-gray-50/80 border-b border-gray-100">
-                  <tr>
-                    <th className="py-4 px-5 text-xs font-bold text-gray-500 uppercase tracking-wider">Employee</th>
-                    <th className="py-4 px-5 text-xs font-bold text-gray-500 uppercase tracking-wider">Department</th>
-                    <th className="py-4 px-5 text-xs font-bold text-gray-500 uppercase tracking-wider">Date</th>
-                    <th className="py-4 px-5 text-xs font-bold text-gray-500 uppercase tracking-wider">Check In</th>
-                    <th className="py-4 px-5 text-xs font-bold text-gray-500 uppercase tracking-wider">Check Out</th>
-                    <th className="py-4 px-5 text-xs font-bold text-gray-500 uppercase tracking-wider">Status</th>
-                    <th className="py-4 px-5 text-right text-xs font-bold text-gray-500 uppercase tracking-wider">Actions</th>
+        {query.isError ? (
+          <p role="alert" className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800">{query.error?.message || "Attendance could not be loaded."}{" "}
+            <button type="button" className="underline" onClick={() => query.refetch()}>Retry</button></p>
+        ) : query.isLoading ? (
+          <div className="h-64 animate-pulse rounded-2xl bg-slate-100" aria-label="Loading records" />
+        ) : rows.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-slate-300 bg-white py-12 text-center text-sm text-slate-500">
+            <p className="font-semibold text-slate-700">No records found</p>
+            <p>{filtered ? "No records match these filters." : "Nobody has punched in or been marked for these dates yet."}</p>
+            {filtered && <button type="button" className="mt-2 text-blue-700 underline" onClick={() => { setSearch(""); setStatus(""); setDepartmentId(""); setSource(""); }}>Clear filters</button>}
+          </div>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl border border-gray-200/80 bg-white shadow-sm">
+            <table className="min-w-full text-sm">
+              <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                <tr>
+                  <th className="px-4 py-3">Employee</th><th className="px-4 py-3">Department</th><th className="px-4 py-3">Date</th>
+                  <th className="px-4 py-3">Check-in</th><th className="px-4 py-3">Check-out</th><th className="px-4 py-3">Break</th>
+                  <th className="px-4 py-3">Total</th><th className="px-4 py-3">Overtime</th><th className="px-4 py-3">Status</th>
+                  <th className="px-4 py-3">Source</th><th className="px-4 py-3"><span className="sr-only">Actions</span></th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {rows.map((r) => (
+                  <tr key={r.id}>
+                    <td className="px-4 py-3"><p className="font-medium text-slate-900">{r.employee_name}</p><p className="font-mono text-xs text-slate-500">{r.employee_code}</p></td>
+                    <td className="px-4 py-3 text-slate-600">{r.department || "—"}</td>
+                    <td className="px-4 py-3">{formatDate(r.date)}</td>
+                    <td className="px-4 py-3 font-mono">{r.check_in_time || "—"}{r.late_minutes > 0 && <span className="ml-1 text-xs text-amber-700">+{r.late_minutes}m</span>}</td>
+                    <td className="px-4 py-3 font-mono">{r.check_out_time || "—"}</td>
+                    <td className="px-4 py-3">{r.break_minutes ? formatMinutes(r.break_minutes) : "—"}</td>
+                    <td className="px-4 py-3">{r.worked_minutes ? formatMinutes(r.worked_minutes) : "—"}</td>
+                    <td className="px-4 py-3">{r.overtime_minutes ? formatMinutes(r.overtime_minutes) : "—"}</td>
+                    <td className="px-4 py-3"><AttendanceStatusChip status={r.status} />{r.status_locked && <span className="ml-1 text-[10px] text-slate-500" title="Set by HR">HR</span>}</td>
+                    <td className="px-4 py-3 text-xs text-slate-600">{SOURCE_LABEL[r.source] || r.source}</td>
+                    <td className="px-4 py-3">
+                      <div className="flex justify-end gap-1">
+                        <button type="button" aria-label={`Edit ${r.employee_name} on ${r.date}`} onClick={() => openEdit(r)} className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"><Pencil size={16} aria-hidden="true" /></button>
+                        <button type="button" aria-label={`History of ${r.employee_name} on ${r.date}`} onClick={() => setHistory(r)} className="rounded-lg p-1.5 text-slate-600 hover:bg-slate-100"><History size={16} aria-hidden="true" /></button>
+                        <button type="button" aria-label={`Remove ${r.employee_name} on ${r.date}`} onClick={() => doDelete(r)} className="rounded-lg p-1.5 text-rose-700 hover:bg-rose-50"><Trash2 size={16} aria-hidden="true" /></button>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                  {paginated.map((r) => (
-                    <tr key={r.id} className="hover:bg-blue-50/30 transition-colors group">
-                      <td className="py-3.5 px-5">
-                        <div className="font-bold text-gray-900">{r.employee_name || r.employee || "Employee #" + r.id}</div>
-                      </td>
-                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{r.department || r.department_name || "—"}</td>
-                      <td className="py-3.5 px-5 text-sm font-semibold text-gray-700">{formatDate(r.date)}</td>
-                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{NO_TIME_STATUSES.includes(r.status) ? "-" : formatTime(r.check_in)}</td>
-                      <td className="py-3.5 px-5 text-sm font-medium text-gray-600">{NO_TIME_STATUSES.includes(r.status) ? "-" : formatTime(r.check_out)}</td>
-                      <td className="py-3.5 px-5"><StatusBadge status={r.status} /></td>
-                      <td className="py-3.5 px-5 text-right">
-                        <div className="flex items-center justify-end gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                          <button onClick={() => openEdit(r)} className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors" title="Edit">
-                            <Pencil className="w-4 h-4" />
-                          </button>
-                          <button onClick={() => handleDelete(r.id)} className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-colors" title="Delete">
-                            <Trash2 className="w-4 h-4" />
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </div>
-
-        {/* Pagination */}
-        {!loading && filtered.length > ITEMS_PER_PAGE && (
-          <div className="flex flex-col sm:flex-row justify-between items-center gap-4 px-2">
-            <span className="text-sm font-medium text-gray-500">
-              Showing <strong className="text-gray-900">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</strong> to <strong className="text-gray-900">{Math.min(currentPage * ITEMS_PER_PAGE, filtered.length)}</strong> of <strong className="text-gray-900">{filtered.length}</strong> records
-            </span>
-            <div className="flex gap-1.5">
-              <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={currentPage <= 1}
-                className="px-4 py-2 text-sm font-bold border border-gray-200 rounded-xl disabled:opacity-40 hover:bg-gray-50 transition-colors">Prev</button>
-              {Array.from({ length: Math.ceil(filtered.length / ITEMS_PER_PAGE) }, (_, i) => i + 1).map((p) => {
-                if (p === 1 || p === Math.ceil(filtered.length / ITEMS_PER_PAGE) || Math.abs(currentPage - p) <= 1) {
-                  return (
-                    <button key={p} onClick={() => setCurrentPage(p)}
-                      className={`px-4 py-2 text-sm font-bold border rounded-xl transition-colors ${p === currentPage ? "bg-blue-600 text-white border-blue-600 shadow-sm" : "border-gray-200 text-gray-600 hover:bg-gray-50"}`}>
-                      {p}
-                    </button>
-                  );
-                }
-                if (Math.abs(currentPage - p) === 2) return <span key={p} className="px-2 py-2 text-gray-400">...</span>;
-                return null;
-              })}
-              <button onClick={() => setCurrentPage((p) => Math.min(Math.ceil(filtered.length / ITEMS_PER_PAGE), p + 1))}
-                disabled={currentPage >= Math.ceil(filtered.length / ITEMS_PER_PAGE)}
-                className="px-4 py-2 text-sm font-bold border border-gray-200 rounded-xl disabled:opacity-40 hover:bg-gray-50 transition-colors">Next</button>
-            </div>
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
-
-        {/* Create/Edit Modal */}
-        {showModal && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-gray-900/40 backdrop-blur-sm p-4">
-            <div className="bg-white rounded-3xl shadow-2xl w-full max-w-lg overflow-hidden flex flex-col max-h-[90vh]">
-              <div className="bg-gradient-to-r from-[#0A1128] to-[#1A2744] px-6 py-5 flex justify-between items-center">
-                <h2 className="text-lg font-bold text-white">{editRecord ? "Edit Record" : "Add Record"}</h2>
-                <button onClick={() => setShowModal(false)} className="text-gray-400 hover:text-white transition-colors">
-                  <UserX className="w-5 h-5" />
-                </button>
-              </div>
-              
-              <div className="p-6 overflow-y-auto">
-                <form id="record-form" onSubmit={handleSubmit} className="space-y-5">
-                  {formErrors.submit && (
-                    <div className="text-red-700 text-sm font-semibold bg-red-50 border border-red-200 px-4 py-3 rounded-xl">{formErrors.submit}</div>
-                  )}
-                  
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1.5">Employee <span className="text-red-500">*</span></label>
-                    <select value={form.employee_id} onChange={(e) => setForm({ ...form, employee_id: e.target.value })}
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors">
-                      <option value="">Select an employee...</option>
-                      {employees.map((emp) => (
-                        <option key={emp.id} value={emp.id}>{emp.first_name} {emp.last_name} ({emp.email})</option>
-                      ))}
-                    </select>
-                    {formErrors.employee_id && <p className="text-red-500 text-xs font-bold mt-1.5">{formErrors.employee_id}</p>}
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Date <span className="text-red-500">*</span></label>
-                      <input type="date" value={form.date} onChange={(e) => setForm({ ...form, date: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors" />
-                      {formErrors.date && <p className="text-red-500 text-xs font-bold mt-1.5">{formErrors.date}</p>}
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Status</label>
-                      <select value={form.status} onChange={handleStatusChange}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium capitalize focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors">
-                        {STATUS_OPTIONS.map((v) => (<option key={v} value={v}>{v.replace(/_/g, " ")}</option>))}
-                      </select>
-                      {NO_TIME_STATUSES.includes(form.status) && (
-                        <p className="text-xs text-gray-400 font-medium mt-1.5">No check-in / check-out for {form.status.replace(/_/g, " ")} days.</p>
-                      )}
-                    </div>
-                  </div>
-                  
-                  <div className="grid grid-cols-2 gap-4">
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Check In</label>
-                      <input type="datetime-local" value={form.check_in} disabled={NO_TIME_STATUSES.includes(form.status)} onChange={(e) => setForm({ ...form, check_in: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors disabled:opacity-40" />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-bold text-gray-700 mb-1.5">Check Out</label>
-                      <input type="datetime-local" value={form.check_out} disabled={NO_TIME_STATUSES.includes(form.status)} onChange={(e) => setForm({ ...form, check_out: e.target.value })}
-                        className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors disabled:opacity-40" />
-                    </div>
-                  </div>
-                  
-                  <div>
-                    <label className="block text-sm font-bold text-gray-700 mb-1.5">Notes / Remarks</label>
-                    <textarea rows={2} value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })}
-                      placeholder="Optional remarks about this record..."
-                      className="w-full bg-gray-50 border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-500 focus:bg-white transition-colors resize-none" />
-                  </div>
-                </form>
-              </div>
-              
-              <div className="p-5 border-t border-gray-100 bg-gray-50 flex justify-end gap-3 mt-auto">
-                <button type="button" onClick={() => setShowModal(false)} 
-                  className="px-5 py-2.5 text-sm font-bold text-gray-600 bg-white border border-gray-200 rounded-xl hover:bg-gray-50 transition-colors shadow-sm">
-                  Cancel
-                </button>
-                <button type="submit" form="record-form" disabled={submitting} 
-                  className="flex justify-center items-center gap-2 min-w-[120px] px-5 py-2.5 text-sm font-bold bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-xl transition-colors shadow-sm">
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
-                  {submitting ? "Saving..." : editRecord ? "Update Record" : "Create Record"}
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
+        {data && data.total > 0 && <Pager page={data.page} perPage={data.per_page} total={data.total} onPage={setPage} />}
       </div>
+      {dialog && (
+        <RecordFormDialog mode={dialog.mode} record={dialog.record} employees={employees} onClose={() => setDialog(null)}
+          onSubmit={async (body) => {
+            if (dialog.mode === "edit") await update.mutateAsync({ id: dialog.record.id, ...body });
+            else await create.mutateAsync(body);
+            setNotice({ ok: true, text: dialog.mode === "edit" ? "Record updated." : "Record added." });
+          }} />
+      )}
+      {history && <AuditTrailDrawer record={history} onClose={() => setHistory(null)} />}
     </HRPage>
   );
 }
