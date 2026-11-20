@@ -102,7 +102,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Directory, headcount and employee exports · Department-wise headcount and cost analysis · Job title distribution and grade mix · Leave utilisation and trends · Daily attendance, overtime and shift efficiency · Pipeline health and open requisitions · Headcount planning and succession insights · New hire joining and task completion · Headcount by Department · Employee count per department · Attendance by Department · Attendance records per department · Present vs absent across recent days · Employees mapped per shift · Requests by status · Goals, reviews and appraisals · Cycle volume and outstanding work · Feedback, appraisals and ratings in the current cycle · Org Health Score"
+   "about": "Directory, headcount and employee exports · Department-wise headcount and cost analysis · Job title distribution and grade mix · Leave utilisation and trends · Daily attendance, overtime and shift efficiency · Pipeline health and open requisitions · Headcount planning and succession insights · Headcount by Department · Employee count per department · Attendance by Department · Attendance records per department · Present vs absent across recent days · Employees mapped per shift · Requests by status · Goals, reviews and appraisals · Cycle volume and outstanding work · Feedback, appraisals and ratings in the current cycle · Org Health Score · Leave & asset approvals · Last 14 working days"
   },
   {
    "section": "PRODUCTS",
@@ -582,7 +582,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Awaiting an organization admin's decision · Compensation & Budget · View the hiring authorization record · Approve and open for candidates · Give the role a title. · What the position is, who it reports into and how many people you need. · Location & timing · Where the hire will work and when you would like them to start. · The person who owns this hire and signs off on candidates. · Yearly pay range per hire. Leave blank if the budget is not set yet. · Shown to candidates on the posting. Be specific about the work and what success looks like. · Create, approve, publish, and track hiring requests across the organization. · Budgeted Headcount Cost · Open in Candidates → · Add a currency"
+   "about": "Awaiting an organization admin's decision · Compensation & Budget · View the hiring authorization record · Approve and open for candidates · What the position is, who it reports into and how many people you need. · Location & timing · Where the hire will work and when you would like them to start. · The person who owns this hire and signs off on candidates. · Yearly pay range per hire. Leave blank if the budget is not set yet. · Shown to candidates on the posting. Be specific about the work and what success looks like. · Create, approve, publish, and track hiring requests across the organization. · Budgeted Headcount Cost · Open in Candidates → · Choose a department · Add a currency"
   },
   {
    "section": "PRODUCTS",
@@ -597,7 +597,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "How the recruiting team reaches the candidate. · The role they applied for and where they came from. · Background that helps the hiring team shortlist. · Visible to the recruiting team only. · Manage applicant pool · Applicant details and activity · Review, screen, and move applicants through every hiring stage. · Load privacy notice status · Import from CV · View in Onboarding → · Candidate privacy notice · Optional reviewed note for final-stage offer rejections · Review bulk rejection · Review the server preflight results before confirming these candidate status changes. · Confirming rejects eligible candidates. Candidates skipped or not found will remain unchanged."
+   "about": "How the recruiting team reaches the candidate. · The role they applied for and where they came from. · Background that helps the hiring team shortlist. · Visible to the recruiting team only. · Manage applicant pool · Applicant details and activity · Review, screen, and move applicants through every hiring stage. · Load privacy notice status · Import from CV · View in Onboarding → · Email bounced – check the address · Candidate privacy notice · Optional reviewed note for final-stage offer rejections · Review bulk rejection · Review the server preflight results before confirming these candidate status changes."
   },
   {
    "section": "PRODUCTS",
@@ -612,7 +612,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Nothing scheduled today · Notes for the panel · Not linked to a candidate record: the candidate is not emailed · Coordinate interview schedules, interview panels, and feedback completion. · All feedback is in · Interviews in the last and next 30 days · % of the busiest interviewer · Interview panels appear here once interviews are scheduled. · Boolean(a && b) && ((a.s · Not linked to a candidate record, so no invitation is emailed to them. · Pick a start time to use these. · Add the link so the invitation includes it. · Pick a start time to check for overlaps. · Send calendar invitations · A completed interview is final. · Held interviews with no feedback or scorecard yet"
+   "about": "Nothing scheduled today · Notes for the panel · Not linked to a candidate record: the candidate is not emailed · Coordinate interview schedules, interview panels, and feedback completion. · All feedback is in · Interviews in the last and next 30 days · % of the busiest interviewer · Interview panels appear here once interviews are scheduled. · Boolean(a && b) && ((a.s · Not linked to a candidate record, so no invitation is emailed to them. · Pick a start time to use these. · Add the link so the invitation includes it. · Pick a start time to check for overlaps. · Send calendar invitations · Result pending · record · Held interviews with no feedback or scorecard yet"
   },
   {
    "section": "PRODUCTS",
@@ -627,7 +627,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
+   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
   },
   {
    "section": "PRODUCTS",
@@ -642,7 +642,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
+   "about": "Manage offer letter · Request offer withdrawal · Offer letter readiness · Sent to candidate · Email Delivery Status · Offer letter setup · Start Date (from) · Link to candidate · Without a linked candidate the offer can't be emailed, and accepting it won't mark them hired or start onboarding. · Choose the offer type · Work country (sets the currency) · Proposed start date · Employing / contracting entity · What the letter needs · Generate server letter · Send to candidate · Resend signing link · Amend issued offer · Approval comment (optional) · Someone other than the person who prepared the offer must approve it. · An amendment creates a new draft offer that needs approval and a new letter."
   },
   {
    "section": "PRODUCTS",
@@ -656,7 +656,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Overview of onboarding activities and metrics. · Total New Hires · Checklist Items Pending · Upcoming Orientation Sessions · Monthly Joining Trend · New hires appear here by stage once an offer is sent or accepted. · New hires with a joining date ahead of today appear here. · Live onboarding metrics could not be loaded. · Add New Hire · New hires by current stage · Overdue checklist items · Overdue pre-boarding tasks · Payroll forms to verify · Active New Hires · Joining This Month · Pre-boarding Tasks Open · Completed This Month · Payroll Forms to Verify · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
+   "about": "Overview of onboarding activities and metrics. · Total New Hires · Checklist Items Pending · Monthly Joining Trend · New hires appear here by stage once an offer is sent or accepted. · New hires with a joining date ahead of today appear here. · Live onboarding metrics could not be loaded. · Add New Hire · New hires by current stage · Overdue checklist items · Overdue pre-boarding tasks · Payroll forms to verify · Active New Hires · Joining This Month · Pre-boarding Tasks Open · Completed This Month · Payroll Forms to Verify · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
   },
   {
    "section": "PRODUCTS",
@@ -670,7 +670,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "How to reach the new hire. The pre-onboarding link and login details go to this email. · The position they are joining, the team and who they report to. · Where the record starts and whether onboarding kicks off right away. · Internal notes for HR. The new hire does not see them. · Pre-onboarding link sent · Pre-onboarding link not sent yet · Joining date not set · Profile details entered by the new hire · Send the pre-onboarding portal link · Accepted-offer candidates and their onboarding progress. Switch to All Onboarding to view other records. · Start onboarding now · Applies Settings: checklists, document requests and emails the pre-onboarding link. · Add New Hire"
+   "about": "How to reach the new hire. The pre-onboarding link and login details go to this email. · The position they are joining, the team and who they report to. · Where the record starts and whether onboarding kicks off right away. · Internal notes for HR. The new hire does not see them. · Pre-onboarding link sent · Pre-onboarding link not sent yet · Joining date not set · Profile details entered by the new hire · Send the pre-onboarding portal link · Accepted-offer candidates and their onboarding progress. Switch to All Onboarding to view other records. · Start onboarding now · Applies Settings: checklists, document requests and emails the pre-onboarding link. · Email bounced – check the address"
   },
   {
    "section": "PRODUCTS",
@@ -698,7 +698,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Request, collect and review new hires' onboarding documents. · Add a file for a new hire, or one that belongs to no one yet. · The new hire is emailed a link to upload these through their pre-onboarding page. · Request documents from a new hire · If this new hire has an open request for the same category, the upload fills that request. · There are no active new hires. · Documents to request · The new hire is emailed this reason and asked to upload the document again. · Signed offer letter · Requested (waiting for new hire) · The file could not be loaded. · The browser blocked the new tab. Use Download instead. · Document uploaded. It fills the open request and is ready for review."
+   "about": "Request, collect and review new hires' onboarding documents. · Add a file for a new hire, or one that belongs to no one yet. · The new hire is emailed a link to upload these through their pre-onboarding page. · Send 10 Onboarding Docs · Offer letter, job description, KPIs, NDA, contract, affidavit, self-disclosure, application, DWR and velocity report. Only documents that are ready are sent. · Sent – voluntary · Request documents from a new hire · Not sent yet – see why · Not sent yet · Nothing to preview yet. · If this new hire has an open request for the same category, the upload fills that request. · There are no active new hires. · Documents to request"
   },
   {
    "section": "PRODUCTS",
@@ -712,49 +712,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Create checklist templates and track each new hire's onboarding tasks. · Due dates are worked out from each new hire's joining date when the checklist is assigned. · There are no active new hires. Completed or cancelled hires cannot be given checklists. · This checklist has no items. · Task owners are emailed their tasks when the checklist is assigned. · A newly chosen owner is emailed the task. · Choose an employee · Action blocked (optional) · Owners are emailed their tasks. · On start day · Add at least one checklist item. · The checklist could not be saved. · Item added. Its owner has been emailed if one was chosen. · The item could not be saved. · Checklist exception recorded."
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Onboarding",
-    "Orientation"
-   ],
-   "href": "/zoiko-hr/onboarding/orientation",
-   "roles": [
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Schedule and manage onboarding orientation sessions. · Remove from session · Nothing to wrap up · Set the date, place and presenter. · This session's date has passed. Record attendance, then mark it completed. · New attendees can be added only to a scheduled session. · Every active new hire is already on this session. · Use \"New Session\" to schedule one. · Past sessions still marked scheduled appear here. · View all in Past · A session can be marked completed only on or after its date. · The session could not be saved. Please try again. · Remove this attendee from the session? · Attendee removed from the session. · Session cancelled. Attendees were emailed that it was cancelled."
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Onboarding",
-    "Reports"
-   ],
-   "href": "/zoiko-hr/onboarding/reports",
-   "roles": [
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Analyse onboarding metrics and generate reports. · Monthly Joining Trend · Cancelled new hires are not counted in these figures. · Joiners appear here by month once new hires have a joining date. · The joining report could not be loaded. · Avg days from joining to completion · Total joiners (cancelled excluded) · Hires measured for average · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Onboarding",
-    "Payroll Verification"
-   ],
-   "href": "/zoiko-hr/onboarding/payroll-verifications",
-   "roles": [
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Submitted bank and payroll forms awaiting finance verification. · Financial values are masked. Reveal only when needed to verify payroll details. · Return for changes · What needs to change? · New hire forms · Review submitted onboarding forms. Financial details remain masked unless you explicitly reveal them. · Finance permission needed · Bank and payroll details are shown only to the finance viewers your organization admin has chosen. An organization admin can add you under Onboarding settings, in Finance viewers. · Go to Onboarding settings · Payroll verification queue · Reveal financial details · Onboarding forms could not be loaded. · The form could not be verified."
+   "about": "The status of the 10 onboarding documents for each new hire. · Awaiting the filled form · Needs your review · Shared (no action needed) · Declined or expired · Returned to the new hire · The document status could not be loaded. · Waiting on new hires · Needs your attention · Not sent yet · Waiting on the new hire · Some not sent · New hires appear here once they are added under New Hires. · Nothing to compare with in the previous period · Rows per page · Upcoming · Calendar · Panels · Feedback · Insights could not be loaded."
   },
   {
    "section": "PRODUCTS",
@@ -768,7 +726,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Decide what happens automatically when a new hire is created. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Link valid for · Shown in the welcome email and on the new hire's pre-onboarding page. · Remind new hires about missing documents every · How onboarding runs · Signed offer letter · Onboarding settings could not be loaded. · Please fix the highlighted fields. · Onboarding settings saved. They apply to new hires created from now on."
+   "about": "Configure legal, policy, and operational defaults for a consistent and automated onboarding experience. · Checklists assigned automatically · Documents requested from new hires · Email new hires their pre-onboarding link automatically · Before onboarding can be completed · All checklist items are done · All requested documents are approved · Link valid for · Shown in the welcome email and on the new hire's pre-onboarding page. · Remind new hires about missing documents every · You have unsaved changes. · About these settings · On this page · Legal & policy defaults · Engagement & role profiles · Offer package & clauses · Onboarding settings could not be loaded."
   },
   {
    "section": "PRODUCTS",
@@ -932,9 +890,7 @@
    ],
    "href": "/zoiko-hr/compensation",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Overview of compensation, benefits, and costs. · Total Salary Cost"
   },
@@ -947,9 +903,7 @@
    ],
    "href": "/zoiko-hr/compensation/salary-structures",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Manage salary structure templates. · Amount / formula · Add a component · Amount or formula · Required. A fixed amount, a percentage, or a formula. A component's default amount is only filled in as a suggestion. · Add Salary Structure · Update Salary Structure · The components could not be loaded. · The amount could not be changed. · The component could not be removed. · Every component is already in this structure · Add to structure"
   },
@@ -962,9 +916,7 @@
    ],
    "href": "/zoiko-hr/compensation/pay-grades",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Define salary bands and grade structures. · Add Pay Grade · Update Pay Grade · Max must be greater than min · Create Pay Grade"
   },
@@ -977,9 +929,7 @@
    ],
    "href": "/zoiko-hr/compensation/salary-components",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Manage salary components and compensation items. · Set per structure · Add Salary Component · A suggested starting value. The amount that counts is set for this component inside each salary structure. · Update Salary Component · The component could not be created. · The component could not be updated."
   },
@@ -992,9 +942,7 @@
    ],
    "href": "/zoiko-hr/compensation/bands",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Define compensation band ranges and levels. · Highest Band Max: · Add Compensation Band · Update Compensation Band · Max must be greater than min"
   },
@@ -1007,25 +955,9 @@
    ],
    "href": "/zoiko-hr/compensation/revisions",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Track and manage salary revision history. · Add Salary Revision · Update Salary Revision"
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Compensation",
-    "Approvals & Letters"
-   ],
-   "href": "/zoiko-hr/compensation/approvals",
-   "roles": [
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Salary revisions and allowance awards need a second person before anyone is told. · New salary revision · Sentence for the employee's letter (optional) · Submit for approval · New allowance award · Review date (optional) · Why the employee is eligible · Conditions it depends on (shown in the letter) · Send for approval · Employees can download their own statement any time from My compensation. Use this for an annual run. · Managers may open the compensation documents of their own reports · Off by default. Only an organization admin can change this. · Expense claims above this total need a second approver · Correction (no letter) · Comment (required to reject)"
   },
   {
    "section": "PRODUCTS",
@@ -1036,9 +968,7 @@
    ],
    "href": "/zoiko-hr/compensation/allowances",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Manage employee allowances. · There are no employees in this organization yet. Add an employee first, then you can give them an allowance. · The allowance could not be updated. · The allowance could not be created."
   },
@@ -1051,9 +981,7 @@
    ],
    "href": "/zoiko-hr/compensation/benefits",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Manage employee benefits, enrollments, and coverage."
   },
@@ -1225,9 +1153,7 @@
    ],
    "href": "/zoiko-hr/workforce-planning",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Strategic organizational alignment · Headcount by Department · Recent Workforce Initiatives"
   },
@@ -1240,9 +1166,7 @@
    ],
    "href": "/zoiko-hr/workforce-planning/plans",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Strategic workforce planning and budgeting · ITEMS_PER_PAGE && ( · Year must be between 2020 and 2100"
   },
@@ -1255,9 +1179,7 @@
    ],
    "href": "/zoiko-hr/workforce-planning/headcount",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Department-wise workforce planning and vacancy tracking · ITEMS_PER_PAGE && ( · Workforce plan ID (optional) · There are no departments in this organization yet. Create a department first, then plan its headcount. · Filled plus vacant cannot be more than approved. An empty number counts as 0. · The headcount record could not be saved. · Could not load the authorization record. · Could not submit the headcount request. · Could not save the authorization decision. · Headcount authorization record · Edit Headcount Record · New Headcount Record · What needs fixing · A draft is created first. Nothing is sent to the recipient until it is issued. · E-mail signing link · Not delivered (record only)"
   },
@@ -1270,25 +1192,9 @@
    ],
    "href": "/zoiko-hr/workforce-planning/succession",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Key position mapping and talent pipeline management · All Risk Levels · ITEMS_PER_PAGE && ( · Plan owner (optional) · The approved plan document is generated from this authorization. Readiness issues have links to fix pages. · There are no employees in this organization yet. Add employees first, then you can plan their succession. · The list of employees could not be loaded. Close this window and try again. · The succession record could not be saved. · Could not load the succession authorization record. · Could not submit the succession plan. · Could not save the succession decision. · Succession authorization record · Add Succession Record · What needs fixing"
-  },
-  {
-   "section": "PRODUCTS",
-   "path": [
-    "Zoiko HR",
-    "Workforce Planning",
-    "Job Descriptions"
-   ],
-   "href": "/zoiko-hr/workforce-planning/job-descriptions",
-   "roles": [
-    "hr_admin",
-    "admin"
-   ],
-   "about": "Create, check, version and approve structured job descriptions · New job description · Create new version · Check inclusive language · Submit for approval · Return for revision · This approved version may be linked to an authorized position. · The job description could not be saved. · Job description created. · Inclusive-language check failed. · Submitted for approval. · Job description approved. · Job description returned for revision. · New draft version created. · Key responsibilities (one per line) · Essential requirements (one per line) · Desirable requirements (one per line) · Reports to designation · Direct reports summary · Untitled job description"
   },
   {
    "section": "PRODUCTS",
@@ -1299,9 +1205,7 @@
    ],
    "href": "/zoiko-hr/workforce-planning/reports",
    "roles": [
-    "manager",
-    "hr_admin",
-    "admin"
+    "manager"
    ],
    "about": "Generate and export workforce analytics reports · ITEMS_PER_PAGE && ("
   },
@@ -1368,7 +1272,7 @@
     "employee",
     "manager"
    ],
-   "about": "Manage your password and authentication preferences. · Add an extra layer of security to your account with 2FA. · You'll be asked for a verification code each time you sign in from a new device. · At least 8 characters · One uppercase letter · One special character · Enter your current password · Password is too weak · Passwords do not match · Confirm your password · Forgot your current password? Email me a reset link · Create a strong password · Confirm New Password · Re-enter your new password · 2FA is enabled on your account · Use Google Authenticator or Authy · Employee Self Service"
+   "about": "Manage your password and authentication preferences. · Add an extra layer of security to your account with 2FA. · You'll be asked for a verification code each time you sign in from a new device. · At least 8 characters · One uppercase letter · One special character · Enter your current password · Password is too weak · Passwords do not match · Confirm your password · Forgot your current password? Email me a reset link · Create a strong password · Confirm New Password · Re-enter your new password · 2FA is enabled on your account · Use Google Authenticator or Authy · Confirm new password · Employee Self Service"
   },
   {
    "section": "MY WORKSPACE",
@@ -1601,7 +1505,7 @@
     "employee",
     "manager"
    ],
-   "about": "Documents waiting for you as an authorised signatory of the employer. · Reason for rejecting · The person who requested the document will see this reason. · Review & sign · Nothing to sign right now. · The document could not be loaded. · You cannot approve a document you requested or that is about you. Another signatory must do this. · The decision could not be saved. · Your signatory queue could not be loaded. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action · Read the document · Read & acknowledge · Sign for the employer · The PDF could not be downloaded. · You have acknowledged receipt of this document. A record has been kept."
+   "about": "Documents waiting for you as an authorised signatory of the employer. · Reason for rejecting · The person who requested the document will see this reason. · Review & sign · Nothing to sign right now. · The document could not be loaded. · You cannot approve a document you requested or that is about you. Another signatory must do this. · The decision could not be saved. · Your signatory queue could not be loaded. · Documents to Action · Awaiting My Signature · Offer & Contracts · Tax & Compliance · Documents to action · Next waiting for you: · Read the document · Read & acknowledge · Sign for the employer · The PDF could not be downloaded."
   },
   {
    "section": "MY WORKSPACE",
@@ -1732,7 +1636,7 @@
     "hr_admin",
     "admin"
    ],
-   "about": "Messages sent to you by the Zoiko HR team. · Mark all as read · PAGE_SIZE && ( · Could not update the notification. · Could not mark notifications as read. · You're all caught up · You have no notifications · Mark as unread · Mark as read"
+   "about": "Updates about your requests, documents and tasks, and messages from the Zoiko HR team. · Mark all as read · PAGE_SIZE && ( · Could not update the notification. · Could not mark notifications as read. · You're all caught up · You have no notifications · Mark as unread · Mark as read"
   },
   {
    "section": "USER MANAGEMENT",
@@ -1743,7 +1647,7 @@
    "roles": [
     "hr_admin"
    ],
-   "about": "Runs one organization: its people, settings and billing. · Creates the organization and its first administrator, and starts an evaluation. · Email is unavailable - set a temporary password instead · Email a reset link (recommended) · The user gets a single-use link valid for 60 minutes and chooses their own password. · Set a temporary password · Shown to you once. The user must change it at next sign-in. · Either way, the user's current sessions are signed out and the action is audit-logged. · Use Add Organization to create the first one. · Could not create the organization. · Confirm that this person should get full platform access · Could not suspend the organization."
+   "about": "Runs one organization: its people, settings and billing. · Creates the organization and its first administrator, and starts an evaluation. · Email is unavailable - set a temporary password instead · Email a reset link (recommended) · The user gets a single-use link valid for 60 minutes and chooses their own password. · Set a temporary password · Shown to you once. The user must change it at next sign-in. · Either way, the user's current sessions are signed out and the action is audit-logged. · Use Add Organization to create the first one. · Could not create the organization. · Confirm that this person should get full platform access · Activate Employee Account"
   },
   {
    "section": "USER MANAGEMENT",
@@ -1778,7 +1682,7 @@
    "roles": [
     "admin"
    ],
-   "about": "Compensation & statutory · Pick a country template in the import dialog · Manage organization users, roles, and access permissions from one place. · 20 countries have their own template: identifier columns, address labels, examples and currency follow the country. Each file has a \"How to fill\" sheet. · Share this temporary password with the new user securely. · Generate a new temporary password for · Date of Joining · Date of Birth · Date of joining · Full time (default) · Date of birth · Bank account number · 3 created, 2 updated · Password reset successful. · 0 8px 20px -8px rgba(59,130,246,0.7) · 1px solid #FECACA · 1px solid rgba(10,17,40,0.08)"
+   "about": "Compensation & statutory · Pick a country template in the import dialog · Manage organization users, roles, and access permissions from one place. · 20 countries have their own template: identifier columns, address labels, examples and currency follow the country. Each file has a \"How to fill\" sheet. · Share this temporary password with the new user securely. · Generate a new temporary password for · Date of Joining · Date of Birth · Date of joining · Full time (default) · Date of birth · Bank account number · 3 created, 2 updated · Password reset successful. · Activate Employee Account · 0 8px 20px -8px rgba(59,130,246,0.7) · 1px solid #FECACA · 1px solid rgba(10,17,40,0.08)"
   }
  ]
 }
