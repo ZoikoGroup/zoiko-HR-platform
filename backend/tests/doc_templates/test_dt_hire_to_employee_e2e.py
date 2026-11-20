@@ -86,6 +86,15 @@ def test_requisition_to_employee(world, monkeypatch):
     c = world.db.get(RecruitmentCandidate, cand["id"])
     assert c.status.value == "hired" and c.onboarding_new_hire_id, "accepting the offer hires the candidate and starts onboarding"
     assert world.db.get(RecruitmentRequisition, req["id"]).filled == 1
+    # the candidate gets ONE email on acceptance: confirmation + welcome + pre-onboarding link (no separate invite, no
+    # separate acceptance-confirmation email, no "document completed" email for the offer letter)
+    to_candidate = [(t, c) for (to, t, c) in world.mail if to == email]
+    welcome = [c for t, c in to_candidate if t == "offer_accepted_welcome.html"]
+    assert len(welcome) == 1, [t for t, _ in to_candidate]
+    assert not [t for t, _ in to_candidate if t in ("onboarding_invite.html", "candidate_document_available.html")]
+    assert welcome[0]["signed_letter_in_portal"] is True and welcome[0]["portal_url"]
+    assert not mails["executed"], "the signed offer letter sends no separate executed email"
+    assert world.db.get(RecruitmentOffer, o.id).welcome_email_sent_at is not None
 
     # ── accepting the offer creates the employee account at once: Pending, in User Management, not able to sign in ──
     from app.modules.employee.models import Employee
@@ -188,6 +197,8 @@ def test_requisition_to_employee(world, monkeypatch):
     assert "{{" not in text and "DRAFT – NOT FOR ISSUE" not in text
 
     # ── HR reviews and completes ──
+    # approving a submitted bank-details form goes through the same finance-permission gate as the form itself
+    _ok(world.put("a_admin", "/hr/onboarding/finance-viewers", json={"employee_ids": [world.u["a_admin"].id]}))
     rows = {d.category: d for d in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=hire.id, is_deleted=False)}
     assert rows["job_application"].status == "pending"
     for d in rows.values():
@@ -196,7 +207,8 @@ def test_requisition_to_employee(world, monkeypatch):
     prog = _ok(world.get("a_admin", f"/hr/onboarding/new-hires/{hire.id}/progress"))
     doc_blockers = [b for b in prog["blockers"] if "document" in b]
     allrows = [(d.id, d.category, d.status, d.document_id) for d in world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=hire.id, is_deleted=False)]
-    assert not doc_blockers, (prog, allrows)
+    print("DEBUG ROWS", allrows, "BLOCKERS", prog["blockers"])
+    assert not doc_blockers, (prog, "; ".join(str(r) for r in allrows))
     checklists = _ok(world.get("a_admin", "/hr/onboarding/checklist-assignments", params={"onboarding_record_id": hire.id}))
     checklists = checklists["items"] if isinstance(checklists, dict) else checklists
     docs_cl = [cl for cl in checklists if cl["name"] == "Onboarding Documents & Agreements"]

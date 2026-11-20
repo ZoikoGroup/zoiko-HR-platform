@@ -22,6 +22,8 @@ import {
   requestOnboardingDocuments,
 } from "../../../service/hrService";
 import OfferPackagePanel from "./OfferPackagePanel";
+import OnboardingSubmissions, { ReissueBadge } from "./OnboardingSubmissions";
+import { openFile } from "../../../utils/fileViewer";
 import { useRequestCategories } from "../../../utils/useRequestCategories";
 import { getPackageDocuments } from "../../../service/docsSetupService";
 import { MAX_FILE_MB, validateUploadForm, serverUploadErrors, fileSizeText, extensionOf } from "../../../utils/onboardingDocForm";
@@ -215,6 +217,7 @@ export default function OnboardingDocuments() {
   const [selectedId, setSelectedId] = useState(null);
   const [openHire, setOpenHire] = useState(null);          // new hire id, or "none" for documents not linked to anyone
   const [previewId, setPreviewId] = useState(null);
+  const [view, setView] = useState("employees");          // "employees" (one row per new hire) or "submissions" (every submission)
 
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showRejectModal, setShowRejectModal] = useState(false);
@@ -342,23 +345,13 @@ export default function OnboardingDocuments() {
   const handleView = async (doc) => {
     const res = await fetchFile(doc);
     if (!res) return;
-    const url = URL.createObjectURL(res.blob);
-    const win = window.open(url, "_blank", "noopener");
-    if (!win) {
-      showError("The browser blocked the new tab. Use Download instead.");
-    }
-    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    openFile(res.blob, res.filename || doc.title, "preview");
   };
 
   const handleDownload = async (doc) => {
     const res = await fetchFile(doc);
     if (!res) return;
-    const url = URL.createObjectURL(res.blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = res.filename || doc.title;
-    a.click();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    openFile(res.blob, res.filename || doc.title, "download");
   };
 
   const openUpload = (prefillHire = "") => {
@@ -632,6 +625,7 @@ export default function OnboardingDocuments() {
             </div>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            {doc.details_changed && <ReissueBadge />}
             <DocStatus status={statusOf(doc)} doc={doc} />
             {rowActions(doc)}
           </div>
@@ -718,6 +712,20 @@ export default function OnboardingDocuments() {
           <div data-testid="count-total"><KpiCard label="Total Documents" icon={Files} tone="violet" kpi={{ value: documents.length }} loading={kpiLoading} /></div>
         </KpiGrid>
 
+        <div role="tablist" aria-label="Documents view" className="inline-flex rounded-xl border border-gray-200 bg-white p-1">
+          {[["employees", "By employee"], ["submissions", "All submissions"]].map(([v, label]) => (
+            <button key={v} type="button" role="tab" aria-selected={view === v} onClick={() => setView(v)}
+              className={`rounded-lg px-3 py-1.5 text-sm font-semibold transition ${view === v ? "bg-blue-600 text-white shadow-sm" : "text-gray-600 hover:bg-gray-50"}`}>
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {view === "submissions" ? (
+          <Card bodyClass="p-0">
+            <OnboardingSubmissions records={records} onError={showError} onSuccess={showSuccess} onChanged={refresh} />
+          </Card>
+        ) : (
         <Card bodyClass="p-0">
           <div className="space-y-4 border-b border-gray-100 px-5 py-4">
             <ChipTabs label="Document status" tabs={statusTabs} value={statusFilter} onChange={setStatusFilter} />
@@ -774,6 +782,7 @@ export default function OnboardingDocuments() {
             </>
           )}
         </Card>
+        )}
         {employeePanel}
       </div>
 

@@ -4003,7 +4003,10 @@ def get_onboarding_documents(
     onboarding_record_id: Optional[int] = None,
     category: Optional[str] = None,
     organization_id: Optional[int] = None,
+    status: Optional[str] = None,
 ) -> list:
+    """Every onboarding document (uploads, structured forms, package documents) with the hire's name, position, mode,
+    submission and review details. Needs review (pending) first, then the newest submission."""
     query = db.query(OnboardingDocument).filter(OnboardingDocument.is_deleted == False)
     if organization_id is not None:
         query = query.filter(OnboardingDocument.organization_id == organization_id)
@@ -4011,11 +4014,18 @@ def get_onboarding_documents(
         query = query.filter(OnboardingDocument.onboarding_new_hire_id == onboarding_record_id)
     if category:
         query = query.filter(OnboardingDocument.category == category)
+    if status:
+        query = query.filter(OnboardingDocument.status == status)
     docs = query.order_by(OnboardingDocument.created_at.desc()).all()
-    return [_onboarding_doc_to_dict(doc) for doc in docs]
+    from app.modules.hr import onboarding_submissions as S
+    from app.modules.hr.onboarding_package import values_cache
+    names = S._employee_names(db, [d.reviewed_by for d in docs])
+    with values_cache(db):
+        items = [_onboarding_doc_to_dict(doc, names=names) for doc in docs]
+    return S.sort_for_review(items)
 
 
-def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
+def _onboarding_doc_to_dict(doc: OnboardingDocument, names: Optional[dict] = None) -> dict:
     # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
     file_url = f"/hr/onboarding/documents/{doc.id}/file" if (doc.file_path or doc.document_id) else None   # issued docs: document store
     from app.modules.hr.onboarding_package import mode_of
@@ -4045,7 +4055,17 @@ def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
         "rejection_reason": doc.rejection_reason,
         "created_at": doc.created_at,
         "updated_at": doc.updated_at,
+        **_submission_extras(doc, names),
     }
+
+
+def _submission_extras(doc: OnboardingDocument, names: Optional[dict]) -> dict:
+    from sqlalchemy.orm import object_session
+    from app.modules.hr import onboarding_submissions as S
+    db = object_session(doc)
+    if db is None:
+        return {}
+    return S.list_item_extras(db, doc, names)
 
 
 def create_onboarding_document(
@@ -4062,6 +4082,7 @@ def create_onboarding_document(
         file_path=file_path,
         onboarding_new_hire_id=onboarding_new_hire_id,
         status="pending",
+        submitted_at=datetime.utcnow(),
     )
     if organization_id is not None:
         doc.organization_id = organization_id
@@ -4075,7 +4096,7 @@ def create_onboarding_document(
     return _onboarding_doc_to_dict(doc)
 
 
-def update_onboarding_document(db: Session, document_id: int, data, organization_id: Optional[int] = None) -> dict:
+def update_onboarding_document(db: Session, document_id: int, data, organization_id: Optional[int] = None, actor=None) -> dict:
     query = db.query(OnboardingDocument).filter(
         OnboardingDocument.id == document_id,
         OnboardingDocument.is_deleted == False,
@@ -4098,7 +4119,19 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
     if update_data.get("status") == "approved" and not doc.file_path:
         raise BadRequestException("Nothing has been uploaded for this document yet.")
     from app.modules.hr.onboarding_package import mode_of
+    from app.modules.hr import onboarding_submissions as S
     package_mode = mode_of(doc)
+    new_status = update_data.get("status")
+    if new_status in ("approved", "rejected") and new_status != doc.status and (
+            S.kind_of(doc) == "form" or (actor is not None and package_mode not in ("SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"))):
+        # a review decision: one path (history, reviewer, structured form verify / return, checklist)
+        for field in ("title", "category"):
+            if field in update_data:
+                setattr(doc, field, update_data[field])
+        S.review(db, actor, doc, "approve" if new_status == "approved" else "reject",
+                 update_data.get("rejection_reason") or doc.rejection_reason)
+        db.refresh(doc)
+        return _onboarding_doc_to_dict(doc)
     if "status" in update_data and update_data["status"] != doc.status and package_mode in ("SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"):
         # these package documents change state only through the new hire's signature or acknowledgement
         raise BadRequestException({"SIGN": "This agreement is completed by the new hire's electronic signature.",

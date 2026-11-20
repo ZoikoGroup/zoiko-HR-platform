@@ -6,7 +6,9 @@ numbers, template ids and statuses. Failures are logged by id and never break th
 """
 from __future__ import annotations
 
+import contextvars
 import logging
+from contextlib import contextmanager
 from typing import Optional
 
 from app.config import settings
@@ -141,10 +143,20 @@ def _hr_people(db, doc: GeneratedDocument) -> list:
     return db.query(Employee).filter(Employee.id.in_(ids or [-1]), Employee.is_active.is_(True)).all()
 
 
+# recruitment offer letters (recruitment_documents.OFFER_LETTERS): HR is told by the offer-outcome e-mail instead
+_OFFER_LETTER_IDS = ("HR-HIR-011", "HR-HIR-012", "HR-HIR-014", "HR-HIR-015", "HR-HIR-016", "HR-HIR-017")
+
+
+def _is_recruitment_offer_letter(doc: GeneratedDocument) -> bool:
+    return doc.canonical_id in _OFFER_LETTER_IDS and (doc.source_ref or "").startswith("recruitment_offer:")
+
+
 def executed(db, doc: GeneratedDocument) -> None:
     from app.services import email_service
     if _is_onboarding_document(db, doc):
         return          # onboarding documents: HR gets one summary email when the new hire submits the package
+    if _is_recruitment_offer_letter(doc):
+        return          # the signed offer letter: HR gets the "Offer accepted" e-mail, the candidate one welcome e-mail
     for person in _hr_people(db, doc):
         _safe(lambda p=person: email_service.send_document_executed_email(
             p.work_email or p.email, _first_name(p), label(doc), doc.document_number,
@@ -188,11 +200,37 @@ def variant_review(db, variant, reviewers, author, step_label: str, jurisdiction
             organization_id=p.organization_id), variant.id, "variant review")
 
 
+# While set to a list, candidate "document available" e-mails are held in it instead of being sent: the offer-accepted
+# welcome e-mail carries their link and attachment (one e-mail on acceptance). Each item keeps a `send` callable so the
+# e-mail can still go out on its own if the welcome e-mail is not sent.
+_HELD_CANDIDATE_MAIL: contextvars.ContextVar[Optional[list]] = contextvars.ContextVar("held_candidate_mail", default=None)
+
+
+@contextmanager
+def hold_candidate_mail(into: list):
+    token = _HELD_CANDIDATE_MAIL.set(into)
+    try:
+        yield into
+    finally:
+        _HELD_CANDIDATE_MAIL.reset(token)
+
+
 def candidate_view_link(db, doc: GeneratedDocument, candidate, raw_token: str, expires_at, organization_name: str, attachment=None) -> None:
     """A document the candidate only needs to read (privacy notice, rejection, withdrawal, acceptance confirmation)."""
     from app.services import email_service
     url = app_url(f"/sign/{raw_token}")
     first = (getattr(candidate, "name", None) or getattr(candidate, "candidate_name", None) or "there").split()[0]
-    _safe(lambda: email_service.send_candidate_document_available_email(
-        candidate.email, first, organization_name, label(doc), doc.document_number, fmt_day(expires_at), url,
-        attachment=attachment, db=db, organization_id=doc.organization_id), doc.id, "candidate view link")
+    email, doc_id, number, doc_label, org_id = candidate.email, doc.id, doc.document_number, label(doc), doc.organization_id
+    expires = fmt_day(expires_at)
+
+    def send():
+        return _safe(lambda: email_service.send_candidate_document_available_email(
+            email, first, organization_name, doc_label, number, expires, url,
+            attachment=attachment, db=db, organization_id=org_id), doc_id, "candidate view link")
+
+    held = _HELD_CANDIDATE_MAIL.get()
+    if held is not None:
+        held.append({"label": doc.title if doc.sensitivity == "C2" else doc_label, "url": url, "attachment": attachment,
+                     "send": send})
+        return
+    send()

@@ -202,6 +202,19 @@ export const getOnboardingDocumentById = (id) => api.get(`/hr/onboarding/documen
 export const createOnboardingDocument = (formData) => api.post("/hr/onboarding/documents", formData);
 /** The file of an onboarding document as { blob, filename } (the route needs the login token, so a plain link cannot open it). */
 export const getOnboardingDocumentFile = (id) => fetchDocumentFile(`/hr/onboarding/documents/${id}/file`, `onboarding-document-${id}`);
+// Onboarding › Documents: every submission across hires, its detail (answers, evidence, history), review and ZIP per hire
+export const getOnboardingSubmissions = (filters = {}) => {
+  const params = Object.fromEntries(Object.entries({ hire_id: filters.hireId, status: filters.status, type: filters.type }).filter(([, v]) => v));
+  return api.get("/hr/onboarding/documents", { params });
+};
+export const getOnboardingDocumentDetail = (id, reveal = false) =>
+  api.get(`/hr/onboarding/documents/${id}/detail`, { params: reveal ? { reveal: 1 } : {} });
+export const downloadOnboardingDocumentFile = (id) =>
+  fetchDocumentFile(`/hr/onboarding/documents/${id}/file?download=1`, `onboarding-document-${id}.pdf`);
+export const reviewOnboardingDocument = (id, decision, reason) =>
+  api.post(`/hr/onboarding/documents/${id}/review`, reason ? { decision, reason } : { decision });
+export const downloadHireDocumentsZip = (hireId) =>
+  fetchDocumentFile(`/hr/onboarding/new-hires/${hireId}/documents.zip`, `onboarding-documents-${hireId}.zip`);
 export const updateOnboardingDocument = (id, payload) => api.put(`/hr/onboarding/documents/${id}`, payload);
 export const deleteOnboardingDocument = (id) => api.delete(`/hr/onboarding/documents/${id}`);
 
@@ -229,6 +242,9 @@ export const getOnboardingDashboard = () => api.get("/hr/onboarding/dashboard");
 // ── ONBOARDING FLOW: settings, pre-onboarding link, document requests, progress ──
 export const getOnboardingSettings = () => api.get("/hr/onboarding/settings");
 export const saveOnboardingSettings = (payload) => api.put("/hr/onboarding/settings", payload);
+// the offer-accepted welcome e-mail and portal message as typed (not saved yet): rendered by the server, or sent to yourself
+export const previewWelcomeMessage = (payload) => api.post("/hr/onboarding/settings/welcome-preview", payload);
+export const sendTestWelcomeMessage = (payload) => api.post("/hr/onboarding/settings/welcome-test", payload);
 export const sendOnboardingPortalInvite = (newHireId) => api.post(`/hr/onboarding/new-hires/${newHireId}/portal-invite`);
 export const sendOnboardingPackage = (newHireId, categories) =>
   api.post(`/hr/onboarding/new-hires/${newHireId}/send-package`, categories && categories.length ? { categories } : {});
@@ -294,6 +310,24 @@ export const uploadPortalDocument = (token, docId, file) => {
   fd.append("file", file);
   return api.post(`/public/onboarding/${encodeURIComponent(token)}/documents/${docId}`, fd, { auth: false });
 };
+// "My documents" on the new hire's portal: every item with its status, a preview/download of their own copy, and a ZIP of all
+const fetchPublicFile = async (path, fallbackName) => {
+  const res = await fetch(`${API_BASE_URL}${path}`);
+  if (!res.ok) {
+    let detail = null;
+    try { detail = (await res.json())?.detail; } catch { /* not JSON */ }
+    throw new Error((typeof detail === "string" && detail) || `Failed to load the file (${res.status})`);
+  }
+  const blob = await res.blob();
+  const cd = res.headers.get("content-disposition") || "";
+  const match = /filename\*?=['"]?(?:UTF-8'')?([^'";\n]+)['"]?/i.exec(cd);
+  return { blob, filename: match ? decodeURIComponent(match[1]) : fallbackName };
+};
+export const getPortalMyDocuments = (token) => api.get(`/public/onboarding/${encodeURIComponent(token)}/my-documents`, { auth: false });
+export const getPortalMyDocumentFile = (token, docId, download = false) =>
+  fetchPublicFile(`/public/onboarding/${encodeURIComponent(token)}/my-documents/${docId}/file${download ? "?download=1" : ""}`, `document-${docId}.pdf`);
+export const getPortalMyDocumentsZip = (token) =>
+  fetchPublicFile(`/public/onboarding/${encodeURIComponent(token)}/my-documents.zip`, "my-onboarding-documents.zip");
 export const getPortalDocumentFile = async (token, docId) => {
   const res = await fetch(`${API_BASE_URL}/public/onboarding/${encodeURIComponent(token)}/documents/${docId}/file`);
   if (!res.ok) {

@@ -854,8 +854,7 @@ def test_new_hire_fills_in_the_complete_and_return_forms_online_and_hr_sees_the_
         assert expected in text_pdf, expected
     assert "DRAFT" not in text_pdf
     row = world.db.query(OnboardingDocument).filter_by(onboarding_new_hire_id=h.id, category="self_disclosure").one()
-    with open(row.file_path, "rb") as fh:
-        assert "Riverside Tutors" in _text(fh.read()), "the returned document HR reviews is the filled form"
+    assert "Riverside Tutors" in _text(storage.get_store().get(row.file_path)), "the returned document HR reviews is the filled form"
     docx = world.get("a_admin", f"/hr/onboarding/new-hires/{h.id}/package/self_disclosure/download?format=docx")
     assert docx.status_code == 200 and docx.content[:2] == b"PK"
 

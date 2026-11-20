@@ -72,7 +72,18 @@ SENDER_SAMPLES = [
     ("send_onboarding_invite", dict(
         email="sam@mail.com", first_name="Sam", organization_name="Acme Corp", position="Backend Engineer",
         portal_url=f"{APP}/onboarding-portal/abc123", expires_display="Nov 15, 2026", joining_date_display="Nov 02, 2026",
-        manager_name="Jordan Lee", documents_requested=3, welcome_message="We can't wait to meet you.", organization_id=42)),
+        manager_name="Jordan Lee", documents_requested=3, welcome_message="## Welcome!\nWe can't wait to meet you.",
+        next_steps=[{"title": "Upload 2 documents", "detail": "ID proof, Bank details"}], hr_contact_name="Priya Shah",
+        hr_contact_email="people@acme.test", organization_id=42)),
+    ("send_offer_accepted_welcome", dict(
+        email="sam@mail.com", first_name="Sam", organization_name="Acme Corp", position="Backend Engineer",
+        start_date_display="Monday, 2 November 2026", manager_name="Jordan Lee", accepted_on_display="20 October 2026",
+        portal_url=f"{APP}/onboarding-portal/abc123", expires_display="9 November 2026", signed_letter_in_portal=True,
+        welcome_message="## Welcome to the Team!\nWe're delighted to welcome you.\n\nSee you soon,\nthe team",
+        next_steps=[{"title": "Confirm your personal details", "detail": "Check your contact details."},
+                    {"title": "Upload 2 documents", "detail": "ID proof, Bank details"}],
+        hr_contact_name="Priya Shah", hr_contact_email="people@acme.test",
+        documents=[{"label": "Offer Acceptance Confirmation", "url": f"{APP}/sign/tok123"}], organization_id=42)),
     ("send_onboarding_document_request", dict(
         email="sam@mail.com", first_name="Sam", organization_name="Acme Corp",
         documents=[{"title": "ID proof", "note": "Requested"}, {"title": "Bank details", "note": "Rejected: image is blurry"}],
@@ -94,6 +105,16 @@ SENDER_SAMPLES = [
         organization_name="Acme Corp", documents=[{"title": "Offer Letter", "status": "Signed"},
                                                   {"title": "Job Description", "status": "Acknowledged"}],
         review_url=f"{APP}/zoiko-hr/onboarding/checklists", joining_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_onboarding_submissions_digest", dict(
+        email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", items=[{"title": "ID proof", "status": "Submitted – HR to review"},
+                                              {"title": "Job Description", "status": "Acknowledged"}],
+        review_url=f"{APP}/zoiko-hr/onboarding/documents?hire_id=42", organization_id=42)),
+    ("send_onboarding_submissions_digest", dict(
+        email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", items=[{"title": "New starter information", "status": "Submitted – HR to review"},
+                                              {"title": "Job Description", "status": "Acknowledged"}],
+        review_url=f"{APP}/zoiko-hr/onboarding/documents", organization_id=42)),
     ("send_leave_request_submitted", dict(
         email="sam@acme.test", first_name="Sam", request_reference="LV-42-0007",
         leave_period_display="Oct 01, 2026 – Oct 03, 2026", leave_request_url=f"{APP}/employee/leaves")),

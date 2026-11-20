@@ -11,6 +11,7 @@ const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60
 const SETTINGS = {
   auto_template_ids: [2], required_document_categories: ["id_proof"], auto_send_portal_invite: true,
   portal_link_days: 30, reminder_days: 3, require_checklists_complete: true, require_documents_approved: false, welcome_message: "Hi",
+  welcome_signature: "Your People & Culture Team",
 };
 
 function mockShell(t) {
@@ -42,6 +43,8 @@ async function loadSettings(t, over = {}) {
   let fails = over.failTimes || 0;
   mockShell(t);
   t.mock.module("../src/service/hrService.js", { exports: {
+    previewWelcomeMessage: async () => ({ subject: "Offer accepted", email_html: "<p>preview</p>", blocks: [], signature: "" }),
+    sendTestWelcomeMessage: async () => ({ sent: true, to: "hr@acme.test" }),
     getOnboardingSettings: async () => { if (fails > 0) { fails -= 1; throw new Error("Network down"); } return SETTINGS; },
     getOnboardingChecklistTemplates: async () => [{ id: 1, name: "IT Setup", category: "it" }, { id: 2, name: "HR Basics", category: "hr" }],
     saveOnboardingSettings: async (p) => { calls.save.push(p); if (over.saveError) throw over.saveError; return p; },

@@ -31,7 +31,7 @@ _notify_log = _logging.getLogger("zoiko.notifications.hr")
 import os
 import uuid
 from datetime import date, datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from app.core.pagination import Page
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Request, UploadFile, status, Body
@@ -86,7 +86,7 @@ from app.modules.hr.schemas import (
     EssRequestCreate, EssRequestUpdate, EssRequestResponse,
     OnboardingNewHireCreate, OnboardingNewHireUpdate, OnboardingNewHireResponse,
     OnboardingPreboardingTaskCreate, OnboardingPreboardingTaskUpdate, OnboardingPreboardingTaskResponse,
-    OnboardingDocumentCreate, OnboardingDocumentUpdate, OnboardingDocumentResponse,
+    OnboardingDocumentCreate, OnboardingDocumentUpdate, OnboardingDocumentResponse, OnboardingDocumentReview,
     OnboardingChecklistCreate, OnboardingChecklistUpdate, OnboardingChecklistResponse,
     OnboardingChecklistAssignmentCreate,
     OnboardingOrientationCreate, OnboardingOrientationUpdate, OnboardingOrientationResponse,
@@ -114,7 +114,8 @@ from app.modules.hr.schemas import (
     ApprovalAction,
     DocumentAssignRequest,
     EmployeeDocumentResponse,
-    OnboardingSettingsUpdate, OnboardingSettingsResponse, OnboardingDocumentRequest,
+    OnboardingSettingsUpdate, OnboardingSettingsResponse, OnboardingWelcomePreview, OnboardingDocumentRequest,
+    OnboardingDocumentResponse, OnboardingDocumentReview,
 )
 
 auth_router = APIRouter(prefix="/auth", tags=["🔐 Authentication"])
@@ -1708,8 +1709,12 @@ def list_onboarding_documents(
     current_user=Depends(get_current_admin),
     onboarding_record_id: Optional[int] = Query(None, description="Filter by onboarding record ID"),
     category: Optional[str] = Query(None, description="Filter by document category"),
+    hire_id: Optional[int] = Query(None, description="Filter by new hire (same as onboarding_record_id)"),
+    status: Optional[Literal["requested", "pending", "approved", "rejected"]] = Query(None, description="Filter by status"),
+    type: Optional[str] = Query(None, description="Filter by document category (type)"),
 ):
-    return service.get_onboarding_documents(db, onboarding_record_id=onboarding_record_id, category=category, organization_id=current_user.organization_id)
+    return service.get_onboarding_documents(db, onboarding_record_id=hire_id or onboarding_record_id, category=type or category,
+                                            status=status, organization_id=current_user.organization_id)
 
 
 ONBOARDING_DOC_CATEGORIES = ("id_proof", "offer_letter", "nda", "education_certificates", "experience_letters", "bank_details", "other")
@@ -1821,29 +1826,77 @@ async def upload_onboarding_document(
 )
 def get_onboarding_document_file(
     document_id: int,
+    download: bool = Query(False, description="Send as an attachment instead of inline"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    doc = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
-    from app.modules.hr import onboarding_package
-    stored = onboarding_package.stored_document_pdf(db, doc.get("document_id"), current_user.organization_id)
-    if stored is not None:                     # an issued / signed document lives in the document store, not on disk
-        from fastapi.responses import Response
-        data, fname = stored
-        return Response(content=data, media_type="application/pdf",
-                        headers={"Content-Disposition": f'inline; filename="{fname}"', "Cache-Control": "no-store"})
-    from app.core.privacy.files import belongs_to_tenant
-    resolved = file_storage.resolve_stored_file(doc.get("file_path")) if belongs_to_tenant(doc.get("file_path"), current_user.organization_id) else None
-    if not resolved:
-        raise HTTPException(status_code=410, detail="The file for this document is not available on the server. Upload it again.")
-    name = _os.path.basename(resolved)
-    ext = _os.path.splitext(name)[1]
-    download_name = f"{doc.get('title') or 'document'}{ext}"
-    return FileResponse(
-        path=resolved,
-        media_type=file_storage.effective_media_type(download_name, None),
-        filename=download_name.replace("/", "-").replace("\\", "-"),
-    )
+    from app.modules.hr import onboarding_submissions
+    return onboarding_submissions.file_response(db, _onboarding_doc_row(db, document_id, current_user), download=download)
+
+
+def _onboarding_doc_row(db, document_id: int, user) -> OnboardingDocument:
+    doc = db.query(OnboardingDocument).filter(OnboardingDocument.id == document_id, OnboardingDocument.is_deleted == False,  # noqa: E712
+                                              OnboardingDocument.organization_id == user.organization_id).first()
+    if doc is None:
+        raise HTTPException(status_code=404, detail="Onboarding document not found.")
+    return doc
+
+
+@hr_router.get(
+    "/onboarding/documents/{document_id}/detail",
+    summary="One onboarding document with its answers, signature / acknowledgement evidence and version history",
+)
+def get_onboarding_document_detail(
+    document_id: int,
+    reveal: bool = Query(False, description="Unmasked financial values (finance / payroll or organisation admins only)"),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    from app.modules.hr import onboarding_submissions
+    doc = _onboarding_doc_row(db, document_id, current_user)
+    item = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
+    return onboarding_submissions.detail(db, current_user, doc, item, reveal=reveal)
+
+
+@hr_router.post(
+    "/onboarding/documents/{document_id}/review",
+    response_model=OnboardingDocumentResponse,
+    summary="Approve or reject (with a reason) a submitted onboarding document",
+)
+def review_onboarding_document(
+    document_id: int,
+    data: OnboardingDocumentReview,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    from app.modules.hr import onboarding_submissions
+    if data.decision == "reject" and not (data.reason or "").strip():
+        raise _field_problems(reason="Enter a reason for rejecting this document.")
+    onboarding_submissions.review(db, current_user, _onboarding_doc_row(db, document_id, current_user), data.decision, data.reason)
+    return service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
+
+
+@hr_router.get(
+    "/onboarding/new-hires/{hire_id}/documents.zip",
+    summary="Every available onboarding file of one new hire, as one ZIP",
+)
+def onboarding_hire_documents_zip(hire_id: int, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_submissions as S
+    hire = service.get_new_hire_by_id(db, hire_id, organization_id=current_user.organization_id)
+    return S.zip_response(db, S.hire_documents(db, hire), S.hire_zip_name(hire))
+
+
+@hr_router.post(
+    "/onboarding/submissions/backfill",
+    summary="Re-sync submitted documents and their checklists (idempotent; one tenant)",
+)
+def backfill_onboarding_submissions(data: Optional[dict] = Body(default=None), db: Session = Depends(get_db),
+                                    current_user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_submissions as S
+    requested = (data or {}).get("organization_id")
+    if requested is not None and int(requested) != current_user.organization_id:
+        raise HTTPException(403, "You can only backfill your own organisation.")
+    return S.backfill(db, current_user.organization_id)
 
 
 @hr_router.get(
@@ -1870,7 +1923,7 @@ def update_onboarding_document(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
 ):
-    return service.update_onboarding_document(db, document_id, data, organization_id=current_user.organization_id)
+    return service.update_onboarding_document(db, document_id, data, organization_id=current_user.organization_id, actor=current_user)
 
 
 @hr_router.delete(
@@ -1960,6 +2013,70 @@ def get_onboarding_settings(db: Session = Depends(get_db), current_user=Depends(
 def save_onboarding_settings(data: OnboardingSettingsUpdate, db: Session = Depends(get_db), current_user=Depends(get_current_admin)):
     from app.modules.hr import onboarding_flow
     return onboarding_flow.update_settings(db, current_user.organization_id, data.model_dump(exclude_unset=True))
+
+
+def _welcome_preview(db: Session, current_user, data) -> tuple[str, dict]:
+    """The offer-accepted e-mail as a new hire would get it, from the message typed in Settings (sample hire values,
+    this organisation's own name and HR contact)."""
+    from app.modules.hr import onboarding_flow
+    from app.modules.hr import welcome_message as WM
+    WM.validate_message(data.welcome_message)
+    WM.validate_signature(data.welcome_signature)
+    org_id = current_user.organization_id
+    settings = onboarding_flow.get_settings(db, org_id)
+    company = onboarding_flow._org_name(db, org_id)
+    text = data.welcome_message if (data.welcome_message or "").strip() else WM.DEFAULT_WELCOME_MESSAGE
+    rendered = WM.render(text, {**WM.SAMPLE_VALUES, "company_name": company})
+    signature = (data.welcome_signature or "").strip() or WM.DEFAULT_WELCOME_SIGNATURE
+    hr_name, hr_email = onboarding_flow._hr_contact(db, org_id)
+    auto = settings.auto_send_portal_invite if data.auto_send_portal_invite is None else data.auto_send_portal_invite
+    portal = f"{onboarding_flow.app_base() or 'https://app.zoikohr.com'}/onboarding-portal/sample-link"
+    ctx = {
+        "first_name": WM.SAMPLE_VALUES["employee_first_name"], "organization_name": company,
+        "position": WM.SAMPLE_VALUES["position"], "start_date_display": WM.SAMPLE_VALUES["start_date"],
+        "manager_name": WM.SAMPLE_VALUES["manager_name"], "accepted_on_display": f"{date.today().day} {date.today():%B %Y}",
+        "portal_url": portal if auto else None, "expires_display": "30 days from today" if auto else None,
+        "signed_letter_in_portal": True, "welcome_blocks": rendered["blocks"], "welcome_signature": signature,
+        "next_steps": [{"title": "Confirm your personal details", "detail": "Check your contact details, address and emergency contact."},
+                       {"title": "Upload 2 documents", "detail": "ID proof, Bank details"}],
+        "hr_contact_name": hr_name, "hr_contact_email": hr_email, "documents": [],
+    }
+    return company, {**ctx, "rendered": rendered}
+
+
+@hr_router.post("/onboarding/settings/welcome-preview", summary="Preview the offer-accepted welcome e-mail and portal message")
+def preview_welcome_message(data: OnboardingWelcomePreview, db: Session = Depends(get_db),
+                            current_user=Depends(get_current_admin)):
+    from app.services import email_service
+    company, ctx = _welcome_preview(db, current_user, data)
+    rendered = ctx.pop("rendered")
+    first = ctx["first_name"]
+    mail = email_service.render_email("offer_accepted_welcome.html", {
+        **ctx, "subject": f"Offer accepted — welcome to {email_service._subject_safe(company)}, {first}",
+        "support_email": ctx["hr_contact_email"]}, organization_id=current_user.organization_id, db=db)
+    return {"subject": mail.subject, "email_html": mail.html, "email_text": mail.text,
+            "blocks": rendered["blocks"], "html": rendered["html"], "text": rendered["text"], "signature": ctx["welcome_signature"]}
+
+
+@hr_router.post("/onboarding/settings/welcome-test", summary="Send yourself a test offer-accepted welcome e-mail")
+def send_test_welcome_message(data: OnboardingWelcomePreview, db: Session = Depends(get_db),
+                              current_user=Depends(get_current_admin)):
+    from app.services import email_service
+    to = getattr(current_user, "work_email", None) or getattr(current_user, "email", None)
+    if not to:
+        raise HTTPException(status_code=400, detail="Your account has no e-mail address to send the test to.")
+    _company, ctx = _welcome_preview(db, current_user, data)
+    ctx.pop("rendered")
+    errors: list = []
+    ok = email_service.send_offer_accepted_welcome(
+        to, ctx["first_name"], ctx["organization_name"], ctx["position"], start_date_display=ctx["start_date_display"],
+        manager_name=ctx["manager_name"], accepted_on_display=ctx["accepted_on_display"], portal_url=ctx["portal_url"],
+        expires_display=ctx["expires_display"], signed_letter_in_portal=True, welcome_blocks=ctx["welcome_blocks"],
+        welcome_signature=ctx["welcome_signature"], next_steps=ctx["next_steps"], hr_contact_name=ctx["hr_contact_name"],
+        hr_contact_email=ctx["hr_contact_email"], db=db, organization_id=current_user.organization_id, error_out=errors)
+    if not ok:
+        raise HTTPException(status_code=502, detail="The test e-mail could not be sent. Check the e-mail configuration.")
+    return {"sent": True, "to": to}
 
 
 @hr_router.post("/onboarding/new-hires/{new_hire_id}/portal-invite", summary="Email the new hire their pre-onboarding link (a new link replaces the old one)")

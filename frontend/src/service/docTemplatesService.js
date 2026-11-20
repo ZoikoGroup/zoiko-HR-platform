@@ -77,7 +77,14 @@ export async function downloadGeneratedDocument(id, { original = false, self = f
     ? `/hr/me/generated-documents/signatory-queue/${id}/download-link`
     : self ? `/hr/me/generated-documents/${id}/download-link` : `/hr/generated-documents/${id}/download-link${original ? "?original=true" : ""}`;
   const { url } = await api.post(path, {});
-  window.open(`${API_BASE_URL}${url}`, "_blank", "noopener");
+  // the link answers with an attachment, so an <a> click saves it (no new tab)
+  const a = document.createElement("a");
+  a.href = `${API_BASE_URL}${url}`;
+  a.rel = "noopener";
+  a.download = "";
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 // ── governance reports (HR-DOC family) ──────────────────────────────────────────────────────────────────────────────

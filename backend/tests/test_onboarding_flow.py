@@ -78,7 +78,8 @@ def _ok(r):
 
 
 def _token(env):
-    invite = [m for m in env.sent if m["template"] in ("onboarding_invite.html", "onboarding_document_request.html")][-1]
+    invite = [m for m in env.sent if m["template"] in ("onboarding_invite.html", "onboarding_document_request.html",
+                                                       "offer_accepted_welcome.html")][-1]
     url = invite["ctx"]["portal_url"]
     return url.rsplit("/", 1)[1]
 
@@ -120,8 +121,11 @@ def test_full_onboarding_flow_from_offer_to_employee(env):
     laptop = next(i for i in checklist["items"] if i["title"] == "Laptop")
     assert laptop["due_date"] == (JOIN - timedelta(days=2)).isoformat() and laptop["assignee_name"] == "Ivan T"
     assert any(m["template"] == "onboarding_task_assigned.html" and m["to"] == "it@acme.com" for m in env.sent)
-    invite = next(m for m in env.sent if m["template"] == "onboarding_invite.html")
-    assert invite["to"] == "sam@mail.com" and invite["ctx"]["documents_requested"] == 2
+    # accepting the offer sends one welcome email that carries the pre-onboarding link (no separate invite)
+    assert not [m for m in env.sent if m["template"] == "onboarding_invite.html"]
+    invite = next(m for m in env.sent if m["template"] == "offer_accepted_welcome.html")
+    assert invite["to"] == "sam@mail.com" and invite["ctx"]["portal_url"]
+    assert {"title": "Upload 2 documents", "detail": "ID proof, Bank details"} in invite["ctx"]["next_steps"]
 
     # the new hire's page: no account needed
     token = _token(env)
@@ -157,7 +161,8 @@ def test_full_onboarding_flow_from_offer_to_employee(env):
     r = env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "completed"})
     assert r.status_code == 400 and "checklist" in r.json()["message"] and "document" in r.json()["message"]
     prog = _ok(env.c.get(f"/hr/onboarding/new-hires/{hire['id']}/progress"))
-    assert prog["checklist_total"] == 2 and prog["documents_approved"] == 1 and prog["blockers"]
+    # the two document items are mirrored into the checklist alongside the two template items (Laptop, etc.)
+    assert prog["checklist_total"] == 4 and prog["documents_approved"] == 1 and prog["blockers"]
 
     # the new hire re-uploads, HR approves, the checklist is done (items keep their ids; status follows)
     _ok(env.c.post(f"/public/onboarding/{token}/documents/{docs[1]['id']}", files={"file": ("bank.pdf", b"%PDF-1.4 again", "application/pdf")}))

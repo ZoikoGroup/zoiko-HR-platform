@@ -2647,8 +2647,22 @@ class OnboardingDocumentResponse(BaseModel):
     rejection_reason: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    # the submission pipeline (onboarding_submissions): who, what kind, when submitted / reviewed, version, board state
+    hire_name: Optional[str] = None
+    position: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    reviewed_by_name: Optional[str] = None
+    reviewed_at: Optional[datetime] = None
+    kind: Optional[str] = None                  # upload | form | package
+    version: int = 1
+    board_state: Optional[str] = None           # the board's state vocabulary (completed / available = done)
+    details_changed: bool = False               # sent, not signed, and the hire's details changed since: reissue
 
     model_config = {"from_attributes": True}
+
+class OnboardingDocumentReview(BaseModel):
+    decision: Literal["approve", "reject"]
+    reason: Optional[str] = Field(None, max_length=2000)
 
 class OnboardingChecklistItemCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
@@ -2846,6 +2860,14 @@ class OnboardingSettingsUpdate(BaseModel):
     require_checklists_complete: Optional[bool] = None
     require_documents_approved: Optional[bool] = None
     welcome_message: Optional[str] = Field(None, max_length=2000)
+    welcome_signature: Optional[str] = Field(None, max_length=120)
+
+
+class OnboardingWelcomePreview(BaseModel):
+    """The welcome message as typed in Settings (not saved yet): preview it or send a test e-mail."""
+    welcome_message: Optional[str] = Field(None, max_length=2000)
+    welcome_signature: Optional[str] = Field(None, max_length=120)
+    auto_send_portal_invite: Optional[bool] = None
 
 
 class OnboardingSettingsResponse(BaseModel):
@@ -2857,8 +2879,19 @@ class OnboardingSettingsResponse(BaseModel):
     require_checklists_complete: bool
     require_documents_approved: bool
     welcome_message: Optional[str] = None
+    welcome_signature: Optional[str] = None
+    # for the Settings editor: the default text ("Reset to default") and the placeholders it may use
+    default_welcome_message: str = Field(default_factory=lambda: _welcome_defaults()[0])
+    default_welcome_signature: str = Field(default_factory=lambda: _welcome_defaults()[1])
+    welcome_placeholders: list[dict] = Field(default_factory=lambda: _welcome_defaults()[2])
 
     model_config = {"from_attributes": True}
+
+
+def _welcome_defaults():
+    from app.modules.hr import welcome_message as WM
+    return (WM.DEFAULT_WELCOME_MESSAGE, WM.DEFAULT_WELCOME_SIGNATURE,
+            [{"key": k, "token": "{{" + k + "}}", "label": WM.PLACEHOLDER_LABELS[k]} for k in WM.PLACEHOLDERS])
 
 
 class OnboardingDocumentRequest(BaseModel):
