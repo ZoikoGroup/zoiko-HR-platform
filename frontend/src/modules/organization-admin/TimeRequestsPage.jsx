@@ -1,7 +1,8 @@
 // Organization Admin — Time Requests (overtime + attendance corrections).
 // Organization admin is an HR role, so /hr/time/* already scopes to their whole
 // organization: they can view and decide every request, not just their own.
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import PageHeader from "../../components/PageHeader";
 import { Clock2, Clock, Loader2, Search, CheckCircle2, XCircle } from "lucide-react";
 import {
@@ -11,6 +12,7 @@ import {
   listOvertime,
 } from "../../service/workDocumentsService";
 import { formatDate } from "../../utils/dateTime";
+import { correctionSummary, wallTime } from "../zoiko-hr/attendance/constants";
 
 const TABS = [
   { key: "overtime", label: "Overtime Requests", icon: Clock },
@@ -132,9 +134,7 @@ export default function OrgAdminTimeRequestsPage() {
     if (activeTab === "overtime") {
       return `${r.start_time || "-"} – ${r.end_time || "-"} · ${Number(r.hours || 0).toFixed(1)}h`;
     }
-    const cin = r.requested_check_in || r.requestedCheckIn || "-";
-    const cout = r.requested_check_out || r.requestedCheckOut || "-";
-    return `${cin} → ${cout}`;
+    return correctionSummary(r);
   };
 
   return (
@@ -270,7 +270,7 @@ export default function OrgAdminTimeRequestsPage() {
                         <>
                           <td className="px-5 py-3.5 text-sm text-slate-600 font-mono">{timeLabel(r)}</td>
                           <td className="px-5 py-3.5 text-sm text-slate-600 font-mono">
-                            {`${r.original_check_in || "-"} → ${r.original_check_out || "-"} `}
+                            {`${wallTime(r.original_check_in)} → ${wallTime(r.original_check_out)}`}
                           </td>
                         </>
                       )}

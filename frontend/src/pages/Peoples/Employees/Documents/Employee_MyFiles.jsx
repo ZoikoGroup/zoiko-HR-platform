@@ -1,186 +1,181 @@
-import { useEffect, useState, useCallback } from "react";
+import { useMemo, useState } from "react";
+import { ChevronDown, ChevronRight, Eye, FileText, Loader2, RefreshCw, Trash2, UploadCloud } from "lucide-react";
 import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
-import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
-import DocumentRow from "../../../../components/documents/DocumentRow";
-import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
-import DocumentErrorState from "../../../../components/documents/DocumentErrorState";
-import { useDocumentFile } from "../../../../hooks/useDocumentFile";
-import { getDocuments } from "../../../../service/employee";
-import {
-  UploadCloud, FileText, X, Check,
-  RefreshCw, CloudUpload, Trash2, Loader2
-} from "lucide-react";
+import SectionState from "../../../../modules/zoiko-hr/documents/components/SectionState";
+import StatusChip from "../../../../modules/zoiko-hr/documents/components/StatusChip";
+import UploadDialog from "../../../../modules/zoiko-hr/documents/components/UploadDialog";
+import FilePreviewDrawer from "../../../../modules/zoiko-hr/documents/components/FilePreviewDrawer";
+import { useMyCategories, useUploadMyDocument, useWithdrawMyDocument } from "../../../../modules/zoiko-hr/documents/hooks/useMyDocuments";
+import { DocumentStatus } from "../../../../modules/zoiko-hr/documents/types";
+import { formatDate } from "../../../../utils/dateTime";
 
-// ── helpers ────────────────────────────────────────────────────────────────
+const NEEDS_NEW_COPY = new Set([DocumentStatus.REJECTED, DocumentStatus.REUPLOAD_REQUESTED, DocumentStatus.EXPIRED]);
 
-const ACCEPT_TYPES = [
-  "image/*",
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-  "application/vnd.ms-excel",
-  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-  "text/plain",
-  ".csv",
-];
-
-const DOC_TYPES = [
-  { value: "Identity",    label: "Identity Document" },
-  { value: "Education",   label: "Education Certificate" },
-  { value: "Employment",  label: "Employment Document" },
-  { value: "Financial",   label: "Financial Record" },
-  { value: "Medical",     label: "Medical Document" },
-  { value: "Other",       label: "Other" },
-];
-
-function formatBytes(bytes) {
-  if (!bytes || bytes === 0) return "";
-  const k = 1024;
-  const sizes = ["B", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + " " + sizes[i];
-}
-
-function formatDate(iso) {
-  if (!iso) return "";
-  const d = new Date(iso);
-  return isNaN(d) ? iso : d.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" });
-}
-
-function fileTypeColor(filename) {
-  const ext = ((filename || "").split(".").pop() || "").toLowerCase();
-  const map = {
-    pdf: "#DC2626", jpg: "#3B82F6", jpeg: "#3B82F6", png: "#3B82F6",
-    doc: "#2563EB", docx: "#2563EB", xls: "#059669", xlsx: "#059669",
-    csv: "#D97706", txt: "#64748B",
-  };
-  return map[ext] || "#64748B";
-}
-
-function documentId(doc) {
-  return doc.id ?? doc.document_id;
-}
-
-// ── main component ────────────────────────────────────────────────────────
-
+/**
+ * My Files (docs/new_docs/ZHR-DOCS-ARCH-001 §17 D2): the person uploads their own documents into category containers.
+ * Every upload goes to HR for approval; a rejected, re-requested or expired file can be replaced with a new copy, and a
+ * copy still waiting for review can be removed. Categories HR fills (payslips, tax, contracts) are read-only here.
+ */
 export default function MyFiles() {
-  /* history state */
-  const [uploads,    setUploads]    = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [fetchError, setFetchError] = useState(null);
+  const query = useMyCategories();
+  const upload = useUploadMyDocument();
+  const withdraw = useWithdrawMyDocument();
+  // ?category=<id> (a "Documents to action" upload task links here): that category starts open.
+  const [openIds, setOpenIds] = useState(() => {
+    const wanted = Number(typeof window !== "undefined" ? new URLSearchParams(window.location.search).get("category") : null);
+    return new Set(wanted ? [wanted] : []);
+  });
+  const [dialog, setDialog] = useState(null);           // { category, replacesDocumentId?, replacingTitle? }
+  const [previewing, setPreviewing] = useState(null);   // file
+  const [notice, setNotice] = useState(null);
 
-  /* authenticated view/download — the ONE correct pattern (see useDocumentFile.js) */
-  const { preview, busyId, busyAction, fileError, view, download, closePreview, downloadFromPreview } = useDocumentFile();
+  const toggle = (id) => setOpenIds((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
 
-  // fetch uploaded docs ─────────────────────────────────────────────────────
-  const loadUploads = useCallback(async () => {
-    setLoading(true);
-    setFetchError(null);
+  const summary = useMemo(() => {
+    const cats = Array.isArray(query.data) ? query.data : [];
+    const required = cats.filter((c) => c.is_required && c.can_upload);
+    const done = required.filter((c) => c.status === DocumentStatus.APPROVED).length;
+    const attention = cats.filter((c) => NEEDS_NEW_COPY.has(c.status) || (c.is_required && c.can_upload && c.status === "not_uploaded")).length;
+    return { required: required.length, done, attention };
+  }, [query.data]);
+
+  const submit = async (values) => {
+    await upload.mutateAsync(values);
+    setNotice("Uploaded. HR will review it and you'll be notified.");
+    setOpenIds((prev) => new Set(prev).add(values.categoryId));
+  };
+
+  const remove = async (file) => {
     try {
-      const res = await getDocuments({ category: "employee" });
-      const raw = res?.data ?? res;
-      const payload = Array.isArray(raw)
-        ? raw
-        : Array.isArray(raw?.value) ? raw.value
-        : Array.isArray(raw?.items) ? raw.items
-        : Array.isArray(raw?.data) ? raw.data
-        : [];
-
-      const normalized = payload
-        .filter(Boolean)
-        .map((d) => ({
-          ...d,
-          id: d.id ?? d.document_id,
-          title: d.title || d.name || d.file_name || "Untitled",
-          document_type: d.document_type || d.type || "Other",
-          category: d.category || d.document_category || "employee",
-          status: d.status || "pending",
-        }))
-        .filter((d) => {
-          const category = String(d.category || "").toLowerCase();
-          if (category === "company") return false;
-          if (d.is_company === true) return false;
-          return true;
-        });
-
-      setUploads(normalized);
+      await withdraw.mutateAsync(file.id);
+      setNotice("Removed.");
     } catch (e) {
-      setFetchError(e?.message || "Failed to load your documents");
-    } finally {
-      setLoading(false);
+      setNotice(e?.message || "That file could not be removed.");
     }
-  }, []);
+  };
 
-  useEffect(() => { loadUploads(); }, [loadUploads]);
-
-  // render ───────────────────────────────────────────────────────────────────
   return (
-    <EmployeeDocumentsLayout title="My Files" subtitle="Documents your organization has shared with you. View and download only.">
-      <div className="max-w-4xl mx-auto space-y-8">
-
-        {/* UPLOADED FILES LIST */}
-        <div>
-          <div className="flex items-center justify-between mb-4">
-            <h3 className="text-base font-bold text-doc-ink dark:text-[#f1f5f9]">
-              Your Files
-              {uploads.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-semibold bg-doc-primary/10 dark:bg-blue-900/30 text-doc-primary dark:text-blue-300">
-                  {uploads.length}
-                </span>
-              )}
-            </h3>
-            <button
-              onClick={loadUploads}
-              className="flex items-center gap-1.5 text-xs text-doc-ink-soft dark:text-[#94a3b8] hover:text-doc-primary dark:hover:text-blue-400 transition font-medium px-3 py-1.5 rounded-lg hover:bg-doc-primary/5 dark:hover:bg-blue-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-doc-primary"
-            >
-              <RefreshCw size={12} />
-              Refresh
-            </button>
+    <EmployeeDocumentsLayout
+      title="My Files"
+      subtitle="Upload your documents for HR to review. Required documents are marked."
+      actions={(
+        <button type="button" onClick={() => query.refetch()} disabled={query.isFetching}
+          className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-60">
+          <RefreshCw size={16} className={query.isFetching ? "animate-spin" : ""} aria-hidden="true" /> Refresh
+        </button>
+      )}
+    >
+      <div className="mx-auto max-w-4xl space-y-4">
+        {notice && (
+          <div role="status" className="flex items-center justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+            <span>{notice}</span>
+            <button type="button" onClick={() => setNotice(null)} className="text-xs font-semibold underline">Dismiss</button>
           </div>
+        )}
 
-          <DocumentErrorState message={fileError} />
-
-          {loading ? (
-            <div className="flex items-center justify-center gap-3 py-14 text-doc-ink-soft dark:text-[#94a3b8]">
-              <RefreshCw size={18} className="animate-spin text-doc-primary" />
-              <span className="text-sm">Loading your files&hellip;</span>
-            </div>
-          ) : fetchError ? (
-            <DocumentErrorState message={fetchError} onRetry={loadUploads} />
-          ) : uploads.length === 0 ? (
-            <DocumentEmptyState
-              title="No files yet"
-              message="Documents your organization shares with you will appear here."
-            />
-          ) : (
-            <div className="space-y-3 mt-3">
-              {uploads.map((f) => {
-                const id = documentId(f);
-                const name = f.title || f.name || f.document_type || "Untitled";
-                const iconColor = fileTypeColor(name);
-                const dateLabel = f.created_at ? formatDate(f.created_at)
-                  : f.updated_at ? formatDate(f.updated_at) : "";
-
-                return (
-                  <DocumentRow
-                    key={id || name}
-                    icon={FileText}
-                    iconTone={{ bg: iconColor + "15", color: iconColor }}
-                    title={name}
-                    meta={[f.document_type && f.document_type !== name ? f.document_type : null, dateLabel].filter(Boolean).join(" · ")}
-                    onView={() => view(id)}
-                    onDownload={() => download(id)}
-                    busy={busyId === id}
-                    busyAction={busyAction}
-                  />
-                );
-              })}
-            </div>
+        <SectionState query={query} skeleton="list" label="Loading your documents"
+          empty={{ title: "No document categories yet", message: "Your organization has not set up document categories." }}>
+          {(categories) => (
+            <>
+              {summary.required > 0 && (
+                <p className="text-sm text-slate-600 dark:text-[#94a3b8]" data-testid="my-files-summary">
+                  {summary.done} of {summary.required} required documents approved
+                  {summary.attention > 0 && <> · <strong className="text-amber-700">{summary.attention} need your attention</strong></>}
+                </p>
+              )}
+              <ul className="space-y-3">
+                {categories.map((cat) => {
+                  const expanded = openIds.has(cat.id);
+                  const panelId = `cat-panel-${cat.id}`;
+                  return (
+                    <li key={cat.id} className="rounded-2xl border border-gray-200/80 bg-white shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
+                      <div className="flex flex-wrap items-center gap-3 px-5 py-4">
+                        <button type="button" onClick={() => toggle(cat.id)} aria-expanded={expanded} aria-controls={panelId}
+                          className="flex min-w-0 flex-1 items-center gap-2 text-left">
+                          {expanded ? <ChevronDown size={18} aria-hidden="true" /> : <ChevronRight size={18} aria-hidden="true" />}
+                          <span className="font-semibold text-slate-900 dark:text-[#f1f5f9]">{cat.name}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${cat.is_required ? "bg-blue-50 text-blue-700" : "bg-slate-100 text-slate-600"}`}>
+                            {cat.is_required ? "Required" : "Optional"}
+                          </span>
+                          <span className="text-xs text-slate-500">{cat.file_count} file{cat.file_count === 1 ? "" : "s"}</span>
+                        </button>
+                        <StatusChip status={cat.status} />
+                        {cat.can_upload && cat.status === "not_uploaded" && (
+                          <button type="button" onClick={() => setDialog({ category: cat })}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+                            <UploadCloud size={14} aria-hidden="true" /> Upload
+                          </button>
+                        )}
+                      </div>
+                      {expanded && (
+                        <div id={panelId} className="border-t border-gray-100 px-5 py-3 dark:border-[#334155]">
+                          {!cat.can_upload && (
+                            <p className="mb-2 text-xs text-slate-500">HR issues the documents in this category; you can view them here.</p>
+                          )}
+                          {cat.files.length === 0 ? (
+                            <p className="py-3 text-sm text-slate-500">Nothing here yet.</p>
+                          ) : (
+                            <ul className="divide-y divide-gray-100 dark:divide-[#334155]">
+                              {cat.files.map((f) => (
+                                <li key={f.id} className="flex flex-wrap items-center gap-3 py-3">
+                                  <FileText size={18} className="text-slate-400" aria-hidden="true" />
+                                  <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium text-slate-900 dark:text-[#f1f5f9]">{f.title}</p>
+                                    <p className="text-xs text-slate-500">
+                                      {[`v${f.version}`, f.uploaded_at && `Uploaded ${formatDate(f.uploaded_at)}`,
+                                        f.expiry_date && `Expires ${formatDate(f.expiry_date)}`].filter(Boolean).join(" · ")}
+                                    </p>
+                                    {f.rejection_reason && (
+                                      <p className="mt-1 text-xs text-rose-700"><span className="font-semibold">Reason:</span> {f.rejection_reason}</p>
+                                    )}
+                                  </div>
+                                  <StatusChip status={f.status} />
+                                  <button type="button" onClick={() => setPreviewing(f)} aria-label={`View ${f.title}`}
+                                    className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
+                                    <Eye size={14} aria-hidden="true" /> View
+                                  </button>
+                                  {cat.can_upload && NEEDS_NEW_COPY.has(f.status) && (
+                                    <button type="button" onClick={() => setDialog({ category: cat, replacesDocumentId: f.id, replacingTitle: f.title })}
+                                      className="inline-flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+                                      <UploadCloud size={14} aria-hidden="true" /> Upload new copy
+                                    </button>
+                                  )}
+                                  {cat.can_upload && f.status === DocumentStatus.PENDING && !f.decided_by && (
+                                    <button type="button" onClick={() => remove(f)} disabled={withdraw.isPending}
+                                      aria-label={`Remove ${f.title}`}
+                                      className="inline-flex items-center gap-1 rounded-lg border border-rose-200 px-2.5 py-1.5 text-xs font-semibold text-rose-700 hover:bg-rose-50 disabled:opacity-60">
+                                      {withdraw.isPending ? <Loader2 size={14} className="animate-spin" aria-hidden="true" /> : <Trash2 size={14} aria-hidden="true" />} Remove
+                                    </button>
+                                  )}
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {cat.can_upload && cat.status !== "not_uploaded" && (!cat.max_files || cat.file_count < cat.max_files) && (
+                            <button type="button" onClick={() => setDialog({ category: cat })}
+                              className="mt-2 inline-flex items-center gap-1.5 text-xs font-semibold text-blue-700 hover:underline">
+                              <UploadCloud size={14} aria-hidden="true" /> Add another file
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
           )}
-        </div>
-
+        </SectionState>
       </div>
-      <DocumentPreviewModal preview={preview} onClose={closePreview} onDownload={downloadFromPreview} />
+
+      <UploadDialog open={Boolean(dialog)} category={dialog?.category || null} replacesDocumentId={dialog?.replacesDocumentId}
+        replacingTitle={dialog?.replacingTitle} onSubmit={submit} onClose={() => setDialog(null)} />
+      <FilePreviewDrawer open={Boolean(previewing)} documentId={previewing?.id} title={previewing?.title}
+        onClose={() => setPreviewing(null)} />
     </EmployeeDocumentsLayout>
   );
 }

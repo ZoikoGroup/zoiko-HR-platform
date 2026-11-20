@@ -29,6 +29,7 @@ INTEGRATION_MODULES = (
     "app.modules.hr.performance_documents",
     "app.modules.hr.learning_documents",
     "app.modules.hr.change_documents",
+    "app.modules.hr.documents.filing",              # executed documents → the employee's containers (signed copy)
 )
 
 _handlers: dict[tuple[str, str], list[Callable]] = defaultdict(list)
@@ -41,6 +42,17 @@ def on(event: str, canonical_ids: Iterable[str], handler: Callable) -> None:
     for cid in canonical_ids:
         if handler not in _handlers[(event, cid)]:
             _handlers[(event, cid)].append(handler)
+
+
+_any_handlers: dict[str, list[Callable]] = defaultdict(list)
+
+
+def on_any(event: str, handler: Callable) -> None:
+    """handler(db, doc) for `event` on every template (e.g. filing every executed document)."""
+    if event not in EVENTS:
+        raise ValueError(f"unknown document event {event}")
+    if handler not in _any_handlers[event]:
+        _any_handlers[event].append(handler)
 
 
 def load_integrations() -> None:
@@ -74,7 +86,7 @@ def provide(ctx, canonical_id: str) -> None:
 
 def dispatch(db, event: str, doc) -> None:
     load_integrations()
-    for handler in list(_handlers.get((event, doc.canonical_id), [])):
+    for handler in list(_handlers.get((event, doc.canonical_id), [])) + list(_any_handlers.get(event, [])):
         try:
             handler(db, doc)
         except Exception:

@@ -10,6 +10,7 @@
  * to the element that opened it on close.
  */
 import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 import { Link } from "react-router-dom";
 import { safeNotificationLink } from "../../utils/notificationType";
@@ -51,8 +52,10 @@ export default function NotificationDetailDialog({ load, isAdmin = false, onClos
     };
   }, [onClose]);
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
+  // Rendered at <body> level: the bell lives in the sticky header, whose backdrop blur makes it the containing block for
+  // `fixed` descendants. Inside it the dialog was squeezed into the header's 80px strip, cut off with no message visible.
+  return createPortal(
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
@@ -82,6 +85,7 @@ export default function NotificationDetailDialog({ load, isAdmin = false, onClos
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

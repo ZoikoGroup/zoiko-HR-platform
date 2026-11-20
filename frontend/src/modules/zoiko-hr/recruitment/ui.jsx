@@ -92,6 +92,10 @@ export function ModuleLayout({ module, items = [], pageOfTitle = {}, title, brea
                       ? plain ? "bg-blue-50 text-blue-800 ring-1 ring-inset ring-blue-100" : "bg-slate-50 text-[#0A1128] shadow-[0_-2px_8px_rgba(0,0,0,0.08)]"
                       : plain ? "text-slate-600 hover:bg-slate-100 hover:text-slate-900" : "text-slate-300 hover:bg-white/10 hover:text-white"}`}>
                   <Icon className="h-4 w-4" aria-hidden="true" />{item.label}
+                  {item.count > 0 && (
+                    <span className="ml-0.5 min-w-[1.25rem] rounded-full bg-blue-600 px-1.5 text-center text-[11px] font-semibold leading-5 text-white"
+                      aria-label={`${item.count} need attention`}>{item.count > 99 ? "99+" : item.count}</span>
+                  )}
                 </NavLink>
               );
             })}

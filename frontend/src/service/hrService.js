@@ -952,3 +952,6 @@ export const assignFolderToEmployees = (folderId, employeeIds, notes = "") => {
   if (notes) fd.append("notes", notes);
   return api.post(`/hr/document-folders/${folderId}/assign`, fd).then(data => ({ data }));
 };
+
+/** Authenticated file download for any document-module path (ZIP exports, version files): `{ blob, filename }`. */
+export { fetchDocumentFile as fetchAuthenticatedFile };

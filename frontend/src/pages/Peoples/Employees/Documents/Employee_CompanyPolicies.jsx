@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 import { AlertCircle, CheckCircle2, FileText, History, Loader2 } from "lucide-react";
 import { EmployeeDocumentsLayout } from "../../../../modules/zoiko-hr/documents/ui";
 import { listMyPolicies } from "../../../../service/workDocumentsService";
+import { getMyCompanyDocuments } from "../../../../service/documentsService";
 import { formatDate } from "../../../../utils/dateTime";
 
 const fmt = (v) => (v ? formatDate(v) : "—");
@@ -13,16 +14,42 @@ const fmt = (v) => (v ? formatDate(v) : "—");
 export default function EmployeeCompanyPolicies() {
   const [items, setItems] = useState(null);
   const [error, setError] = useState(null);
+  // Uploaded policy files (Company Documents → Company Policies) that the company asked everyone to confirm reading.
+  const [uploaded, setUploaded] = useState([]);
 
   useEffect(() => {
     listMyPolicies().then((r) => setItems(r?.items || [])).catch((e) => setError(e?.message || "Your policies could not be loaded."));
+    getMyCompanyDocuments()
+      .then((r) => setUploaded((r?.groups || []).filter((g) => g.category?.key === "company_policies").flatMap((g) => g.items)
+        .filter((i) => i.require_ack)))
+      .catch(() => setUploaded([]));
   }, []);
 
   return (
     <EmployeeDocumentsLayout title="Company policies" subtitle="The policies that apply to you, and the versions you have received.">
       {error && <p role="alert" className="rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</p>}
       {!items && !error && <p className="flex items-center gap-2 text-sm text-slate-500"><Loader2 size={16} className="animate-spin" aria-hidden="true" /> Loading…</p>}
-      {items && items.length === 0 && <p className="text-sm text-slate-600">No policies have been published to you yet.</p>}
+      {uploaded.length > 0 && (
+        <section aria-label="Policy files to confirm" className="mb-4 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+          <h2 className="mb-2 text-base font-semibold text-slate-900">Policy files</h2>
+          <ul className="divide-y divide-slate-100 text-sm">
+            {uploaded.map((d) => (
+              <li key={d.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                <span className="flex items-center gap-2"><FileText size={14} className="text-slate-400" aria-hidden="true" /> {d.title}</span>
+                {d.needs_ack ? (
+                  <Link to={`/employee/documents/company?document=${d.id}`}
+                    className="inline-flex items-center gap-1.5 rounded-xl bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+                    <AlertCircle size={14} aria-hidden="true" /> Read and confirm
+                  </Link>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-xs text-emerald-700"><CheckCircle2 size={14} aria-hidden="true" /> Read {fmt(d.acknowledged_at)}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+      {items && items.length === 0 && uploaded.length === 0 && <p className="text-sm text-slate-600">No policies have been published to you yet.</p>}
       {items && items.length > 0 && (
         <ul className="space-y-4" aria-label="Company policies">
           {items.map((p) => (

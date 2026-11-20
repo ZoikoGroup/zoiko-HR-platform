@@ -100,6 +100,8 @@ def _ser_correction(c: AttendanceCorrectionRequest) -> dict:
     return {"id": c.id, "employee_id": c.employee_id, "attendance_record_id": c.attendance_record_id, "date": c.date,
             "original_check_in": c.original_check_in, "original_check_out": c.original_check_out,
             "requested_check_in": c.requested_check_in, "requested_check_out": c.requested_check_out, "reason": c.reason,
+            "kind": getattr(c, "kind", None) or "missed_punch", "requested_status": getattr(c, "requested_status", None),
+            "requested_breaks": getattr(c, "requested_breaks", None),
             "reason_detail": c.reason_detail, "status": c.status, "requested_by": c.requested_by, "decided_by": c.decided_by,
             "decided_at": c.decided_at, "decision_reason": c.decision_reason, "applied_at": c.applied_at, "document_id": c.document_id,
             "created_at": c.created_at}
@@ -154,9 +156,15 @@ def decide_overtime(db, user, o: OvertimeRequest, *, approve: bool, reason: Opti
         rec = (db.query(AttendanceRecord).filter(AttendanceRecord.employee_id == o.employee_id, AttendanceRecord.date == o.date,
                                                  AttendanceRecord.is_deleted.isnot(True)).order_by(AttendanceRecord.id.desc()).first())
         if rec is not None:
+            before = {"overtime_authorized_hours": float(rec.overtime_authorized_hours or 0)}
             rec.overtime_authorized_hours = Decimal(rec.overtime_authorized_hours or 0) + Decimal(o.hours)
             rec.overtime_request_id = o.id
             o.attendance_record_id = rec.id
+            from app.modules.hr.attendance import audit as att_audit     # every attendance change is in the trail (M7)
+            att_audit.record(db, organization_id=rec.organization_id, employee_id=rec.employee_id, work_date=rec.date,
+                             action="overtime_approved", attendance_id=rec.id, actor=user, source="correction", before=before,
+                             after={"overtime_authorized_hours": float(rec.overtime_authorized_hours)},
+                             reason=f"Overtime request {o.id} approved ({float(o.hours):g} h, {o.start_time}–{o.end_time})")
     db.commit()
     from app.modules.hr.hr_notifications import notify_employee
     notify_employee(db, o.organization_id, o.employee_id, "overtime.approved" if approve else "overtime.rejected",
@@ -202,9 +210,32 @@ def _at(on: date, value) -> datetime:
     return datetime.combine(on, _hm(value))
 
 
+# Correction kinds (attendance plan M4). Times are the person's local wall-clock times; breaks are [{"start","end"}].
+CORRECTION_KINDS = {"missed_punch": "Missed punch", "time_change": "Wrong times", "wrong_status": "Wrong status", "break": "Breaks"}
+REQUESTABLE_STATUSES = ("present", "remote", "half_day")      # leave goes through Leave; HR sets anything else directly
+
+
+def _break_list(on: date, raw, check_in: Optional[datetime]) -> list:
+    """[{"start": "13:00", "end": "13:30"}] -> validated [{"start": "13:00", "end": "13:30"}] (at most 6)."""
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(422, "Add at least one break with a start and an end.")
+    if len(raw) > 6:
+        raise HTTPException(422, "At most 6 breaks.")
+    out = []
+    for b in raw:
+        try:
+            start, stop = _hm(str(b.get("start"))), _hm(str(b.get("end")))
+        except (AttributeError, ValueError, TypeError, HTTPException):
+            raise HTTPException(422, "Each break needs a start and an end like 13:00.")
+        if start == stop:
+            raise HTTPException(422, "A break must last at least a minute.")
+        out.append({"start": start.strftime("%H:%M"), "end": stop.strftime("%H:%M")})
+    return out
+
+
 def request_correction(db, user, data: dict) -> AttendanceCorrectionRequest:
     employee_id = data.get("employee_id") or user.id
-    _employee(db, user.organization_id, employee_id)
+    employee = _employee(db, user.organization_id, employee_id)
     if employee_id != user.id:
         _require_manage(db, user, employee_id)
     if not data.get("confirm_accurate"):
@@ -213,19 +244,47 @@ def request_correction(db, user, data: dict) -> AttendanceCorrectionRequest:
         raise HTTPException(422, f"reason must be one of {', '.join(CORRECTION_REASONS)}.")
     if data["reason"] == "other" and not (data.get("reason_detail") or "").strip():
         raise HTTPException(422, "Describe the reason.")
+    kind = data.get("kind") or "missed_punch"
+    if kind not in CORRECTION_KINDS:
+        raise HTTPException(422, f"kind must be one of {', '.join(CORRECTION_KINDS)}.")
     on = data["date"]
-    if on > date.today():
-        raise HTTPException(422, "You can only correct a day that has passed.")
-    cin, cout = _at(on, data["requested_check_in"]), _at(on, data["requested_check_out"])
-    if cout <= cin:
-        cout += timedelta(days=1)
+    from app.modules.hr.attendance import clock as att_clock
+    from app.modules.hr.attendance.punch_service import tz_of
+    if on > att_clock.local_today(tz_of(db, employee)):
+        raise HTTPException(422, "You can only correct today or a day that has passed.")
     rec = (db.query(AttendanceRecord).filter(AttendanceRecord.employee_id == employee_id, AttendanceRecord.date == on,
                                              AttendanceRecord.organization_id == user.organization_id,
                                              AttendanceRecord.is_deleted.isnot(True)).order_by(AttendanceRecord.id.desc()).first())
+    pending = (db.query(AttendanceCorrectionRequest.id)
+               .filter(AttendanceCorrectionRequest.organization_id == user.organization_id,
+                       AttendanceCorrectionRequest.employee_id == employee_id, AttendanceCorrectionRequest.date == on,
+                       AttendanceCorrectionRequest.status == "PENDING").first())
+    if pending:
+        raise HTTPException(409, "A correction for this day is already waiting for a decision.")
+    cin = cout = None
+    status = breaks = None
+    if kind in ("missed_punch", "time_change"):
+        raw_in = data.get("requested_check_in") or (rec.check_in if rec and rec.check_in else None)
+        if not raw_in or not data.get("requested_check_out"):
+            raise HTTPException(422, "Give the check-in and check-out times.")
+        cin, cout = _at(on, raw_in), _at(on, data["requested_check_out"])
+        if cout <= cin:
+            cout += timedelta(days=1)                 # a night shift ending after midnight
+        if (cout - cin) > timedelta(hours=20):
+            raise HTTPException(422, "A working day cannot be longer than 20 hours.")
+    elif kind == "wrong_status":
+        status = (data.get("requested_status") or "").lower()
+        if status not in REQUESTABLE_STATUSES:
+            raise HTTPException(422, f"requested_status must be one of {', '.join(REQUESTABLE_STATUSES)} (use Leave for time off).")
+    else:
+        if rec is None or (rec.check_in is None and rec.check_in_at is None):
+            raise HTTPException(422, "There is no punch-in on this day to add breaks to. Ask for a missed punch first.")
+        breaks = _break_list(on, data.get("requested_breaks"), rec.check_in)
     c = AttendanceCorrectionRequest(organization_id=user.organization_id, employee_id=employee_id,
                                     attendance_record_id=rec.id if rec else None, date=on,
                                     original_check_in=rec.check_in if rec else None, original_check_out=rec.check_out if rec else None,
-                                    requested_check_in=cin, requested_check_out=cout, reason=data["reason"],
+                                    requested_check_in=cin, requested_check_out=cout, kind=kind, requested_status=status,
+                                    requested_breaks=breaks, reason=data["reason"],
                                     reason_detail=(data.get("reason_detail") or "").strip() or None,
                                     evidence_file=data.get("evidence_file"), declared_at=datetime.utcnow(), requested_by=user.id,
                                     status="PENDING")
@@ -235,23 +294,60 @@ def request_correction(db, user, data: dict) -> AttendanceCorrectionRequest:
 
 
 def apply_correction(db, actor, c: AttendanceCorrectionRequest) -> AttendanceRecord:
-    """Write the approved times to attendance_records; the originals stay on the correction request."""
+    """Write an approved correction to the day (attendance plan M4): times (local wall clock and UTC), breaks or status,
+    then recompute status and hours. The originals stay on the request and in the attendance audit log."""
+    from app.modules.employee.models import Employee
+    from app.modules.hr.attendance import audit, clock as att_clock
+    from app.modules.hr.attendance.models import AttendanceBreak
+    from app.modules.hr.attendance.punch_service import recompute, tz_of
+    employee = db.get(Employee, c.employee_id)
+    tz = tz_of(db, employee)
     rec = db.get(AttendanceRecord, c.attendance_record_id) if c.attendance_record_id else None
+    if rec is not None and rec.is_deleted:
+        rec = None
+    created = rec is None
     if rec is None:
         rec = AttendanceRecord(employee_id=c.employee_id, organization_id=c.organization_id, date=c.date, status=AttendanceStatus.PRESENT,
-                               notes="Created from an approved attendance correction")
+                               notes="Created from an approved attendance correction", source="correction", created_by=actor.id,
+                               is_deleted=False)
         db.add(rec)
         db.flush()
         c.attendance_record_id = rec.id
-    rec.check_in, rec.check_out = c.requested_check_in, c.requested_check_out
-    rec.total_hours = round(Decimal((c.requested_check_out - c.requested_check_in).total_seconds()) / Decimal(3600), 2)
-    if rec.status in (AttendanceStatus.ABSENT,):
+    before = None if created else audit.snapshot(rec)
+    kind = getattr(c, "kind", None) or "missed_punch"
+    if c.requested_check_in is not None and c.requested_check_out is not None:
+        rec.check_in, rec.check_out = c.requested_check_in, c.requested_check_out
+        rec.check_in_at = att_clock.to_utc(c.requested_check_in, tz)
+        rec.check_out_at = att_clock.to_utc(c.requested_check_out, tz)
+        for field, old, new in (("attendance.check_in", c.original_check_in, c.requested_check_in),
+                                ("attendance.check_out", c.original_check_out, c.requested_check_out)):
+            db.add(EmployeeHistory(employee_id=c.employee_id, organization_id=c.organization_id, field_name=field,
+                                   old_value=old.isoformat() if old else None, new_value=new.isoformat(), changed_by=actor.id,
+                                   change_reason=f"Attendance correction {c.id} approved"))
+    if kind == "break" and c.requested_breaks:
+        base = rec.check_in or att_clock.to_local(rec.check_in_at, tz)
+        db.query(AttendanceBreak).filter(AttendanceBreak.attendance_id == rec.id).delete(synchronize_session=False)
+        for b in c.requested_breaks:
+            start, stop = _at(c.date, b["start"]), _at(c.date, b["end"])
+            if base is not None and start < base:          # a night shift's break after midnight
+                start += timedelta(days=1)
+            if stop <= start:
+                stop += timedelta(days=1)
+            db.add(AttendanceBreak(organization_id=rec.organization_id, attendance_id=rec.id, source="correction",
+                                   start_at=att_clock.to_utc(start, tz), end_at=att_clock.to_utc(stop, tz)))
+        db.flush()
+    if kind == "wrong_status" and c.requested_status:
+        rec.status = AttendanceStatus(c.requested_status)
+        rec.status_locked = True                           # an approved decision: the engine must not overwrite it
+    elif rec.status in (AttendanceStatus.ABSENT, AttendanceStatus.MISSED_PUNCH) and not rec.status_locked:
         rec.status = AttendanceStatus.PRESENT
-    for field, old, new in (("attendance.check_in", c.original_check_in, c.requested_check_in),
-                            ("attendance.check_out", c.original_check_out, c.requested_check_out)):
-        db.add(EmployeeHistory(employee_id=c.employee_id, organization_id=c.organization_id, field_name=field,
-                               old_value=old.isoformat() if old else None, new_value=new.isoformat(), changed_by=actor.id,
-                               change_reason=f"Attendance correction {c.id} approved"))
+    rec.updated_by = actor.id
+    closed = c.date < att_clock.local_today(tz) or rec.check_out_at is not None
+    recompute(db, rec, employee, day_closed=closed, tz=tz)
+    detail = CORRECTION_REASONS.get(c.reason, c.reason) + (f": {c.reason_detail}" if c.reason_detail else "")
+    audit.record(db, organization_id=rec.organization_id, employee_id=c.employee_id, work_date=c.date, action="corrected",
+                 attendance_id=rec.id, actor=actor, source="correction", before=before, after=audit.snapshot(rec),
+                 reason=f"Correction {c.id} ({CORRECTION_KINDS.get(kind, kind).lower()}) approved. {detail}"[:1000])
     c.applied_at = datetime.utcnow()
     return rec
 
@@ -367,7 +463,8 @@ def publish_roster(db, user, data: dict, *, preview: bool = False) -> dict:
                 row = (db.query(ShiftRoster).filter(ShiftRoster.employee_id == eid, ShiftRoster.date == day, ShiftRoster.is_active.is_(True))
                        .first())
                 if row is None:
-                    row = ShiftRoster(employee_id=eid, shift_id=s.id, date=day, assigned_by=user.id, is_active=True)
+                    row = ShiftRoster(employee_id=eid, shift_id=s.id, date=day, assigned_by=user.id, is_active=True,
+                                      organization_id=user.organization_id)
                     db.add(row)
                 row.shift_id, row.notice_id = s.id, notice.id
                 rows.append(row)
@@ -423,7 +520,8 @@ def change_shifts(db, user, data: dict) -> dict:
         row = (db.query(ShiftRoster).filter(ShiftRoster.employee_id == eid, ShiftRoster.date == day, ShiftRoster.is_active.is_(True)).first())
         previous = db.get(Shift, row.shift_id) if row else None
         if row is None:
-            row = ShiftRoster(employee_id=eid, shift_id=new.id, date=day, assigned_by=user.id, is_active=True)
+            row = ShiftRoster(employee_id=eid, shift_id=new.id, date=day, assigned_by=user.id, is_active=True,
+                              organization_id=user.organization_id)
             db.add(row)
         row.shift_id, row.notice_id = new.id, notice.id
         changes.append([formatting.format_date(day, "en", None), _label(previous), _label(new)])
@@ -479,8 +577,11 @@ class Decision(BaseModel):
 class CorrectionIn(BaseModel):
     employee_id: Optional[int] = None
     date: date
-    requested_check_in: str = Field(..., pattern=r"^\d{2}:\d{2}$")
-    requested_check_out: str = Field(..., pattern=r"^\d{2}:\d{2}$")
+    kind: str = Field("missed_punch", pattern="^(missed_punch|time_change|wrong_status|break)$")
+    requested_check_in: Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$")
+    requested_check_out: Optional[str] = Field(None, pattern=r"^\d{2}:\d{2}$")
+    requested_status: Optional[str] = Field(None, max_length=20)
+    requested_breaks: Optional[list[dict]] = Field(None, max_length=6)
     reason: str = Field(..., pattern="^(forgot|system_issue|off_site|other)$")
     reason_detail: Optional[str] = Field(None, max_length=1000)
     confirm_accurate: bool = False

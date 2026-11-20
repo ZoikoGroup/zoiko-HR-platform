@@ -1,0 +1,18 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui with context %}
+{% set title = heading %}
+{% set preheader = message %}
+{% set badge = heading %}
+{% set badge_tone = badge_tone or "info" %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">{{ heading }}</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello {{ first_name }},</p>
+<p class="t-body dm-text-body" style="{{ S.p }} white-space:pre-line;">{{ message }}</p>
+{% if reason %}
+{% call ui.details() %}
+{{ ui.detail_row("Reason", reason, first=True) }}
+{% endcall %}
+{% endif %}
+{{ ui.button(action_url, action_label or "Open Zoiko HR") }}
+{{ ui.signoff() }}
+{% endblock %}

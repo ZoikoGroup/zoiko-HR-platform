@@ -6,7 +6,7 @@ import DocumentPreviewModal from "../../../../components/DocumentPreviewModal";
 import DocumentRow from "../../../../components/documents/DocumentRow";
 import DocumentEmptyState from "../../../../components/documents/DocumentEmptyState";
 import DocumentErrorState from "../../../../components/documents/DocumentErrorState";
-import { Loader2, ShieldCheck, Info, FileText } from "lucide-react";
+import { Loader2, ShieldCheck, FileText } from "lucide-react";
 
 const TYPE_META = {
   "form 16":      { icon: "📄", color: "#1D4ED8", bg: "#EFF6FF", label: "Form 16" },
@@ -36,7 +36,7 @@ export default function TaxCompliance() {
       setLoading(true);
       setError(null);
       try {
-        const res = await getDocuments({ category: "tax" });
+        const res = await getDocuments({ category: "tax", mine: true });
         const data = res?.data || res?.items || res?.data?.items || [];
         if (mounted) setRawDocs(Array.isArray(data) ? data : []);
       } catch (e) {
@@ -65,7 +65,7 @@ export default function TaxCompliance() {
 
   if (loading) {
     return (
-      <EmployeeDocumentsLayout title="Tax & Compliance" subtitle="Access your Form 16, TDS certificates, and investment declarations.">
+      <EmployeeDocumentsLayout title="Tax & Compliance" subtitle="Your tax certificates, statements and compliance documents.">
         <div className="flex flex-col items-center justify-center py-20 gap-3">
           <Loader2 className="w-8 h-8 animate-spin text-doc-primary" />
           <span className="text-sm text-doc-ink-soft dark:text-[#94a3b8]">Loading tax documents...</span>
@@ -75,7 +75,7 @@ export default function TaxCompliance() {
   }
 
   return (
-    <EmployeeDocumentsLayout title="Tax & Compliance" subtitle="Access your Form 16, TDS certificates, and investment declarations.">
+    <EmployeeDocumentsLayout title="Tax & Compliance" subtitle="Your tax certificates, statements and compliance documents.">
       <div className="space-y-3 mb-6">
         <DocumentErrorState message={error} />
         <DocumentErrorState message={fileError} />
@@ -83,19 +83,6 @@ export default function TaxCompliance() {
 
       {!error && (
         <>
-          {/* Info Banner */}
-          <div className="mb-6 px-5 py-4 rounded-xl bg-doc-primary/5 dark:from-blue-900/20 dark:to-indigo-900/20 dark:bg-gradient-to-r border border-doc-primary/20 dark:border-blue-800/40 flex items-start gap-3">
-            <div className="p-1.5 rounded-lg bg-doc-primary/10 dark:bg-blue-900/40 shrink-0 mt-0.5">
-              <Info size={16} className="text-doc-primary dark:text-blue-400" />
-            </div>
-            <div>
-              <p className="text-sm font-medium text-doc-ink dark:text-blue-200 m-0">Tax Filing Notice</p>
-              <p className="text-xs text-doc-ink-soft dark:text-blue-400 m-0 mt-1">
-                Form 16 for FY 2025-26 will be available by July 15, 2026. Please consult your tax advisor for filing.
-              </p>
-            </div>
-          </div>
-
           {/* Document List */}
           {taxDocs.length === 0 ? (
             <DocumentEmptyState icon={ShieldCheck} title="No tax documents yet" message="Tax documents assigned to you will appear here." />

@@ -7,17 +7,19 @@ import { AlertTriangle, CheckCircle2, ClipboardList, Loader2 } from "lucide-reac
 import { getMyDocumentActions } from "../../service/goLiveService";
 import { formatDate } from "../../utils/dateTime";
 
-const ACTION = { acknowledge: "Acknowledge", sign: "Sign", complete: "Complete", review: "Review" };
+const ACTION = { acknowledge: "Acknowledge", sign: "Sign", complete: "Complete", review: "Review", upload: "Upload" };
 
-export function useDocumentActions() {
-  const [state, setState] = useState({ loading: true, error: null, items: [], overdue: 0 });
+/** Everything waiting for the signed-in person. `reloadKey` changes → load again (the page's Refresh). */
+export function useDocumentActions(reloadKey = 0) {
+  const [state, setState] = useState({ loading: true, error: null, items: [], overdue: 0, byKind: {} });
   useEffect(() => {
     let alive = true;
+    setState((s) => ({ ...s, loading: true, error: null }));
     getMyDocumentActions()
-      .then((r) => alive && setState({ loading: false, error: null, items: r?.items || [], overdue: r?.overdue || 0 }))
-      .catch((e) => alive && setState({ loading: false, error: e?.message || "Could not load your documents.", items: [], overdue: 0 }));
+      .then((r) => alive && setState({ loading: false, error: null, items: r?.items || [], overdue: r?.overdue || 0, byKind: r?.by_kind || {} }))
+      .catch((e) => alive && setState({ loading: false, error: e?.message || "Could not load your documents.", items: [], overdue: 0, byKind: {} }));
     return () => { alive = false; };
-  }, []);
+  }, [reloadKey]);
   return state;
 }
 

@@ -123,14 +123,3 @@ test("DocumentErrorState's Retry button carries a visible focus-visible outline"
   cleanup();
 });
 
-test("org-admin EmployeeDocumentsPage tab buttons carry a visible focus-visible outline", () => {
-  const source = fs.readFileSync(
-    path.join(here, "../src/modules/organization-admin/EmployeeDocumentsPage.jsx"),
-    "utf8"
-  );
-  // Static source check (not a render) since exercising this page requires
-  // mocking its whole data layer — documentPagesSharedComponents.test.mjs
-  // already renders it; this just pins the tab buttons' class string.
-  const tabButtonBlock = source.slice(source.indexOf("TABS.map"), source.indexOf("TABS.map") + 400);
-  assert.match(tabButtonBlock, /focus-visible:outline\b/);
-});

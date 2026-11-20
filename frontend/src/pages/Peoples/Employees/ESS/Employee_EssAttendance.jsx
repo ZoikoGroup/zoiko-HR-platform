@@ -1,411 +1,191 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Download, Search } from "lucide-react";
+import { ChevronLeft, ChevronRight, Download, Search } from "lucide-react";
 import EmployeePageShell from "../../../../components/employee/EmployeePageShell";
-import EmployeeStatusBadge from "../../../../components/employee/EmployeeStatusBadge";
-import { getAttendanceRecords } from "../../../../service/employee";
+import PunchCard from "../../../../modules/zoiko-hr/attendance/components/PunchCard";
+import ShiftInfoCard from "../../../../modules/zoiko-hr/attendance/components/ShiftInfoCard";
+import AttendanceCalendar from "../../../../modules/zoiko-hr/attendance/components/AttendanceCalendar";
+import AttendanceStatusChip from "../../../../modules/zoiko-hr/attendance/components/AttendanceStatusChip";
+import DayDetailDrawer from "../../../../modules/zoiko-hr/attendance/components/DayDetailDrawer";
+import { errorText, formatMinutes, STATUS } from "../../../../modules/zoiko-hr/attendance/constants";
+import {
+  useEndBreak, useMyAttendanceMonth, useMyAttendanceToday, usePunchIn, usePunchOut, useStartBreak,
+} from "../../../../modules/zoiko-hr/attendance/hooks/useMyAttendance";
+import { formatDate } from "../../../../utils/dateTime";
 
-// Helper to format date cleanly
-function formatDateLabel(dateStr) {
-  if (!dateStr) return "-";
-  try {
-    const d = new Date(dateStr);
-    if (isNaN(d.getTime())) return dateStr;
-    return d.toLocaleDateString("en-US", {
-      weekday: "short",
-      month: "short",
-      day: "numeric",
-      year: "numeric",
-    });
-  } catch {
-    return dateStr;
-  }
+const FILTERS = [["all", "All"], ["present", "Present"], ["late", "Late"], ["absent", "Absent"]];
+
+function shiftMonth(month, delta) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
 }
 
-export default function EssAttendance() {
-  const [records, setRecords] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-  const [statusFilter, setStatusFilter] = useState("all");
-  const [searchQuery, setSearchQuery] = useState("");
-  const mounted = useRef(true);
+function monthLabel(month) {
+  const [y, m] = month.split("-").map(Number);
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", { month: "long", year: "numeric" });
+}
 
-  // Fetch Attendance records — dynamic only, no mock fallback
-  useEffect(() => {
-    mounted.current = true;
-    setLoading(true);
-    setError(null);
+function Kpi({ label, value, hint, tone = "text-slate-900" }) {
+  return (
+    <div className="rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
+      <p className="text-xs font-bold uppercase tracking-wider text-slate-400">{label}</p>
+      <p className={`mt-2 text-2xl font-black ${tone} dark:text-white`}>{value}</p>
+      {hint && <p className="mt-1 text-[11px] font-medium text-slate-500">{hint}</p>}
+    </div>
+  );
+}
 
-    getAttendanceRecords()
-      .then((data) => {
-        if (!mounted.current) return;
-        const list = data?.items || (Array.isArray(data) ? data : []);
-        setRecords(list);
-        setError(null);
-      })
-      .catch((err) => {
-        if (mounted.current) {
-          setError(err?.message || "Failed to load attendance records.");
-        }
-      })
-      .finally(() => {
-        if (mounted.current) setLoading(false);
-      });
-
-    return () => {
-      mounted.current = false;
-    };
-  }, []);
-
-  // Compute metrics from records (dynamic only)
-  const metrics = useMemo(() => {
-    const total = records.length;
-    const present = records.filter(
-      (r) => (r.status || "").toLowerCase() === "present"
-    ).length;
-    const late = records.filter(
-      (r) => (r.status || "").toLowerCase() === "late"
-    ).length;
-    const absent = records.filter(
-      (r) => (r.status || "").toLowerCase() === "absent"
-    ).length;
-    const halfDay = records.filter(
-      (r) => (r.status || "").toLowerCase() === "half day"
-    ).length;
-
-    const workingDays = Math.max(present + late + halfDay + absent, 1);
-    const attendanceRate = Math.round(((present + late) / workingDays) * 100);
-    const punctualityRate = Math.round(
-      (present / Math.max(present + late, 1)) * 100
-    );
-
-    let hoursSum = 0;
-    let hoursCount = 0;
-    let overtimeSum = 0;
-
-    records.forEach((r) => {
-      const h =
-        typeof r.total_hours === "number"
-          ? r.total_hours
-          : parseFloat(String(r.hours || "0"));
-      if (!isNaN(h) && h > 0) {
-        hoursSum += h;
-        hoursCount++;
-        if (h > 8.0) {
-          overtimeSum += h - 8.0;
-        }
-      }
-    });
-
-    const avgHours = hoursCount > 0 ? (hoursSum / hoursCount).toFixed(1) : "0.0";
-
-    return {
-      total,
-      present,
-      late,
-      absent,
-      halfDay,
-      attendanceRate,
-      punctualityRate,
-      avgHours,
-      overtimeHours: overtimeSum.toFixed(1),
-    };
-  }, [records]);
-
-  // Filtered records for table
-  const filteredRecords = useMemo(() => {
-    return records.filter((r) => {
-      const statusMatch =
-        statusFilter === "all" ||
-        (r.status || "").toLowerCase() === statusFilter.toLowerCase();
-      const q = searchQuery.toLowerCase().trim();
-      const searchMatch =
-        !q ||
-        (r.date || "").toLowerCase().includes(q) ||
-        (r.status || "").toLowerCase().includes(q) ||
-        (r.shift || "").toLowerCase().includes(q);
-      return statusMatch && searchMatch;
-    });
-  }, [records, statusFilter, searchQuery]);
-
-  // Export CSV function
-  const handleExportCSV = () => {
-    if (records.length === 0) return;
-    const headers = ["Date", "Shift", "Check In", "Check Out", "Hours", "Overtime", "Status"];
-    const rows = filteredRecords.map((r) => [
-      r.date || "",
-      r.shift || "-",
-      r.checkIn || r.check_in || "-",
-      r.checkOut || r.check_out || "-",
-      r.hours || "-",
-      r.overtime || "-",
-      r.status || "-",
-    ]);
-
-    const csvContent =
-      "data:text/csv;charset=utf-8," +
-      [headers.join(","), ...rows.map((e) => e.join(","))].join("\n");
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement("a");
-    link.setAttribute("href", encodedUri);
-    link.setAttribute("download", `attendance_records_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+/**
+ * Employee → My Attendance (attendance plan M3): punch in / out with breaks, the shift, KPIs over working days only, a
+ * colour-coded month with day details, and the month's records. Everything is the signed-in person's own data.
+ */
+export default function EmployeeEssAttendance() {
+  const today = useMyAttendanceToday();
+  const [month, setMonth] = useState(null);                     // null = the current month (server decides, by time zone)
+  const monthQ = useMyAttendanceMonth(month);
+  const data = monthQ.data;
+  const current = month || data?.month;
+  const [filter, setFilter] = useState("all");
+  const [search, setSearch] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [actionError, setActionError] = useState(null);
+  const punchIn = usePunchIn();
+  const punchOut = usePunchOut();
+  const startBreak = useStartBreak();
+  const endBreak = useEndBreak();
+  const busy = punchIn.isPending || punchOut.isPending || startBreak.isPending || endBreak.isPending;
+  const act = (m) => async () => {
+    setActionError(null);
+    try { await m.mutateAsync(); } catch (e) { setActionError(errorText(e)); }
   };
 
-  if (loading) {
-    return (
-      <EmployeePageShell
-        title="My Attendance"
-        subtitle="Your attendance records from the server."
-      >
-        <div className="flex flex-col justify-center items-center py-24">
-          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mb-3" />
-          <p className="text-sm text-slate-500 font-medium">Loading attendance records...</p>
-        </div>
-      </EmployeePageShell>
-    );
-  }
+  const k = data?.kpis;
+  const rows = useMemo(() => {
+    const needle = search.trim().toLowerCase();
+    return (data?.days || [])
+      .filter((d) => !d.future && d.status)
+      .filter((d) => filter === "all" || d.status === filter)
+      .filter((d) => !needle || d.date.includes(needle) || (STATUS[d.status]?.label || "").toLowerCase().includes(needle)
+        || (d.shift || "").toLowerCase().includes(needle))
+      .reverse();
+  }, [data, filter, search]);
 
-  if (error) {
-    return (
-      <EmployeePageShell
-        title="My Attendance"
-        subtitle="Your attendance records from the server."
-      >
-        <div role="alert" className="bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 px-4 py-4 rounded-xl text-sm font-medium flex items-center justify-between gap-4">
-          <span>{error}</span>
-          <button type="button" onClick={() => window.location.reload()} className="inline-flex items-center gap-1.5 font-semibold underline">
-            Reload
-          </button>
-        </div>
-      </EmployeePageShell>
-    );
-  }
+  const exportCsv = () => {
+    const cell = (v) => `"${String(v ?? "").replace(/"/g, '""')}"`;
+    const head = ["Date", "Status", "Shift", "Check in", "Check out", "Worked", "Breaks", "Late (min)", "Beyond standard"];
+    const body = rows.map((d) => [d.date, STATUS[d.status]?.label || d.status, d.shift || "", d.check_in || "", d.check_out || "",
+      formatMinutes(d.worked_minutes), formatMinutes(d.break_minutes), d.late_minutes || 0, formatMinutes(d.overtime_minutes)]);
+    const csv = [head, ...body].map((r) => r.map(cell).join(",")).join("\n");
+    const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8" }));
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `my_attendance_${current || "month"}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  };
 
   return (
-    <EmployeePageShell
-      title="My Attendance"
-      subtitle="Your attendance records from the server."
-      actions={
-        <div className="flex items-center gap-3">
-          <Link
-            to="/employee/ess/time-requests"
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-[#334155] text-slate-700 dark:text-slate-200 hover:bg-slate-50 transition shadow-sm"
-          >
-            Time Requests
-          </Link>
-          <button
-            type="button"
-            onClick={handleExportCSV}
-            className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl bg-blue-600 hover:bg-blue-700 text-white transition shadow-sm"
-          >
-            <Download className="w-3.5 h-3.5" />
-            Export CSV
+    <EmployeePageShell title="My Attendance" subtitle="Punch in and out, see your month and keep your record right."
+      actions={(
+        <div className="flex flex-wrap gap-2">
+          <Link to="/employee/ess/time-requests" className="rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/15">Time Requests</Link>
+          <button type="button" onClick={exportCsv} disabled={!rows.length}
+            className="flex items-center gap-2 rounded-xl border border-white/20 bg-white/10 px-4 py-2.5 text-sm font-medium text-white hover:bg-white/15 disabled:opacity-50">
+            <Download size={16} aria-hidden="true" /> Export CSV
           </button>
         </div>
-      }
-    >
+      )}>
       <div className="space-y-6">
-        {/* KPI METRICS CARDS GRID — computed from live records only */}
-        <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-6 gap-4">
-          <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-[#334155] p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#94a3b8]">
-                Present Days
-              </span>
-            </div>
-            <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.present}</p>
-            <span className="inline-block mt-2 text-[11px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/40 px-2 py-0.5 rounded-md">
-              {metrics.attendanceRate}% Attendance
-            </span>
+        <div className="grid gap-4 lg:grid-cols-3">
+          <div className="lg:col-span-2">
+            {today.isError ? (
+              <p role="alert" className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+                {today.error?.message || "Today's attendance could not be loaded."}{" "}
+                <button type="button" className="underline" onClick={() => today.refetch()}>Retry</button>
+              </p>
+            ) : today.isLoading ? (
+              <div className="h-48 animate-pulse rounded-2xl bg-slate-100" aria-label="Loading today" />
+            ) : (
+              <PunchCard today={today.data} busy={busy} error={actionError}
+                onPunchIn={act(punchIn)} onPunchOut={act(punchOut)} onStartBreak={act(startBreak)} onEndBreak={act(endBreak)} />
+            )}
           </div>
-
-          <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-[#334155] p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#94a3b8]">
-                Punctuality
-              </span>
-            </div>
-            <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.punctualityRate}%</p>
-            <span className="inline-block mt-2 text-[11px] font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded-md">
-              {metrics.present} on-time arrivals
-            </span>
-          </div>
-
-          <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-[#334155] p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#94a3b8]">
-                Late Arrivals
-              </span>
-            </div>
-            <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.late}</p>
-          </div>
-
-          <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-[#334155] p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#94a3b8]">
-                Absent Days
-              </span>
-            </div>
-            <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.absent}</p>
-          </div>
-
-          <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-[#334155] p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#94a3b8]">
-                Avg Daily Hours
-              </span>
-            </div>
-            <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.avgHours}h</p>
-          </div>
-
-          <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200/80 dark:border-[#334155] p-5 shadow-sm">
-            <div className="flex items-center justify-between mb-3">
-              <span className="text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-[#94a3b8]">
-                Overtime Logged
-              </span>
-            </div>
-            <p className="text-2xl font-black text-slate-900 dark:text-white">{metrics.overtimeHours}h</p>
-          </div>
+          <ShiftInfoCard shift={today.data?.shift} timezone={today.data?.timezone} policy={data?.policy} />
         </div>
 
-        {/* RECORDS FILTER & DATA TABLE */}
-        <div className="space-y-4">
-          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-            <div>
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">
-                Attendance Log Records
-              </h3>
-              <p className="text-xs text-slate-500 dark:text-slate-400">
-                Detailed check-in, check-out, duration, and status per date
-              </p>
-            </div>
+        <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6" aria-label="This month">
+          <Kpi label="Present days" value={k ? `${k.attended_days} / ${k.working_days}` : "—"} hint={k?.attendance_rate != null ? `${k.attendance_rate}% of working days` : "No working days yet"} />
+          <Kpi label="Punctuality" value={k?.punctuality_rate != null ? `${k.punctuality_rate}%` : "—"} hint={k ? `${k.present + k.remote} on time` : null} />
+          <Kpi label="Late arrivals" value={k ? k.late : "—"} tone={k?.late ? "text-amber-700" : "text-slate-900"} />
+          <Kpi label="Absent days" value={k ? k.absent : "—"} tone={k?.absent ? "text-rose-700" : "text-slate-900"}
+            hint={k?.missed_punch ? `${k.missed_punch} missed punch-out` : null} />
+          <Kpi label="Avg daily hours" value={k ? formatMinutes(k.avg_worked_minutes) : "—"} hint="Net of breaks" />
+          <Kpi label="Overtime" value={k ? formatMinutes(k.approved_overtime_minutes) : "—"}
+            hint={k ? `${formatMinutes(k.overtime_minutes)} beyond the standard day` : null} />
+        </div>
 
-            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <div className="inline-flex rounded-xl bg-slate-100 dark:bg-[#1e293b] p-1 border border-slate-200 dark:border-[#334155]">
-                {["all", "present", "late", "absent"].map((tab) => (
-                  <button
-                    key={tab}
-                    type="button"
-                    onClick={() => setStatusFilter(tab)}
-                    className={`px-3 py-1.5 text-xs font-bold rounded-lg capitalize transition-all ${
-                      statusFilter === tab
-                        ? "bg-white dark:bg-slate-800 text-blue-600 dark:text-blue-400 shadow-sm"
-                        : "text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
-                    }`}
-                  >
-                    {tab}
-                  </button>
-                ))}
-              </div>
-
-              <div className="relative flex-1 sm:flex-none">
-                <Search className="w-3.5 h-3.5 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input
-                  type="text"
-                  placeholder="Filter records..."
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  className="pl-8 pr-3 py-1.5 text-xs rounded-xl border border-slate-200 dark:border-[#334155] bg-white dark:bg-[#1e293b] text-slate-900 dark:text-white placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-                />
-              </div>
-            </div>
+        <section aria-label="Month" className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
+          <div className="mb-4 flex items-center justify-between">
+            <button type="button" aria-label="Previous month" onClick={() => current && setMonth(shiftMonth(current, -1))} className="rounded-lg p-2 hover:bg-slate-100"><ChevronLeft size={18} aria-hidden="true" /></button>
+            <h2 className="text-base font-semibold text-slate-900 dark:text-white">{current ? monthLabel(current) : "This month"}</h2>
+            <button type="button" aria-label="Next month" disabled={!current || (data && current >= data.today.slice(0, 7))}
+              onClick={() => current && setMonth(shiftMonth(current, 1))} className="rounded-lg p-2 hover:bg-slate-100 disabled:opacity-30"><ChevronRight size={18} aria-hidden="true" /></button>
           </div>
-
-          {records.length === 0 ? (
-            <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-200 dark:border-[#334155] text-slate-500 dark:text-[#94a3b8]">
-              <p className="text-base font-semibold text-slate-800 dark:text-slate-200">
-                No attendance records found
-              </p>
-              <p className="text-xs text-slate-400 mt-1">
-                Records load from the server once they exist.
-              </p>
-            </div>
+          {monthQ.isError ? (
+            <p role="alert" className="text-sm text-rose-700">{monthQ.error?.message || "Your month could not be loaded."} <button type="button" className="underline" onClick={() => monthQ.refetch()}>Retry</button></p>
+          ) : monthQ.isLoading ? (
+            <div className="h-72 animate-pulse rounded-xl bg-slate-100" aria-label="Loading month" />
           ) : (
-            <div className="rounded-2xl bg-white dark:bg-[#1e293b] border border-slate-200 dark:border-[#334155] overflow-hidden shadow-sm">
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-200 dark:border-[#334155] bg-slate-50 dark:bg-[#0f172a]">
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Shift
-                      </th>
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Check In
-                      </th>
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Check Out
-                      </th>
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Working Hours
-                      </th>
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Overtime
-                      </th>
-                      <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-500 dark:text-[#94a3b8] uppercase tracking-wider">
-                        Status
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100 dark:divide-[#334155]">
-                    {filteredRecords.map((row) => {
-                      const isLate = (row.status || "").toLowerCase() === "late";
-                      const isPresent = (row.status || "").toLowerCase() === "present";
-                      const hVal =
-                        typeof row.total_hours === "number"
-                          ? row.total_hours
-                          : parseFloat(String(row.hours || "0"));
+            <AttendanceCalendar days={data?.days} today={data?.today} selected={selected} onSelect={setSelected} />
+          )}
+        </section>
 
-                      return (
-                        <tr
-                          key={row.id}
-                          className="hover:bg-slate-50/80 dark:hover:bg-[#1e293b]/70 transition-colors"
-                        >
-                          <td className="px-5 py-3.5">
-                            <span className="font-semibold text-slate-900 dark:text-white block">
-                              {formatDateLabel(row.date)}
-                            </span>
-                            <span className="text-[11px] text-slate-400 font-mono">
-                              {row.date}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-slate-600 dark:text-slate-300 text-xs">
-                            {row.shift || "-"}
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <span className="font-mono text-slate-800 dark:text-slate-200 font-medium">
-                              {row.checkIn || row.check_in || "-"}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 font-mono text-slate-800 dark:text-slate-200 font-medium">
-                            {row.checkOut || row.check_out || "-"}
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <span className="font-bold text-slate-900 dark:text-white text-xs">
-                              {row.hours || (hVal ? `${hVal} hrs` : "-")}
-                            </span>
-                          </td>
-                          <td className="px-5 py-3.5 text-xs font-semibold text-purple-600 dark:text-purple-400">
-                            {row.overtime || (hVal > 8.0 ? `+${(hVal - 8.0).toFixed(1)}h` : "-")}
-                          </td>
-                          <td className="px-5 py-3.5">
-                            <EmployeeStatusBadge status={row.status || "Present"} />
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
+        <section aria-label="Attendance records" className="rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-[#334155] dark:bg-[#1e293b]">
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 p-4">
+            <div role="tablist" aria-label="Filter records" className="inline-flex rounded-lg border border-slate-200 p-1">
+              {FILTERS.map(([v, l]) => (
+                <button key={v} type="button" role="tab" aria-selected={filter === v} onClick={() => setFilter(v)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold ${filter === v ? "bg-blue-600 text-white" : "text-slate-600"}`}>{l}</button>
+              ))}
+            </div>
+            <label className="relative">
+              <span className="sr-only">Search records</span>
+              <Search size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search date, status, shift"
+                className="w-56 rounded-lg border border-slate-200 py-2 pl-8 pr-3 text-sm" />
+            </label>
+          </div>
+          {rows.length === 0 ? (
+            <p className="p-8 text-center text-sm text-slate-500">{monthQ.isLoading ? "Loading…" : "No attendance records found for this month."}</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs uppercase tracking-wide text-slate-500">
+                  <tr><th className="px-4 py-3">Date</th><th className="px-4 py-3">Shift</th><th className="px-4 py-3">Check in</th><th className="px-4 py-3">Check out</th>
+                    <th className="px-4 py-3">Worked</th><th className="px-4 py-3">Breaks</th><th className="px-4 py-3">Status</th></tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {rows.map((d) => (
+                    <tr key={d.date} className="cursor-pointer hover:bg-slate-50" onClick={() => setSelected(d.date)}>
+                      <td className="px-4 py-3"><button type="button" className="font-medium text-blue-700 hover:underline" onClick={(e) => { e.stopPropagation(); setSelected(d.date); }}>{formatDate(d.date)}</button></td>
+                      <td className="px-4 py-3 text-xs text-slate-600">{d.shift || "—"}</td>
+                      <td className="px-4 py-3 font-mono">{d.check_in || "—"}</td>
+                      <td className="px-4 py-3 font-mono">{d.check_out || "—"}</td>
+                      <td className="px-4 py-3">{d.worked_minutes ? formatMinutes(d.worked_minutes) : "—"}</td>
+                      <td className="px-4 py-3">{d.break_minutes ? formatMinutes(d.break_minutes) : "—"}</td>
+                      <td className="px-4 py-3"><AttendanceStatusChip status={d.status} /></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           )}
-        </div>
+        </section>
       </div>
+      {selected && <DayDetailDrawer date={selected} onClose={() => setSelected(null)} />}
     </EmployeePageShell>
   );
 }
