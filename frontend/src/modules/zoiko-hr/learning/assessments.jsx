@@ -24,20 +24,20 @@ import {
 } from "../../../utils/assessmentForm";
 
 const ITEMS_PER_PAGE = 10;
-const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
-const TONES = { green: "bg-green-100 text-green-800", red: "bg-red-100 text-red-800", blue: "bg-blue-100 text-blue-800", amber: "bg-amber-100 text-amber-800" };
+const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-[#0f172a] dark:text-[#f1f5f9]";
+const TONES = { green: "bg-green-100 text-green-800 dark:text-green-300", red: "bg-red-100 text-red-800", blue: "bg-blue-100 text-blue-800", amber: "bg-amber-100 text-amber-800 dark:text-amber-300" };
 
 function Pager({ page, total, onPage, count }) {
   if (total <= 1) return null;
   return (
     <div className="flex justify-between items-center">
-      <span className="text-xs text-gray-400">Showing {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, count)} of {count}</span>
+      <span className="text-xs text-gray-400 dark:text-[#94a3b8]">Showing {(page - 1) * ITEMS_PER_PAGE + 1}-{Math.min(page * ITEMS_PER_PAGE, count)} of {count}</span>
       <div className="flex gap-1">
-        <button onClick={() => onPage(Math.max(1, page - 1))} disabled={page <= 1} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Prev</button>
+        <button onClick={() => onPage(Math.max(1, page - 1))} disabled={page <= 1} className="px-3 py-1 text-sm border border-gray-200 dark:border-[#334155] rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-[#0f172a]">Prev</button>
         {Array.from({ length: total }, (_, i) => i + 1).map((p) => (
-          <button key={p} onClick={() => onPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === page ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 hover:bg-gray-50"}`}>{p}</button>
+          <button key={p} onClick={() => onPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === page ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-[#334155] hover:bg-gray-50 dark:hover:bg-[#0f172a]"}`}>{p}</button>
         ))}
-        <button onClick={() => onPage(Math.min(total, page + 1))} disabled={page >= total} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Next</button>
+        <button onClick={() => onPage(Math.min(total, page + 1))} disabled={page >= total} className="px-3 py-1 text-sm border border-gray-200 dark:border-[#334155] rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-[#0f172a]">Next</button>
       </div>
     </div>
   );
@@ -50,71 +50,71 @@ function AssessmentForm({ title, form, setForm, errors, setErrors, courses, edit
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
   };
-  const box = (name) => `${inputBase} ${errors[name] ? "border-red-300" : "border-gray-200"}`;
+  const box = (name) => `${inputBase} ${errors[name] ? "border-red-300" : "border-gray-200 dark:border-[#334155]"}`;
   const err = (name) => (errors[name] ? <p role="alert" className="text-red-500 text-xs mt-1">{errors[name]}</p> : null);
   const star = <span className="text-red-500"> *</span>;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">{title}</h2>
-          <button type="button" aria-label="Close" onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+      <div className="bg-white dark:bg-[#1e293b] rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 dark:border-[#334155]">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-[#f1f5f9]">{title}</h2>
+          <button type="button" aria-label="Close" onClick={onCancel} className="text-gray-400 dark:text-[#94a3b8] hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <form noValidate onSubmit={onSubmit} className="p-6 space-y-4">
-          {errors.submit && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{errors.submit}</div>}
-          <p className="text-xs text-gray-400">Fields marked <span className="text-red-500">*</span> are required.</p>
+          {errors.submit && <div role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{errors.submit}</div>}
+          <p className="text-xs text-gray-400 dark:text-[#94a3b8]">Fields marked <span className="text-red-500">*</span> are required.</p>
 
           <div>
-            <label htmlFor="a-title" className="block text-sm font-medium text-gray-700 mb-1">Title{star}</label>
+            <label htmlFor="a-title" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Title{star}</label>
             <input id="a-title" type="text" value={form.title} maxLength={200} aria-invalid={!!errors.title} onChange={set("title")} className={box("title")} />
             {err("title")}
           </div>
           <div>
-            <label htmlFor="a-desc" className="block text-sm font-medium text-gray-700 mb-1">Description{star}</label>
+            <label htmlFor="a-desc" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Description{star}</label>
             <textarea id="a-desc" rows={2} value={form.description} maxLength={5000} aria-invalid={!!errors.description} onChange={set("description")} className={box("description")} />
             {err("description")}
           </div>
           <div>
-            <label htmlFor="a-course" className="block text-sm font-medium text-gray-700 mb-1">Course{star}</label>
+            <label htmlFor="a-course" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Course{star}</label>
             <select id="a-course" value={form.course_id} aria-invalid={!!errors.course_id} onChange={set("course_id")} className={box("course_id")}>
               <option value="">Select course...</option>
               {courses.map((c) => <option key={c.id} value={c.id}>{c.course_name || c.title}</option>)}
             </select>
             {err("course_id")}
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
             <div>
-              <label htmlFor="a-pass" className="block text-sm font-medium text-gray-700 mb-1">Passing Score (%){star}</label>
+              <label htmlFor="a-pass" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Passing Score (%){star}</label>
               <input id="a-pass" type="text" inputMode="numeric" pattern="[0-9]*" value={form.passing_score} aria-invalid={!!errors.passing_score} onChange={set("passing_score")} placeholder="e.g. 70" className={box("passing_score")} />
               {err("passing_score")}
-              <p className="text-[11px] text-gray-400 mt-1">Whole number from 1 to 100.</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">Whole number from 1 to 100.</p>
             </div>
             <div>
-              <label htmlFor="a-attempts" className="block text-sm font-medium text-gray-700 mb-1">Max Attempts</label>
+              <label htmlFor="a-attempts" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Max Attempts</label>
               <input id="a-attempts" type="text" inputMode="numeric" pattern="[0-9]*" value={form.max_attempts} aria-invalid={!!errors.max_attempts} onChange={set("max_attempts")} placeholder="e.g. 3" className={box("max_attempts")} />
               {err("max_attempts")}
-              <p className="text-[11px] text-gray-400 mt-1">Leave empty for unlimited. If set, whole number from 1 to 100.</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">Leave empty for unlimited. If set, whole number from 1 to 100.</p>
             </div>
             <div>
-              <label htmlFor="a-duration" className="block text-sm font-medium text-gray-700 mb-1">Duration (min)</label>
+              <label htmlFor="a-duration" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Duration (min)</label>
               <input id="a-duration" type="text" inputMode="numeric" pattern="[0-9]*" value={form.duration_minutes} aria-invalid={!!errors.duration_minutes} onChange={set("duration_minutes")} placeholder="e.g. 60" className={box("duration_minutes")} />
               {err("duration_minutes")}
-              <p className="text-[11px] text-gray-400 mt-1">Leave empty for no limit. If set, whole number from 1 to 600.</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">Leave empty for no limit. If set, whole number from 1 to 600.</p>
             </div>
           </div>
-          <p className="text-[11px] text-gray-400 -mt-2">The passing score is the percentage of the total points a learner must earn. Leave Max Attempts or Duration empty for no limit. You add the questions right after creating the quiz.</p>
+          <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] -mt-2">The passing score is the percentage of the total points a learner must earn. Leave Max Attempts or Duration empty for no limit. You add the questions right after creating the quiz.</p>
           {editing && (
             <div>
-              <label htmlFor="a-status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+              <label htmlFor="a-status" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Status</label>
               <select id="a-status" value={form.is_active ? "active" : "inactive"} onChange={set("is_active")} className={box("status")}>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
               </select>
-              <p className="text-[11px] text-gray-400 mt-1">Learners only see active assessments.</p>
+              <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">Learners only see active assessments.</p>
             </div>
           )}
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 dark:border-[#334155] rounded-lg hover:bg-gray-50 dark:hover:bg-[#0f172a]">Cancel</button>
             <button type="submit" disabled={submitting} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors">{submitting ? busyLabel : submitLabel}</button>
           </div>
         </form>
@@ -128,34 +128,34 @@ function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, o
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
     setErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
   };
-  const box = (name) => `${inputBase} ${errors[name] ? "border-red-300" : "border-gray-200"}`;
+  const box = (name) => `${inputBase} ${errors[name] ? "border-red-300" : "border-gray-200 dark:border-[#334155]"}`;
   const err = (name) => (errors[name] ? <p role="alert" className="text-red-500 text-xs mt-1">{errors[name]}</p> : null);
   const star = <span className="text-red-500"> *</span>;
   const options = parseOptions(form.options);
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">{editing ? "Edit Question" : "Add Question"}</h2>
-          <button type="button" aria-label="Close" onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+      <div className="bg-white dark:bg-[#1e293b] rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 dark:border-[#334155]">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-[#f1f5f9]">{editing ? "Edit Question" : "Add Question"}</h2>
+          <button type="button" aria-label="Close" onClick={onCancel} className="text-gray-400 dark:text-[#94a3b8] hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <form noValidate onSubmit={onSubmit} className="p-6 space-y-4">
-          {errors.submit && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{errors.submit}</div>}
+          {errors.submit && <div role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{errors.submit}</div>}
           <div>
-            <label htmlFor="q-text" className="block text-sm font-medium text-gray-700 mb-1">Question Text{star}</label>
+            <label htmlFor="q-text" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Question Text{star}</label>
             <textarea id="q-text" rows={2} value={form.question_text} maxLength={2000} aria-invalid={!!errors.question_text} onChange={set("question_text")} className={box("question_text")} />
             {err("question_text")}
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="q-type" className="block text-sm font-medium text-gray-700 mb-1">Question Type{star}</label>
+              <label htmlFor="q-type" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Question Type{star}</label>
               <select id="q-type" value={form.question_type} onChange={set("question_type")} className={box("question_type")}>
                 {QUESTION_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
               </select>
               {err("question_type")}
             </div>
             <div>
-              <label htmlFor="q-points" className="block text-sm font-medium text-gray-700 mb-1">Points{star}</label>
+              <label htmlFor="q-points" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Points{star}</label>
               <input id="q-points" type="text" inputMode="numeric" pattern="[0-9]*" value={form.points} aria-invalid={!!errors.points} onChange={set("points")} placeholder="e.g. 1" className={box("points")} />
               {err("points")}
             </div>
@@ -163,12 +163,12 @@ function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, o
           {form.question_type === "multiple_choice" && (
             <>
               <div>
-                <label htmlFor="q-options" className="block text-sm font-medium text-gray-700 mb-1">Options (comma-separated){star}</label>
+                <label htmlFor="q-options" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Options (comma-separated){star}</label>
                 <input id="q-options" type="text" value={form.options} aria-invalid={!!errors.options} onChange={set("options")} placeholder="Red, Blue, Green" className={box("options")} />
                 {err("options")}
               </div>
               <div>
-                <label htmlFor="q-answer" className="block text-sm font-medium text-gray-700 mb-1">Correct Answer{star}</label>
+                <label htmlFor="q-answer" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Correct Answer{star}</label>
                 <select id="q-answer" value={form.correct_answer} aria-invalid={!!errors.correct_answer} onChange={set("correct_answer")} className={box("correct_answer")}>
                   <option value="">Choose the correct option</option>
                   {options.map((o) => <option key={o} value={o}>{o}</option>)}
@@ -180,7 +180,7 @@ function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, o
           )}
           {form.question_type === "true_false" && (
             <div>
-              <label htmlFor="q-answer" className="block text-sm font-medium text-gray-700 mb-1">Correct Answer{star}</label>
+              <label htmlFor="q-answer" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Correct Answer{star}</label>
               <select id="q-answer" value={form.correct_answer} aria-invalid={!!errors.correct_answer} onChange={set("correct_answer")} className={box("correct_answer")}>
                 <option value="">Choose</option>
                 <option value="True">True</option>
@@ -191,15 +191,15 @@ function QuestionForm({ editing, form, setForm, errors, setErrors, submitting, o
           )}
           {form.question_type === "short_answer" && (
             <div>
-              <label htmlFor="q-answer" className="block text-sm font-medium text-gray-700 mb-1">Correct Answer{star}</label>
+              <label htmlFor="q-answer" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Correct Answer{star}</label>
               <input id="q-answer" type="text" value={form.correct_answer} aria-invalid={!!errors.correct_answer} onChange={set("correct_answer")} className={box("correct_answer")} />
               {err("correct_answer")}
             </div>
           )}
-          {form.question_type === "essay" && <p className="text-xs text-gray-400">An essay has no answer key. A person marks it.</p>}
+          {form.question_type === "essay" && <p className="text-xs text-gray-400 dark:text-[#94a3b8]">An essay has no answer key. A person marks it.</p>}
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">{editing ? "Cancel" : "Done"}</button>
-            {!editing && <button type="button" disabled={submitting} onClick={onSubmitAnother} className="px-4 py-2 text-sm border border-blue-300 text-blue-700 hover:bg-blue-50 disabled:opacity-60 rounded-lg font-medium transition-colors">Save &amp; add another</button>}
+            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 dark:border-[#334155] rounded-lg hover:bg-gray-50 dark:hover:bg-[#0f172a]">{editing ? "Cancel" : "Done"}</button>
+            {!editing && <button type="button" disabled={submitting} onClick={onSubmitAnother} className="px-4 py-2 text-sm border border-blue-300 text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/30 disabled:opacity-60 rounded-lg font-medium transition-colors">Save &amp; add another</button>}
             <button type="submit" disabled={submitting} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors">{submitting ? "Saving..." : editing ? "Update Question" : "Add Question"}</button>
           </div>
         </form>
@@ -394,13 +394,13 @@ export default function ZoikoHRAssessments({ isTab }) {
 
   const content = (
     <>
-      <div className="mb-6 border-b border-gray-200">
+      <div className="mb-6 border-b border-gray-200 dark:border-[#334155]">
         <div className="flex gap-1 overflow-x-auto">
           {tabs.map((t) => (
             <button
               key={t.key}
               onClick={() => { setActiveTab(t.key); setCurrentPage(1); setSearch(""); setError(null); setSelectedAssessmentId(null); }}
-              className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeTab === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"}`}
+              className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${activeTab === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 dark:text-[#94a3b8] hover:text-gray-700 hover:border-gray-300"}`}
             >
               {t.label}
             </button>
@@ -409,7 +409,7 @@ export default function ZoikoHRAssessments({ isTab }) {
       </div>
 
       {error && (
-        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-center">
+        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg flex justify-between items-center">
           <span>{error}</span>
           <button onClick={() => setError(null)} aria-label="Dismiss" className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
@@ -419,17 +419,17 @@ export default function ZoikoHRAssessments({ isTab }) {
         loading && assessments.length === 0 ? (
           <div className="flex justify-center items-center py-20">
             <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-            <span className="ml-3 text-gray-500">Loading assessments...</span>
+            <span className="ml-3 text-gray-500 dark:text-[#94a3b8]">Loading assessments...</span>
           </div>
         ) : (
           <div className="space-y-6">
             <div className="flex flex-wrap justify-between items-center gap-4">
               <div className="flex flex-wrap gap-3">
-                <div className="bg-white px-4 py-2 border border-gray-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Total: </span><span className="font-bold text-gray-800">{stats.total}</span></div>
-                <div className="bg-white px-4 py-2 border border-green-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Active: </span><span className="font-bold text-green-600">{stats.active}</span></div>
-                <div className="bg-white px-4 py-2 border border-gray-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Inactive: </span><span className="font-bold text-gray-500">{stats.inactive}</span></div>
+                <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-gray-100 dark:border-[#334155] rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Total: </span><span className="font-bold text-gray-800 dark:text-[#f1f5f9]">{stats.total}</span></div>
+                <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-green-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Active: </span><span className="font-bold text-green-600">{stats.active}</span></div>
+                <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-gray-100 dark:border-[#334155] rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Inactive: </span><span className="font-bold text-gray-500 dark:text-[#94a3b8]">{stats.inactive}</span></div>
                 {stats.noQuestions > 0 && (
-                  <div className="bg-amber-50 px-4 py-2 border border-amber-200 rounded-lg shadow-sm text-sm text-amber-800">
+                  <div className="bg-amber-50 dark:bg-amber-900/20 px-4 py-2 border border-amber-200 dark:border-amber-800 rounded-lg shadow-sm text-sm text-amber-800 dark:text-amber-300">
                     <span className="font-bold">{stats.noQuestions}</span> without questions, open it to add some
                   </div>
                 )}
@@ -439,40 +439,40 @@ export default function ZoikoHRAssessments({ isTab }) {
 
             {assessments.length > 0 && (
               <input type="text" placeholder="Search by title or course..." value={search} onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-                className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                className="border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-[#0f172a] dark:text-[#f1f5f9]" />
             )}
 
             {filtered.length === 0 ? (
-              <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-                <p className="text-gray-500 font-medium">{assessments.length === 0 ? "No assessments yet. Add your first assessment to get started." : "No assessments match your search criteria."}</p>
+              <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
+                <p className="text-gray-500 dark:text-[#94a3b8] font-medium">{assessments.length === 0 ? "No assessments yet. Add your first assessment to get started." : "No assessments match your search criteria."}</p>
               </div>
             ) : (
               <>
-                <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">
-                      <thead className="bg-gray-50 border-b border-gray-100">
+                      <thead className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
                         <tr>
-                          {["Title", "Course", "Passing Score", "Max Attempts", "Duration", "Status"].map((h) => <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600">{h}</th>)}
-                          <th className="text-center px-4 py-3 font-semibold text-gray-600">Questions</th>
-                          <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
+                          {["Title", "Course", "Passing Score", "Max Attempts", "Duration", "Status"].map((h) => <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">{h}</th>)}
+                          <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Questions</th>
+                          <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Actions</th>
                         </tr>
                       </thead>
-                      <tbody className="divide-y divide-gray-50">
+                      <tbody className="divide-y divide-gray-50 dark:divide-[#334155]">
                         {paginated.map((a) => (
-                          <tr key={a.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-4 py-3 font-medium text-gray-800">
+                          <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-[#0f172a] transition-colors">
+                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">
                               <button onClick={() => openDetail(a.id)} className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-left">{a.title}</button>
                             </td>
-                            <td className="px-4 py-3 text-gray-600">{a.course_name || courseName(a.course_id)}</td>
-                            <td className="px-4 py-3 text-gray-700">{a.passing_score != null ? `${a.passing_score}%` : <span className="text-amber-700 text-xs font-medium">Not set</span>}</td>
-                            <td className="px-4 py-3 text-gray-700">{a.max_attempts ?? <span className="text-gray-400">Unlimited</span>}</td>
-                            <td className="px-4 py-3 text-gray-700">{a.duration_minutes ? `${a.duration_minutes} min` : <span className="text-gray-400">No limit</span>}</td>
+                            <td className="px-4 py-3 text-gray-600 dark:text-[#cbd5e1]">{a.course_name || courseName(a.course_id)}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{a.passing_score != null ? `${a.passing_score}%` : <span className="text-amber-700 text-xs font-medium">Not set</span>}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{a.max_attempts ?? <span className="text-gray-400 dark:text-[#94a3b8]">Unlimited</span>}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{a.duration_minutes ? `${a.duration_minutes} min` : <span className="text-gray-400 dark:text-[#94a3b8]">No limit</span>}</td>
                             <td className="px-4 py-3">
-                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${a.is_active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>{a.is_active ? "Active" : "Inactive"}</span>
-                              {!a.questions_count && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800" title="Learners cannot see this quiz until it has a question">Needs questions</span>}
+                              <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${a.is_active ? "bg-green-100 text-green-800 dark:text-green-300" : "bg-gray-100 dark:bg-[#0f172a] text-gray-600 dark:text-[#cbd5e1]"}`}>{a.is_active ? "Active" : "Inactive"}</span>
+                              {!a.questions_count && <span className="ml-1.5 inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-800 dark:text-amber-300" title="Learners cannot see this quiz until it has a question">Needs questions</span>}
                             </td>
-                            <td className="px-4 py-3 text-center text-gray-700">{a.questions_count ?? 0}</td>
+                            <td className="px-4 py-3 text-center text-gray-700 dark:text-[#e2e8f0]">{a.questions_count ?? 0}</td>
                             <td className="px-4 py-3 text-right">
                               <div className="flex items-center justify-end gap-1">
                                 <button onClick={() => openEdit(a)} className="text-blue-600 hover:text-blue-800 text-xs font-medium px-1">Edit</button>
@@ -495,38 +495,38 @@ export default function ZoikoHRAssessments({ isTab }) {
       {activeTab === "attempts" && (
         <>
           <div className="mb-4">
-            <label htmlFor="attempt-assessment" className="block text-sm font-medium text-gray-700 mb-1">Select Assessment</label>
+            <label htmlFor="attempt-assessment" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Select Assessment</label>
             <select id="attempt-assessment" value={selectedAssessmentId ?? ""} onChange={(e) => { setSelectedAssessmentId(e.target.value ? parseInt(e.target.value, 10) : null); setCurrentPage(1); }}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-md">
+              className="w-full border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 max-w-md dark:bg-[#0f172a] dark:text-[#f1f5f9]">
               <option value="">Choose an assessment...</option>
               {assessments.map((a) => <option key={a.id} value={a.id}>{a.title}</option>)}
             </select>
           </div>
           {loading && quizAttempts.length === 0 ? (
-            <div className="flex justify-center items-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div><span className="ml-3 text-gray-500">Loading quiz attempts...</span></div>
+            <div className="flex justify-center items-center py-20"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div><span className="ml-3 text-gray-500 dark:text-[#94a3b8]">Loading quiz attempts...</span></div>
           ) : quizAttempts.length === 0 ? (
-            <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
-              <p className="text-gray-500 font-medium">{selectedAssessmentId ? "No quiz attempts found for this assessment." : "Select an assessment to view quiz attempts."}</p>
+            <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
+              <p className="text-gray-500 dark:text-[#94a3b8] font-medium">{selectedAssessmentId ? "No quiz attempts found for this assessment." : "Select an assessment to view quiz attempts."}</p>
             </div>
           ) : (
             <div className="space-y-6">
-              <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+              <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm overflow-hidden">
                 <div className="overflow-x-auto">
                   <table className="w-full text-sm">
-                    <thead className="bg-gray-50 border-b border-gray-100">
-                      <tr>{["Employee", "Attempt", "Score", "Result", "Started", "Completed"].map((h) => <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600">{h}</th>)}</tr>
+                    <thead className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
+                      <tr>{["Employee", "Attempt", "Score", "Result", "Started", "Completed"].map((h) => <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">{h}</th>)}</tr>
                     </thead>
-                    <tbody className="divide-y divide-gray-50">
+                    <tbody className="divide-y divide-gray-50 dark:divide-[#334155]">
                       {aPaginated.map((a) => {
                         const result = resultOf(a);
                         return (
-                          <tr key={a.id} className="hover:bg-gray-50 transition-colors">
-                            <td className="px-4 py-3 font-medium text-gray-800">{a.employee_name || `Employee #${a.employee_id}`}</td>
-                            <td className="px-4 py-3 text-gray-700">#{a.attempt_number}</td>
-                            <td className="px-4 py-3 text-gray-700">{scoreText(a)}</td>
+                          <tr key={a.id} className="hover:bg-gray-50 dark:hover:bg-[#0f172a] transition-colors">
+                            <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">{a.employee_name || `Employee #${a.employee_id}`}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">#{a.attempt_number}</td>
+                            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{scoreText(a)}</td>
                             <td className="px-4 py-3"><span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium ${TONES[result.tone]}`}>{result.label}</span></td>
-                            <td className="px-4 py-3 text-xs text-gray-500">{a.started_at ? formatDateTime(a.started_at) : "-"}</td>
-                            <td className="px-4 py-3 text-xs text-gray-500">{a.completed_at ? formatDateTime(a.completed_at) : "-"}</td>
+                            <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{a.started_at ? formatDateTime(a.started_at) : "-"}</td>
+                            <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{a.completed_at ? formatDateTime(a.completed_at) : "-"}</td>
                           </tr>
                         );
                       })}
@@ -553,46 +553,46 @@ export default function ZoikoHRAssessments({ isTab }) {
 
       {detailItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-          <div role="dialog" aria-label="Assessment details" className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
-            <div className="flex justify-between items-start px-6 py-4 border-b border-gray-100">
+          <div role="dialog" aria-label="Assessment details" className="bg-white dark:bg-[#1e293b] rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto">
+            <div className="flex justify-between items-start px-6 py-4 border-b border-gray-100 dark:border-[#334155]">
               <div>
-                <h2 className="text-lg font-bold text-gray-800">{detailItem.title}</h2>
-                <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${detailItem.is_active ? "bg-green-100 text-green-800" : "bg-gray-100 text-gray-600"}`}>{detailItem.is_active ? "Active" : "Inactive"}</span>
+                <h2 className="text-lg font-bold text-gray-800 dark:text-[#f1f5f9]">{detailItem.title}</h2>
+                <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium ${detailItem.is_active ? "bg-green-100 text-green-800 dark:text-green-300" : "bg-gray-100 dark:bg-[#0f172a] text-gray-600 dark:text-[#cbd5e1]"}`}>{detailItem.is_active ? "Active" : "Inactive"}</span>
               </div>
-              <button aria-label="Close" onClick={closeDetail} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+              <button aria-label="Close" onClick={closeDetail} className="text-gray-400 dark:text-[#94a3b8] hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
             <div className="p-6 space-y-4 text-sm">
               <div>
-                <p className="text-xs text-gray-400 mb-1">Description</p>
-                <p className="text-gray-700 whitespace-pre-wrap">{detailItem.description || "Not provided"}</p>
+                <p className="text-xs text-gray-400 dark:text-[#94a3b8] mb-1">Description</p>
+                <p className="text-gray-700 dark:text-[#e2e8f0] whitespace-pre-wrap">{detailItem.description || "Not provided"}</p>
               </div>
-              <dl className="grid grid-cols-2 gap-4">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   ["Course", detailItem.course_name || courseName(detailItem.course_id)],
                   ["Passing score", detailItem.passing_score != null ? `${detailItem.passing_score}%` : "Not set"],
                   ["Max attempts", detailItem.max_attempts ?? "Unlimited"],
                   ["Duration", detailItem.duration_minutes ? `${detailItem.duration_minutes} min` : "No limit"],
-                ].map(([label, value]) => <div key={label}><dt className="text-xs text-gray-400">{label}</dt><dd className="font-medium text-gray-800">{value}</dd></div>)}
+                ].map(([label, value]) => <div key={label}><dt className="text-xs text-gray-400 dark:text-[#94a3b8]">{label}</dt><dd className="font-medium text-gray-800 dark:text-[#f1f5f9]">{value}</dd></div>)}
               </dl>
 
-              <div className="pt-4 border-t border-gray-100">
+              <div className="pt-4 border-t border-gray-100 dark:border-[#334155]">
                 <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-sm font-semibold text-gray-700">Questions ({questions.length})</h3>
+                  <h3 className="text-sm font-semibold text-gray-700 dark:text-[#e2e8f0]">Questions ({questions.length})</h3>
                   <button onClick={() => openQuestion(null)} className="text-xs bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded-lg font-medium">+ Add Question</button>
                 </div>
                 {questions.length === 0 ? (
-                  <p role="status" className="text-sm text-amber-800 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">This quiz has no questions yet. Learners will not see it until you add at least one question.</p>
+                  <p role="status" className="text-sm text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg px-3 py-2">This quiz has no questions yet. Learners will not see it until you add at least one question.</p>
                 ) : (
                   <div className="space-y-2">
                     {questions.map((q, i) => (
-                      <div key={q.id} className="bg-gray-50 rounded-lg px-4 py-3 flex items-start justify-between">
+                      <div key={q.id} className="bg-gray-50 dark:bg-[#0f172a] rounded-lg px-4 py-3 flex items-start justify-between">
                         <div className="flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <span className="text-xs font-semibold text-gray-400">Q{i + 1}.</span>
-                            <span className="text-sm font-medium text-gray-800">{q.question_text}</span>
-                            <span className="text-xs bg-blue-50 text-blue-600 px-1.5 py-0.5 rounded">{q.question_type?.replace(/_/g, " ")}</span>
+                            <span className="text-xs font-semibold text-gray-400 dark:text-[#94a3b8]">Q{i + 1}.</span>
+                            <span className="text-sm font-medium text-gray-800 dark:text-[#f1f5f9]">{q.question_text}</span>
+                            <span className="text-xs bg-blue-50 dark:bg-blue-900/30 text-blue-600 px-1.5 py-0.5 rounded">{q.question_type?.replace(/_/g, " ")}</span>
                           </div>
-                          <div className="text-xs text-gray-500 mt-1">
+                          <div className="text-xs text-gray-500 dark:text-[#94a3b8] mt-1">
                             {q.options?.length > 0 && <span>Options: {q.options.join(", ")} | </span>}
                             {q.correct_answer ? <span>Answer: {q.correct_answer} | </span> : <span>Marked by a person | </span>}
                             Points: {q.points}
@@ -608,12 +608,12 @@ export default function ZoikoHRAssessments({ isTab }) {
                 )}
               </div>
 
-              <div className="pt-4 border-t border-gray-100 text-xs text-gray-600 space-y-1">
+              <div className="pt-4 border-t border-gray-100 dark:border-[#334155] text-xs text-gray-600 dark:text-[#cbd5e1] space-y-1">
                 <div>Created: {detailItem.created_at ? formatDateTime(detailItem.created_at) : "-"}</div>
                 <div>Updated: {detailItem.updated_at ? formatDateTime(detailItem.updated_at) : "-"}</div>
               </div>
               <div className="flex justify-end gap-3 pt-2">
-                <button onClick={closeDetail} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Close</button>
+                <button onClick={closeDetail} className="px-4 py-2 text-sm border border-gray-200 dark:border-[#334155] rounded-lg hover:bg-gray-50 dark:hover:bg-[#0f172a]">Close</button>
                 <button onClick={() => { const item = detailItem; closeDetail(); openEdit(item); }} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">Edit Assessment</button>
               </div>
             </div>

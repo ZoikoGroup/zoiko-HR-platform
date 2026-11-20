@@ -460,7 +460,15 @@ export const gradeQuizAttempt = (attemptId, essayPoints) =>
   api.post(`/hr/learning/assessments/attempts/${attemptId}/grade`, { essay_points: essayPoints });
 
 // ── LEARNING REPORTS ───────────────────────────────────────────────────────
-export const getCourseCompletionReport = () => api.get("/hr/learning/reports/course-completion");
+/** params: { start_date, end_date } (YYYY-MM-DD) count only enrollments made in that period (audit L12). */
+export const getCourseCompletionReport = (params = {}) => api.get("/hr/learning/reports/course-completion", { params });
+
+/** "?start_date=..&end_date=.." for a report download, leaving out empty values. */
+export function learningReportQuery(params = {}) {
+  const q = Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== "")
+    .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(v)}`).join("&");
+  return q ? `?${q}` : "";
+}
 export const getCertificationReport = () => api.get("/hr/learning/reports/certifications");
 export const getSkillGapAnalysis = () => api.get("/hr/learning/reports/skill-gap");
 
@@ -507,11 +515,11 @@ export async function downloadLearningReport(endpoint, filename) {
 
 
 
-export const exportCourseCompletionReportCsv = () =>
-  downloadLearningReport("/hr/learning/reports/course-completion/csv", `course_completion_${new Date().toISOString().split("T")[0]}.csv`);
+export const exportCourseCompletionReportCsv = (params = {}) =>
+  downloadLearningReport(`/hr/learning/reports/course-completion/csv${learningReportQuery(params)}`, `course_completion_${new Date().toISOString().split("T")[0]}.csv`);
 
-export const exportCourseCompletionReportExcel = () =>
-  downloadLearningReport("/hr/learning/reports/course-completion/excel", `course_completion_${new Date().toISOString().split("T")[0]}.xlsx`);
+export const exportCourseCompletionReportExcel = (params = {}) =>
+  downloadLearningReport(`/hr/learning/reports/course-completion/excel${learningReportQuery(params)}`, `course_completion_${new Date().toISOString().split("T")[0]}.xlsx`);
 
 export const exportCertificationReportCsv = () =>
   downloadLearningReport("/hr/learning/reports/certifications/csv", `certifications_${new Date().toISOString().split("T")[0]}.csv`);

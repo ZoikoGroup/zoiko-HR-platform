@@ -19,8 +19,8 @@ import {
 const STATUS_COLORS = {
   planned: "bg-yellow-100 text-yellow-700",
   active: "bg-green-100 text-green-700",
-  completed: "bg-blue-100 text-blue-700",
-  cancelled: "bg-red-100 text-red-700",
+  completed: "bg-blue-100 text-blue-700 dark:text-blue-300",
+  cancelled: "bg-red-100 text-red-700 dark:text-red-300",
 };
 
 const ITEMS_PER_PAGE = 10;
@@ -31,7 +31,7 @@ function pageWindow(page, totalPages, size = 7) {
   const start = Math.max(1, Math.min(page - Math.floor(size / 2), totalPages - size + 1));
   return Array.from({ length: Math.min(size, totalPages) }, (_, i) => start + i);
 }
-const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500";
+const inputBase = "w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-[#0f172a] dark:text-[#f1f5f9]";
 
 function personName(e) {
   const first = e.firstName || e.first_name;
@@ -53,7 +53,7 @@ function ProgramForm({ title, form, setForm, errors, setErrors, instructors, ins
     setForm((prev) => ({ ...prev, [key]: e.target.value }));
     setErrors((prev) => (prev[key] || prev.submit ? { ...prev, [key]: undefined, submit: undefined } : prev));
   };
-  const box = (name) => `${inputBase} ${errors[name] ? "border-red-300" : "border-gray-200"}`;
+  const box = (name) => `${inputBase} ${errors[name] ? "border-red-300" : "border-gray-200 dark:border-[#334155]"}`;
   const err = (name) => (errors[name] ? <p role="alert" className="text-red-500 text-xs mt-1">{errors[name]}</p> : null);
   const star = <span className="text-red-500"> *</span>;
   // someone already named as instructor stays selectable even when they are not in the loaded list
@@ -63,90 +63,90 @@ function ProgramForm({ title, form, setForm, errors, setErrors, instructors, ins
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
-      <div className="bg-white rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
-        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100">
-          <h2 className="text-lg font-bold text-gray-800">{title}</h2>
-          <button type="button" aria-label="Close" onClick={onCancel} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+      <div className="bg-white dark:bg-[#1e293b] rounded-xl shadow-xl w-full max-w-lg mx-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex justify-between items-center px-6 py-4 border-b border-gray-100 dark:border-[#334155]">
+          <h2 className="text-lg font-bold text-gray-800 dark:text-[#f1f5f9]">{title}</h2>
+          <button type="button" aria-label="Close" onClick={onCancel} className="text-gray-400 dark:text-[#94a3b8] hover:text-gray-600 text-xl leading-none">&times;</button>
         </div>
         <form noValidate onSubmit={onSubmit} className="p-6 space-y-4">
-          {errors.submit && <div role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{errors.submit}</div>}
-          <p className="text-xs text-gray-400">Fields marked <span className="text-red-500">*</span> are required. Learners see all of them.</p>
+          {errors.submit && <div role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{errors.submit}</div>}
+          <p className="text-xs text-gray-400 dark:text-[#94a3b8]">Fields marked <span className="text-red-500">*</span> are required. Learners see all of them.</p>
 
           <div>
-            <label htmlFor="p-name" className="block text-sm font-medium text-gray-700 mb-1">Program Name{star}</label>
+            <label htmlFor="p-name" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Program Name{star}</label>
             <input id="p-name" type="text" value={form.name} maxLength={200} aria-invalid={!!errors.name} onChange={set("name")} className={box("name")} />
             {err("name")}
           </div>
 
           <div>
-            <label htmlFor="p-desc" className="block text-sm font-medium text-gray-700 mb-1">Description{star}</label>
+            <label htmlFor="p-desc" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Description{star}</label>
             <textarea id="p-desc" rows={3} value={form.description} maxLength={5000} aria-invalid={!!errors.description} onChange={set("description")} className={box("description")} />
             {err("description")}
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="p-instructor" className="block text-sm font-medium text-gray-700 mb-1">Instructor{star}</label>
+              <label htmlFor="p-instructor" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Instructor{star}</label>
               <input id="p-instructor-search" type="search" value={instructorSearch} onChange={(e) => setInstructorSearch(e.target.value)}
-                placeholder="Search people..." aria-label="Search instructors" className={`${inputBase} border-gray-200 mb-1 text-xs py-1.5`} />
+                placeholder="Search people..." aria-label="Search instructors" className={`${inputBase} border-gray-200 dark:border-[#334155] mb-1 text-xs py-1.5`} />
               <select id="p-instructor" value={form.instructor_id} aria-invalid={!!errors.instructor_id} onChange={set("instructor_id")} className={box("instructor_id")}>
                 <option value="">Select instructor</option>
                 {options.map((i) => <option key={i.id} value={i.id}>{i.name}</option>)}
               </select>
               {instructorsTotal > instructors.length && (
-                <p className="text-[11px] text-gray-400 mt-1">Showing {instructors.length} of {instructorsTotal} people. Search to find someone else.</p>
+                <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">Showing {instructors.length} of {instructorsTotal} people. Search to find someone else.</p>
               )}
               {err("instructor_id")}
             </div>
             <div>
-              <label htmlFor="p-max" className="block text-sm font-medium text-gray-700 mb-1">Max Participants{star}</label>
+              <label htmlFor="p-max" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Max Participants{star}</label>
               <input id="p-max" type="number" min={1} max={10000} step={1} value={form.max_participants} aria-invalid={!!errors.max_participants} onChange={set("max_participants")} placeholder="e.g. 20" className={box("max_participants")} />
               {err("max_participants")}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="p-start" className="block text-sm font-medium text-gray-700 mb-1">Start Date{star}</label>
+              <label htmlFor="p-start" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Start Date{star}</label>
               <input id="p-start" type="date" min="2000-01-01" max="2100-12-31" value={form.start_date} aria-invalid={!!errors.start_date} onChange={set("start_date")} className={box("start_date")} />
               {err("start_date")}
             </div>
             <div>
-              <label htmlFor="p-end" className="block text-sm font-medium text-gray-700 mb-1">End Date{star}</label>
+              <label htmlFor="p-end" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">End Date{star}</label>
               <input id="p-end" type="date" min={form.start_date || "2000-01-01"} max="2100-12-31" value={form.end_date} aria-invalid={!!errors.end_date} onChange={set("end_date")} className={box("end_date")} />
               {err("end_date")}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label htmlFor="p-dept" className="block text-sm font-medium text-gray-700 mb-1">Department</label>
+              <label htmlFor="p-dept" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Department</label>
               <input id="p-dept" type="text" value={form.department} maxLength={100} aria-invalid={!!errors.department} onChange={set("department")} placeholder="e.g. Engineering" className={box("department")} />
               {err("department")}
             </div>
             <div>
-              <label htmlFor="p-link" className="block text-sm font-medium text-gray-700 mb-1">Resource Link</label>
+              <label htmlFor="p-link" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Resource Link</label>
               <input id="p-link" type="text" value={form.resource_link} maxLength={500} aria-invalid={!!errors.resource_link} onChange={set("resource_link")} placeholder="https://..." className={box("resource_link")} />
               {err("resource_link")}
             </div>
           </div>
 
           <div>
-            <label htmlFor="p-status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+            <label htmlFor="p-status" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Status</label>
             {editing ? (
               <select id="p-status" value={form.status} disabled={statusOptions(editing.status).length === 1} onChange={set("status")} className={box("status")}>
                 {statusOptions(editing.status).map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
               </select>
             ) : (
-              <p id="p-status" className="px-3 py-2 text-sm text-gray-600 bg-gray-50 rounded-lg border border-gray-100">Planned</p>
+              <p id="p-status" className="px-3 py-2 text-sm text-gray-600 dark:text-[#cbd5e1] bg-gray-50 dark:bg-[#0f172a] rounded-lg border border-gray-100 dark:border-[#334155]">Planned</p>
             )}
-            {editing && statusOptions(editing.status).length === 1 ? <p className="text-[11px] text-gray-400 mt-1">A completed program is final.</p> : null}
-            {editing && statusOptions(editing.status).length > 1 ? <p className="text-[11px] text-gray-400 mt-1">Completed is allowed only after the end date.</p> : null}
+            {editing && statusOptions(editing.status).length === 1 ? <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">A completed program is final.</p> : null}
+            {editing && statusOptions(editing.status).length > 1 ? <p className="text-[11px] text-gray-400 dark:text-[#94a3b8] mt-1">Completed is allowed only after the end date.</p> : null}
             {err("status")}
           </div>
 
           <div className="flex justify-end gap-3 pt-2">
-            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
+            <button type="button" onClick={onCancel} className="px-4 py-2 text-sm border border-gray-200 dark:border-[#334155] rounded-lg hover:bg-gray-50 dark:hover:bg-[#0f172a]">Cancel</button>
             <button type="submit" disabled={submitting} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white rounded-lg font-medium transition-colors">
               {submitting ? busyLabel : submitLabel}
             </button>
@@ -294,7 +294,7 @@ export default function TrainingPrograms({ isTab }) {
     const loadingContent = (
       <div className="flex justify-center items-center py-20">
         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-        <span className="ml-3 text-gray-500">Loading training programs...</span>
+        <span className="ml-3 text-gray-500 dark:text-[#94a3b8]">Loading training programs...</span>
       </div>
     );
     if (isTab) return loadingContent;
@@ -308,7 +308,7 @@ export default function TrainingPrograms({ isTab }) {
   const content = (
     <>
       {error && (
-        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 border border-red-200 text-red-700 rounded-lg flex justify-between items-center">
+        <div role="alert" className="mb-4 px-4 py-3 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg flex justify-between items-center">
           <span>{error}</span>
           <button onClick={() => setError(null)} aria-label="Dismiss" className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
@@ -317,12 +317,12 @@ export default function TrainingPrograms({ isTab }) {
       <div className="space-y-6">
         <div className="flex flex-wrap justify-between items-center gap-4">
           <div className="flex flex-wrap gap-3">
-            <div className="bg-white px-4 py-2 border border-gray-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Total: </span><span className="font-bold text-gray-800">{stats.total}</span></div>
-            <div className="bg-white px-4 py-2 border border-yellow-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Planned: </span><span className="font-bold text-yellow-600">{stats.planned}</span></div>
-            <div className="bg-white px-4 py-2 border border-green-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Active: </span><span className="font-bold text-green-600">{stats.active}</span></div>
-            <div className="bg-white px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400">Completed: </span><span className="font-bold text-blue-600">{stats.completed}</span></div>
+            <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-gray-100 dark:border-[#334155] rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Total: </span><span className="font-bold text-gray-800 dark:text-[#f1f5f9]">{stats.total}</span></div>
+            <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-yellow-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Planned: </span><span className="font-bold text-yellow-600">{stats.planned}</span></div>
+            <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-green-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Active: </span><span className="font-bold text-green-600">{stats.active}</span></div>
+            <div className="bg-white dark:bg-[#1e293b] px-4 py-2 border border-blue-100 rounded-lg shadow-sm text-sm"><span className="text-gray-400 dark:text-[#94a3b8]">Completed: </span><span className="font-bold text-blue-600">{stats.completed}</span></div>
             {stats.incomplete > 0 && (
-              <div className="bg-amber-50 px-4 py-2 border border-amber-200 rounded-lg shadow-sm text-sm text-amber-800">
+              <div className="bg-amber-50 dark:bg-amber-900/20 px-4 py-2 border border-amber-200 dark:border-amber-800 rounded-lg shadow-sm text-sm text-amber-800 dark:text-amber-300">
                 <span className="font-bold">{stats.incomplete}</span> incomplete program{stats.incomplete === 1 ? "" : "s"}, edit to fill in the missing details
               </div>
             )}
@@ -339,12 +339,12 @@ export default function TrainingPrograms({ isTab }) {
               placeholder="Search by name, instructor or department..."
               value={search}
               onChange={(e) => { setSearch(e.target.value); setCurrentPage(1); }}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm w-64 focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-[#0f172a] dark:text-[#f1f5f9]"
             />
             <select
               value={statusFilter}
               onChange={(e) => { setStatusFilter(e.target.value); setCurrentPage(1); }}
-              className="border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 dark:bg-[#0f172a] dark:text-[#f1f5f9]"
             >
               <option value="">All Statuses</option>
               {PROGRAM_STATUSES.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
@@ -353,48 +353,48 @@ export default function TrainingPrograms({ isTab }) {
         )}
 
         {programs.length === 0 && !loading ? (
-          <div className="text-center py-16 bg-white rounded-xl border border-gray-100 shadow-sm">
+          <div className="text-center py-16 bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm">
             <div className="text-4xl mb-3">🎓</div>
-            <p className="text-gray-500 font-medium">
+            <p className="text-gray-500 dark:text-[#94a3b8] font-medium">
               {!filtering && !anyPrograms ? "No training programs yet. Add your first program to get started." : "No programs match your search criteria."}
             </p>
           </div>
         ) : (
           <>
-            <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+            <div className="bg-white dark:bg-[#1e293b] rounded-xl border border-gray-100 dark:border-[#334155] shadow-sm overflow-hidden">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
-                  <thead className="bg-gray-50 border-b border-gray-100">
+                  <thead className="bg-gray-50 dark:bg-[#0f172a] border-b border-gray-100 dark:border-[#334155]">
                     <tr>
                       {["Name", "Department", "Instructor", "Start Date", "End Date", "Status"].map((h) => (
-                        <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600">{h}</th>
+                        <th key={h} className="text-left px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">{h}</th>
                       ))}
-                      <th className="text-center px-4 py-3 font-semibold text-gray-600">Participants</th>
-                      <th className="text-right px-4 py-3 font-semibold text-gray-600">Actions</th>
+                      <th className="text-center px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Participants</th>
+                      <th className="text-right px-4 py-3 font-semibold text-gray-600 dark:text-[#cbd5e1]">Actions</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-gray-50">
+                  <tbody className="divide-y divide-gray-50 dark:divide-[#334155]">
                     {paginated.map((p) => {
                       const gaps = missingProgramDetails(p);
                       return (
-                        <tr key={p.id} className="hover:bg-gray-50 transition-colors">
-                          <td className="px-4 py-3 font-medium text-gray-800">
+                        <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-[#0f172a] transition-colors">
+                          <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">
                             <button onClick={() => openDetail(p.id)} className="text-blue-600 hover:text-blue-800 hover:underline font-medium text-left">{p.name}</button>
                             {gaps.length > 0 && (
-                              <span title={`Missing: ${gaps.join(", ")}`} className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 align-middle">Incomplete</span>
+                              <span title={`Missing: ${gaps.join(", ")}`} className="ml-2 inline-block px-1.5 py-0.5 rounded text-[10px] font-medium bg-amber-100 text-amber-800 dark:text-amber-300 align-middle">Incomplete</span>
                             )}
                           </td>
                           <td className="px-4 py-3">
-                            {p.department ? <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700">{p.department}</span> : <span className="text-gray-300">-</span>}
+                            {p.department ? <span className="inline-block px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 dark:bg-amber-900/20 text-amber-700">{p.department}</span> : <span className="text-gray-300 dark:text-[#475569]">-</span>}
                           </td>
-                          <td className="px-4 py-3 text-gray-700">{nameOf(p) || <span className="text-gray-300">-</span>}</td>
-                          <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{p.start_date ? dateText(p.start_date) : <span className="text-gray-300">-</span>}</td>
-                          <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{p.end_date ? dateText(p.end_date) : <span className="text-gray-300">-</span>}</td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{nameOf(p) || <span className="text-gray-300 dark:text-[#475569]">-</span>}</td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0] whitespace-nowrap">{p.start_date ? dateText(p.start_date) : <span className="text-gray-300 dark:text-[#475569]">-</span>}</td>
+                          <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0] whitespace-nowrap">{p.end_date ? dateText(p.end_date) : <span className="text-gray-300 dark:text-[#475569]">-</span>}</td>
                           <td className="px-4 py-3">
                             <span className={`inline-block px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[p.status] || STATUS_COLORS.planned}`}>{p.status}</span>
                           </td>
-                          <td className="px-4 py-3 text-center text-gray-700">
-                            {p.max_participants ? `${p.participants_count || 0}/${p.max_participants}` : <span className="text-gray-300">-</span>}
+                          <td className="px-4 py-3 text-center text-gray-700 dark:text-[#e2e8f0]">
+                            {p.max_participants ? `${p.participants_count || 0}/${p.max_participants}` : <span className="text-gray-300 dark:text-[#475569]">-</span>}
                           </td>
                           <td className="px-4 py-3 text-right">
                             <div className="flex items-center justify-end gap-1">
@@ -412,15 +412,15 @@ export default function TrainingPrograms({ isTab }) {
 
             {totalPages > 1 && (
               <div className="flex justify-between items-center">
-                <span className="text-xs text-gray-400">
+                <span className="text-xs text-gray-400 dark:text-[#94a3b8]">
                   Showing {(safePage - 1) * ITEMS_PER_PAGE + 1}-{Math.min(safePage * ITEMS_PER_PAGE, meta.total)} of {meta.total}
                 </span>
                 <div className="flex gap-1">
-                  <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Prev</button>
+                  <button onClick={() => setCurrentPage((p) => Math.max(1, p - 1))} disabled={safePage <= 1} className="px-3 py-1 text-sm border border-gray-200 dark:border-[#334155] rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-[#0f172a]">Prev</button>
                   {pageWindow(safePage, totalPages).map((p) => (
-                    <button key={p} onClick={() => setCurrentPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === safePage ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 hover:bg-gray-50"}`}>{p}</button>
+                    <button key={p} onClick={() => setCurrentPage(p)} className={`px-3 py-1 text-sm border rounded-lg ${p === safePage ? "bg-blue-600 text-white border-blue-600" : "border-gray-200 dark:border-[#334155] hover:bg-gray-50 dark:hover:bg-[#0f172a]"}`}>{p}</button>
                   ))}
-                  <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} className="px-3 py-1 text-sm border border-gray-200 rounded-lg disabled:opacity-40 hover:bg-gray-50">Next</button>
+                  <button onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))} disabled={safePage >= totalPages} className="px-3 py-1 text-sm border border-gray-200 dark:border-[#334155] rounded-lg disabled:opacity-40 hover:bg-gray-50 dark:hover:bg-[#0f172a]">Next</button>
                 </div>
               </div>
             )}
@@ -440,25 +440,25 @@ export default function TrainingPrograms({ isTab }) {
 
       {detailItem && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" onClick={() => setDetailItem(null)}>
-          <div role="dialog" aria-label="Program details" className="bg-white rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex justify-between items-start px-6 py-4 border-b border-gray-100">
+          <div role="dialog" aria-label="Program details" className="bg-white dark:bg-[#1e293b] rounded-xl shadow-xl w-full max-w-2xl mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+            <div className="flex justify-between items-start px-6 py-4 border-b border-gray-100 dark:border-[#334155]">
               <div>
-                <h2 className="text-lg font-bold text-gray-800">{detailItem.name}</h2>
+                <h2 className="text-lg font-bold text-gray-800 dark:text-[#f1f5f9]">{detailItem.name}</h2>
                 <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-xs font-medium capitalize ${STATUS_COLORS[detailItem.status] || STATUS_COLORS.planned}`}>{detailItem.status}</span>
               </div>
-              <button aria-label="Close" onClick={() => setDetailItem(null)} className="text-gray-400 hover:text-gray-600 text-xl leading-none">&times;</button>
+              <button aria-label="Close" onClick={() => setDetailItem(null)} className="text-gray-400 dark:text-[#94a3b8] hover:text-gray-600 text-xl leading-none">&times;</button>
             </div>
             <div className="p-6 space-y-4 text-sm">
               {missingProgramDetails(detailItem).length > 0 && (
-                <p role="alert" className="px-3 py-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-lg">
+                <p role="alert" className="px-3 py-2 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 text-amber-800 dark:text-amber-300 rounded-lg">
                   This program is missing: {missingProgramDetails(detailItem).join(", ")}. Edit it to complete the information.
                 </p>
               )}
               <div>
-                <p className="text-xs text-gray-400 mb-1">Description</p>
-                <p className="text-gray-700 whitespace-pre-wrap">{detailItem.description || "Not provided"}</p>
+                <p className="text-xs text-gray-400 dark:text-[#94a3b8] mb-1">Description</p>
+                <p className="text-gray-700 dark:text-[#e2e8f0] whitespace-pre-wrap">{detailItem.description || "Not provided"}</p>
               </div>
-              <dl className="grid grid-cols-2 gap-4">
+              <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {[
                   ["Instructor", nameOf(detailItem) || "Not provided"],
                   ["Department", detailItem.department || "Not specified"],
@@ -466,22 +466,22 @@ export default function TrainingPrograms({ isTab }) {
                   ["End date", detailItem.end_date ? dateText(detailItem.end_date) : "Not provided"],
                   ["Participants", `${detailItem.participants_count ?? 0}${detailItem.max_participants ? ` of ${detailItem.max_participants}` : ""}`],
                 ].map(([label, value]) => (
-                  <div key={label}><dt className="text-xs text-gray-400">{label}</dt><dd className="font-medium text-gray-800">{value}</dd></div>
+                  <div key={label}><dt className="text-xs text-gray-400 dark:text-[#94a3b8]">{label}</dt><dd className="font-medium text-gray-800 dark:text-[#f1f5f9]">{value}</dd></div>
                 ))}
                 <div>
-                  <dt className="text-xs text-gray-400">Resource</dt>
+                  <dt className="text-xs text-gray-400 dark:text-[#94a3b8]">Resource</dt>
                   <dd className="font-medium">
-                    {detailItem.resource_link ? <a href={detailItem.resource_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">Open program link</a> : <span className="text-gray-800">Not provided</span>}
+                    {detailItem.resource_link ? <a href={detailItem.resource_link} target="_blank" rel="noopener noreferrer" className="text-blue-600 hover:underline break-all">Open program link</a> : <span className="text-gray-800 dark:text-[#f1f5f9]">Not provided</span>}
                   </dd>
                 </div>
               </dl>
               {admin && <ProgramParticipants program={detailItem} onChanged={fetchPrograms} />}
-              <div className="pt-4 border-t border-gray-100 text-xs text-gray-600 space-y-1">
+              <div className="pt-4 border-t border-gray-100 dark:border-[#334155] text-xs text-gray-600 dark:text-[#cbd5e1] space-y-1">
                 <div>Created: {detailItem.created_at ? formatDateTime(detailItem.created_at) : "-"}</div>
                 <div>Updated: {detailItem.updated_at ? formatDateTime(detailItem.updated_at) : "-"}</div>
               </div>
               <div className="flex justify-end gap-3 pt-2">
-                <button onClick={() => setDetailItem(null)} className="px-4 py-2 text-sm border border-gray-200 rounded-lg hover:bg-gray-50">Close</button>
+                <button onClick={() => setDetailItem(null)} className="px-4 py-2 text-sm border border-gray-200 dark:border-[#334155] rounded-lg hover:bg-gray-50 dark:hover:bg-[#0f172a]">Close</button>
                 <button onClick={() => { const item = detailItem; setDetailItem(null); openEdit(item); }} className="px-4 py-2 text-sm bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition-colors">Edit Program</button>
               </div>
             </div>

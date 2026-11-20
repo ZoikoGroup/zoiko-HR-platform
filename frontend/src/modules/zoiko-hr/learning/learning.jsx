@@ -42,7 +42,7 @@ export default function Learning() {
 
   return (
     <HRPage title="Learning & Development" subtitle="Course catalog, enrollments, training programs, assessments, certifications, skills and reports.">
-      <nav aria-label="Learning sections" className="border-b border-gray-200">
+      <nav aria-label="Learning sections" className="border-b border-gray-200 dark:border-[#334155]">
         <div role="tablist" className="flex gap-1 overflow-x-auto">
           {tabs.map((t) => (
             <button
@@ -52,7 +52,7 @@ export default function Learning() {
               aria-selected={activeTab === t.key}
               onClick={() => navigate(learningTabHref(location.pathname, t.key))}
               className={`px-4 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors ${
-                activeTab === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
+                activeTab === t.key ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500 dark:text-[#94a3b8] hover:text-gray-700 hover:border-gray-300"
               }`}
             >
               {t.label}

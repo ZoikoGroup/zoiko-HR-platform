@@ -74,11 +74,11 @@ export default function LearningEnrollments() {
       <Banner message={error} onClose={() => setError("")} />
       <Banner message={notice} tone="ok" onClose={() => setNotice("")} />
       <div className="flex flex-wrap items-center gap-3">
-        <select aria-label="Filter by course" value={courseFilter} onChange={(e) => { setCourseFilter(e.target.value); setPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+        <select aria-label="Filter by course" value={courseFilter} onChange={(e) => { setCourseFilter(e.target.value); setPage(1); }} className="border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm">
           <option value="">All courses</option>
           {courses.map((c) => <option key={c.id} value={c.id}>{c.course_name}</option>)}
         </select>
-        <select aria-label="Filter by status" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="border border-gray-200 rounded-lg px-3 py-2 text-sm">
+        <select aria-label="Filter by status" value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value); setPage(1); }} className="border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm">
           <option value="">All statuses</option>
           {ENROLLMENT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
@@ -87,20 +87,20 @@ export default function LearningEnrollments() {
 
       <Table headers={["Employee", "Course", "Status", "Progress", "Enrolled", "Actions"]}
         empty={<>
-          {!loading && rows.length === 0 && <p className="text-center py-10 text-gray-500">{courseFilter || statusFilter ? "No enrollments match these filters." : "No one is enrolled yet. Use Enroll Employee to add someone."}</p>}
+          {!loading && rows.length === 0 && <p className="text-center py-10 text-gray-500 dark:text-[#94a3b8]">{courseFilter || statusFilter ? "No enrollments match these filters." : "No one is enrolled yet. Use Enroll Employee to add someone."}</p>}
           <Pager page={page} total={total} onPage={setPage} />
         </>}>
         {rows.map((r) => (
-          <tr key={r.id} className="hover:bg-gray-50">
-            <td className="px-4 py-3 font-medium text-gray-800">{r.employee_name || `Employee #${r.employee_id}`}</td>
-            <td className="px-4 py-3 text-gray-700">{r.course_name || `Course #${r.course_id}`}</td>
+          <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-[#0f172a]">
+            <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">{r.employee_name || `Employee #${r.employee_id}`}</td>
+            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{r.course_name || `Course #${r.course_id}`}</td>
             <td className="px-4 py-3">
-              <select aria-label={`Status of ${r.employee_name || r.id}`} value={r.status} onChange={(e) => changeStatus(r, e.target.value)} className="border border-gray-200 rounded px-2 py-1 text-xs">
+              <select aria-label={`Status of ${r.employee_name || r.id}`} value={r.status} onChange={(e) => changeStatus(r, e.target.value)} className="border border-gray-200 dark:border-[#334155] rounded px-2 py-1 text-xs">
                 {ENROLLMENT_STATUSES.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
             </td>
-            <td className="px-4 py-3 text-gray-700">{r.progress_pct ?? 0}%</td>
-            <td className="px-4 py-3 text-xs text-gray-500">{r.enrolled_at ? String(r.enrolled_at).slice(0, 10) : "-"}</td>
+            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{r.progress_pct ?? 0}%</td>
+            <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{r.enrolled_at ? String(r.enrolled_at).slice(0, 10) : "-"}</td>
             <td className="px-4 py-3 text-right"><button type="button" onClick={() => remove(r)} className="text-red-600 hover:text-red-800 text-xs font-medium">Remove</button></td>
           </tr>
         ))}
@@ -142,9 +142,9 @@ function EnrollDialog({ courses, onClose, onDone }) {
   return (
     <Dialog title="Enroll Employee" onClose={onClose}>
       <form noValidate onSubmit={submit} className="space-y-4">
-        {errors.submit && <p role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{errors.submit}</p>}
+        {errors.submit && <p role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{errors.submit}</p>}
         <div>
-          <label htmlFor="enroll-course" className="block text-sm font-medium text-gray-700 mb-1">Course<span className="text-red-500"> *</span></label>
+          <label htmlFor="enroll-course" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Course<span className="text-red-500"> *</span></label>
           <select id="enroll-course" value={courseId} onChange={(e) => setCourseId(e.target.value)} className={inputCls}>
             <option value="">Select a course</option>
             {courses.map((c) => <option key={c.id} value={c.id}>{c.course_name}{c.status && c.status !== "active" ? ` (${c.status})` : ""}</option>)}

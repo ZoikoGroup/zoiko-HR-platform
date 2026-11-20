@@ -1791,7 +1791,7 @@ class CourseCreate(_CourseChecks):
     duration_hours: int
     department: Optional[str] = None
     resource_link: Optional[str] = None
-    cost: Optional[Decimal] = Field(None, ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)      # Numeric(10, 2) (audit L15)
     status: str = "active"
     is_mandatory: bool = False
     mandatory_audience: Optional[dict] = None       # policy-style audience: {"type": "all"|"departments"|..., "ids": [...]}
@@ -1810,11 +1810,12 @@ class CourseUpdate(_CourseChecks):
     duration_hours: Optional[int] = None
     department: Optional[str] = None
     resource_link: Optional[str] = None
-    cost: Optional[Decimal] = Field(None, ge=0)
+    cost: Optional[Decimal] = Field(None, ge=0, max_digits=10, decimal_places=2)      # Numeric(10, 2) (audit L15)
     status: Optional[str] = None
     is_mandatory: Optional[bool] = None
     mandatory_audience: Optional[dict] = None
     renewal_months: Optional[int] = Field(None, ge=1, le=120)
+    version: Optional[str] = Field(None, max_length=40)
     version: Optional[str] = Field(None, max_length=40)
 
 
@@ -1847,7 +1848,7 @@ class CourseListResponse(BaseModel):
 class EnrollmentCreate(BaseModel):
     course_id: int
     employee_id: int
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
 
 
 ENROLLMENT_STATUSES = ("enrolled", "in_progress", "completed", "dropped")
@@ -1857,7 +1858,7 @@ class EnrollmentUpdate(BaseModel):
     status: Optional[str] = None
     progress_pct: Optional[int] = Field(None, ge=0, le=100)
     score: Optional[int] = Field(None, ge=0, le=100)
-    notes: Optional[str] = None
+    notes: Optional[str] = Field(None, max_length=2000)
 
     @field_validator("status", mode="before")
     @classmethod
@@ -1891,12 +1892,12 @@ class EnrollmentResponse(BaseModel):
 
 class LearningPathCreate(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
 
 
 class LearningPathUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
     is_active: Optional[bool] = None
 
 
@@ -1930,6 +1931,18 @@ class LearningPathResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+CERTIFICATION_STATUSES = ("active", "expired", "revoked")
+
+
+def _cert_status(v):
+    if v is None:
+        return None
+    value = str(v).strip().lower()
+    if value not in CERTIFICATION_STATUSES:
+        raise ValueError("Status must be active, expired or revoked.")
+    return value
+
+
 class CertificationCreate(BaseModel):
     employee_id: int
     certification_name: str = Field(..., min_length=1, max_length=200)
@@ -1942,16 +1955,26 @@ class CertificationCreate(BaseModel):
     certificate_number: Optional[str] = Field(None, max_length=120)
     renewal_requirements: Optional[str] = Field(None, max_length=1000)
 
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_status(cls, v):
+        return _cert_status(v) or "active"
+
 
 class CertificationUpdate(BaseModel):
     certification_name: Optional[str] = Field(None, min_length=1, max_length=200)
-    issuing_organization: Optional[str] = None
+    issuing_organization: Optional[str] = Field(None, max_length=200)
     issue_date: Optional[date] = None
     expiry_date: Optional[date] = None
-    credential_url: Optional[str] = None
+    credential_url: Optional[str] = Field(None, max_length=500)
     status: Optional[str] = None
     certificate_number: Optional[str] = Field(None, max_length=120)
     renewal_requirements: Optional[str] = Field(None, max_length=1000)
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_status(cls, v):
+        return _cert_status(v)
 
 
 class CertificationResponse(BaseModel):
@@ -1980,7 +2003,7 @@ class SkillCreate(BaseModel):
 
 class SkillUpdate(BaseModel):
     skill_name: Optional[str] = Field(None, min_length=1, max_length=200)
-    category: Optional[str] = None
+    category: Optional[str] = Field(None, max_length=100)
     proficiency_level: Optional[int] = Field(None, ge=1, le=5)
 
 
@@ -2110,6 +2133,9 @@ class AssessmentResponse(BaseModel):
     model_config = {"from_attributes": True}
 
 
+ANSWER_MAX = 500          # learning_assessment_questions.correct_answer is String(500) (audit L15)
+
+
 def normalize_question(question_type, options, correct_answer):
     """Checks a question hangs together and returns (options, correct_answer) in their stored form."""
     qtype = str(question_type or "").strip().lower()
@@ -2123,6 +2149,10 @@ def normalize_question(question_type, options, correct_answer):
         if t and t.lower() not in [x.lower() for x in opts]:
             opts.append(t)
     answer = " ".join(str(correct_answer).split()) if correct_answer is not None else ""
+    if any(len(o) > ANSWER_MAX for o in opts):
+        raise ValueError(f"Each option can be at most {ANSWER_MAX} characters.")
+    if len(answer) > ANSWER_MAX:
+        raise ValueError(f"The correct answer can be at most {ANSWER_MAX} characters.")
     if qtype == "multiple_choice":
         if len(opts) < 2:
             raise ValueError("A multiple choice question needs at least two different options.")
@@ -2426,9 +2456,22 @@ class ProgramAssignmentCreate(BaseModel):
     employee_id: int
 
 
+PARTICIPANT_STATUSES = ("assigned", "attended", "completed", "absent", "withdrawn")
+
+
 class ProgramAssignmentUpdate(BaseModel):
     status: Optional[str] = None
     attended_at: Optional[datetime] = None
+
+    @field_validator("status", mode="before")
+    @classmethod
+    def _v_status(cls, v):
+        if v is None:
+            return v
+        value = str(v).strip().lower()
+        if value not in PARTICIPANT_STATUSES:
+            raise ValueError("Status must be assigned, attended, completed, absent or withdrawn.")
+        return value
 
 
 class ProgramAssignmentResponse(BaseModel):
@@ -2445,11 +2488,11 @@ class ProgramAssignmentResponse(BaseModel):
 
 class CalendarEventCreate(BaseModel):
     title: str = Field(..., min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
     event_date: date
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    event_type: str = "session"
+    event_type: str = Field("session", min_length=1, max_length=50)
     course_id: Optional[int] = None
     program_id: Optional[int] = None
     location: Optional[str] = Field(None, max_length=200)
@@ -2457,14 +2500,14 @@ class CalendarEventCreate(BaseModel):
 
 class CalendarEventUpdate(BaseModel):
     title: Optional[str] = Field(None, min_length=1, max_length=200)
-    description: Optional[str] = None
+    description: Optional[str] = Field(None, max_length=5000)
     event_date: Optional[date] = None
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
-    event_type: Optional[str] = None
+    event_type: Optional[str] = Field(None, min_length=1, max_length=50)
     course_id: Optional[int] = None
     program_id: Optional[int] = None
-    location: Optional[str] = None
+    location: Optional[str] = Field(None, max_length=200)
 
 
 class CalendarEventResponse(BaseModel):
@@ -2494,7 +2537,9 @@ class LearningDashboardResponse(BaseModel):
     total_certifications: int = 0
     total_skills: int = 0
     avg_skill_level: float = 0.0
-    pending_assessments: int = 0
+    pending_assessments: int = 0        # kept for older clients: the same number as awaiting_review
+    awaiting_review: int = 0            # submitted quiz attempts whose essays wait for a mark
+    in_progress_attempts: int = 0       # quizzes opened and not submitted yet
     upcoming_events: int = 0
     enrollment_trend: list[dict] = []
     category_distribution: list[dict] = []

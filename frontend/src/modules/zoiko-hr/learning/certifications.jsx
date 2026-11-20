@@ -81,16 +81,16 @@ export default function LearningCertifications() {
 
       <Table headers={["Employee", "Certification", "Issued by", "Issued", "Expires", "Status", "Actions"]}
         empty={<>
-          {!loading && rows.length === 0 && <p className="text-center py-10 text-gray-500">{who ? "This person has no certifications recorded." : "No certifications recorded yet."}</p>}
+          {!loading && rows.length === 0 && <p className="text-center py-10 text-gray-500 dark:text-[#94a3b8]">{who ? "This person has no certifications recorded." : "No certifications recorded yet."}</p>}
           <Pager page={page} total={total} onPage={setPage} />
         </>}>
         {rows.map((r) => (
-          <tr key={r.id} className="hover:bg-gray-50">
-            <td className="px-4 py-3 font-medium text-gray-800">{r.employee_name || `Employee #${r.employee_id}`}</td>
-            <td className="px-4 py-3 text-gray-700">{r.certification_name}</td>
-            <td className="px-4 py-3 text-gray-500">{r.issuing_organization || "-"}</td>
-            <td className="px-4 py-3 text-xs text-gray-500">{r.issue_date || "-"}</td>
-            <td className="px-4 py-3 text-xs text-gray-500">{r.expiry_date || "-"}</td>
+          <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-[#0f172a]">
+            <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">{r.employee_name || `Employee #${r.employee_id}`}</td>
+            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{r.certification_name}</td>
+            <td className="px-4 py-3 text-gray-500 dark:text-[#94a3b8]">{r.issuing_organization || "-"}</td>
+            <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{r.issue_date || "-"}</td>
+            <td className="px-4 py-3 text-xs text-gray-500 dark:text-[#94a3b8]">{r.expiry_date || "-"}</td>
             <td className="px-4 py-3 text-xs capitalize">{r.status}</td>
             <td className="px-4 py-3 text-right">
               <div className="flex justify-end gap-2">
@@ -142,38 +142,38 @@ function CertificationDialog({ row, onClose, onDone }) {
   return (
     <Dialog title={creating ? "Add Certification" : "Edit Certification"} onClose={onClose}>
       <form noValidate onSubmit={submit} className="space-y-4">
-        {errors.submit && <p role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{errors.submit}</p>}
+        {errors.submit && <p role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{errors.submit}</p>}
         {creating
           ? <EmployeePicker id="cert-person" label="Employee" required value={person} onChange={setPerson} error={errors.person} />
-          : <p className="text-sm text-gray-600">For <span className="font-medium text-gray-800">{row.employee_name || `Employee #${row.employee_id}`}</span></p>}
+          : <p className="text-sm text-gray-600 dark:text-[#cbd5e1]">For <span className="font-medium text-gray-800 dark:text-[#f1f5f9]">{row.employee_name || `Employee #${row.employee_id}`}</span></p>}
         <div>
-          <label htmlFor="cert-name" className="block text-sm font-medium text-gray-700 mb-1">Certification name<span className="text-red-500"> *</span></label>
+          <label htmlFor="cert-name" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Certification name<span className="text-red-500"> *</span></label>
           <input id="cert-name" value={form.certification_name} maxLength={200} onChange={set("certification_name")} className={inputCls} />
           {err("certification_name")}
         </div>
         <div>
-          <label htmlFor="cert-issuer" className="block text-sm font-medium text-gray-700 mb-1">Issuing organization</label>
+          <label htmlFor="cert-issuer" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Issuing organization</label>
           <input id="cert-issuer" value={form.issuing_organization} maxLength={200} onChange={set("issuing_organization")} className={inputCls} />
         </div>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
-            <label htmlFor="cert-issued" className="block text-sm font-medium text-gray-700 mb-1">Issue date<span className="text-red-500"> *</span></label>
+            <label htmlFor="cert-issued" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Issue date<span className="text-red-500"> *</span></label>
             <input id="cert-issued" type="date" value={form.issue_date} onChange={set("issue_date")} className={inputCls} />
             {err("issue_date")}
           </div>
           <div>
-            <label htmlFor="cert-expiry" className="block text-sm font-medium text-gray-700 mb-1">Expiry date</label>
+            <label htmlFor="cert-expiry" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Expiry date</label>
             <input id="cert-expiry" type="date" value={form.expiry_date} onChange={set("expiry_date")} className={inputCls} />
             {err("expiry_date")}
           </div>
         </div>
         <div>
-          <label htmlFor="cert-url" className="block text-sm font-medium text-gray-700 mb-1">Credential link</label>
+          <label htmlFor="cert-url" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Credential link</label>
           <input id="cert-url" value={form.credential_url} maxLength={500} onChange={set("credential_url")} placeholder="https://..." className={inputCls} />
           {err("credential_url")}
         </div>
         <div>
-          <label htmlFor="cert-status" className="block text-sm font-medium text-gray-700 mb-1">Status</label>
+          <label htmlFor="cert-status" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Status</label>
           <select id="cert-status" value={form.status} onChange={set("status")} className={inputCls}>
             {CERT_STATUSES.map((s) => <option key={s} value={s}>{s[0].toUpperCase() + s.slice(1)}</option>)}
           </select>

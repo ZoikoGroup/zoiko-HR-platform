@@ -1,4 +1,4 @@
-from datetime import datetime, date
+from datetime import datetime, date, timedelta
 from typing import Optional
 import json
 from sqlalchemy import func, or_
@@ -1064,12 +1064,17 @@ def get_training_programs(
         query = query.filter(LearningTrainingProgram.status == status)
     if search and search.strip():
         term = f"%{search.strip()}%"
-        instructor_ids = db.query(Employee.id).filter(or_(
-            (func.coalesce(Employee.first_name, "") + " " + func.coalesce(Employee.last_name, "")).ilike(term),
-            Employee.email.ilike(term),
-        ))
-        query = query.filter(or_(LearningTrainingProgram.name.ilike(term), LearningTrainingProgram.department.ilike(term),
-                                 LearningTrainingProgram.instructor_id.in_(instructor_ids)))
+        # instructors matching the term are looked up first: one nested statement compiled too deep for a worker thread's
+        # stack on Windows (a stack overflow in the SQL compiler)
+        people = db.query(Employee.id)
+        if organization_id is not None:
+            people = people.filter(Employee.organization_id == organization_id)
+        full_name = func.coalesce(Employee.first_name, "").concat(" ").concat(func.coalesce(Employee.last_name, ""))
+        instructor_ids = [i for (i,) in people.filter(or_(full_name.ilike(term), Employee.email.ilike(term))).all()]
+        matches = [LearningTrainingProgram.name.ilike(term), LearningTrainingProgram.department.ilike(term)]
+        if instructor_ids:
+            matches.append(LearningTrainingProgram.instructor_id.in_(instructor_ids))
+        query = query.filter(or_(*matches))
 
     total = query.count()
     programs = query.order_by(LearningTrainingProgram.created_at.desc(), LearningTrainingProgram.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
@@ -1261,15 +1266,31 @@ def delete_calendar_event(db: Session, event_id: int, organization_id: Optional[
 
 
 
-def get_course_completion_report(db: Session, organization_id: Optional[int] = None) -> list[dict]:
+def _enrolled_between(start_date: Optional[date], end_date: Optional[date]) -> list:
+    """Filters for enrollments made from start_date to end_date, both days included."""
+    if start_date and end_date and end_date < start_date:
+        raise BadRequestException("The end date cannot be before the start date.")
+    filters = []
+    if start_date:
+        filters.append(LearningEnrollment.enrolled_at >= datetime.combine(start_date, datetime.min.time()))
+    if end_date:
+        filters.append(LearningEnrollment.enrolled_at < datetime.combine(end_date + timedelta(days=1), datetime.min.time()))
+    return filters
+
+
+def get_course_completion_report(db: Session, organization_id: Optional[int] = None,
+                                 start_date: Optional[date] = None, end_date: Optional[date] = None) -> list[dict]:
+    """Every course with its enrollments and completions; with dates, only enrollments made in that period count."""
     org_filter = [LearningCourse.organization_id == organization_id] if organization_id else []
-    courses = db.query(LearningCourse).filter(*org_filter).all()
+    period = _enrolled_between(start_date, end_date)
+    courses = db.query(LearningCourse).filter(*org_filter).order_by(LearningCourse.course_name, LearningCourse.id).all()
     result = []
     for course in courses:
-        total = db.query(LearningEnrollment).filter(LearningEnrollment.course_id == course.id).count()
+        total = db.query(LearningEnrollment).filter(LearningEnrollment.course_id == course.id, *period).count()
         completed = db.query(LearningEnrollment).filter(
             LearningEnrollment.course_id == course.id,
             LearningEnrollment.status == "completed",
+            *period,
         ).count()
         rate = round((completed / total * 100) if total > 0 else 0.0, 2)
         result.append({
@@ -1342,9 +1363,8 @@ def get_learning_dashboard(db: Session, organization_id: Optional[int] = None) -
     avg_skill_level = round(float(db.query(func.avg(LearningSkill.proficiency_level)).filter(*skill_org_filter).scalar() or 0.0), 2)
 
     attempt_org_filter = [LearningQuizAttempt.organization_id == organization_id] if organization_id else []
-    in_progress_attempts = db.query(LearningQuizAttempt).filter(
-        LearningQuizAttempt.status.in_(("in_progress", PENDING_REVIEW)), *attempt_org_filter
-    ).count()
+    awaiting_review = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.status == PENDING_REVIEW, *attempt_org_filter).count()
+    in_progress_attempts = db.query(LearningQuizAttempt).filter(LearningQuizAttempt.status == "in_progress", *attempt_org_filter).count()
 
     today = date.today()
     event_org_filter = [LearningCalendarEvent.organization_id == organization_id] if organization_id else []
@@ -1407,7 +1427,9 @@ def get_learning_dashboard(db: Session, organization_id: Optional[int] = None) -
         "total_certifications": total_certifications,
         "total_skills": total_skills,
         "avg_skill_level": avg_skill_level,
-        "pending_assessments": in_progress_attempts,
+        "pending_assessments": awaiting_review,          # older clients: now the attempts that wait for a reviewer
+        "awaiting_review": awaiting_review,
+        "in_progress_attempts": in_progress_attempts,
         "upcoming_events": upcoming_events,
         "enrollment_trend": [{"month": m, "count": c} for m, c in enrollment_trend],
         "category_distribution": [{"category": cat, "count": cnt} for cat, cnt in category_distribution],
@@ -1415,9 +1437,10 @@ def get_learning_dashboard(db: Session, organization_id: Optional[int] = None) -
     }
 
 
-def export_course_completion_csv(db: Session, organization_id: Optional[int] = None) -> str:
+def export_course_completion_csv(db: Session, organization_id: Optional[int] = None,
+                                 start_date: Optional[date] = None, end_date: Optional[date] = None) -> str:
     import io, csv
-    data = get_course_completion_report(db, organization_id)
+    data = get_course_completion_report(db, organization_id, start_date, end_date)
     output = io.StringIO()
     writer = csv.writer(output)
     writer.writerow(["Course ID", "Course Name", "Total Enrollments", "Completed Enrollments", "Completion Rate"])
@@ -1432,10 +1455,11 @@ def export_course_completion_csv(db: Session, organization_id: Optional[int] = N
     return output.getvalue()
 
 
-def export_course_completion_excel(db: Session, organization_id: Optional[int] = None) -> bytes:
+def export_course_completion_excel(db: Session, organization_id: Optional[int] = None,
+                                   start_date: Optional[date] = None, end_date: Optional[date] = None) -> bytes:
     import io
     from openpyxl import Workbook
-    data = get_course_completion_report(db, organization_id)
+    data = get_course_completion_report(db, organization_id, start_date, end_date)
     wb = Workbook()
     ws = wb.active
     ws.title = "Course Completion"

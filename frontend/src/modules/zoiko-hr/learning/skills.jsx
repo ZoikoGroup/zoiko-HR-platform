@@ -64,15 +64,15 @@ export default function LearningSkills() {
 
       <Table headers={["Employee", "Skill", "Category", "Level", "Actions"]}
         empty={<>
-          {!loading && rows.length === 0 && <p className="text-center py-10 text-gray-500">{who ? "This person has no skills recorded." : "No skills recorded yet."}</p>}
+          {!loading && rows.length === 0 && <p className="text-center py-10 text-gray-500 dark:text-[#94a3b8]">{who ? "This person has no skills recorded." : "No skills recorded yet."}</p>}
           <Pager page={page} total={total} onPage={setPage} />
         </>}>
         {rows.map((r) => (
-          <tr key={r.id} className="hover:bg-gray-50">
-            <td className="px-4 py-3 font-medium text-gray-800">{r.employee_name || `Employee #${r.employee_id}`}</td>
-            <td className="px-4 py-3 text-gray-700">{r.skill_name}</td>
-            <td className="px-4 py-3 text-gray-500">{r.category || "-"}</td>
-            <td className="px-4 py-3 text-gray-700">{LEVELS.find((l) => l.value === r.proficiency_level)?.label || r.proficiency_level}</td>
+          <tr key={r.id} className="hover:bg-gray-50 dark:hover:bg-[#0f172a]">
+            <td className="px-4 py-3 font-medium text-gray-800 dark:text-[#f1f5f9]">{r.employee_name || `Employee #${r.employee_id}`}</td>
+            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{r.skill_name}</td>
+            <td className="px-4 py-3 text-gray-500 dark:text-[#94a3b8]">{r.category || "-"}</td>
+            <td className="px-4 py-3 text-gray-700 dark:text-[#e2e8f0]">{LEVELS.find((l) => l.value === r.proficiency_level)?.label || r.proficiency_level}</td>
             <td className="px-4 py-3 text-right">
               <div className="flex justify-end gap-2">
                 <button type="button" onClick={() => setEditing(r)} className="text-blue-600 hover:text-blue-800 text-xs font-medium">Edit</button>
@@ -122,21 +122,21 @@ function SkillDialog({ row, onClose, onDone }) {
   return (
     <Dialog title={creating ? "Add Skill" : "Edit Skill"} onClose={onClose}>
       <form noValidate onSubmit={submit} className="space-y-4">
-        {errors.submit && <p role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">{errors.submit}</p>}
+        {errors.submit && <p role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 text-sm rounded-lg">{errors.submit}</p>}
         {creating
           ? <EmployeePicker id="skill-person" label="Employee" required value={person} onChange={setPerson} error={errors.person} />
-          : <p className="text-sm text-gray-600">For <span className="font-medium text-gray-800">{row.employee_name || `Employee #${row.employee_id}`}</span></p>}
+          : <p className="text-sm text-gray-600 dark:text-[#cbd5e1]">For <span className="font-medium text-gray-800 dark:text-[#f1f5f9]">{row.employee_name || `Employee #${row.employee_id}`}</span></p>}
         <div>
-          <label htmlFor="skill-name" className="block text-sm font-medium text-gray-700 mb-1">Skill<span className="text-red-500"> *</span></label>
+          <label htmlFor="skill-name" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Skill<span className="text-red-500"> *</span></label>
           <input id="skill-name" value={form.skill_name} maxLength={200} onChange={set("skill_name")} className={inputCls} />
           {errors.skill_name && <p role="alert" className="text-red-500 text-xs mt-1">{errors.skill_name}</p>}
         </div>
         <div>
-          <label htmlFor="skill-category" className="block text-sm font-medium text-gray-700 mb-1">Category</label>
+          <label htmlFor="skill-category" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Category</label>
           <input id="skill-category" value={form.category} maxLength={100} onChange={set("category")} className={inputCls} />
         </div>
         <div>
-          <label htmlFor="skill-level" className="block text-sm font-medium text-gray-700 mb-1">Proficiency</label>
+          <label htmlFor="skill-level" className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">Proficiency</label>
           <select id="skill-level" value={form.proficiency_level} onChange={set("proficiency_level")} className={inputCls}>
             {LEVELS.map((l) => <option key={l.value} value={l.value}>{l.label}</option>)}
           </select>

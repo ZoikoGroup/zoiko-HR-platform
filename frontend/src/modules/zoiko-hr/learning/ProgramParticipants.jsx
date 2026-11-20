@@ -56,21 +56,21 @@ export default function ProgramParticipants({ program, onChanged }) {
   const count = rows?.length ?? 0;
   const full = Boolean(program.max_participants) && count >= program.max_participants;
   return (
-    <section aria-label="Participants" className="pt-4 border-t border-gray-100 space-y-3">
-      <h3 className="text-sm font-semibold text-gray-800">
-        Participants <span className="text-gray-400 font-normal">({count}{program.max_participants ? ` of ${program.max_participants}` : ""})</span>
+    <section aria-label="Participants" className="pt-4 border-t border-gray-100 dark:border-[#334155] space-y-3">
+      <h3 className="text-sm font-semibold text-gray-800 dark:text-[#f1f5f9]">
+        Participants <span className="text-gray-400 dark:text-[#94a3b8] font-normal">({count}{program.max_participants ? ` of ${program.max_participants}` : ""})</span>
       </h3>
-      {error && <p role="alert" className="px-3 py-2 bg-red-50 border border-red-200 text-red-700 rounded-lg">{error}</p>}
-      {notice && <p role="status" className="px-3 py-2 bg-green-50 border border-green-200 text-green-800 rounded-lg">{notice}</p>}
+      {error && <p role="alert" className="px-3 py-2 bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-700 dark:text-red-300 rounded-lg">{error}</p>}
+      {notice && <p role="status" className="px-3 py-2 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 text-green-800 dark:text-green-300 rounded-lg">{notice}</p>}
       {rows === null ? (
-        <p className="text-gray-400">Loading participants...</p>
+        <p className="text-gray-400 dark:text-[#94a3b8]">Loading participants...</p>
       ) : rows.length === 0 ? (
-        <p className="text-gray-500">No one has been added yet.</p>
+        <p className="text-gray-500 dark:text-[#94a3b8]">No one has been added yet.</p>
       ) : (
-        <ul className="divide-y divide-gray-100 border border-gray-100 rounded-lg">
+        <ul className="divide-y divide-gray-100 dark:divide-[#334155] border border-gray-100 dark:border-[#334155] rounded-lg">
           {rows.map((r) => (
             <li key={r.id} className="flex items-center justify-between px-3 py-2">
-              <span className="text-gray-800">{r.employee_name || `Employee #${r.employee_id}`} <span className="text-xs text-gray-400 capitalize">{r.status}</span></span>
+              <span className="text-gray-800 dark:text-[#f1f5f9]">{r.employee_name || `Employee #${r.employee_id}`} <span className="text-xs text-gray-400 dark:text-[#94a3b8] capitalize">{r.status}</span></span>
               <button type="button" onClick={() => remove(r)} className="text-red-600 hover:text-red-800 text-xs font-medium">Remove</button>
             </li>
           ))}

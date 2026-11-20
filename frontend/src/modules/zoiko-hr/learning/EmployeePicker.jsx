@@ -50,10 +50,10 @@ export default function EmployeePicker({ id = "employee-picker", label = "Employ
 
   return (
     <div className="relative">
-      <label htmlFor={id} className="block text-sm font-medium text-gray-700 mb-1">{label}{required && <span className="text-red-500"> *</span>}</label>
+      <label htmlFor={id} className="block text-sm font-medium text-gray-700 dark:text-[#e2e8f0] mb-1">{label}{required && <span className="text-red-500"> *</span>}</label>
       {value ? (
-        <div className="flex items-center justify-between gap-2 border border-gray-200 rounded-lg px-3 py-2 text-sm bg-gray-50">
-          <span className="font-medium text-gray-800" data-testid={`${id}-selected`}>{value.name}</span>
+        <div className="flex items-center justify-between gap-2 border border-gray-200 dark:border-[#334155] rounded-lg px-3 py-2 text-sm bg-gray-50 dark:bg-[#0f172a]">
+          <span className="font-medium text-gray-800 dark:text-[#f1f5f9]" data-testid={`${id}-selected`}>{value.name}</span>
           <button type="button" onClick={() => { onChange(null); setOpen(true); }} className="text-xs text-blue-600 hover:underline">Change</button>
         </div>
       ) : (
@@ -68,19 +68,19 @@ export default function EmployeePicker({ id = "employee-picker", label = "Employ
           placeholder={placeholder}
           onFocus={() => setOpen(true)}
           onChange={(e) => { setTerm(e.target.value); setOpen(true); }}
-          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${error ? "border-red-300" : "border-gray-200"}`}
+          className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 ${error ? "border-red-300" : "border-gray-200 dark:border-[#334155]"} dark:bg-[#0f172a] dark:text-[#f1f5f9]`}
         />
       )}
       {open && !value && (
-        <ul role="listbox" aria-label={`${label} results`} className="absolute z-20 mt-1 w-full max-h-56 overflow-auto bg-white border border-gray-200 rounded-lg shadow-lg text-sm">
-          {busy && <li className="px-3 py-2 text-gray-400">Searching...</li>}
+        <ul role="listbox" aria-label={`${label} results`} className="absolute z-20 mt-1 w-full max-h-56 overflow-auto bg-white dark:bg-[#1e293b] border border-gray-200 dark:border-[#334155] rounded-lg shadow-lg text-sm">
+          {busy && <li className="px-3 py-2 text-gray-400 dark:text-[#94a3b8]">Searching...</li>}
           {!busy && failed && <li className="px-3 py-2 text-red-600">{failed}</li>}
-          {!busy && !failed && results.length === 0 && <li className="px-3 py-2 text-gray-400">No one matches.</li>}
+          {!busy && !failed && results.length === 0 && <li className="px-3 py-2 text-gray-400 dark:text-[#94a3b8]">No one matches.</li>}
           {!busy && results.map((e) => (
             <li key={e.id} role="option" aria-selected="false">
-              <button type="button" onClick={() => pick(e)} className="w-full text-left px-3 py-2 hover:bg-blue-50">
-                <span className="font-medium text-gray-800">{personLabel(e)}</span>
-                {e.email && <span className="ml-2 text-xs text-gray-400">{e.email}</span>}
+              <button type="button" onClick={() => pick(e)} className="w-full text-left px-3 py-2 hover:bg-blue-50 dark:hover:bg-blue-900/30">
+                <span className="font-medium text-gray-800 dark:text-[#f1f5f9]">{personLabel(e)}</span>
+                {e.email && <span className="ml-2 text-xs text-gray-400 dark:text-[#94a3b8]">{e.email}</span>}
               </button>
             </li>
           ))}

@@ -1006,8 +1006,10 @@ def delete_calendar_event(
 def course_completion_report(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
+    start_date: Optional[date] = Query(None, description="Count only enrollments made on or after this day"),
+    end_date: Optional[date] = Query(None, description="Count only enrollments made on or before this day"),
 ):
-    return learning_service.get_course_completion_report(db, current_user.organization_id)
+    return learning_service.get_course_completion_report(db, current_user.organization_id, start_date, end_date)
 
 
 @learning_router.get(
@@ -1017,8 +1019,10 @@ def course_completion_report(
 def export_course_completion_report_csv(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
+    start_date: Optional[date] = Query(None, description="Count only enrollments made on or after this day"),
+    end_date: Optional[date] = Query(None, description="Count only enrollments made on or before this day"),
 ):
-    csv_data = learning_service.export_course_completion_csv(db, current_user.organization_id)
+    csv_data = learning_service.export_course_completion_csv(db, current_user.organization_id, start_date, end_date)
     return Response(
         content=csv_data,
         media_type="text/csv",
@@ -1033,8 +1037,10 @@ def export_course_completion_report_csv(
 def export_course_completion_report_excel(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),
+    start_date: Optional[date] = Query(None, description="Count only enrollments made on or after this day"),
+    end_date: Optional[date] = Query(None, description="Count only enrollments made on or before this day"),
 ):
-    xlsx_data = learning_service.export_course_completion_excel(db, current_user.organization_id)
+    xlsx_data = learning_service.export_course_completion_excel(db, current_user.organization_id, start_date, end_date)
     return Response(
         content=xlsx_data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
