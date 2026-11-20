@@ -1,20 +1,14 @@
-// After Apply: an organisation admin approves and releases the templates this setup created, in one step. Their typed name
-// and the attestation are recorded on each approval; contracts (L3) also need the legal counsel's details.
+// After Apply: an organisation admin approves and releases the templates this setup created, in one click. The approval is
+// signed with the admin's profile name and the attestation is recorded on each approval record (for contracts and NDAs the
+// admin's attestation is the review, recorded as such).
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { CheckCircle2, Loader2, Rocket } from "lucide-react";
 import { approveReleaseDocsSetup } from "../../../../service/docsSetupService";
 import { Banner, errorText } from "./shared";
 
-const input = "w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:border-blue-500 focus:outline-none";
-const COUNSEL = [["counsel_name", "Counsel name"], ["counsel_firm", "Firm"], ["counsel_qualification", "Qualification"],
-  ["review_date", "Review date", "date"]];
-
-export default function ReleasePanel({ sessionId, variantIds }) {
-  const [name, setName] = useState("");
+export default function ReleasePanel({ sessionId, variantIds, onReleased }) {
   const [agree, setAgree] = useState(false);
-  const [counsel, setCounsel] = useState({});
-  const [needCounsel, setNeedCounsel] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [result, setResult] = useState(null);
@@ -25,10 +19,9 @@ export default function ReleasePanel({ sessionId, variantIds }) {
     setBusy(true);
     setError("");
     try {
-      const res = await approveReleaseDocsSetup(sessionId, { attestation_accepted: true, signed_name: name.trim(),
-        ...(needCounsel ? counsel : {}) });
+      const res = await approveReleaseDocsSetup(sessionId, { attestation_accepted: true });
       setResult(res);
-      if ((res.results || []).some((r) => r.code === "COUNSEL_DETAILS_REQUIRED")) setNeedCounsel(true);
+      if (res.total > 0 && res.released === res.total) onReleased?.();
     } catch (e) {
       setError(errorText(e, "The templates could not be released. Try again."));
     } finally {
@@ -43,7 +36,7 @@ export default function ReleasePanel({ sessionId, variantIds }) {
         <h3 className="text-sm font-semibold text-gray-900">Approve and release your templates</h3>
         <p className="mt-1 text-sm text-gray-600">
           New hires get documents made from your templates once they are released. As the organisation admin you can approve
-          and release them yourself; your name and the attestation are kept on each approval record.
+          and release them yourself in one click; your name and the attestation are kept on each approval record.
         </p>
       </div>
       <ul className="space-y-1 text-sm">
@@ -62,27 +55,11 @@ export default function ReleasePanel({ sessionId, variantIds }) {
       </ul>
       {!allLive && (
         <>
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-gray-700">Your full name, as on your profile</span>
-            <input className={input} value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" aria-label="Your full name" />
-          </label>
-          {needCounsel && (
-            <div className="grid gap-2 sm:grid-cols-2">
-              <p className="sm:col-span-2 text-sm text-amber-800">Contracts need the details of the legal counsel who reviewed them.</p>
-              {COUNSEL.map(([k, label, type]) => (
-                <label key={k} className="block text-sm">
-                  <span className="mb-1 block text-gray-700">{label}</span>
-                  <input type={type || "text"} className={input} value={counsel[k] || ""} aria-label={label}
-                    onChange={(e) => setCounsel((c) => ({ ...c, [k]: e.target.value }))} />
-                </label>
-              ))}
-            </div>
-          )}
           <label className="flex items-start gap-2 text-sm text-gray-700">
             <input type="checkbox" className="mt-0.5" checked={agree} onChange={(e) => setAgree(e.target.checked)} />
-            I have reviewed these templates and accept responsibility for their content on behalf of my organisation.
+            I have reviewed these templates (including any contract or NDA) and accept responsibility for their content on behalf of my organisation.
           </label>
-          <button type="button" onClick={release} disabled={busy || !agree || !name.trim()}
+          <button type="button" onClick={release} disabled={busy || !agree}
             className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">
             {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Rocket className="h-4 w-4" />}Approve and release
           </button>
@@ -90,7 +67,7 @@ export default function ReleasePanel({ sessionId, variantIds }) {
       )}
       {result && (
         <Banner tone={allLive ? "ok" : "warn"}>
-          {allLive ? "All templates are live. New hires now get documents made from them."
+          {allLive ? `All templates are live${(result.clauses_approved || []).length ? ` and ${result.clauses_approved.length} clause wordings are approved` : ""}. New hires now get documents generated from them automatically${result.held_documents_sent ? `; held documents were sent to ${result.held_documents_sent} new hire(s)` : ""}.`
             : `${result.released} of ${result.total} released. Fix what is listed above and try again.`}
         </Banner>
       )}

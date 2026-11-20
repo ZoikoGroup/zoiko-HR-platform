@@ -188,6 +188,12 @@ STANDARD_CLAUSES: dict[str, str] = {
     "non_competition":
         "While the {engagement} continues, the {party} will not, without the Company's written consent, work for or provide "
         "services to a business that competes with the Company.{non_compete_after}",
+    # a protection for the person only (it takes nothing away from them), so it is safe as the standard wording everywhere
+    "protected_disclosure_and_whistleblowing":
+        "Nothing in this document stops the {party} from reporting a possible breach of the law to a regulator, a government "
+        "or law-enforcement authority or any other person the law protects such a report to, from making any disclosure that "
+        "whistleblowing law protects, or from giving truthful evidence. The {party} does not need the Company's permission for "
+        "this and does not have to tell the Company about it.",
 }
 
 # ── Clause hooks ───────────────────────────────────────────────────────────────────────────────────────────────────────

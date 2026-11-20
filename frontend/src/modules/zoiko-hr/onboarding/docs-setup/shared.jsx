@@ -8,7 +8,7 @@ export const STEPS = [
   { n: 2, title: "Analyse", help: "We read them" },
   { n: 3, title: "Review settings", help: "Accept, edit or reject" },
   { n: 4, title: "Map documents", help: "Your versions and new documents" },
-  { n: 5, title: "Package, forms & categories", help: "What new hires get" },
+  { n: 5, title: "Documents to collect", help: "What new hires upload" },
   { n: 6, title: "Apply", help: "Confirm the changes" },
 ];
 

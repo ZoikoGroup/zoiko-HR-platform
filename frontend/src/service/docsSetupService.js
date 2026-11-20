@@ -28,6 +28,7 @@ export const bulkDocsSetupProposals = (id, target, minConfidence, decision = "ac
 export const addDocsSetupChange = (id, change) => api.post(`${BASE}/sessions/${id}/proposals/manual`, change);
 export const getDocsSetupMapping = (id, fileId) => api.get(`${BASE}/sessions/${id}/mapping/${fileId}`);
 export const setDocsSetupMapping = (id, fileId, mapping) => api.put(`${BASE}/sessions/${id}/mapping/${fileId}`, mapping);
+export const getDocsSetupMappingOptions = (id) => api.get(`${BASE}/sessions/${id}/mapping-options`);
 export const getDocsSetupSummary = (id) => api.get(`${BASE}/sessions/${id}/summary`);
 export const setDocsSetupOptions = (id, options) => api.put(`${BASE}/sessions/${id}/options`, options);
 export const applyDocsSetup = (id, key) => api.post(`${BASE}/sessions/${id}/apply`, undefined, { headers: { "Idempotency-Key": key }, timeoutMs: 180000 });

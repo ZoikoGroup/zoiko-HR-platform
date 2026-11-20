@@ -28,7 +28,7 @@ import sys
 import threading
 import time
 from contextlib import contextmanager
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from typing import Optional
 
 from fastapi import HTTPException
@@ -587,7 +587,7 @@ _NUM_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "s
               "ninety": 90}
 _UNIT = {"day": "calendar_days", "days": "calendar_days", "week": "weeks", "weeks": "weeks", "month": "months",
          "months": "months", "working day": "business_days", "working days": "business_days", "business days": "business_days"}
-NOTICE_RE = re.compile(r"(?i)\b(\d{1,3}|" + "|".join(_NUM_WORDS) + r")\s*(?:\(\d{1,3}\)\s*)?(working days?|business days|days?|weeks?|months?)['’]?s?\s*(?:prior\s+|advance\s+)?(?:written\s+)?notice")
+NOTICE_RE = re.compile(r"(?i)\b(\d{1,3}|" + "|".join(_NUM_WORDS) + r")\s*(?:\(\d{1,3}\)\s*)?(working days?|business days|days?|weeks?|months?)['’]?s?\s*(?:of\s+)?(?:prior\s+|advance\s+)?(?:written\s+)?notice")
 CIN_RE = re.compile(r"\b[LU]\d{5}[A-Z]{2}\d{4}[A-Z]{3}\d{6}\b")
 GSTIN_RE = re.compile(r"\b\d{2}[A-Z]{5}\d{4}[A-Z][1-9A-Z]Z[0-9A-Z]\b")
 PAN_RE = re.compile(r"(?i)\bPAN\b[^A-Z0-9]{0,12}([A-Z]{3}C[A-Z]\d{4}[A-Z])\b")
@@ -1124,6 +1124,7 @@ def _run_analysis(session_id: int, organization_id: int, bind, outer_db=None) ->
             progress["message"] = f"Read {i} of {len(files)} file(s)."
             s.progress = dict(progress)
         db.commit()
+        _account_fallbacks(db, s, collector.items)
         _store_proposals(db, s, collector.items)
         _fill_template_placeholders(db, s)
         s.status = "review"
@@ -1284,6 +1285,29 @@ def _fill_template_placeholders(db, s: DocsSetupSession) -> None:
         m["placeholders"] = phs
         f.mapping = m
     db.flush()
+
+
+def _account_fallbacks(db, s: DocsSetupSession, items: list[dict]) -> None:
+    """Company details every issued document needs that the documents did not give (a template has "[Name]" where the
+    signatory goes): the admin setting up the documents signs for the company, with their job title. Proposed like any
+    other value, so Review settings shows it and the admin can edit or reject it. Never replaces a saved signatory."""
+    from app.modules.hr import company_profile as CP
+    from app.modules.employee.models import Employee
+    profile = CP.get_profile(db, s.organization_id)
+    found = {i["target_key"] for i in items if i["target"] == "company_profile"}
+    admin = db.get(Employee, s.created_by) if s.created_by else None
+    if admin is None:
+        return
+    name = " ".join(p for p in (admin.first_name, admin.last_name) if p and str(p).strip()).strip()
+    title = (getattr(getattr(admin, "designation", None), "title", None) or admin.job_title or "").strip() or "Authorised Signatory"
+    src = {"file_id": None, "chunk_id": None, "page": None, "paragraph": None,
+           "quote": "Not named in your documents: you sign for the company as the admin setting them up"}
+    if "signatory_name" not in found and not profile.get("signatory_name") and len(name) >= 3:
+        items.append({"target": "company_profile", "target_key": "signatory_name", "value": name, "label": "Signatory name",
+                      "confidence": 0.5, "origin": "rules", "source": src})
+    if "signatory_title" not in found and not profile.get("signatory_title"):
+        items.append({"target": "company_profile", "target_key": "signatory_title", "value": title[:120], "label": "Signatory title",
+                      "confidence": 0.5, "origin": "rules", "source": src})
 
 
 def _store_proposals(db, s: DocsSetupSession, items: list[dict]) -> None:
@@ -1524,7 +1548,7 @@ def blank_placeholders(chunks: list[dict]) -> list[dict]:
 
 
 def sample_values(chunks: list[dict]) -> list[dict]:
-    """Personal values in a sample letter that should become placeholders (the admin confirms each one). The start date is
+    """Personal values in a sample letter that should become placeholders (each becomes its placeholder automatically). The start date is
     the date in a sentence about joining or starting (else the first date after the letter's own date)."""
     found: dict = {}
     dates = []
@@ -1537,12 +1561,12 @@ def sample_values(chunks: list[dict]) -> list[dict]:
                     dates.append((bool(re.search(r"(?i)join|start|commenc|first day", sent)), text, ch["id"]))
                     continue
                 found.setdefault((key, text), {"text": text, "key": key, "label": C.FIELDS.get(key, (key,))[0],
-                                               "chunk_id": ch["id"], "confirmed": None})
+                                               "chunk_id": ch["id"], "confirmed": True})
     if dates:
         pick = next((d for d in dates if d[0]), dates[1] if len(dates) > 1 else dates[0])
         key = "employment.start_date_long"
         found[(key, pick[1])] = {"text": pick[1], "key": key, "label": C.FIELDS.get(key, (key,))[0], "chunk_id": pick[2],
-                                 "confirmed": None}
+                                 "confirmed": True}
     return list(found.values())
 
 
@@ -1574,9 +1598,15 @@ def set_mapping(db, actor, s: DocsSetupSession, file_id: int, data: dict) -> dic
                   "engagement_slugs": ORG._clean_slugs((data or {}).get("engagement_slugs"),
                                                        ORG._engagement_slugs(db, actor.organization_id), "Send to"),
                   "title": " ".join(str((data or {}).get("title") or "").split())[:200] or None})
+    previous = f.mapping or {}
     if action != "source_only":
+        # Every sample detail and blank found in the document becomes its placeholder automatically (the hire's data and the
+        # organisation's settings fill it); there is nothing to confirm one by one.
         placeholders = (data or {}).get("placeholders")
         samples = {(x["text"], x["key"]): x for x in sample_values(chunks_of(f))}
+        for ph in previous.get("placeholders") or []:            # what the analysis filled in (blanks, company details)
+            if isinstance(ph, dict) and ph.get("text") and ph.get("key"):
+                samples.setdefault((ph["text"], ph["key"]), ph)
         if isinstance(placeholders, list):
             for ph in placeholders:
                 if not isinstance(ph, dict) or not ph.get("text"):
@@ -1584,10 +1614,15 @@ def set_mapping(db, actor, s: DocsSetupSession, file_id: int, data: dict) -> dic
                 key = str(ph.get("key") or "")
                 if key and key not in C.FIELDS:
                     raise HTTPException(422, f"Unknown placeholder {{{{{key}}}}}.")
-                samples[(ph["text"], ph.get("key") or "")] = {"text": ph["text"], "key": key,
-                                                               "label": C.FIELDS.get(key, (key,))[0],
-                                                               "confirmed": bool(ph.get("confirmed"))}
-        m["placeholders"] = [v for v in samples.values() if v.get("key")]
+                samples[(ph["text"], ph.get("key") or "")] = {**ph, "text": ph["text"], "key": key,
+                                                               "label": C.FIELDS.get(key, (key,))[0]}
+        m["placeholders"] = [{**v, "confirmed": True} for v in samples.values() if v.get("key")]
+        # the admin's own edits of the document's wording (Edit document); kept until they reset them
+        if "blocks" in (data or {}):
+            if data["blocks"] is not None:
+                m["edited_blocks"] = clean_edited_blocks(data["blocks"])
+        elif previous.get("edited_blocks"):
+            m["edited_blocks"] = previous["edited_blocks"]
     f.mapping = m
     db.commit()
     return {"file": ser_file(f), "preview": mapping_preview(db, s, f)}
@@ -1679,17 +1714,76 @@ def _unknown_placeholders_cleared(blocks: list) -> list:
     return walk(blocks)
 
 
+EDITABLE_TYPES = ("heading", "paragraph", "list", "table", "page_break")
+_EDIT_MAX_BLOCKS = 600
+_EDIT_MAX_TEXT = 20000
+
+
+def clean_edited_blocks(raw) -> list:
+    """The document's wording as the admin edited it: only the block types and fields a template uses, sized sensibly."""
+    if not isinstance(raw, list) or not raw:
+        raise HTTPException(422, "The document needs at least one part.")
+    if len(raw) > _EDIT_MAX_BLOCKS:
+        raise HTTPException(422, f"The document is too long (at most {_EDIT_MAX_BLOCKS} parts).")
+
+    def txt(v) -> str:
+        v = "" if v is None else str(v)
+        if len(v) > _EDIT_MAX_TEXT:
+            raise HTTPException(422, "One part of the document is too long.")
+        return v
+
+    out = []
+    for i, b in enumerate(raw, 1):
+        if not isinstance(b, dict) or b.get("type") not in EDITABLE_TYPES:
+            raise HTTPException(422, f"Part {i} of the document is not a heading, paragraph, list, table or page break.")
+        t = b["type"]
+        nb = {"type": t, "id": str(b.get("id") or f"e{i}")[:40]}
+        if t == "heading":
+            nb.update(text=txt(b.get("text")), level=b.get("level") if b.get("level") in (1, 2, 3) else 2)
+        elif t == "paragraph":
+            nb["text"] = txt(b.get("text"))
+        elif t == "list":
+            items = [txt(x) for x in (b.get("items") or []) if str(x or "").strip()]
+            nb.update(items=items or [""], style=b.get("style") if b.get("style") in ("bullet", "number") else "bullet")
+        elif t == "table":
+            cols = [txt(c) for c in (b.get("columns") or [])][:20] or ["Column 1"]
+            rows = [[txt(c) for c in (r or [])][:len(cols)] + [""] * max(0, len(cols) - len(r or [])) for r in (b.get("rows") or [])][:200]
+            nb.update(columns=cols, rows=rows or [[""] * len(cols)])
+        if t in ("heading", "paragraph") and b.get("style") in ("center", "right"):
+            nb["style"] = b["style"]
+        out.append(nb)
+    return out
+
+
+def editable_blocks(db, f: DocsSetupFile) -> list:
+    """The document's own wording as it will be used (placeholders in, blanks as lines), without the locked Zoiko blocks."""
+    m = f.mapping or {}
+    if m.get("edited_blocks"):
+        blocks = json.loads(json.dumps(m["edited_blocks"]))
+    else:
+        blocks, _w = _file_blocks(db, f)
+        blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
+    blocks = _unknown_placeholders_cleared(blocks)
+    blocks = _blanks_as_lines(blocks)
+    for b in blocks:
+        b.pop("locked", None)
+    return blocks
+
+
 def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
     """The draft template content a mapped file becomes (and the fidelity warnings)."""
     from app.modules.doc_templates import package_templates as PT
     from app.modules.hr import docx_import
     m = f.mapping or {}
-    blocks, warnings = _file_blocks(db, f)
-    blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
-    blocks = _unknown_placeholders_cleared(blocks)
-    blocks = _blanks_as_lines(blocks)
-    for b in blocks:
-        b.pop("locked", None)
+    if m.get("edited_blocks"):
+        blocks, warnings = editable_blocks(db, f), ["You edited this document's wording here; your edited version is used."]
+    else:
+        blocks, warnings = _file_blocks(db, f)
+        blocks = _apply_placeholders(blocks, m.get("placeholders") or [])
+        blocks = _unknown_placeholders_cleared(blocks)
+        blocks = _blanks_as_lines(blocks)
+        for b in blocks:
+            b.pop("locked", None)
     if m.get("action") == "variant_of":
         starter = PT.starter_for(m["category"])
         blocks = docx_import.merge_with_locked(starter["blocks"], blocks)
@@ -1698,12 +1792,33 @@ def build_template_content(db, f: DocsSetupFile) -> tuple[list, list]:
     return blocks, warnings
 
 
+def mapping_options(db, organization_id: int) -> dict:
+    """Everything Map documents needs for its choices, in a few queries (the full package settings view is far heavier)."""
+    from app.modules.hr import onboarding_package_org as ORG
+    from app.modules.hr import onboarding_profiles as PR
+    blocked_by_risk: dict = {}
+    docs = []
+    for d in C.documents():
+        risk = d.get("risk")
+        if risk not in blocked_by_risk:
+            blocked_by_risk[risk] = ORG.customise_block(db, organization_id, d["category"])
+        docs.append({"category": d["category"], "title": d["title"], "template_id": d["template_id"],
+                     "customise_blocked": blocked_by_risk[risk]})
+    return {"documents": docs, "modes": [{"value": m, "label": C.MODE_LABELS.get(m, m)} for m in ORG.MODES],
+            "signer_parties": list(ORG.SIGNER_PARTIES),
+            "engagement_profiles": [{"slug": p.get("slug"), "name": p.get("name") or p.get("slug")}
+                                    for p in PR.engagement_profiles(db, organization_id) if p.get("slug")]}
+
+
 def mapping_preview(db, s: DocsSetupSession, f: DocsSetupFile) -> dict:
     m = f.mapping or {}
     out = {"mapping": m, "samples": sample_values(chunks_of(f))}
     if m.get("action") in ("variant_of", "new_document"):
         blocks, warnings = build_template_content(db, f)
         out["warnings"] = warnings
+        out["blocks"] = editable_blocks(db, f)
+        out["edited"] = bool(m.get("edited_blocks"))
+        out["fields"] = sorted({ph["key"] for ph in m.get("placeholders") or [] if ph.get("key")})
         out["block_count"] = len(blocks)
         out["locked_count"] = sum(1 for b in blocks if b.get("locked"))
         if m.get("action") == "variant_of":
@@ -2094,10 +2209,12 @@ def approve_and_release(db, actor, s: DocsSetupSession, body: dict, *, ip: Optio
     body = dict(body or {})
     if not body.get("attestation_accepted"):
         raise HTTPException(422, "Confirm the attestation to approve and release the templates.")
-    if not (body.get("signed_name") or "").strip():
-        raise HTTPException(422, "Type your full name to sign the approval.")
-    review = {k: body.get(k) for k in ("attestation_accepted", "signed_name", "counsel_name", "counsel_firm",
-                                       "counsel_qualification", "review_date")}
+    # one click: the approval is signed with the admin's own profile name (a typed name, when given, must still match it)
+    signed_name = (body.get("signed_name") or "").strip() or CT._name(actor)
+    review = {k: body.get(k) for k in ("attestation_accepted", "counsel_name", "counsel_firm", "counsel_qualification", "review_date")}
+    review["signed_name"] = signed_name
+    counsel_given = all(review.get(k) for k in ("counsel_name", "counsel_firm", "counsel_qualification", "review_date"))
+    org_name = getattr(getattr(actor, "organization", None), "organization_name", None) or "Organisation"
     created = (s.applied_summary or {}).get("created") or {}
     results = []
     for vid in created.get("variants") or []:
@@ -2115,7 +2232,15 @@ def approve_and_release(db, actor, s: DocsSetupSession, body: dict, *, ip: Optio
             if v.status == "IN_DRAFT":
                 CT.submit_variant(db, actor, v)
             if v.status == "LEGAL_REVIEW":
-                CT.approve_legal(db, actor, v, review, ip=ip)
+                item_review = dict(review)
+                if getattr(d, "legal_risk", None) == "L3" and not counsel_given:
+                    # High-risk (L3) documents: without counsel details the organisation admin's own attestation is the
+                    # review. The record names the admin as the reviewer and says no external counsel review was recorded.
+                    item_review.update(counsel_name=signed_name, counsel_firm=org_name, reviewer_role="Organization admin",
+                                       counsel_qualification="Organisation admin attestation (TENANT_ATTESTED); no external "
+                                                             "counsel review recorded",
+                                       review_date=date.today().isoformat())
+                CT.approve_legal(db, actor, v, item_review, ip=ip)
             if v.status == "LEGAL_APPROVED":
                 CT.release_variant(db, actor, v)
             item.update(ok=v.status == "ACTIVE", status=v.status)
@@ -2131,11 +2256,45 @@ def approve_and_release(db, actor, s: DocsSetupSession, body: dict, *, ip: Optio
             item.update(ok=False, status=v.status if v else None, message=msg)
         results.append(item)
     released = sum(1 for r in results if r["ok"])
+    clauses = _approve_session_clauses(db, actor, created.get("clauses_pending") or [], signed_name)
     from app.modules.hr import onboarding_package_org as ORG
-    ORG.audit(db, actor, "docs_setup_released", {"session_id": s.id, "released": released,
+    ORG.audit(db, actor, "docs_setup_released", {"session_id": s.id, "released": released, "clauses_approved": clauses,
                                                   "results": [{k: r.get(k) for k in ("variant_id", "ok", "status")} for r in results]})
     db.commit()
-    return {"released": released, "total": len(results), "results": results}
+    sent_to = _release_held_documents(db, s.organization_id)
+    return {"released": released, "total": len(results), "results": results, "clauses_approved": clauses,
+            "held_documents_sent": sent_to}
+
+
+def _approve_session_clauses(db, actor, keys: list, signed_name: str) -> list:
+    """The clause wording this setup took from the organisation's own documents becomes its clause wording, on the admin's
+    attestation (recorded as the reference). Wording already decided elsewhere (approved or discarded) is left alone."""
+    from app.modules.hr import onboarding_package as P
+    cfg = P.get_config(db, actor.organization_id)
+    pending = dict(cfg.get("clauses_pending") or {})
+    ref = f"Organisation admin attestation – {signed_name}, {date.today().isoformat()}"
+    approved = {k: {"text": pending[k]["text"], "counsel_reference": ref}
+                for k in keys if isinstance(pending.get(k), dict) and (pending[k].get("text") or "").strip()}
+    if not approved:
+        return []
+    P.save_config(db, actor, {"clauses": approved})
+    cfg = P.get_config(db, actor.organization_id)
+    cfg["clauses_pending"] = {k: v for k, v in (cfg.get("clauses_pending") or {}).items() if k not in approved}
+    P._write_config(db, actor.organization_id, cfg)
+    return sorted(approved)
+
+
+def _release_held_documents(db, organization_id: int) -> int:
+    """New hires already sent their package get the documents that were held back, now that the templates and the clause
+    wording are approved. Returns how many new hires were sent something."""
+    from app.modules.hr import onboarding_package as P
+    from app.modules.hr.models import OnboardingNewHire
+    count = 0
+    for hire in db.query(OnboardingNewHire).filter(OnboardingNewHire.organization_id == organization_id).all():
+        pkg = (hire.profile_details or {}).get("_package") or {}
+        if pkg.get("sent_at") and pkg.get("held") and P.release_held(db, hire).get("issued"):
+            count += 1
+    return count
 
 
 def undo(db, actor, s: DocsSetupSession) -> dict:
