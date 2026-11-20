@@ -429,7 +429,7 @@ class Asset(Base):
     id            = Column(Integer, primary_key=True, index=True)
     employee_id   = Column(Integer, ForeignKey("employees.id"), nullable=True, index=True)
     name          = Column(String(150), nullable=False)
-    asset_tag     = Column(String(100), nullable=False, unique=True)
+    asset_tag     = Column(String(100), nullable=False)          # unique per organization: uq_assets_org_asset_tag below
     category      = Column(String(100), nullable=True)
     serial_number = Column(String(200), nullable=True)
     department    = Column(String(100), nullable=True)
@@ -445,6 +445,12 @@ class Asset(Base):
     updated_at    = Column(DateTime, onupdate=func.now())
 
     employee      = relationship("Employee", back_populates="assets")
+
+    # A tag is unique within one organization among assets that are not deleted; another organization may use the same tag.
+    __table_args__ = (
+        Index("uq_assets_org_asset_tag", "organization_id", "asset_tag", unique=True,
+              postgresql_where=text("deleted_at IS NULL"), sqlite_where=text("deleted_at IS NULL")),
+    )
 
 
 class AssetMaintenanceRequest(Base):
@@ -494,11 +500,15 @@ class AssetCategory(Base):
     __tablename__ = "asset_categories"
 
     id             = Column(Integer, primary_key=True, index=True)
-    name           = Column(String(100), nullable=False, unique=True)
+    name           = Column(String(100), nullable=False)          # unique per organization, ignoring case: index below
     description    = Column(Text, nullable=True)
     is_active      = Column(Boolean, default=True)
     organization_id = Column(Integer, ForeignKey("organizations.id"), nullable=False, index=True)
     created_at     = Column(DateTime, server_default=func.now())
+
+    __table_args__ = (
+        Index("uq_asset_categories_org_lower_name", "organization_id", func.lower(name), unique=True),
+    )
 
 
 class AssetReport(Base):

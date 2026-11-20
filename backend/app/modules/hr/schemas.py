@@ -2383,7 +2383,7 @@ class TrainingProgramResponse(BaseModel):
 
 
 class ProgramAssignmentCreate(BaseModel):
-    program_id: int
+    program_id: Optional[int] = None     # ignored: the program is the one in the URL (/programs/{prog_id}/assignments)
     employee_id: int
 
 

@@ -41,7 +41,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.core.dependencies import get_current_user, get_current_admin, get_current_org_admin
 from app.core.entitlements import require_entitlement
-from app.core.exceptions import BadRequestException, NotFoundException
+from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
 from app.core.response_cache import cached_response, invalidate_prefix, TTL_DASHBOARD
 
 # Assuming these are imported from your config or database modules
@@ -55,6 +55,7 @@ from app.modules.hr import file_storage
 from app.modules.super_admin.admin_notifications import notify_org_admins
 from app.modules.hr.models import LeaveType, RequestStatus, HrDocument, OnboardingNewHire, OnboardingDocument
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
+from app.modules.employee import ownership
 from app.modules.hr.schemas import (
     DepartmentCreate, DepartmentUpdate, DepartmentResponse,
     SuccessResponse, RefreshRequest, TokenResponse,
@@ -2498,11 +2499,10 @@ def list_travel_requests(
     search: Optional[str] = Query(None),
     status: Optional[RequestStatus] = Query(None),
 ):
-    if current_user.role == UserRole.EMPLOYEE:
-        employee_id = current_user.id                # a colleague's trips are not mine to see
+    # admins: everyone in the organization; a manager: their own trips and their direct reports'; anyone else: their own
     result = service.get_travel_requests(
         db, organization_id=current_user.organization_id,
-        employee_id=employee_id, page=page, per_page=per_page,
+        employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id), page=page, per_page=per_page,
         search=search, status=status,
     )
     return result["items"]
@@ -2515,7 +2515,7 @@ def list_travel_requests(
 )
 def travel_dashboard(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return service.get_travel_dashboard_stats(db, organization_id=current_user.organization_id)
 
@@ -2556,15 +2556,49 @@ def get_travel_request(
     current_user=Depends(get_current_user),
 ):
     request = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
-    _own_travel_or_404(request, current_user, travel_id)
+    _own_travel_or_404(request, current_user, travel_id, db)
     return request
 
 
-def _own_travel_or_404(request, user, travel_id):
-    """An employee can open or change only their own travel request; someone else's looks like it does not exist."""
-    if user.role == UserRole.EMPLOYEE and request.employee_id != user.id:
-        from app.core.exceptions import NotFoundException
-        raise NotFoundException("TravelRequest", travel_id)
+def _own_travel_or_404(request, user, travel_id, db=None):
+    """Who can open a travel request: an admin (any in the organization), the traveller, and the traveller's direct manager.
+    For anyone else it looks like it does not exist."""
+    if request.employee_id == user.id or ownership.is_admin(user):
+        return
+    if db is not None and ownership.is_direct_report(db, user, request.employee_id):
+        return
+    raise NotFoundException("TravelRequest", travel_id)
+
+
+_DECISIONS = (RequestStatus.APPROVED, RequestStatus.REJECTED)
+
+
+def _check_travel_change(db, current, data: TravelRequestUpdate, user, travel_id) -> None:
+    """The Travel rule (audit T1):
+      - an admin (organization admin, HR admin) may approve, reject, edit or delete anyone else's trip;
+      - a manager may approve or reject a direct report's trip, and change nothing else on it;
+      - nobody approves, rejects or otherwise sets the status of their own trip: the traveller can only edit it while it is
+        pending, or withdraw (cancel) it;
+      - anyone else's trip looks like it does not exist."""
+    changes = data.model_dump(exclude_unset=True)
+    if current.employee_id == user.id:                                   # the traveller, whatever their role
+        if "status" in changes and changes["status"] in _DECISIONS:
+            raise ForbiddenException("You cannot approve or reject your own travel request.")
+        if current.status != RequestStatus.PENDING:
+            raise BadRequestException("Only a request that is still pending can be changed.")
+        if "status" in changes and changes["status"] not in (None, RequestStatus.PENDING, RequestStatus.CANCELLED):
+            raise ForbiddenException("You can only withdraw your own travel request.")
+        if "start_date" in changes or "end_date" in changes:
+            service.check_travel_dates(changes.get("start_date", current.start_date), changes.get("end_date", current.end_date),
+                                       allow_past=ownership.is_admin(user))
+        return
+    if ownership.is_admin(user):
+        return
+    if ownership.is_direct_report(db, user, current.employee_id):
+        if set(changes) - {"status"} or changes.get("status") not in _DECISIONS:
+            raise ForbiddenException("As their manager you can approve or reject this travel request; an admin can make other changes.")
+        return
+    raise NotFoundException("TravelRequest", travel_id)
 
 
 @hr_router.put(
@@ -2578,16 +2612,8 @@ def update_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if current_user.role == UserRole.EMPLOYEE:
-        current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
-        _own_travel_or_404(current, current_user, travel_id)
-        if current.status != RequestStatus.PENDING:
-            raise BadRequestException("Only a request that is still pending can be changed.")
-        changes = data.model_dump(exclude_unset=True)
-        if "status" in changes and changes["status"] not in (None, RequestStatus.PENDING, RequestStatus.CANCELLED):
-            raise BadRequestException("You cannot approve or reject a travel request.")
-        if "start_date" in changes or "end_date" in changes:
-            service.check_travel_dates(changes.get("start_date", current.start_date), changes.get("end_date", current.end_date), allow_past=False)
+    current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+    _check_travel_change(db, current, data, current_user, travel_id)
     result = service.update_travel_request(db, travel_id, data, organization_id=current_user.organization_id)
     # Notify org admins about travel request updates (especially status changes)
     try:
@@ -2616,11 +2642,14 @@ def delete_travel_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    if current_user.role == UserRole.EMPLOYEE:
-        current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
-        _own_travel_or_404(current, current_user, travel_id)
+    # an admin can delete anyone else's trip; the traveller can withdraw their own while it is pending; nobody else can
+    current = service.get_travel_request(db, travel_id, organization_id=current_user.organization_id)
+    if current.employee_id == current_user.id:
         if current.status != RequestStatus.PENDING:
             raise BadRequestException("Only a request that is still pending can be withdrawn.")
+    elif not ownership.is_admin(current_user):
+        _own_travel_or_404(current, current_user, travel_id, db)          # 404 unless they may see it
+        raise ForbiddenException(ownership.ADMIN_ONLY_MESSAGE)
     service.delete_travel_request(db, travel_id, organization_id=current_user.organization_id)
     return {"message": "Travel request deleted successfully."}
 
@@ -2640,11 +2669,10 @@ def list_travel_expenses(
     per_page: int = Query(20, ge=1, le=200),
     search: Optional[str] = Query(None),
 ):
-    if current_user.role == UserRole.EMPLOYEE:
-        employee_id = current_user.id                # a colleague's claims are not mine to see
+    # admins: everyone in the organization; a manager: their own claims and their direct reports'; anyone else: their own
     result = service.get_travel_expenses(
         db, organization_id=current_user.organization_id,
-        request_id=request_id, employee_id=employee_id,
+        request_id=request_id, employee_ids=ownership.scoped_employee_filter(db, current_user, employee_id),
         status=status, page=page, per_page=per_page, search=search,
     )
     return result["items"]
