@@ -282,3 +282,23 @@ def test_public_verification_reveals_only_validity(world):
                   "issued_on": row.issued_at.date().isoformat(), "status": "ISSUED"}
     assert world.client.get(f"/public/documents/verify/{row.document_number}", params={"h": "0" * 16}).json() == {"valid": False}
     assert world.client.get(f"/public/documents/verify/{row.document_number}").status_code == 422
+
+
+def test_signature_block_prints_the_candidate_name_so_the_signed_copy_is_not_blank():
+    """The executed PDF reuses the issued pages unchanged, so the candidate's name must be printed when the letter is made."""
+    import io
+
+    import pypdf
+
+    from app.modules.doc_templates import renderer
+
+    inp = renderer.RenderInput(
+        blocks=[{"type": "signature_block", "parties": ["employer", "candidate"]}], value_of=lambda k: "", raw_values={},
+        clause_text=lambda k: "", required_clause_keys=[], rows_of=lambda k: [], items_of=lambda k: [],
+        signatures={"employer": "Jo Boss, CEO"}, signer_names={"candidate": "Priya Sharma", "employer": "Someone Else"},
+        document_number="D-1", title="Offer", letterhead={"legal_name": "Acme"}, visual_profile="offer_letter")
+    html = renderer.render_html(inp)
+    assert "Name: Priya Sharma" in html
+    assert "Someone Else" not in html            # a pre-signed employer line already names its signer
+    text = "".join(p.extract_text() for p in pypdf.PdfReader(io.BytesIO(renderer.render_pdf(inp))).pages)
+    assert "Name: Priya Sharma" in text

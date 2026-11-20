@@ -38,6 +38,18 @@ SENDER_SAMPLES = [
         email="sam@acme.test", recipient_name="Sam Rivera", is_candidate=True, candidate_name="Sam Rivera",
         position="Backend Engineer", organization_name="Acme Corp", date_display="Thu, Oct 22, 2026",
         time_display="10:00", organization_id=42)),
+    ("send_interview_result", dict(
+        email="sam@acme.test", candidate_name="Sam Rivera", position="Backend Engineer", organization_name="Acme Corp",
+        cleared=True, interview_type_label="Video call", date_display="Thu, Oct 22, 2026",
+        message="We'll share the details of the final round tomorrow.", organization_id=42)),
+    ("send_interview_result", dict(
+        email="ria@acme.test", candidate_name="Ria Das", position="Backend Engineer", organization_name="Acme Corp",
+        cleared=False, interview_type_label="In person", date_display="Thu, Oct 22, 2026", message=None, organization_id=42)),
+    ("send_interview_result_recorded", dict(
+        email="jordan@acme.test", recipient_name="Jordan Lee", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", cleared=True, interview_type_label="Video call", date_display="Thu, Oct 22, 2026",
+        rating=4, recorded_by="Alex Admin", candidate_emailed=True, review_url=f"{APP}/zoiko-hr/recruitment/interviews",
+        organization_id=42)),
     ("send_candidate_status_update", dict(
         email="sam@acme.test", candidate_name="Sam Rivera", position="Backend Engineer", organization_name="Acme Corp",
         status_label="Under review", is_rejection=False, organization_id=42)),
@@ -77,6 +89,11 @@ SENDER_SAMPLES = [
         email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", employee_code="ACM-0042",
         position="Backend Engineer", organization_name="Acme Corp", employees_url=f"{APP}/zoiko-hr/employees",
         joining_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_onboarding_documents_submitted", dict(
+        email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", documents=[{"title": "Offer Letter", "status": "Signed"},
+                                                  {"title": "Job Description", "status": "Acknowledged"}],
+        review_url=f"{APP}/zoiko-hr/onboarding/checklists", joining_date_display="Nov 02, 2026", organization_id=42)),
     ("send_leave_request_submitted", dict(
         email="sam@acme.test", first_name="Sam", request_reference="LV-42-0007",
         leave_period_display="Oct 01, 2026 – Oct 03, 2026", leave_request_url=f"{APP}/employee/leaves")),

@@ -13,6 +13,10 @@ import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { getRequisitionAuthorization } from "../../../service/recruitmentDocumentsService";
 import { getEmployees } from "../../../service/employee";
 import {
+  validateRequisition as checkRequisition, findDepartment, blockKeys, pasteOnly, WHOLE_NUMBER_BLOCKED, WHOLE_NUMBER_PASTE,
+  WHOLE_AMOUNT_MESSAGE, ruleProblem,
+} from "./recruitmentRules";
+import {
   RecruitmentLayout, PrimaryButton, SecondaryButton, QuickAction, KpiCard, KpiGrid, Card, StatusPill, Avatar, SearchInput, FilterSelect,
   UnderlineTabs, ChipTabs, Table, td, EmptyState, Pagination, DetailPanel, WithDetail, DetailSection, relativeTime, shortDate, money, useInsights,
 } from "./ui";
@@ -314,7 +318,7 @@ function RequisitionDetail({ r, managerName, onClose, onEdit, onAuthorization, a
 
 // ── create / edit requisition: right-hand slide-over ────────────────────────────────────────────────────────────────
 // Field limits mirror RequisitionCreate / RequisitionUpdate on the backend.
-const LIMITS = { title: 200, department: 100, location: 150, description: 10000, requirements: 10000, openings: 1000 };
+const LIMITS = { title: 100, department: 100, location: 150, description: 10000, requirements: 10000, openings: 1000 };
 const FORM_FIELDS = ["title", "department", "employment_type", "priority", "openings", "location", "target_start_date",
   "hiring_manager_id", "budget_min", "budget_max", "currency", "description", "requirements"];
 const FIELD_IDS = { title: "req-title", department: "req-department", location: "req-location", openings: "req-openings", priority: "req-priority",
@@ -331,35 +335,16 @@ function formFromRequisition(r) {
     budget_min: r.budget_min ?? "", budget_max: r.budget_max ?? "", currency: r.currency || "", target_start_date: (r.target_start_date || "").slice(0, 10) };
 }
 
-/** Client-side checks; returns { field: message } (empty when the form can be sent). */
-function validateRequisition(form, filled = 0) {
-  const e = {};
-  if (!form.title.trim()) e.title = "Give the role a title.";
-  else if (form.title.trim().length > LIMITS.title) e.title = `Keep the title within ${LIMITS.title} characters.`;
-  if (!form.department.trim()) e.department = "Choose or type the department that is hiring.";
-  else if (form.department.trim().length > LIMITS.department) e.department = `Keep the department within ${LIMITS.department} characters.`;
-  if (form.location.trim().length > LIMITS.location) e.location = `Keep the location within ${LIMITS.location} characters.`;
-  const openings = Number(form.openings);
-  if (form.openings === "" || !Number.isInteger(openings) || openings < 1) e.openings = "Openings must be a whole number of at least 1.";
-  else if (openings > LIMITS.openings) e.openings = `At most ${LIMITS.openings} openings per requisition.`;
-  else if (filled && openings < filled) e.openings = `${filled} position${filled === 1 ? " is" : "s are"} already filled, so openings cannot go below ${filled}.`;
-  const bMin = form.budget_min === "" ? null : Number(form.budget_min);
-  const bMax = form.budget_max === "" ? null : Number(form.budget_max);
-  if (bMin != null && (Number.isNaN(bMin) || bMin < 0)) e.budget_min = "Budget amounts must be positive numbers.";
-  if (bMax != null && (Number.isNaN(bMax) || bMax < 0)) e.budget_max = "Budget amounts must be positive numbers.";
-  if (!e.budget_min && !e.budget_max && bMin != null && bMax != null && bMin > bMax) e.budget_max = "The budget maximum cannot be below the minimum.";
-  if ((bMin != null || bMax != null) && !/^[A-Za-z]{3}$/.test(form.currency.trim())) e.currency = "Give the budget's currency as a 3-letter code, e.g. INR or USD.";
-  else if (form.currency.trim() && !/^[A-Za-z]{3}$/.test(form.currency.trim())) e.currency = "Use a 3-letter ISO currency code.";
-  if (form.description.length > LIMITS.description) e.description = `Keep the description within ${LIMITS.description.toLocaleString()} characters.`;
-  if (form.requirements.length > LIMITS.requirements) e.requirements = `Keep the requirements within ${LIMITS.requirements.toLocaleString()} characters.`;
-  return e;
-}
+/** Client-side checks; returns { field: message } (empty when the form can be sent). Same rules and words as the server. */
+const validateRequisition = (form, filled = 0, lists = {}) => checkRequisition(form, filled, lists);
 
 /** The request body the requisition API takes (same shape for create and update). */
-function requisitionPayload(form) {
+function requisitionPayload(form, departments = []) {
   const bMin = form.budget_min === "" ? null : Number(form.budget_min);
   const bMax = form.budget_max === "" ? null : Number(form.budget_max);
+  const dept = findDepartment(departments, form.department);
   return {
+    department_id: dept ? dept.id : null,
     hiring_manager_id: form.hiring_manager_id ? Number(form.hiring_manager_id) : null,
     employment_type: form.employment_type || null,
     budget_min: bMin,
@@ -367,8 +352,8 @@ function requisitionPayload(form) {
     currency: form.currency.trim() ? form.currency.trim().toUpperCase() : null,
     target_start_date: form.target_start_date || null,
     title: form.title.trim(),
-    department: form.department.trim(),
-    location: form.location.trim() || null,
+    department: dept ? dept.name : form.department.trim(),
+    location: form.location.trim() ? form.location.trim().replace(/\s+/g, " ") : null,
     openings: Number(form.openings),
     priority: form.priority,
     description: form.description.trim() || null,
@@ -391,7 +376,7 @@ function humanizeServerMsg(msg, ctx = {}) {
   if (x) return `Must be ${x[1]} or less.`;
   if (/valid (integer|number|decimal)/i.test(m)) return "Enter a number.";
   if (/valid date/i.test(m)) return "Enter a valid date.";
-  if (/digits/i.test(m)) return ctx?.max_digits ? `Use at most ${ctx.max_digits} digits.` : "That amount has too many digits.";
+  if (/digits/i.test(m)) return ctx?.max_digits ? `Use at most ${ctx.max_digits} digits.` : WHOLE_AMOUNT_MESSAGE;
   return m.charAt(0).toUpperCase() + m.slice(1);
 }
 
@@ -511,8 +496,13 @@ function ManagerPicker({ value, onChange, people, loading, error, describedBy })
   );
 }
 
-function RequisitionFormPanel({ editItem, people, peopleLoading, departments, locations, currencies, onClose, onSubmit }) {
-  const initial = useMemo(() => formFromRequisition(editItem), [editItem]);
+function RequisitionFormPanel({ editItem, people, peopleLoading, departments, locations, currencies, defaultCurrency, onClose, onSubmit }) {
+  const initial = useMemo(() => {
+    const f = formFromRequisition(editItem);
+    return editItem || f.currency || !defaultCurrency ? f : { ...f, currency: defaultCurrency };
+  }, [editItem]); // eslint-disable-line react-hooks/exhaustive-deps
+  const currencyCodes = useMemo(() => (currencies ? currencies.map((c) => c.code) : null), [currencies]);
+  const lists = { departments, currencies: currencyCodes };
   const [form, setForm] = useState(initial);
   const [errors, setErrors] = useState({});
   const [attempted, setAttempted] = useState(false);
@@ -528,7 +518,7 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
     const value = e?.target ? e.target.value : e;
     const next = { ...form, [key]: value };
     setForm(next);
-    if (attempted) setErrors(validateRequisition(next, filled));
+    if (attempted) setErrors(validateRequisition(next, filled, lists));
     else if (errors[key]) setErrors((er) => { const { [key]: _drop, ...rest } = er; return rest; });
   };
 
@@ -580,7 +570,7 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
   const save = async (mode) => {
     setBanner(null);
     setAttempted(true);
-    const errs = validateRequisition(form, filled);
+    const errs = validateRequisition(form, filled, lists);
     setErrors(errs);
     if (Object.keys(errs).length) {
       const n = Object.keys(errs).length;
@@ -590,7 +580,7 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
     }
     setSavingAs(mode);
     try {
-      await onSubmit(requisitionPayload(form), mode === "submit");
+      await onSubmit(requisitionPayload(form, departments || []), mode === "submit");
     } catch (err) {
       const fieldErrs = serverFieldErrors(err);
       if (Object.keys(fieldErrs).length) {
@@ -604,6 +594,15 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
     }
   };
 
+  const checkOnBlur = (key) => () => {
+    const message = validateRequisition(form, filled, lists)[key];
+    setErrors((er) => {
+      if (message) return { ...er, [key]: message };
+      const { [key]: _drop, ...rest } = er;
+      return rest;
+    });
+  };
+
   const describe = (key, hint) => (errors[key] ? `${FIELD_IDS[key]}-error` : hint ? `${FIELD_IDS[key]}-hint` : undefined);
   const aria = (key, hint) => ({ "aria-invalid": errors[key] ? true : undefined, "aria-describedby": describe(key, hint) });
 
@@ -611,7 +610,7 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
   const openingsN = Number(form.openings);
   const bMin = form.budget_min === "" ? null : Number(form.budget_min);
   const bMax = form.budget_max === "" ? null : Number(form.budget_max);
-  const cur = /^[A-Za-z]{3}$/.test(form.currency.trim()) ? form.currency.trim().toUpperCase() : "";
+  const cur = currencyCodes && currencyCodes.includes(String(form.currency).toUpperCase()) ? String(form.currency).toUpperCase() : "";
   const amount = (n) => (cur ? money(n, cur) : Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 }));
   const okNum = (n) => n != null && !Number.isNaN(n) && n >= 0;
   const haveOpenings = Number.isInteger(openingsN) && openingsN >= 1;
@@ -668,15 +667,21 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
 
             <FormSection icon={Briefcase} title="Role" helper="What the position is, who it reports into and how many people you need.">
               <Field id="req-title" label="Title" required error={errors.title} counter={<Counter value={form.title} max={LIMITS.title} />}>
-                <input id="req-title" value={form.title} onChange={set("title")} maxLength={LIMITS.title + 50} autoComplete="off"
+                <input id="req-title" value={form.title} onChange={set("title")} onBlur={checkOnBlur("title")} maxLength={LIMITS.title + 50} autoComplete="off"
                   {...aria("title")} className={inputCls(errors.title)} />
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field id="req-department" label="Department" required error={errors.department}
-                  hint={departments.length ? "Pick from the list or type a new one." : undefined}>
-                  <input id="req-department" list="req-department-options" value={form.department} onChange={set("department")} autoComplete="off"
-                    {...aria("department", departments.length)} className={inputCls(errors.department)} />
-                  <datalist id="req-department-options">{departments.map((d) => <option key={d} value={d} />)}</datalist>
+                  hint={departments === null ? "Loading the organization's departments…"
+                    : departments.length ? "One of the organization's active departments." : "No active departments yet. Add one under Departments first."}>
+                  <select id="req-department" value={form.department} onChange={set("department")} onBlur={checkOnBlur("department")}
+                    disabled={departments === null} {...aria("department", true)} className={inputCls(errors.department)}>
+                    <option value="">Choose a department</option>
+                    {form.department && departments && !findDepartment(departments, form.department) && (
+                      <option value={form.department} disabled>{form.department} (not in the department list)</option>
+                    )}
+                    {(departments || []).map((d) => <option key={d.id} value={d.name}>{d.name}</option>)}
+                  </select>
                 </Field>
                 <Field id="req-type" label="Employment type" error={errors.employment_type}>
                   <select id="req-type" value={form.employment_type} onChange={set("employment_type")} {...aria("employment_type")} className={inputCls(errors.employment_type)}>
@@ -704,8 +709,8 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field id="req-location" label="Location" error={errors.location}
                   hint={locations.length ? "Pick a location already in use or type a new one." : undefined}>
-                  <input id="req-location" list="req-location-options" value={form.location} onChange={set("location")} autoComplete="off"
-                    {...aria("location", locations.length)} className={inputCls(errors.location)} />
+                  <input id="req-location" list="req-location-options" value={form.location} onChange={set("location")} onBlur={checkOnBlur("location")}
+                    autoComplete="off" placeholder="e.g. Bengaluru, India" {...aria("location", locations.length)} className={inputCls(errors.location)} />
                   <datalist id="req-location-options">{locations.map((l) => <option key={l} value={l} />)}</datalist>
                 </Field>
                 <Field id="req-start" label="Target start date" error={errors.target_start_date}>
@@ -736,18 +741,24 @@ function RequisitionFormPanel({ editItem, people, peopleLoading, departments, lo
             <FormSection icon={Wallet} title="Budget" helper="Yearly pay range per hire. Leave blank if the budget is not set yet.">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-[1fr_1fr_120px]">
                 <Field id="req-budget-min" label="Budget from (per year)" error={errors.budget_min}>
-                  <input id="req-budget-min" type="number" inputMode="decimal" min="0" step="any" value={form.budget_min} onChange={set("budget_min")}
-                    {...aria("budget_min")} className={inputCls(errors.budget_min)} />
+                  <input id="req-budget-min" type="number" inputMode="numeric" min="1" step="1" value={form.budget_min} onChange={set("budget_min")}
+                    onKeyDown={blockKeys(WHOLE_NUMBER_BLOCKED)} onPaste={pasteOnly(WHOLE_NUMBER_PASTE)} onBlur={checkOnBlur("budget_min")}
+                    placeholder="e.g. 600000" {...aria("budget_min")} className={inputCls(errors.budget_min)} />
                 </Field>
                 <Field id="req-budget-max" label="Budget to (per year)" error={errors.budget_max}>
-                  <input id="req-budget-max" type="number" inputMode="decimal" min="0" step="any" value={form.budget_max} onChange={set("budget_max")}
-                    {...aria("budget_max")} className={inputCls(errors.budget_max)} />
+                  <input id="req-budget-max" type="number" inputMode="numeric" min="1" step="1" value={form.budget_max} onChange={set("budget_max")}
+                    onKeyDown={blockKeys(WHOLE_NUMBER_BLOCKED)} onPaste={pasteOnly(WHOLE_NUMBER_PASTE)} onBlur={checkOnBlur("budget_max")}
+                    placeholder="e.g. 900000" {...aria("budget_max")} className={inputCls(errors.budget_max)} />
                 </Field>
                 <Field id="req-currency" label="Currency" error={errors.currency} required={form.budget_min !== "" || form.budget_max !== ""} className="col-span-2 sm:col-span-1">
-                  <input id="req-currency" list={currencies.length ? "req-currency-options" : undefined} maxLength={3} value={form.currency}
-                    onChange={(e) => set("currency")(e.target.value.toUpperCase())} placeholder="ISO code" autoComplete="off"
-                    {...aria("currency")} className={`${inputCls(errors.currency)} uppercase`} />
-                  {currencies.length > 0 && <datalist id="req-currency-options">{currencies.map((c) => <option key={c} value={c} />)}</datalist>}
+                  <select id="req-currency" value={form.currency} onChange={set("currency")} onBlur={checkOnBlur("currency")}
+                    disabled={currencies === null} {...aria("currency")} className={inputCls(errors.currency)}>
+                    <option value="">{currencies === null ? "Loading…" : "Choose"}</option>
+                    {form.currency && currencyCodes && !currencyCodes.includes(String(form.currency).toUpperCase()) && (
+                      <option value={form.currency} disabled>{form.currency} (not a currency)</option>
+                    )}
+                    {(currencies || []).map((c) => <option key={c.code} value={c.code}>{c.code} · {c.name}</option>)}
+                  </select>
                 </Field>
               </div>
               <div className="flex items-center justify-between gap-3 rounded-xl bg-slate-50 px-3.5 py-3 ring-1 ring-inset ring-gray-200" aria-live="polite">
@@ -821,7 +832,8 @@ export default function JobRequisitions() {
   const [editItem, setEditItem] = useState(null);
   const [people, setPeople] = useState([]);
   const [peopleLoading, setPeopleLoading] = useState(false);
-  const [orgDepartments, setOrgDepartments] = useState([]);
+  const [orgDepartments, setOrgDepartments] = useState(null);         // [{ id, name }] once loaded
+  const [regions, setRegions] = useState(null);
   const loadPeople = () => {
     if (people.length || peopleLoading) return;
     setPeopleLoading(true);
@@ -834,14 +846,21 @@ export default function JobRequisitions() {
   };
   // The organization's real departments, as suggestions (loaded lazily so the page works where hrService lacks the call).
   const loadDepartments = () => {
-    if (orgDepartments.length) return;
+    if (orgDepartments && orgDepartments.length) return;
     import("../../../service/hrService")
-      .then((m) => (typeof m.getDepartments === "function" ? m.getDepartments() : null))
+      .then((m) => {
+        if (typeof m.getRegions === "function" && !regions) {
+          m.getRegions().then((r) => setRegions(r?.data ?? r)).catch(() => setRegions({ currencies: [] }));
+        }
+        return typeof m.getDepartments === "function" ? m.getDepartments() : null;
+      })
       .then((res) => {
         const raw = res?.data?.data ?? res?.data?.items ?? res?.data ?? res ?? [];
         const list = (Array.isArray(raw) ? raw : raw?.items || [])
-          .filter((d) => d && d.is_active !== false && d.status !== "inactive")
-          .map((d) => (typeof d === "string" ? d : d.name || d.department_name || d.title)).filter(Boolean);
+          .filter((d) => d && typeof d === "object" && d.id && d.is_active !== false && d.status !== "inactive")
+          .map((d) => ({ id: d.id, name: d.name || d.department_name || d.title }))
+          .filter((d) => d.name)
+          .sort((a, b) => a.name.localeCompare(b.name));
         setOrgDepartments(list);
       })
       .catch(() => setOrgDepartments([]));
@@ -904,10 +923,10 @@ export default function JobRequisitions() {
   // Suggestions for the form: only values the organization really has (departments, requisitions, insights).
   const uniqSorted = (xs) => [...new Map(xs.filter(Boolean).map((x) => [String(x).trim().toLowerCase(), String(x).trim()])).values()]
     .filter(Boolean).sort((a, b) => a.localeCompare(b));
-  const deptSuggestions = useMemo(() => uniqSorted([...orgDepartments, ...(ins?.departments || []), ...requisitions.map((r) => r.department)]),
-    [orgDepartments, ins, requisitions]);
-  const locSuggestions = useMemo(() => uniqSorted([...(ins?.locations || []), ...requisitions.map((r) => r.location)]), [ins, requisitions]);
-  const currencySuggestions = useMemo(() => uniqSorted(requisitions.map((r) => r.currency && String(r.currency).toUpperCase())), [requisitions]);
+  const currencyChoices = regions ? (regions.currencies || []) : null;
+  // only suggestions that would pass the location rule themselves (old junk values are not offered)
+  const locSuggestions = useMemo(() => uniqSorted([...(ins?.locations || []), ...requisitions.map((r) => r.location)])
+    .filter((l) => !ruleProblem("location", l)), [ins, requisitions]);
   // The current hiring manager stays pickable even when they are not in the active-people list.
   const formPeople = useMemo(() => {
     const id = editItem?.hiring_manager_id;
@@ -1184,7 +1203,8 @@ export default function JobRequisitions() {
 
       {showModal && (
         <RequisitionFormPanel key={editItem ? `edit-${editItem.id}` : "new"} editItem={editItem} people={formPeople} peopleLoading={peopleLoading}
-          departments={deptSuggestions} locations={locSuggestions} currencies={currencySuggestions}
+          departments={orgDepartments} locations={locSuggestions} currencies={currencyChoices}
+          defaultCurrency={regions?.organization?.currency || ""}
           onClose={() => setShowModal(false)} onSubmit={handleSave} />
       )}
     </RecruitmentLayout>

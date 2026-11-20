@@ -103,7 +103,8 @@ function MenuItem({ item, pathname, search }) {
 
 export default function Sidebar({ open, onClose }) {
   const { pathname, search } = useLocation();
-  const { role, product, products } = useAuth();
+  const { role, product, products, getFirstAccessibleRoute, defaultRedirect } = useAuth();
+  const home = getFirstAccessibleRoute?.() || defaultRedirect || "/";   // B14: the logo goes to this role's dashboard
   const { entitlements, loading: entitlementsLoading, error: entitlementsError, refetch: refetchEntitlements } = useEntitlements();
   const filteredSections = useFilteredNavigation(role, product, products, entitlementsLoading ? null : entitlements);
   const [searchQuery, setSearchQuery] = useState("");
@@ -130,8 +131,8 @@ export default function Sidebar({ open, onClose }) {
       >
         <div className="mb-8 flex items-center justify-between gap-3">
           <div className="flex flex-col gap-2">
-            <Link to="/" className="inline-flex items-center gap-2.5">
-              <img src={logo} alt="Zoiko One" className="h-10 w-auto max-w-full object-contain" />
+            <Link to={home} className="inline-flex items-center gap-2.5">
+              <img src={logo} alt="Zoiko HR" className="h-10 w-auto max-w-full object-contain" />
               <span className="text-[22px] font-extrabold tracking-tight text-white">
                 Zoiko<span className="text-[#3B82F6]">HR</span>
               </span>

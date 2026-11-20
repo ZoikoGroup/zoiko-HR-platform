@@ -16,6 +16,7 @@ import { useCallback, useRef, useState } from "react";
 import { ShieldCheck, X, Loader2 } from "lucide-react";
 import { mfaEnrollConfirm, mfaEnrollStart, mfaStepUp } from "../service/authService";
 import { getStoredUser } from "../service/api";
+import PasswordInput from "./PasswordInput";
 
 export const STEP_UP_CODE = "MFA_STEP_UP_REQUIRED";
 
@@ -134,8 +135,8 @@ function StepUpDialog({ state, setState, onDone, onCancel }) {
             <p className="mb-4 text-sm text-slate-500">
               No authenticator app is set up for this account yet, and this action needs one. Enter your password to set it up now.
             </p>
-            <input type="password" autoFocus autoComplete="current-password" value={password}
-              onChange={(e) => setPassword(e.target.value)} placeholder="Password" className={inputCls} aria-label="Password" />
+            <PasswordInput id="stepup-password" autoFocus autoComplete="current-password" value={password}
+              onChange={(e) => setPassword(e.target.value)} placeholder="Password" className={inputCls} aria-label="Password" iconSize={16} />
           </>
         )}
         {state.step === "enroll" && state.enrollment && (

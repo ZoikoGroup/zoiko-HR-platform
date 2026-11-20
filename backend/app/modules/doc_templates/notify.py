@@ -87,9 +87,8 @@ def action_required(db, doc: GeneratedDocument, person, issuer) -> None:
     action_label, phrase = ACTION_TEXT.get(doc.execution_mode, ACTION_TEXT["NONE"])
     issuer_name = getattr(getattr(issuer, "organization", None), "organization_name", None) or "your HR team"
     url = app_url(f"/employee/documents/company?generated={doc.id}")
-    if doc.execution_mode != "NONE":
-        from app.modules.doc_templates.golive import notify_in_app
-        notify_in_app(db, doc, person)          # the in-app inbox: document number only
+    from app.modules.doc_templates.golive import notify_in_app
+    notify_in_app(db, doc, person)              # the in-app inbox: document number only (sign / acknowledge / issued, A5)
     if doc.family_id in registry.COMPENSATION_FAMILIES:
         # compensation letters never name an amount, a revision or even the letter type in an e-mail
         _safe(lambda: email_service.send_compensation_document_available_email(
@@ -128,9 +127,10 @@ def candidate_link(db, doc: GeneratedDocument, candidate, raw_token: str, expire
         attempts=1 if wait else EMAIL_ATTEMPTS)
 
 
-def sign_code(db, doc: GeneratedDocument, email: str, first_name: str, code: str) -> None:
+def sign_code(db, doc: GeneratedDocument, email: str, first_name: str, code: str) -> bool:
+    """True when the code e-mail was accepted for delivery."""
     from app.services import email_service
-    _safe(lambda: email_service.send_document_sign_code_email(
+    return _safe(lambda: email_service.send_document_sign_code_email(
         email, first_name or "there", doc.document_number, code, settings.DOC_SIGN_OTP_TTL_MINUTES, db=db,
         organization_id=doc.organization_id), doc.id, "sign code")
 
@@ -143,11 +143,23 @@ def _hr_people(db, doc: GeneratedDocument) -> list:
 
 def executed(db, doc: GeneratedDocument) -> None:
     from app.services import email_service
+    if _is_onboarding_document(db, doc):
+        return          # onboarding documents: HR gets one summary email when the new hire submits the package
     for person in _hr_people(db, doc):
         _safe(lambda p=person: email_service.send_document_executed_email(
             p.work_email or p.email, _first_name(p), label(doc), doc.document_number,
             doc.status_changed_at.strftime("%b %d, %Y %H:%M UTC") if doc.status_changed_at else "",
             app_url(f"/zoiko-hr/documents/generated?id={doc.id}"), db=db, organization_id=doc.organization_id), doc.id, "executed")
+
+
+def _is_onboarding_document(db, doc: GeneratedDocument) -> bool:
+    if getattr(doc, "subject_type", None) == "new_hire":
+        return True
+    try:
+        from app.modules.hr import onboarding_package
+        return onboarding_package.hire_for_document(db, doc) is not None
+    except Exception:
+        return False
 
 
 def declined(db, doc: GeneratedDocument, party: str) -> None:

@@ -139,9 +139,9 @@ export default function PolicyDistributionsPage() {
 
               {d.status !== "DRAFT" && (
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 border-t border-gray-100 pt-3">
-                  <Link to={`/zoiko-hr/documents/governance?report=distributions&distribution=${d.id}`} className="inline-flex items-center gap-1.5 text-sm font-semibold text-blue-700 underline-offset-2 hover:underline">
-                    <ShieldCheck className="h-4 w-4" aria-hidden="true" /> HR-DOC-014 distribution record
-                  </Link>
+                  <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-gray-800">
+                    <ShieldCheck className="h-4 w-4 text-gray-500" aria-hidden="true" /> HR-DOC-014 distribution record
+                  </span>
                   <ExportButtons path={`/hr/generated-documents/governance/distributions/${d.id}`} filename={`HR-DOC-014-${d.id}`} size="sm" onError={(m) => showToast("error", m)} />
                 </div>
               )}

@@ -48,7 +48,9 @@ def client():
 
 
 def _new(client):
-    r = client.post("/hr/recruitment/interviews", json={"candidate_name": "Ann", "position": "Dev", "interview_date": (date.today() + timedelta(days=7)).isoformat()})
+    r = client.post("/hr/recruitment/interviews", json={"candidate_name": "Ann", "position": "Dev", "interview_type": "video",
+                                                            "interviewer": "Rahul Mehta",
+                                                            "interview_date": (date.today() + timedelta(days=7)).isoformat()})
     assert r.status_code in (200, 201), r.text
     return r.json()["id"]
 

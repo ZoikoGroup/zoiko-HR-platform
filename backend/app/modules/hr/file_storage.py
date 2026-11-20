@@ -31,8 +31,9 @@ def _configured_roots() -> list[str]:
 
     base = os.environ.get("UPLOAD_BASE_DIR") or "/tmp/uploads"
     roots.append(base)
+    roots.append(os.path.join(base, "generated_documents"))
 
-    for env_key in ("HR_DOCUMENT_UPLOAD_DIR", "ONBOARDING_DOCUMENT_UPLOAD_DIR"):
+    for env_key in ("HR_DOCUMENT_UPLOAD_DIR", "ONBOARDING_DOCUMENT_UPLOAD_DIR", "GENERATED_DOCS_DIR", "HR_GENERATED_DOCS_DIR"):
         configured = os.environ.get(env_key)
         if configured:
             roots.append(configured)

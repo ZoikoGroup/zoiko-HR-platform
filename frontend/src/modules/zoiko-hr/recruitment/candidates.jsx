@@ -4,8 +4,11 @@ import { Users, Plus, Search, AlertCircle, Mail, Phone, MapPin, Calendar, Briefc
 import { Avatar, Card, KpiCard, KpiGrid, PersonCell, PrimaryButton, RecruitmentLayout, SecondaryButton, StatusPill, th, useInsights } from "./ui";
 import { getCandidates, getCandidateById, createCandidate, updateCandidate, deleteCandidate, updateCandidateStatus, getRequisitions, parseCV } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
-import { validateCandidateForm, serverFieldErrors, candidatePayload } from "../../../utils/candidateForm";
-import { PHONE_MAX_LENGTH } from "../../../utils/phone";
+import { validateCandidateForm, serverFieldErrors, candidatePayload, placeFromLocation } from "../../../utils/candidateForm";
+import { CountrySelect, guessCountry, useRegions } from "../../../components/RemunerationFields";
+import { useBusinessFormats } from "../../../components/BusinessLookupFields";
+import PhoneField from "../../../components/PhoneField";
+import EmailSuggestion from "../../../components/EmailSuggestion";
 import { experienceText, sourceLabel, shown, candidateCsv, candidateTimeline } from "../../../utils/candidateDisplay";
 import { bulkRejectCandidates, getCandidateDocumentsStatus, sendCandidatePrivacyNotice } from "../../../service/recruitmentDocumentsService";
 import RecruitmentPrivacySettings from "./PrivacySettings";
@@ -51,10 +54,10 @@ const EMAILED_STAGES = { screening: "The candidate is emailed that their applica
 const STAGE_TONE = { applied: "blue", screening: "violet", interview: "amber", offer: "teal", hired: "green", rejected: "red" };
 
 // ── Add / Edit candidate form ───────────────────────────────────────────────────────────────────────────────────────
-const EMPTY_FORM = { name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", experience: "", resume_link: "", notes: "", requisition_id: "" };
+const EMPTY_FORM = { name: "", email: "", phone: "", position: "", status: "applied", source: "referral", location: "", country: "", region: "", city: "", experience: "", resume_link: "", notes: "", requisition_id: "" };
 // the order fields appear in the panel: the first one with a problem gets the focus
-const FIELD_ORDER = ["name", "email", "phone", "requisition_id", "position", "status", "source", "location", "experience", "resume_link", "notes"];
-const FIELD_IDS = { name: "cand-name", email: "cand-email", phone: "cand-phone", requisition_id: "cand-req", position: "cand-position", status: "cand-status", source: "cand-source", location: "cand-location", experience: "cand-exp", resume_link: "cand-resume", notes: "cand-notes" };
+const FIELD_ORDER = ["name", "email", "phone", "requisition_id", "position", "status", "source", "location", "country", "region", "city", "experience", "resume_link", "notes"];
+const FIELD_IDS = { name: "cand-name", email: "cand-email", phone: "cand-phone", requisition_id: "cand-req", position: "cand-position", status: "cand-status", source: "cand-source", location: "cand-location", country: "cand-country", region: "cand-region", city: "cand-city", experience: "cand-exp", resume_link: "cand-resume", notes: "cand-notes" };
 const CV_ACCEPT_RE = /\.(pdf|docx?|txt)$/i;
 const SOURCE_OPTIONS = [
   { value: "referral", label: "Referral" }, { value: "linkedin", label: "LinkedIn" }, { value: "indeed", label: "Indeed" },
@@ -205,7 +208,20 @@ export default function Candidates() {
   const sources = [...new Set(candidates.map((c) => c.source).filter(Boolean))];
 
   // ── Add / Edit candidate panel ───────────────────────────────────────────────────────────────────────────────────
+  // requisitions are re-read whenever the form opens and when the tab regains focus, so one created a moment ago
+  // (on the Job Requisitions page or in another tab) is offered straight away
+  const refreshRequisitions = useCallback(() => {
+    getRequisitions({ per_page: 100 })
+      .then((reqs) => setRequisitions(Array.isArray(reqs) ? reqs : reqs?.items || reqs?.data || []))
+      .catch(() => {});
+  }, []);
+  useEffect(() => {
+    window.addEventListener("focus", refreshRequisitions);
+    return () => window.removeEventListener("focus", refreshRequisitions);
+  }, [refreshRequisitions]);
+
   const openPanel = (item, values, filled = {}) => {
+    refreshRequisitions();
     returnFocusRef.current = typeof document !== "undefined" ? document.activeElement : null;
     setEditItem(item);
     setForm(values);
@@ -221,7 +237,9 @@ export default function Candidates() {
 
   const openEdit = (c) => {
     setCvError(""); setCvFileName("");
-    openPanel(c, { name: c.name || "", email: c.email || "", phone: c.phone || "", position: c.position || "", status: c.status || "applied", source: c.source || "referral", location: c.location || "", experience: c.experience ?? "", resume_link: c.resume_link || "", notes: c.notes || "", requisition_id: c.requisition_id ? String(c.requisition_id) : "" });
+    // an older candidate saved with a free-text location is split into city / state / country for the form
+    const place = c.country || c.region || c.city ? { country: c.country || "", region: c.region || "", city: c.city || "" } : splitPlace(c.location);
+    openPanel(c, { name: c.name || "", email: c.email || "", phone: c.phone || "", position: c.position || "", status: c.status || "applied", source: c.source || "referral", location: c.location || "", ...place, experience: c.experience ?? "", resume_link: c.resume_link || "", notes: c.notes || "", requisition_id: c.requisition_id ? String(c.requisition_id) : "" });
   };
 
   const closePanel = () => {
@@ -246,6 +264,12 @@ export default function Candidates() {
     for (const key of ["name", "email", "phone", "position", "location"]) {
       const v = parsed?.[key];
       if (v != null && String(v).trim() !== "") { next[key] = String(v).trim(); filled[key] = true; }
+    }
+    if (filled.location) {                     // the CV's location fills the country, state and city it names
+      const place = splitPlace(next.location);
+      for (const key of ["country", "region", "city"]) {
+        if (place[key]) { next[key] = place[key]; filled[key] = true; }
+      }
     }
     if (parsed?.experience != null && String(parsed.experience).trim() !== "") {
       next.experience = String(parsed.experience); filled.experience = true;
@@ -292,11 +316,37 @@ export default function Candidates() {
   };
   const handleImportCV = (e) => importCV(e.target.files?.[0], { fresh: true });
 
+  const regions = useRegions();
+  const businessFormats = useBusinessFormats();
+  const regionsOf = (code) => businessFormats?.countries?.[code]?.regions || null;
+  const regionLabel = (code) => businessFormats?.countries?.[code]?.region_label || "State / region";
+  function splitPlace(location) {
+    const names = ["usa", "us", "u.s.", "uk", "u.k.", "uae", "england"];
+    const isCountryName = (p) => names.includes(p.toLowerCase())
+      || (regions?.countries || []).some((c) => c.name.toLowerCase() === p.toLowerCase() || c.code === p.toUpperCase());
+    return placeFromLocation(location, (text) => guessCountry(regions, text), regionsOf, isCountryName);
+  }
+  const setCountry = (code) => {
+    setForm((prev) => {
+      const listed = regionsOf(code);
+      const region = listed && !listed.includes(prev.region) ? "" : prev.region;   // a state of another country is cleared
+      return { ...prev, country: code || "", region };
+    });
+    setErrors((prev) => ({ ...prev, country: undefined, region: undefined }));
+    setCvFilled((prev) => ({ ...prev, country: false, region: false }));
+  };
+
   // typing in a field clears that field's message (and its "From CV" badge: the value is now the person's own)
   const setField = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => (prev[key] ? { ...prev, [key]: undefined } : prev));
     setCvFilled((prev) => (prev[key] ? { ...prev, [key]: false } : prev));
+  };
+
+  // a field is checked when the person leaves it (the same rules as on save)
+  const checkField = (key) => () => {
+    const message = validateCandidateForm(form)[key];
+    setErrors((prev) => (message ? { ...prev, [key]: message } : prev[key] ? { ...prev, [key]: undefined } : prev));
   };
 
   const focusFirstInvalid = (found) => {
@@ -376,7 +426,9 @@ export default function Candidates() {
   const selectedRequisition = form.requisition_id ? requisitions.find((r) => String(r.id) === String(form.requisition_id)) : null;
   const cvFilledCount = Object.values(cvFilled).filter(Boolean).length;
   const handleDelete = async (candId) => {
-    if (!window.confirm("Delete this candidate?")) return;
+    const who = candidates.find((c) => c.id === candId)?.name || (candidate && candidate.id === candId ? candidate.name : "") || "this candidate";
+    if (!window.confirm(`Delete ${who}? Their interviews, offers, uploaded documents and applications are deleted too. This cannot be undone.`)) return;
+    setNotice("");
     try {
       await deleteCandidate(candId);
       if (id) navigate("/zoiko-hr/recruitment/candidates");
@@ -487,7 +539,13 @@ export default function Candidates() {
   const stageOptions = editItem
     ? [editItem.status, ...(NEXT_STAGES[editItem.status] || [])].filter(Boolean)
     : ["applied", "screening", "interview", "offer"];
-  const reqOptions = requisitions.filter((r) => r.status === "open" || String(r.id) === String(form.requisition_id));
+  // open requisitions can be linked; ones still in draft, awaiting approval or on hold are listed but disabled, so a newly
+  // created requisition is visible and the reason it cannot be chosen yet is clear. Closed ones are left out.
+  const isLinkable = (r) => r.status === "open" || String(r.id) === String(form.requisition_id);
+  const reqOptions = requisitions.filter((r) => r.status !== "closed" || String(r.id) === String(form.requisition_id))
+    .sort((a, b) => Number(isLinkable(b)) - Number(isLinkable(a)));
+  const linkableCount = reqOptions.filter(isLinkable).length;
+  const REQ_STATUS_NOTE = { draft: "draft – submit for approval first", pending: "awaiting approval", on_hold: "on hold" };
 
   const modalJsx = showModal ? (
     <div className="fixed inset-0 z-50 flex justify-end">
@@ -553,7 +611,7 @@ export default function Candidates() {
               <FormSection icon={User} title="Contact" helper="How the recruiting team reaches the candidate.">
                 <Field id="cand-name" label="Full name" required error={errors.name} badge={fromCv("name")}>
                   <input id="cand-name" value={form.name} maxLength={150} autoComplete="off" aria-invalid={!!errors.name} aria-describedby={errors.name ? "cand-name-error" : undefined}
-                    onChange={(e) => setField("name", e.target.value)} className={inputCls(errors.name)} />
+                    onChange={(e) => setField("name", e.target.value)} onBlur={checkField("name")} className={inputCls(errors.name)} />
                 </Field>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field id="cand-email" label="Email" required error={errors.email} badge={fromCv("email")}
@@ -566,23 +624,29 @@ export default function Candidates() {
                           <NavLink to={`/zoiko-hr/recruitment/candidates/${duplicateCandidate.id}`} className="font-medium underline">View profile</NavLink>
                         </span>
                       </p>
-                    ) : null}>
+                    ) : <EmailSuggestion value={form.email} onAccept={(v) => setField("email", v)} />}>
                     <input id="cand-email" type="email" value={form.email} maxLength={255} autoComplete="off" aria-invalid={!!errors.email} aria-describedby={errors.email ? "cand-email-error" : "cand-email-hint"}
-                      onChange={(e) => setField("email", e.target.value)} className={inputCls(errors.email)} />
+                      onChange={(e) => setField("email", e.target.value)} onBlur={checkField("email")} className={inputCls(errors.email)} />
                   </Field>
-                  <Field id="cand-phone" label="Phone" error={errors.phone} badge={fromCv("phone")} hint="10-digit number, country code optional.">
-                    <input id="cand-phone" type="tel" value={form.phone} maxLength={PHONE_MAX_LENGTH} placeholder="+91 9876543210" autoComplete="off" aria-invalid={!!errors.phone} aria-describedby={errors.phone ? "cand-phone-error" : "cand-phone-hint"}
-                      onChange={(e) => setField("phone", e.target.value)} className={inputCls(errors.phone)} />
+                  <Field id="cand-phone" label="Phone" error={errors.phone} badge={fromCv("phone")} hint="Choose the country code, then the number.">
+                    <PhoneField id="cand-phone" value={form.phone} onChange={(v) => setField("phone", v)} onBlur={checkField("phone")}
+                      invalid={!!errors.phone} describedBy={errors.phone ? "cand-phone-error" : "cand-phone-hint"} className={inputCls(errors.phone)} />
                   </Field>
                 </div>
               </FormSection>
 
               <FormSection icon={Briefcase} title="Application" helper="The role they applied for and where they came from.">
                 <Field id="cand-req" label="Job requisition" error={errors.requisition_id}
-                  hint={reqOptions.length ? "Linking a requisition fills the position if it is empty." : "There are no open requisitions to link."}>
+                  hint={linkableCount ? "Linking a requisition fills the position if it is empty."
+                    : reqOptions.length ? "Requisitions can be linked once they are approved (open)."
+                      : "There are no requisitions yet. Create one in Job Requisitions."}>
                   <select id="cand-req" value={form.requisition_id} onChange={(e) => handleRequisitionSelect(e.target.value)} aria-describedby={errors.requisition_id ? "cand-req-error" : "cand-req-hint"} className={inputCls(errors.requisition_id)}>
                     <option value="">No requisition linked</option>
-                    {reqOptions.map((r) => <option key={r.id} value={r.id}>{r.title}{r.department ? ` — ${r.department}` : ""}{r.status !== "open" ? ` · ${r.status}` : ""}</option>)}
+                    {reqOptions.map((r) => (
+                      <option key={r.id} value={r.id} disabled={!isLinkable(r)}>
+                        {r.title}{r.department ? ` — ${r.department}` : ""}{r.status !== "open" ? ` (${REQ_STATUS_NOTE[r.status] || String(r.status).replace(/_/g, " ")})` : ""}
+                      </option>
+                    ))}
                   </select>
                 </Field>
                 {selectedRequisition ? (
@@ -597,7 +661,7 @@ export default function Candidates() {
                 ) : null}
                 <Field id="cand-position" label="Position" required error={errors.position} badge={fromCv("position")}>
                   <input id="cand-position" value={form.position} maxLength={150} autoComplete="off" aria-invalid={!!errors.position} aria-describedby={errors.position ? "cand-position-error" : undefined}
-                    onChange={(e) => setField("position", e.target.value)} className={inputCls(errors.position)} />
+                    onChange={(e) => setField("position", e.target.value)} onBlur={checkField("position")} className={inputCls(errors.position)} />
                 </Field>
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                   <Field id="cand-status" label="Status" error={errors.status}
@@ -616,9 +680,26 @@ export default function Candidates() {
 
               <FormSection icon={MapPin} title="Profile" helper="Background that helps the hiring team shortlist.">
                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <Field id="cand-location" label="Location" error={errors.location} badge={fromCv("location")}>
-                    <input id="cand-location" value={form.location} maxLength={150} autoComplete="off" aria-invalid={!!errors.location} aria-describedby={errors.location ? "cand-location-error" : undefined}
-                      onChange={(e) => setField("location", e.target.value)} className={inputCls(errors.location)} />
+                  <Field id="cand-country" label="Country" error={errors.country} badge={fromCv("country")}>
+                    <CountrySelect id="cand-country" regions={regions} value={form.country} onChange={setCountry} className={inputCls(errors.country)} />
+                  </Field>
+                  <Field id="cand-region" label={regionLabel(form.country)} error={errors.region} badge={fromCv("region")}>
+                    {regionsOf(form.country) ? (
+                      <select id="cand-region" value={form.region} onChange={(e) => setField("region", e.target.value)}
+                        aria-describedby={errors.region ? "cand-region-error" : undefined} className={inputCls(errors.region)}>
+                        <option value="">Select {regionLabel(form.country).toLowerCase()}</option>
+                        {regionsOf(form.country).map((r) => <option key={r} value={r}>{r}</option>)}
+                      </select>
+                    ) : (
+                      <input id="cand-region" value={form.region} maxLength={80} autoComplete="address-level1" placeholder="e.g. Telangana"
+                        aria-invalid={!!errors.region} aria-describedby={errors.region ? "cand-region-error" : undefined}
+                        onChange={(e) => setField("region", e.target.value)} onBlur={checkField("region")} className={inputCls(errors.region)} />
+                    )}
+                  </Field>
+                  <Field id="cand-city" label="City" error={errors.city} badge={fromCv("city")}>
+                    <input id="cand-city" value={form.city} maxLength={80} autoComplete="address-level2" placeholder="e.g. Hyderabad"
+                      aria-invalid={!!errors.city} aria-describedby={errors.city ? "cand-city-error" : undefined}
+                      onChange={(e) => setField("city", e.target.value)} onBlur={checkField("city")} className={inputCls(errors.city)} />
                   </Field>
                   <Field id="cand-exp" label="Experience" error={errors.experience} badge={fromCv("experience")} hint="Whole years, 0–60.">
                     <div className="relative">
@@ -718,7 +799,14 @@ export default function Candidates() {
             )}
             <dl className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
               {[
-                { icon: Mail, label: "Email", value: candidate.email ? <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline break-all">{candidate.email}</a> : "Not provided" },
+                { icon: Mail, label: "Email", value: candidate.email ? (
+                  <span className="flex flex-wrap items-center gap-1.5">
+                    <a href={`mailto:${candidate.email}`} className="text-blue-600 hover:underline break-all">{candidate.email}</a>
+                    {candidate.email_status === "bounced" && (
+                      <span className="rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">Email bounced – check the address</span>
+                    )}
+                  </span>
+                ) : "Not provided" },
                 { icon: Phone, label: "Phone", value: shown(candidate.phone, "Not provided") },
                 { icon: MapPin, label: "Location", value: shown(candidate.location, "Not provided") },
                 { icon: Briefcase, label: "Experience", value: experienceText(candidate.experience, "Not provided") },
@@ -925,7 +1013,7 @@ export default function Candidates() {
                         {rowPrivacyBusy[c.id] ? <Loader2 className="h-4 w-4 animate-spin" /> : <FileText className="h-4 w-4" />}
                       </button>
                       <button onClick={(e) => { e.stopPropagation(); openEdit(c); }} className="p-1.5 text-gray-400 hover:text-blue-600"><Edit2 className="w-4 h-4" /></button>
-                      <button onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
+                      <button type="button" title="Delete candidate" aria-label={`Delete ${c.name}`} onClick={(e) => { e.stopPropagation(); handleDelete(c.id); }} className="p-1.5 text-gray-400 hover:text-red-600"><Trash2 className="w-4 h-4" /></button>
                     </div>
                     {rowPrivacy[c.id] && <p className="mt-1 text-[10px] text-gray-500">{rowPrivacy[c.id].privacy_notice_sent_at ? `Notice issued ${formatDate(rowPrivacy[c.id].privacy_notice_sent_at)}` : "No issued notice"}</p>}
                   </td>

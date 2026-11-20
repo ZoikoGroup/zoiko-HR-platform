@@ -191,7 +191,7 @@ def test_create_employee_is_refused_up_front(db):
     from app.modules.employee.schema import EmployeeCreate
 
     _fill(db, CORE, 50)
-    data = EmployeeCreate(email="new.person@example.com", first_name="N", last_name="P", job_title="t", date_of_joining=date.today())
+    data = EmployeeCreate(email="new.person@example.com", first_name="N", last_name="P", job_title="Engineer", date_of_joining=date.today())
     with patch.object(service, "_notify_email") as notify, pytest.raises(SeatLimitExceeded):
         service.create_employee(db, data, CORE)
     notify.assert_not_called()

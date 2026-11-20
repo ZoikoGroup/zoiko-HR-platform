@@ -209,6 +209,8 @@ class Settings(BaseSettings):
     # (docs/templates/release_modes.md). The plan must also include hr.documents.tenant_attestation. L3 templates stay
     # off unless explicitly enabled here, and then still need the tenant's named legal counsel on the release.
     TEMPLATES_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_ENABLED")   # release gate R6: off = no new documents
+    # Onboarding package v2 (Company Profile, one formatting standard with Noto Sans for the rupee sign). Off = v1 rendering.
+    ONBOARDING_PACKAGE_V2: bool = Field(default=True, validation_alias="HR_ONBOARDING_PACKAGE_V2")
     TEMPLATES_TENANT_ATTESTATION_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_ENABLED")
     TEMPLATES_TENANT_ATTESTATION_L3_ENABLED: bool = Field(default=False, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED")
     # Candidate e-signature links and the e-mail one-time codes that guard every signature.

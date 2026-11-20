@@ -6,7 +6,7 @@ from sqlalchemy import (
     Column, Integer, String, Numeric, Boolean, Date, DateTime,
     Text, ForeignKey, UniqueConstraint, JSON, Index,
 )
-from sqlalchemy.orm import relationship
+from sqlalchemy.orm import relationship, validates
 from sqlalchemy.sql import func, false, true
 from sqlalchemy.types import TypeDecorator, VARCHAR
 
@@ -209,6 +209,12 @@ class Employee(Base):
     attendance_records = relationship("AttendanceRecord", back_populates="employee")
     assets = relationship("Asset", back_populates="employee")
 
+    @validates("email")
+    def _normalise_email(self, _key, value):
+        """Every write stores the address trimmed and lower-cased (identity.normalize_email), so the per-organization unique
+        key (organization_id, email) cannot be side-stepped by typing the same address in another case."""
+        return value.strip().lower() if isinstance(value, str) else value
+
     @property
     def full_name(self) -> str:
         # a missing first or last name must not print as "None" or leave a stray space
@@ -223,3 +229,13 @@ _Index("ix_employees_org_created", Employee.organization_id, Employee.created_at
 _Index("ix_employees_department_id", Employee.department_id)
 _Index("ix_employees_designation_id", Employee.designation_id)
 _Index("ix_employees_reporting_manager_id", Employee.reporting_manager_id)
+
+# ── E-mail identity (migration d1e2f3a4b5c6, docs/email-identity-per-organization.md) ──────────────────────────────────
+# One address per organization ignoring case; platform accounts (no organization) unique among themselves. These are the
+# race-proof guarantee; app/modules/employee/identity.py gives the friendly message before an insert ever gets here.
+from sqlalchemy import func as _func, text as _text  # noqa: E402
+
+_Index("uq_employees_org_lower_email", Employee.organization_id, _func.lower(Employee.email), unique=True,
+       postgresql_where=_text("organization_id IS NOT NULL"), sqlite_where=_text("organization_id IS NOT NULL"))
+_Index("uq_employees_platform_lower_email", _func.lower(Employee.email), unique=True,
+       postgresql_where=_text("organization_id IS NULL"), sqlite_where=_text("organization_id IS NULL"))

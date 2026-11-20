@@ -34,6 +34,71 @@ from app.modules.employee.schema import (
 )
 
 
+def _ruled(rule: str, label: str, required: bool = False):
+    """A `mode="before"` check that runs one shared field rule (app/core/field_rules.py, mirrored in fieldRules.js).
+    None stays None (an update that does not send the field leaves it alone); a blank value is "is required" when it must
+    be there, else None."""
+    def check(v):
+        from app.core import field_rules
+        if v is None:
+            if required:
+                raise ValueError(f"{label} is required.")
+            return None
+        try:
+            out = field_rules.clean(rule, v, label=label)
+        except field_rules.FieldRuleError as e:
+            raise ValueError(str(e))
+        if out is None and required:
+            raise ValueError(f"{label} is required.")
+        return out
+    return check
+
+
+WHOLE_AMOUNT_MESSAGE = "Enter a whole amount with no decimals, for example 600000."
+EQUITY_MESSAGE = "Enter a percentage between 0 and 100, for example 0.25."
+CURRENCY_MESSAGE = "Choose a currency from the list."
+
+
+def _whole_amount(v):
+    """Budget amounts: whole numbers from 1 to 999,999,999,999; blank is allowed."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    if isinstance(v, bool):
+        raise ValueError(WHOLE_AMOUNT_MESSAGE)
+    try:
+        amount = Decimal(str(v).strip())
+    except Exception:
+        raise ValueError(WHOLE_AMOUNT_MESSAGE)
+    if not amount.is_finite() or amount != amount.to_integral_value() or amount < 1 or amount > Decimal("999999999999"):
+        raise ValueError(WHOLE_AMOUNT_MESSAGE)
+    return amount.quantize(Decimal(1))
+
+
+def _equity(v):
+    """Equity: a percentage from 0 to 100 with at most two decimal places."""
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    if isinstance(v, bool):
+        raise ValueError(EQUITY_MESSAGE)
+    try:
+        pct = Decimal(str(v).strip().rstrip("%").strip())
+    except Exception:
+        raise ValueError(EQUITY_MESSAGE)
+    if not pct.is_finite() or pct < 0 or pct > 100 or pct != pct.quantize(Decimal("0.01")):
+        raise ValueError(EQUITY_MESSAGE)
+    return pct.quantize(Decimal("0.01"))
+
+
+def _currency(v):
+    if v is None or (isinstance(v, str) and not v.strip()):
+        return None
+    from app.core import regions
+    code = str(v).strip().upper()
+    if not regions.is_currency(code):
+        raise ValueError(CURRENCY_MESSAGE)
+    return code
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # DEPARTMENT SCHEMAS
 # ════════════════════════════════════════════════════════════════════════════
@@ -53,10 +118,10 @@ class DepartmentCreate(BaseModel):
     establishment_year: Optional[int] = None
     parent_id:          Optional[int] = None
 
-    @field_validator("name")
+    @field_validator("name", mode="before")
     @classmethod
     def clean_name(cls, v):
-        return v.strip()
+        return _ruled("org_unit", "Department name", required=True)(v)
 
     @field_validator("code")
     @classmethod
@@ -89,10 +154,10 @@ class DepartmentUpdate(BaseModel):
     parent_id:          Optional[int] = None
     is_active:          Optional[bool] = None
 
-    @field_validator("name")
+    @field_validator("name", mode="before")
     @classmethod
     def clean_name(cls, v):
-        return v.strip() if v else v
+        return _ruled("org_unit", "Department name")(v)
 
     @field_validator("code")
     @classmethod
@@ -2405,7 +2470,7 @@ class OnboardingNewHireCreate(BaseModel):
     @classmethod
     def _v_real_email(cls, v):
         from app.core.email_quality import check_real_email
-        return check_real_email(v)
+        return check_real_email(v, person=True)
 
     phone: Optional[str] = Field(None, max_length=50)
     position: str = Field(..., min_length=1, max_length=150)
@@ -2419,6 +2484,21 @@ class OnboardingNewHireCreate(BaseModel):
     start_onboarding: bool = True        # apply Settings: checklists, document requests, pre-onboarding invite
     tenant_id: Optional[str] = None
 
+    @field_validator("candidate_name", mode="before")
+    @classmethod
+    def _v_name(cls, v):
+        return _ruled("person_full_name", "Candidate name", required=cls is OnboardingNewHireCreate)(v)
+
+    @field_validator("position", mode="before")
+    @classmethod
+    def _v_position(cls, v):
+        return _ruled("job_title", "Position", required=cls is OnboardingNewHireCreate)(v)
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _v_phone(cls, v):
+        return _ruled("phone", "Phone")(v)
+
 class OnboardingNewHireUpdate(BaseModel):
     candidate_name: Optional[str] = Field(None, min_length=1, max_length=150)
     email: Optional[EmailStr] = None
@@ -2427,7 +2507,7 @@ class OnboardingNewHireUpdate(BaseModel):
     @classmethod
     def _v_real_email(cls, v):
         from app.core.email_quality import check_real_email
-        return check_real_email(v)
+        return check_real_email(v, person=True)
 
     phone: Optional[str] = Field(None, max_length=50)
     position: Optional[str] = Field(None, min_length=1, max_length=150)
@@ -2441,11 +2521,27 @@ class OnboardingNewHireUpdate(BaseModel):
     force_complete: bool = False          # complete even with open checklist items / unapproved documents
     tenant_id: Optional[str] = None
 
+    @field_validator("candidate_name", mode="before")
+    @classmethod
+    def _v_name(cls, v):
+        return _ruled("person_full_name", "Candidate name", required=cls is OnboardingNewHireCreate)(v)
+
+    @field_validator("position", mode="before")
+    @classmethod
+    def _v_position(cls, v):
+        return _ruled("job_title", "Position", required=cls is OnboardingNewHireCreate)(v)
+
+    @field_validator("phone", mode="before")
+    @classmethod
+    def _v_phone(cls, v):
+        return _ruled("phone", "Phone")(v)
+
 class OnboardingNewHireResponse(BaseModel):
     id: int
     employee_id: Optional[int] = None
     candidate_name: str
     email: str
+    email_status: Optional[str] = None            # "bounced" once a send to this address was refused
     phone: Optional[str] = None
     position: str
     department_id: Optional[int] = None
@@ -2541,6 +2637,10 @@ class OnboardingDocumentResponse(BaseModel):
     onboarding_new_hire_id: Optional[int] = None
     title: str
     category: str
+    document_id: Optional[int] = None
+    requires_signature: Optional[bool] = None
+    package_mode: Optional[str] = None          # SIGN | ACKNOWLEDGE | COMPLETE | VOLUNTARY | INFO for offer-package documents
+    signing_status: Optional[str] = None
     file_path: Optional[str] = None
     file_url: Optional[str] = None
     status: str
@@ -2768,6 +2868,13 @@ class OnboardingDocumentRequest(BaseModel):
 class OnboardingPortalDetails(BaseModel):
     phone: Optional[str] = Field(None, max_length=50)
     address: Optional[str] = Field(None, max_length=300)
+    # structured address parts (optional; Indian-style addresses): printed line by line in the documents
+    house: Optional[str] = Field(None, max_length=150)
+    building: Optional[str] = Field(None, max_length=150)
+    street: Optional[str] = Field(None, max_length=150)
+    landmark: Optional[str] = Field(None, max_length=150)
+    locality: Optional[str] = Field(None, max_length=150)
+    district: Optional[str] = Field(None, max_length=100)
     city: Optional[str] = Field(None, max_length=100)
     state: Optional[str] = Field(None, max_length=100)
     country: Optional[str] = Field(None, max_length=100)
@@ -2775,6 +2882,7 @@ class OnboardingPortalDetails(BaseModel):
     emergency_contact_name: Optional[str] = Field(None, max_length=150)
     emergency_contact_relation: Optional[str] = Field(None, max_length=60)
     emergency_contact_phone: Optional[str] = Field(None, max_length=50)
+    submit: bool = False          # "Submit details": every required field must be present; the submission time is recorded
 
 class OnboardingOrientationAttendeeResponse(BaseModel):
     id: int
@@ -3860,6 +3968,7 @@ class RequisitionCreate(BaseModel):
     """A new requisition is saved as a draft or submitted for approval; it opens only when an admin approves it."""
     title: str = Field(..., min_length=1, max_length=200)
     department: str = Field(..., min_length=1, max_length=100)
+    department_id: Optional[int] = None
     location: Optional[str] = Field(None, max_length=150)
     openings: int = Field(default=1, ge=1, le=1000)
     priority: RequisitionPriority = "medium"
@@ -3870,20 +3979,53 @@ class RequisitionCreate(BaseModel):
     employment_type: Optional[OfferEmploymentTypeReq] = None
     reason: Optional[Literal["new_role", "replacement", "backfill", "growth"]] = None
     replaces_employee_id: Optional[int] = None
-    budget_min: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
-    budget_max: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
-    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    budget_min: Optional[Decimal] = None          # whole amounts, 1 .. 999,999,999,999
+    budget_max: Optional[Decimal] = None
+    currency: Optional[str] = None                 # ISO 4217 (app/core/regions.py)
     target_start_date: Optional[date] = None
     headcount_id: Optional[int] = None
     justification: Optional[str] = Field(None, max_length=5000)
     job_description_id: Optional[int] = None
     scorecard_criteria: Optional[list[ScorecardCriterion]] = Field(None, max_length=20)
+    @field_validator("title", mode="before")
+    @classmethod
+    def _v_title(cls, v):
+        return _ruled("job_title", "Title", required=cls is RequisitionCreate)(v)
+
+    @field_validator("department", mode="before")
+    @classmethod
+    def _v_department(cls, v):
+        # the name must also be one of the organization's active departments (checked in recruitment_service)
+        return _ruled("org_unit", "Department", required=cls is RequisitionCreate)(v)
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _v_location(cls, v):
+        return _ruled("location", "Location")(v)
+
+    @field_validator("budget_min", "budget_max", mode="before")
+    @classmethod
+    def _v_budget(cls, v):
+        return _whole_amount(v)
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _v_currency(cls, v):
+        return _currency(v)
+
+    @model_validator(mode="after")
+    def _v_budget_order(self):
+        if self.budget_min is not None and self.budget_max is not None and self.budget_max < self.budget_min:
+            raise ValueError("The budget maximum cannot be below the minimum.")
+        return self
+
 
 
 class RequisitionUpdate(BaseModel):
     """Details only: status moves through submit / approve / reject / hold / resume / close."""
     title: Optional[str] = Field(None, min_length=1, max_length=200)
     department: Optional[str] = Field(None, min_length=1, max_length=100)
+    department_id: Optional[int] = None
     location: Optional[str] = Field(None, max_length=150)
     openings: Optional[int] = Field(None, ge=1, le=1000)
     priority: Optional[RequisitionPriority] = None
@@ -3893,20 +4035,53 @@ class RequisitionUpdate(BaseModel):
     employment_type: Optional[OfferEmploymentTypeReq] = None
     reason: Optional[Literal["new_role", "replacement", "backfill", "growth"]] = None
     replaces_employee_id: Optional[int] = None
-    budget_min: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
-    budget_max: Optional[Decimal] = Field(None, ge=0, max_digits=14, decimal_places=2)
-    currency: Optional[str] = Field(None, min_length=3, max_length=3)
+    budget_min: Optional[Decimal] = None          # whole amounts, 1 .. 999,999,999,999
+    budget_max: Optional[Decimal] = None
+    currency: Optional[str] = None                 # ISO 4217 (app/core/regions.py)
     target_start_date: Optional[date] = None
     headcount_id: Optional[int] = None
     justification: Optional[str] = Field(None, max_length=5000)
     job_description_id: Optional[int] = None
     scorecard_criteria: Optional[list[ScorecardCriterion]] = Field(None, max_length=20)
+    @field_validator("title", mode="before")
+    @classmethod
+    def _v_title(cls, v):
+        return _ruled("job_title", "Title", required=cls is RequisitionCreate)(v)
+
+    @field_validator("department", mode="before")
+    @classmethod
+    def _v_department(cls, v):
+        # the name must also be one of the organization's active departments (checked in recruitment_service)
+        return _ruled("org_unit", "Department", required=cls is RequisitionCreate)(v)
+
+    @field_validator("location", mode="before")
+    @classmethod
+    def _v_location(cls, v):
+        return _ruled("location", "Location")(v)
+
+    @field_validator("budget_min", "budget_max", mode="before")
+    @classmethod
+    def _v_budget(cls, v):
+        return _whole_amount(v)
+
+    @field_validator("currency", mode="before")
+    @classmethod
+    def _v_currency(cls, v):
+        return _currency(v)
+
+    @model_validator(mode="after")
+    def _v_budget_order(self):
+        if self.budget_min is not None and self.budget_max is not None and self.budget_max < self.budget_min:
+            raise ValueError("The budget maximum cannot be below the minimum.")
+        return self
+
 
 
 class RequisitionResponse(BaseModel):
     id: int
     title: str
     department: str
+    department_id: Optional[int] = None
     location: Optional[str]
     openings: int
     filled: int
@@ -3971,12 +4146,7 @@ def _candidate_email(v):
     if not re.match(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$", text):
         raise ValueError("Enter a valid email address, for example name@company.com.")
     from app.core.email_quality import check_real_email
-    return (check_real_email(text) or text).lower()
-
-
-def _candidate_phone(v):
-    from app.core.phone import normalize_phone
-    return normalize_phone(v)
+    return (check_real_email(text, person=True) or text).lower()
 
 
 def _candidate_link(v):
@@ -3995,12 +4165,12 @@ class _CandidateFields(BaseModel):
     @field_validator("name", mode="before", check_fields=False)
     @classmethod
     def _v_name(cls, v):
-        return None if v is None and cls is CandidateUpdate else _candidate_text("Name", True, 150)(v)
+        return None if v is None and cls is CandidateUpdate else _ruled("person_full_name", "Name", required=True)(v)
 
     @field_validator("position", mode="before", check_fields=False)
     @classmethod
     def _v_position(cls, v):
-        return None if v is None and cls is CandidateUpdate else _candidate_text("Position", True, 150)(v)
+        return None if v is None and cls is CandidateUpdate else _ruled("job_title", "Position", required=True)(v)
 
     @field_validator("email", mode="before", check_fields=False)
     @classmethod
@@ -4010,17 +4180,38 @@ class _CandidateFields(BaseModel):
     @field_validator("phone", mode="before", check_fields=False)
     @classmethod
     def _v_phone(cls, v):
-        return _candidate_phone(v)
+        return _ruled("phone", "Phone")(v)
 
     @field_validator("location", mode="before", check_fields=False)
     @classmethod
     def _v_location(cls, v):
-        return _candidate_text("Location", False, 150)(v)
+        return _ruled("location", "Location")(v)
 
     @field_validator("source", mode="before", check_fields=False)
     @classmethod
     def _v_source(cls, v):
         return _candidate_text("Source", False, 100)(v)
+
+    @field_validator("country", mode="before", check_fields=False)
+    @classmethod
+    def _v_country(cls, v):
+        if v in (None, ""):
+            return None
+        from app.core import regions
+        code = regions.country_code(str(v).strip())
+        if not code:
+            raise ValueError("Choose a country from the list.")
+        return code
+
+    @field_validator("city", mode="before", check_fields=False)
+    @classmethod
+    def _v_city(cls, v):
+        return _ruled("place_name", "City")(v)
+
+    @field_validator("region", mode="before", check_fields=False)
+    @classmethod
+    def _v_region(cls, v):
+        return _ruled("place_name", "State / region")(v)
 
     @field_validator("resume_link", mode="before", check_fields=False)
     @classmethod
@@ -4036,6 +4227,9 @@ class CandidateCreate(_CandidateFields):
     source: Optional[str] = None
     status: Optional[RecruitmentCandidateStatus] = None
     location: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
     experience: Optional[int] = Field(None, ge=0, le=60)
     resume_link: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=5000)
@@ -4050,6 +4244,9 @@ class CandidateUpdate(_CandidateFields):
     source: Optional[str] = None
     status: Optional[RecruitmentCandidateStatus] = None
     location: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
     experience: Optional[int] = Field(None, ge=0, le=60)
     resume_link: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=5000)
@@ -4069,11 +4266,15 @@ class CandidateResponse(BaseModel):
     source: Optional[str]
     status: RecruitmentCandidateStatus
     location: Optional[str]
+    country: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
     experience: Optional[int]
     resume_link: Optional[str]
     applied_at: Optional[datetime]
     notes: Optional[str]
     onboarding_new_hire_id: Optional[int] = None
+    email_status: Optional[str] = None            # "bounced" once a send to this address was refused
     requisition_id: Optional[int] = None
     requisition_title: Optional[str] = None
     hired_at: Optional[datetime] = None
@@ -4092,6 +4293,8 @@ class CandidateListResponse(BaseModel):
 
 
 InterviewType = Literal["phone", "video", "in_person", "technical", "panel", "hr"]
+IN_PERSON_LOCATION_MESSAGE = "Enter where the in-person interview takes place."
+INTERVIEWER_MESSAGE = "Choose an interviewer, or enter the name of someone outside the system."
 _HHMM = re.compile(r"^([01]\d|2[0-3]):[0-5]\d$")
 
 
@@ -4129,6 +4332,26 @@ class _InterviewFields(BaseModel):
             raise ValueError("The meeting link must be a full https:// address.")
         return v
 
+    @field_validator("candidate_name", mode="before", check_fields=False)
+    @classmethod
+    def _v_candidate_name(cls, v):
+        return _ruled("person_full_name", "Candidate name")(v)
+
+    @field_validator("position", mode="before", check_fields=False)
+    @classmethod
+    def _v_position(cls, v):
+        return _ruled("job_title", "Position")(v)
+
+    @field_validator("location", mode="before", check_fields=False)
+    @classmethod
+    def _v_location(cls, v):
+        return _ruled("location", "Location")(v)
+
+    @field_validator("interviewer", mode="before", check_fields=False)
+    @classmethod
+    def _v_interviewer(cls, v):
+        return _ruled("person_full_name", "Interviewer")(v)
+
     @model_validator(mode="after")
     def _v_order(self):
         s, e = getattr(self, "start_time", None), getattr(self, "end_time", None)
@@ -4157,6 +4380,10 @@ class InterviewCreate(_InterviewFields):
     def _v_who(self):
         if not self.candidate_id and not (self.candidate_name and self.position):
             raise ValueError("Choose a candidate, or enter the candidate's name and the position.")
+        if self.interview_type == "in_person" and not self.location:
+            raise ValueError(IN_PERSON_LOCATION_MESSAGE)
+        if not self.interviewer_id and not self.interviewer:
+            raise ValueError(INTERVIEWER_MESSAGE)
         return self
 
 
@@ -4184,6 +4411,10 @@ class InterviewFeedback(BaseModel):
     feedback: Optional[str] = None
     rating: Optional[int] = Field(None, ge=1, le=5)
     status: Optional[InterviewStatus] = None
+    # the interview's outcome; recorded once, on a completed interview (or one completed by this same request)
+    result: Optional[Literal["cleared", "rejected"]] = None
+    result_message: Optional[str] = Field(None, max_length=2000)     # included in the candidate's e-mail
+    notify_candidate: bool = True
 
 
 class InterviewResponse(BaseModel):
@@ -4205,6 +4436,10 @@ class InterviewResponse(BaseModel):
     feedback: Optional[str]
     rating: Optional[int]
     notes: Optional[str]
+    result: Optional[str] = None
+    result_message: Optional[str] = None
+    result_at: Optional[datetime] = None
+    result_emailed: Optional[bool] = None
     created_at: Optional[datetime]
     updated_at: Optional[datetime]
 
@@ -4244,6 +4479,7 @@ class _OfferPayFields(BaseModel):
     currency: Optional[str] = Field(None, min_length=3, max_length=3)
     pay_period: Optional[PayPeriod] = None
     employment_type: Optional[OfferEmploymentType] = None
+    engagement_profile_slug: Optional[str] = Field(None, max_length=60)   # offer type (Onboarding engagement profile)
     work_country: Optional[str] = Field(None, min_length=2, max_length=2)
     entity_name: Optional[str] = Field(None, max_length=200)
     entity_tax_id: Optional[str] = Field(None, max_length=40)
@@ -4274,13 +4510,38 @@ class _OfferPayFields(BaseModel):
     mentor_id: Optional[int] = None
     academic_institution: Optional[str] = Field(None, max_length=200)
 
+    @field_validator("candidate_name", mode="before", check_fields=False)
+    @classmethod
+    def _v_candidate_name(cls, v):
+        return _ruled("person_full_name", "Candidate name", required=cls is OfferCreate)(v)
+
+    @field_validator("position", mode="before", check_fields=False)
+    @classmethod
+    def _v_position(cls, v):
+        return _ruled("job_title", "Position title", required=cls is OfferCreate)(v)
+
+    @field_validator("work_location", mode="before")
+    @classmethod
+    def _v_work_location(cls, v):
+        return _ruled("location", "Work location")(v)
+
+    @field_validator("work_pattern", mode="before")
+    @classmethod
+    def _v_work_pattern(cls, v):
+        return _ruled("work_pattern", "Working pattern")(v)
+
+    @field_validator("equity", mode="before", check_fields=False)
+    @classmethod
+    def _v_equity(cls, v):
+        return _equity(v)
+
 
 class OfferCreate(_OfferPayFields):
     candidate_id: Optional[int] = None
     candidate_name: str = Field(..., min_length=1, max_length=150)
     position: str = Field(..., min_length=1, max_length=150)
     salary: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
-    equity: Optional[str] = Field(None, max_length=50)
+    equity: Optional[Decimal] = None                # percent, 0..100, two decimals
     joining_date: Optional[date] = None
     status: Optional[OfferStatus] = None
     notes: Optional[str] = None
@@ -4291,7 +4552,7 @@ class OfferUpdate(_OfferPayFields):
     candidate_name: Optional[str] = Field(None, min_length=1, max_length=150)
     position: Optional[str] = Field(None, min_length=1, max_length=150)
     salary: Optional[Decimal] = Field(None, ge=0, max_digits=12, decimal_places=2)
-    equity: Optional[str] = Field(None, max_length=50)
+    equity: Optional[Decimal] = None                # percent, 0..100, two decimals
     joining_date: Optional[date] = None
     status: Optional[OfferStatus] = None
     notes: Optional[str] = None
@@ -4311,6 +4572,7 @@ class OfferResponse(BaseModel):
     currency: Optional[str] = None
     pay_period: Optional[str] = None
     employment_type: Optional[str] = None
+    engagement_profile_slug: Optional[str] = None
     work_country: Optional[str] = None
     entity_name: Optional[str] = None
     entity_tax_id: Optional[str] = None
@@ -4321,7 +4583,15 @@ class OfferResponse(BaseModel):
     entity_region: Optional[str] = None
     entity_postal_code: Optional[str] = None
     email_sent: Optional[bool] = None
-    equity: Optional[str]
+    equity: Optional[Decimal] = None
+
+    @field_validator("equity", mode="before")
+    @classmethod
+    def _v_stored_equity(cls, v):
+        try:
+            return _equity(v)
+        except ValueError:
+            return None                              # an old free-text value never breaks a listing
     joining_date: Optional[date]
     department_id: Optional[int] = None
     reporting_manager_id: Optional[int] = None

@@ -26,6 +26,8 @@ Endpoints created here:
     GET    /hr/dashboard/stats          → HR summary stats
 """
 
+import logging as _logging
+_notify_log = _logging.getLogger("zoiko.notifications.hr")
 import os
 import uuid
 from datetime import date, datetime
@@ -746,8 +748,9 @@ def review_leave(
             notification_type="leave",
         )
         db.commit()
-    except Exception:
-        pass  # notification failure must not break the action
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -1804,8 +1807,9 @@ async def upload_onboarding_document(
             notification_type="onboarding",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return doc
 
 
@@ -1819,6 +1823,13 @@ def get_onboarding_document_file(
     current_user=Depends(get_current_admin),
 ):
     doc = service.get_onboarding_document_by_id(db, document_id, organization_id=current_user.organization_id)
+    from app.modules.hr import onboarding_package
+    stored = onboarding_package.stored_document_pdf(db, doc.get("document_id"), current_user.organization_id)
+    if stored is not None:                     # an issued / signed document lives in the document store, not on disk
+        from fastapi.responses import Response
+        data, fname = stored
+        return Response(content=data, media_type="application/pdf",
+                        headers={"Content-Disposition": f'inline; filename="{fname}"', "Cache-Control": "no-store"})
     from app.core.privacy.files import belongs_to_tenant
     resolved = file_storage.resolve_stored_file(doc.get("file_path")) if belongs_to_tenant(doc.get("file_path"), current_user.organization_id) else None
     if not resolved:
@@ -1979,9 +1990,41 @@ def request_onboarding_documents(new_hire_id: int, data: OnboardingDocumentReque
                 notification_type="onboarding",
             )
             db.commit()
-        except Exception:
-            pass
+        except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+            db.rollback()
+            _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
+
+
+@hr_router.post(
+    "/onboarding/new-hires/{new_hire_id}/send-package",
+    summary="Generate and send all 10 onboarding package documents to the new hire",
+)
+@hr_router.post(
+    "/onboarding/records/{new_hire_id}/send-package",
+    summary="Generate and send all 10 onboarding package documents to the new hire (alias)",
+)
+def send_onboarding_package(
+    new_hire_id: int,
+    data: Optional[dict] = Body(default=None),
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_admin),
+):
+    """Issue every ready package document that has not been issued yet and e-mail the portal link.
+    Documents still missing HR data or counsel clauses are held and listed in the response."""
+    from app.modules.hr import onboarding_package
+    hire = service.get_new_hire_by_id(db, new_hire_id, organization_id=current_user.organization_id)
+    categories = (data or {}).get("categories") or None
+    result = onboarding_package.send_package(db, hire, actor=current_user, categories=categories)
+    n, h = len(result["issued"]), len(result["held"])
+    if n:
+        message = f"{n} document(s) sent to {hire.candidate_name}." + (f" {h} held until they are ready." if h else "")
+    elif h:
+        message = f"Nothing sent: {h} document(s) are not ready yet."
+    else:
+        message = "Every package document has already been sent."
+    return {"success": n > 0, "message": message, "new_hire_id": hire.id, "candidate_name": hire.candidate_name,
+            "documents_count": n, **result}
 
 
 @hr_router.get("/onboarding/new-hires/{new_hire_id}/progress", summary="Checklist, document and orientation progress, and what blocks completion")
@@ -2556,8 +2599,9 @@ def update_travel_request(
                 notification_type="travel",
             )
             db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -2629,8 +2673,9 @@ def review_travel_expense(
             notification_type="expense",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -2896,8 +2941,9 @@ async def upload_hr_document_route(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return doc
 
 
@@ -3043,8 +3089,9 @@ def update_hr_document_status(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -3143,8 +3190,9 @@ async def upload_document_version(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return version
 
 
@@ -3228,8 +3276,9 @@ def approve_document(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 
@@ -3256,8 +3305,9 @@ def reject_document(
             notification_type="document",
         )
         db.commit()
-    except Exception:
-        pass
+    except Exception:   # the action already succeeded; a notification failure must not undo it, but must be visible
+        db.rollback()
+        _notify_log.exception("org-admin notification failed (org %s)", current_user.organization_id)
     return result
 
 

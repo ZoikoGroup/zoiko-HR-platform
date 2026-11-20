@@ -20,11 +20,17 @@ import {
   getOnboardingTasks, createOnboardingTask, updateOnboardingTask, deleteOnboardingTask,
   getOnboardingDocuments, getOnboardingChecklistAssignments, sendOnboardingPortalInvite,
   requestOnboardingDocuments, getOnboardingProgress, getDepartments, getOnboardingActivities,
+  startBulkPackageGeneration, getBulkPackageJob, downloadBulkPackageZip,
 } from "../../../service/hrService";
 import { getEmployees } from "../../../service/employee";
 import { formatDate } from "../../../utils/dateTime";
 import { downloadCSV } from "../../../utils/export-helpers";
 import OnboardingFormsReview from "./OnboardingFormsReview";
+import PhoneField from "../../../components/PhoneField";
+import EmailSuggestion from "../../../components/EmailSuggestion";
+import { fieldProblem } from "../../../utils/fieldRules";
+import { personEmailError } from "../../../utils/realEmail";
+import { serverFieldErrors } from "../recruitment/recruitmentRules";
 import ProbationScheduleForm from "./ProbationScheduleForm";
 
 const STATUS_OPTIONS = [
@@ -350,15 +356,17 @@ function FormSection({ icon: Icon, title, helper, children }) {
   );
 }
 
+/** QA report #13 (BUG-24…27): the shared field rules, the server's own words (app/core/field_rules.py). */
 function validateHire(form) {
   const errors = {};
+  const put = (key, message) => { if (message) errors[key] = message; };
   if (!form.candidate_name.trim()) errors.candidate_name = "Name is required";
-  else if (form.candidate_name.trim().length > LIMITS.candidate_name) errors.candidate_name = `Keep the name under ${LIMITS.candidate_name} characters`;
+  else put("candidate_name", fieldProblem("person_full_name", form.candidate_name));
   if (!form.email.trim()) errors.email = "Email is required";
-  else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.trim())) errors.email = "Invalid email";
-  if (form.phone.trim().length > LIMITS.phone) errors.phone = `Keep the phone under ${LIMITS.phone} characters`;
+  else put("email", fieldProblem("email", form.email) || personEmailError(form.email));
+  put("phone", fieldProblem("phone", form.phone));
   if (!form.position.trim()) errors.position = "Position is required";
-  else if (form.position.trim().length > LIMITS.position) errors.position = `Keep the position under ${LIMITS.position} characters`;
+  else put("position", fieldProblem("job_title", form.position));
   return errors;
 }
 
@@ -454,9 +462,25 @@ function NewHireFormPanel({ editRecord, departments, employees, onClose, onSubmi
     try {
       await onSubmit(form);
     } catch (err) {
-      setBanner(err?.message || "Failed to save record");
+      const fieldErrs = serverFieldErrors(err, ["candidate_name", "email", "phone", "position"]);
+      if (Object.keys(fieldErrs).length) {
+        setErrors(fieldErrs);
+        setBanner("The server did not accept some values. Check the highlighted fields.");
+      } else {
+        setBanner(err?.message || "Failed to save record");
+      }
       setSaving(false);
     }
+  };
+
+  // a field is checked when the person leaves it
+  const checkOnBlur = (key) => () => {
+    const message = validateHire(form)[key];
+    setErrors((er) => {
+      if (message) return { ...er, [key]: message };
+      const { [key]: _drop, ...rest } = er;
+      return rest;
+    });
   };
 
   const aria = (key, hint) => ({ "aria-invalid": errors[key] ? true : undefined,
@@ -504,25 +528,26 @@ function NewHireFormPanel({ editRecord, departments, employees, onClose, onSubmi
 
             <FormSection icon={UserRound} title="Personal details" helper="How to reach the new hire. The pre-onboarding link and login details go to this email.">
               <Field id="nh-name" label="Candidate name" required error={errors.candidate_name}>
-                <input id="nh-name" value={form.candidate_name} onChange={set("candidate_name")} maxLength={LIMITS.candidate_name + 20} autoComplete="off"
-                  {...aria("candidate_name")} className={inputCls(errors.candidate_name)} />
+                <input id="nh-name" value={form.candidate_name} onChange={set("candidate_name")} onBlur={checkOnBlur("candidate_name")}
+                  maxLength={LIMITS.candidate_name + 20} autoComplete="off" {...aria("candidate_name")} className={inputCls(errors.candidate_name)} />
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field id="nh-email" label="Email" required error={errors.email}>
-                  <input id="nh-email" type="email" value={form.email} onChange={set("email")} maxLength={LIMITS.email} autoComplete="off"
-                    {...aria("email")} className={inputCls(errors.email)} />
+                  <input id="nh-email" type="email" value={form.email} onChange={set("email")} onBlur={checkOnBlur("email")} maxLength={LIMITS.email}
+                    autoComplete="off" {...aria("email")} className={inputCls(errors.email)} />
+                  {!errors.email && <EmailSuggestion value={form.email} onAccept={set("email")} />}
                 </Field>
                 <Field id="nh-phone" label="Phone" error={errors.phone}>
-                  <input id="nh-phone" type="tel" value={form.phone} onChange={set("phone")} maxLength={LIMITS.phone + 10} autoComplete="off"
-                    {...aria("phone")} className={inputCls(errors.phone)} />
+                  <PhoneField id="nh-phone" value={form.phone} onChange={set("phone")} onBlur={checkOnBlur("phone")}
+                    invalid={!!errors.phone} describedBy={errors.phone ? "nh-phone-error" : undefined} className={inputCls(errors.phone)} />
                 </Field>
               </div>
             </FormSection>
 
             <FormSection icon={Briefcase} title="Role" helper="The position they are joining, the team and who they report to.">
               <Field id="nh-position" label="Position" required error={errors.position}>
-                <input id="nh-position" value={form.position} onChange={set("position")} maxLength={LIMITS.position + 20} autoComplete="off"
-                  {...aria("position")} className={inputCls(errors.position)} />
+                <input id="nh-position" value={form.position} onChange={set("position")} onBlur={checkOnBlur("position")}
+                  maxLength={LIMITS.position + 20} autoComplete="off" {...aria("position")} className={inputCls(errors.position)} />
               </Field>
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <Field id="nh-department" label="Department">
@@ -632,7 +657,7 @@ function HireDetail({ rec, progress, panel, link, busy, employees, act, onClose 
       ? { title: `Joining date · ${joiningMeta(rec.joining_status).label}`, when: rec.joining_date, rel: joinRel, done: rec.joining_status === "joined", failed: rec.joining_status === "no_show" }
       : { title: "Joining date not set" },
     rec.status === "completed"
-      ? { title: "Onboarding completed", when: rec.completed_at, done: true, note: rec.employee_id ? `Employee account #${rec.employee_id} created` : "Employee account created" }
+      ? { title: "Onboarding completed", when: rec.completed_at, done: true, note: rec.employee_id ? `Employee account #${rec.employee_id} linked · activate it in User Management` : "Activate the employee account in User Management" }
       : rec.status === "cancelled" ? { title: "Onboarding cancelled", failed: true } : { title: `Now ${statusLabel(rec.status)}` },
   ];
 
@@ -657,11 +682,16 @@ function HireDetail({ rec, progress, panel, link, busy, employees, act, onClose 
           <>
             {readOnly && (
               <p className="mb-4 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                Onboarding completed{rec.completed_at ? ` on ${formatDate(rec.completed_at)}` : ""}. Employee account created{rec.employee_id ? ` (employee #${rec.employee_id})` : ""}. This record is read-only.
+                Onboarding completed{rec.completed_at ? ` on ${formatDate(rec.completed_at)}` : ""}. Employee account{rec.employee_id ? ` #${rec.employee_id}` : ""} is ready — activate it in User Management to send the login details. This record is read-only.
               </p>
             )}
             <div className="grid grid-cols-2 gap-4 rounded-xl border border-gray-100 p-4">
-              <InfoItem icon={Mail} label="Email"><span className="break-all">{rec.email || "—"}</span></InfoItem>
+              <InfoItem icon={Mail} label="Email">
+                <span className="break-all">{rec.email || "—"}</span>
+                {rec.email_status === "bounced" && (
+                  <span className="mt-1 inline-block rounded-full bg-rose-50 px-2 py-0.5 text-[11px] font-semibold text-rose-700 ring-1 ring-inset ring-rose-200">Email bounced – check the address</span>
+                )}
+              </InfoItem>
               <InfoItem icon={Phone} label="Phone">{rec.phone || "—"}</InfoItem>
               <InfoItem icon={Building2} label="Department">{rec.department_name || "—"}</InfoItem>
               <InfoItem icon={UserRound} label="Manager">{rec.manager_name || "—"}</InfoItem>
@@ -904,6 +934,10 @@ export default function NewHires() {
   }, [searchParams, setSearchParams]);
 
   const flash = (msg) => { setError(null); setSuccess(msg); };
+  // multi-select → "Generate onboarding documents": one ZIP with every selected hire's 10 documents (nothing is sent)
+  const [selected, setSelected] = useState(() => new Set());
+  const [bulk, setBulk] = useState(null);           // {status, done, total} while a job runs
+  const toggleSelected = (id) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
   const fail = (err, fallback) => { setSuccess(null); setError(err?.message || fallback); };
 
   const fetchRecords = async (acceptedOfferOnly = !showAllRecords) => {
@@ -972,7 +1006,23 @@ export default function NewHires() {
     fetchPanel(id);
   };
 
-  // all departments for the form; the filter only offers the ones present in the loaded list
+  // ?open=<id> (a hire's row on Onboarding › Checklists) opens that hire's details and documents on arrival
+  useEffect(() => {
+    const id = Number(searchParams.get("open"));
+    if (!id) return;
+    setShowAllRecords(true);
+    setDetailId(id);
+    fetchPanel(id);
+    const next = new URLSearchParams(searchParams);
+    next.delete("open");
+    setSearchParams(next, { replace: true });
+  }, [searchParams]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // the form offers only the organization's active department records (never names copied from old hire records)
+  const formDepartments = useMemo(() => departmentList.filter((d) => d && d.is_active !== false)
+    .map((d) => ({ id: d.id, name: d.name || d.department_name })).filter((d) => d.name)
+    .sort((a, b) => a.name.localeCompare(b.name)), [departmentList]);
+  // all departments for the filter; the filter only offers the ones present in the loaded list
   const departments = useMemo(() => {
     if (departmentList.length) return departmentList.map((d) => ({ id: d.id, name: d.name || d.department_name }));
     const seen = new Set();
@@ -1030,10 +1080,10 @@ export default function NewHires() {
   const submitForm = async (formData) => {
     const editId = formFor?.record?.id;
     const payload = {
-      candidate_name: formData.candidate_name.trim(),
+      candidate_name: formData.candidate_name.trim().replace(/\s+/g, " "),
       email: formData.email.trim(),
       phone: formData.phone.trim() || null,
-      position: formData.position.trim(),
+      position: formData.position.trim().replace(/\s+/g, " "),
       department_id: formData.department_id ? Number(formData.department_id) : null,
       manager_id: formData.manager_id ? Number(formData.manager_id) : null,
       joining_date: formData.joining_date || null,
@@ -1149,14 +1199,14 @@ export default function NewHires() {
   const submitCompletion = async (force) => {
     const { record } = completion;
     const msg = force
-      ? `Complete onboarding for ${record.candidate_name} even though some items are open? This creates their employee account.`
-      : `Complete onboarding for ${record.candidate_name}? This creates their employee account and emails the login details.`;
+      ? `Complete onboarding for ${record.candidate_name} even though some items are open? Their employee account stays Pending until you activate it in User Management.`
+      : `Complete onboarding for ${record.candidate_name}? Their employee account stays Pending until you activate it in User Management, which emails the login details.`;
     if (!window.confirm(msg)) return;
     setCompletion((c) => ({ ...c, submitting: true, error: null }));
     try {
       await updateOnboardingRecord(record.id, force ? { status: "completed", force_complete: true } : { status: "completed" });
       setCompletion(null);
-      flash(`Onboarding completed for ${record.candidate_name}. Their employee account was created and the login details were emailed to ${record.email}.`);
+      flash(`Onboarding completed for ${record.candidate_name}. Activate their employee account in User Management to email the login details to ${record.email}.`);
       await refresh();
     } catch (err) {
       setCompletion((c) => c && { ...c, submitting: false, error: err.message || "Failed to complete onboarding" });
@@ -1295,7 +1345,39 @@ export default function NewHires() {
 
   const detail = records.find((r) => r.id === detailId) || null;
   const progress = completion?.progress;
+  const pageIds = paginated.map((r) => r.id);
+  const allOnPage = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const runBulk = async () => {
+    const ids = [...selected];
+    if (ids.length > 50) { fail(null, "Generate at most 50 new hires at a time."); return; }
+    try {
+      let job = await startBulkPackageGeneration(ids);
+      setBulk(job);
+      while (job.status === "queued" || job.status === "running") {
+        await new Promise((r) => setTimeout(r, 1500));
+        job = await getBulkPackageJob(job.job_id);
+        setBulk(job);
+      }
+      if (job.status !== "completed") throw new Error("The documents could not be generated.");
+      const res = await downloadBulkPackageZip(job.job_id);
+      const url = URL.createObjectURL(res.blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = res.filename;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(url), 1000);
+      flash(`Onboarding documents generated for ${job.total - job.failed.length} new hire${job.total === 1 ? "" : "s"}${job.failed.length ? ` (${job.failed.length} failed)` : ""}. Nothing was sent.`);
+      setSelected(new Set());
+    } catch (e) {
+      fail(e, "The documents could not be generated.");
+    } finally {
+      setBulk(null);
+    }
+  };
   const columns = [
+    { label: <input type="checkbox" aria-label="Select all new hires on this page" className="h-4 w-4 rounded border-gray-300" checked={allOnPage}
+        onChange={() => setSelected((prev) => { const n = new Set(prev); pageIds.forEach((id) => (allOnPage ? n.delete(id) : n.add(id))); return n; })} />,
+      className: "w-10" },
     { label: "New Hire" }, { label: "Position" }, { label: "Department", className: "hidden md:table-cell" }, { label: "Manager", className: "hidden lg:table-cell" },
     { label: "Joining Date" }, { label: "Status" }, { label: "Checklist" }, { label: "Alerts" }, { label: "Actions", className: "text-right" },
   ];
@@ -1351,6 +1433,17 @@ export default function NewHires() {
                   options={JOINING_STATUS_OPTIONS.map((s) => ({ value: s.value, label: s.label }))} />
               </div>
             </div>
+            {selected.size > 0 && (
+              <div className="flex flex-wrap items-center justify-between gap-2 border-t border-blue-100 bg-blue-50/60 px-4 py-2.5 text-sm" role="region" aria-label="Selected new hires">
+                <span className="font-medium text-blue-900">
+                  {bulk ? `Generating… ${bulk.done} of ${bulk.total}` : `${selected.size} selected`}
+                </span>
+                <span className="flex gap-2">
+                  <SecondaryButton onClick={() => setSelected(new Set())} disabled={!!bulk}>Clear</SecondaryButton>
+                  <PrimaryButton icon={Download} onClick={runBulk} disabled={!!bulk}>Generate onboarding documents</PrimaryButton>
+                </span>
+              </div>
+            )}
             <Table columns={columns}
               empty={filtered.length === 0 && (
                 <EmptyState icon={UserPlus} title={records.length === 0 ? (showAllRecords ? "No new hire records yet." : "No candidates have accepted an offer yet.") : "No records match your search."}>
@@ -1367,6 +1460,10 @@ export default function NewHires() {
                   <tr key={r.id} onClick={() => openDetail(r.id)} tabIndex={0} aria-selected={isActive}
                     onKeyDown={(e) => { if (e.key === "Enter" && e.target === e.currentTarget) openDetail(r.id); }}
                     className={`cursor-pointer focus:outline-none focus-visible:bg-blue-50/60 ${isActive ? "bg-blue-50/60" : "hover:bg-gray-50"}`}>
+                    <td className={`${td} w-10`} onClick={(e) => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Select ${r.candidate_name}`} className="h-4 w-4 rounded border-gray-300"
+                        checked={selected.has(r.id)} onChange={() => toggleSelected(r.id)} onKeyDown={(e) => e.stopPropagation()} />
+                    </td>
                     <td className={`${td} min-w-[13rem]`}><PersonCell name={r.candidate_name} sub={r.email} /></td>
                     <td className={td}>
                       <p className="break-words text-gray-800">{r.position || "—"}</p>
@@ -1408,7 +1505,7 @@ export default function NewHires() {
       </div>
 
       {formFor && (
-        <NewHireFormPanel editRecord={formFor.record || null} departments={departments} employees={employees}
+        <NewHireFormPanel editRecord={formFor.record || null} departments={formDepartments} employees={employees}
           onClose={() => setFormFor(null)} onSubmit={submitForm} />
       )}
 
@@ -1456,10 +1553,9 @@ export default function NewHires() {
           {completion.error && <div role="alert" className="rounded-lg border border-red-200 bg-red-50 p-2 text-sm text-red-600">{completion.error}</div>}
           {completion.loading ? <p role="status" className="text-sm text-gray-400">Checking progress...</p> : progress && (
             <>
-              <div className="grid grid-cols-3 gap-2 text-center">
+              <div className="grid grid-cols-2 gap-2 text-center">
                 <Stat label="Checklist" value={`${progress.checklist_done}/${progress.checklist_total}`} />
                 <Stat label="Docs approved" value={`${progress.documents_approved}/${progress.documents_total}`} />
-                <Stat label="Orientation" value={`${progress.orientation_attended}/${progress.orientation_sessions}`} />
               </div>
               {progress.blockers?.length > 0 ? (
                 <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">

@@ -466,6 +466,9 @@ def decide_expense(db, user, e: TravelExpense, *, approve: bool, approved_amount
     if approve:
         e.approved_at = datetime.utcnow()
     db.commit()
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, e.organization_id, e.employee_id, "expense.approved" if approve else "expense.rejected",
+                    link="/employee/travel/expenses")                          # A5 (no amounts, no reason)
     doc = _try_generate(db, user, canonical_id=EXPENSE, subject_type="employee", subject_id=e.employee_id,
                         source_ref=f"travel_expense:{e.id}", trigger="travel_expense.decided")
     if doc is not None:

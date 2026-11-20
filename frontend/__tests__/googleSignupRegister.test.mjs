@@ -48,6 +48,14 @@ const labelled = (label) => {
   return l?.parentElement.querySelector("input,select,textarea");
 };
 const type = (label, value) => fireEvent.change(labelled(label), { target: { value } });
+// B7-B13: a valid Indian organization (country first: the phone and the GSTIN are checked for it)
+const fillOrganization = (registered) => {
+  type("Organization Name", "Acme Inc."); type("Organization Type", "partnership");
+  if (registered) type("Registered Email", registered);
+  type("Country", "India");
+  fireEvent.change(document.getElementById("reg-phone"), { target: { value: "98765 43210" } });
+  type("GSTIN", "27AAPFU0939F1ZV"); type("Address", "1 Main Road");
+};
 const next = async () => { fireEvent.click(screen.getByRole("button", { name: "Continue" })); await settle(); };
 
 const GOOGLE_URL = "/register?google_email=lee.park%40gmail.com&google_name=Lee+Park&google_proof=signed.proof";
@@ -66,9 +74,7 @@ test("the admin step uses the Google name and email, and the email cannot be cha
   await open(t, GOOGLE_URL);
   fireEvent.click(screen.getByText("Core"));
   await next();
-  type("Organization Name", "Acme Inc."); type("Organization Type", "partnership"); type("Phone Number", "9876543210");
-  type("Tax / Registration Number", "TAX123"); type("Address", "1 Main Road");
-  type("Country", [...labelled("Country").options].find((o) => o.value)?.value);
+  fillOrganization();
   await next();
   assert.equal(labelled("Admin Name").value, "Lee Park");
   assert.equal(labelled("Admin Email").value, "lee.park@gmail.com");
@@ -80,9 +86,7 @@ test("registering sends Google's proof, and the success page says the address is
   const calls = await open(t, GOOGLE_URL);
   fireEvent.click(screen.getByText("Core"));
   await next();
-  type("Organization Name", "Acme Inc."); type("Organization Type", "partnership"); type("Phone Number", "9876543210");
-  type("Tax / Registration Number", "TAX123"); type("Address", "1 Main Road");
-  type("Country", [...labelled("Country").options].find((o) => o.value)?.value);
+  fillOrganization();
   await next();
   type("Password", "Passw0rd1");
   fireEvent.click(document.getElementById("termsAccepted"));
@@ -100,9 +104,7 @@ test("Google sign-in keeps OTP verification when the registered email is differe
   const calls = await open(t, GOOGLE_URL);
   fireEvent.click(screen.getByText("Core"));
   await next();
-  type("Organization Name", "Acme Inc."); type("Organization Type", "partnership"); type("Registered Email", "finance@gmail.com");
-  type("Phone Number", "9876543210"); type("Tax / Registration Number", "TAX123"); type("Address", "1 Main Road");
-  type("Country", [...labelled("Country").options].find((o) => o.value)?.value);
+  fillOrganization("finance@gmail.com");
   await next();
   type("Password", "Passw0rd1");
   fireEvent.click(document.getElementById("termsAccepted"));

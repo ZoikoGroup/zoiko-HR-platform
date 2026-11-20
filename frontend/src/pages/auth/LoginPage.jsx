@@ -1,34 +1,94 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { Eye, EyeOff } from "lucide-react";
+import { ChevronRight } from "lucide-react";
+import PasswordInput from "../../components/PasswordInput";
 import { useAuth } from "../../context/AuthContext";
 import { googleSignInEnabled, mfaEnrollStart, resendVerification } from "../../service/authService";
 import { API_BASE_URL } from "../../service/api";
-import { googleErrorMessage, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
+import { googleErrorMessage, googleExchangeMessage, googleLoginUrl, readGoogleReturn, withoutGoogleParams } from "../../utils/googleSignIn";
 import { realEmailError } from "../../utils/realEmail";
+import { ROLE_DEFAULT_REDIRECT } from "../../config/roles";
 import "./LoginPage.css";
 
+const ROLE_LABELS = { super_admin: "Platform administrator", admin: "Organization admin", hr_admin: "HR admin",
+  manager: "Manager", employee: "Employee" };
+const roleLabel = (role) => ROLE_LABELS[role] || String(role || "").replace(/_/g, " ");
+
 export default function LoginPage() {
-  const { login, loginWithGoogle, confirmMfaEnrollment, error: authError, defaultRedirect } = useAuth();
+  const { login, loginWithGoogle, confirmMfaEnrollment, chooseOrganization, error: authError, defaultRedirect } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const from = location.state?.from?.pathname || defaultRedirect;
+  const from = location.state?.from?.pathname || null;
+  // A1: where to go once signed in. The page a guard sent the person away from, else the home of the role the server just
+  // returned (defaultRedirect is computed before anyone is signed in, so it cannot know the role yet). A temporary
+  // password goes to the screen that replaces it.
+  const destinationFor = (signedIn) => {
+    if (signedIn?.mustChangePassword || signedIn?.must_change_password) return "/change-password";
+    return from || ROLE_DEFAULT_REDIRECT[signedIn?.role] || defaultRedirect;
+  };
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [mfaStep, setMfaStep] = useState(null);
   const [mfaCode, setMfaCode] = useState("");
   const [enrollment, setEnrollment] = useState(null);
-  const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [localError, setLocalError] = useState(null);
   const [googleReady, setGoogleReady] = useState(true);
   const [googleBusy, setGoogleBusy] = useState(false);
   const googleHandled = useRef(false);
+  const [providerNote, setProviderNote] = useState("");
   const [unconfirmed, setUnconfirmed] = useState(false);
   const [resendNote, setResendNote] = useState("");
   const [resending, setResending] = useState(false);
+  // The address has a matching account in several organizations: { organizations, selectionToken, message } until one is chosen.
+  const [orgChoice, setOrgChoice] = useState(null);
+  const [chosenOrgId, setChosenOrgId] = useState(undefined);
+  const [choosing, setChoosing] = useState(false);
+
+  function forgetOrgChoice() {
+    setOrgChoice(null);
+    setChosenOrgId(undefined);
+  }
+
+  // A sign-in step failed: ask for the authenticator code, start enrolment, or say what went wrong.
+  async function handleSignInError(err, address) {
+    if (err?.code === "MFA_REQUIRED") {
+      setMfaStep("code");
+      setMfaCode("");
+      setLocalError(null);
+    } else if (err?.code === "MFA_ENROLLMENT_REQUIRED") {
+      try {
+        setEnrollment(await mfaEnrollStart({ email: address, password }));
+        setMfaStep("enroll");
+        setMfaCode("");
+        setLocalError(null);
+      } catch (startErr) {
+        setLocalError(startErr.message || "The authenticator could not be set up. Please try again.");
+      }
+    } else {
+      if (err?.code === "MFA_INVALID") setMfaCode("");
+      if (err?.status === 401 && orgChoice && err?.code !== "MFA_INVALID") forgetOrgChoice();   // the choice expired: sign in again
+      setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
+      setLocalError(err.message || "Unable to sign in. Please check your credentials.");
+    }
+  }
+
+  async function pickOrganization(organizationId, code) {
+    if (!orgChoice || choosing) return;
+    setLocalError(null);
+    setChosenOrgId(organizationId);
+    setChoosing(true);
+    try {
+      const signedIn = await chooseOrganization({ selectionToken: orgChoice.selectionToken, organizationId, mfaCode: code });
+      navigate(destinationFor(signedIn), { replace: true });
+    } catch (err) {
+      await handleSignInError(err, email.trim());
+    } finally {
+      setChoosing(false);
+    }
+  }
 
   async function sendNewConfirmation() {
     if (resending) return;
@@ -65,17 +125,27 @@ export default function LoginPage() {
     if (error) { setLocalError(googleErrorMessage(error)); return; }
     setGoogleBusy(true);
     loginWithGoogle(ticket)
-      .then(() => navigate(from, { replace: true }))
-      .catch((err) => setLocalError(err?.message || googleErrorMessage("failed")))
+      .then((signedIn) => {
+        if (signedIn?.requiresOrgSelection) { setOrgChoice(signedIn); return; }
+        navigate(destinationFor(signedIn), { replace: true });
+      })
+      .catch((err) => setLocalError(googleExchangeMessage(err)))
       .finally(() => setGoogleBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Microsoft, Apple and company SSO have no server side yet: say so instead of pretending to start a sign-in.
+  function providerUnavailable(name) {
+    setProviderNote(`Sign in with ${name} is not available yet. Use Google or your email and password.`);
+  }
+
   function startGoogle() {
     if (!googleReady || googleBusy) return;
+    setProviderNote("");
     setLocalError(null);
     setGoogleBusy(true);
-    window.location.href = `${API_BASE_URL}/auth/google/login`;
+    // return_to: the server sends the browser back to this app (checked against its allow-list), not to a configured default
+    window.location.href = googleLoginUrl(API_BASE_URL, window.location.origin);
   }
 
   async function handleSubmit(e) {
@@ -94,197 +164,248 @@ export default function LoginPage() {
       setFieldErrors({ mfa: "Enter the 6-digit code from your authenticator app." });
       return;
     }
+    if (orgChoice && mfaStep === "code" && chosenOrgId !== undefined) {
+      await pickOrganization(chosenOrgId, mfaCode.trim());       // the chosen account asked for its authenticator code
+      return;
+    }
     setSubmitting(true);
     try {
-      if (mfaStep === "enroll") await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() });
-      else await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
-      navigate(from, { replace: true });
-    } catch (err) {
-      if (err?.code === "MFA_REQUIRED") {
-        setMfaStep("code");
-        setMfaCode("");
-        setLocalError(null);
-      } else if (err?.code === "MFA_ENROLLMENT_REQUIRED") {
-        try {
-          setEnrollment(await mfaEnrollStart({ email: address, password }));
-          setMfaStep("enroll");
-          setMfaCode("");
-          setLocalError(null);
-        } catch (startErr) {
-          setLocalError(startErr.message || "The authenticator could not be set up. Please try again.");
-        }
-      } else {
-        if (err?.code === "MFA_INVALID") setMfaCode("");
-        setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
-        setLocalError(err.message || "Unable to sign in. Please check your credentials.");
+      const signedIn = mfaStep === "enroll"
+        ? await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() })
+        : await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
+      if (signedIn?.requiresOrgSelection) {
+        setOrgChoice(signedIn);
+        setChosenOrgId(undefined);
+        return;
       }
+      navigate(destinationFor(signedIn), { replace: true });
+    } catch (err) {
+      await handleSignInError(err, address);
     } finally {
       setSubmitting(false);
     }
   }
 
+  const showPicker = Boolean(orgChoice) && !mfaStep;
+
   const errorMsg = localError || authError;
 
   return (
     <main className="login-page">
-      <section className="login-hero" aria-label="About Zoiko HR">
-        <picture>
-          <source
-            srcSet="/zoiko-login-hero-760.webp 760w, /zoiko-login-hero.webp 1276w"
-            sizes="(max-width: 900px) 100vw, 52vw"
-            type="image/webp"
-          />
-          <img
-            src="/zoiko-login-hero.jpg"
-            alt="Zoiko HR: People today. A stronger tomorrow. A modern HR platform for a global workforce."
-            className="login-hero-image"
-            width="1276"
-            height="1536"
-            loading="eager"
-            fetchPriority="high"
-            decoding="async"
-          />
-        </picture>
-      </section>
+      <div className="login-frame">
+        <section className="login-hero" aria-label="About Zoiko HR">
+          <picture>
+            <source
+              srcSet="/zoiko-login-hero-760.webp 760w, /zoiko-login-hero.webp 808w, /zoiko-login-hero-2x.webp 1616w"
+              sizes="(max-width: 900px) 100vw, 49vw"
+              type="image/webp"
+            />
+            <img
+              src="/zoiko-login-hero.jpg"
+              alt="Zoiko HR: People today. A stronger tomorrow. A modern HR platform for a global workforce."
+              className="login-hero-image"
+              width="808"
+              height="1024"
+              loading="eager"
+              fetchPriority="high"
+              decoding="async"
+            />
+          </picture>
+        </section>
 
-      <section className="login-panel">
-        <div className="login-shell">
-          <div className="login-card">
-            <nav className="auth-tabs" aria-label="Account options">
-              <Link to="/login" className="auth-tab active" aria-current="page">Login</Link>
-              <Link to="/register" className="auth-tab">Register</Link>
-              <Link to="/forgot-password" className="auth-tab">Reset Password</Link>
-            </nav>
-            <div className="login-form-card">
-            <h1>Welcome back!</h1>
-            <p className="login-subtitle">Sign in to your Zoiko HR account.</p>
+        <section className="login-panel">
+          <div className="login-shell">
+            <div className="login-card">
+              <nav className="auth-tabs" aria-label="Account options">
+                <Link to="/login" className="auth-tab active" aria-current="page">Login</Link>
+                <Link to="/register" className="auth-tab">Register</Link>
+                <Link to="/forgot-password" className="auth-tab">Reset Password</Link>
+              </nav>
+              <div className="login-form-card">
+              <h1>Welcome back!</h1>
+              <p className="login-subtitle">Sign in to your Zoiko HR account.</p>
 
-            {errorMsg && <div role="alert" className="login-alert"><span aria-hidden="true">●</span><span>{errorMsg}</span></div>}
-            {unconfirmed && (
-              <div className="verification-note">
-                {resendNote ? <p role="status">{resendNote}</p> : (
-                  <button type="button" onClick={sendNewConfirmation} disabled={resending}>
-                    {resending ? "Sending..." : "Send me a new confirmation email"}
+              {errorMsg && <div role="alert" className="login-alert"><span aria-hidden="true">●</span><span>{errorMsg}</span></div>}
+              {unconfirmed && (
+                <div className="verification-note">
+                  {resendNote ? <p role="status">{resendNote}</p> : (
+                    <button type="button" onClick={sendNewConfirmation} disabled={resending}>
+                      {resending ? "Sending..." : "Send me a new confirmation email"}
+                    </button>
+                  )}
+                </div>
+              )}
+
+              <div className="social-login-options">
+                <button type="button" className="social-login" onClick={() => providerUnavailable("Microsoft")}>
+                  <svg aria-hidden="true" viewBox="0 0 24 24">
+                    <rect x="1" y="1" width="10.5" height="10.5" fill="#F25022" />
+                    <rect x="12.5" y="1" width="10.5" height="10.5" fill="#7FBA00" />
+                    <rect x="1" y="12.5" width="10.5" height="10.5" fill="#00A4EF" />
+                    <rect x="12.5" y="12.5" width="10.5" height="10.5" fill="#FFB900" />
+                  </svg>
+                  <span>Continue with Microsoft</span><ChevronRight aria-hidden="true" />
+                </button>
+                <button
+                  type="button"
+                  onClick={startGoogle}
+                  disabled={!googleReady || googleBusy}
+                  title={googleReady ? undefined : "Sign in with Google is not set up for this site yet"}
+                  className="social-login google-login"
+                >
+                  <svg aria-hidden="true" className="google-icon" viewBox="0 0 24 24">
+                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18A11 11 0 0 0 1 12c0 1.78.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
+                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
+                  </svg>
+                  <span>{googleBusy ? "Connecting to Google…" : "Continue with Google"}</span><ChevronRight aria-hidden="true" />
+                </button>
+                <button type="button" className="social-login" onClick={() => providerUnavailable("Apple")}>
+                  <svg aria-hidden="true" className="apple-icon" viewBox="0 0 24 24">
+                    <path fill="#000" d="M16.37 12.6c-.03-2.6 2.13-3.86 2.22-3.92-1.21-1.77-3.1-2.01-3.77-2.04-1.6-.16-3.13.95-3.94.95-.82 0-2.07-.93-3.4-.9-1.75.03-3.37 1.02-4.27 2.58-1.82 3.16-.47 7.84 1.31 10.4.87 1.25 1.9 2.66 3.26 2.61 1.31-.05 1.8-.85 3.38-.85 1.58 0 2.02.85 3.4.82 1.41-.02 2.3-1.27 3.16-2.53.99-1.45 1.4-2.86 1.43-2.93-.03-.01-2.74-1.05-2.78-4.19zM13.78 4.97c.72-.88 1.21-2.09 1.08-3.31-1.04.04-2.31.7-3.05 1.57-.67.77-1.26 2.01-1.1 3.2 1.16.09 2.35-.59 3.07-1.46z"/>
+                  </svg>
+                  <span>Continue with Apple</span><ChevronRight aria-hidden="true" />
+                </button>
+                <button type="button" className="social-login" onClick={() => providerUnavailable("Company SSO")}>
+                  <svg aria-hidden="true" className="sso-icon" viewBox="0 0 32 34" fill="none">
+                    <rect x="1.75" y="1.75" width="17" height="29.6" rx="3" stroke="currentColor" strokeWidth="3.5" />
+                    <path d="M18.75 11.85h7.5a3 3 0 0 1 3 3v13.5a3 3 0 0 1-3 3h-7.5" stroke="currentColor" strokeWidth="3.5" strokeLinejoin="round" />
+                    <g fill="currentColor">
+                      <rect x="6.45" y="7.2" width="2.6" height="2.6" /><rect x="10.7" y="7.2" width="2.6" height="2.6" />
+                      <rect x="6.45" y="12.6" width="2.6" height="2.6" /><rect x="10.7" y="12.6" width="2.6" height="2.6" />
+                      <rect x="6.45" y="18.2" width="2.6" height="2.6" /><rect x="10.7" y="18.2" width="2.6" height="2.6" />
+                      <rect x="21.45" y="16.2" width="2.6" height="2.6" /><rect x="21.45" y="22.6" width="2.6" height="2.6" />
+                      <rect x="8.6" y="24.5" width="2.6" height="7" />
+                    </g>
+                  </svg>
+                  <span>Continue with Company SSO</span><ChevronRight aria-hidden="true" />
+                </button>
+                {!googleReady && <p role="note" className="google-unavailable">Sign in with Google is not set up for this site yet. Use your email and password.</p>}
+                {providerNote && <p role="status" className="provider-note">{providerNote}</p>}
+              </div>
+
+              {showPicker && (
+                <section className="org-picker" role="group" aria-labelledby="org-picker-title" data-testid="org-picker">
+                  <h2 id="org-picker-title">Choose an organization</h2>
+                  <p className="login-subtitle">{orgChoice.message || "Your email address has an account in more than one organization."}</p>
+                  <ul className="org-picker-list">
+                    {orgChoice.organizations.map((org) => (
+                      <li key={org.id ?? "platform"}>
+                        <button
+                          type="button"
+                          className="org-picker-option"
+                          disabled={choosing}
+                          onClick={() => pickOrganization(org.id ?? null)}
+                        >
+                          <span className="org-picker-name">{org.name || org.code || "Organization"}</span>
+                          <span className="org-picker-role">{roleLabel(org.role)}</span>
+                          <ChevronRight aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className="org-picker-back" onClick={forgetOrgChoice} disabled={choosing}>
+                    Use a different account
                   </button>
-                )}
-              </div>
-            )}
+                </section>
+              )}
 
-            <form className="login-form" onSubmit={handleSubmit} noValidate autoComplete="on">
-              <div className="login-field">
-                <label htmlFor="login-email">Email address</label>
-                <input
-                  id="login-email"
-                  name="email"
-                  type="email"
-                  value={email}
-                  aria-invalid={fieldErrors.email ? "true" : undefined}
-                  aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
-                  onChange={(e) => { setEmail(e.target.value); if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined })); }}
-                  placeholder="name@company.com"
-                  autoComplete="email"
-                />
-                {fieldErrors.email && <p id="login-email-error" role="alert" className="field-error">{fieldErrors.email}</p>}
-              </div>
+              {!showPicker && <div className="login-divider"><span />or sign in with email<span /></div>}
 
-              <div className="login-field">
-                <label htmlFor="login-password">Password</label>
-                <div className="password-input-wrap">
+              {!showPicker && <form className="login-form" onSubmit={handleSubmit} noValidate autoComplete="on">
+                <div className="login-field">
+                  <label htmlFor="login-email">Email address</label>
                   <input
+                    id="login-email"
+                    name="email"
+                    type="email"
+                    value={email}
+                    aria-invalid={fieldErrors.email ? "true" : undefined}
+                    aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
+                    onChange={(e) => { setEmail(e.target.value); forgetOrgChoice(); if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined })); }}
+                    placeholder="name@company.com"
+                    autoComplete="email"
+                  />
+                  {fieldErrors.email && <p id="login-email-error" role="alert" className="field-error">{fieldErrors.email}</p>}
+                </div>
+
+                <div className="login-field">
+                  <label htmlFor="login-password">Password</label>
+                  <PasswordInput
+                    wrapperClassName="password-input-wrap"
+                    toggleClassName="password-toggle"
                     id="login-password"
                     name="password"
-                    type={showPassword ? "text" : "password"}
                     value={password}
                     aria-invalid={fieldErrors.password ? "true" : undefined}
-                    onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
+                    onChange={(e) => { setPassword(e.target.value); forgetOrgChoice(); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
                     placeholder="Enter your password"
                     autoComplete="current-password"
+                    iconSize={20}
                   />
-                  <button type="button" className="password-toggle" onClick={() => setShowPassword(!showPassword)} aria-label={showPassword ? "Hide password" : "Show password"}>
-                    {showPassword ? <EyeOff /> : <Eye />}
-                  </button>
+                  {fieldErrors.password && <p role="alert" className="field-error">{fieldErrors.password}</p>}
                 </div>
-                {fieldErrors.password && <p role="alert" className="field-error">{fieldErrors.password}</p>}
+
+                {mfaStep === "enroll" && enrollment && (
+                  <div className="mfa-enroll-note" data-testid="mfa-enroll">
+                    <p className="font-semibold">Set up your authenticator app</p>
+                    <p>Platform accounts need a second step. In your authenticator app, add an account with this key, then enter the 6-digit code it shows.</p>
+                    <p className="mfa-secret" aria-label="Authenticator key">{enrollment.secret}</p>
+                    <a href={enrollment.otpauth_uri}>Open in my authenticator app</a>
+                  </div>
+                )}
+
+                {mfaStep && (
+                  <div className="login-field">
+                    <label htmlFor="login-mfa">Authenticator code</label>
+                    <input
+                      id="login-mfa"
+                      name="one-time-code"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      autoFocus
+                      value={mfaCode}
+                      aria-invalid={fieldErrors.mfa ? "true" : undefined}
+                      aria-describedby={fieldErrors.mfa ? "login-mfa-error" : undefined}
+                      onChange={(e) => { setMfaCode(e.target.value.replace(/\D/g, "")); if (fieldErrors.mfa) setFieldErrors((f) => ({ ...f, mfa: undefined })); }}
+                      placeholder="123456"
+                    />
+                    {fieldErrors.mfa && <p id="login-mfa-error" role="alert" className="field-error">{fieldErrors.mfa}</p>}
+                  </div>
+                )}
+
+                <div className="login-options">
+                  <label className="remember-option">
+                    <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
+                    <span>Remember me for 30 days</span>
+                  </label>
+                  <Link to="/forgot-password">Forgot password?</Link>
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="login-submit"
+                  aria-label={mfaStep === "enroll" ? "Confirm and sign in" : "Sign In"}
+                >
+                  {submitting || choosing ? "Signing in…" : mfaStep === "enroll" ? "Confirm and sign in" : "Log In"}
+                </button>
+              </form>}
+
+                <p className="register-prompt">New to Zoiko HR? <Link to="/register">Register</Link></p>
               </div>
-
-              {mfaStep === "enroll" && enrollment && (
-                <div className="mfa-enroll-note" data-testid="mfa-enroll">
-                  <p className="font-semibold">Set up your authenticator app</p>
-                  <p>Platform accounts need a second step. In your authenticator app, add an account with this key, then enter the 6-digit code it shows.</p>
-                  <p className="mfa-secret" aria-label="Authenticator key">{enrollment.secret}</p>
-                  <a href={enrollment.otpauth_uri}>Open in my authenticator app</a>
-                </div>
-              )}
-
-              {mfaStep && (
-                <div className="login-field">
-                  <label htmlFor="login-mfa">Authenticator code</label>
-                  <input
-                    id="login-mfa"
-                    name="one-time-code"
-                    inputMode="numeric"
-                    autoComplete="one-time-code"
-                    maxLength={6}
-                    autoFocus
-                    value={mfaCode}
-                    aria-invalid={fieldErrors.mfa ? "true" : undefined}
-                    aria-describedby={fieldErrors.mfa ? "login-mfa-error" : undefined}
-                    onChange={(e) => { setMfaCode(e.target.value.replace(/\D/g, "")); if (fieldErrors.mfa) setFieldErrors((f) => ({ ...f, mfa: undefined })); }}
-                    placeholder="123456"
-                  />
-                  {fieldErrors.mfa && <p id="login-mfa-error" role="alert" className="field-error">{fieldErrors.mfa}</p>}
-                </div>
-              )}
-
-              <div className="login-options">
-                <label className="remember-option">
-                  <input type="checkbox" checked={rememberMe} onChange={(e) => setRememberMe(e.target.checked)} />
-                  <span>Remember me for 30 days</span>
-                </label>
-                <Link to="/forgot-password">Forgot password?</Link>
-              </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="login-submit"
-                aria-label={mfaStep === "enroll" ? "Confirm and sign in" : "Sign In"}
-              >
-                {submitting ? "Signing in…" : mfaStep === "enroll" ? "Confirm and sign in" : "Log In"}
-              </button>
-            </form>
-
-            <div className="login-divider"><span />or continue with<span /></div>
-            <div className="social-login-options">
-              <button
-                type="button"
-                onClick={startGoogle}
-                disabled={!googleReady || googleBusy}
-                title={googleReady ? undefined : "Sign in with Google is not set up for this site yet"}
-                className="social-login google-login"
-              >
-                <svg aria-hidden="true" viewBox="0 0 24 24">
-                  <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-                  <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-                  <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18A11 11 0 0 0 1 12c0 1.78.43 3.45 1.18 4.94l2.85-2.22.81-.63z"/>
-                  <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"/>
-                </svg>
-                <span>{googleBusy ? "Connecting to Google…" : "Continue with Google"}</span><b aria-hidden="true">›</b>
-              </button>
-              {!googleReady && <p role="note" className="google-unavailable">Sign in with Google is not set up for this site yet. Use your email and password.</p>}
             </div>
-
-              <p className="register-prompt">New to Zoiko HR? <Link to="/register">Register</Link></p>
-            </div>
+            <footer className="login-footer">
+              <nav aria-label="Legal links">
+                <a href="mailto:privacy@zoiko.com">Privacy</a><span>•</span><Link to="/terms">Terms</Link><span>•</span><a href="mailto:accessibility@zoiko.com">Accessibility</a><span>•</span><a href="mailto:support@zoiko.com">Help</a>
+              </nav>
+              <span>© 2026 Zoiko Tech Inc.</span>
+            </footer>
           </div>
-          <footer className="login-footer">
-            <nav aria-label="Legal links">
-              <a href="mailto:privacy@zoiko.com">Privacy</a><span>•</span><Link to="/terms">Terms</Link><span>•</span><a href="mailto:accessibility@zoiko.com">Accessibility</a><span>•</span><a href="mailto:support@zoiko.com">Help</a>
-            </nav>
-            <span>© 2026 Zoiko Tech Inc.</span>
-          </footer>
-        </div>
-      </section>
+        </section>
+      </div>
     </main>
   );
 }

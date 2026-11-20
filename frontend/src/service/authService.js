@@ -3,6 +3,8 @@ import { api, setSession, clearSession, getStoredUser, getAccessToken } from "./
 /**
  * Expects a FastAPI backend exposing:
  * POST /auth/login        { email, password }            -> { access_token, refresh_token, user }
+ *                                                           or { requires_org_selection, organizations, selection_token }
+ * POST /auth/login/select-organization { selection_token, organization_id } -> { access_token, refresh_token, user }
  * POST /auth/register      { name, email, password, ... } -> { access_token, refresh_token, user }
  * GET  /auth/me             (bearer token)                -> user
  * POST /auth/logout         (bearer token)                -> 204
@@ -12,11 +14,28 @@ import { api, setSession, clearSession, getStoredUser, getAccessToken } from "./
  * this file is the single integration point for authentication.
  */
 
-export async function login({ email, password, mfaCode }) {
+/**
+ * The address has a matching account in more than one organization: no session yet. The caller shows the organizations
+ * and finishes with selectOrganization(). Returned instead of a user, so callers can tell the two apart.
+ */
+function organizationChoice(data) {
+  if (!data?.requires_org_selection) return null;
+  return {
+    requiresOrgSelection: true,
+    organizations: Array.isArray(data.organizations) ? data.organizations : [],
+    selectionToken: data.selection_token,
+    message: data.message || "",
+  };
+}
+
+export async function login({ email, password, mfaCode, organizationId }) {
   try {
     const body = { email, password };
     if (mfaCode) body.mfa_code = mfaCode;                       // platform accounts: the 6-digit authenticator code
+    if (organizationId !== undefined && organizationId !== null) body.organization_id = organizationId;
     const data = await api.post("/auth/login", body, { auth: false });
+    const choice = organizationChoice(data);
+    if (choice) return choice;
     const user = data.employee || data.user;
     setSession({
       accessToken: data.access_token,
@@ -28,6 +47,19 @@ export async function login({ email, password, mfaCode }) {
     console.error("Login request failed:", err);
     throw err;
   }
+}
+
+/**
+ * Second step when the address has accounts in several organizations: signs in to the one chosen from the list the
+ * server returned. organizationId is null for the platform administration account (which then needs mfaCode).
+ */
+export async function selectOrganization({ selectionToken, organizationId, mfaCode }) {
+  const body = { selection_token: selectionToken, organization_id: organizationId ?? null };
+  if (mfaCode) body.mfa_code = mfaCode;
+  const data = await api.post("/auth/login/select-organization", body, { auth: false });
+  const user = data.employee || data.user;
+  setSession({ accessToken: data.access_token, refreshToken: data.refresh_token, user });
+  return user;
 }
 
 /** Platform accounts: the secret for the authenticator app (shown once; it is not active until confirmed). */
@@ -78,6 +110,8 @@ export async function googleSignInEnabled() {
 /** Trades the one-time ticket the server handed back after Google for the same session a password sign-in gives. */
 export async function loginWithGoogleTicket(ticket) {
   const data = await api.post("/auth/google/exchange", { ticket }, { auth: false });
+  const choice = organizationChoice(data);                     // the Google address has accounts in several organizations
+  if (choice) return choice;
   const user = data.employee || data.user;
   setSession({ accessToken: data.access_token, refreshToken: data.refresh_token, user });
   return user;
@@ -109,7 +143,7 @@ export async function verifyRegistrationOtp({ registeredEmail, otp }) {
   }
 }
 
-export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, registeredEmail, googleProof, otp }) {
+export async function register({ name, email, password, organization, planCode, orgType, phone, address, city, state, country, timezone, industry, taxNumber, taxIdType, registeredEmail, googleProof, otp }) {
   try {
     const payload = { name, email, password, organization, plan_code: planCode };
     if (orgType) payload.org_type = orgType;
@@ -121,6 +155,7 @@ export async function register({ name, email, password, organization, planCode, 
     if (timezone) payload.timezone = timezone;
     if (industry) payload.industry = industry;
     if (taxNumber) payload.tax_number = taxNumber;
+    if (taxIdType) payload.tax_id_type = taxIdType;
     if (registeredEmail) payload.registered_email = registeredEmail;
     if (googleProof) payload.google_proof = googleProof;
     if (otp) payload.otp = otp;

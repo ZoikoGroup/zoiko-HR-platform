@@ -30,6 +30,7 @@ def test_journey_1_hire_to_confirmation(world, monkeypatch):
     set_recruitment_privacy(world)
     policy_settings(world)
     # requisition authorised (HIR-001) and job description (ORG-005)
+    world.department("Operations")
     req = world.post("a_hr", "/hr/recruitment/requisitions", json={"title": "Analyst", "department": "Operations", "status": "pending",
                                                                     "reason": "growth", "justification": "Demand doubled."}).json()
     world.put("a_admin", f"/hr/recruitment/requisitions/{req['id']}/approve")
@@ -71,10 +72,10 @@ def test_journey_1_hire_to_confirmation(world, monkeypatch):
     from app.modules.hr import onboarding_flow
     ptoken = onboarding_flow.issue_portal_link(world.db, hire, send=False)["url"].rsplit("/", 1)[1]
     personal = {"legal_first_name": "Jordan", "legal_last_name": "Journey", "date_of_birth": "1994-02-01", "personal_email": "jj@example.com",
-                "mobile_phone": "+44 7700 900111", "address_line1": "1 Road", "city": "Leeds", "postal_code": "LS1 1AA", "country": "United Kingdom"}
+                "mobile_phone": "+44 7911 123456", "address_line1": "1 Road", "city": "Leeds", "postal_code": "LS1 1AA", "country": "United Kingdom"}
     subs = [world.client.post(f"/public/onboarding/{ptoken}/forms/HR-ONB-001/submit", json={"values": personal, "declaration_accepted": True}).json(),
             world.client.post(f"/public/onboarding/{ptoken}/forms/HR-ONB-003/submit", json={"values": {"contact1_name": "Pat", "contact1_relationship": "Parent",
-                                                                                              "contact1_phone": "+44 7700 900222"}, "declaration_accepted": True}).json(),
+                                                                                              "contact1_phone": "+44 7911 123457"}, "declaration_accepted": True}).json(),
             world.client.post(f"/public/onboarding/{ptoken}/forms/HR-ONB-017/submit", json={"values": {
                 "account_holder": "Jordan Journey", "bank_name": "Example Bank", "account_number": "GB29NWBK60161331926819", "routing_code": "601613"},
                 "declaration_accepted": True}).json()]

@@ -32,6 +32,9 @@ If the button doesn't work, copy and paste this link into your browser:<br>
 </p>
 {%- endmacro %}
 
-{% macro signoff(name="The Zoiko HR Team") -%}
+{#- An organization's emails are signed by the organization; platform emails by Zoiko HR. Needs the template to
+    import this file "with context" so tenant_name is visible here. -#}
+{% macro signoff(name=None) -%}
+{%- if not name %}{% set name = ("The " ~ tenant_name ~ " Team") if tenant_name else "The Zoiko HR Team" %}{% endif -%}
 <p class="t-body dm-text-body" style="{{ S.p }}margin:8px 0 0 0;">Thank you,<br><strong class="dm-text-strong" style="{{ S.strong }}">{{ name }}</strong></p>
 {%- endmacro %}

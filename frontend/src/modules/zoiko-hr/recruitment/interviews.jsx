@@ -1,12 +1,14 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { AlertCircle, AlertTriangle, Building2, CalendarPlus, Check, Clock, Globe, Link2, Loader2, Mail, Search, StickyNote, CalendarCheck, CalendarClock, CalendarDays, CheckCircle2, ChevronLeft, ChevronRight, CircleX,
   ClipboardCheck, Code2, ExternalLink, LayoutList, MapPin, MessageSquare, MoreHorizontal, Pencil, Phone, Plus, Star, Trash2,
-  UserRound, Users, Video, X } from "lucide-react";
-import { getInterviews, createInterview, updateInterview, updateInterviewFeedback, deleteInterview, getCandidates } from "../../../service/hrService";
+  Play, UserRound, Users, Video, X } from "lucide-react";
+import { getInterviews, createInterview, updateInterview, deleteInterview, getCandidates } from "../../../service/hrService";
 import { getRequisitionScorecards, submitInterviewScorecard } from "../../../service/recruitmentDocumentsService";
+import InterviewResultDialog from "./InterviewResultDialog";
 import { getEmployees } from "../../../service/employee";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { STATUS_LABELS, cardActions, statusOptions, validateInterviewForm } from "../../../utils/interviewFlow";
+import { searchQuery } from "./recruitmentRules";
 import { Avatar, AvatarStack, Card, DetailPanel, DetailSection, EmptyState, FilterSelect, KpiCard, KpiGrid, Pagination, PersonCell,
   PrimaryButton, QuickAction, RecruitmentLayout, SearchInput, SecondaryButton,SegmentTabs, StatusPill, Table, td, useInsights } from "./ui";
 
@@ -32,6 +34,33 @@ const humanize = (v) => String(v || "").replace(/[_-]+/g, " ").replace(/^\w/, (c
 const typeLabel = (t) => (t ? TYPE_LABEL[t] || humanize(t) : "—");
 const STATUS_TONE = { scheduled: "blue", in_progress: "violet", completed: "green", cancelled: "red" };
 const statusLabel = (s) => STATUS_LABELS[s] || humanize(s) || STATUS_LABELS.scheduled;
+
+// The Status actions in the interview panel: colour, icon and what each one does (shown as a tooltip and under the buttons).
+const STATUS_ACTION_LOOK = {
+  in_progress: { icon: Play, cls: "border-blue-200 bg-blue-50 text-blue-700 hover:border-blue-300 hover:bg-blue-100 focus-visible:ring-blue-300",
+    hint: "Marks the interview as in progress." },
+  completed: { icon: CheckCircle2, cls: "border-emerald-200 bg-emerald-50 text-emerald-700 hover:border-emerald-300 hover:bg-emerald-100 focus-visible:ring-emerald-300",
+    hint: "Closes the interview; you are asked for feedback next." },
+  cancelled: { icon: CircleX, cls: "border-rose-200 bg-rose-50 text-rose-700 hover:border-rose-300 hover:bg-rose-100 focus-visible:ring-rose-300",
+    hint: "Cancels it and emails the candidate and interviewer." },
+  scheduled: { icon: CalendarClock, cls: "border-gray-200 bg-white text-gray-700 hover:border-gray-300 hover:bg-gray-50 focus-visible:ring-gray-300",
+    hint: "Pick a new date and time." },
+};
+
+function StatusActionButton({ act, busy, disabled, onClick }) {
+  const look = STATUS_ACTION_LOOK[act.status] || STATUS_ACTION_LOOK.scheduled;
+  const Icon = look.icon;
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} title={look.hint} aria-describedby={`iv-act-${act.status}`}
+      className={`group flex min-w-[96px] flex-1 flex-col items-center justify-center gap-1.5 rounded-xl border px-3 py-2.5 text-xs font-semibold
+        shadow-sm transition duration-150 hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 active:translate-y-0
+        disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:translate-y-0 disabled:hover:shadow-sm ${look.cls}`}>
+      {busy ? <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
+        : <Icon className="h-4 w-4 transition-transform group-hover:scale-110" aria-hidden="true" />}
+      <span>{busy ? "Saving…" : act.text}</span>
+    </button>
+  );
+}
 
 const initForm = {
   candidate_id: "", candidate_name: "", position: "", interview_type: "video", interview_date: "", start_time: "", end_time: "",
@@ -391,9 +420,11 @@ function RecordPicker({ id, label, placeholder, items, itemKey, itemText, render
   const [q, setQ] = useState("");
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
+  // A query is only ever a filter, never a saved value. One without a single letter or digit ("^%$#") matches nothing.
   const list = useMemo(() => {
-    const s = q.trim().toLowerCase();
-    return (s ? items.filter((it) => itemText(it).toLowerCase().includes(s)) : items).slice(0, 50);
+    if (!q.trim()) return items.slice(0, 50);
+    const s = searchQuery(q).toLowerCase();
+    return s ? items.filter((it) => itemText(it).toLowerCase().includes(s)).slice(0, 50) : [];
   }, [q, items, itemText]);
   const pick = (it) => { onPick(it); setQ(""); setOpen(false); };
   const onKeyDown = (e) => {
@@ -408,7 +439,7 @@ function RecordPicker({ id, label, placeholder, items, itemKey, itemText, render
       <label htmlFor={id} className="sr-only">{label}</label>
       <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-gray-400" aria-hidden="true" />
       <input id={id} type="text" role="combobox" autoComplete="off" aria-expanded={open} aria-controls={`${id}-list`} aria-autocomplete="list"
-        aria-activedescendant={open && list[active] ? optId(active) : undefined} value={q} placeholder={placeholder}
+        aria-activedescendant={open && list[active] ? optId(active) : undefined} value={q} placeholder={placeholder} maxLength={100}
         onChange={(e) => { setQ(e.target.value); setOpen(true); setActive(0); }} onClick={() => setOpen(true)} onBlur={() => setOpen(false)}
         onKeyDown={onKeyDown} className={`${fieldLook(false)} pl-9`} />
       {open && (
@@ -609,7 +640,7 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                   <div className="space-y-3">
                     {candidates.length > 0 && (
                       <RecordPicker id="iv-cand-search" label="Search candidates" placeholder={`Search ${candidates.length} candidate${candidates.length === 1 ? "" : "s"} by name, role or email…`}
-                        items={candidates} itemKey={(c) => c.id} itemText={candidateText} emptyText="No candidate matches. Enter the details below."
+                        items={candidates} itemKey={(c) => c.id} itemText={candidateText} emptyText="No matching candidates. Enter the details below."
                         onPick={(c) => pickCandidate(String(c.id))}
                         renderItem={(c) => (
                           <div className="flex items-center gap-3">
@@ -627,13 +658,13 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                       <div>
                         <label htmlFor="iv-name" className={labelCls}>Candidate name <span className="text-rose-500">*</span></label>
                         <input id="iv-name" value={form.candidate_name} maxLength={150} aria-invalid={!!err("candidate_name")} aria-describedby={described("candidate_name")}
-                          onChange={(e) => setField("candidate_name", e.target.value)} className={fieldLook(err("candidate_name"))} />
+                          onChange={(e) => setField("candidate_name", e.target.value)} onBlur={() => form.candidate_name && validateField("candidate_name")} className={fieldLook(err("candidate_name"))} />
                         <FieldError id="iv-name-err">{err("candidate_name")}</FieldError>
                       </div>
                       <div>
                         <label htmlFor="iv-position" className={labelCls}>Position <span className="text-rose-500">*</span></label>
                         <input id="iv-position" value={form.position} maxLength={150} aria-invalid={!!err("position")} aria-describedby={described("position")}
-                          onChange={(e) => setField("position", e.target.value)} className={fieldLook(err("position"))} />
+                          onChange={(e) => setField("position", e.target.value)} onBlur={() => form.position && validateField("position")} className={fieldLook(err("position"))} />
                         <FieldError id="iv-position-err">{err("position")}</FieldError>
                       </div>
                     </div>
@@ -740,11 +771,11 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                     )}
                     {showLocation && (
                       <div>
-                        <label htmlFor="iv-loc" className={labelCls}>Location{form.interview_type === "in_person" ? "" : " (if on site)"}</label>
+                        <label htmlFor="iv-loc" className={labelCls}>Location{form.interview_type === "in_person" ? <span className="text-rose-500"> *</span> : " (if on site)"}</label>
                         <div className="relative">
                           <MapPin className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-gray-400" aria-hidden="true" />
-                          <input id="iv-loc" maxLength={255} placeholder="Office, floor or room" value={form.location} aria-invalid={!!err("location")} aria-describedby={described("location")}
-                            onChange={(e) => setField("location", e.target.value)} className={`${fieldLook(err("location"))} pl-9`} />
+                          <input id="iv-loc" maxLength={150} placeholder="e.g. Floor 3, Room 4B, Bengaluru" value={form.location} aria-invalid={!!err("location")} aria-describedby={described("location")}
+                            onChange={(e) => setField("location", e.target.value)} onBlur={() => validateField("location")} className={`${fieldLook(err("location"))} pl-9`} />
                         </div>
                         <FieldError id="iv-loc-err">{err("location")}</FieldError>
                       </div>
@@ -763,7 +794,7 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                   <div className="space-y-3">
                     {people.length > 0 && (
                       <RecordPicker id="iv-person-search" label="Search employees" placeholder="Search employees by name, title or email…"
-                        items={people} itemKey={(p) => p.id} itemText={personText} emptyText="No employee matches. Type the name below."
+                        items={people} itemKey={(p) => p.id} itemText={personText} emptyText="No matching employees. Type the name below."
                         onPick={pickPerson}
                         renderItem={(p) => (
                           <div className="flex items-center gap-3">
@@ -781,7 +812,7 @@ function ScheduleInterviewPanel({ editItem, form, setForm, setField, errors, set
                       </label>
                       <input id="iv-interviewer-name" aria-label="Interviewer name" value={form.interviewer} maxLength={150} placeholder="Interviewer name"
                         aria-invalid={!!err("interviewer")} aria-describedby={described("interviewer")}
-                        onChange={(e) => setField("interviewer", e.target.value)} className={fieldLook(err("interviewer"))} />
+                        onChange={(e) => setField("interviewer", e.target.value)} onBlur={() => form.interviewer && validateField("interviewer")} className={fieldLook(err("interviewer"))} />
                       <FieldError id="iv-interviewer-name-err">{err("interviewer")}</FieldError>
                       {form.interviewer.trim() && <p className="mt-1 text-[11px] text-gray-500">Someone outside the system is not emailed; send them the details yourself.</p>}
                     </div>
@@ -890,7 +921,6 @@ export default function Interviews() {
   const [people, setPeople] = useState([]);
   const [success, setSuccess] = useState("");
   const [feedbackFor, setFeedbackFor] = useState(null);
-  const [feedbackForm, setFeedbackForm] = useState({ feedback: "", rating: 0, complete: true });
   const [scorecardFor, setScorecardFor] = useState(null);
   const [scorecardCriteria, setScorecardCriteria] = useState([]);
   const [scorecardSummary, setScorecardSummary] = useState(null);
@@ -957,23 +987,51 @@ export default function Interviews() {
   }, [panels]);
   const hasFeedback = (iv) => Boolean(String(iv.feedback || "").trim()) || (panels[iv.id]?.feedback_count || 0) > 0;
   const needsFeedback = (iv) => dayOf(iv) && dayOf(iv) <= today && ["scheduled", "in_progress", "completed"].includes(iv.status || "scheduled") && !hasFeedback(iv);
+  const needsResult = (iv) => iv.status === "completed" && !iv.result;
+  const ResultPill = ({ iv }) => (iv.result
+    ? <StatusPill tone={iv.result === "cleared" ? "green" : "red"}>{iv.result === "cleared" ? "Interview cleared" : "Rejected"}</StatusPill>
+    : needsResult(iv) ? <StatusPill tone="amber">Result pending</StatusPill> : null);
   const candidateOf = (iv) => candidates.find((c) => String(c.id) === String(iv.candidate_id));
 
   const emailedText = (n) => (n ? ` ${n} email${n === 1 ? "" : "s"} sent.` : "");
 
+  const [statusBusy, setStatusBusy] = useState(null);        // the status being saved from the panel's Status buttons
   const changeStatus = async (interview, action) => {
     setMenu(null);
     if (action.status === "scheduled") {          // reschedule: pick the new date and time first
       openEdit(interview, { status: "scheduled" });
       return;
     }
-    if (action.confirm && !window.confirm(`${action.confirm} The candidate and interviewer are emailed.`)) return;
+    const payload = { status: action.status };
+    if (action.status === "cancelled") {
+      const question = "Cancel this interview? The candidate and interviewer are emailed.";
+      let reason = typeof window.prompt === "function"
+        ? window.prompt(`${question}\n\nReason (optional, kept in the internal notes):`, "") : undefined;
+      if (reason === undefined) reason = window.confirm(question) ? "" : null;   // no prompt available: a plain confirmation
+      if (reason === null) return;                // the user closed the dialog: nothing is cancelled
+      if (String(reason).trim()) {
+        const stamp = `Cancelled ${new Date().toLocaleDateString()}: ${String(reason).trim()}`;
+        payload.notes = [interview.notes, stamp].filter(Boolean).join("\n");
+      }
+    } else if (action.confirm && !window.confirm(`${action.confirm} The candidate and interviewer are emailed.`)) {
+      return;
+    }
     setNotice("");
+    setStatusBusy(action.status);
     try {
-      const r = await updateInterview(interview.id, { status: action.status });
+      const r = await updateInterview(interview.id, payload);
       setSuccess(`Interview ${STATUS_LABELS[action.status]?.toLowerCase() || action.status}.${emailedText(r?.emails_sent)}`);
+      if (action.status === "in_progress" && interview.meeting_link
+          && window.confirm("The interview has started. Open the meeting link now?")) {
+        window.open(interview.meeting_link, "_blank", "noopener");
+      }
+      if (action.status === "completed" && !interview.result) {
+        openFeedback({ ...interview, ...(r || {}), status: "completed" });   // feedback & result straight away
+      }
     } catch (err) {
       setNotice(err?.message || "The status could not be changed.");
+    } finally {
+      setStatusBusy(null);
     }
     load();
   };
@@ -1066,8 +1124,9 @@ export default function Interviews() {
     try {
       const payload = {
         candidate_id: form.candidate_id ? Number(form.candidate_id) : null,
-        candidate_name: form.candidate_name.trim() || null,
-        position: form.position.trim() || null,
+        // a linked candidate's name and position come from their record (the server fills them)
+        candidate_name: form.candidate_id ? null : (form.candidate_name.trim().replace(/\s+/g, " ") || null),
+        position: form.candidate_id ? null : (form.position.trim().replace(/\s+/g, " ") || null),
         interview_type: form.interview_type,
         interview_date: form.interview_date,
         start_time: form.start_time || null,
@@ -1077,7 +1136,7 @@ export default function Interviews() {
         meeting_link: SHOWS_LINK.has(form.interview_type) ? form.meeting_link.trim() || null : null,
         location: SHOWS_LOCATION.has(form.interview_type) ? form.location.trim() || null : null,
         interviewer_id: form.interviewer_id ? Number(form.interviewer_id) : null,
-        interviewer: form.interviewer_id ? null : (form.interviewer.trim() || null),
+        interviewer: form.interviewer_id ? null : (form.interviewer.trim().replace(/\s+/g, " ") || null),
         notes: form.notes.trim() || null,
         notify: form.notify,
       };
@@ -1110,20 +1169,17 @@ export default function Interviews() {
   const openFeedback = (iv) => {
     setMenu(null);
     setFeedbackFor(iv);
-    setFeedbackForm({ feedback: iv.feedback || "", rating: iv.rating || 0, complete: iv.status !== "completed" });
   };
 
-  const saveFeedback = async () => {
-    try {
-      const body = { feedback: feedbackForm.feedback.trim() || null, rating: feedbackForm.rating || null };
-      if (feedbackForm.complete && feedbackFor.status !== "completed") body.status = "completed";
-      await updateInterviewFeedback(feedbackFor.id, body);
-      setFeedbackFor(null);
+  const onResultSaved = (res, { recordedNow, result }) => {
+    setFeedbackFor(null);
+    if (recordedNow) {
+      const who = res?.result_emailed ? " The candidate has been e-mailed." : " The candidate was not e-mailed.";
+      setSuccess(`Result recorded: ${result === "cleared" ? "interview cleared" : "rejected"}.${who}`);
+    } else {
       setSuccess("Feedback saved.");
-      load();
-    } catch (err) {
-      setNotice(err.message || "Failed to save feedback.");
     }
+    load();
   };
 
   const openScorecard = async (interview) => {
@@ -1200,7 +1256,7 @@ export default function Interviews() {
         {iv.status !== "cancelled" && (
           <>
             <button type="button" className={item} onClick={() => openFeedback(iv)}>
-              <MessageSquare className="h-4 w-4 text-gray-400" />Feedback
+              <MessageSquare className="h-4 w-4 text-gray-400" />{needsResult(iv) ? "Record result" : "Feedback & result"}
               {iv.rating ? <span className="ml-auto flex items-center text-xs text-amber-500"><Star className="h-3 w-3 fill-current" />{iv.rating}</span> : null}
             </button>
             {iv.candidate_id && <button type="button" className={item} onClick={() => openScorecard(iv)}><Star className="h-4 w-4 text-gray-400" />Scorecard</button>}
@@ -1255,11 +1311,13 @@ export default function Interviews() {
     <DetailPanel title="Interview details" onClose={() => setSelectedId(null)}
       header={<PersonCell name={selected.candidate_name} sub={selected.position || "—"} />}>
       <div className="flex flex-wrap items-center gap-2"><IvStatus status={selected.status} />
-        {needsFeedback(selected) && <StatusPill tone="amber">Feedback pending</StatusPill>}</div>
+        <ResultPill iv={selected} />
+        {needsFeedback(selected) && !needsResult(selected) && <StatusPill tone="amber">Feedback pending</StatusPill>}</div>
       <div className="mt-4 flex flex-wrap gap-2">
         {canJoin(selected) && <QuickAction icon={ExternalLink} label="Join" tone="primary" onClick={() => window.open(selected.meeting_link, "_blank", "noopener,noreferrer")} />}
         <QuickAction icon={Pencil} label="Edit" onClick={() => openEdit(selected)} />
-        {selected.status !== "cancelled" && <QuickAction icon={MessageSquare} label="Feedback" onClick={() => openFeedback(selected)} />}
+        {selected.status !== "cancelled" && <QuickAction icon={MessageSquare} label={needsResult(selected) ? "Record result" : "Feedback & result"}
+          tone={needsResult(selected) ? "primary" : undefined} onClick={() => openFeedback(selected)} />}
         {selected.status !== "cancelled" && selected.candidate_id && <QuickAction icon={ClipboardCheck} label="Scorecard" onClick={() => openScorecard(selected)} />}
       </div>
       <DetailSection title="Schedule">
@@ -1276,18 +1334,47 @@ export default function Interviews() {
           <ul className="space-y-2">{panelOf(selected).map((n) => <li key={n}><PersonCell name={n} /></li>)}</ul>
         ) : <p className="text-sm text-gray-500">—</p>}
       </DetailSection>
+      {(selected.result || needsResult(selected)) && (
+        <DetailSection title="Result">
+          {selected.result ? (
+            <div className="space-y-1 text-sm">
+              <p className="flex items-center gap-2"><ResultPill iv={selected} />
+                {selected.result_at && <span className="text-xs text-gray-500">{formatDate(selected.result_at)}</span>}</p>
+              <p className="text-xs text-gray-500">{selected.result_emailed ? "The candidate was e-mailed the result." : "The candidate was not e-mailed."}</p>
+              {selected.result_message && <p className="whitespace-pre-wrap break-words text-xs text-gray-600">Note sent: “{selected.result_message}”</p>}
+            </div>
+          ) : (
+            <button type="button" onClick={() => openFeedback(selected)} className="rounded-lg bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-blue-700">
+              Record result
+            </button>
+          )}
+        </DetailSection>
+      )}
       <DetailSection title="Feedback">
         {selected.rating ? <p className="flex items-center gap-1 text-sm text-amber-500"><Star className="h-4 w-4 fill-current" />{selected.rating} / 5</p> : null}
         <p className="whitespace-pre-wrap break-words text-sm text-gray-700">{selected.feedback || (panels[selected.id]?.feedback_count ? `${panels[selected.id].feedback_count} scorecard(s) recorded` : "—")}</p>
       </DetailSection>
       {selected.notes ? <DetailSection title="Internal notes"><p className="whitespace-pre-wrap break-words text-sm text-gray-700">{selected.notes}</p></DetailSection> : null}
       <DetailSection title="Status">
+        <p className="mb-2 flex items-center gap-2 text-xs text-gray-500">
+          Current: <StatusPill tone={STATUS_TONE[selected.status || "scheduled"] || "gray"}>{statusLabel(selected.status || "scheduled")}</StatusPill>
+        </p>
         <div className="flex flex-wrap gap-2">
           {cardActions(selected.status || "scheduled").map((act) => (
-            <QuickAction key={act.status} label={act.text} tone={act.tone === "red" ? "danger" : "default"} onClick={() => changeStatus(selected, act)} />
+            <StatusActionButton key={act.status} act={act} busy={statusBusy === act.status} disabled={!!statusBusy}
+              onClick={() => changeStatus(selected, act)} />
           ))}
-          {cardActions(selected.status || "scheduled").length === 0 && <p className="text-xs text-gray-400">A completed interview is final.</p>}
+          {cardActions(selected.status || "scheduled").length === 0 && (
+            <p className="text-xs text-gray-400">{selected.status === "cancelled" ? "This interview was cancelled." : "A completed interview is final."}</p>
+          )}
         </div>
+        {cardActions(selected.status || "scheduled").length > 0 && (
+          <ul className="mt-2 space-y-0.5 text-[11px] text-gray-500">
+            {cardActions(selected.status || "scheduled").map((act) => (
+              <li key={act.status} id={`iv-act-${act.status}`}><span className="font-semibold text-gray-600">{act.text}:</span> {(STATUS_ACTION_LOOK[act.status] || STATUS_ACTION_LOOK.scheduled).hint}</li>
+            ))}
+          </ul>
+        )}
       </DetailSection>
       <div className="mt-6 border-t border-gray-100 pt-4">
         <button type="button" onClick={() => handleDelete(selected)} className="inline-flex items-center gap-2 text-sm font-medium text-rose-600 hover:text-rose-700"><Trash2 className="h-4 w-4" />Delete interview</button>
@@ -1343,7 +1430,9 @@ export default function Interviews() {
             <td className={td}>
               <div className="flex flex-col items-start gap-1">
                 <IvStatus status={e.status} />
-                {needsFeedback(e) && <span className="text-[11px] font-medium text-amber-600">Feedback pending</span>}
+                {e.result ? <span className={`text-[11px] font-semibold ${e.result === "cleared" ? "text-emerald-600" : "text-rose-600"}`}>{e.result === "cleared" ? "Interview cleared" : "Rejected"}</span>
+                  : needsResult(e) ? <button type="button" onClick={() => openFeedback(e)} className="text-[11px] font-semibold text-amber-600 hover:underline">Result pending · record</button>
+                  : needsFeedback(e) && <span className="text-[11px] font-medium text-amber-600">Feedback pending</span>}
               </div>
             </td>
             <td className={`${td} text-right`}><RowActions iv={e} /></td>
@@ -1441,33 +1530,13 @@ export default function Interviews() {
       )}
 
       {feedbackFor && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-3 sm:p-4">
-          <div className="bg-white rounded-xl p-4 sm:p-6 w-full max-w-md shadow-xl max-h-[92vh] overflow-y-auto">
-            <div className="flex justify-between items-center gap-2 mb-4">
-              <h2 className="min-w-0 break-words text-lg font-semibold">Feedback · {feedbackFor.candidate_name}</h2>
-              <button type="button" onClick={() => setFeedbackFor(null)} aria-label="Close" className="shrink-0 -m-1.5 p-1.5"><X className="w-5 h-5 text-gray-400" /></button>
-            </div>
-            <label className="text-xs text-gray-500 font-medium">Rating</label>
-            <div className="mt-1 mb-3 flex gap-1">
-              {[1, 2, 3, 4, 5].map((n) => (
-                <button key={n} type="button" aria-label={`${n} star${n > 1 ? "s" : ""}`} onClick={() => setFeedbackForm({ ...feedbackForm, rating: n === feedbackForm.rating ? 0 : n })}>
-                  <Star className={`h-6 w-6 ${n <= feedbackForm.rating ? "fill-amber-400 text-amber-400" : "text-gray-300"}`} />
-                </button>
-              ))}
-            </div>
-            <label htmlFor="fb-text" className="text-xs text-gray-500 font-medium">Feedback</label>
-            <textarea id="fb-text" rows={4} maxLength={5000} value={feedbackForm.feedback} onChange={(e) => setFeedbackForm({ ...feedbackForm, feedback: e.target.value })} className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm" />
-            {feedbackFor.status !== "completed" && (
-              <label className="mt-3 flex items-center gap-2 text-sm text-gray-600">
-                <input type="checkbox" checked={feedbackForm.complete} onChange={(e) => setFeedbackForm({ ...feedbackForm, complete: e.target.checked })} /> Mark the interview completed
-              </label>
-            )}
-            <div className="flex flex-wrap justify-end gap-2 mt-5">
-              <button type="button" onClick={() => setFeedbackFor(null)} className="px-4 py-2 text-sm text-gray-600 border border-gray-200 rounded-lg hover:bg-gray-50">Cancel</button>
-              <button type="button" onClick={saveFeedback} className="px-4 py-2 text-sm text-white bg-blue-600 rounded-lg hover:bg-blue-700">Save feedback</button>
-            </div>
-          </div>
-        </div>
+        <InterviewResultDialog
+          key={feedbackFor.id}
+          interview={feedbackFor}
+          candidateEmail={candidateOf(feedbackFor)?.email || null}
+          onClose={() => setFeedbackFor(null)}
+          onSaved={onResultSaved}
+        />
       )}
 
       {scorecardFor && (

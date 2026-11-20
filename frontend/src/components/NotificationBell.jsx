@@ -15,6 +15,7 @@ import { publishUnreadCount, useUnreadNotifications } from "../hooks/useUnreadNo
 import { useNotificationSound } from "../hooks/useNotificationSound";
 import { formatBadge, relativeTime } from "../utils/notificationFormat";
 import NotificationDetailDialog from "./notifications/NotificationDetailDialog";
+import { useDismissible } from "../hooks/useDismissible";
 
 export const NOTIFICATIONS_PATH = "/shared/notifications";
 const LATEST = 5;
@@ -28,6 +29,7 @@ export default function NotificationBell() {
   const [error, setError] = useState(null);
   const [selectedId, setSelectedId] = useState(null);
   const rootRef = useRef(null);
+  const triggerRef = useRef(null);
   const badge = formatBadge(count);
 
   const loadLatest = useCallback(async () => {
@@ -46,17 +48,7 @@ export default function NotificationBell() {
 
   useEffect(() => { if (open) loadLatest(); }, [open, loadLatest]);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const onDown = (e) => { if (rootRef.current && !rootRef.current.contains(e.target)) setOpen(false); };
-    const onKey = (e) => { if (e.key === "Escape") setOpen(false); };
-    document.addEventListener("mousedown", onDown);
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [open]);
+  useDismissible(rootRef, open, () => setOpen(false), { returnFocusRef: triggerRef });
 
   const markAll = async () => {
     try {
@@ -78,6 +70,7 @@ export default function NotificationBell() {
   return (
     <div className="relative" ref={rootRef}>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((o) => !o)}
         aria-label={count > 0 ? `Notifications, ${count} unread` : "Notifications"}

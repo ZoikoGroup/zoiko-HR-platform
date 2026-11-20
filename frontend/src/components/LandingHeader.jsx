@@ -38,7 +38,7 @@ export default function LandingHeader() {
       <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-3 sm:px-6 lg:px-8">
         {/* Logo */}
         <a href="https://zoikoone.com" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 shrink-0">
-          <img src={logo} alt="Zoiko One" style={{ height: "40px", width: "auto", objectFit: "contain" }} />
+          <img src={logo} alt="Zoiko HR" style={{ height: "40px", width: "auto", objectFit: "contain" }} />
         </a>
 
         {/* Desktop Nav */}

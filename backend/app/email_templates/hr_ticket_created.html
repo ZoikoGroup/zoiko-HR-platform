@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "An employee needs HR support" %}
 {% set preheader = "An employee asked the HR Assistant to talk to HR. Ticket " ~ ticket_reference ~ " needs your attention." %}
 {% set badge = "New ticket" %}

@@ -130,6 +130,16 @@ def test_full_onboarding_flow_from_offer_to_employee(env):
     assert env.c.get("/public/onboarding/not-a-real-token-at-all-xxxxxxxx").status_code == 404
     _ok(env.c.put(f"/public/onboarding/{token}/details", json={"address": "12 MG Road", "city": "Pune", "emergency_contact_name": "Ana",
                                                                 "emergency_contact_phone": "+91 9876543210"}))
+    # "Submit details": required fields, the shared field rules (per field), then the submission time is recorded
+    missing = env.c.put(f"/public/onboarding/{token}/details", json={"address": "12 MG Road", "submit": True})
+    assert missing.status_code == 422 and "phone" in missing.text and "postal_code" in missing.text, missing.text
+    bad = env.c.put(f"/public/onboarding/{token}/details", json={"phone": "+91 9876543210", "address": "12 MG Road", "city": "Pune",
+                                                                   "country": "India", "postal_code": "12", "submit": True})
+    assert bad.status_code == 422 and "postal_code" in bad.text, bad.text
+    sub = _ok(env.c.put(f"/public/onboarding/{token}/details", json={"phone": "+91 9876543210", "address": "12 MG Road", "city": "Pune",
+                                                                      "state": "Maharashtra", "country": "India", "postal_code": "411001",
+                                                                      "submit": True}))
+    assert sub["details"]["details_submitted_at"] and sub["details"]["postal_code"] == "411001" and sub["phone"].startswith("+91")
     for d in page["documents"]:
         _ok(env.c.post(f"/public/onboarding/{token}/documents/{d['id']}", files={"file": ("id.pdf", b"%PDF-1.4 test", "application/pdf")}))
     assert _ok(env.c.get(f"/hr/onboarding/new-hires/{hire['id']}"))["status"] == "pre_joining"
@@ -191,7 +201,7 @@ def test_rules_and_tenant_boundaries(env):
     assert env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"manager_id": env.stranger.id}).status_code == 400
     # forced completion is possible when HR decides so
     _ok(env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "in_progress"}))
-    _ok(env.c.post(f"/hr/onboarding/new-hires/{hire['id']}/document-requests", json={"categories": ["nda"]}))
+    _ok(env.c.post(f"/hr/onboarding/new-hires/{hire['id']}/document-requests", json={"categories": ["id_proof"]}))
     assert env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "completed"}).status_code == 400
     assert _ok(env.c.put(f"/hr/onboarding/new-hires/{hire['id']}", json={"status": "completed", "force_complete": True}))["status"] == "completed"
     # tasks belong to a new hire of this organization
@@ -200,7 +210,7 @@ def test_rules_and_tenant_boundaries(env):
 
 def test_dashboard_and_report_numbers(env):
     _setup_template_and_settings(env)
-    _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "A B", "email": "a@mail.com", "position": "P", "joining_date": JOIN.isoformat()}))
+    _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "A B", "email": "a@mail.com", "position": "Designer", "joining_date": JOIN.isoformat()}))
     dash = _ok(env.c.get("/hr/onboarding/dashboard"))
     assert dash["documentsPending"] == 2 and dash["checklistsPending"] == 2 and dash["upcomingJoinersTotal"] == 1
     rep = _ok(env.c.get("/hr/onboarding/reports/joining"))
@@ -211,7 +221,7 @@ def test_reminders_go_to_new_hires_who_still_owe_documents(env):
     from app.modules.hr import onboarding_flow
     from app.modules.hr.models import OnboardingNewHire
     _setup_template_and_settings(env)
-    hire = _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "R M", "email": "r@mail.com", "position": "P"}))
+    hire = _ok(env.c.post("/hr/onboarding/new-hires", json={"candidate_name": "R M", "email": "r@mail.com", "position": "Designer"}))
     row = env.db.get(OnboardingNewHire, hire["id"])
     before = len(env.sent)
     assert onboarding_flow.run_document_reminders(env.db, today=row.portal_invited_at.date() + timedelta(days=3)) == 1
@@ -237,3 +247,4 @@ def test_an_imported_employee_is_linked_to_their_onboarding_and_not_duplicated(e
     assert env.db.query(Employee).filter(Employee.email == "lee@mail.com").count() == 1      # no second account
     env.db.refresh(imported)
     assert imported.country == "United Kingdom" and float(imported.ctc) == 50000            # the import's values are kept
+

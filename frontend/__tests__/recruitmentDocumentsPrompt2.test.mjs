@@ -96,13 +96,14 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
   const calls = { bulk: [], privacy: 0 };
   const candidate = { id: 11, name: "Ari Applicant", email: "ari@example.com", position: "Designer", status: "screening", source: "referral" };
   t.mock.module("react-router-dom", { exports: {
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),   // useDismissible (B15)
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
     useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {},
   } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getCandidates: async () => ({ items: [candidate] }), getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   } });
   t.mock.module("../src/service/recruitmentDocumentsService.js", { exports: {
     getCandidateDocumentsStatus: async () => { calls.privacy += 1; return { privacy_notice_sent_at: "2026-10-20T10:00:00Z", documents: [] }; },
@@ -138,6 +139,7 @@ test("candidate privacy status loads on demand and bulk rejection requires a ser
 test("interview scorecard loads requisition criteria and submits the documented score payload", async (t) => {
   const calls = [];
   t.mock.module("react-router-dom", { exports: {
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),   // useDismissible (B15)
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
   } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -173,6 +175,7 @@ test("offer letter lifecycle uses server approval, generation, preview and send"
   const calls = [];
   const state = { status: "draft", letter: null, approved_at: null, issued_at: null };
   t.mock.module("react-router-dom", { exports: {
+    useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),   // useDismissible (B15)
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
   } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -185,6 +188,7 @@ test("offer letter lifecycle uses server approval, generation, preview and send"
   } });
   t.mock.module("../src/service/hrService.js", { exports: {
     getOffers: async () => ({ items: [{ id: 7, candidate_id: 11, candidate_name: "Ari Applicant", position: "Designer", salary: 120000, currency: "USD", status: state.status }] }),
+    getOfferById: async (id) => ({ id, candidate_id: 11, candidate_name: "Ari Applicant", position: "Designer", salary: 120000, currency: "USD", status: state.status }),
     getCandidates: async () => ({ items: [] }), createOffer: async () => ({}), updateOffer: async () => ({}), deleteOffer: async () => ({}),
   } });
   t.mock.module("../src/service/recruitmentDocumentsService.js", { exports: {

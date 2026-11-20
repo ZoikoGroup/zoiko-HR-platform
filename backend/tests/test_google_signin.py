@@ -66,7 +66,7 @@ def _start(c):
 
 
 def _call_back(c, monkeypatch, email="ann@example.com", problem=None):
-    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code: {"email": None if problem else email, "name": "Pat Lee", "error": problem})
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code, request=None: {"email": None if problem else email, "name": "Pat Lee", "error": problem})
     _, q = _start(c)
     return c.get("/auth/google/callback", params={"code": "abc", "state": q["state"][0]})
 
@@ -144,7 +144,7 @@ def test_a_deactivated_account_cannot_get_in_through_google(env, monkeypatch):
 
 
 def test_a_callback_not_started_by_this_browser_or_with_a_forged_state_is_refused(env, monkeypatch):
-    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code: {"email": "ann@example.com", "name": "Ann", "error": None})
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code, request=None: {"email": "ann@example.com", "name": "Ann", "error": None})
     _, q = _start(env)
     other = TestClient(env.app, raise_server_exceptions=False, follow_redirects=False)      # a browser that never started a sign-in: no cookie
     r = other.get("/auth/google/callback", params={"code": "abc", "state": q["state"][0]})
@@ -190,3 +190,127 @@ def test_a_signup_proof_cannot_be_forged_or_kept_past_its_time(env, monkeypatch)
     monkeypatch.setattr(google_auth.time, "time", lambda: real_time() + google_auth.SIGNUP_PROOF_TTL_SECONDS + 5)
     assert not google_auth.signup_proof_matches(proof, "new@gmail.com")
     assert not google_auth.signup_proof_matches(google_auth.make_ticket(1), "new@gmail.com"), "a sign-in ticket is not a signup proof"
+
+
+# ── A1 (QA report 10 Nov 2026): production sent Google redirect_uri=http://localhost:8000/... because API_BASE_URL was unset ──
+
+def test_A1_a_local_api_base_url_falls_back_to_the_public_address_of_the_request(env, monkeypatch):
+    monkeypatch.setattr(settings, "API_BASE_URL", "http://localhost:8000")
+    r = env.get("/auth/google/login", headers={"host": "api.zoikohr.com", "x-forwarded-proto": "https"})
+    redirect = parse_qs(urlparse(r.headers["location"]).query)["redirect_uri"][0]
+    assert "localhost" not in redirect and redirect.endswith("/auth/google/callback") and "api.zoikohr.com" in redirect
+
+
+def test_A1_a_configured_public_api_base_url_or_explicit_redirect_is_used_as_is(env, monkeypatch):
+    _, q = _start(env)
+    assert q["redirect_uri"] == ["https://api.example.com/auth/google/callback"]
+    monkeypatch.setattr(settings, "GOOGLE_REDIRECT_URI", "https://login.example.com/cb")
+    _, q = _start(env)
+    assert q["redirect_uri"] == ["https://login.example.com/cb"]
+
+
+def test_A1_the_token_exchange_sends_the_same_redirect_uri_as_the_authorize_step(env, monkeypatch):
+    monkeypatch.setattr(settings, "API_BASE_URL", "http://localhost:8000")
+    seen = {}
+
+    class FakeResp:
+        def __init__(self, code, body):
+            self.status_code, self._body, self.text = code, body, ""
+
+        def json(self):
+            return self._body
+
+    class FakeClient:
+        def __init__(self, *a, **k):
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+        def post(self, url, data):
+            seen["redirect_uri"] = data["redirect_uri"]
+            return FakeResp(200, {"access_token": "t"})
+
+        def get(self, url, headers):
+            return FakeResp(200, {"email": "ann@example.com", "email_verified": True, "name": "Pat Lee"})
+
+    monkeypatch.setattr(google_auth.httpx, "Client", FakeClient)
+    headers = {"host": "api.zoikohr.com", "x-forwarded-proto": "https"}
+    start = env.get("/auth/google/login", headers=headers)
+    sent = parse_qs(urlparse(start.headers["location"]).query)
+    env.cookies.set(google_auth.NONCE_COOKIE, start.cookies.get(google_auth.NONCE_COOKIE) or env.cookies.get(google_auth.NONCE_COOKIE))
+    r = env.get("/auth/google/callback", params={"code": "abc", "state": sent["state"][0]}, headers=headers)
+    assert seen["redirect_uri"] == sent["redirect_uri"][0]
+    assert "google_ticket" in _query(r), r.headers["location"]
+
+
+def test_A1_people_are_sent_back_to_the_app_they_started_from_when_it_is_allowed(env, monkeypatch):
+    monkeypatch.setattr(settings, "FRONTEND_URL", "http://localhost:5173")         # unset in production
+    monkeypatch.setattr(settings, "CORS_ORIGINS", "https://app.zoikohr.com")
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code, request=None: {"email": "ann@example.com", "name": "", "error": None})
+    start = env.get("/auth/google/login", params={"return_to": "https://app.zoikohr.com"})
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    r = env.get("/auth/google/callback", params={"code": "abc", "state": state})
+    assert r.headers["location"].startswith("https://app.zoikohr.com/login?google_ticket=")
+
+
+def test_A1_an_origin_that_is_not_allowed_is_never_a_redirect_target(env, monkeypatch):
+    monkeypatch.setattr(settings, "CORS_ORIGINS", "https://app.zoikohr.com")
+    monkeypatch.setattr(google_auth, "verified_profile_for_code", lambda code, request=None: {"email": "ann@example.com", "name": "", "error": None})
+    start = env.get("/auth/google/login", params={"return_to": "https://evil.example"})
+    state = parse_qs(urlparse(start.headers["location"]).query)["state"][0]
+    r = env.get("/auth/google/callback", params={"code": "abc", "state": state})
+    assert r.headers["location"].startswith("https://app.example.com/login?")
+    assert google_auth.app_origin_from("javascript:alert(1)") is None
+
+
+def test_A1_every_failure_comes_back_to_the_login_page_with_a_reason(env, monkeypatch):
+    for problem in ("unverified", "failed"):
+        r = _call_back(env, monkeypatch, problem=problem)
+        assert r.headers["location"].startswith("https://app.example.com/login?")
+        assert _query(r)["google_error"] == [problem]
+        assert problem in google_auth.ERRORS
+
+
+def test_A1_the_exchange_explains_a_suspended_organization(env, monkeypatch):
+    from app.core import org_access
+    r = _call_back(env, monkeypatch)
+    ticket = _query(r)["google_ticket"][0]
+    env.db.query(Organization).filter(Organization.id == 1).update({"status": OrganizationStatus.SUSPENDED})
+    env.db.commit()
+    org_access.invalidate(1) if hasattr(org_access, "invalidate") else None
+    out = env.post("/auth/google/exchange", json={"ticket": ticket})
+    assert out.status_code == 401 and "suspended" in out.text.lower()
+
+
+def test_A1_with_two_accounts_on_one_address_the_active_one_is_chosen(env, monkeypatch):
+    from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
+    env.db.add(Organization(id=2, name="B", status=OrganizationStatus.ACTIVE))
+    env.db.add(Employee(email="ann@example.com", hashed_password="x", employee_code="OLD", role=UserRole.EMPLOYEE, first_name="Old",
+                        last_name="Ann", job_title="t", employment_type=EmploymentType.FULL_TIME, status=EmployeeStatus.ACTIVE,
+                        is_active=False, date_of_joining=date.today(), organization_id=2))
+    env.db.commit()
+    r = _call_back(env, monkeypatch)
+    out = env.post("/auth/google/exchange", json={"ticket": _query(r)["google_ticket"][0]})
+    assert out.status_code == 200, out.text
+
+
+def test_A1_a_ticket_claim_is_shared_through_redis_when_it_is_configured(monkeypatch):
+    store = {}
+
+    class FakeRedis:
+        def set(self, key, value, nx=False, ex=None):
+            if nx and key in store:
+                return None
+            store[key] = value
+            return True
+
+    monkeypatch.setattr("app.core.redis_client.get_redis", lambda: FakeRedis())
+    ticket = google_auth.make_ticket(5)
+    google_auth._used_tickets.clear()
+    assert google_auth.redeem_ticket(ticket) == 5
+    google_auth._used_tickets.clear()                       # another worker: its own memory is empty
+    assert google_auth.redeem_ticket(ticket) is None, "the shared store refuses the replay"

@@ -1,0 +1,19 @@
+{% extends "_layouts/base.html" %}
+{% import "_layouts/_components.html" as ui with context %}
+{% set title = "Onboarding documents completed" %}
+{% set preheader = candidate_name ~ " has signed and submitted every onboarding document." %}
+{% set badge = "Completed" %}
+{% set badge_tone = "success" %}
+{% set footer_reason %}You are receiving this because you are an admin or the manager at {{ organization_name }} on Zoiko HR.{% endset %}
+{% block content %}
+<h1 class="h1 dm-text-strong" style="{{ S.h1 }}">Onboarding documents completed</h1>
+<p class="t-body dm-text-body" style="{{ S.p }}">Hello <strong class="dm-text-strong" style="{{ S.strong }}">{{ recipient_name }}</strong>, <strong class="dm-text-strong" style="{{ S.strong }}">{{ candidate_name }}</strong> has completed and submitted all of their onboarding documents. The signed copies, each with its electronic signature evidence certificate, are in Zoiko HR.</p>
+{% call ui.details() %}
+{{ ui.detail_row("New hire", candidate_name, first=True) }}
+{{ ui.detail_row("Position", position or "Not set") }}
+{{ ui.detail_row("Start date", joining_date_display or "Not set") }}
+{% for d in documents %}{{ ui.detail_row(d.title, d.status) }}{% endfor %}
+{% endcall %}
+{{ ui.button(review_url, "Review the documents") }}
+{{ ui.signoff() }}
+{% endblock %}

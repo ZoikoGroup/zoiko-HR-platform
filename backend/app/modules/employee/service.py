@@ -82,11 +82,9 @@ def derive_employee_id_prefix(org_name: str) -> str:
         return (alpha_only + "X").upper()
     return "OR"
 
-def _identity_query(db):
-    """An e-mail address is ONE identity across every organization (sign-in finds a person by it), so uniqueness is checked across
-    all of them, not just the caller's. The only intentionally cross-tenant read in the tenant plane."""
-    from app.core.privacy.tenant_scope import unscoped_for_system
-    return unscoped_for_system(db.query(Employee), reason="e-mail is one identity across organizations")
+# E-mail identity is scoped PER ORGANIZATION: the same address may hold one account in each organization. Uniqueness checks
+# and sign-in resolution live in app/modules/employee/identity.py (shared with hr/service.py).
+from app.modules.employee import identity  # noqa: E402
 
 
 
@@ -286,16 +284,26 @@ def _org_workspace_name(db: Session, organization_id) -> str:
     return (org.organization_name or org.display_name or "") if org else ""
 
 
-def _revoke_outstanding_tokens(db: Session, email: str, purpose) -> int:
-    return (
-        db.query(SecurityActionToken)
-        .filter(
-            SecurityActionToken.email == email,
-            SecurityActionToken.purpose == purpose,
-            SecurityActionToken.used_at.is_(None),
-        )
-        .update({SecurityActionToken.used_at: datetime.utcnow()}, synchronize_session=False)
+_ANY_ORGANIZATION = object()
+
+
+def _revoke_outstanding_tokens(db: Session, email: str, purpose, organization_id=_ANY_ORGANIZATION) -> int:
+    """Marks outstanding tokens used. With organization_id, only that ONE account's tokens: an address can have an account in
+    several organizations, and a new link for one of them must not cancel the others' links."""
+    q = db.query(SecurityActionToken).filter(
+        func.lower(SecurityActionToken.email) == identity.normalize_email(email),
+        SecurityActionToken.purpose == purpose,
+        SecurityActionToken.used_at.is_(None),
     )
+    if organization_id is not _ANY_ORGANIZATION:
+        q = q.filter(SecurityActionToken.organization_id.is_(None) if organization_id is None
+                     else SecurityActionToken.organization_id == organization_id)
+    return q.update({SecurityActionToken.used_at: datetime.utcnow()}, synchronize_session=False)
+
+
+def _token_account(db: Session, email: str, organization_id) -> Optional[Employee]:
+    """The ONE account a security token was issued for: its address in its organization (None: a platform account)."""
+    return identity.account_in_organization(db, email, organization_id)
 
 
 PASSWORD_POLICY_MESSAGE = "Password must be at least 8 characters and include a letter and a number."
@@ -347,8 +355,8 @@ def _issue_action_token(db: Session, email: str, organization_id, purpose) -> tu
         expires_at = now + timedelta(hours=max(int(_s.EMAIL_VERIFY_TTL_HOURS or 48), 1))
     else:
         expires_at = now + timedelta(hours=TOKEN_TTL_HOURS)
-    # A new link supersedes every outstanding one for this user and purpose.
-    _revoke_outstanding_tokens(db, email, purpose)
+    # A new link supersedes every outstanding one for this account (address + organization) and purpose.
+    _revoke_outstanding_tokens(db, email, purpose, organization_id)
     token = SecurityActionToken(
         email=email,
         organization_id=organization_id,
@@ -442,7 +450,7 @@ def validate_action_token(db: Session, raw_token: str, purpose) -> Optional[dict
         or expires_at <= datetime.utcnow()
     ):
         return None
-    employee = db.query(Employee).filter(Employee.email == email).first()
+    employee = _token_account(db, email, organization_id)
     return {
         "token": raw_token,
         "email": email,
@@ -463,7 +471,7 @@ def complete_action_token(db: Session, raw_token: str, purpose, new_password: st
     if consumed is None:
         raise BadRequestException(INVALID_TOKEN_MESSAGE)
 
-    employee = db.query(Employee).filter(Employee.email == consumed["email"]).first()
+    employee = _token_account(db, consumed["email"], consumed["organization_id"])
     if not employee:
         raise BadRequestException(INVALID_TOKEN_MESSAGE)
 
@@ -522,7 +530,7 @@ def verify_email(db: Session, raw_token: str) -> dict:
     consumed = _consume_action_token(db, raw_token, SecurityActionPurpose.VERIFY_EMAIL)
     if consumed is None:
         raise BadRequestException(VERIFY_LINK_INVALID_MESSAGE)
-    employee = db.query(Employee).filter(Employee.email == consumed["email"]).first()
+    employee = _token_account(db, consumed["email"], consumed["organization_id"])
     if not employee:
         raise BadRequestException(VERIFY_LINK_INVALID_MESSAGE)
     employee.email_verified = True
@@ -535,9 +543,10 @@ def resend_email_verification(db: Session, email: str) -> dict:
     """Sends a fresh confirmation link to an account that is still unconfirmed. The answer is the same for an unknown
     address, an already-confirmed one and an unconfirmed one, so it cannot be used to find out who has an account."""
     generic = {"message": "If that address belongs to an account that still needs confirming, a new confirmation link has been sent."}
-    employee = db.query(Employee).filter(func.lower(Employee.email) == (email or "").strip().lower()).first()
-    if employee and employee.is_active and not employee.email_verified:
-        begin_email_verification(db, employee)
+    # One address can have an account in several organizations: each unconfirmed one gets its own link (bound to it).
+    for employee in identity.sign_in_candidates(db, email):
+        if employee.is_active and not employee.email_verified:
+            begin_email_verification(db, employee)
     return generic
 
 
@@ -560,37 +569,38 @@ def _require_real_sign_in_address(email: str) -> None:
 
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
+    """Password sign-in. One address can have an account in several organizations, each with its own password:
+
+    * only the accounts whose own password matches are considered;
+    * none: the generic "Invalid email or password." (which organizations exist is never revealed);
+    * one: signed in, as always;
+    * several: no tokens. The answer lists those organizations with a short-lived selection token, and
+      POST /auth/login/select-organization finishes the sign-in for the one chosen. Naming the organization in the request
+      (organization_id / organization_code) skips the choice."""
     from app.modules.support_login import service as support_login
     if support_login.is_support_username(str(data.email)):
         return support_login.sign_in(db, str(data.email), data.password)      # temporary read-only support sign-in
     _require_real_sign_in_address(str(data.email))
-    candidates = db.query(Employee).filter(func.lower(Employee.email) == str(data.email).strip().lower()).all()
-    if not candidates:
-        raise UnauthorizedException("Invalid email or password.")
 
-    if len(candidates) == 1:
-        employee = candidates[0]
-    else:
-        from app.core import org_access
-        def _score(e):
-            if not e.is_active:
-                return -1
-            if e.organization_id:
-                try:
-                    oa = org_access.get_org_access(db, e.organization_id)
-                    if oa.deleted:
-                        return -2
-                    return 2 if oa.status in ("approved", "active") else 1
-                except Exception:
-                    return 0
-            return 1
-        candidates.sort(key=_score, reverse=True)
-        employee = candidates[0]
-
-    if not verify_password(data.password, employee.hashed_password):
-        raise UnauthorizedException("Invalid email or password.")
-
+    matches = identity.password_matches(db, data.email, data.password)
+    if getattr(data, "organization_id", None) is not None or getattr(data, "organization_code", None):
+        matches = identity.narrow_to_organization(db, matches, data.organization_id, data.organization_code)
+    employee, choices = identity.resolve_sign_in(db, matches)
+    if employee is None:
+        return identity.selection_response(db, str(data.email), choices)
     return issue_login(db, employee, mfa_code=getattr(data, "mfa_code", None))
+
+
+def login_selected_organization(db: Session, selection_token: str, organization_id: Optional[int],
+                                mfa_code: Optional[str] = None) -> dict:
+    """Second step of a sign-in whose address has accounts in several organizations: tokens for the ONE account chosen.
+    Every rule of a normal sign-in still applies (issue_login), including the platform second factor."""
+    employee = identity.account_from_selection(db, selection_token, organization_id)
+    result = issue_login(db, employee, mfa_code=mfa_code)          # MFA_REQUIRED etc. raise here: the token stays usable
+    payload = identity.open_selection(selection_token)
+    if not identity.spend_selection(payload["jti"], float(payload["exp"])):
+        raise UnauthorizedException(identity.SELECTION_EXPIRED_MESSAGE)   # used at the same moment elsewhere: no tokens here
+    return result
 
 
 def issue_login(db: Session, employee: Employee, mfa_code: Optional[str] = None, mfa_verified_at: Optional[int] = None) -> dict:
@@ -834,9 +844,12 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
         if not verify_registration_otp(db, data.registered_email, data.otp, consume=True):
             raise BadRequestException("Invalid or expired verification code. Please check your code or request a new one.")
 
-    existing = _identity_query(db).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("Employee", "email")
+    # E-mail identity is per organization, and this organization is new, so an address already used in ANOTHER organization is
+    # fine: this registration gets its own account (own password, role, status). Only a platform account's address is
+    # refused, so a platform administrator's sign-in never becomes ambiguous. Checked BEFORE anything is written, so a refusal
+    # can never leave an organization behind without its admin.
+    identity.ensure_email_free(db, data.email, None)
+    admin_email = identity.normalize_email(data.email)
 
     from app.core.code_generation import generate_organization_code, generate_uuid, generate_employee_code
 
@@ -878,6 +891,12 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     db.commit()
     db.refresh(org)
     emit_event(db, "organization.created", {"id": org.id, "name": org.name, "code": org.organization_code}, org.id)
+    try:                                             # every organisation has its (empty) Company Profile in Settings
+        from app.modules.hr import company_profile
+        company_profile.ensure_profile(db, org.id)
+    except Exception:
+        db.rollback()
+        logger.exception("company profile could not be created for new organisation %s", org.id)
 
     dept_code = f"MGMT_{org.id}"
     dept_department_code = f"{org_code}DEP001"
@@ -893,7 +912,7 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     employee_code = generate_employee_code(db, organization_id=org.id)
 
     employee = Employee(
-        email=data.email,
+        email=admin_email,
         hashed_password=hash_password(data.password),
         role=UserRole.ADMIN,
         is_active=True,
@@ -983,13 +1002,13 @@ def register_enterprise(db: Session, data: RegisterRequest) -> dict:
     # Send registration confirmation email (non-blocking)
     from app.services.email_service import send_registration_received
     try:
-        send_registration_received(data.email, org.name, db=db)
+        send_registration_received(data.email, org.name, db=db, organization_id=org.id)
     except Exception as e:
         logger.warning(f"[email] Failed to send registration email to admin {data.email}: {e}")
 
     if data.registered_email and data.registered_email != data.email:
         try:
-            send_registration_received(data.registered_email, org.name, db=db)
+            send_registration_received(data.registered_email, org.name, db=db, organization_id=org.id)
         except Exception as e:
             logger.warning(f"[email] Failed to send registration email to {data.registered_email}: {e}")
 
@@ -1139,6 +1158,36 @@ def _import_style_fields(db: Session, data, organization_id, created_by=None) ->
     return out
 
 
+def _person_snapshot(db: Session, user: Employee) -> dict:
+    """The stored values of every field the person-field rules cover (employee columns and the statutory profile)."""
+    from app.core import field_rules
+    profile = db.query(EmployeeProfile).filter(EmployeeProfile.employee_id == user.id).first()
+    snap = {}
+    for field in field_rules.EMPLOYEE_FIELDS:
+        if field in ("pan_number", "uan_number", "bank_account", "bank_ifsc"):
+            snap[field] = getattr(profile, field, None) if profile is not None else None
+        elif field == "department_name":
+            snap[field] = getattr(getattr(user, "department", None), "name", None)
+        elif field == "designation_name":
+            snap[field] = getattr(getattr(user, "designation", None), "title", None)
+        else:
+            snap[field] = getattr(user, field, None)
+    return snap
+
+
+def _check_person_fields(data, previous: Optional[dict] = None, extra_errors: Optional[dict] = None) -> None:
+    """Runs the shared field rules (app/core/field_rules.py) over a create / update request, writes the cleaned values back
+    (trimmed names, E.164 phone, canonical country, upper-case IDs) and answers 422 with one message per field (together
+    with any `extra_errors` the caller found, so the person sees every problem at once)."""
+    from app.core import field_rules
+    values = {k: v for k, v in data.model_dump(exclude_unset=previous is not None).items()
+              if k in field_rules.EMPLOYEE_FIELDS and v not in (None, "")}
+    cleaned, errors = field_rules.validate_record(values, field_rules.EMPLOYEE_FIELDS, previous=previous, check_mail_domain=True)
+    field_rules.raise_if_errors({**(extra_errors or {}), **errors})
+    for field, value in cleaned.items():
+        setattr(data, field, value)
+
+
 def create_organization_user(
     db: Session,
     data: "UserCreateRequest",
@@ -1147,10 +1196,10 @@ def create_organization_user(
     actor=None,
 ) -> Employee:
     """Invite a user into an organization and record the invite for the feed."""
+    _check_person_fields(data)                 # B16-B38: the same rules as the form, enforced even when the form is bypassed
     try:
-        existing = _identity_query(db).filter(Employee.email == data.email).first()
-        if existing:
-            raise AlreadyExistsException("User", "email")
+        # unique within THIS organization only: the same person may also work in another organization
+        identity.ensure_email_free(db, data.email, organization_id)
 
         temp_password = _generate_temp_password()
         role = data.role
@@ -1237,8 +1286,13 @@ def create_organization_user(
 
         return employee, temp_password
     except Exception as exc:
+        if identity.is_duplicate_email_error(exc):          # a simultaneous add won the race: the database refused this one
+            db.rollback()
+            exc = identity.duplicate_email_exception(organization_id)
         _record_failure("employee.invited", db, actor or created_by_id,
                         organization_id, exc, target_name=data.email)
+        if isinstance(exc, ZoikoException):
+            raise exc
         raise
 
 
@@ -1307,15 +1361,10 @@ def update_organization_user(
 ) -> Employee:
     user = get_organization_user(db, user_id, organization_id, skip_org_filter)
     old_role = user.role
+    # B16-B38: only a value that is being changed is checked, so a record whose stored details predate these rules can
+    # still have its other details saved.
+    _check_person_fields(data, previous=_person_snapshot(db, user))
     update_data = data.model_dump(exclude_unset=True)
-    if "phone" in update_data and update_data["phone"] != user.phone:
-        # Only a number that is being changed is checked, so a user whose stored number predates this rule can
-        # still have their other details saved.
-        from app.core.phone import normalize_phone
-        try:
-            update_data["phone"] = normalize_phone(update_data["phone"])
-        except ValueError as exc:
-            raise BadRequestException(str(exc))
 
     # Simple account/employee columns handled directly.
     for field in ("first_name", "last_name", "phone", "role", "job_title", "is_active"):
@@ -1423,13 +1472,25 @@ def activate_organization_user(
     from app.modules.billing import seat_policy
     if not seat_policy.occupies_seat(user.status, user.is_active):
         seat_policy.check_can_add(db, user.organization_id)
+    # A Pending account that has never had a working password (the account a new hire gets when they accept their offer)
+    # is switched on here, by the admin, and only here: it gets its first temporary password and the welcome e-mail.
+    status_value = getattr(user.status, "value", user.status)
+    first_activation = status_value == EmployeeStatus.PENDING.value and not user.is_active and user.password_changed_at is None
+    temp_password = None
+    if first_activation:
+        temp_password = _generate_temp_password()
+        user.hashed_password = hash_password(temp_password)
+        user.must_change_password = True
     user.is_active = True
     user.status = EmployeeStatus.ACTIVE
     user.updated_by = updated_by_id
     db.commit()
     db.refresh(user)
 
-    if user.role == UserRole.ADMIN:
+    if first_activation:
+        from app.modules.hr.service import _send_welcome_email
+        _send_welcome_email(db, user, temp_password)
+    elif user.role == UserRole.ADMIN:
         _notify_email(
             "send_org_admin_account_activated_email",
             email=user.email,
@@ -1535,42 +1596,47 @@ def request_password_reset(db: Session, email: str) -> dict:
     generic_message = (
         "If an account exists for that email, a password reset link has been sent."
     )
-    # Addresses are matched the way sign-in matches them: ignoring case and stray spaces.
-    typed = (email or "").strip().lower()
-    employee = db.query(Employee).filter(func.lower(Employee.email) == typed).first()
-    if not employee or not employee.is_active:
+    # Addresses are matched the way sign-in matches them: ignoring case and stray spaces. One address can have an account in
+    # several organizations, each with its own password: each active account gets its OWN e-mail, naming its organization,
+    # whose link resets that account only. Nothing resets every account at once.
+    accounts = [e for e in identity.sign_in_candidates(db, email) if e.is_active]
+    if not accounts:
         return {"message": generic_message}
 
     # A link was sent a moment ago (a double click, or an impatient second request): that link is still good, so do not
     # send another. This also stops the form being used to flood someone's inbox. Same answer either way.
     issued_after = datetime.utcnow() + timedelta(minutes=RESET_TOKEN_TTL_MINUTES) - timedelta(seconds=RESET_RESEND_COOLDOWN_SECONDS)
-    recent = (
-        db.query(SecurityActionToken.id)
-        .filter(
-            SecurityActionToken.email == employee.email,
-            SecurityActionToken.purpose == SecurityActionPurpose.RESET,
-            SecurityActionToken.used_at.is_(None),
-            SecurityActionToken.expires_at > issued_after,
+    for employee in accounts:
+        recent = (
+            db.query(SecurityActionToken.id)
+            .filter(
+                func.lower(SecurityActionToken.email) == identity.normalize_email(employee.email),
+                SecurityActionToken.organization_id.is_(None) if employee.organization_id is None
+                else SecurityActionToken.organization_id == employee.organization_id,
+                SecurityActionToken.purpose == SecurityActionPurpose.RESET,
+                SecurityActionToken.used_at.is_(None),
+                SecurityActionToken.expires_at > issued_after,
+            )
+            .first()
         )
-        .first()
-    )
-    if recent:
-        return {"message": generic_message}
+        if recent:
+            continue
 
-    raw_token, expires_at = _issue_action_token(
-        db, employee.email, employee.organization_id, SecurityActionPurpose.RESET
-    )
-    db.commit()
+        raw_token, expires_at = _issue_action_token(
+            db, employee.email, employee.organization_id, SecurityActionPurpose.RESET
+        )
+        db.commit()
 
-    _notify_email_async(
-        "send_org_admin_password_reset_email",
-        email=employee.email,
-        first_name=employee.first_name or _full_name(employee),
-        expires_at_local=_format_token_datetime(expires_at),
-        timezone=TOKEN_TIMEZONE,
-        action_url=_action_link(SecurityActionPurpose.RESET, raw_token),
-        organization_id=employee.organization_id,
-    )
+        _notify_email_async(
+            "send_org_admin_password_reset_email",
+            email=employee.email,
+            first_name=employee.first_name or _full_name(employee),
+            expires_at_local=_format_token_datetime(expires_at),
+            timezone=TOKEN_TIMEZONE,
+            action_url=_action_link(SecurityActionPurpose.RESET, raw_token),
+            organization_id=employee.organization_id,
+            workspace_name=_org_workspace_name(db, employee.organization_id) if len(accounts) > 1 else None,
+        )
     return {"message": generic_message}
 
 
@@ -1682,7 +1748,7 @@ def reset_user_password(
             organization_id=user.organization_id,
         )
         if not ok:
-            _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET)
+            _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET, user.organization_id)
             db.commit()
             raise ZoikoException(502, "EMAIL_SEND_FAILED", f"Email could not be sent: {reason}")
         user.updated_by = updated_by_id
@@ -1691,7 +1757,7 @@ def reset_user_password(
         return user, None
 
     temp_password = _generate_temp_password()
-    _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET)
+    _revoke_outstanding_tokens(db, user.email, SecurityActionPurpose.RESET, user.organization_id)
     user.hashed_password = hash_password(temp_password)
     user.must_change_password = True
     user.password_changed_at = datetime.utcnow()
@@ -1718,10 +1784,12 @@ def create_employee(
     add is always attributable to a person and a role.
     """
     resolved_org_id = organization_id or (data.organization_id if hasattr(data, "organization_id") else None)
+    _check_person_fields(data)                 # B16-B38: the shared field rules, whatever screen or API call sent it
     try:
-        existing = _identity_query(db).filter(Employee.email == data.email).first()
-        if existing:
-            raise AlreadyExistsException("Employee", "email")
+        if not resolved_org_id:
+            raise BadRequestException("organization_id is required to create an employee")
+        # unique within THIS organization only: the same person may also work in another organization
+        identity.ensure_email_free(db, data.email, resolved_org_id)
 
         if data.department_id:
             dept = db.query(Department).filter(Department.id == data.department_id).first()
@@ -1773,9 +1841,14 @@ def create_employee(
 
         return employee
     except Exception as exc:
+        if identity.is_duplicate_email_error(exc):          # a simultaneous add won the race: the database refused this one
+            db.rollback()
+            exc = identity.duplicate_email_exception(resolved_org_id)
         attempted = f"{data.first_name} {data.last_name}".strip()
         _record_failure("employee.added", db, actor, resolved_org_id, exc,
                         target_name=attempted or None, entity_type="Employee")
+        if isinstance(exc, ZoikoException):
+            raise exc
         raise
 
 
@@ -1981,8 +2054,8 @@ def _friendly_db_error(exc: Exception) -> str:
     low = text.lower()
     if "employees_employee_code_key" in low:
         return "The generated employee code was already taken. Please import again."
-    if "employees_email" in low or ("unique" in low and "email" in low):
-        return "An employee with this email already exists."
+    if "employees_email" in low or "uq_employees_organization_email" in low or ("unique" in low and "email" in low):
+        return identity.DUPLICATE_EMAIL_MESSAGE
     if "unique" in low or "duplicate key" in low:
         return "This row duplicates an existing record."
     text = text.split("[SQL")[0]
@@ -2066,6 +2139,12 @@ def import_employees_from_file(
     seen_emails = set()
     seen_import_ids = set()
     created_for_email = []
+    # One query for the whole file: this organization's accounts by normalised address (per-organization identity: accounts
+    # with the same address in OTHER organizations are separate and never matched here).
+    org_accounts_by_email = {
+        identity.normalize_email(e.email): e
+        for e in db.query(Employee).filter(Employee.organization_id == organization_id).all()
+    }
 
     # Use savepoints so individual row failures don't rollback valid rows
     for row_num, row in enumerate(rows, start=2):
@@ -2105,11 +2184,9 @@ def import_employees_from_file(
             result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "email", "error": str(exc)})
             continue
 
-        # Check duplicate by email within the same org (tenant isolation)
-        existing = db.query(Employee).filter(
-            Employee.email == email_val,
-            Employee.organization_id == organization_id,
-        ).first()
+        # Check duplicate by email within the same org (tenant isolation), ignoring case and stray spaces
+        email_val = identity.normalize_email(email_val)
+        existing = org_accounts_by_email.get(email_val)
 
         # Check in-batch duplicates
         if email_val in seen_emails:
@@ -2125,20 +2202,12 @@ def import_employees_from_file(
         if employee_id_val:
             seen_import_ids.add(employee_id_val)
 
-        from app.core.phone import normalize_phone
-        try:
-            normalize_phone(row_data.get("phone"))
-        except ValueError as exc:
-            result["skipped"] += 1
-            result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": "phone", "error": f"Invalid phone: {str(row_data.get('phone')).strip()}. {exc}"})
-            continue
-
         # Parse fields
         payload = {
             "first_name": str(row_data.get("first_name", "")).strip(),
             "last_name": str(row_data.get("last_name", "")).strip(),
             "email": email_val,
-            "phone": normalize_phone(row_data.get("phone")),
+            "phone": str(row_data.get("phone") or "").strip() or None,
             "job_title": str(row_data.get("job_title", "")).strip(),
             "work_email": str(row_data.get("work_email", "")).strip() or None,
             "personal_email": str(row_data.get("personal_email", "")).strip() or None,
@@ -2178,6 +2247,27 @@ def import_employees_from_file(
         # HRA is an ANNUAL amount consumed downstream; keep it out of the Employee insert
         if "hra" in payload:
             payload.pop("hra")
+
+        # B16-B38: the same field rules as the Add User form (app/core/field_rules.py). Updating an existing person checks
+        # only the values that change, so older records still import. A row with no country follows the India template.
+        from app.core import field_rules
+        if isinstance(row_data.get("phone"), float) and row_data["phone"].is_integer():
+            payload["phone"] = str(int(row_data["phone"]))          # a spreadsheet cell holding the number
+        checked = {k: v for k, v in {**payload, **profile_fields}.items() if k in field_rules.EMPLOYEE_FIELDS and v not in (None, "")}
+        checked.pop("email", None)                                   # the e-mail was checked above
+        cleaned, field_errors = field_rules.validate_record(
+            checked, field_rules.EMPLOYEE_FIELDS, country=payload.get("country") or (existing.country if existing else None) or "India",
+            previous=_person_snapshot(db, existing) if existing else None)
+        if field_errors:
+            result["skipped"] += 1
+            for f_name, message in field_errors.items():
+                result["errors"].append({"row": row_num, "employee_id": employee_id_val, "email": email_val, "field": f_name, "error": message})
+            continue
+        for f_name, value in cleaned.items():
+            if f_name in profile_fields:
+                profile_fields[f_name] = value
+            else:
+                payload[f_name] = value
 
         # Enum fields
         row_invalid = False
@@ -2344,8 +2434,14 @@ def import_employees_from_file(
     if import_committed:
         result["linked_onboarding"] = _link_imported_to_onboarding(db, organization_id, rows)
         workspace_name = _org_workspace_name(db, organization_id)
+        wanted = {identity.normalize_email(item["email"]) for item in created_for_email}
+        created_people = {
+            identity.normalize_email(e.email): e
+            for e in (db.query(Employee).filter(Employee.organization_id == organization_id,
+                                                 func.lower(Employee.email).in_(wanted)).all() if wanted else [])
+        }
         for item in created_for_email:
-            new_person = db.query(Employee).filter(Employee.email == item["email"], Employee.organization_id == organization_id).first()
+            new_person = created_people.get(identity.normalize_email(item["email"]))
             if new_person is not None:
                 begin_email_verification(db, new_person)       # each imported person confirms their own address before signing in
             _notify_email(
@@ -2753,10 +2849,13 @@ def update_employee(
     data: EmployeeUpdate,
     organization_id: Optional[int] = None,
     actor=None,
+    extra_errors: Optional[dict] = None,
 ) -> Employee:
     """Update an employee and record exactly which fields moved, and to what."""
     employee = get_employee_by_id(db, employee_id, organization_id)
     org_id = employee.organization_id
+    # only changed values are re-checked (legacy-safe); `extra_errors` (e.g. the self-service checks) are reported with them
+    _check_person_fields(data, previous=_person_snapshot(db, employee), extra_errors=extra_errors)
     try:
         if data.department_id:
             dept_query = db.query(Department).filter(Department.id == data.department_id)

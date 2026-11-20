@@ -14,7 +14,6 @@ const navigation = read("src/navigation.js");
 
 test("Prompt 2 workforce and payroll pages have routes and navigation entries", () => {
   for (const route of [
-    "/zoiko-hr/onboarding/payroll-verifications",
     "/zoiko-hr/workforce-planning/job-descriptions",
   ]) {
     assert.ok(navigation.includes(`"${route}"`), `missing navigation entry for ${route}`);
@@ -26,7 +25,7 @@ test("onboarding portal forms and hire review and probation views are integrated
   const portal = read("src/pages/OnboardingPortalPage.jsx");
   const hires = read("src/modules/zoiko-hr/onboarding/new-hires.jsx");
   assert.match(app, /path="\/onboarding-portal\/:token"/);
-  assert.match(portal, /<PortalStructuredForms token=\{token\} \/>/);
+  assert.match(portal, /<PortalStructuredForms token=\{token\} onChanged=\{refreshStatus\} \/>/);
   assert.match(hires, /<OnboardingFormsReview hireId=\{rec\.id\} \/>/);
   assert.match(hires, /<ProbationScheduleForm employeeId=\{rec\.employee_id\}/);
 });

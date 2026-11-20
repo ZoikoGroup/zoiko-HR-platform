@@ -139,6 +139,8 @@ class Notification(Base):
     audience = Column(String(20), nullable=False, default="org_admins", server_default="org_admins")
     status = Column(String(20), nullable=False, default="sent", server_default="sent")
     sent_at = Column(DateTime, nullable=True)
+    # In-app path the notification opens (e.g. /employee/leaves?request=12). Relative paths only.
+    link = Column(String(300), nullable=True)
 
     targets = relationship("NotificationTarget", cascade="all, delete-orphan", lazy="selectin")
     reads = relationship("NotificationRead", cascade="all, delete-orphan")

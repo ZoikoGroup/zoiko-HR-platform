@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "A reporting line changed" %}
 {% set preheader = "Change " ~ change_reference ~ " moves a reporting line to or from you." %}
 {% set badge = "Update" %}

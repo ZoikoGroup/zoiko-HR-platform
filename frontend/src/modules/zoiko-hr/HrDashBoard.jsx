@@ -112,9 +112,14 @@ const REPORT_LINKS = [
   { icon: Clock, title: "Leave Reports", description: "Leave utilisation and trends", href: "/zoiko-hr/leave/reports" },
   { icon: CheckCircle2, title: "Attendance Analytics", description: "Daily attendance, overtime and shift efficiency", href: "/zoiko-hr/attendance/analytics" },
   { icon: Target, title: "Recruitment Analytics", description: "Pipeline health and open requisitions", href: "/zoiko-hr/recruitment" },
-  { icon: BarChart3, title: "Workforce Reports", description: "Headcount planning and succession insights", href: "/zoiko-hr/workforce-planning/reports" },
-  { icon: TrendingUp, title: "Onboarding Reports", description: "New hire joining and task completion", href: "/zoiko-hr/onboarding/reports" },
+  // Temporarily hidden for Org Admin and HR Admin (like the Workforce Planning sidebar section); remove excludeRoles to restore.
+  { icon: BarChart3, title: "Workforce Reports", description: "Headcount planning and succession insights", href: "/zoiko-hr/workforce-planning/reports", excludeRoles: [ROLES.ADMIN, ROLES.HR_ADMIN] },
 ];
+
+/** The report cards this role is offered (a card may list roles it is hidden from in excludeRoles). */
+function reportLinksForRole(role) {
+  return REPORT_LINKS.filter((r) => !(r.excludeRoles || []).includes(role));
+}
 
 
 const fieldClass = (invalid) =>
@@ -1029,7 +1034,7 @@ export default function HrDashBoard() {
             </div>
 
             <div className="p-6 overflow-y-auto grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-              {REPORT_LINKS.map((r) => (
+              {reportLinksForRole(role).map((r) => (
                 <button key={r.href} onClick={() => goToReport(r.href)}
                   className="text-left rounded-2xl border p-4 transition hover:-translate-y-0.5 hover:border-blue-400 cursor-pointer"
                   style={{ background: "#fff", borderColor: LINE, boxShadow: cardShadow }}>

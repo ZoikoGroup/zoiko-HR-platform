@@ -6,6 +6,7 @@ tested through the API in test_variants.py). No real people, e-mails or numbers 
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime
 
 import pytest
@@ -32,6 +33,18 @@ class World:
 
     def _h(self, who):
         return token_for(self.u[who]) if who else {}
+
+    def department(self, name, organization_id=1):
+        """An active department of the organization (a requisition must name one: QA report #13, BUG-1)."""
+        from app.modules.hr.models import Department
+        found = self.db.query(Department).filter(Department.organization_id == organization_id, Department.name == name,
+                                                 Department.is_active.is_(True)).first()
+        if found is None:
+            code = re.sub(r"[^A-Z]", "", name.upper())[:12] + f"R{organization_id}"
+            found = Department(name=name, code=code, organization_id=organization_id, is_active=True)
+            self.db.add(found)
+            self.db.commit()
+        return found
 
     def get(self, who, url, **kw):
         return self.client.get(url, headers=self._h(who), **kw)

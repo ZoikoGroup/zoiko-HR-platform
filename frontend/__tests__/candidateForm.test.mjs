@@ -19,7 +19,7 @@ test("an empty form says which fields are required, in plain words", () => {
 test("invalid values get a specific message", () => {
   const e = validateCandidateForm({ ...GOOD, email: "ann@", phone: "12345", experience: "99", resume_link: "abc" });
   assert.match(e.email, /valid email/);
-  assert.match(e.phone, /10-digit/);
+  assert.match(e.phone, /valid phone number for India/);                    // QA #13: the country-aware phone rule
   assert.match(e.experience, /between 0 and 60/);
   assert.match(e.resume_link, /http/);
   assert.deepEqual(validateCandidateForm({ ...GOOD, experience: "2.5" }), { experience: "Experience must be a whole number of years." });
@@ -51,10 +51,11 @@ test("the payload is trimmed and empty optional fields become null", () => {
 async function load(t, over = {}) {
   const calls = { create: [] };
   const svc = {
-    getCandidates: async () => ({ items: [] }), getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
+    getCandidates: async () => ({ items: [] }), getCandidateById: async () => null,
+    getRequisitions: async () => (over.requisitions ? over.requisitions() : { items: [] }),
     createCandidate: async (p) => { calls.create.push(p); if (over.createError) throw over.createError; return {}; },
     updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}),
-    parseCV: async () => ({}),
+    parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: {
     NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
@@ -118,7 +119,7 @@ test("the candidates list shows phone, location and experience for each candidat
   const svc = {
     getCandidates: async () => ({ items: [CAND, { ...CAND, id: 6, name: "Bo Fresh", email: "bo@x.com", phone: null, location: null, experience: 0 }] }),
     getCandidateById: async () => null, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({}), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -139,7 +140,7 @@ test("the candidates list shows phone, location and experience for each candidat
 test("the candidate record shows every detail that was entered", async (t) => {
   const svc = {
     getCandidates: async () => ({ items: [] }), getCandidateById: async () => CAND, getRequisitions: async () => ({ items: [] }),
-    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}),
+    createCandidate: async () => ({}), updateCandidate: async () => ({}), deleteCandidate: async () => ({}), updateCandidateStatus: async () => ({}), parseCV: async () => ({}), getRegions: async () => ({ countries: [{ code: "IN", name: "India", currency: "INR" }], currencies: [] }), getBusinessFormats: async () => ({ countries: {}, default: null }), lookupBusiness: async () => ({}),
   };
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children), useParams: () => ({ id: "5" }), useSearchParams: () => [new URLSearchParams()], useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
@@ -152,7 +153,26 @@ test("the candidate record shows every detail that was entered", async (t) => {
   assert.doesNotMatch(text, /No activity recorded/);
   // opening Edit shows the saved values
   fireEvent.click(screen.getByRole("button", { name: /Edit/ }));
-  assert.equal(document.getElementById("cand-phone").value, "+919876543210");
-  assert.equal(document.getElementById("cand-location").value, "Pune");
+  assert.match(document.getElementById("cand-phone").value, /98765 43210$/);      // QA #13: the country code is its own dropdown
+  assert.equal(document.getElementById("cand-city").value, "Pune");             // an older free-text location is split into city / state / country
+  assert.equal(document.getElementById("cand-country").value, "IN");
   assert.equal(document.getElementById("cand-exp").value, "5");
+});
+
+test("a requisition created after the page loaded is offered when the form opens; unapproved ones are shown but disabled", async (t) => {
+  let reqs = [];
+  await load(t, { requisitions: () => ({ items: reqs }) });
+  reqs = [
+    { id: 1, title: "Data Analyst", department: "Ops", status: "open" },
+    { id: 2, title: "Designer", department: "Product", status: "pending" },
+    { id: 3, title: "Old Role", status: "closed" },
+  ];
+  fireEvent.click(screen.getByRole("button", { name: /Add Candidate/ }));
+  await settle();
+  const options = [...document.getElementById("cand-req").options];
+  const analyst = options.find((o) => o.textContent.includes("Data Analyst"));
+  const designer = options.find((o) => o.textContent.includes("Designer"));
+  assert.ok(analyst && !analyst.disabled, "the new open requisition can be linked");
+  assert.ok(designer && designer.disabled && /awaiting approval/.test(designer.textContent), "a pending one is visible, with the reason");
+  assert.ok(!options.some((o) => o.textContent.includes("Old Role")), "closed requisitions are not offered");
 });

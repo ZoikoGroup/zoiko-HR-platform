@@ -14,6 +14,7 @@ pillow>=10.0.0
 pypdf>=4.0.0
 pytesseract>=0.3.10
 reportlab>=4.0.0
+python-docx>=1.1.0
 
 slowapi==0.1.10
 cachetools==7.1.7
@@ -24,6 +25,8 @@ freezegun>=1.5.0
 httpx==0.28.1
 openpyxl==3.1.5
 email-validator==2.3.0
+# the MX check in app/core/email_quality.py (arrived only through email-validator before; if missing the check allows everything)
+dnspython==2.8.0
 psycopg2-binary==2.9.12
 certifi>=2024.2.2
 alembic==1.19.1
@@ -39,3 +42,4 @@ pgvector==0.5.0
 
 # ── Stripe (billing catalog sync, Section 17) ─────────────────────────────
 stripe>=9.0.0
+phonenumbers==8.13.55

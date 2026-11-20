@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Your offer from " ~ organization_name %}
 {% set preheader = organization_name ~ " is pleased to offer you the " ~ position ~ " role." %}
 {% set badge = "Offer" %}

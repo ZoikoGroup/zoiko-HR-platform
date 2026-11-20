@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Update on your application" %}
 {% set preheader = "An update on your application for " ~ position ~ " at " ~ organization_name ~ "." %}
 {% set badge = status_label %}

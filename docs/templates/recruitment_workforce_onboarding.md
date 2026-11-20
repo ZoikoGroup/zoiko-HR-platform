@@ -109,6 +109,37 @@ submitted/verified information, not a second employee signature request.
 | HR-ONB-020 — Probation commencement and review schedule | Generated when HR schedules probation, or when an accepted offer supplies a probation period at onboarding completion. Review tasks are assigned to the reviewer. | Employee; L1, employee acknowledgment. |
 | HR-ONB-022 — Onboarding completion certificate or audit record | Generated with HR-ONB-004 when HR completes onboarding. | HR-internal; L1. |
 
+### Onboarding package v2: Company Profile, Engagement and Role Profiles
+
+The 10 offer-package documents (Onboarding › Documents) print employer details **only** from the organisation's **Company
+Profile** (Onboarding › Settings › Company profile; `app/modules/hr/company_profile.py`, config key `company_profile.config`).
+Every organisation has one (created empty at registration and by a start-up backfill; never filled from the organisation
+record). "Prefill from organisation record" proposes values from the default employer entity and the organisation record but
+saves nothing. Saves are validated per field (CIN, GSTIN, PAN, PIN code, e-mails, notice units …) and audited as
+`settings.company_profile_updated` (registration numbers masked). The offer-package settings read the employer fields from the
+profile and a save of those keys through `PUT /hr/onboarding/package/settings` writes them into it.
+
+Per organisation (`app/modules/hr/onboarding_profiles.py`, key `onboarding_profiles.config`):
+
+- **Engagement Profiles** — what the person is called ("Employee", a programme associate …), assessment / probation period,
+  pay description, working days and hours, leave rule. The built-in read-only **Standard Employee** profile keeps today's
+  wording for organisations that configure nothing.
+- **Role Profiles** — about the role, grouped responsibilities, offer duties, contract duties, skills, work setup, performance
+  structure, KPI areas. A hire's role is the profile HR chose, else the one whose title matches the position; with neither,
+  the role text is empty and the panel warns — another role's text is never borrowed.
+
+Per hire, HR can choose the engagement and role profile, write the "why you fit" paragraph and set the issue date. The panel
+shows amber consistency warnings (start on a non-working day, start before issue, response deadline after start, pay without a
+currency, name mismatch, employee/employer notice or contract/NDA non-solicitation mismatch, leave rule vs accrual, no role
+profile) and every value that will be printed. Weekdays, money (₹ with Indian grouping), addresses, initials and notice wording
+come from `app/modules/hr/doc_formatting.py` only.
+
+Downloads: `GET /hr/onboarding/new-hires/{id}/package/{category}/download?format=pdf|docx` and
+`GET /hr/onboarding/new-hires/{id}/package/download.zip?format=pdf|docx|both`. File names:
+`{INITIALS}_{FULL_NAME}_{DOC}.pdf` (`_SIGNED` for an executed copy, `_DRAFT` for an unsent draft). Bulk: `POST
+/hr/onboarding/package/bulk-generate` (≤ 50 hires, nothing is sent), `GET /hr/onboarding/package/jobs/{id}` and
+`…/jobs/{id}/download.zip`. The DOCX copy is for HR editing; the issued or e-signed PDF stays the record.
+
 ## Jurisdiction clauses tenants must author
 
 The starter authoring source intentionally supplies no text for these clauses. Legal must write and release jurisdiction-appropriate

@@ -158,108 +158,15 @@ ROLE_PERMISSIONS = {
 }
 
 def login_employee(db: Session, data: LoginRequest) -> dict:
-    # STEP 1: Find user by email (User exists check)
-    employee = _identity_query(db).filter(Employee.email == data.email).first()
-    if not employee:
-        logger.warning(f"[AUTH] User not found: email={data.email}")
-        raise UnauthorizedException("Invalid email or password.")
+    """Kept for old imports. The one sign-in implementation is employee/service.py (per-organization identity: an address can
+    have an account in several organizations, and the person chooses when more than one password matches)."""
+    from app.modules.employee import service as employee_service
+    return employee_service.login_employee(db, data)
 
-    logger.info(f"[AUTH] User found: id={employee.id}, email={employee.email}, "
-                f"is_active={employee.is_active}, status={employee.status}, "
-                f"organization_id={employee.organization_id}, role={employee.role}")
 
-    # STEP 2: Verify Organization and Organization Status
-    org = None
-    if employee.organization_id:
-        org = db.query(Organization).filter(Organization.id == employee.organization_id).first()
-        if not org:
-            logger.warning(f"[AUTH] Organization not found: id={employee.organization_id} for user {employee.email}")
-            raise UnauthorizedException("Your organization account does not exist.")
-        
-        logger.info(f"[AUTH] Organization found: id={org.id}, name={org.name}, status={org.status}, is_active={org.is_active}")
-        
-        if not org.is_active or org.status not in [OrganizationStatus.ACTIVE, OrganizationStatus.APPROVED]:
-            logger.warning(f"[AUTH] Login blocked: org inactive or status={org.status} for user {employee.email}")
-            if org.status == OrganizationStatus.PENDING:
-                raise UnauthorizedException("Your organization is awaiting Super Admin approval. Please try again after approval.")
-            elif org.status == OrganizationStatus.REJECTED:
-                reason = getattr(org, "rejection_reason", None)
-                msg = "Your organization registration has been rejected."
-                if reason:
-                    msg += f" Reason: {reason}"
-                raise UnauthorizedException(msg)
-            elif org.status == OrganizationStatus.ON_HOLD:
-                raise UnauthorizedException("Your organization account is currently on hold. Please contact support.")
-            elif org.status == OrganizationStatus.SUSPENDED:
-                raise UnauthorizedException("Your organization has been suspended. Please contact support.")
-            else:
-                raise UnauthorizedException("Your organization account has been deactivated.")
-            
-        logger.info(f"[AUTH] Organization status OK: {org.status} for user {employee.email}")
-    else:
-        # Orphan user check
-        if employee.role != UserRole.SUPER_ADMIN:
-            logger.warning(f"[AUTH] Login blocked: Non-superadmin user has no organization_id (orphan user).")
-            raise UnauthorizedException("Your account is not associated with any organization.")
-
-    # STEP 3: Verify User Status (User active check)
-    if not employee.is_active:
-        logger.warning(f"[AUTH] Login blocked: user is_active={employee.is_active} for email={employee.email}")
-        raise UnauthorizedException("Your account has been deactivated.")
-    if employee.status == EmployeeStatus.DEACTIVATED:
-        logger.warning(f"[AUTH] Login blocked: user status={employee.status} for email={employee.email}")
-        raise UnauthorizedException("Your account has been deactivated.")
-    if employee.status == EmployeeStatus.LOCKED:
-        logger.warning(f"[AUTH] Login blocked: user LOCKED for email={employee.email}")
-        raise UnauthorizedException("Your account has been locked by the administrator.")
-
-    # STEP 4: Verify Password hash (Password hash valid check)
-    password_valid = verify_password(data.password, employee.hashed_password)
-    if not password_valid:
-        logger.warning(f"[AUTH] Invalid password for user: email={data.email}, id={employee.id}")
-        raise UnauthorizedException("Invalid email or password.")
-
-    logger.info(f"[AUTH] Password valid for user: email={data.email}, id={employee.id}")
-
-    # STEP 5: Verify Role
-    role_val = employee.role.value if hasattr(employee.role, "value") else str(employee.role)
-    if not role_val:
-        logger.warning(f"[AUTH] Login blocked: user has invalid/empty role.")
-        raise UnauthorizedException("User role is invalid.")
-
-    # STEP 6: Generate JWT (with organization_id, role, permissions, tenant_id, organization_code)
-    org_code = org.organization_code if org else None
-    
-    token = create_access_token(data={
-        "sub": employee.email,
-        "role": role_val,
-        "id": employee.id,
-        "organization_id": employee.organization_id,
-        "permissions": ROLE_PERMISSIONS.get(role_val, []),
-        "tenant_id": str(employee.organization_id) if employee.organization_id else None,
-        "organization_code": org_code,
-    })
-
-    refresh_token = create_access_token(
-        data={"sub": employee.email, "id": employee.id},
-        expires_delta=timedelta(days=7),
-    )
-
-    logger.info(f"[AUTH] Login successful: email={employee.email}, id={employee.id}, role={employee.role}")
-
-    return {
-        "access_token": token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "employee": employee,
-    }
-
-def _identity_query(db):
-    """An e-mail address is ONE identity across every organization (sign-in finds a person by it), so uniqueness is checked across
-    all of them, not just the caller's. The only intentionally cross-tenant read in the tenant plane."""
-    from app.core.privacy.tenant_scope import unscoped_for_system
-    return unscoped_for_system(db.query(Employee), reason="e-mail is one identity across organizations")
-
+# E-mail identity is scoped PER ORGANIZATION (app/modules/employee/identity.py, shared with employee/service.py). There is no
+# cross-organization uniqueness check any more: the same address may hold one account in each organization.
+from app.modules.employee import identity  # noqa: E402
 
 
 def refresh_access_token(db: Session, refresh_token_str: str) -> dict:
@@ -353,9 +260,7 @@ def create_organization_user(
     Super Admin can specify target_org_id to create user in a different organization.
     """
     target_org = target_org_id or organization_id
-    existing = _identity_query(db).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("User", "email")
+    identity.ensure_email_free(db, data.email, target_org)      # unique within the target organization only
 
     temp_password = _generate_temp_password()
     role = data.role
@@ -756,18 +661,15 @@ def get_all_departments(db: Session, organization_id: int, include_inactive: boo
 # ════════════════════════════════════════════════════════════════════════════
 
 def create_employee(db: Session, data: EmployeeCreate, organization_id: Optional[int] = None) -> Employee:
-    existing = _identity_query(db).filter(Employee.email == data.email).first()
-    if existing:
-        raise AlreadyExistsException("Employee", "email")
+    resolved_org_id = organization_id or data.organization_id
+    if not resolved_org_id:
+        raise BadRequestException("organization_id is required to create an employee")
+    identity.ensure_email_free(db, data.email, resolved_org_id)  # unique within this organization only
 
     if data.department_id:
         get_department_by_id(db, data.department_id, organization_id)
 
     from app.core.code_generation import generate_employee_code
-
-    resolved_org_id = organization_id or data.organization_id
-    if not resolved_org_id:
-        raise BadRequestException("organization_id is required to create an employee")
 
     employee_data = data.model_dump(exclude={"password"})
     employee = Employee(
@@ -1685,6 +1587,8 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
         ],
         commit=True,
     )
+    from app.modules.hr import leave_notifications
+    leave_notifications.leave_submitted(db, record)        # A5: the approver(s) hear about it in-app
 
     # Notify the employee that their leave request was submitted (non-blocking)
     try:
@@ -1701,6 +1605,7 @@ def create_leave_request(db: Session, data: LeaveRequestCreate, org_id: int, act
                 ),
                 leave_request_url=f"{settings.FRONTEND_URL.rstrip('/')}/employee/leaves",
                 db=db,
+                organization_id=org_id,
             )
     except Exception as e:
         logger.warning(f"[email] Failed to notify employee about leave request {record.id}: {e}")
@@ -1864,6 +1769,11 @@ def update_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
         entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
         changes=changes_from(before, update_data),
     )
+    from app.modules.hr import leave_notifications
+    if decision is not None:
+        leave_notifications.leave_decided(db, record)      # A5
+    elif update_data.get("status") == RequestStatus.CANCELLED and before.get("status") != RequestStatus.CANCELLED:
+        leave_notifications.leave_cancelled(db, record)
     return record
 
 
@@ -1908,6 +1818,8 @@ def withdraw_leave_request(db: Session, record: LeaveRequest, actor=None) -> Lea
         entity_type="LeaveRequest", entity_id=record.id, **_leave_target(db, record),
         changes=[{"field": "status", "label": "Status", "before": "pending", "after": "cancelled"}],
     )
+    from app.modules.hr import leave_notifications
+    leave_notifications.leave_cancelled(db, record)         # A5: the approver(s) no longer need to act
     return record
 
 
@@ -1989,6 +1901,8 @@ def review_leave_request(db: Session, leave_id: int, data: LeaveRequestUpdate, o
 
     if "status" in update_data:
         leave_documents.after_decided(db, record, _actor_of(db, reviewer_id))
+        from app.modules.hr import leave_notifications
+        leave_notifications.leave_decided(db, record)      # A5: the requester hears about it in-app
     return record
 
 
@@ -3383,68 +3297,186 @@ def _hire_entity(db: Session, new_hire, organization_id: int):
     return e.id if e is not None else None
 
 
-def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> tuple["Employee", Optional[str]]:
-    """Create an Employee record from an OnboardingNewHire when onboarding completes.
+def _hire_employee_fields(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> dict:
+    """The employee record's fields for a new hire: the candidate and accepted offer (name, position, department, manager,
+    start date, work country, pay) plus anything the hire entered or HR verified during onboarding."""
+    from app.modules.employee.models import EmploymentType
 
-    If an employee with the same email already exists in the SAME organization,
-    link to that existing employee instead of creating a duplicate.
-
-    Returns (employee, temp_password). temp_password is None when linking existing.
-    """
-    from app.modules.employee.models import Employee as EmpModel, EmployeeStatus, EmploymentType, UserRole
-    from app.core.security import hash_password
-    from app.core.code_generation import generate_employee_code
-
-    existing = db.query(EmpModel).filter(
-        EmpModel.email == new_hire.email,
-        EmpModel.organization_id == organization_id,
-    ).first()
     pay = _offer_pay_fields(db, new_hire)
-    note = pay.pop("_currency_note", None)
-    if note:
-        log_onboarding_activity(db, new_hire.id, "Check pay currency", note, organization_id)
-    if existing:
-        # already an employee (e.g. added by an employee import): link, and fill pay/country only where it is empty
-        for field, value in pay.items():
-            if getattr(existing, field, None) in (None, ""):
-                setattr(existing, field, value)
-        new_hire.employee_id = existing.id
-        db.commit()
-        return existing, None
-
+    pay.pop("_currency_note", None)
     name_parts = (new_hire.candidate_name or "").strip().split(" ", 1)
-    first_name = name_parts[0] if name_parts else "Unknown"
+    first_name = name_parts[0] if name_parts and name_parts[0] else "Unknown"
     last_name = name_parts[1] if len(name_parts) > 1 else "Unknown"
-
-    temp_password = _generate_temp_password()
-    emp_code = generate_employee_code(db, organization_id=organization_id)
-
     profile = {**_profile_fields(new_hire), **pay}         # the offer's work country and CTC win over the typed address country
     # names and phone the new hire verified on the structured new-starter form win over the name typed on the offer
     first_name = profile.pop("first_name", None) or first_name
     last_name = profile.pop("last_name", None) or last_name
     phone = profile.pop("phone", None) or new_hire.phone or ""
+    return {
+        "first_name": first_name, "last_name": last_name, "phone": phone,
+        "job_title": new_hire.position or "Employee",
+        "employment_type": _employment_type_for(new_hire, EmploymentType),
+        "date_of_joining": new_hire.joining_date or date.today(),
+        "department_id": new_hire.department_id,
+        "reporting_manager_id": new_hire.manager_id,
+        # jurisdiction facts captured while hiring (doc_templates): where the person will work, never guessed
+        "work_country": new_hire.work_country,
+        "work_region": new_hire.work_region,
+        "employing_entity_id": _hire_entity(db, new_hire, organization_id),
+        **profile,
+    }
+
+
+def _status_of(employee) -> str:
+    return getattr(employee.status, "value", employee.status)
+
+
+def _is_pending_hire_account(employee) -> bool:
+    """An account created when the offer was accepted and not activated yet: Pending and disabled, so it holds no seat and
+    cannot sign in."""
+    from app.modules.employee.models import EmployeeStatus
+    return _status_of(employee) == EmployeeStatus.PENDING.value and not employee.is_active
+
+
+def _hire_account(db: Session, new_hire: OnboardingNewHire, organization_id: int):
+    """The employee in this organization with the hire's e-mail, if any."""
+    from app.modules.employee.models import Employee as EmpModel
+    return db.query(EmpModel).filter(func.lower(EmpModel.email) == (new_hire.email or "").strip().lower(),
+                                     EmpModel.organization_id == organization_id).first()
+
+
+def create_pending_employee_for_hire(db: Session, new_hire: OnboardingNewHire, organization_id: int):
+    """When the candidate accepts their offer, their employee account is created at once from the candidate and offer
+    details, so HR sees them in User Management. It stays Pending: it takes no seat and cannot sign in until an admin
+    activates it in User Management, which sends the welcome e-mail with the first temporary password.
+
+    Best effort: accepting the offer never fails because of this. Returns the employee, or None when none was created."""
+    from app.modules.employee.models import Employee as EmpModel, EmployeeStatus, UserRole
+    from app.core.security import hash_password
+    from app.core.code_generation import generate_employee_code
+    import secrets
+
+    if new_hire is None or not (new_hire.email or "").strip() or new_hire.employee_id:
+        return None
+    try:
+        # Only THIS organization matters: an account with the same address in another organization is a separate account,
+        # so the hire still gets a normal account here.
+        existing = _hire_account(db, new_hire, organization_id)
+        if existing is not None:
+            if _status_of(existing) == EmployeeStatus.ARCHIVED.value and not existing.is_active:
+                existing.status = EmployeeStatus.PENDING             # a cancelled hire was reopened
+                db.commit()
+                return existing
+            return None                                     # already an employee here: completing onboarding links it
+        fields = _hire_employee_fields(db, new_hire, organization_id)
+        with db.begin_nested():
+            employee = EmpModel(
+                email=identity.normalize_email(new_hire.email),
+                hashed_password=hash_password(secrets.token_urlsafe(32)),   # never sent; replaced when the account is activated
+                employee_code=generate_employee_code(db, organization_id=organization_id),
+                role=UserRole.EMPLOYEE, status=EmployeeStatus.PENDING, is_active=False,
+                organization_id=organization_id, **fields,
+            )
+            db.add(employee)
+            db.flush()
+        db.commit()
+        db.refresh(employee)
+        log_onboarding_activity(db, new_hire.id, "Employee Account Created",
+                                f"Pending employee account created for {new_hire.candidate_name} (code: {employee.employee_code}) "
+                                "when the offer was accepted. An admin activates it in User Management.", organization_id)
+        return employee
+    except Exception:
+        db.rollback()
+        logger.exception("pending employee account for new hire %s could not be created", getattr(new_hire, "id", None))
+        return None
+
+
+def archive_pending_employee_for_hire(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> None:
+    """The hire was cancelled or deleted before joining: the pending account created at offer acceptance is archived."""
+    from app.modules.employee.models import EmployeeStatus
+    if new_hire is None or not new_hire.email or new_hire.employee_id:
+        return
+    try:
+        emp = _hire_account(db, new_hire, organization_id)
+        if emp is not None and _status_of(emp) == EmployeeStatus.PENDING.value and not emp.is_active:
+            emp.status = EmployeeStatus.ARCHIVED
+            db.commit()
+            log_onboarding_activity(db, new_hire.id, "Employee Account Archived",
+                                    f"The pending employee account of {new_hire.candidate_name} was archived.", organization_id)
+    except Exception:
+        db.rollback()
+        logger.exception("pending employee account for new hire %s could not be archived", getattr(new_hire, "id", None))
+
+
+def _move_pending_account_email(db: Session, new_hire: OnboardingNewHire, old_email: Optional[str], organization_id: int) -> None:
+    """HR corrected the hire's e-mail: the pending account created at offer acceptance follows it (when the new address is
+    free), so completing onboarding activates that account instead of creating a second one."""
+    from app.modules.employee.models import Employee as EmpModel
+    if not old_email or new_hire.employee_id:
+        return
+    try:
+        emp = db.query(EmpModel).filter(func.lower(EmpModel.email) == old_email.strip().lower(),
+                                        EmpModel.organization_id == organization_id).first()
+        if emp is None or not _is_pending_hire_account(emp):
+            return
+        if identity.account_in_organization(db, new_hire.email, organization_id, exclude_id=emp.id) is not None:
+            return                                          # the new address is already taken in THIS organization
+        emp.email = identity.normalize_email(new_hire.email)
+        db.commit()
+    except Exception:
+        db.rollback()
+        logger.exception("pending account e-mail for new hire %s could not be updated", new_hire.id)
+
+
+def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, organization_id: int) -> tuple["Employee", Optional[str]]:
+    """Link (or create) the Employee record for an OnboardingNewHire when onboarding completes. It never switches an
+    account on: an admin activates it in User Management, which sends the first temporary password and the welcome e-mail.
+
+    - The pending account created when the offer was accepted is linked and its details are refreshed from onboarding.
+    - Any other employee with the same e-mail in the SAME organization is linked instead of creating a duplicate.
+    - Otherwise a Pending account is created.
+
+    Returns (employee, temp_password); temp_password is always None now (no credentials are issued here).
+    """
+    from app.modules.employee.models import Employee as EmpModel, EmployeeStatus, UserRole
+    from app.core.security import hash_password
+    from app.core.code_generation import generate_employee_code
+    import secrets
+
+    existing = _hire_account(db, new_hire, organization_id)
+    note = _offer_pay_fields(db, new_hire).get("_currency_note")
+    if note:
+        log_onboarding_activity(db, new_hire.id, "Check pay currency", note, organization_id)
+    fields = _hire_employee_fields(db, new_hire, organization_id)
+
+    if existing is not None and _is_pending_hire_account(existing):
+        for field, value in fields.items():
+            if value not in (None, ""):
+                setattr(existing, field, value)
+        new_hire.employee_id = existing.id
+        db.commit()
+        db.refresh(existing)
+        return existing, None
+
+    if existing is not None:
+        # already an employee (e.g. added by an employee import): link, and fill pay/country only where it is empty
+        for field in ("country", "ctc"):
+            if field in fields and getattr(existing, field, None) in (None, ""):
+                setattr(existing, field, fields[field])
+        new_hire.employee_id = existing.id
+        db.commit()
+        return existing, None
+
+    emp_code = generate_employee_code(db, organization_id=organization_id)
     employee = EmpModel(
         email=new_hire.email,
-        hashed_password=hash_password(temp_password),
-        first_name=first_name,
-        last_name=last_name,
-        phone=phone,
+        hashed_password=hash_password(secrets.token_urlsafe(32)),   # never sent; replaced when an admin activates the account
         employee_code=emp_code,
-        job_title=new_hire.position or "Employee",
         role=UserRole.EMPLOYEE,
-        employment_type=_employment_type_for(new_hire, EmploymentType),
-        status=EmployeeStatus.ACTIVE,
-        is_active=True,
-        date_of_joining=new_hire.joining_date or date.today(),
-        department_id=new_hire.department_id,
-        reporting_manager_id=new_hire.manager_id,
-        # jurisdiction facts captured while hiring (doc_templates): where the person will work, never guessed
-        work_country=new_hire.work_country,
-        work_region=new_hire.work_region,
-        employing_entity_id=_hire_entity(db, new_hire, organization_id),
+        status=EmployeeStatus.PENDING,
+        is_active=False,
         organization_id=organization_id,
-        **profile,
+        **fields,
     )
     db.add(employee)
     db.flush()
@@ -3454,10 +3486,7 @@ def _create_employee_from_onboarding(db: Session, new_hire: OnboardingNewHire, o
 
     new_hire.employee_id = employee.id
     db.commit()
-
-    _send_welcome_email(db, employee, temp_password)
-
-    return employee, temp_password
+    return employee, None
 
 
 def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate, organization_id: int, actor=None) -> dict:
@@ -3478,6 +3507,10 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
         blockers = onboarding_flow.completion_blockers(db, new_hire)
         if blockers:
             raise BadRequestException("Onboarding cannot be completed yet: " + "; ".join(blockers) + ".")
+    restore = {f: getattr(new_hire, f) for f in set(update_data) | {"completed_at", "joining_status", "portal_token_hash",
+                                                                     "portal_token_enc"} if hasattr(new_hire, f)}
+    if "email" in update_data and str(update_data["email"]).lower() != str(new_hire.email or "").lower():
+        new_hire.email_status = None                   # a new address has not bounced
     for field, value in update_data.items():
         setattr(new_hire, field, value)
     if completing:
@@ -3490,18 +3523,44 @@ def update_new_hire(db: Session, new_hire_id: int, data: OnboardingNewHireUpdate
 
     temp_password = None
     if completing and not new_hire.employee_id:
-        employee, temp_password = _create_employee_from_onboarding(db, new_hire, organization_id)
+        try:
+            employee, temp_password = _create_employee_from_onboarding(db, new_hire, organization_id)
+        except Exception:
+            # the employee account could not be created (seat limit, duplicate e-mail ...): put the hire back exactly as it
+            # was, so HR can fix the cause and complete again instead of being left with a "completed" hire and no account
+            db.rollback()
+            hire = get_new_hire_by_id(db, new_hire_id, organization_id)
+            for field, value in restore.items():
+                setattr(hire, field, value)
+            db.commit()
+            raise
+        new_hire = get_new_hire_by_id(db, new_hire_id, organization_id)
         log_onboarding_activity(
             db, new_hire.id, "Employee Created",
-            f"Employee record created for {new_hire.candidate_name} (code: {employee.employee_code}).",
+            f"Employee record ready for {new_hire.candidate_name} (code: {employee.employee_code}). It stays Pending until "
+            "an admin activates it in User Management.",
             organization_id,
         )
         onboarding_flow.notify_completed(db, new_hire, employee)
+        try:
+            from app.modules.hr import onboarding_package
+            onboarding_package.link_documents_to_employee(db, new_hire, employee)   # their signed documents, in self-service
+        except Exception:
+            db.rollback()
+            logger.exception("linking onboarding documents to employee %s failed", employee.id)
         try:
             from app.modules.hr import onboarding_documents
             onboarding_documents.on_onboarding_completed(db, new_hire, employee, actor)   # HR-ONB-004/-022, -020, -010/-011
         except Exception:
             db.rollback()
+    if update_data.get("email") and (restore.get("email") or "").strip().lower() != str(update_data["email"]).strip().lower():
+        _move_pending_account_email(db, new_hire, restore.get("email"), organization_id)
+    if update_data.get("status") == "cancelled" and previous_status != "cancelled":
+        archive_pending_employee_for_hire(db, new_hire, organization_id)
+    elif previous_status == "cancelled" and update_data.get("status") in onboarding_flow.ACTIVE_STATUSES:
+        create_pending_employee_for_hire(db, new_hire, organization_id)          # reopened: restore the pending account
+    if completing:
+        pass                                            # the account and its records were created above
     elif update_data.get("status") and update_data["status"] != previous_status:
         log_onboarding_activity(db, new_hire.id, "Status Changed",
                                 f"{new_hire.candidate_name}: {previous_status.replace('_', ' ')} -> {new_hire.status.replace('_', ' ')}.", organization_id)
@@ -3515,6 +3574,7 @@ def delete_new_hire(db: Session, new_hire_id: int, organization_id: int) -> None
     new_hire = get_new_hire_by_id(db, new_hire_id, organization_id)
     if new_hire.status == "completed":
         raise BadRequestException("A completed onboarding cannot be deleted: the employee account exists. Deactivate the employee instead.")
+    archive_pending_employee_for_hire(db, new_hire, organization_id)
     new_hire.is_deleted = True
     new_hire.portal_token_hash = None
     new_hire.portal_token_enc = None
@@ -3581,7 +3641,12 @@ def get_checklists(db: Session, organization_id: Optional[int] = None, is_templa
             query = query.filter(OnboardingChecklist.onboarding_new_hire_id == new_hire_id)
     if category:
         query = query.filter(OnboardingChecklist.category == category)
-    return list_or_page(query.order_by(OnboardingChecklist.created_at.desc()), page, per_page, label="/onboarding/checklist-assignments")
+    order_col = OnboardingChecklist.created_at.desc() if is_template else OnboardingChecklist.id.asc()
+    # items and their owners in two batched queries, not one query per checklist and per item (was ~450 queries / 3 s
+    # for 150 hires; every query is a network round trip to the database in production)
+    from sqlalchemy.orm import selectinload
+    query = query.options(selectinload(OnboardingChecklist.items).selectinload(OnboardingChecklistItem.assignee))
+    return list_or_page(query.order_by(order_col), page, per_page, label="/onboarding/checklist-assignments")
 
 def _check_assignees(db: Session, items, organization_id: int) -> None:
     from app.modules.employee.models import Employee as EmpModel
@@ -3635,6 +3700,11 @@ def create_checklist(db: Session, data: OnboardingChecklistCreate, organization_
             ))
         db.commit()
         db.refresh(checklist)
+        assignees = sorted({i.assignee_employee_id for i in data.items if i.assignee_employee_id})
+        if assignees and data.onboarding_new_hire_id:
+            from app.modules.hr.hr_notifications import notify_employee
+            notify_employee(db, organization_id, assignees, "onboarding.tasks_assigned",
+                            link="/zoiko-hr/onboarding/checklists")           # A5
 
     return checklist
 
@@ -3947,12 +4017,28 @@ def get_onboarding_documents(
 
 def _onboarding_doc_to_dict(doc: OnboardingDocument) -> dict:
     # the file is served by an authenticated route (there is no public mount), so the page fetches it with its token
-    file_url = f"/hr/onboarding/documents/{doc.id}/file" if doc.file_path else None
+    file_url = f"/hr/onboarding/documents/{doc.id}/file" if (doc.file_path or doc.document_id) else None   # issued docs: document store
+    from app.modules.hr.onboarding_package import mode_of
+    package_mode = mode_of(doc)
+    requires_signature = package_mode == "SIGN" or (package_mode is None and bool(doc.document_id))
+    signing_status = None
+    if doc.document_id:
+        try:
+            gen = getattr(doc, "document", None)
+            if gen is not None:
+                signing_status = gen.status
+        except Exception:
+            pass
+
     return {
         "id": doc.id,
         "onboarding_new_hire_id": doc.onboarding_new_hire_id,
         "title": doc.title,
         "category": doc.category,
+        "document_id": doc.document_id,
+        "requires_signature": requires_signature,
+        "package_mode": package_mode,
+        "signing_status": signing_status or ("EXECUTED" if doc.status == "approved" and requires_signature else None),
         "file_path": doc.file_path,
         "file_url": file_url,
         "status": doc.status,
@@ -3985,6 +4071,7 @@ def create_onboarding_document(
 
     if onboarding_new_hire_id:
         log_onboarding_activity(db, onboarding_new_hire_id, "Document Uploaded", f"'{doc.title}' uploaded by HR.", organization_id)
+        _sync_document_checklist(db, doc.new_hire)
     return _onboarding_doc_to_dict(doc)
 
 
@@ -4010,15 +4097,38 @@ def update_onboarding_document(db: Session, document_id: int, data, organization
         update_data["rejection_reason"] = None          # a reason only belongs to a rejection
     if update_data.get("status") == "approved" and not doc.file_path:
         raise BadRequestException("Nothing has been uploaded for this document yet.")
+    from app.modules.hr.onboarding_package import mode_of
+    package_mode = mode_of(doc)
+    if "status" in update_data and update_data["status"] != doc.status and package_mode in ("SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"):
+        # these package documents change state only through the new hire's signature or acknowledgement
+        raise BadRequestException({"SIGN": "This agreement is completed by the new hire's electronic signature.",
+                                   "ACKNOWLEDGE": "This document is completed when the new hire acknowledges receipt."}
+                                  .get(package_mode, "This document needs no review."))
     newly_rejected = update_data.get("status") == "rejected" and doc.status != "rejected"
     for field, value in update_data.items():
         setattr(doc, field, value)
     db.commit()
     db.refresh(doc)
     if newly_rejected and doc.new_hire is not None:
-        from app.modules.hr import onboarding_flow
+        from app.modules.hr import onboarding_flow, onboarding_package_forms
+        if package_mode == "COMPLETE" and doc.category:   # an online form goes back to the new hire with their answers kept
+            onboarding_package_forms.returned(db, doc.new_hire, doc.category, doc.rejection_reason)
         onboarding_flow.notify_document_request(db, doc.new_hire, [{"title": doc.title, "note": f"Rejected: {doc.rejection_reason}"}])
+    _sync_document_checklist(db, doc.new_hire)
     return _onboarding_doc_to_dict(doc)
+
+
+def _sync_document_checklist(db: Session, hire) -> None:
+    """Keep the new hire's 'Onboarding Documents & Agreements' checklist in step with every document change."""
+    if hire is None:
+        return
+    try:
+        from app.modules.hr import onboarding_package
+        onboarding_package.sync_onboarding_document_checklist(db, hire)
+    except Exception:
+        db.rollback()
+        import logging
+        logging.getLogger("zoiko.onboarding").exception("document checklist sync failed for new hire %s", hire.id)
 
 
 def delete_onboarding_document(db: Session, document_id: int, organization_id: Optional[int] = None) -> None:
@@ -4033,7 +4143,14 @@ def delete_onboarding_document(db: Session, document_id: int, organization_id: O
         from app.core.exceptions import NotFoundException
         raise NotFoundException("OnboardingDocument", document_id)
     doc.is_deleted = True
+    if doc.document_id:      # an unsigned package agreement: its e-mailed signing link must stop working
+        from app.modules.doc_templates import signing
+        from app.modules.doc_templates.models import GeneratedDocument
+        gen = db.get(GeneratedDocument, doc.document_id)
+        if gen is not None and gen.status == "ISSUED":
+            signing.revoke_candidate_tokens(db, gen)
     db.commit()
+    _sync_document_checklist(db, doc.new_hire)
 
 
 def get_onboarding_document_by_id(db: Session, document_id: int, organization_id: Optional[int] = None) -> dict:
@@ -4591,11 +4708,17 @@ def get_travel_request(db: Session, request_id: int, organization_id: Optional[i
 
 def update_travel_request(db: Session, request_id: int, data: TravelRequestUpdate, organization_id: Optional[int] = None) -> TravelRequest:
     request = get_travel_request(db, request_id, organization_id)
+    before_status = request.status
     update_data = data.model_dump(exclude_unset=True)
     for field, value in update_data.items():
         setattr(request, field, value)
     db.commit()
     db.refresh(request)
+    if request.status != before_status and request.status in (RequestStatus.APPROVED, RequestStatus.REJECTED):
+        from app.modules.hr.hr_notifications import notify_employee
+        notify_employee(db, request.organization_id, request.employee_id,
+                        "travel.approved" if request.status == RequestStatus.APPROVED else "travel.rejected",
+                        link="/employee/travel/requests")                      # A5
     _name_travel_rows(db, [request])
     return request
 
@@ -4670,15 +4793,21 @@ def update_travel_approval(db: Session, approval_id: int, data: TravelApprovalUp
     for field, value in update_data.items():
         setattr(approval, field, value)
     
+    newly_approved = None
     if "status" in update_data and update_data["status"] == RequestStatus.APPROVED:
         approval.approved_at = datetime.utcnow()
         # Update the travel request status
         request = approval.request
+        newly_approved = request if request.status != RequestStatus.APPROVED else None
         request.status = RequestStatus.APPROVED
         request.approved_at = datetime.utcnow()
     
     db.commit()
     db.refresh(approval)
+    if newly_approved is not None:
+        from app.modules.hr.hr_notifications import notify_employee
+        notify_employee(db, newly_approved.organization_id, newly_approved.employee_id, "travel.approved",
+                        link="/employee/travel/requests")                      # A5
     return approval
 
 
@@ -4800,6 +4929,8 @@ def review_travel_expense(db: Session, expense_id: int, organization_id: int, st
         raise BadRequestException("A claim can be approved, rejected, or marked as reimbursed.")
     db.commit()
     db.refresh(expense)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, expense.organization_id, expense.employee_id, "expense.reimbursed", link="/employee/travel/expenses")  # A5
     _name_travel_rows(db, [expense])
     return expense
 
@@ -4820,6 +4951,8 @@ def approve_travel_expense(db: Session, expense_id: int, approver_id: int, comme
         expense.description = f"{expense.description or ''} - Approved by {approver_id}: {comments}".strip(" - ")
     db.commit()
     db.refresh(expense)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, expense.organization_id, expense.employee_id, "expense.approved", link="/employee/travel/expenses")  # A5
     return expense
 
 
@@ -4833,6 +4966,8 @@ def reimburse_travel_expense(db: Session, expense_id: int, approver_id: int, com
         expense.description = f"{expense.description or ''} - Reimbursed by {approver_id}: {comments}".strip(" - ")
     db.commit()
     db.refresh(expense)
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, expense.organization_id, expense.employee_id, "expense.reimbursed", link="/employee/travel/expenses")  # A5
     return expense
 
 

@@ -26,7 +26,6 @@ from app.modules.hr.schemas import (
 from fastapi import HTTPException
 
 from app.core.exceptions import BadRequestException, ForbiddenException, NotFoundException
-from app.core.sanitize import sanitize_dict
 
 
 
@@ -99,10 +98,39 @@ def get_recruitment_dashboard(db: Session, organization_id: Optional[int] = None
     }
 
 
+DEPARTMENT_CHOICE_MESSAGE = "Choose a department from the list."
+
+
+def _resolve_requisition_department(db: Session, values: dict, organization_id: Optional[int]) -> None:
+    """The requisition's department is one of the organization's active departments: by id when the form sends one, else by
+    name (case-insensitive, trimmed). The stored name is the department record's own name. 422 on the field otherwise."""
+    from app.core.field_rules import raise_if_errors
+    from app.modules.hr.models import Department
+    if "department" not in values and "department_id" not in values:
+        return
+    q = db.query(Department).filter(Department.is_active.is_(True))
+    if organization_id:
+        q = q.filter(Department.organization_id == organization_id)
+    dept = None
+    if values.get("department_id"):
+        dept = q.filter(Department.id == values["department_id"]).first()
+    elif values.get("department"):
+        name = " ".join(str(values["department"]).split()).lower()
+        dept = q.filter(func.lower(func.trim(Department.name)) == name).first()
+    if dept is None:
+        raise_if_errors({"department": DEPARTMENT_CHOICE_MESSAGE})
+    values["department"] = dept.name
+    values["department_id"] = dept.id
+
+
+PAY_AMOUNT_MESSAGE = "Enter an amount greater than 0."
+
+
 def create_requisition(db: Session, data: RequisitionCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentRequisition:
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     from app.modules.hr.recruitment_documents import json_safe
     json_safe(safe)
+    _resolve_requisition_department(db, safe, organization_id)
     status_value = safe.pop("status", None) or "draft"
     req = RecruitmentRequisition(**safe)
     req.status = RequisitionStatus.PENDING if status_value == "pending" else RequisitionStatus.DRAFT
@@ -193,12 +221,15 @@ def update_requisition(db: Session, req_id: int, data: RequisitionUpdate, organi
     req = get_requisition_by_id(db, req_id, organization_id)
     if req.status == RequisitionStatus.CLOSED:
         raise BadRequestException("A closed requisition can no longer be edited.")
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     from app.modules.hr.recruitment_documents import json_safe
     json_safe(update_data)
     for required in ("title", "department", "openings", "priority"):
         if required in update_data and update_data[required] is None:
             update_data.pop(required)
+    if update_data.get("department_id") is None:
+        update_data.pop("department_id", None)
+    _resolve_requisition_department(db, update_data, organization_id)
     if "openings" in update_data and update_data["openings"] < (req.filled or 0):
         raise BadRequestException(f"{req.filled} opening(s) are already filled; openings cannot be lower than that.")
     for field, value in update_data.items():
@@ -375,9 +406,36 @@ def _after_candidate_status_change(db: Session, candidate: RecruitmentCandidate,
     notify.notify_candidate_status(db, candidate, candidate.status.value)
 
 
+_CANDIDATE_PLACE = ("city", "region", "country")
+
+
+def _candidate_place(values: dict, current=None) -> None:
+    """City, state / region and country are kept as entered; the location shown in lists (and used to guess the work
+    country) is built from them: "Hyderabad, Telangana, India". A request with only a free-text location keeps it as typed."""
+    if not any(k in values for k in _CANDIDATE_PLACE):
+        return
+    from app.core import business_ids, regions
+
+    def cur(k):
+        return values[k] if k in values else (getattr(current, k, None) if current is not None else None)
+
+    country, region = cur("country"), cur("region")
+    listed = business_ids.REGIONS.get(country) if country else None
+    if region and listed and region not in listed:
+        label = business_ids.format_for(country).get("region_label") or "state / region"
+        raise BadRequestException(f"Choose a valid {label.lower()}.")
+    parts = [cur("city"), region, regions.country_name(country) if country else None]
+    text = ", ".join(p for p in parts if p)
+    if text:
+        values["location"] = text[:150]
+    elif "location" not in values:
+        values["location"] = None
+
+
 def create_candidate(db: Session, data: CandidateCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentCandidate:
     _check_candidate(db, organization_id, data.email, data.position, data.requisition_id)
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
+    _candidate_place(safe)
     if safe.get("status") in (RecruitmentCandidateStatus.HIRED, RecruitmentCandidateStatus.REJECTED):
         raise BadRequestException("A new candidate starts in the pipeline; mark them hired through an accepted offer.")
     candidate = RecruitmentCandidate(**safe)
@@ -586,13 +644,16 @@ def _handle_candidate_hired(db: Session, candidate: RecruitmentCandidate, organi
     new_hire = _create_onboarding_record_for_hire(db, candidate, organization_id)
     if is_first_hire and candidate.requisition_id:
         _increment_requisition_filled(db, candidate.requisition_id)
+    # the accepted candidate gets their (pending) employee account straight away, so HR sees them in User Management
+    from app.modules.hr.service import create_pending_employee_for_hire
+    create_pending_employee_for_hire(db, new_hire, new_hire.organization_id if new_hire is not None else organization_id)
     return new_hire
 
 
 def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, organization_id: Optional[int] = None) -> RecruitmentCandidate:
     candidate = get_candidate_by_id(db, candidate_id, organization_id)
     previous_status = candidate.status
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     for required in ("name", "email", "position", "status"):
         if update_data.get(required) is None:
             update_data.pop(required, None)
@@ -602,6 +663,9 @@ def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, orga
     if {"email", "position"} & set(update_data) or new_req:
         _check_candidate(db, organization_id, update_data.get("email", candidate.email), update_data.get("position", candidate.position), new_req, exclude_id=candidate.id)
     check_candidate_transition(previous_status, update_data.get("status"))
+    if "email" in update_data and str(update_data["email"]).lower() != str(candidate.email or "").lower():
+        candidate.email_status = None                  # a new address has not bounced
+    _candidate_place(update_data, candidate)
     for field, value in update_data.items():
         setattr(candidate, field, value)
     db.commit()
@@ -611,19 +675,50 @@ def update_candidate(db: Session, candidate_id: int, data: CandidateUpdate, orga
     return candidate
 
 
-def delete_candidate(db: Session, candidate_id: int, organization_id: Optional[int] = None) -> None:
+def delete_candidate(db: Session, candidate_id: int, organization_id: Optional[int] = None) -> dict:
+    """Delete the candidate and everything recruitment holds for them: interviews (and their feedback), offers (and their
+    approvals), uploaded documents and applications, in one transaction. Refused only once the candidate has an onboarding
+    record, because the new hire's documents are built from the accepted offer: delete the new hire in Onboarding first
+    (a completed onboarding has an employee account and is never deleted). Generated offer-letter documents stay in the
+    document register as the record of what was sent. Returns how many linked records were removed."""
     candidate = get_candidate_by_id(db, candidate_id, organization_id)
-    linked = {
-        "interview(s)": db.query(func.count(RecruitmentInterview.id)).filter(RecruitmentInterview.candidate_id == candidate.id).scalar() or 0,
-        "offer(s)": db.query(func.count(RecruitmentOffer.id)).filter(RecruitmentOffer.candidate_id == candidate.id).scalar() or 0,
-        "document(s)": db.query(func.count(RecruitmentDocument.id)).filter(RecruitmentDocument.candidate_id == candidate.id).scalar() or 0,
-        "application(s)": db.query(func.count(RecruitmentApplication.id)).filter(RecruitmentApplication.candidate_id == candidate.id).scalar() or 0,
-    }
-    held = [f"{n} {what}" for what, n in linked.items() if n]
-    if held:
-        raise BadRequestException(f"This candidate has {', '.join(held)}. Mark them rejected instead of deleting the record.")
-    db.delete(candidate)
-    db.commit()
+    if candidate.onboarding_new_hire_id:
+        hire = db.get(OnboardingNewHire, candidate.onboarding_new_hire_id)
+        if hire is not None and not getattr(hire, "is_deleted", False):
+            if hire.status == "completed":
+                raise BadRequestException(f"{candidate.name} has joined: their onboarding is complete and the employee account "
+                                          "exists, so the candidate record is kept. Deactivate the employee instead.")
+            raise BadRequestException(f"{candidate.name} is in onboarding. Delete their new hire record in Onboarding › New Hires "
+                                      "first, then delete the candidate.")
+
+    def scoped(model):
+        q = db.query(model).filter(model.candidate_id == candidate.id)
+        return q.filter(model.organization_id == candidate.organization_id) if hasattr(model, "organization_id") else q
+
+    interview_ids = [i for (i,) in scoped(RecruitmentInterview).with_entities(RecruitmentInterview.id).all()]
+    offer_ids = [o for (o,) in scoped(RecruitmentOffer).with_entities(RecruitmentOffer.id).all()]
+    removed = {"interviews": len(interview_ids), "offers": len(offer_ids)}
+    try:
+        if interview_ids:
+            db.query(RecruitmentInterviewFeedback).filter(RecruitmentInterviewFeedback.interview_id.in_(interview_ids)) \
+                .delete(synchronize_session=False)
+            db.query(RecruitmentInterview).filter(RecruitmentInterview.id.in_(interview_ids)).delete(synchronize_session=False)
+        if offer_ids:
+            db.query(RecruitmentOfferApproval).filter(RecruitmentOfferApproval.offer_id.in_(offer_ids)) \
+                .delete(synchronize_session=False)
+            # an amended offer points at the one it replaced; clear those links before the offers go
+            db.query(RecruitmentOffer).filter(RecruitmentOffer.amends_offer_id.in_(offer_ids)) \
+                .update({RecruitmentOffer.amends_offer_id: None}, synchronize_session=False)
+            db.query(RecruitmentOffer).filter(RecruitmentOffer.id.in_(offer_ids)).delete(synchronize_session=False)
+        removed["documents"] = scoped(RecruitmentDocument).delete(synchronize_session=False)
+        removed["applications"] = scoped(RecruitmentApplication).delete(synchronize_session=False)
+        db.delete(candidate)
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    logger.info("candidate %s deleted (org %s) with %s", candidate_id, candidate.organization_id, removed)
+    return removed
 
 
 def update_candidate_status(db: Session, candidate_id: int, data: CandidateStatusUpdate, organization_id: Optional[int] = None,
@@ -647,8 +742,11 @@ def _check_interview_links(db: Session, values: dict, organization_id: Optional[
                                                      RecruitmentCandidate.organization_id == organization_id).first()
         if cand is None:
             raise BadRequestException("The selected candidate was not found.")
-        values.setdefault("candidate_name", cand.name)
-        values.setdefault("position", cand.position)
+        # the candidate's own record names them (the form shows these read-only once a candidate is chosen)
+        if not values.get("candidate_name"):
+            values["candidate_name"] = cand.name
+        if not values.get("position"):
+            values["position"] = cand.position
     if values.get("interviewer_id"):
         emp = db.query(Employee).filter(Employee.id == values["interviewer_id"], Employee.organization_id == organization_id,
                                         Employee.is_active.is_(True)).first()
@@ -662,7 +760,7 @@ def _interview_when(interview) -> str:
 
 
 def create_interview(db: Session, data: InterviewCreate, organization_id: Optional[int] = None) -> RecruitmentInterview:
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     send = safe.pop("notify", True)
     if safe.get("interview_date") and safe["interview_date"] < date.today():
         raise BadRequestException("An interview cannot be scheduled in the past.")
@@ -752,7 +850,7 @@ def check_interview_transition(current, new) -> None:
 def update_interview(db: Session, interview_id: int, data: InterviewUpdate, organization_id: Optional[int] = None) -> RecruitmentInterview:
     interview = get_interview_by_id(db, interview_id, organization_id)
     check_interview_transition(interview.status, data.status)
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     send = update_data.pop("notify", True)
     for required in ("status", "candidate_name", "position", "interview_date", "interview_type"):
         if required in update_data and update_data[required] is None:
@@ -767,6 +865,11 @@ def update_interview(db: Session, interview_id: int, data: InterviewUpdate, orga
         setattr(interview, field, value)
     if interview.start_time and interview.end_time and interview.end_time <= interview.start_time:
         raise BadRequestException("The end time must be after the start time.")
+    from app.modules.hr.schemas import IN_PERSON_LOCATION_MESSAGE, INTERVIEWER_MESSAGE
+    if {"interview_type", "location"} & set(update_data) and interview.interview_type == "in_person" and not interview.location:
+        raise BadRequestException(IN_PERSON_LOCATION_MESSAGE)
+    if {"interviewer", "interviewer_id"} & set(update_data) and not interview.interviewer_id and not interview.interviewer:
+        raise BadRequestException(INTERVIEWER_MESSAGE)
     moved = before != (interview.interview_date, interview.start_time, interview.end_time, interview.timezone)
     if moved and interview.interview_date < date.today():
         raise BadRequestException("An interview cannot be moved into the past.")
@@ -786,23 +889,66 @@ def update_interview(db: Session, interview_id: int, data: InterviewUpdate, orga
 
 def delete_interview(db: Session, interview_id: int, organization_id: Optional[int] = None) -> None:
     interview = get_interview_by_id(db, interview_id, organization_id)
+    # feedback rows reference the interview; remove them first or the delete breaks the foreign key
+    db.query(RecruitmentInterviewFeedback).filter(RecruitmentInterviewFeedback.interview_id == interview.id) \
+        .delete(synchronize_session=False)
     db.delete(interview)
     db.commit()
 
 
-def update_interview_feedback(db: Session, interview_id: int, data: InterviewFeedback, organization_id: Optional[int] = None) -> RecruitmentInterview:
+def update_interview_feedback(db: Session, interview_id: int, data: InterviewFeedback, organization_id: Optional[int] = None,
+                              actor=None) -> RecruitmentInterview:
     interview = get_interview_by_id(db, interview_id, organization_id)
     if interview.status == InterviewStatus.CANCELLED:
         raise BadRequestException("Feedback cannot be added to a cancelled interview.")
     check_interview_transition(interview.status, data.status)
     update_data = data.model_dump(exclude_unset=True)
+    result = update_data.pop("result", None)
+    message = (update_data.pop("result_message", None) or "").strip() or None
+    email_candidate = update_data.pop("notify_candidate", True)
     if update_data.get("status") is None:
         update_data.pop("status", None)
+    if result is not None:
+        completed = interview.status == InterviewStatus.COMPLETED or update_data.get("status") == InterviewStatus.COMPLETED
+        if not completed:
+            raise BadRequestException("Mark the interview completed before recording its result.")
+        if interview.result and interview.result != result:
+            raise BadRequestException("This interview's result was already recorded and the candidate was told. It cannot be changed.")
     for field, value in update_data.items():
         setattr(interview, field, value)
+    first_result = result is not None and not interview.result
+    if first_result:
+        interview.result, interview.result_message = result, message
+        interview.result_at, interview.result_by_id = datetime.utcnow(), getattr(actor, "id", None)
     db.commit()
     db.refresh(interview)
+    if first_result:
+        if result == "rejected":
+            _reject_candidate_after_interview(db, interview)
+        sent = notify.notify_interview_result(db, interview, result == "cleared", message, email_candidate, recorded_by=actor)
+        interview.result_emailed = sent["candidate"]
+        db.commit()
+        db.refresh(interview)
+        interview.emails_sent = int(sent["candidate"]) + sent["internal"]
     return interview
+
+
+def _reject_candidate_after_interview(db: Session, interview) -> None:
+    """A "rejected" result moves the linked candidate to Rejected. The interview result e-mail is their notification, so
+    the generic rejection e-mail / letter is not sent as well."""
+    if not interview.candidate_id:
+        return
+    cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == interview.candidate_id,
+                                                 RecruitmentCandidate.organization_id == interview.organization_id).first()
+    if cand is None or cand.status not in (RecruitmentCandidateStatus.APPLIED, RecruitmentCandidateStatus.SCREENING,
+                                           RecruitmentCandidateStatus.INTERVIEW):
+        return                                              # rejected already, or an offer is in progress: HR decides there
+    try:
+        check_candidate_transition(cand.status, RecruitmentCandidateStatus.REJECTED)
+    except BadRequestException:
+        return                                              # e.g. already hired: the pipeline is left alone
+    cand.status = RecruitmentCandidateStatus.REJECTED
+    db.commit()
 
 
 # Statuses an offer can be put in by editing it. Accepted / rejected / withdrawn go through their own endpoints, which also
@@ -841,6 +987,9 @@ def _apply_offer_pay_rules(db: Session, values: dict, organization_id: Optional[
 
     if not cur("pay_period"):
         values["pay_period"] = _DEFAULT_PAY_PERIOD[remuneration]
+    if remuneration in ("salary", "stipend") and "salary" in values and values["salary"] is not None and values["salary"] <= 0:
+        from app.core.field_rules import raise_if_errors
+        raise_if_errors({"salary": PAY_AMOUNT_MESSAGE})
 
     # Country controls the legal template pack even when HR explicitly chooses a
     # cross-border currency. Resolve it independently from currency defaults.
@@ -921,8 +1070,31 @@ def _check_offer_candidate(db: Session, candidate_id: Optional[int], organizatio
             raise BadRequestException("The linked candidate was not found.")
 
 
+def _apply_offer_type(db: Session, values: dict, organization_id: Optional[int]) -> None:
+    """The offer type is an Onboarding engagement profile. It must exist in this organisation; terms the form left out
+    (probation, remuneration type, employment type) are filled from it so the offer and the 10 onboarding documents agree."""
+    if "engagement_profile_slug" not in values:
+        return
+    slug = str(values.get("engagement_profile_slug") or "").strip().lower() or None
+    values["engagement_profile_slug"] = slug
+    if slug is None or not organization_id:
+        return
+    from app.modules.hr import onboarding_profiles as PR
+    profile = PR.engagement_for(db, organization_id, slug)
+    if profile is None:
+        raise BadRequestException("Choose an offer type from the list (Onboarding › Settings › Engagement profiles).")
+    if values.get("probation_months") is None and profile.get("assessment_months") is not None:
+        values["probation_months"] = int(profile["assessment_months"])
+    if not values.get("remuneration_type") and profile.get("remuneration_type"):
+        values["remuneration_type"] = profile["remuneration_type"]
+    if not values.get("employment_type"):
+        kind = PR.offer_employment_type(profile)
+        if kind:
+            values["employment_type"] = kind
+
+
 def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
-    safe = sanitize_dict(data.model_dump(exclude_unset=True))
+    safe = data.model_dump(exclude_unset=True)
     from app.modules.hr import recruitment_documents
     recruitment_documents.json_safe(safe)
     recruitment_documents.check_offer_fields(db, safe, organization_id)
@@ -931,6 +1103,7 @@ def create_offer(db: Session, data: OfferCreate, organization_id: Optional[int] 
     elif safe["status"] not in (OfferStatus.DRAFT, OfferStatus.PENDING):
         raise BadRequestException("A new offer starts as Draft or Pending.")
     _check_offer_candidate(db, safe.get("candidate_id"), organization_id)
+    _apply_offer_type(db, safe, organization_id)
     safe = _apply_offer_pay_rules(db, safe, organization_id)
     offer = RecruitmentOffer(**safe)
     offer.created_by = getattr(actor, "id", None)
@@ -986,7 +1159,7 @@ def get_offer_by_id(db: Session, offer_id: int, organization_id: Optional[int] =
 
 def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id: Optional[int] = None, actor=None) -> RecruitmentOffer:
     offer = get_offer_by_id(db, offer_id, organization_id)
-    update_data = sanitize_dict(data.model_dump(exclude_unset=True))
+    update_data = data.model_dump(exclude_unset=True)
     for required in ("candidate_name", "position", "status", "remuneration_type"):
         if required in update_data and update_data[required] is None:
             update_data.pop(required)
@@ -1006,6 +1179,7 @@ def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id:
         _check_offer_candidate(db, update_data["candidate_id"], organization_id)
     if "work_country" in update_data and "currency" not in update_data:
         update_data["currency"] = None                      # a new work country brings its own currency unless one is given
+    _apply_offer_type(db, update_data, organization_id)
     update_data = _apply_offer_pay_rules(db, update_data, organization_id, offer)
     if terms_changed and offer.document_id:
         # An unissued letter is a snapshot of the old offer terms. Retire it before editing so the
@@ -1037,6 +1211,17 @@ def update_offer(db: Session, offer_id: int, data: OfferUpdate, organization_id:
 
 def delete_offer(db: Session, offer_id: int, organization_id: Optional[int] = None) -> None:
     offer = get_offer_by_id(db, offer_id, organization_id)
+
+    # Offer approvals are a direct child of the offer. Deleting the parent without removing them violates the FK
+    # constraint, and the relationship cascade keeps this safe for future deletes as well.
+    approval_filter = [RecruitmentOfferApproval.offer_id == offer.id]
+    if organization_id:
+        approval_filter.append(RecruitmentOfferApproval.organization_id == organization_id)
+
+    approvals = db.query(RecruitmentOfferApproval).filter(*approval_filter).all()
+    for approval in approvals:
+        db.delete(approval)
+
     db.delete(offer)
     db.commit()
 

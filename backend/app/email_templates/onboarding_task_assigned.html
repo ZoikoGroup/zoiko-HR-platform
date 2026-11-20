@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Onboarding tasks assigned to you" %}
 {% set preheader = tasks|length ~ " onboarding task(s) for " ~ candidate_name ~ " are assigned to you." %}
 {% set badge = "Task assigned" %}

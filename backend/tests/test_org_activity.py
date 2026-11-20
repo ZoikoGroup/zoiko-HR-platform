@@ -191,7 +191,7 @@ class TestRecording:
 
     def test_bulk_delete_is_one_grouped_event(self, client, world):
         _as(client, world["priya"])
-        ids = [client.post("/hr/employee-management/employees", json=_new_emp(f"u{i}@example.com", f"U{i}", "X")).json()["id"]
+        ids = [client.post("/hr/employee-management/employees", json=_new_emp(f"u{i}@example.com", f"U{'abc'[i]}", "Xavier")).json()["id"]
                for i in range(3)]
         r = client.post("/hr/employee-management/employees/bulk-delete", json={"ids": ids})
         assert r.status_code == 200, r.text

@@ -155,6 +155,43 @@ def notify_interview(db: Session, interview, kind: str, previous_display: Option
         return 0
 
 
+def notify_interview_result(db: Session, interview, cleared: bool, message: Optional[str], email_candidate: bool,
+                            recorded_by=None) -> dict:
+    """The candidate hears the outcome (unless HR chose not to e-mail them); HR admins and the interviewer are told it was
+    recorded. Returns {"candidate": bool, "internal": int}."""
+    out = {"candidate": False, "internal": 0}
+    try:
+        from app.modules.employee.models import Employee
+        from app.modules.hr.models import RecruitmentCandidate
+        from app.services import email_service as es
+        org = _org_name(db, interview.organization_id)
+        type_label = INTERVIEW_TYPE_LABELS.get(interview.interview_type, interview.interview_type or "Interview")
+        when = _date_display(interview.interview_date)
+        if email_candidate and interview.candidate_id:
+            cand = db.query(RecruitmentCandidate).filter(RecruitmentCandidate.id == interview.candidate_id).first()
+            if cand is not None and cand.email:
+                out["candidate"] = bool(es.send_interview_result(
+                    cand.email, cand.name or interview.candidate_name, interview.position, org, cleared, type_label, when,
+                    message=message, db=db, organization_id=interview.organization_id))
+        people = {e.id: e for e in _hr_recipients(db, interview.organization_id)}
+        if interview.interviewer_id and interview.interviewer_id not in people:
+            emp = db.query(Employee).filter(Employee.id == interview.interviewer_id, Employee.is_active.is_(True)).first()
+            if emp is not None:
+                people[emp.id] = emp
+        by = _person_name(recorded_by) if recorded_by is not None else None
+        for emp in people.values():
+            if not emp.email or (recorded_by is not None and emp.id == getattr(recorded_by, "id", None)):
+                continue                                   # the person who recorded it already knows
+            ok = es.send_interview_result_recorded(
+                emp.email, _person_name(emp), interview.candidate_name, interview.position, org, cleared, type_label, when,
+                rating=interview.rating, recorded_by=by, candidate_emailed=out["candidate"],
+                review_url=f"{_app_base()}/zoiko-hr/recruitment/interviews", db=db, organization_id=interview.organization_id)
+            out["internal"] += 1 if ok else 0
+    except Exception:
+        logger.exception("interview result e-mails failed for interview %s", getattr(interview, "id", None))
+    return out
+
+
 # ── candidates ───────────────────────────────────────────────────────────────────────────────────────────────────────
 CANDIDATE_EMAIL_STATUS = {"screening": ("Under review", False), "rejected": ("Not selected", True)}
 

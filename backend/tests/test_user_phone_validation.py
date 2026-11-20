@@ -73,7 +73,7 @@ def _new(**over):
 def test_add_user_rejects_an_11_digit_phone(client):
     r = client.post("/hr/admin/users", json=_new(phone="98765432101"))
     assert r.status_code == 422, r.text
-    assert "10-digit" in r.text
+    assert "Enter a valid phone number for India." in r.text           # B8 / field_rules: validated per country
     assert client.db.query(Employee).filter(Employee.email == "rahul@example.com").count() == 0
 
 
@@ -89,12 +89,13 @@ def test_add_user_without_a_phone_still_works(client):
 
 def test_editing_a_phone_to_an_invalid_number_is_refused_but_a_legacy_number_survives_other_edits(client):
     uid = client.legacy_id
-    assert client.put(f"/hr/admin/users/{uid}", json={"phone": "123456789012"}).status_code == 400
+    bad = client.put(f"/hr/admin/users/{uid}", json={"phone": "123456789012"})
+    assert bad.status_code == 422 and bad.json()["detail"][0]["loc"][-1] == "phone"
     ok = client.put(f"/hr/admin/users/{uid}", json={"phone": "+1-555-0100", "job_title": "Lead"})  # unchanged legacy number
     assert ok.status_code == 200, ok.text
     assert client.db.get(Employee, uid).job_title == "Lead"
     assert client.put(f"/hr/admin/users/{uid}", json={"phone": "9876543210"}).status_code == 200
-    assert client.db.get(Employee, uid).phone == "9876543210"
+    assert client.db.get(Employee, uid).phone == "+919876543210"          # stored in E.164
 
 
 def test_a_user_created_with_a_generated_password_must_change_it_at_first_sign_in(client):

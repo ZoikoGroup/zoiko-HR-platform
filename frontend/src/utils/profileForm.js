@@ -2,7 +2,7 @@
 // and EmployeeSelfUpdate / EmployeeProfileUpdate, so the same message appears whether the browser or the server catches
 // the problem. Every check returns "" when the value is fine or blank (a blank box clears the stored value).
 import { phoneError } from "./phone";
-import { realEmailError } from "./realEmail";
+import { fieldProblem } from "./fieldRules";
 
 const clean = (v) => String(v ?? "").trim();
 const compact = (v) => clean(v).replace(/[\s-]/g, "");
@@ -33,10 +33,10 @@ export const FORMATS = {
     return /^[A-Z0-9]{6,9}$/.test(t) && /[0-9]/.test(t) ? "" : "Enter a valid passport number: 6 to 9 letters and digits, for example K1234567.";
   },
   visa_number: (v) => (/^[A-Z0-9]{5,20}$/.test(compact(v).toUpperCase()) ? "" : "Enter a valid visa number: 5 to 20 letters and digits."),
-  phone: (v) => phoneError(v),
+  phone: (v, f = {}) => fieldProblem("phone", v, { country: f.country }),
   emergency_contact_phone: (v) => phoneError(v),
-  pincode: (v) => (/^[A-Z0-9-]{3,10}$/.test(clean(v).replace(/\s/g, "").toUpperCase()) ? "" : "Enter a valid pincode: 3 to 10 letters or digits (for example 560001)."),
-  personal_email: (v) => (clean(v).length <= 255 && /^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$/.test(clean(v)) ? realEmailError(v) : "Enter a valid email address, for example name@yourcompany.com."),
+  pincode: (v, f = {}) => fieldProblem("postal_code", v, { country: f.country }),
+  personal_email: (v) => fieldProblem("email", v),
   emergency_contact_name: (v) => nameCheck(v, "Emergency contact name", 100),
   emergency_contact_relation: (v) => nameCheck(v, "Relation", 50),
   nationality: (v) => nameCheck(v, "Nationality", 50),
@@ -74,18 +74,35 @@ export const FIELD_TAB = {
 /** Capital-letter fields are shown in capitals as they are typed. */
 export const UPPERCASE_FIELDS = new Set(["pan_number", "bank_ifsc", "passport_number", "visa_number", "pf_number"]);
 
-/** { field: message } for everything wrong with the form (only boxes that have something in them are checked). */
-export function validateProfile(f) {
+// Personal and work details follow the shared field rules (utils/fieldRules.js, B16–B38), the same as the server's self-update.
+const PERSON_RULES = {
+  current_address: "address", permanent_address: "address", company: "org_name", business_unit: "org_unit", team: "org_unit",
+  city: "place_name", state: "state", country: "country",
+};
+const NAME_LABEL = { first_name: "First", last_name: "Last" };
+
+/** { field: message } for everything wrong with the form (only boxes that have something in them are checked). With `original`
+ *  (the saved profile), only values that were changed are checked, so a profile saved before these rules can still be edited. */
+export function validateProfile(f, original = null) {
   const errors = {};
+  const changed = (key) => !original || clean(f[key]) !== clean(original[key])
+    || (original && clean(f.country) !== clean(original.country) && ["phone", "pincode", "state"].includes(key));
   for (const key of ["first_name", "last_name"]) {
     const t = clean(f[key]);
-    if (!t) errors[key] = `${key === "first_name" ? "First" : "Last"} name is required.`;
-    else if (!/^[A-Za-z][A-Za-z .'-]*$/.test(t)) errors[key] = `${key === "first_name" ? "First" : "Last"} name can contain only letters, spaces and . ' - and must start with a letter.`;
-    else if (t.length > 100) errors[key] = `${key === "first_name" ? "First" : "Last"} name can be at most 100 characters.`;
+    if (!t) errors[key] = `${NAME_LABEL[key]} name is required.`;
+    else if (changed(key)) {
+      const msg = fieldProblem("person_name", t);
+      if (msg) errors[key] = msg;
+    }
   }
   for (const [key, check] of Object.entries(FORMATS)) {
-    if (!clean(f[key])) continue;
-    const msg = check(f[key]);
+    if (!clean(f[key]) || !changed(key)) continue;
+    const msg = check(f[key], f);
+    if (msg) errors[key] = msg;
+  }
+  for (const [key, rule] of Object.entries(PERSON_RULES)) {
+    if (!clean(f[key]) || !changed(key)) continue;
+    const msg = fieldProblem(rule, f[key], { country: f.country });
     if (msg) errors[key] = msg;
   }
   for (const [key, check] of Object.entries(DATE_FORMATS)) {
@@ -99,9 +116,6 @@ export function validateProfile(f) {
     else if (t >= Date.now()) errors.date_of_birth = "Date of birth must be in the past.";
     else if (Number(dob.slice(0, 4)) < 1900) errors.date_of_birth = "Enter a valid date of birth.";
     else if (Date.now() - t < 14 * 365 * 86400000) errors.date_of_birth = "An employee must be at least 14 years old.";
-  }
-  for (const [key, label, max] of [["current_address", "Current address", 500], ["permanent_address", "Permanent address", 500], ["company", "Company", 100], ["business_unit", "Business unit", 100], ["team", "Team", 100], ["city", "City", 100], ["state", "State", 100], ["country", "Country", 100]]) {
-    if (clean(f[key]).length > max) errors[key] = `${label} can be at most ${max} characters.`;
   }
   return errors;
 }

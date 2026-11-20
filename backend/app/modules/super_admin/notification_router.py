@@ -40,6 +40,7 @@ def _summary_item(n, is_read: bool) -> dict:
         "priority": n.priority,
         "sent_at": svc.sent_time(n),
         "is_read": is_read,
+        "link": getattr(n, "link", None),          # in-app page this notification opens (A5), or None
     }
 
 

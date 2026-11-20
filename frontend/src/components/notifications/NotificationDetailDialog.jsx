@@ -11,6 +11,8 @@
  */
 import { useCallback, useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { Link } from "react-router-dom";
+import { safeNotificationLink } from "../../utils/notificationType";
 import NotificationContent from "./NotificationContent";
 
 export default function NotificationDetailDialog({ load, isAdmin = false, onClose, onLoaded }) {
@@ -71,6 +73,14 @@ export default function NotificationDetailDialog({ load, isAdmin = false, onClos
           error={error}
           onRetry={run}
         />
+        {!isAdmin && safeNotificationLink(notification?.link) && (
+          <div className="mt-4 flex justify-end">
+            <Link to={safeNotificationLink(notification.link)} onClick={onClose}
+              className="rounded-xl bg-[#3B82F6] px-4 py-2 text-sm font-semibold text-white hover:bg-blue-600 focus:outline-none focus:ring-2 focus:ring-blue-500/40">
+              Open
+            </Link>
+          </div>
+        )}
       </div>
     </div>
   );

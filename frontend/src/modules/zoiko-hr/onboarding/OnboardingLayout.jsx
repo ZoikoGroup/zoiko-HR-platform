@@ -8,9 +8,6 @@ export const ONBOARDING_NAV = [
   { label: "Pre-Onboarding", href: "/zoiko-hr/onboarding/pre-onboarding", icon: CalendarCheck },
   { label: "Documents", href: "/zoiko-hr/onboarding/documents", icon: FileText },
   { label: "Checklists", href: "/zoiko-hr/onboarding/checklists", icon: ClipboardCheck },
-  { label: "Orientation", href: "/zoiko-hr/onboarding/orientation", icon: Users },
-  { label: "Reports", href: "/zoiko-hr/onboarding/reports", icon: BarChart3 },
-  { label: "Payroll Verification", href: "/zoiko-hr/onboarding/payroll-verifications", icon: WalletCards },
   { label: "Settings", href: "/zoiko-hr/onboarding/settings", icon: SlidersHorizontal },
 ];
 

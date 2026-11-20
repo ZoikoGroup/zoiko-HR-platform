@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Interview rescheduled" %}
 {% set preheader = "The interview for " ~ position ~ " moved to " ~ date_display ~ (" at " ~ time_display if time_display else "") ~ "." %}
 {% set badge = "Rescheduled" %}

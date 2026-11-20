@@ -194,6 +194,7 @@ export default function PreOnboarding() {
   const showAction = (type, text) => setActionMsg({ type, text });
   const records = useMemo(() => allRecords.filter((r) => PRE_STATUSES.includes(r.status)), [allRecords]);
 
+  // one hire's documents (after an action on that hire)
   const fetchDocs = async (list) => {
     const results = await Promise.allSettled(list.map((r) => getOnboardingDocuments(r.id)));
     const next = {};
@@ -201,13 +202,25 @@ export default function PreOnboarding() {
     setDocs((prev) => ({ ...prev, ...next }));
   };
 
+  // every hire's documents in ONE request, grouped here (was one request per new hire, after the records had loaded)
+  const fetchAllDocs = async () => {
+    try {
+      const grouped = {};
+      asList(await getOnboardingDocuments()).forEach((d) => {
+        const key = d.onboarding_new_hire_id;
+        if (key != null) (grouped[key] = grouped[key] || []).push(d);
+      });
+      setDocs(grouped);
+    } catch {
+      setDocs({});
+    }
+  };
+
   const fetchRecords = async () => {
     try {
       const data = await getOnboardingRecords();
-      const arr = asList(data);
-      setAllRecords(arr);
+      setAllRecords(asList(data));
       setError(null);
-      fetchDocs(arr.filter((r) => PRE_STATUSES.includes(r.status)));
     } catch (err) {
       setError(err.message || "Failed to load pre-onboarding records");
     }
@@ -228,7 +241,7 @@ export default function PreOnboarding() {
   useEffect(() => {
     (async () => {
       setLoading(true);
-      await Promise.all([fetchRecords(), fetchTasks()]);
+      await Promise.all([fetchRecords(), fetchTasks(), fetchAllDocs()]);
       setLoading(false);
     })();
   }, []);

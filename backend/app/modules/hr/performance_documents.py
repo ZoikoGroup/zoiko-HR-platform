@@ -116,6 +116,8 @@ def issue_review(db, r: ProbationReview) -> ProbationReview:
     if doc is not None:
         r.document_id, r.status = doc.id, "ISSUED"
         db.commit()
+        from app.modules.hr.hr_notifications import notify_employee
+        notify_employee(db, r.organization_id, r.employee_id, "performance.review_shared", link="/employee/performance")  # A5
     return r
 
 
@@ -362,6 +364,8 @@ def finalise(db, user, a: Appraisal, data: dict) -> Appraisal:
     a.employee_comments = (data.get("employee_comments") or a.employee_comments)
     a.status, a.finalised_at, a.finalised_by = AppraisalStatus.APPROVED, datetime.utcnow(), user.id
     db.commit()
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, a.organization_id, a.employee_id, "performance.review_shared", link="/employee/performance")  # A5
     doc = _try_generate(db, user, canonical_id="HR-PRF-007", subject_type="employee", subject_id=a.employee_id,
                         source_ref=f"appraisal:{a.id}", trigger="appraisal.finalised")
     from app.modules.doc_templates.models import GeneratedDocument

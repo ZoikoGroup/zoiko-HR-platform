@@ -5,7 +5,7 @@ import os
 import re
 import uuid
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Union
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Query, Request, status, UploadFile, File, Form
 from fastapi.responses import HTMLResponse
@@ -29,7 +29,7 @@ from app.modules.employee import service
 from app.modules.employee.models import Employee, EmployeeStatus, EmploymentType, UserRole
 from app.modules.employee.schema import (
     EmployeeCreate, EmployeeUpdate, EmployeeResponse, EmployeeListResponse,
-    LoginRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, SendRegistrationOtpRequest, VerifyRegistrationOtpRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
+    LoginRequest, OrganizationSelectionResponse, SelectOrganizationRequest, MfaEnrollRequest, StepUpRequest, RegisterRequest, SendRegistrationOtpRequest, VerifyRegistrationOtpRequest, ForgotPasswordRequest, TokenResponse, RefreshRequest, SuccessResponse,
     UserCreateRequest, UserUpdateRequest, UserResponse, UserListResponse,
     PasswordResetResponse, PasswordResetRequest, ChangePasswordRequest, TokenPasswordRequest,
     ChangeManagerRequest, ConfirmProbationRequest,
@@ -123,12 +123,26 @@ def _record_sign_in(request: Request, db: Session, result: dict, method: str = "
 
 @auth_router.post(
     "/login",
-    response_model=TokenResponse,
+    response_model=Union[TokenResponse, OrganizationSelectionResponse],
     summary="Login and get access token",
+    description="When the address has a matching account in more than one organization, no tokens are issued: the answer "
+                "lists the organizations (requires_org_selection) and POST /auth/login/select-organization completes the "
+                "sign-in for the one chosen.",
 )
 @limiter.limit("10/minute")
 def login(request: Request, data: LoginRequest, db: Session = Depends(get_db)):
     return _record_sign_in(request, db, service.login_employee(db, data))
+
+
+@auth_router.post(
+    "/login/select-organization",
+    response_model=TokenResponse,
+    summary="Finish signing in to the organization chosen from the list /auth/login returned",
+)
+@limiter.limit("10/minute")
+def login_select_organization(request: Request, data: SelectOrganizationRequest, db: Session = Depends(get_db)):
+    return _record_sign_in(request, db, service.login_selected_organization(
+        db, data.selection_token, data.organization_id, mfa_code=data.mfa_code))
 
 
 # ── Confirming an e-mail address ─────────────────────────────────────────────
@@ -167,14 +181,17 @@ def google_status():
 
 @auth_router.get("/google/login", summary="Start Sign in with Google", include_in_schema=True)
 @limiter.limit("20/minute")
-def google_login(request: Request):
+def google_login(request: Request, return_to: Optional[str] = None):
+    """return_to: the app origin the button was pressed on (checked against CORS_ORIGINS / FRONTEND_URL). The browser is sent
+    back there after Google, so a missing or local FRONTEND_URL cannot strand people on localhost (A1)."""
     from fastapi.responses import RedirectResponse
     from app.modules.employee import google_auth
 
+    origin = google_auth.app_origin_from(return_to) or google_auth.app_origin_from(request.headers.get("referer"))
     if not google_auth.is_configured():
-        return RedirectResponse(google_auth.frontend_login_url(google_error="not_configured"), status_code=302)
+        return RedirectResponse(google_auth.frontend_login_url(origin, google_error="not_configured"), status_code=302)
     nonce = google_auth.new_nonce()
-    response = RedirectResponse(google_auth.authorize_url(nonce), status_code=302)
+    response = RedirectResponse(google_auth.authorize_url(nonce, request, origin), status_code=302)
     response.set_cookie(
         google_auth.NONCE_COOKIE, nonce, max_age=google_auth.STATE_TTL_SECONDS, httponly=True,
         secure=str(request.url.scheme) == "https", samesite="lax", path="/auth/google",
@@ -182,51 +199,71 @@ def google_login(request: Request):
     return response
 
 
-@auth_router.get("/google/callback", summary="Google sends the browser back here", include_in_schema=True)
+@auth_router.get("/google/callback", name="google_callback", summary="Google sends the browser back here", include_in_schema=True)
 @limiter.limit("20/minute")
 def google_callback(request: Request, db: Session = Depends(get_db), code: Optional[str] = None, state: Optional[str] = None, error: Optional[str] = None):
     from fastapi.responses import RedirectResponse
     from app.modules.employee import google_auth
 
-    def back(**params):
-        response = RedirectResponse(google_auth.frontend_login_url(**params), status_code=302)
+    origin = google_auth.origin_in_state(state)
+
+    def back(problem: Optional[str] = None, **params):
+        if problem:
+            # ids and reason codes only: never the e-mail address (ZHR-PRIV-001)
+            google_auth.logger.info("[google] sign-in did not complete: %s", problem)
+            params["google_error"] = problem
+        response = RedirectResponse(google_auth.frontend_login_url(origin, **params), status_code=302)
         response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
         return response
 
     if not google_auth.is_configured():
-        return back(google_error="not_configured")
+        return back("not_configured")
     if error:
-        return back(google_error="cancelled" if error == "access_denied" else "failed")
+        return back("cancelled" if error == "access_denied" else "failed")
     if not code or not google_auth.state_matches_browser(state or "", request.cookies.get(google_auth.NONCE_COOKIE)):
-        return back(google_error="expired")
-    profile = google_auth.verified_profile_for_code(code)
+        return back("expired")
+    profile = google_auth.verified_profile_for_code(code, request)
     email, problem = profile["email"], profile["error"]
     if problem:
-        return back(google_error=problem)
-    employee = db.query(Employee).filter(func.lower(Employee.email) == email).first()
-    if not employee:
-        # Google confirmed who they are, but they have no account yet: send them to Register with their address filled in.
+        return back(problem)
+    # Google proves the address, not which organization: every usable account for it goes into the one-time ticket, and the
+    # exchange either signs in (one account) or asks the person to choose (several), exactly like a password sign-in.
+    from app.modules.employee import identity
+    accounts = identity.sign_in_candidates(db, email)
+    if not accounts:
+        # Google confirmed who they are, but they have no account yet: send them to Register with their address filled in
+        # (the Register page explains there is no Zoiko HR account for this address yet).
+        google_auth.logger.info("[google] no account for the verified address; sent to registration")
         response = RedirectResponse(google_auth.frontend_register_url(
-            google_email=email, google_name=profile.get("name") or "", google_proof=google_auth.make_signup_proof(email)), status_code=302)
+            origin, google_email=email, google_name=profile.get("name") or "", google_proof=google_auth.make_signup_proof(email)),
+            status_code=302)
         response.delete_cookie(google_auth.NONCE_COOKIE, path="/auth/google")
         return response
-    if not employee.email_verified:       # Google has just confirmed this person controls the address
-        employee.email_verified = True
-        employee.email_verified_at = datetime.utcnow()
+    changed = False
+    for employee in accounts:
+        if not employee.email_verified:   # Google has just confirmed this person controls the address
+            employee.email_verified = True
+            employee.email_verified_at = datetime.utcnow()
+            changed = True
+    if changed:
         db.commit()
-    return back(google_ticket=google_auth.make_ticket(employee.id))
+    return back(google_ticket=google_auth.make_ticket([e.id for e in accounts]))
 
 
-@auth_router.post("/google/exchange", response_model=TokenResponse, summary="Trade the one-time Google ticket for tokens")
+@auth_router.post("/google/exchange", response_model=Union[TokenResponse, OrganizationSelectionResponse],
+                  summary="Trade the one-time Google ticket for tokens (or the list of organizations to choose from)")
 @limiter.limit("20/minute")
 def google_exchange(request: Request, data: GoogleExchangeRequest, db: Session = Depends(get_db)):
     from app.core.exceptions import UnauthorizedException
-    from app.modules.employee import google_auth
+    from app.modules.employee import google_auth, identity
 
-    employee_id = google_auth.redeem_ticket(data.ticket)
-    employee = db.query(Employee).filter(Employee.id == employee_id).first() if employee_id else None
-    if not employee:
+    employee_ids = google_auth.redeem_ticket_accounts(data.ticket)
+    accounts = db.query(Employee).filter(Employee.id.in_(employee_ids)).order_by(Employee.id).all() if employee_ids else []
+    if not accounts:
         raise UnauthorizedException(google_auth.ERRORS["expired"])
+    employee, choices = identity.resolve_sign_in(db, accounts)
+    if employee is None:
+        return identity.selection_response(db, accounts[0].email, choices)
     return _record_sign_in(request, db, service.issue_login(db, employee), method="google")
 
 
@@ -237,6 +274,8 @@ def google_exchange(request: Request, data: GoogleExchangeRequest, db: Session =
 )
 @limiter.limit("5/minute")
 def register(request: Request, data: RegisterRequest, db: Session = Depends(get_db)):
+    from app.core import field_rules
+    field_rules.check_registration(data)       # B7-B13: the same rules as the form, even when the form is bypassed
     return service.register_enterprise(db, data)
 
 
@@ -329,7 +368,9 @@ def _platform_account(db: Session, email: str, password: str) -> Employee:
     """The platform account for these credentials, or the same generic refusal a wrong password gets (no enumeration)."""
     from app.core.exceptions import UnauthorizedException
     from app.core.privacy import mfa
-    employee = db.query(Employee).filter(func.lower(Employee.email) == str(email).strip().lower()).first()
+    # platform accounts only (organization_id IS NULL): the same address may also have organization accounts
+    from app.modules.employee import identity
+    employee = identity.account_in_organization(db, email, None)
     if not employee or not verify_password(password, employee.hashed_password) or not mfa.is_platform(employee) or not employee.is_active:
         raise UnauthorizedException("Invalid email or password.")
     return employee
@@ -409,6 +450,13 @@ def refresh_token(data: RefreshRequest, db: Session = Depends(get_db)):
         return support_login.refresh(db, payload, data.refresh_token)
 
     employee = db.query(Employee).filter(Employee.id == payload["id"]).first()
+    # The refresh token names ONE account: its id, address and organization must all still be that account's (an address
+    # can have an account in several organizations, so the id alone is not trusted to mean the same person-in-organization).
+    if employee is not None and (
+        ("sub" in payload and (payload.get("sub") or "").strip().lower() != (employee.email or "").strip().lower())
+        or ("organization_id" in payload and payload.get("organization_id") != employee.organization_id)
+    ):
+        raise UnauthorizedException("Invalid or expired refresh token.")
     if employee and employee.organization_id:
         # before the is_active check: a deleted organization deactivates its users
         from app.core import org_access
@@ -1043,9 +1091,18 @@ def update_my_profile(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    from pydantic import ValidationError
+    from app.core import field_rules
+    from app.modules.employee.schema import self_update_problems
+    problems = self_update_problems(data)
+    try:
+        update = EmployeeUpdate(**data.model_dump(exclude_unset=True))
+    except ValidationError as exc:              # e.g. a disposable personal e-mail: a 422 on that field, never a 500
+        for err in exc.errors():
+            problems.setdefault(str(err["loc"][-1]), str(err["msg"]).removeprefix("Value error, "))
+        field_rules.raise_if_errors(problems)
     return service.update_employee(
-        db, current_user.id, EmployeeUpdate(**data.model_dump(exclude_unset=True)),
-        current_user.organization_id, actor=current_user,
+        db, current_user.id, update, current_user.organization_id, actor=current_user, extra_errors=problems,
     )
 
 

@@ -219,7 +219,7 @@ export default function EmployeeProfile() {
   }
 
   async function handleSave() {
-    const problems = validateProfile(formData);
+    const problems = validateProfile(formData, original);   // only what changed is checked (B16–B38)
     if (Object.keys(problems).length > 0) { showProblems(problems); return; }
     setFieldErrors({});
     setSaving(true);

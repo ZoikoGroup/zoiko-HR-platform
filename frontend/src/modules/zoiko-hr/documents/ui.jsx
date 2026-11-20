@@ -6,7 +6,6 @@ const DOCUMENTS_NAV = [
   { label: "Employee Documents", href: "/zoiko-hr/documents/employee-upload", icon: Users },
   { label: "Company Documents", href: "/zoiko-hr/documents/company-documents", icon: Building2 },
   { label: "Approval Workflow", href: "/zoiko-hr/documents/approvals", icon: ClipboardCheck },
-  { label: "Governance", href: "/zoiko-hr/documents/governance", icon: ShieldCheck },
 ];
 
 const PAGE_OF_TITLE = {

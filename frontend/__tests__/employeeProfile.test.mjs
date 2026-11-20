@@ -8,7 +8,7 @@ import { render, screen, cleanup, act, fireEvent } from "@testing-library/react"
 import { validateProfile, changedFields, cleanedValue, serverProfileErrors, FORMATS } from "../src/utils/profileForm.js";
 
 afterEach(() => cleanup());
-const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 60)); });
+const settle = () => act(async () => { await new Promise((r) => setTimeout(r, 150)); });   // generous: the full suite runs files in parallel
 
 test("each format accepts the right shape and says what is expected otherwise", () => {
   const ok = { pan_number: "abcde1234f", aadhar_number: "2345 6789 0123", bank_ifsc: "hdfc0001234", bank_account: "1234 5678 9012", uan_number: "100123456789", esic_number: "1234567890", passport_number: "k1234567", visa_number: "AB12345", pf_number: "MH/BAN/1234567/000/0001234", phone: "+91 98765 43210", pincode: "560 001" };
@@ -89,7 +89,7 @@ test("a mistake on another tab takes the person to that tab", async (t) => {
   fireEvent.click(screen.getByRole("button", { name: "Personal Details" }));
   fireEvent.click(screen.getByRole("button", { name: /Save Changes/ }));
   await settle();
-  assert.match(document.body.textContent, /Enter a valid 10-digit phone number/);
+  assert.match(document.body.textContent, /Enter a valid phone number for/);   // B8: checked for the country
 });
 
 test("PAN and IFSC are shown in capitals as they are typed", async (t) => {

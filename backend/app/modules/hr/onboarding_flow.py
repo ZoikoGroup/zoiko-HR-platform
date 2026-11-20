@@ -44,9 +44,23 @@ ACTIVE_STATUSES = ("offer_sent", "offer_accepted", "pre_joining", "in_progress")
 JOINING_STATUSES = ("not_joined", "joined", "no_show", "deferred")
 ATTENDEE_STATUSES = ("pending", "attended", "absent", "excused")
 DOCUMENT_LABELS = {
-    "id_proof": "ID proof", "offer_letter": "Signed offer letter", "nda": "Signed NDA",
-    "education_certificates": "Education certificates", "experience_letters": "Experience letters",
-    "bank_details": "Bank details", "other": "Other document",
+    # ── legacy upload categories ──
+    "id_proof": "ID proof",
+    "education_certificates": "Education certificates",
+    "experience_letters": "Experience letters",
+    "bank_details": "Bank details",
+    "other": "Other document",
+    # ── 10 standard onboarding package documents ──
+    "offer_letter": "Offer Letter",
+    "job_description": "Job Description",
+    "daily_kpi": "Daily Key Performance Indicators (KPIs)",
+    "nda": "Non-Disclosure Agreement (NDA)",
+    "employment_contract": "Employment Contract",
+    "exclusivity_affidavit": "Affidavit of Employment Exclusivity",
+    "self_disclosure": "Voluntary Self-Disclosure Form",
+    "job_application": "Job Application Form",
+    "daily_work_report": "Daily Work Report (DWR) Template",
+    "velocity_report": "Zoiko Group Project Velocity Report Template",
 }
 
 
@@ -137,7 +151,7 @@ def portal_url(token: str) -> str:
 
 
 def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -> dict:
-    """A fresh link (any older one stops working). Emails it to the new hire when send=True."""
+    """A fresh link. Older valid links remain active until expired. Emails it to the new hire when send=True."""
     if hire.status not in ACTIVE_STATUSES:
         raise BadRequestException("A pre-onboarding link can only be sent while onboarding is active.")
     settings = get_settings(db, hire.organization_id)
@@ -146,7 +160,19 @@ def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -
     expires = datetime.utcnow() + timedelta(days=days)
     if hire.joining_date:
         expires = max(expires, datetime.combine(hire.joining_date, datetime.min.time()) + timedelta(days=7))
-    hire.portal_token_hash = _hash(token)
+
+    # Preserve previous token hash so any already emailed links continue working
+    new_hash = _hash(token)
+    details = dict(hire.profile_details or {})
+    token_hashes = list(details.get("_token_hashes") or [])
+    if hire.portal_token_hash and hire.portal_token_hash not in token_hashes:
+        token_hashes.append(hire.portal_token_hash)
+    if new_hash not in token_hashes:
+        token_hashes.append(new_hash)
+    details["_token_hashes"] = token_hashes
+    hire.profile_details = details
+
+    hire.portal_token_hash = new_hash
     try:
         from app.core.crypto import encrypt_secret
         hire.portal_token_enc = encrypt_secret(token)
@@ -178,16 +204,57 @@ def issue_portal_link(db: Session, hire: OnboardingNewHire, send: bool = True) -
 def hire_for_token(db: Session, token: str) -> OnboardingNewHire:
     if not token or len(token) < 20:
         raise NotFoundException("Pre-onboarding link")
+    target_hash = _hash(token)
     hire = (db.query(OnboardingNewHire)
-            .filter(OnboardingNewHire.portal_token_hash == _hash(token), OnboardingNewHire.is_deleted == False)  # noqa: E712
+            .filter(OnboardingNewHire.portal_token_hash == target_hash, OnboardingNewHire.is_deleted == False)  # noqa: E712
             .first())
+    if hire is None:
+        # Check active new hires for token hash in history list
+        active_candidates = (db.query(OnboardingNewHire)
+                             .filter(OnboardingNewHire.is_deleted == False, OnboardingNewHire.status.in_(ACTIVE_STATUSES))
+                             .all())
+        for candidate in active_candidates:
+            token_list = (candidate.profile_details or {}).get("_token_hashes") or []
+            if target_hash in token_list:
+                hire = candidate
+                break
+
     if hire is None or hire.portal_expires_at is None or hire.portal_expires_at < datetime.utcnow() \
             or hire.status not in ACTIVE_STATUSES:
         raise NotFoundException("Pre-onboarding link")
     return hire
 
 
+def _details_with_form_answers(db, hire) -> dict:
+    """The contact & address details for the portal, with blanks filled from the new starter form the hire already
+    filled in (the same address is asked in both places; it is typed once)."""
+    details = dict(hire.profile_details or {})
+    try:
+        from app.modules.hr import onboarding_documents as OD
+        from app.modules.hr.models import OnboardingFormSubmission
+        sub = (db.query(OnboardingFormSubmission)
+               .filter(OnboardingFormSubmission.new_hire_id == hire.id,
+                       OnboardingFormSubmission.canonical_id.in_(list(OD.FORMS)))
+               .order_by(OnboardingFormSubmission.id.desc()).all())
+        for s in sub:
+            vals = OD._values(s)
+            if not vals.get("address_line1"):
+                continue
+            line = ", ".join(v for v in (vals.get("address_line1"), vals.get("address_line2")) if v)
+            if not OD.details_address_line(details):
+                details["address"] = line
+            for form_key, detail_key in OD.PREFILL_FROM_DETAILS.items():
+                if form_key != "address_line1" and vals.get(form_key) and not str(details.get(detail_key) or "").strip():
+                    details[detail_key] = vals[form_key]
+            break
+    except Exception:
+        logger.warning("could not prefill the portal details of new hire %s from their forms", hire.id)
+    return details
+
+
 def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
+    from app.modules.hr import onboarding_package
+
     docs = (db.query(OnboardingDocument)
             .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
             .order_by(OnboardingDocument.id).all())
@@ -196,6 +263,44 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
                 .filter(OnboardingOrientationAttendee.onboarding_new_hire_id == hire.id,
                         OnboardingOrientationAttendee.is_deleted == False, OnboardingOrientation.is_deleted == False,  # noqa: E712
                         OnboardingOrientation.status != "cancelled").all())
+
+    base = app_base()
+    pkg = onboarding_package.portal_items(db, hire)
+    doc_items = []
+    for d in docs:
+        extra = pkg.get(d.id) or {}
+        mode = extra.get("mode")
+        is_signable = mode == "SIGN" or (mode is None and bool(d.document_id))
+        sign_url = None
+        needs_declaration = d.category == "exclusivity_affidavit" and d.status != "approved" \
+            and not (hire.profile_details or {}).get("outside_activities")
+        if is_signable and d.status != "approved":      # the affidavit's Schedule A is asked for on its signing page
+            try:
+                raw_token = onboarding_package.get_signing_token_for_onboarding_doc(db, d)
+                if raw_token:
+                    sign_url = f"{base}/sign/{raw_token}"
+            except Exception:
+                logger.warning("Could not issue signing link for onboarding doc %s", d.id)
+
+        doc_items.append({
+            "id": d.id,
+            "title": d.title,
+            "category": d.category,
+            "status": d.status,
+            "rejection_reason": d.rejection_reason,
+            "uploaded": bool(d.file_path),
+            "document_id": d.document_id,
+            "requires_signature": is_signable,
+            "sign_url": sign_url,
+            "package_mode": mode,
+            "mode_label": extra.get("mode_label"),
+            "template_id": extra.get("template_id"),
+            "optional": bool(extra.get("optional")),
+            "acknowledged_at": extra.get("acknowledged_at"),
+            "has_package_file": bool(extra.get("package_file")),
+            "needs_declaration": needs_declaration,
+        })
+
     return {
         "candidate_name": hire.candidate_name,
         "position": hire.position,
@@ -205,28 +310,57 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "department_name": hire.department_name,
         "welcome_message": get_settings(db, hire.organization_id).welcome_message,
         "expires_at": hire.portal_expires_at,
-        "details": hire.profile_details or {},
+        "details": _details_with_form_answers(db, hire),
         "phone": hire.phone,
-        "documents": [{"id": d.id, "title": d.title, "category": d.category, "status": d.status,
-                       "rejection_reason": d.rejection_reason, "uploaded": bool(d.file_path)} for d in docs],
+        "documents": doc_items,
+        "package": onboarding_package.portal_package_status(db, hire),
+        "submission": onboarding_package.submission_status(db, hire),
         "orientation": [{"title": s.title, "date": s.date, "time": s.time, "location": s.location,
                          "meeting_link": s.meeting_link} for s in sessions],
     }
 
 
+PORTAL_DETAIL_RULES = {"phone": "phone", "address": "address", "city": "place_name", "state": "state", "country": "country",
+                       "postal_code": "postal_code"}
+PORTAL_DETAIL_REQUIRED = ("phone", "address", "city", "country", "postal_code")
+ADDRESS_PARTS = ("house", "building", "street", "landmark", "locality", "district")   # optional structured parts
+
+
 def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dict:
+    """The new hire's contact and address details. Checked with the shared field rules (the same messages as every other
+    form); with `submit` the required ones must all be present, and the submission time is recorded."""
+    from app.core import field_rules
     details = dict(hire.profile_details or {})
+    data = dict(data or {})
+    if any(str(data.get(k) or "").strip() for k in ("house", "building", "street")) and not str(data.get("address") or "").strip():
+        # structured parts only: the one-line address (used by the forms and v1 documents) is built from them
+        data["address"] = ", ".join(str(data[k]).strip() for k in ("house", "building", "street")
+                                    if str(data.get(k) or "").strip())[:300]
+    previous = {**{k: details.get(k) for k in PORTAL_DETAIL_RULES if k != "phone"}, "phone": hire.phone}
+    values = {k: data.get(k) for k in PORTAL_DETAIL_RULES if k in data and str(data.get(k) or "").strip()}
+    cleaned, errors = field_rules.validate_record(values, PORTAL_DETAIL_RULES, previous=previous)
+    submit = bool(data.get("submit"))
+    if submit:
+        for key in PORTAL_DETAIL_REQUIRED:
+            value = data.get(key) if key in data else previous.get(key)
+            if key not in errors and not str(value or "").strip():
+                errors[key] = "This is required."
+    field_rules.raise_if_errors(errors)
     for key in ("address", "city", "state", "country", "postal_code", "emergency_contact_name",
-                "emergency_contact_relation", "emergency_contact_phone"):
+                "emergency_contact_relation", "emergency_contact_phone", *ADDRESS_PARTS):
         if key in data:
-            value = (data.get(key) or "").strip()
-            details[key] = value[:300] if value else None
+            value = cleaned.get(key, (data.get(key) or "").strip())
+            details[key] = str(value)[:300] if value else None
     if data.get("phone"):
-        hire.phone = str(data["phone"]).strip()[:50]
+        hire.phone = str(cleaned.get("phone", data["phone"])).strip()[:50]
+    if submit:
+        details["details_submitted_at"] = datetime.utcnow().isoformat()
     hire.profile_details = details
     db.commit()
     from app.modules.hr.service import log_onboarding_activity
     log_onboarding_activity(db, hire.id, "Details submitted", f"{hire.candidate_name} updated their personal details.", hire.organization_id)
+    from app.modules.hr import onboarding_package
+    onboarding_package.release_held(db, hire)       # documents not sent yet that were waiting for the address
     return portal_view(db, hire)
 
 
@@ -236,6 +370,10 @@ def request_documents(db: Session, hire: OnboardingNewHire, categories: list[str
     bad = [c for c in categories if c not in DOCUMENT_LABELS]
     if bad:
         raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
+    from app.modules.hr.onboarding_package import PACKAGE_CATEGORIES
+    # offer-package documents are generated and issued from the package (Documents › Offer package), never requested as uploads;
+    # older settings may still list them, so they are skipped rather than refused
+    categories = [c for c in categories if c not in PACKAGE_CATEGORIES]
     have = {d.category for d in db.query(OnboardingDocument).filter(
         OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
         OnboardingDocument.status != "rejected").all()}
@@ -273,7 +411,7 @@ def start_onboarding(db: Session, hire: OnboardingNewHire) -> None:
         logger.exception("starting onboarding failed for new hire %s", hire.id)
     try:
         from app.modules.hr import onboarding_documents
-        onboarding_documents.on_onboarding_started(db, hire)        # HR-ONB-005: manager checklist and its record
+        onboarding_documents.on_onboarding_started(db, hire)        # hook kept; no manager checklist is created
     except Exception:
         db.rollback()
         logger.exception("manager onboarding checklist failed for new hire %s", hire.id)
@@ -296,6 +434,8 @@ def progress(db: Session, hire: OnboardingNewHire) -> dict:
     open_items = [i for i in items if not i.completed]
     if settings.require_checklists_complete and open_items:
         blockers.append(f"{len(open_items)} checklist item(s) are not done")
+    from app.modules.hr.onboarding_package import is_blocking
+    docs = [d for d in docs if is_blocking(d)]          # voluntary / for-information package documents never block
     not_approved = [d for d in docs if d.status != "approved"]
     if settings.require_documents_approved and not_approved:
         blockers.append(f"{len(not_approved)} document(s) are not approved")
@@ -373,6 +513,9 @@ def notify_task_assignees(db: Session, hire: OnboardingNewHire, items: list[Onbo
             by_person.setdefault(item.assignee_employee_id, []).append(item)
     if not by_person:
         return 0
+    from app.modules.hr.hr_notifications import notify_employee
+    notify_employee(db, hire.organization_id, sorted(by_person), "onboarding.tasks_assigned",
+                    link="/zoiko-hr/onboarding/checklists")                   # A5: in-app, alongside the email
     try:
         from app.modules.employee.models import Employee
         from app.services.email_service import send_onboarding_task_assigned

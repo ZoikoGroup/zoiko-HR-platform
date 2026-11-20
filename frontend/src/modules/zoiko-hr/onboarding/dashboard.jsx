@@ -204,41 +204,6 @@ function UpcomingJoiners({ rows, total }) {
   );
 }
 
-function UpcomingOrientation({ rows, loading }) {
-  return (
-    <Card title="Upcoming orientation" action={<NavLink to="/zoiko-hr/onboarding/orientation" end className={linkClass}>View All</NavLink>}>
-      {loading ? <div className="h-32 animate-pulse rounded-xl bg-gray-50" /> : !rows.length ? <EmptyState icon={CalendarDays} title="No orientation sessions scheduled" /> : (
-        <ul className="space-y-3">
-          {rows.map((o) => {
-            const d = parseDateOnly(String(o.date || "").slice(0, 10));
-            return (
-              <li key={o.id} className="flex gap-3">
-                <div className="grid w-12 shrink-0 place-items-center rounded-xl bg-blue-50 py-1.5 text-blue-700">
-                  <span className="text-[10px] font-semibold uppercase">{d ? d.toLocaleDateString("en-GB", { month: "short" }) : "—"}</span>
-                  <span className="text-lg font-bold leading-none">{d ? d.getDate() : ""}</span>
-                </div>
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-sm font-medium text-gray-900" title={o.title}>{o.title || "—"}</p>
-                  <p className="flex flex-wrap items-center gap-x-2 text-xs text-gray-500">
-                    <span className="inline-flex items-center gap-1"><Clock className="h-3 w-3" aria-hidden="true" />{o.time || "—"}</span>
-                    {o.presenter && <span>· {o.presenter}</span>}
-                    <span>· {o.attendees ?? 0} attendee{o.attendees === 1 ? "" : "s"}</span>
-                  </p>
-                  {o.location && <p className="mt-0.5 inline-flex items-center gap-1 truncate text-xs text-gray-500"><MapPin className="h-3 w-3" aria-hidden="true" />{o.location}</p>}
-                </div>
-                {o.meeting_link && (
-                  <a href={o.meeting_link} target="_blank" rel="noreferrer noopener" className="inline-flex h-8 shrink-0 items-center gap-1 self-center rounded-lg bg-blue-600 px-3 text-xs font-semibold text-white hover:bg-blue-700">
-                    <Video className="h-3.5 w-3.5" />Join
-                  </a>
-                )}
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </Card>
-  );
-}
 
 function RecentActivity({ rows }) {
   return (
@@ -271,7 +236,7 @@ function AttentionNeeded({ data, loading }) {
   const items = overdue ? [
     { label: "Overdue checklist items", count: overdue.checklist_items, to: "/zoiko-hr/onboarding/checklists", icon: ClipboardCheck },
     { label: "Overdue pre-boarding tasks", count: overdue.preboarding_tasks, to: "/zoiko-hr/onboarding/pre-onboarding", icon: CalendarCheck },
-    ...(payroll != null ? [{ label: "Payroll forms to verify", count: payroll, to: "/zoiko-hr/onboarding/payroll-verifications", icon: WalletCards }] : []),
+    ...(payroll != null ? [{ label: "Payroll forms to verify", count: payroll, to: "/zoiko-hr/onboarding/new-hires", icon: WalletCards }] : []),
   ] : [];
   const open = items.filter((i) => Number(i.count) > 0);
   return (
@@ -411,8 +376,7 @@ export default function OnboardingDashboard() {
 
       <UpcomingJoiners rows={joiners} total={Math.max(upcomingTotal, joiners.length)} />
 
-      <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <UpcomingOrientation rows={Array.isArray(live?.orientation) ? live.orientation : []} loading={insights.loading} />
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <RecentActivity rows={activity} />
         <Card title="Pending items">
           <div className="space-y-2">
@@ -421,7 +385,6 @@ export default function OnboardingDashboard() {
             <GlanceTile title="Completed Onboarding" count={stats?.completedOnboarding ?? 0} icon={CheckCircle2} tone="green" to="/zoiko-hr/onboarding/new-hires" />
             <GlanceTile title="Documents Pending" count={stats?.documentsPending ?? 0} icon={FileText} tone="violet" to="/zoiko-hr/onboarding/documents" />
             <GlanceTile title="Checklist Items Pending" count={stats?.checklistsPending ?? 0} icon={Package} tone="teal" to="/zoiko-hr/onboarding/checklists" />
-            <GlanceTile title="Upcoming Orientation Sessions" count={stats?.orientationPending ?? 0} icon={CalendarDays} tone="pink" to="/zoiko-hr/onboarding/orientation" />
             <GlanceTile title="Upcoming Joiners" count={upcomingTotal} icon={UserPlus} tone="red" to="/zoiko-hr/onboarding/new-hires" />
           </div>
         </Card>

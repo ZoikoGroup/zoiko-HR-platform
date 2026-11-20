@@ -255,6 +255,7 @@ def test_no_browser_pdf_generation_remains_in_recruitment():
 
 def test_requisition_decision_produces_the_authorization_record(world):
     activate(world.db, "HR-HIR-001")
+    world.department("Operations")
     r = world.post("a_hr", "/hr/recruitment/requisitions", json={"title": "Analyst", "department": "Operations", "status": "pending",
                                                                   "reason": "growth", "justification": "Demand doubled."})
     assert r.status_code in (200, 201), r.text

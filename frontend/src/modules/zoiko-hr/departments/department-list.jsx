@@ -5,6 +5,7 @@ import HRPage from "../../../components/HRPage";
 import { getDepartments, createDepartment, updateDepartment, getDepartmentSettings } from "../../../service/hrService";
 import { formatDate as formatDateUtil } from "../../../utils/dateTime";
 import { DEFAULT_DEPARTMENT_SETTINGS, normalizeDepartmentSettings } from "../../../utils/departmentSettings";
+import { fieldProblem } from "../../../utils/fieldRules";
 
 const NAV_ITEMS = [
   { label: "Dashboard", href: "/zoiko-hr/departments" },
@@ -63,6 +64,7 @@ export default function DepartmentList() {
   const [compact, setCompact] = useState(DEFAULT_DEPARTMENT_SETTINGS.compact_mode);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
+  const [nameError, setNameError] = useState("");
   const [editingDept, setEditingDept] = useState(null);
   const [confirmStatus, setConfirmStatus] = useState(null); // { dept, next }
   const [statusBusyId, setStatusBusyId] = useState(null);
@@ -128,6 +130,13 @@ export default function DepartmentList() {
   const handleSubmit = (e) => {
     e.preventDefault();
     setErrorMessage("");
+    // QA report #13 (BUG-28): a department name follows the shared org-unit rule (the server's own words)
+    const nameProblem = fieldProblem("org_unit", formData.name);
+    setNameError(nameProblem);
+    if (nameProblem) {
+      document.getElementById("dept-name")?.focus();
+      return;
+    }
     const payload = {
       ...formData,
       parent_id: formData.parent_id === "" ? null : Number(formData.parent_id),
@@ -170,6 +179,7 @@ export default function DepartmentList() {
       is_active: dept.is_active !== false,
     });
     setErrorMessage("");
+    setNameError("");
     setIsModalOpen(true);
   };
 
@@ -196,6 +206,7 @@ export default function DepartmentList() {
     setEditingDept(null);
     setFormData(emptyForm);
     setErrorMessage("");
+    setNameError("");
     setIsModalOpen(true);
   };
 
@@ -442,8 +453,12 @@ export default function DepartmentList() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Department Name *</label>
-                  <input type="text" required placeholder="e.g., Human Resources" value={formData.name} onChange={(e) => setFormData({...formData, name: e.target.value})}
-                    className="w-full px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:border-rose-500" />
+                  <input id="dept-name" type="text" required placeholder="e.g., Human Resources" value={formData.name}
+                    onChange={(e) => { setFormData({...formData, name: e.target.value}); if (nameError) setNameError(""); }}
+                    onBlur={() => setNameError(fieldProblem("org_unit", formData.name))}
+                    aria-invalid={nameError ? true : undefined} aria-describedby={nameError ? "dept-name-error" : undefined}
+                    className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:border-rose-500 ${nameError ? "border-rose-300" : "border-gray-200"}`} />
+                  {nameError && <p id="dept-name-error" role="alert" className="mt-1 text-xs font-medium text-rose-600">{nameError}</p>}
                 </div>
                 <div>
                   <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Department Code *</label>

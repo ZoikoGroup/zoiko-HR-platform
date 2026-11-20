@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import PasswordInput from "../../components/PasswordInput";
 import PageHeader from "../../components/PageHeader";
 import { Globe, Send } from "lucide-react";
 import { integrationsService } from "../../service/integrationsService";
@@ -40,14 +41,25 @@ function ConfigureDialog({ channel, onClose, onSaved }) {
             label={f.label}
             hint={channel.details?.[f.name] && f.secret ? `Current: ${channel.details[f.name]} — leave blank to keep it` : undefined}
           >
-            <input
-              className={inputCls}
-              type={f.secret ? "password" : "text"}
-              autoComplete="off"
-              placeholder={f.placeholder}
-              value={values[f.name] || ""}
-              onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
-            />
+            {f.secret ? (
+              <PasswordInput
+                className={inputCls}
+                autoComplete="off"
+                placeholder={f.placeholder}
+                value={values[f.name] || ""}
+                onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
+                iconSize={16}
+              />
+            ) : (
+              <input
+                className={inputCls}
+                type="text"
+                autoComplete="off"
+                placeholder={f.placeholder}
+                value={values[f.name] || ""}
+                onChange={(e) => setValues({ ...values, [f.name]: e.target.value })}
+              />
+            )}
           </Field>
         ))}
         <div className="mt-4 flex justify-end gap-2">

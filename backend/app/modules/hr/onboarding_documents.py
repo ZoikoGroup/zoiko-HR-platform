@@ -40,6 +40,28 @@ OPTIONAL_BY_PACK = {"nationality": "collect_nationality", "national_identifier":
 ROUTING_LABELS = {"GB": "Sort code", "IE": "BIC", "US": "Routing number", "IN": "IFSC code", "AU": "BSB number", "CA": "Transit and institution number",
                   "NZ": "Bank and branch number", "SG": "Bank and branch code", "AE": "IBAN / SWIFT"}
 DECLARATION_VERSION = "ONB-DECL-1.0"
+# The forms the new hire fills in on the portal (Emergency contacts are part of "Your contact & address details" there).
+PORTAL_FORMS = ("HR-ONB-001", "HR-ONB-017")
+
+# QA report #17: the shared field rule (app/core/field_rules.py, same messages in fieldRules.js) and the input each field
+# uses. The starter files name them too ("rule" / "input"); this table is the fallback for older starter revisions, so a
+# field is never left unchecked whichever revision an organisation runs on.
+FIELD_RULES = {
+    "legal_first_name": "person_name", "legal_last_name": "person_name", "preferred_name": "person_name",
+    "personal_email": "email", "mobile_phone": "phone", "city": "place_name", "region": "state", "postal_code": "postal_code",
+    "country": "country", "preferred_language": "language", "nationality": "country", "national_identifier": "tax_id_person",
+    "account_holder": "person_full_name", "bank_name": "bank_name", "account_number": "bank_account",
+    "routing_code": "bank_routing", "tax_identifier": "tax_id_person", "social_security_number": "social_payroll_ref",
+    **{f"contact{n}_{part}": rule for n in (1, 2, 3)
+       for part, rule in (("name", "person_full_name"), ("phone", "phone"), ("alt_phone", "phone"), ("email", "email"))},
+}
+FIELD_INPUTS = {"country": "country", "nationality": "country", "region": "region", "mobile_phone": "phone",
+                "preferred_language": "language", "personal_email": "email",
+                **{f"contact{n}_{part}": kind for n in (1, 2, 3) for part, kind in (("phone", "phone"), ("alt_phone", "phone"),
+                                                                                   ("email", "email"))}}
+# rules checked against the country the hire typed in the form (address) or the hire's work country (bank, tax)
+ADDRESS_COUNTRY_RULES = {"state", "postal_code", "phone"}
+INVALID_FIELDS_MESSAGE = "Fix the highlighted fields."
 FINANCE_VIEWERS_KEY = "payroll.finance_viewer_ids"
 
 
@@ -76,6 +98,9 @@ def visible_fields(db, organization_id: int, canonical_id: str, country: Optiona
         if flag and not reqs.get(flag):
             continue                                       # only collected when the jurisdiction pack requires it
         f = dict(f)
+        f.setdefault("rule", FIELD_RULES.get(f["key"]))
+        if f.get("input") is None and FIELD_INPUTS.get(f["key"]):
+            f["input"] = FIELD_INPUTS[f["key"]]
         if f["key"] == "routing_code" and country in ROUTING_LABELS:
             f["label"] = ROUTING_LABELS[country]
         if flag:
@@ -91,6 +116,38 @@ def _financial_keys(fields: list[dict]) -> set:
 def mask(value) -> str:
     v = "".join(str(value or "").split())
     return f"•••• {v[-4:]}" if len(v) > 4 else "••••"
+
+
+def field_problems(fields: list[dict], values: dict, *, work_country: Optional[str], check_mail: bool = True) -> tuple[dict, dict]:
+    """(cleaned, errors) for the filled-in values of `fields` under their rules. Address rules follow the country entered in
+    the form, falling back to the hire's work country; bank and tax rules follow the work country. Messages never contain
+    the value (financial values are never echoed)."""
+    from app.core import field_rules
+    cleaned, errors = {}, {}
+    form_country = values.get("country") if str(values.get("country") or "").strip() else work_country
+    if form_country and field_rules.country_iso(form_country) is None:
+        form_country = work_country                         # the country itself is reported below
+    for f in fields:
+        rule, key = f.get("rule"), f["key"]
+        value = values.get(key)
+        if not rule or value is None or not str(value).strip():
+            continue
+        country = form_country if rule in ADDRESS_COUNTRY_RULES else work_country
+        try:
+            out = field_rules.clean(rule, value, country, label=None)
+            if rule == "email" and out and check_mail:
+                problem = field_rules.email_deliverable(out)
+                if problem:
+                    raise field_rules.FieldRuleError(problem)
+            cleaned[key] = out
+        except field_rules.FieldRuleError as e:
+            errors[key] = str(e)
+    return cleaned, errors
+
+
+def _raise_invalid(errors: dict) -> None:
+    if errors:
+        raise HTTPException(422, {"code": "INVALID_FIELDS", "message": INVALID_FIELDS_MESSAGE, "errors": errors})
 
 
 # ── finance permission ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -189,6 +246,39 @@ def _get_or_create(db, hire: OnboardingNewHire, canonical_id: str) -> Onboarding
     return sub
 
 
+# The new starter form asks again for what the hire already gave in "Your contact & address details" (and the other way
+# round): the form opens with those answers filled in, and the details section with the form's (see onboarding_flow).
+PREFILL_FROM_DETAILS = {"address_line1": "address", "city": "city", "region": "state", "postal_code": "postal_code",
+                        "country": "country", "mobile_phone": "phone"}
+
+
+def details_address_line(details: dict) -> Optional[str]:
+    """The street address from the portal details: the one-line address, else the structured house / street parts."""
+    one = str(details.get("address") or "").strip()
+    if one:
+        return one
+    parts = [str(details.get(k) or "").strip() for k in ("house", "building", "street", "locality")]
+    return ", ".join(p for p in parts if p) or None
+
+
+def prefill_values(hire: OnboardingNewHire, fields: list[dict], saved: dict) -> dict:
+    """Blank fields of a portal form filled from what the hire (or the hire record) already holds; saved answers win."""
+    details = hire.profile_details or {}
+    keys = {f.get("key") for f in fields}
+    known = {"address_line1": details_address_line(details), "mobile_phone": details.get("phone") or hire.phone,
+             "personal_email": hire.email}
+    for form_key, detail_key in PREFILL_FROM_DETAILS.items():
+        known.setdefault(form_key, details.get(detail_key))
+    names = str(hire.candidate_name or "").split()
+    if len(names) >= 2:
+        known["legal_first_name"], known["legal_last_name"] = names[0], " ".join(names[1:])
+    out = dict(saved)
+    for key, value in known.items():
+        if key in keys and value not in (None, "") and str(out.get(key) or "").strip() == "":
+            out[key] = str(value).strip()
+    return out
+
+
 def portal_forms(db, hire: OnboardingNewHire) -> list[dict]:
     country, region = _hire_location(hire)
     out = []
@@ -198,10 +288,20 @@ def portal_forms(db, hire: OnboardingNewHire) -> list[dict]:
                                                          OnboardingFormSubmission.canonical_id == cid)
                .order_by(OnboardingFormSubmission.id.desc()).first())
         if sub is None:
-            out.append({"canonical_id": cid, "title": FORMS[cid], "status": "NOT_STARTED", "values": {}, "fields": fields,
-                        "declaration": _declaration(db, cid), "declaration_version": DECLARATION_VERSION, "masked_keys": []})
+            out.append({"canonical_id": cid, "title": FORMS[cid], "status": "NOT_STARTED", "fields": fields,
+                        "values": prefill_values(hire, fields, {}),
+                        "declaration": _declaration(db, cid), "declaration_version": DECLARATION_VERSION, "masked_keys": [],
+                        "errors": {}})
         else:
-            out.append(serialize_submission(db, sub, fields))
+            view = serialize_submission(db, sub, fields)
+            if sub.status in ("DRAFT", "RETURNED"):
+                view["values"] = prefill_values(hire, fields, view["values"] or {})
+            # values saved before the rules existed: shown as errors so the hire corrects them before submitting
+            view["errors"] = field_problems(fields, _values(sub), work_country=country, check_mail=False)[1] \
+                if sub.status in ("DRAFT", "RETURNED") else {}
+            out.append(view)
+    for item in out:
+        item["work_country"] = country             # bank and tax rules follow the work country in the browser too
     return out
 
 
@@ -216,6 +316,9 @@ def save_portal_form(db, hire: OnboardingNewHire, canonical_id: str, values: dic
         raise HTTPException(409, "This form was already submitted. HR will return it to you if anything needs changing.")
     current = _values(sub)
     current.update(values or {})
+    cleaned, errors = field_problems(fields, current, work_country=country)
+    _raise_invalid(errors)                                  # nothing invalid is stored, not even in a draft
+    current.update(cleaned)
     _store_values(sub, current, fields)
     if submit:
         missing = [f["label"] for f in fields if f.get("required") and not (current.get(f["key"]) or "").strip()]
@@ -267,6 +370,15 @@ def verify_submission(db, actor, sub: OnboardingFormSubmission) -> OnboardingFor
                                   "message": "Bank and payroll details are verified by someone with finance permission."})
     if sub.status != "SUBMITTED":
         raise HTTPException(409, "Only a submitted form can be verified.")
+    country, region = _location_of(db, sub)
+    fields = visible_fields(db, sub.organization_id, sub.canonical_id, country, region)
+    errors = field_problems(fields, _values(sub), work_country=country)[1]
+    if errors:
+        labels = {f["key"]: f["label"] for f in fields}
+        raise HTTPException(422, {"code": "INVALID_FIELDS",
+                                  "message": "Some values break the field rules. Return the form so the new hire can correct: "
+                                             + ", ".join(labels.get(k, k) for k in errors) + ".",
+                                  "errors": errors})
     sub.status, sub.verified_by, sub.verified_at = "VERIFIED", actor.id, datetime.utcnow()
     db.commit()
     _apply(db, actor, sub)
@@ -491,31 +603,6 @@ def record_exception(db, actor, item_id: int, data: dict) -> OnboardingChecklist
     return it
 
 
-def assign_manager_checklist(db, hire: OnboardingNewHire) -> Optional[OnboardingChecklist]:
-    """HR-ONB-005 as real tasks for the reporting manager, with due dates from the start date."""
-    if not hire.manager_id:
-        return None
-    exists = (db.query(OnboardingChecklist).filter(OnboardingChecklist.onboarding_new_hire_id == hire.id, OnboardingChecklist.name == "Manager onboarding",
-                                                   OnboardingChecklist.is_deleted.is_(False)).first())
-    if exists is not None:
-        return exists
-    s = starters.latest(db, MANAGER_CHECKLIST) or {}
-    items = [it for b in s.get("content") or [] if b.get("type") == "checklist" for it in b["items"]]
-    if not items:
-        return None
-    cl = OnboardingChecklist(organization_id=hire.organization_id, onboarding_new_hire_id=hire.id, name="Manager onboarding",
-                             category="Manager", status="pending", created_by="system")
-    db.add(cl)
-    db.flush()
-    for it in items:
-        due = hire.joining_date + timedelta(days=it.get("due_offset_days") or 0) if hire.joining_date else None
-        db.add(OnboardingChecklistItem(organization_id=hire.organization_id, checklist_id=cl.id, title=it["label"], item_key=f"mgr_{it['key']}",
-                                       owner_role="manager", mandatory=bool(it.get("mandatory")), due_offset_days=it.get("due_offset_days"),
-                                       due_date=due, assignee_employee_id=hire.manager_id, completed=False, created_by="system"))
-    db.commit()
-    return cl
-
-
 def my_tasks(db, user) -> list[dict]:
     rows = (db.query(OnboardingChecklistItem, OnboardingChecklist, OnboardingNewHire)
             .join(OnboardingChecklist, OnboardingChecklist.id == OnboardingChecklistItem.checklist_id)
@@ -541,15 +628,9 @@ def complete_my_task(db, user, item_id: int, done: bool) -> dict:
 # ── automatic documents ──────────────────────────────────────────────────────────────────────────────────────────────
 
 def on_onboarding_started(db, hire: OnboardingNewHire) -> None:
-    try:
-        assign_manager_checklist(db, hire)
-        actor = system_actor(db, hire.organization_id)
-        if hire.manager_id:
-            _try_generate(db, actor, canonical_id=MANAGER_CHECKLIST, subject_type="new_hire", subject_id=hire.id,
-                          source_ref=f"onboarding_new_hire:{hire.id}", trigger="new_hire.created")
-    except Exception:
-        db.rollback()
-        logger.warning("manager onboarding checklist failed for new hire %s", hire.id)
+    """Nothing is created automatically for the manager any more: the "Manager onboarding" checklist (HR-ONB-005 tasks)
+    and its document were removed at the organisation's request (2026-11-12). HR assigns checklists from templates."""
+    return None
 
 
 def on_onboarding_completed(db, hire: OnboardingNewHire, employee, actor=None) -> None:

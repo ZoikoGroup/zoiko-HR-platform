@@ -587,7 +587,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `onboarding_documents` (default TENANT_FILE; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `onboarding_new_hire_id`, `created_by`
+- **PERSONAL_BASIC**: `onboarding_new_hire_id`, `document_id`, `created_by`
 - **TENANT_FILE**: `title`, `category`, `file_path`, `status`
 - **SPECIAL_CATEGORY**: `rejection_reason`
 
@@ -601,7 +601,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `onboarding_new_hires` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 6)
 - **PLATFORM_META**: `id`, `organization_id`, `is_deleted`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `manager_id`, `created_by`
-- **PERSONAL_CONFIDENTIAL**: `employee_id`, `candidate_name`, `email`, `phone`, `position`, `department_id`, `joining_date`, `status`, `joining_status`, `notes`, `employment_type`, `work_country`, `work_region`, `completed_at`, `portal_expires_at`, `portal_invited_at`, `profile_details`
+- **PERSONAL_CONFIDENTIAL**: `employee_id`, `candidate_name`, `email`, `email_status`, `phone`, `position`, `department_id`, `joining_date`, `status`, `joining_status`, `notes`, `employment_type`, `work_country`, `work_region`, `completed_at`, `portal_expires_at`, `portal_invited_at`, `profile_details`
 - **SECRET**: `portal_token_hash`, `portal_token_enc`
 
 ## `onboarding_orientation_attendees` (default PERSONAL_CONFIDENTIAL; most sensitive column rank 3)
@@ -690,7 +690,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_candidates` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `onboarding_new_hire_id`, `requisition_id`
-- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `experience`, `resume_link`, `applied_at`, `notes`, `hired_at`, `rejection_note`, `stage_reached`
+- **TENANT_CUSTOMER**: `name`, `email`, `phone`, `position`, `source`, `status`, `location`, `country`, `region`, `city`, `experience`, `resume_link`, `applied_at`, `notes`, `email_status`, `hired_at`, `rejection_note`, `stage_reached`
 
 ## `recruitment_documents` (default TENANT_FILE; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
@@ -705,8 +705,8 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 
 ## `recruitment_interviews` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
-- **PERSONAL_BASIC**: `candidate_id`, `interviewer_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `interview_type`, `interview_date`, `start_time`, `end_time`, `interviewer`, `timezone`, `meeting_link`, `location`, `status`, `feedback`, `rating`, `notes`
+- **PERSONAL_BASIC**: `candidate_id`, `interviewer_id`, `result_by_id`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `interview_type`, `interview_date`, `start_time`, `end_time`, `interviewer`, `timezone`, `meeting_link`, `location`, `status`, `feedback`, `rating`, `notes`, `result`, `result_message`, `result_at`, `result_emailed`
 
 ## `recruitment_offer_approvals` (default TENANT_CUSTOMER; most sensitive column rank 3)
 - **PLATFORM_META**: `id`, `organization_id`
@@ -716,14 +716,14 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 ## `recruitment_offers` (default TENANT_CUSTOMER; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `candidate_id`, `created_by`, `employer_entity_id`, `mentor_id`, `document_id`, `amends_offer_id`
-- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `work_country`, `entity_name`, `entity_id_type`, `entity_country`, `entity_address`, `entity_city`, `entity_region`, `entity_postal_code`, `equity`, `joining_date`, `status`, `notes`, `department_id`, `reporting_manager_id`, `work_location`, `work_region`, `work_arrangement`, `hours_per_week`, `work_pattern`, `contract_end_date`, `internship_end_date`, `probation_months`, `response_deadline`, `conditions`, `benefits_summary`, `components`, `learning_objectives`, `academic_institution`, `approved_by`, `approved_at`, `issued_at`, `accepted_at`, `withdrawal_reason_category`, `withdrawal_reason_note`, `withdrawal_condition`, `withdrawal_legal_review`, `withdrawal_requested_by`
+- **TENANT_CUSTOMER**: `candidate_name`, `position`, `remuneration_type`, `currency`, `pay_period`, `employment_type`, `engagement_profile_slug`, `work_country`, `entity_name`, `entity_id_type`, `entity_country`, `entity_address`, `entity_city`, `entity_region`, `entity_postal_code`, `equity`, `joining_date`, `status`, `notes`, `department_id`, `reporting_manager_id`, `work_location`, `work_region`, `work_arrangement`, `hours_per_week`, `work_pattern`, `contract_end_date`, `internship_end_date`, `probation_months`, `response_deadline`, `conditions`, `benefits_summary`, `components`, `learning_objectives`, `academic_institution`, `approved_by`, `approved_at`, `issued_at`, `accepted_at`, `withdrawal_reason_category`, `withdrawal_reason_note`, `withdrawal_condition`, `withdrawal_legal_review`, `withdrawal_requested_by`
 - **FINANCIAL**: `salary`, `entity_tax_id`
 - **SPECIAL_CATEGORY**: `fixed_term_reason`, `decline_reason`
 
 ## `recruitment_requisitions` (default TENANT_CUSTOMER; most sensitive column rank 5)
 - **PLATFORM_META**: `id`, `organization_id`, `created_at`, `updated_at`
 - **PERSONAL_BASIC**: `created_by`, `hiring_manager_id`, `headcount_id`, `job_description_id`
-- **TENANT_CUSTOMER**: `title`, `department`, `location`, `openings`, `filled`, `priority`, `status`, `description`, `requirements`, `employment_type`, `replaces_employee_id`, `budget_min`, `budget_max`, `currency`, `target_start_date`, `justification`, `scorecard_criteria`, `decided_by`, `decided_at`, `decision_comment`
+- **TENANT_CUSTOMER**: `title`, `department`, `department_id`, `location`, `openings`, `filled`, `priority`, `status`, `description`, `requirements`, `employment_type`, `replaces_employee_id`, `budget_min`, `budget_max`, `currency`, `target_start_date`, `justification`, `scorecard_criteria`, `decided_by`, `decided_at`, `decision_comment`
 - **SPECIAL_CATEGORY**: `reason`
 
 ## `salary_components` (default FINANCIAL; most sensitive column rank 4)
@@ -797,7 +797,7 @@ Platform (super admin) subjects may only ever see `PLATFORM_META` and `TENANT_AG
 - **PLATFORM_META**: `id`, `notification_id`, `kind`, `ref`
 
 ## `super_admin_notifications` (default PLATFORM_META; most sensitive column rank 2)
-- **PLATFORM_META**: `id`, `title`, `message`, `body_html`, `notification_type`, `priority`, `is_read`, `target_org_id`, `target_user_id`, `created_by`, `created_at`, `channels`, `target_type`, `audience`, `status`, `sent_at`
+- **PLATFORM_META**: `id`, `title`, `message`, `body_html`, `notification_type`, `priority`, `is_read`, `target_org_id`, `target_user_id`, `created_by`, `created_at`, `channels`, `target_type`, `audience`, `status`, `sent_at`, `link`
 - **PERSONAL_BASIC**: `sender_name`
 
 ## `super_admin_security_events` (default PLATFORM_META; most sensitive column rank 0)

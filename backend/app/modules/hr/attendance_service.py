@@ -976,6 +976,9 @@ def create_leave_request(db: Session, data: dict, created_by: int = None, organi
         {"field": "status", "label": "Status", "before": None, "after": getattr(leave.status, "value", leave.status)},
     ])
     leave_documents.after_created(db, leave, created_by)
+    from app.modules.hr import leave_notifications
+    if str(getattr(leave.status, "value", leave.status) or "pending").lower() in ("pending", "in_progress"):
+        leave_notifications.leave_submitted(db, leave)     # A5
     return leave
 
 
@@ -993,6 +996,14 @@ def update_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: in
     db.commit()
     db.refresh(leave)
     _leave_activity(db, "leave.updated", reviewed_by, leave, changes=changes_from(before, update_data))
+    from app.modules.hr import leave_notifications
+    new_status = str(getattr(leave.status, "value", leave.status) or "").lower()
+    old_status = str(getattr(before.get("status"), "value", before.get("status")) or "").lower()
+    if "status" in update_data and new_status != old_status:   # A5
+        if new_status in ("approved", "rejected"):
+            leave_notifications.leave_decided(db, leave)
+        elif new_status == "cancelled":
+            leave_notifications.leave_cancelled(db, leave)
     return leave
 
 
@@ -1073,6 +1084,8 @@ def review_leave_request(db: Session, leave_id: int, data: dict, reviewed_by: in
 
     if decided:
         leave_documents.after_decided(db, leave, reviewed_by)
+        from app.modules.hr import leave_notifications
+        leave_notifications.leave_decided(db, leave)       # A5: the requester hears about it in-app
     return leave
 
 

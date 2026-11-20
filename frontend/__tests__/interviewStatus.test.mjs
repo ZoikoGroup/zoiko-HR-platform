@@ -23,8 +23,11 @@ test("there is no way between completed and cancelled", () => {
 
 test("the form names what is missing", () => {
   assert.deepEqual(validateInterviewForm({ candidate_name: " ", position: "", interview_date: "" }),
-    { candidate_name: "Candidate name is required.", position: "Position is required.", interview_date: "Interview date is required." });
-  assert.deepEqual(validateInterviewForm({ candidate_name: "Ann", position: "Dev", interview_date: "2026-11-01" }), {});
+    { candidate_name: "Candidate name is required.", position: "Position is required.", interview_date: "Interview date is required.",
+      interviewer: "Choose an interviewer, or enter the name of someone outside the system." });
+  assert.deepEqual(validateInterviewForm({ candidate_name: "Ann", position: "Dev", interview_date: "2026-11-01" }),
+    { interviewer: "Choose an interviewer, or enter the name of someone outside the system." });          // QA #13 BUG-16
+  assert.deepEqual(validateInterviewForm({ candidate_name: "Ann", position: "Dev", interview_date: "2026-11-01", interviewer: "Rahul Mehta" }), {});
 });
 
 const IV = (id, status, name) => ({ id, candidate_name: name, position: "Dev", interview_type: "video", interview_date: "2026-11-01", status });
@@ -115,4 +118,20 @@ test("scheduling with nothing entered shows field messages and sends nothing", a
   assert.match(text, /Position is required\./);
   assert.match(text, /Interview date is required\./);
   assert.equal(calls.update.length, 0);
+});
+
+test("marking an interview completed asks for its feedback straight away", async (t) => {
+  const calls = await load(t);
+  showAll();
+  const original = globalThis.window.confirm;
+  globalThis.window.confirm = () => true;
+  try {
+    fireEvent.click(within(card("Soon Sue")).getByRole("button", { name: "Mark completed" }));
+    await settle();
+  } finally {
+    globalThis.window.confirm = original;
+  }
+  assert.deepEqual(calls.update.at(-1)[1], { status: "completed" });
+  assert.match(document.body.textContent, /Feedback/i);
+  assert.ok(document.querySelector("textarea"), "the feedback form is open");
 });

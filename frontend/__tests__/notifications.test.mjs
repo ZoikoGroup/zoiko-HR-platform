@@ -50,6 +50,7 @@ function mockModules(t) {
   t.mock.module("react-router-dom", {
     exports: {
       Link: ({ to, children, ...rest }) => React.createElement("a", { href: to, ...rest }, children),
+      useLocation: () => ({ pathname: "/", search: "", hash: "", state: null }),
       Navigate: ({ to }) => React.createElement("div", { "data-testid": "redirect" }, to),
       useNavigate: () => () => {},
     },

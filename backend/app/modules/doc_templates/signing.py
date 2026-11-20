@@ -12,6 +12,7 @@ Three records, three meanings, never mixed:
 from __future__ import annotations
 
 import base64
+import logging
 import hashlib
 import hmac
 import secrets
@@ -24,6 +25,8 @@ from app.config import settings
 from app.modules.doc_templates import approvals, governance, notify, renderer, state, storage
 from app.modules.doc_templates.models import (DocumentAcknowledgement, DocumentSignOtp, DocumentSignature, EmployerEntity,
                                               GeneratedDocument, TemplateVariant)
+
+logger = logging.getLogger(__name__)
 
 SIGN_STATUSES = ("ISSUED",)
 MAX_DRAWN_BYTES = 200_000
@@ -39,8 +42,8 @@ class SignatureProvider(Protocol):
 # ── who must sign ────────────────────────────────────────────────────────────────────────────────────────────────────
 
 def required_parties(doc: GeneratedDocument) -> list[str]:
-    counterparty = "candidate" if doc.subject_type == "candidate" else "employee"
-    return {"SIGN_EMPLOYEE": ["employee"], "SIGN_CANDIDATE": ["candidate"],
+    counterparty = "candidate" if doc.subject_type in ("candidate", "new_hire") else "employee"
+    return {"SIGN_EMPLOYEE": [counterparty], "SIGN_CANDIDATE": [counterparty],
             "SIGN_BOTH": [counterparty, "employer"]}.get(doc.execution_mode, [])
 
 
@@ -90,19 +93,34 @@ def revoke_candidate_tokens(db, doc: GeneratedDocument) -> None:
         .update({SecurityActionToken.used_at: datetime.utcnow()}, synchronize_session=False)
 
 
-def resolve_candidate_token(db, raw: str):
-    """(document, token) for a live link, or 404. Viewing does not use the link up; signing or declining does."""
+def resolve_candidate_token(db, raw: str, allow_used: bool = False):
+    """(document, token) for a live link, or 404. Viewing does not use the link up; signing or declining does.
+    When allow_used=True, already signed documents can be reviewed, downloaded, or submitted to admin."""
     from app.modules.employee.models import SecurityActionPurpose, SecurityActionToken
     if not raw or len(raw) > 200:
         raise HTTPException(404, "This link is not valid.")
     tok = db.query(SecurityActionToken).filter(SecurityActionToken.token_hash == _token_hash(raw)).first()
-    if tok is None or tok.purpose != SecurityActionPurpose.DOCUMENT_SIGN or tok.used_at is not None \
+    if tok is None or tok.purpose != SecurityActionPurpose.DOCUMENT_SIGN \
+            or (tok.used_at is not None and not allow_used) \
             or tok.expires_at <= datetime.utcnow() or not (tok.reference or "").startswith("generated_document:"):
         raise HTTPException(404, "This link is not valid or has expired.")
     doc = db.get(GeneratedDocument, int(tok.reference.split(":", 1)[1]))
-    if doc is None or doc.organization_id != tok.organization_id or doc.subject_type != "candidate" \
+    if doc is None or doc.organization_id != tok.organization_id or doc.subject_type not in ("candidate", "new_hire") \
             or (doc.recipient_email or "").lower() != (tok.email or "").lower():
         raise HTTPException(404, "This link is not valid or has expired.")
+    return doc, tok
+
+
+def resolve_candidate_followup(db, raw: str):
+    """A link for what comes after signing (download, next document, submit). A used link is accepted only when the candidate
+    actually signed or declined with it; a link HR revoked (also marked used) is refused, so a leaked or re-issued link
+    cannot reach the hire's other documents."""
+    doc, tok = resolve_candidate_token(db, raw, allow_used=True)
+    if tok.used_at is not None:
+        acted = db.query(DocumentSignature.id).filter(DocumentSignature.document_id == doc.id,
+                                                       DocumentSignature.signer_party == "candidate").first()
+        if acted is None:
+            raise HTTPException(404, "This link is not valid or has expired.")
     return doc, tok
 
 
@@ -138,7 +156,13 @@ def send_otp(db, doc: GeneratedDocument, *, party: str, signer_key: str, email: 
                            code_hash=_code_hash(doc.id, signer_key, code), created_at=now,
                            expires_at=now + timedelta(minutes=settings.DOC_SIGN_OTP_TTL_MINUTES)))
     db.commit()
-    notify.sign_code(db, doc, email, first_name, code)
+    if not notify.sign_code(db, doc, email, first_name, code):
+        # never tell the signer a code is on its way when the e-mail failed: the code is void and they can retry
+        pending = db.query(DocumentSignOtp).filter(DocumentSignOtp.document_id == doc.id, DocumentSignOtp.signer_key == signer_key,
+                                                   DocumentSignOtp.consumed_at.is_(None))
+        pending.update({DocumentSignOtp.consumed_at: datetime.utcnow()}, synchronize_session=False)
+        db.commit()
+        raise HTTPException(503, "We could not e-mail your signing code. Try again in a few minutes, or contact HR.")
     return {"sent_to": governance.mask_email(email), "expires_in_minutes": settings.DOC_SIGN_OTP_TTL_MINUTES}
 
 
@@ -214,6 +238,9 @@ def sign(db, doc: GeneratedDocument, *, party: str, signer_employee=None, signer
             raise HTTPException(409, "The employer signs after the other party.")
     if consent_version != governance.CONSENT_VERSION:
         raise HTTPException(422, "Confirm the current electronic signature consent statement.")
+    if party == "candidate":
+        from app.modules.hr import onboarding_package
+        onboarding_package.check_before_signing(db, doc)       # e.g. the affidavit's Schedule A declaration
     if method not in ("TYPED", "DRAWN"):
         raise HTTPException(422, "Choose a typed or drawn signature.")
 
@@ -313,13 +340,42 @@ def _finalize(db, doc: GeneratedDocument) -> None:
     sigs = [s for s in signatures(db, doc) if s.decision == "SIGNED"]
     cert = governance.to_pdf(governance.certificate_record(db, doc, sigs, now, org), org, entity)
     original = storage.get_store().get(doc.pdf_path)
-    executed = renderer.append_pdf(original, cert)
+    try:                                   # signer-completed schedules (the affidavit's Schedule A) sit before the certificate
+        from app.modules.hr import onboarding_package
+        schedule = onboarding_package.signing_schedule(db, doc)
+    except Exception:
+        schedule = None
+    body = renderer.append_pdf(original, schedule) if schedule else original
+    try:                                   # the signatures as given (drawn image / typed name), before the evidence certificate
+        body = renderer.append_pdf(body, governance.signature_page_pdf(doc, sigs, org))
+    except Exception:
+        logger.exception("signature page could not be rendered for document %s", doc.id)
+    executed = renderer.append_pdf(body, cert)
     digest = hashlib.sha256(executed).hexdigest()
     doc.executed_pdf_path = storage.get_store().put(doc.organization_id, f"{doc.document_number}-executed-{digest[:12]}.pdf",
                                                     executed, encrypt=doc.files_encrypted)
     doc.executed_pdf_sha256 = digest
     state.transition(db, doc, "EXECUTED", actor_type="system", detail={"executed_sha256": digest})
     _point_hr_document(db, doc, len(executed))
+    try:
+        from app.modules.hr.models import OnboardingDocument, OnboardingNewHire
+        from app.modules.hr import onboarding_package
+        from app.modules.hr.service import log_onboarding_activity
+        for onb_doc in db.query(OnboardingDocument).filter(OnboardingDocument.document_id == doc.id).all():
+            onb_doc.status = "approved"
+            if doc.executed_pdf_path:
+                onb_doc.file_path = doc.executed_pdf_path
+            if onb_doc.onboarding_new_hire_id:
+                hire = db.get(OnboardingNewHire, onb_doc.onboarding_new_hire_id)
+                if hire:
+                    onboarding_package.sync_onboarding_document_checklist(db, hire)
+                    log_onboarding_activity(
+                        db, hire.id, "Document Signed",
+                        f"{hire.candidate_name} electronically signed '{doc.title}'.",
+                        hire.organization_id
+                    )
+    except Exception:
+        pass
 
 
 def _point_hr_document(db, doc, size) -> None:

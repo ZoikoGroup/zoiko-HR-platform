@@ -84,9 +84,15 @@ def test_exactly_one_zoiko_hr_logo_per_email(rendered):
         img = light[0]
         assert f'src="{ASSET_BASE}/zoikohr-logo-email@2x.png"' in img, label
         assert 'alt="Zoiko HR"' in img, label
-        assert 'width="180"' in img and 'height="31"' in img, label
         # alt text is styled so the brand still reads with images blocked
-        assert "color:#06508d" in img and "font-size:22px" in img, label
+        assert "color:#06508d" in img, label
+        if out.branding.get("tenant_name"):
+            # an organization's email: its own brand heads it, Zoiko HR is "Powered by" in the footer
+            assert 'width="120"' in img and 'height="21"' in img, label
+            assert out.html.index('class="org-wordmark') < out.html.index(img), label
+            assert "Powered by" in out.html, label
+        else:
+            assert 'width="180"' in img and 'height="31"' in img and "font-size:22px" in img, label
         # the reversed dark-mode variant exists once and is hidden by default
         dark = re.findall(r'<div class="zhr-logo-dark-wrap" style="display:none[^"]*">', out.html)
         assert len(dark) == 1, label
@@ -96,6 +102,8 @@ def test_exactly_one_zoiko_hr_logo_per_email(rendered):
 def test_logo_never_svg_data_uri_or_relative(rendered):
     for label, _, _, out in rendered:
         for src in re.findall(r'<img[^>]*src="([^"]*)"', out.html):
+            if src == "cid:org-logo":  # the organization's own logo, inlined in the message
+                continue
             assert src.startswith("https://"), f"{label}: non-https img src {src}"
             assert not src.lower().endswith(".svg"), label
         assert "data:image" not in out.html, label
@@ -129,30 +137,93 @@ def test_asset_base_falls_back_to_https_host(monkeypatch):
     assert email_service.email_asset_base() == "https://staging.zoikohr.com/email"
 
 
-def test_tenant_logo_is_secondary_cobrand_only(monkeypatch):
-    def _with_logo(url):
-        return lambda organization_id=None, db=None: {
-            **email_service._BRANDING_DEFAULTS, "company_name": "Acme", "tenant_name": "Acme", "logo_url": url,
-        }
+def _acme_branding(**extra):
+    return lambda organization_id=None, db=None: {
+        **email_service._BRANDING_DEFAULTS, "company_name": "Acme", "tenant_name": "Acme", **extra,
+    }
 
-    context = {"subject": "s", "first_name": "Sam", "document_name": "Doc", "due_at_local": "Oct 1",
-               "action_url": "https://app.zoikohr.com/docs"}
 
-    monkeypatch.setattr(email_service, "_get_org_branding", _with_logo("https://cdn.acme.test/logo.png\"><x"))
-    html = email_service.render_email("document_assigned.html", context, organization_id=1).html
-    assert 'class="zhr-logo zhr-logo-light"' in html  # Zoiko HR logo still present
+_DOC_CONTEXT = {"subject": "s", "first_name": "Sam", "document_name": "Doc", "due_at_local": "Oct 1",
+                "action_url": "https://app.zoikohr.com/docs"}
+
+
+def _png(size):
+    import io
+    from PIL import Image
+
+    out = io.BytesIO()
+    Image.new("RGBA", size, (200, 30, 30, 255)).save(out, format="PNG")
+    return out.getvalue()
+
+
+def test_organization_is_the_main_brand_and_zoiko_hr_logo_stays(monkeypatch):
+    # no logo: the organization's name heads the email; the Zoiko HR logo is kept in the footer
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding())
+    out = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1)
+    assert '<p class="org-wordmark dm-text-strong"' in out.html and ">Acme</p>" in out.html
+    assert out.html.count('class="zhr-logo zhr-logo-light"') == 1
+    assert out.html.index('class="org-wordmark') < out.html.index("Powered by") < out.html.index('<img class="zhr-logo zhr-logo-light"')
+    assert out.inline_data == ()
+
+
+def test_uploaded_organization_logo_is_inlined_in_the_header(monkeypatch):
+    logo = email_service._org_logo_for_email(_png((900, 300)))
+    assert logo and (logo[1], logo[2]) == (144, 48)  # fits 200x48, aspect ratio kept
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding(org_logo=logo))
+    out = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1)
+    assert '<img class="org-logo" src="cid:org-logo" width="144" height="48" alt="Acme"' in out.html
+    assert 'class="org-wordmark' not in out.html
+    assert out.inline_data == (("org-logo", logo[0]),)
+    assert out.html.count('class="zhr-logo zhr-logo-light"') == 1  # Zoiko HR logo never removed
+
+    msg = email_service._build_message(out)
+    related = msg.get_payload()[1]
+    assert related.get_content_type() == "multipart/related"
+    _html, image = related.get_payload()
+    assert image["Content-ID"] == "<org-logo>" and image.get_payload(decode=True) == logo[0]
+    assert image["Content-Disposition"] == "inline" and image.get_filename() is None,         "a named inline part is listed by Gmail as an attachment (org-logo.png)"
+
+
+def test_a_public_api_serves_the_organization_logo_by_url_instead_of_attaching_it(monkeypatch):
+    logo = email_service._org_logo_for_email(_png((900, 300)))
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding(org_logo=logo))
+    monkeypatch.setattr(settings, "API_BASE_URL", "https://api.zoikohr.com")
+    from app.modules.hr import onboarding_package
+    monkeypatch.setattr(onboarding_package, "get_config", lambda db, org: {"logo_key": "1/org-logo-abc.png"})
+    out = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1, db=object())
+    url = f"https://api.zoikohr.com/public/onboarding/email-logo/1/{email_service.org_logo_token('1/org-logo-abc.png')}.png"
+    assert f'<img class="org-logo" src="{url}"' in out.html
+    assert out.inline_data == (), "nothing is attached, so no org-logo.png chip"
+
+
+def test_small_organization_logo_is_not_shrunk_unreadably():
+    assert email_service._org_logo_for_email(_png((60, 20)))[1:] == (60, 20)
+    assert email_service._org_logo_for_email(b"not an image") is None
+
+
+def test_organization_logo_url_is_a_fallback_and_must_be_https(monkeypatch):
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding(logo_url="https://cdn.acme.test/logo.png\"><x"))
+    html = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1).html
     assert 'src="https://cdn.acme.test/logo.png&#34;&gt;&lt;x"' in html  # escaped
-    assert 'height="24"' in html
+    assert 'class="zhr-logo zhr-logo-light"' in html
 
-    monkeypatch.setattr(email_service, "_get_org_branding", _with_logo("http://insecure.acme.test/logo.png"))
-    html = email_service.render_email("document_assigned.html", context, organization_id=1).html
-    assert "insecure.acme.test" not in html
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding(logo_url="http://insecure.acme.test/logo.png"))
+    html = email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1).html
+    assert "insecure.acme.test" not in html and ">Acme</p>" in html
 
-    # a caller's context can never override the Zoiko HR logo
+    # a caller's context can never override the Zoiko HR logo or the organization's
     html = email_service.render_email(
-        "document_assigned.html", {**context, "logo_src": "https://evil.test/x.png"}, organization_id=1
+        "document_assigned.html",
+        {**_DOC_CONTEXT, "logo_src": "https://evil.test/x.png", "org_logo_src": "https://evil.test/y.png"},
+        organization_id=1,
     ).html
     assert "evil.test" not in html
+
+
+def test_email_without_an_organization_keeps_zoiko_hr_in_the_header():
+    out = email_service.render_email("document_assigned.html", _DOC_CONTEXT)
+    assert 'class="org-logo"' not in out.html and 'class="org-wordmark' not in out.html and "Powered by" not in out.html
+    assert 'class="zhr-logo zhr-logo-light" src="https://app.zoikohr.com/email/zoikohr-logo-email@2x.png" width="180"' in out.html
 
 
 # ── Brand ─────────────────────────────────────────────────────────────────
@@ -433,10 +504,11 @@ def test_the_logo_files_ship_with_both_the_frontend_and_the_backend_and_match():
 
 
 def test_every_email_shows_the_zoiko_hr_favicon_in_the_footer_and_head(rendered):
-    for label, _template, _ctx, _org in [(r[0], r[1], r[2], r[3]) for r in rendered]:
-        html = next(r[3] for r in rendered if r[0] == label).html
-        assert html.count('class="zhr-favicon"') == 1, label
-        assert f'src="{ASSET_BASE}/zoikohr-favicon@2x.png"' in html, label
+    for label, _template, _ctx, out in rendered:
+        html = out.html
+        # an organization's email carries the full Zoiko HR logo in its footer instead of the app icon
+        assert html.count('class="zhr-favicon"') == (0 if out.branding.get("tenant_name") else 1), label
+        assert (f'src="{ASSET_BASE}/zoikohr-favicon@2x.png"' in html) != bool(out.branding.get("tenant_name")), label
         assert f'<link rel="icon" type="image/png" href="{ASSET_BASE}/zoikohr-favicon@2x.png">' in html, label
 
 
@@ -449,3 +521,19 @@ def test_favicon_asset_is_small_square_and_identical_in_backend_and_frontend():
     assert Image.open(backend).size == (64, 64)
     with open(backend, "rb") as a, open(frontend, "rb") as b:
         assert a.read() == b.read()
+
+
+def test_signoff_is_the_organization_for_its_emails_and_zoiko_hr_otherwise(monkeypatch):
+    monkeypatch.setattr(email_service, "_get_org_branding", _acme_branding())
+    assert "The Acme Team</strong>" in email_service.render_email("document_assigned.html", _DOC_CONTEXT, organization_id=1).html
+    monkeypatch.setattr(email_service, "_get_org_branding", _branding)
+    assert "The Zoiko HR Team</strong>" in email_service.render_email("document_assigned.html", _DOC_CONTEXT).html
+
+
+def test_every_template_imports_components_with_context():
+    # the default sign-off reads tenant_name, which a macro only sees when imported "with context"
+    for path in _template_files():
+        with open(path, encoding="utf-8") as f:
+            source = f.read()
+        if "_components.html" in source:
+            assert '{% import "_layouts/_components.html" as ui with context %}' in source, os.path.basename(path)

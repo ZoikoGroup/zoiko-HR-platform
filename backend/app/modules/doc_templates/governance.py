@@ -375,6 +375,70 @@ def device_summary(ua: Optional[str]) -> str:
     return f"{browser} on {osn}"
 
 
+SIGNATURE_PARTY_LABEL = {"candidate": "Employee", "employee": "Employee", "employer": "For the employer", "witness": "Witness"}
+
+
+def signature_page_pdf(doc: GeneratedDocument, signatures: list[DocumentSignature], organization) -> bytes:
+    """A page that shows each signature as it was given (the drawn image, or the typed name in a signature style) with the
+    signer's name, role and the date, placed before the evidence certificate so a reader sees who signed at a glance."""
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.styles import ParagraphStyle
+    from reportlab.lib.units import mm
+    from reportlab.platypus import Image, KeepTogether, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+    from xml.sax.saxutils import escape
+    f = renderer._fonts()
+    ink = colors.HexColor("#1e3a8a")
+    base = ParagraphStyle("b", fontName=f["regular"], fontSize=9.5, leading=13, textColor=colors.HexColor("#334155"))
+    h1 = ParagraphStyle("h1", parent=base, fontName=f["bold"], fontSize=16, leading=20, textColor=colors.HexColor("#0f172a"))
+    label = ParagraphStyle("l", parent=base, fontName=f["bold"], fontSize=8, leading=10, textColor=colors.HexColor("#2563eb"))
+    typed = ParagraphStyle("t", parent=base, fontName="Times-Italic", fontSize=26, leading=30, textColor=ink)
+    name = ParagraphStyle("n", parent=base, fontName=f["bold"], fontSize=10.5, leading=14, textColor=colors.HexColor("#0f172a"))
+    story = [Paragraph("Signatures", h1),
+             Paragraph(escape(f"{doc.title} · {doc.document_number}"), base), Spacer(1, 8 * mm)]
+    from app.modules.doc_templates import storage
+    store = storage.get_store()
+    for sig in signatures:
+        mark = None
+        if sig.signature_method == "DRAWN" and sig.signature_image_path:
+            try:
+                from reportlab.lib.utils import ImageReader
+                png = store.get(sig.signature_image_path)
+                iw, ih = ImageReader(io.BytesIO(png)).getSize()
+                h = 22 * mm
+                w = min(80 * mm, h * iw / max(ih, 1))
+                mark = Image(io.BytesIO(png), width=w, height=w * ih / max(iw, 1))
+            except Exception:
+                mark = None
+        if mark is None:
+            mark = Paragraph(escape(sig.signer_name_typed or ""), typed)
+        when = sig.signed_at.strftime("%d %B %Y, %H:%M UTC") if sig.signed_at else ""
+        how = "Drawn signature" if sig.signature_method == "DRAWN" else "Typed signature"
+        if sig.otp_verified_at:
+            how += " · verified with a one-time e-mail code"
+        card = Table([[Paragraph(SIGNATURE_PARTY_LABEL.get(sig.signer_party, sig.signer_party.title()).upper(), label)],
+                      [mark],
+                      [Paragraph(escape(sig.signer_name_typed or ""), name)],
+                      [Paragraph(escape(f"Signed {when}"), base)],
+                      [Paragraph(escape(how), base)]],
+                     colWidths=[170 * mm])
+        card.setStyle(TableStyle([
+            ("BOX", (0, 0), (-1, -1), 0.6, colors.HexColor("#cbd5e1")),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.white),
+            ("LINEBELOW", (0, 1), (-1, 1), 0.8, colors.HexColor("#94a3b8")),
+            ("LEFTPADDING", (0, 0), (-1, -1), 12), ("RIGHTPADDING", (0, 0), (-1, -1), 12),
+            ("TOPPADDING", (0, 0), (-1, 0), 10), ("TOPPADDING", (0, 1), (-1, 1), 6), ("BOTTOMPADDING", (0, 1), (-1, 1), 6),
+            ("BOTTOMPADDING", (0, -1), (-1, -1), 10), ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        story += [KeepTogether([card]), Spacer(1, 6 * mm)]
+    story.append(Paragraph("The evidence for each signature (consent, verification code, device and network) is recorded in the "
+                           "Electronic Signature Evidence Certificate that follows.", base))
+    out = io.BytesIO()
+    SimpleDocTemplate(out, pagesize=A4, leftMargin=20 * mm, rightMargin=20 * mm, topMargin=20 * mm, bottomMargin=20 * mm,
+                      title=f"Signatures – {doc.document_number}", author=getattr(organization, "organization_name", "") or "").build(story)
+    return out.getvalue()
+
+
 def certificate_record(db, doc: GeneratedDocument, signatures: list[DocumentSignature], completed_at: datetime, organization) -> Record:
     from app.modules.doc_templates.models import EmployerEntity
     entity = db.get(EmployerEntity, doc.entity_id) if doc.entity_id else None

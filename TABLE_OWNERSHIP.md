@@ -7,7 +7,9 @@
 - `organization_configs`
 - `departments`
 - `designations`
-- `employees`
+- `employees`: one account per (organization, e-mail). The same address may have a separate account in many
+  organizations, and appears once per organization ignoring case. See
+  [docs/email-identity-per-organization.md](docs/email-identity-per-organization.md).
 - `employee_profiles`
 - `employee_history`
 - `employee_lifecycle`

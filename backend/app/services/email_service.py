@@ -111,6 +111,7 @@ class RenderedEmail:
     text: str
     inline_images: tuple = ()  # (cid, filename) pairs when CID logo mode is on
     branding: dict = None
+    inline_data: tuple = ()  # (cid, png bytes) pairs, e.g. the organization's own logo
 
 
 def _frontend_url() -> str:
@@ -177,9 +178,85 @@ def email_asset_base() -> str:
     return f"{PRODUCTION_APP_URL}/email"
 
 
-def _layout_context(branding: dict, context: dict) -> dict:
+ORG_LOGO_CID = "org-logo"
+ORG_LOGO_MAX_DISPLAY = (200, 48)  # px; the inlined file is up to 2x this so it stays sharp on high-DPI screens
+
+
+def _org_logo_for_email(png: bytes):
+    """Scale an organization logo down for email and return (png, display_width, display_height), or None when the
+    image cannot be read."""
+    try:
+        import io as _io
+        from PIL import Image
+
+        img = Image.open(_io.BytesIO(png))
+        img.load()
+        img = img.convert("RGBA")
+        max_w, max_h = ORG_LOGO_MAX_DISPLAY
+        img.thumbnail((max_w * 2, max_h * 2))
+        scale = 0.5  # shown at half its pixel size (2x)
+        if img.height * scale < 24:  # a small upload: show it larger rather than unreadably tiny
+            scale = min(1.0, max_w / img.width, max_h / img.height)
+        width, height = max(1, round(img.width * scale)), max(1, round(img.height * scale))
+        out = _io.BytesIO()
+        img.save(out, format="PNG", optimize=True)
+        return out.getvalue(), width, height
+    except Exception as e:
+        logger.warning(f"[email] Organization logo could not be prepared for email: {e}")
+        return None
+
+
+_ORG_LOGO_CACHE: dict = {}
+
+
+def _uploaded_org_logo(db, organization_id):
+    """The logo the organization uploaded (Onboarding › Settings › Offer package), prepared for email, or None."""
+    from app.modules.hr import onboarding_package
+
+    cfg = onboarding_package.get_config(db, organization_id)
+    key = cfg.get("logo_key")
+    if not key:
+        return None
+    if key not in _ORG_LOGO_CACHE:  # the storage key changes on every upload, so a cached entry never goes stale
+        data = onboarding_package.logo_bytes(db, organization_id, cfg)
+        _ORG_LOGO_CACHE[key] = _org_logo_for_email(data) if data else None
+    return _ORG_LOGO_CACHE[key]
+
+
+def org_logo_token(logo_key: str) -> str:
+    """The public name of an uploaded logo version: changes with every upload, so mail clients never show an old one."""
+    import hashlib
+    return hashlib.sha256(str(logo_key).encode("utf-8")).hexdigest()[:20]
+
+
+def _org_logo_public_url(db, organization_id) -> str:
+    """A public https address of the organization's email logo (served by GET /public/onboarding/email-logo/...), or "" when
+    this API is not reachable from the internet (local development): the logo is then attached as an inline image."""
+    api = (getattr(_app_settings, "API_BASE_URL", "") or "").strip().rstrip("/")
+    if not organization_id or not (_safe_https_url(api) and _is_public_host(api)):
+        return ""
+    try:
+        from app.modules.hr import onboarding_package
+        key = onboarding_package.get_config(db, organization_id).get("logo_key") if db is not None else None
+        if key is None and db is None:
+            from app.database import SessionLocal
+            own = SessionLocal()
+            try:
+                key = onboarding_package.get_config(own, organization_id).get("logo_key")
+            finally:
+                own.close()
+    except Exception as e:
+        logger.warning(f"[email] Could not read the logo setting of organization_id={organization_id}: {e}")
+        return ""
+    return f"{api}/public/onboarding/email-logo/{int(organization_id)}/{org_logo_token(key)}.png" if key else ""
+
+
+def _layout_context(branding: dict, context: dict, org_logo=None, org_logo_url: str = "") -> dict:
     """Variables owned by the base layout. Applied last so a caller's context
-    can never replace the Zoiko HR logo (§5.2 immutable identity)."""
+    can never replace the Zoiko HR logo (§5.2 immutable identity).
+
+    The organization is the main brand of its own emails: its logo (or its name) heads the email and the Zoiko HR
+    logo moves to the footer as "Powered by Zoiko HR". Emails with no organization keep Zoiko HR as the header brand."""
     inline_logo = bool(getattr(_app_settings, "HR_EMAIL_INLINE_LOGO", False))
     base = email_asset_base()
 
@@ -193,7 +270,12 @@ def _layout_context(branding: dict, context: dict) -> dict:
         "logo_src": _logo(LOGO_FILE),
         "logo_dark_src": _logo(LOGO_DARK_FILE),
         "favicon_src": _logo(FAVICON_FILE),
-        "cobrand_logo_url": _safe_https_url(branding.get("logo_url")),
+        "org_brand": bool(branding.get("tenant_name")),
+        # a hosted logo (public https) shows in the header like an image on a web page; only when there is no public
+        # address is it attached inline (cid:), which some clients also list as an attachment
+        "org_logo_src": (org_logo_url or f"cid:{ORG_LOGO_CID}") if org_logo else _safe_https_url(branding.get("logo_url")),
+        "org_logo_width": org_logo[1] if org_logo else 0,
+        "org_logo_height": org_logo[2] if org_logo else 0,
         "tenant_name": branding.get("tenant_name", ""),
         "support_url": _safe_https_url(getattr(_app_settings, "HR_EMAIL_SUPPORT_URL", "")) or "https://app.zoikohr.com/contact",
         "lang": locale,
@@ -248,9 +330,11 @@ def render_email(
     Raises EmailTemplateMissing if the template file doesn't exist, and
     jinja2 UndefinedError if the template references a variable the caller
     didn't supply."""
-    branding = _get_org_branding(organization_id, db=db)
+    branding = dict(_get_org_branding(organization_id, db=db))
+    org_logo = branding.pop("org_logo", None)
     full_context = {**branding, **context}
-    full_context.update(_layout_context(branding, context))
+    org_logo_url = _org_logo_public_url(db, organization_id) if org_logo else ""
+    full_context.update(_layout_context(branding, context, org_logo, org_logo_url))
 
     try:
         if template_body is not None:
@@ -265,9 +349,10 @@ def render_email(
     inline = ()
     if full_context["logo_src"].startswith("cid:"):
         inline = tuple((cid, filename) for filename, cid in _LOGO_CIDS.items())
+    inline_data = ((ORG_LOGO_CID, org_logo[0]),) if org_logo and full_context["org_brand"] and not org_logo_url else ()
     return RenderedEmail(
         subject=subject, html=html_body, text=_html_to_text(html_body),
-        inline_images=inline, branding=branding,
+        inline_images=inline, branding=branding, inline_data=inline_data,
     )
 
 
@@ -333,6 +418,15 @@ _BRANDING_DEFAULTS = {
 }
 
 
+def _load_org_logo(db, organization_id):
+    """The organization's uploaded logo for its emails; a storage problem must never stop the email itself."""
+    try:
+        return _uploaded_org_logo(db, organization_id)
+    except Exception as e:
+        logger.warning(f"[email] Could not load the logo of organization_id={organization_id}: {e}")
+        return None
+
+
 def _get_org_branding(organization_id=None, db=None) -> dict:
     """Look up HR Organization branding for organization_id and return the
     template-context branding fields, with safe fallbacks. Returns the
@@ -374,6 +468,7 @@ def _get_org_branding(organization_id=None, db=None) -> dict:
                 "legal_entity": legal_entity,
                 "billing_address": billing_address,
                 "billing_phone": "",
+                "org_logo": _load_org_logo(db, organization_id) if row else None,
             }
         finally:
             if own_session:
@@ -536,18 +631,25 @@ def _log_email_delivery(
 
 def _build_message(rendered: RenderedEmail, attachments=None) -> MIMEMultipart:
     """multipart/alternative(text, html) — wrapped in multipart/related when
-    the logo is CID-inlined, and in multipart/mixed when there are PDFs."""
+    a logo (Zoiko HR's in CID mode, or the organization's) is CID-inlined, and in multipart/mixed when there are PDFs."""
     alternative = MIMEMultipart("alternative")
     alternative.attach(MIMEText(rendered.text, "plain", "utf-8"))
     html_part = MIMEText(rendered.html, "html", "utf-8")
-    if rendered.inline_images:
+    if rendered.inline_images or rendered.inline_data:
         related = MIMEMultipart("related")
         related.attach(html_part)
+        images = []
         for cid, filename in rendered.inline_images:
             with open(os.path.join(TEMPLATE_DIR, "assets", filename), "rb") as f:
-                image = MIMEImage(f.read(), _subtype="png")
+                images.append((cid, filename, f.read()))
+        images += [(cid, f"{cid}.png", data) for cid, data in rendered.inline_data]
+        for cid, _filename, data in images:
+            image = MIMEImage(data, _subtype="png")
             image.add_header("Content-ID", f"<{cid}>")
-            image.add_header("Content-Disposition", "inline", filename=filename)
+            # inline, with no file name: a named part is listed by Gmail as an attachment (org-logo.png) under the
+            # subject even though it is shown in the email
+            image.add_header("Content-Disposition", "inline")
+            image.add_header("X-Attachment-Id", cid)
             related.attach(image)
         alternative.attach(related)
     else:
@@ -720,6 +822,9 @@ def _send_approval_email_now(
             context_data=context,
             db=db,
         )
+        from app.modules.hr import email_status
+        if email_status.is_recipient_bounce(error):         # the mailbox does not exist: say so on the person's profile
+            email_status.mark_bounced(db, organization_id, to_email)
         return False
 
     logger.info(f"[email] Sent to {to_email} | template={template_name}")
@@ -757,12 +862,12 @@ def send_org_registration_otp_email(
     )
 
 
-def send_registration_received(email: str, org_name: str, login_url: str = None, db=None):
+def send_registration_received(email: str, org_name: str, login_url: str = None, db=None, organization_id=None):
     return send_approval_email(email, "registration_received.html", {
         "subject": f"Welcome to Zoiko HR — {org_name}",
         "organization_name": org_name,
         "action_url": login_url or _login_url(),
-    }, db=db)
+    }, db=db, organization_id=organization_id)
 
 
 def send_new_organization_created(
@@ -877,6 +982,32 @@ def send_interview_cancelled(email, recipient_name, is_candidate, candidate_name
     return _send_interview_email("interview_cancelled.html", "Interview cancelled", email, recipient_name, is_candidate,
                                  candidate_name, position, organization_name, date_display, time_display, None, None,
                                  None, None, ics=ics, db=db, organization_id=organization_id)
+
+
+def send_interview_result(email, candidate_name, position, organization_name, cleared: bool, interview_type_label,
+                          date_display, message=None, db=None, organization_id=None):
+    """Tell the candidate the outcome of their interview: cleared (next steps follow) or not taken forward."""
+    template = "interview_cleared.html" if cleared else "interview_rejected.html"
+    subject = (f"Congratulations, you've cleared your interview: {position} | {organization_name}" if cleared
+               else f"An update on your interview: {position} | {organization_name}")
+    return send_approval_email(email, template, {
+        "subject": subject, "candidate_name": candidate_name, "position": position, "organization_name": organization_name,
+        "interview_type_label": interview_type_label or "Interview", "date_display": date_display, "message": message,
+    }, db=db, organization_id=organization_id)
+
+
+def send_interview_result_recorded(email, recipient_name, candidate_name, position, organization_name, cleared: bool,
+                                   interview_type_label, date_display, rating=None, recorded_by=None, candidate_emailed=False,
+                                   review_url=None, db=None, organization_id=None):
+    """Tell HR admins and the interviewer that an interview's result was recorded."""
+    label = "Cleared" if cleared else "Not selected"
+    return send_approval_email(email, "interview_result_recorded.html", {
+        "subject": f"Interview result: {candidate_name} – {label} ({position}) | {organization_name}",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "cleared": cleared, "result_label": label,
+        "interview_type_label": interview_type_label or "Interview", "date_display": date_display, "rating": rating,
+        "recorded_by": recorded_by, "candidate_emailed": candidate_emailed, "review_url": review_url,
+    }, db=db, organization_id=organization_id)
 
 
 def send_candidate_status_update(email, candidate_name, position, organization_name, status_label, is_rejection=False,
@@ -996,6 +1127,18 @@ def send_onboarding_completed(email, recipient_name, candidate_name, employee_co
     }, db=db, organization_id=organization_id)
 
 
+def send_onboarding_documents_submitted(email, recipient_name, candidate_name, position, organization_name, documents,
+                                        review_url, joining_date_display=None, db=None, organization_id=None):
+    """The one email HR gets when a new hire has signed and submitted the whole onboarding package (each document's own
+    "completed" email is not sent for onboarding documents). documents: [{"title", "status"}]."""
+    return send_approval_email(email, "onboarding_documents_submitted.html", {
+        "subject": f"Onboarding documents completed: {candidate_name} | Zoiko HR",
+        "recipient_name": recipient_name, "candidate_name": candidate_name, "position": position,
+        "organization_name": organization_name, "documents": list(documents or []), "review_url": review_url,
+        "joining_date_display": joining_date_display,
+    }, db=db, organization_id=organization_id)
+
+
 def send_leave_request_submitted(
     email: str,
     first_name: str,
@@ -1003,6 +1146,7 @@ def send_leave_request_submitted(
     leave_period_display: str,
     leave_request_url: str,
     db=None,
+    organization_id=None,
 ):
     """Notify the employee that their leave request was submitted."""
     return send_approval_email(email, "leave_request_submitted.html", {
@@ -1011,7 +1155,7 @@ def send_leave_request_submitted(
         "request_reference": request_reference,
         "leave_period_display": leave_period_display,
         "leave_request_url": leave_request_url,
-    }, db=db)
+    }, db=db, organization_id=organization_id)
 
 
 def send_leave_approved(
@@ -1501,9 +1645,13 @@ def send_org_admin_password_reset_email(
     action_url: str,
     organization_id=None,
     db=None,
+    workspace_name: str = None,
 ) -> bool:
+    # workspace_name: set when the address has an account in several organizations, so each e-mail says which account its
+    # link resets (every link resets ONE account).
     return send_approval_email(email, "org_admin_password_reset.html", {
-        "subject": "Reset your Zoiko HR password",
+        "subject": f"Reset your Zoiko HR password for {workspace_name}" if workspace_name else "Reset your Zoiko HR password",
+        "workspace_name": workspace_name or "",
         "first_name": first_name,
         "expires_at_local": expires_at_local,
         "timezone": timezone,

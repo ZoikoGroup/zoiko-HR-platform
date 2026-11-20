@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Offer " ~ outcome_label|lower %}
 {% set preheader = candidate_name ~ " " ~ outcome_label|lower ~ " the offer for " ~ position ~ "." %}
 {% set badge = outcome_label %}

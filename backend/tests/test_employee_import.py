@@ -51,7 +51,8 @@ def _import(db, rows, org=1):
 
 
 def _row(n, status="Active", etype="Full Time"):
-    return [f"First{n}", f"Last{n}", f"person{n}@example.com", "Engineer", "2026-09-01", status, etype]
+    # names are letters only (B16/B17: digits in a name are refused), still unique per row
+    return [f"First{chr(64 + n)}", f"Last{chr(64 + n)}", f"person{n}@example.com", "Engineer", "2026-09-01", status, etype]
 
 
 def test_codes_do_not_collide_after_an_employee_is_deleted(db):

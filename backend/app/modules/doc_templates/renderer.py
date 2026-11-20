@@ -44,6 +44,7 @@ class RenderInput:
     checklist_state: dict = field(default_factory=dict)   # checklist records: key -> {"done", "on", "note"}
     labels: dict = field(default_factory=dict)   # field key -> label (field_group)
     signatures: dict = field(default_factory=dict)   # party -> text shown on the signature line
+    signer_names: dict = field(default_factory=dict)  # party -> name printed under the signature line (e.g. the candidate)
     # document meta
     document_number: str = ""
     title: str = ""
@@ -123,7 +124,10 @@ def layout(inp: RenderInput) -> list[El]:
             out.append(El("declaration", _runs(block["text"], inp, lit), {"mode": block["mode"]}))
         elif t == "signature_block":
             out.append(El("signatures", data={"parties": [(p, inp.signatures.get(p) or "______________________________")
-                                                          for p in block["parties"]]}))
+                                                          for p in block["parties"]],
+                                              # the signer's name stays on the page: the signed copy keeps these pages unchanged
+                                              "names": {p: inp.signer_names[p] for p in block["parties"]
+                                                        if inp.signer_names.get(p) and not inp.signatures.get(p)}}))
         elif t == "page_break":
             out.append(El("page_break"))
     return out
@@ -249,8 +253,11 @@ def render_html(inp: RenderInput, elements: Optional[list] = None) -> str:
             parts.append(f'<div style="{declaration_style}">{_html_runs(el.runs)}</div>')
         elif k == "signatures":
             sig_style = _CSS["sig"] + ("border-top:1px solid #9fb7bf;padding-top:10px;margin-top:20px;" if offer_design else "")
+            names = el.data.get("names") or {}
             sigs = "".join(f'<div style="{sig_style}"><div style="font-size:12px;color:#4b5563;">{_E(PARTY_LABELS.get(p, p))}</div>'
-                           f'<div style="margin-top:22px;">{_E(text)}</div></div>' for p, text in el.data["parties"])
+                           f'<div style="margin-top:22px;">{_E(text)}</div>'
+                           + (f'<div style="margin-top:6px;font-size:13px;">Name: {_E(names[p])}</div>' if names.get(p) else "")
+                           + "</div>" for p, text in el.data["parties"])
             parts.append(f"<div>{sigs}</div>")
         elif k == "page_break":
             parts.append('<hr style="border:none;border-top:1px dashed #d1d5db;margin:24px 0;">')
@@ -498,7 +505,9 @@ def render_pdf(inp: RenderInput, elements: Optional[list] = None) -> bytes:
         elif k == "declaration":
             story.append(Paragraph(_xml_runs(el.runs), st["offer_decl"] if offer_design else st["decl"]))
         elif k == "signatures":
+            names = el.data.get("names") or {}
             cells = [[Paragraph(_xml(PARTY_LABELS.get(p, p)), st["label"]), Spacer(1, 16), Paragraph(_xml(text), st["cell"])]
+                     + ([Spacer(1, 4), Paragraph(_xml(f"Name: {names[p]}"), st["cell"])] if names.get(p) else [])
                      for p, text in el.data["parties"]]
             pairs = [cells[i:i + 2] for i in range(0, len(cells), 2)]
             rows = [[c for c in pair] + ([""] if len(pair) == 1 else []) for pair in pairs]

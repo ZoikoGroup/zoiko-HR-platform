@@ -16,7 +16,8 @@ BANK = "GB29NWBK60161331926819"
 
 
 def _hire(world, **kw):
-    h = OnboardingNewHire(organization_id=1, candidate_name="Nora Newstarter", email="nora.newstarter@example.com", position="Analyst",
+    kw = {"candidate_name": "Nora Newstarter", "email": "nora.newstarter@example.com", **kw}
+    h = OnboardingNewHire(organization_id=1, position="Analyst",
                           joining_date=date.today() + timedelta(days=14), status="offer_accepted", work_country="GB",
                           manager_id=world.u["a_manager"].id, **kw)
     world.db.add(h)
@@ -83,11 +84,15 @@ def test_personal_and_emergency_forms_update_the_record_in_the_ess_shape(world):
     activate(world.db, "HR-ONB-003")
     h, token = _hire(world)
     personal = {"legal_first_name": "Nora", "legal_last_name": "Newstarter", "date_of_birth": "1995-04-03", "personal_email": "nora@example.com",
-                "mobile_phone": "+44 7700 900123", "address_line1": "4 Sample Road", "city": "Leeds", "postal_code": "LS2 2AA", "country": "United Kingdom"}
-    s1 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-001/submit", json={"values": personal, "declaration_accepted": True}).json()
-    s3 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-003/submit",
-                           json={"values": {"contact1_name": "Pat Parent", "contact1_relationship": "Parent", "contact1_phone": "+44 7700 900456"},
-                                 "declaration_accepted": True}).json()
+                "mobile_phone": "+44 7911 123456", "address_line1": "4 Sample Road", "city": "Leeds", "postal_code": "LS2 2AA", "country": "United Kingdom"}
+    r1 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-001/submit", json={"values": personal, "declaration_accepted": True})
+    assert r1.status_code == 200, r1.text
+    s1 = r1.json()
+    r3 = world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-003/submit",
+                           json={"values": {"contact1_name": "Pat Parent", "contact1_relationship": "Parent", "contact1_phone": "+44 7400 123456"},
+                                 "declaration_accepted": True})
+    assert r3.status_code == 200, r3.text
+    s3 = r3.json()
     assert world.post("a_hr", f"/hr/onboarding/forms/{s3['id']}/return", json={"reason": "Add a second contact"}).json()["status"] == "RETURNED"
     world.client.post(f"/public/onboarding/{token}/forms/HR-ONB-003/submit", json={"values": {}, "declaration_accepted": True})
     for sid in (s1["id"], s3["id"]):
@@ -95,7 +100,7 @@ def test_personal_and_emergency_forms_update_the_record_in_the_ess_shape(world):
     world.db.refresh(h)
     from app.modules.hr.service import _profile_fields
     fields = _profile_fields(h)
-    assert fields["emergency_contacts"][0] == {"name": "Pat Parent", "relationship": "Parent", "primaryPhone": "+44 7700 900456",
+    assert fields["emergency_contacts"][0] == {"name": "Pat Parent", "relationship": "Parent", "primaryPhone": "+447400123456",
                                                "alternatePhone": "", "address": "", "isPrimary": True}
     assert fields["date_of_birth"] == date(1995, 4, 3) and fields["personal_email"] == "nora@example.com"
     assert {d.canonical_id for d in world.db.query(GeneratedDocument).all()} >= {"HR-ONB-001", "HR-ONB-003"}
@@ -106,10 +111,21 @@ def test_checklist_exceptions_gate_completion_and_managers_see_their_tasks(world
     h, _ = _hire(world)
     from app.modules.hr import onboarding_flow
     onboarding_flow.start_onboarding(world.db, h)
+    # the automatic "Manager onboarding" checklist and its HR-ONB-005 document are no longer created (removed 2026-11-12)
+    assert not world.db.query(OnboardingChecklist).filter_by(onboarding_new_hire_id=h.id, name="Manager onboarding").count()
+    assert not any(d.canonical_id == "HR-ONB-005" for d in world.db.query(GeneratedDocument).all())
+    # tasks HR assigns to the manager by hand still reach them and still gate completion
+    cl = OnboardingChecklist(organization_id=h.organization_id, onboarding_new_hire_id=h.id, name="Team set-up", category="Manager",
+                             status="pending")
+    world.db.add(cl)
+    world.db.flush()
+    for title in ("Plan the first week", "Introduce the team"):
+        world.db.add(OnboardingChecklistItem(organization_id=h.organization_id, checklist_id=cl.id, title=title, owner_role="manager",
+                                             mandatory=True, due_date=date.today(), assignee_employee_id=world.u["a_manager"].id,
+                                             completed=False))
+    world.db.commit()
     tasks = world.get("a_manager", "/hr/onboarding/my-tasks").json()
-    assert tasks["total"] >= 10 and tasks["open"] == tasks["total"]
-    assert any(d.canonical_id == "HR-ONB-005" and d.recipient_employee_id == world.u["a_manager"].id
-               for d in world.db.query(GeneratedDocument).all()), "the manager checklist is issued to the manager"
+    assert tasks["total"] == 2 and tasks["open"] == tasks["total"]
     blockers = onboarding_flow.completion_blockers(world.db, h)
     assert any("mandatory item" in b for b in blockers)
     for t in tasks["items"]:
@@ -206,3 +222,20 @@ def test_completion_produces_the_checklist_and_completion_records(world):
     assert "Right-to-work or eligibility check where required" in t
     t = " ".join(renderer.pdf_text(storage.get_store().get(docs["HR-ONB-022"].pdf_path)).split())
     assert "Onboarding Completion Record — Nora Newstarter" in t and "Harper People" in t
+
+
+def test_the_new_starter_form_opens_with_the_address_already_given_and_the_other_way_round(world):
+    h, token = _hire(world, profile_details={"address": "17, 7th Main Road", "city": "Bengaluru", "state": "Karnataka",
+                                            "postal_code": "560038", "country": "India", "phone": "+919876543210"})
+    forms = {f["canonical_id"]: f for f in world.client.get(f"/public/onboarding/{token}/forms").json()["items"]}
+    vals = forms["HR-ONB-001"]["values"]
+    assert (vals["address_line1"], vals["city"], vals["region"], vals["postal_code"], vals["country"]) ==         ("17, 7th Main Road", "Bengaluru", "Karnataka", "560038", "India"), "typed once, not asked again"
+    assert vals["mobile_phone"] == "+919876543210" and vals["legal_first_name"] == "Nora"
+
+    # a hire who fills the form first finds the contact & address details filled in
+    h2, token2 = _hire(world, email="second.starter@example.com", candidate_name="Sam Second")
+    r = world.client.put(f"/public/onboarding/{token2}/forms/HR-ONB-001", json={"values": {
+        "address_line1": "4 Lake View", "city": "Hyderabad", "region": "Telangana", "postal_code": "500001", "country": "India"}})
+    assert r.status_code == 200, r.text
+    details = world.client.get(f"/public/onboarding/{token2}").json()["details"]
+    assert (details["address"], details["city"], details["state"], details["postal_code"]) ==         ("4 Lake View", "Hyderabad", "Telangana", "500001")

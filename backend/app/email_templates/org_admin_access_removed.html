@@ -1,5 +1,5 @@
 {% extends "_layouts/base.html" %}
-{% import "_layouts/_components.html" as ui %}
+{% import "_layouts/_components.html" as ui with context %}
 {% set title = "Workspace access ended" %}
 {% set preheader = "Your access to " ~ workspace_name ~ " has ended." %}
 {% set badge = "Access ended" %}

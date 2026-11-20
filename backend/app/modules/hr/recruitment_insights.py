@@ -19,6 +19,7 @@ from datetime import date, datetime, timedelta
 from typing import Iterable, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -424,18 +425,29 @@ def offers(db, org: int, today: date) -> dict:
 
 def candidates(db, org: int, today: date) -> dict:
     """The whole candidate pool by stage (the list screen pages through at most 100 rows, so it cannot count them itself)."""
-    cands = _load(db, org, "cands")["cands"]
     cur_w, prev_w = _windows(today)
-    applied = [_day(c.applied_at or c.created_at) for c in cands]
-    by_status = Counter(_val(c.status) for c in cands)
+    first_week = _week_start(today) - timedelta(weeks=WEEKS - 1)
+    last_week = today + timedelta(days=6 - today.weekday())
+    applied_at = func.coalesce(RecruitmentCandidate.applied_at, RecruitmentCandidate.created_at)
+    scope = RecruitmentCandidate.organization_id == org
+    status_rows = (db.query(RecruitmentCandidate.status, func.count(RecruitmentCandidate.id))
+                   .filter(scope).group_by(RecruitmentCandidate.status).all())
+    by_status = Counter({_val(status): count for status, count in status_rows})
+    total = sum(by_status.values())
+    applied = [_day(row[0]) for row in
+               db.query(applied_at).filter(scope, applied_at >= min(first_week, prev_w[0]),
+                                           applied_at <= max(last_week, cur_w[1] - timedelta(days=1))).all()]
 
     def stage(key):          # a count "now" — no honest previous value exists for a stage, so no trend is claimed
         return {"value": by_status.get(key, 0), "current": None, "previous": None, "change_pct": None, "window": None,
                 "series": None, "better": "up"}
-    kpis = {"total": _kpi(len(cands), _count_in(applied, cur_w), _count_in(applied, prev_w), _weekly_counts(applied, today)),
-            "active": {**stage("_"), "value": sum(1 for c in cands if _val(c.status) not in ("hired", "rejected"))},
+    kpis = {"total": _kpi(total, _count_in(applied, cur_w), _count_in(applied, prev_w), _weekly_counts(applied, today)),
+            "active": {**stage("_"), "value": sum(n for status, n in by_status.items() if status not in ("hired", "rejected"))},
             "interview": stage("interview"), "offer": stage("offer"), "hired": stage("hired"), "rejected": stage("rejected")}
-    return {"kpis": kpis, "sources": sorted({(c.source or "").strip() for c in cands if (c.source or "").strip()})}
+    sources = db.query(RecruitmentCandidate.source).filter(
+        scope, RecruitmentCandidate.source.isnot(None), RecruitmentCandidate.source != "",
+    ).distinct().all()
+    return {"kpis": kpis, "sources": sorted({(source or "").strip() for (source,) in sources if (source or "").strip()})}
 
 
 ACTIVE_HIRE = ("offer_sent", "offer_accepted", "in_progress")
@@ -502,20 +514,35 @@ def onboarding(db, org: int, today: date) -> dict:
                ("completed", "Completed"), ("cancelled", "Cancelled"))]
 
     # per new hire: checklist progress (items of their checklists), open pre-boarding tasks, pending documents
-    lists_of = defaultdict(list)
+    lists_of = {}
     for c in checklists:
-        lists_of[c.onboarding_new_hire_id].append(c.id)
-    items_of = defaultdict(list)
+        lists_of[c.id] = c.onboarding_new_hire_id
+
+    checklist_counts = defaultdict(lambda: {"items": 0, "done": 0, "overdue": 0})
     for i in items:
-        items_of[i.checklist_id].append(i)
+        hire_id = lists_of.get(i.checklist_id)
+        if hire_id is None:
+            continue
+        counts = checklist_counts[hire_id]
+        counts["items"] += 1
+        if i.completed:
+            counts["done"] += 1
+        elif i.due_date and i.due_date < today:
+            counts["overdue"] += 1
+
+    open_tasks_by_hire = Counter(t.onboarding_new_hire_id for t in open_tasks if t.onboarding_new_hire_id)
+    pending_docs_by_hire = Counter(d.onboarding_new_hire_id for d in pending_docs if d.onboarding_new_hire_id)
     progress = {}
     for h in hires:
-        mine = [i for cid in lists_of.get(h.id, []) for i in items_of.get(cid, [])]
-        finished = sum(1 for i in mine if i.completed)
-        progress[h.id] = {"items": len(mine), "done": finished, "pct": round(finished * 100.0 / len(mine)) if mine else None,
-                          "overdue": sum(1 for i in mine if not i.completed and i.due_date and i.due_date < today),
-                          "open_tasks": sum(1 for t in open_tasks if t.onboarding_new_hire_id == h.id),
-                          "pending_documents": sum(1 for d in pending_docs if d.onboarding_new_hire_id == h.id)}
+        counts = checklist_counts[h.id]
+        progress[h.id] = {
+            "items": counts["items"],
+            "done": counts["done"],
+            "pct": round(counts["done"] * 100.0 / counts["items"]) if counts["items"] else None,
+            "overdue": counts["overdue"],
+            "open_tasks": open_tasks_by_hire.get(h.id, 0),
+            "pending_documents": pending_docs_by_hire.get(h.id, 0),
+        }
 
     managers = _names(db, [h.manager_id for h in hires])
     upcoming = sorted((h for h in hires if h.status in ACTIVE_HIRE and h.joining_date and h.joining_date >= today),
@@ -525,7 +552,19 @@ def onboarding(db, org: int, today: date) -> dict:
 
     sessions = (_live(db, OnboardingOrientation, org).filter(OnboardingOrientation.date >= today)
                 .order_by(OnboardingOrientation.date, OnboardingOrientation.time).limit(5).all())
-    counts = Counter(a.session_id for a in _live(db, OnboardingOrientationAttendee, org).all())
+    session_ids = [s.id for s in sessions]
+    counts = Counter()
+    if session_ids:
+        counts.update(dict(
+            db.query(OnboardingOrientationAttendee.session_id, func.count(OnboardingOrientationAttendee.id))
+            .filter(
+                OnboardingOrientationAttendee.organization_id == org,
+                OnboardingOrientationAttendee.is_deleted.is_(False),
+                OnboardingOrientationAttendee.session_id.in_(session_ids),
+            )
+            .group_by(OnboardingOrientationAttendee.session_id)
+            .all()
+        ))
     orientation = [{"id": o.id, "title": o.title, "date": o.date, "time": o.time, "presenter": o.presenter, "status": o.status,
                     "meeting_link": o.meeting_link, "location": o.location, "attendees": counts.get(o.id, 0)} for o in sessions]
 

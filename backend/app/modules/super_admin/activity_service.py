@@ -230,7 +230,8 @@ def actor_snapshot(actor) -> tuple:
     """``(display name, role key, role label, id, email)`` for the feed."""
     if actor is None:
         return ("System", "system", "System", None, None)
-    role = getattr(actor.role, "value", actor.role)
+    raw_role = getattr(actor, "role", None)
+    role = getattr(raw_role, "value", raw_role)
     role = str(role or "").strip().lower() or "unknown"
     return (
         person_name(actor),

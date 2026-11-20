@@ -3,12 +3,13 @@ import { useEffect, Suspense } from "react";
 import { lazyRoute } from "./lib/lazyRoute";
 import LoginPage from "./pages/auth/LoginPage";
 import AuthenticatedAssistant from "./components/AuthenticatedAssistant";
+import HomeRedirect from "./components/HomeRedirect";
 
 // Public routes only. Everything behind sign-in lives in ./routes/PortalApp,
 // which is fetched the first time the router reaches a portal URL. A visitor
 // who only reads the marketing pages or signs in never downloads the portal's
 // route table, navigation tree, icon set or billing code.
-// LoginPage is eager on purpose: "/" redirects to /login, so it is the first
+// LoginPage is eager on purpose: "/" redirects visitors to /login, so it is the first
 // paint for every visitor. Loading its ~4 kB with the entry removes a
 // dynamic-import round trip ahead of the hero LCP image.
 const ForgotPasswordPage = lazyRoute(() => import("./pages/auth/ForgotPasswordPage"));
@@ -52,7 +53,8 @@ export default function App() {
       <ScrollToTop />
       <Suspense fallback={<ModuleSpinner />}>
       <Routes>
-        <Route path="/" element={<Navigate to="/login" replace />} />
+        {/* B14: signed-in people go to their dashboard, everyone else to /login. */}
+        <Route path="/" element={<HomeRedirect />} />
         <Route path="/login" element={<LoginPage />} />
         <Route path="/forgot-password" element={<ForgotPasswordPage />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
