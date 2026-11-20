@@ -65,6 +65,7 @@ const ZoikoHROnboardingPreOnboarding = lazyRoute(() => import("../modules/zoiko-
 const ZoikoHROnboardingDocuments = lazyRoute(() => import("../modules/zoiko-hr/onboarding/documents.jsx"));
 const ZoikoHROnboardingChecklists = lazyRoute(() => import("../modules/zoiko-hr/onboarding/checklists.jsx"));
 const ZoikoHROnboardingSettings = lazyRoute(() => import("../modules/zoiko-hr/onboarding/settings.jsx"));
+const ZoikoHRDocsSetupWizard = lazyRoute(() => import("../modules/zoiko-hr/onboarding/docs-setup/DocsSetupWizard.jsx"));
 const ZoikoHRLearning = lazyRoute(() => import("../modules/zoiko-hr/learning/learning.jsx"));
 
 const EssDashboard = lazyRoute(() => import("../modules/zoiko-hr/ess/dashboard.jsx"));
@@ -285,6 +286,8 @@ const routeOverrides = {
   "/zoiko-hr/onboarding/documents": <ZoikoHROnboardingDocuments />,
   "/zoiko-hr/onboarding/checklists": <ZoikoHROnboardingChecklists />,
   "/zoiko-hr/onboarding/settings": <ZoikoHROnboardingSettings />,
+  // "Set up docs for your organisation" (same roles as Settings: the /zoiko-hr/onboarding prefix)
+  "/zoiko-hr/onboarding/settings/docs-setup": <ZoikoHRDocsSetupWizard />,
   // Assets
   "/zoiko-hr/assets": <AssetsDashboard />,
   "/zoiko-hr/assets/my-assets": <MyAssets />,

@@ -2383,7 +2383,7 @@ class TrainingProgramResponse(BaseModel):
 
 
 class ProgramAssignmentCreate(BaseModel):
-    program_id: int
+    program_id: Optional[int] = None     # ignored: the program is the one in the URL (/programs/{prog_id}/assignments)
     employee_id: int
 
 
@@ -4192,6 +4192,27 @@ class _CandidateFields(BaseModel):
     def _v_source(cls, v):
         return _candidate_text("Source", False, 100)(v)
 
+    @field_validator("country", mode="before", check_fields=False)
+    @classmethod
+    def _v_country(cls, v):
+        if v in (None, ""):
+            return None
+        from app.core import regions
+        code = regions.country_code(str(v).strip())
+        if not code:
+            raise ValueError("Choose a country from the list.")
+        return code
+
+    @field_validator("city", mode="before", check_fields=False)
+    @classmethod
+    def _v_city(cls, v):
+        return _ruled("place_name", "City")(v)
+
+    @field_validator("region", mode="before", check_fields=False)
+    @classmethod
+    def _v_region(cls, v):
+        return _ruled("place_name", "State / region")(v)
+
     @field_validator("resume_link", mode="before", check_fields=False)
     @classmethod
     def _v_link(cls, v):
@@ -4206,6 +4227,9 @@ class CandidateCreate(_CandidateFields):
     source: Optional[str] = None
     status: Optional[RecruitmentCandidateStatus] = None
     location: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
     experience: Optional[int] = Field(None, ge=0, le=60)
     resume_link: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=5000)
@@ -4220,6 +4244,9 @@ class CandidateUpdate(_CandidateFields):
     source: Optional[str] = None
     status: Optional[RecruitmentCandidateStatus] = None
     location: Optional[str] = None
+    country: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
     experience: Optional[int] = Field(None, ge=0, le=60)
     resume_link: Optional[str] = None
     notes: Optional[str] = Field(None, max_length=5000)
@@ -4239,6 +4266,9 @@ class CandidateResponse(BaseModel):
     source: Optional[str]
     status: RecruitmentCandidateStatus
     location: Optional[str]
+    country: Optional[str] = None
+    region: Optional[str] = None
+    city: Optional[str] = None
     experience: Optional[int]
     resume_link: Optional[str]
     applied_at: Optional[datetime]
@@ -4449,6 +4479,7 @@ class _OfferPayFields(BaseModel):
     currency: Optional[str] = Field(None, min_length=3, max_length=3)
     pay_period: Optional[PayPeriod] = None
     employment_type: Optional[OfferEmploymentType] = None
+    engagement_profile_slug: Optional[str] = Field(None, max_length=60)   # offer type (Onboarding engagement profile)
     work_country: Optional[str] = Field(None, min_length=2, max_length=2)
     entity_name: Optional[str] = Field(None, max_length=200)
     entity_tax_id: Optional[str] = Field(None, max_length=40)
@@ -4541,6 +4572,7 @@ class OfferResponse(BaseModel):
     currency: Optional[str] = None
     pay_period: Optional[str] = None
     employment_type: Optional[str] = None
+    engagement_profile_slug: Optional[str] = None
     work_country: Optional[str] = None
     entity_name: Optional[str] = None
     entity_tax_id: Optional[str] = None

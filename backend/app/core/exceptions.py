@@ -116,6 +116,16 @@ async def generic_exception_handler(request: Request, exc: Exception):
     user-facing `message` stays identical either way.
     """
     import logging
+
+    # Two requests added the same address to one organization at the same moment: both passed the friendly check, the
+    # database's unique index refused the second. That person gets the same answer the check gives, never a raw DB error.
+    from app.modules.employee import identity
+    if identity.is_duplicate_email_error(exc):
+        logging.getLogger("zoiko").info("duplicate e-mail refused by the database on %s %s", request.method, request.url.path)
+        dup = identity.duplicate_email_exception_from(exc)
+        return JSONResponse(status_code=dup.status_code, headers=_cors_headers(request),
+                            content={"success": False, "error": dup.error_code, "message": dup.message, "detail": dup.message})
+
     logging.getLogger("zoiko").error(f"Unhandled error on {request.method} {request.url.path}: {exc}", exc_info=True)
 
     content = {

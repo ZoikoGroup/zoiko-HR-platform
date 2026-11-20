@@ -9,7 +9,8 @@ import SandboxedHtmlPreview from "../../../../components/documents/SandboxedHtml
 import {
   getTemplate, getVariant, listClauses, listTemplateFields, previewVariant, updateVariant, validateVariant,
 } from "../../../../service/docTemplatesService";
-import BlockFields, { BLOCK_LABEL, BLOCK_TYPES, blockSummary, newBlock } from "./components/BlockFields";
+import BlockFields, { BLOCK_LABEL, BLOCK_TYPES, PACKAGE_BLOCK_TYPES, blockSummary, newBlock } from "./components/BlockFields";
+import { api } from "../../../../service/api";
 import { ClausePicker, FieldPicker } from "./components/InsertPanels";
 import { InsertTargetContext } from "./components/SmartText";
 import TagListEditor from "./components/TagListEditor";
@@ -56,7 +57,7 @@ function OptionsEditor({ options, onChange, disabled }) {
   );
 }
 
-function BlockRow({ item, index, count, locked, expanded, onToggle, onChange, onMove, onDelete, readOnly, fields, clauseKeys }) {
+function BlockRow({ item, index, count, locked, expanded, onToggle, onChange, onMove, onDelete, readOnly, fields, clauseKeys, pkg, listSources }) {
   const { block } = item;
   const label = `${BLOCK_LABEL[block.type] || block.type} block ${index + 1}`;
   const editable = !readOnly && !locked;
@@ -74,8 +75,8 @@ function BlockRow({ item, index, count, locked, expanded, onToggle, onChange, on
         {locked && <LockedBadge />}
         {!readOnly && (
           <div className="flex shrink-0 items-center">
-            <button type="button" className={btnIcon} disabled={index === 0} onClick={() => onMove(index, -1)} aria-label={`Move ${label} up`}><ArrowUp className="h-4 w-4" /></button>
-            <button type="button" className={btnIcon} disabled={index === count - 1} onClick={() => onMove(index, 1)} aria-label={`Move ${label} down`}><ArrowDown className="h-4 w-4" /></button>
+            <button type="button" className={btnIcon} disabled={locked || index === 0} onClick={() => onMove(index, -1)} aria-label={`Move ${label} up`}><ArrowUp className="h-4 w-4" /></button>
+            <button type="button" className={btnIcon} disabled={locked || index === count - 1} onClick={() => onMove(index, 1)} aria-label={`Move ${label} down`}><ArrowDown className="h-4 w-4" /></button>
             <button type="button" className={btnIcon} disabled={locked} onClick={() => onDelete(index)}
               aria-label={locked ? `${label} is locked and cannot be deleted` : `Delete ${label}`} title={locked ? "Locked blocks cannot be deleted" : undefined}>
               {locked ? <Lock className="h-4 w-4" /> : <Trash2 className="h-4 w-4" />}
@@ -86,7 +87,7 @@ function BlockRow({ item, index, count, locked, expanded, onToggle, onChange, on
       {expanded && (
         <div id={`blk-${item.k}`} className="border-t border-gray-100 px-4 py-3">
           {locked && <p className="mb-2 text-xs text-slate-600">This block is locked by the platform. It is shown for reference and cannot be edited or removed.</p>}
-          <BlockFields block={block} onChange={onChange} disabled={!editable} fields={fields} clauseKeys={clauseKeys} />
+          <BlockFields block={block} onChange={onChange} disabled={!editable} fields={fields} clauseKeys={clauseKeys} pkg={pkg} listSources={listSources} />
         </div>
       )}
     </li>
@@ -101,6 +102,7 @@ export default function TemplateEditorPage() {
   const [loadError, setLoadError] = useState("");
   const [fields, setFields] = useState([]);
   const [packClauses, setPackClauses] = useState([]);
+  const [pkgDict, setPkgDict] = useState(null);       // onboarding package documents: their Placeholder Dictionary and clauses
 
   const [items, setItems] = useState([]);
   const [fieldContract, setFieldContract] = useState({ required: [], optional: [] });
@@ -145,6 +147,10 @@ export default function TemplateEditorPage() {
         hydrate(v);
         if (v.problems?.length) setProblems({ title: "This draft has validation problems", list: v.problems });
         getTemplate(v.canonical_id).then((t) => alive && setTemplate(t)).catch(() => {});
+        if (v.package) {
+          api.get("/hr/onboarding/package/placeholders").then((d) => alive && setPkgDict(d)).catch(() => {});
+          setAddType("paragraph");
+        }
         listClauses({ pack_id: v.pack_id, per_page: 200 }).then((r) => alive && setPackClauses(r?.items || [])).catch(() => {});
       })
       .catch((e) => alive && setLoadError(errorMessage(e)));
@@ -205,8 +211,10 @@ export default function TemplateEditorPage() {
     }
     return [...map.values()].sort((a, b) => a.key.localeCompare(b.key));
   }, [packClauses, clauseRules]);
-  const clauseKeys = useMemo(() => clauseOptions.map((c) => c.key), [clauseOptions]);
-  const fieldKeys = useMemo(() => fields.map((f) => f.key), [fields]);
+  const isPkg = !!variant?.package;
+  const clauseKeys = useMemo(() => (isPkg ? (pkgDict?.clauses || []).map((c) => c.key) : clauseOptions.map((c) => c.key)), [isPkg, pkgDict, clauseOptions]);
+  const editorFields = useMemo(() => (isPkg ? (pkgDict?.fields || []) : fields), [isPkg, pkgDict, fields]);
+  const fieldKeys = useMemo(() => editorFields.map((f) => f.key), [editorFields]);
 
   // ── block operations ──
   const updateBlock = (index, block) => { setItems((list) => list.map((it, i) => (i === index ? { ...it, block } : it))); setDirty(true); };
@@ -226,7 +234,7 @@ export default function TemplateEditorPage() {
     setDirty(true);
   };
   const addBlock = () => {
-    const it = withKey(newBlock(addType));
+    const it = withKey(newBlock(addType, isPkg));
     setItems((list) => [...list, it]);
     setExpanded((s) => new Set(s).add(it.k));
     setDirty(true);
@@ -346,14 +354,14 @@ export default function TemplateEditorPage() {
                 {items.map((it, i) => (
                   <BlockRow key={it.k} item={it} index={i} count={items.length} locked={isLocked(it.block)} readOnly={readOnly}
                     expanded={expanded.has(it.k)} onToggle={() => toggle(it.k)} onChange={(b) => updateBlock(i, b)}
-                    onMove={moveBlock} onDelete={deleteBlock} fields={fields} clauseKeys={clauseKeys} />
+                    onMove={moveBlock} onDelete={deleteBlock} fields={editorFields} clauseKeys={clauseKeys} pkg={isPkg} listSources={pkgDict?.list_sources || []} />
                 ))}
               </ol>
               {!readOnly && (
                 <div className="mt-4 flex flex-wrap items-end gap-2 border-t border-gray-100 pt-4">
                   <Labeled id="add-type" label="Add a block">
                     <select id="add-type" className={inputClass} value={addType} onChange={(e) => setAddType(e.target.value)}>
-                      {BLOCK_TYPES.map((b) => <option key={b.type} value={b.type}>{b.label}</option>)}
+                      {(isPkg ? PACKAGE_BLOCK_TYPES : BLOCK_TYPES).map((b) => <option key={b.type} value={b.type}>{b.label}</option>)}
                     </select>
                   </Labeled>
                   <button type="button" className={btnSecondary} onClick={addBlock}><Plus className="h-4 w-4" /> Add block</button>
@@ -361,7 +369,7 @@ export default function TemplateEditorPage() {
               )}
             </section>
 
-            <section className={cardClass} aria-labelledby="rules-h">
+            {!isPkg && <section className={cardClass} aria-labelledby="rules-h">
               <h2 id="rules-h" className="mb-1 text-base font-semibold text-gray-900">Fields and clauses</h2>
               <p className="mb-4 text-xs text-gray-500">Required fields must be present before a document can be generated. Mandatory clauses must have released text in the jurisdiction pack.</p>
               <div className="grid gap-4 md:grid-cols-2">
@@ -376,7 +384,13 @@ export default function TemplateEditorPage() {
                 <TagListEditor label="Prohibited clauses" values={clauseRules.prohibited} suggestions={clauseKeys} disabled={readOnly}
                   onChange={touch((v) => setClauseRules((c) => ({ ...c, prohibited: v })))} />
               </div>
-            </section>
+            </section>}
+            {isPkg && (
+              <InfoBanner tone="blue">
+                This is an onboarding package document. Placeholders come from the package's Placeholder Dictionary and clause wording from
+                Onboarding › Settings › Counsel clause library. Locked blocks (signatures, declarations, statutory notices) cannot be edited, removed or moved.
+              </InfoBanner>
+            )}
 
             <section className={cardClass} aria-labelledby="opts-h">
               <h2 id="opts-h" className="mb-4 text-base font-semibold text-gray-900">Applicability, options and release details</h2>
@@ -437,11 +451,11 @@ export default function TemplateEditorPage() {
               </div>
 
               <div role="tabpanel" id="panel-fields" aria-labelledby="tab-fields" hidden={tab !== "fields"}>
-                {readOnly ? <p className="text-sm text-gray-500">The content is read-only.</p> : <FieldPicker fields={fields} onInsert={insertPlaceholder} />}
+                {readOnly ? <p className="text-sm text-gray-500">The content is read-only.</p> : <FieldPicker fields={editorFields} onInsert={insertPlaceholder} />}
               </div>
 
               <div role="tabpanel" id="panel-clauses" aria-labelledby="tab-clauses" hidden={tab !== "clauses"}>
-                {readOnly ? <p className="text-sm text-gray-500">The content is read-only.</p> : <ClausePicker clauses={clauseOptions} onInsert={insertPlaceholder} />}
+                {readOnly ? <p className="text-sm text-gray-500">The content is read-only.</p> : <ClausePicker clauses={isPkg ? (pkgDict?.clauses || []) : clauseOptions} onInsert={insertPlaceholder} />}
               </div>
             </div>
           </aside>

@@ -60,7 +60,7 @@ DOCUMENT_LABELS = {
     "self_disclosure": "Voluntary Self-Disclosure Form",
     "job_application": "Job Application Form",
     "daily_work_report": "Daily Work Report (DWR) Template",
-    "velocity_report": "Zoiko Group Project Velocity Report Template",
+    "velocity_report": "Project Velocity Report Template",
 }
 
 
@@ -134,7 +134,9 @@ def update_settings(db: Session, organization_id: int, data: dict) -> Onboarding
             raise BadRequestException("One of the selected checklist templates no longer exists.")
         data["auto_template_ids"] = ids
     if "required_document_categories" in data and data["required_document_categories"] is not None:
-        bad = [c for c in data["required_document_categories"] if c not in DOCUMENT_LABELS]
+        from app.modules.hr import onboarding_org_settings as OS
+        active = OS.active_keys(db, organization_id)        # the organisation's own upload categories
+        bad = [c for c in data["required_document_categories"] if c not in active]
         if bad:
             raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
     for field, value in data.items():
@@ -225,6 +227,33 @@ def hire_for_token(db: Session, token: str) -> OnboardingNewHire:
     return hire
 
 
+def _details_with_form_answers(db, hire) -> dict:
+    """The contact & address details for the portal, with blanks filled from the new starter form the hire already
+    filled in (the same address is asked in both places; it is typed once)."""
+    details = dict(hire.profile_details or {})
+    try:
+        from app.modules.hr import onboarding_documents as OD
+        from app.modules.hr.models import OnboardingFormSubmission
+        sub = (db.query(OnboardingFormSubmission)
+               .filter(OnboardingFormSubmission.new_hire_id == hire.id,
+                       OnboardingFormSubmission.canonical_id.in_(list(OD.FORMS)))
+               .order_by(OnboardingFormSubmission.id.desc()).all())
+        for s in sub:
+            vals = OD._values(s)
+            if not vals.get("address_line1"):
+                continue
+            line = ", ".join(v for v in (vals.get("address_line1"), vals.get("address_line2")) if v)
+            if not OD.details_address_line(details):
+                details["address"] = line
+            for form_key, detail_key in OD.PREFILL_FROM_DETAILS.items():
+                if form_key != "address_line1" and vals.get(form_key) and not str(details.get(detail_key) or "").strip():
+                    details[detail_key] = vals[form_key]
+            break
+    except Exception:
+        logger.warning("could not prefill the portal details of new hire %s from their forms", hire.id)
+    return details
+
+
 def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
     from app.modules.hr import onboarding_package
 
@@ -239,9 +268,12 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
 
     base = app_base()
     pkg = onboarding_package.portal_items(db, hire)
+    from app.modules.hr import onboarding_org_settings as OS
+    cats = OS.category_map(db, hire.organization_id)
     doc_items = []
     for d in docs:
         extra = pkg.get(d.id) or {}
+        cat = cats.get(d.category)
         mode = extra.get("mode")
         is_signable = mode == "SIGN" or (mode is None and bool(d.document_id))
         sign_url = None
@@ -272,6 +304,10 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
             "acknowledged_at": extra.get("acknowledged_at"),
             "has_package_file": bool(extra.get("package_file")),
             "needs_declaration": needs_declaration,
+            # the organisation's upload category: what it is for and which files it accepts
+            "description": cat.description if cat is not None else None,
+            "accepted_types": list(cat.accepted_types or OS.DEFAULT_TYPES) if cat is not None else None,
+            "max_size_mb": cat.max_size_mb if cat is not None else None,
         })
 
     return {
@@ -283,7 +319,7 @@ def portal_view(db: Session, hire: OnboardingNewHire) -> dict:
         "department_name": hire.department_name,
         "welcome_message": get_settings(db, hire.organization_id).welcome_message,
         "expires_at": hire.portal_expires_at,
-        "details": hire.profile_details or {},
+        "details": _details_with_form_answers(db, hire),
         "phone": hire.phone,
         "documents": doc_items,
         "package": onboarding_package.portal_package_status(db, hire),
@@ -339,14 +375,17 @@ def save_portal_details(db: Session, hire: OnboardingNewHire, data: dict) -> dic
 
 # ── automatic start ──────────────────────────────────────────────────────────────────────────────────────────────────
 def request_documents(db: Session, hire: OnboardingNewHire, categories: list[str], notify: bool = True) -> list[OnboardingDocument]:
-    """Ask the new hire for documents. A category already requested, uploaded or approved is not asked for twice."""
-    bad = [c for c in categories if c not in DOCUMENT_LABELS]
-    if bad:
-        raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
+    """Ask the new hire for documents. A category already requested, uploaded or approved is not asked for twice. Categories
+    are the organisation's active upload categories (Settings › Documents requested from new hires)."""
+    from app.modules.hr import onboarding_org_settings as OS
     from app.modules.hr.onboarding_package import PACKAGE_CATEGORIES
     # offer-package documents are generated and issued from the package (Documents › Offer package), never requested as uploads;
     # older settings may still list them, so they are skipped rather than refused
     categories = [c for c in categories if c not in PACKAGE_CATEGORIES]
+    active = OS.active_keys(db, hire.organization_id)
+    bad = [c for c in categories if c not in active]
+    if bad:
+        raise BadRequestException(f"Unknown document categories: {', '.join(bad)}.")
     have = {d.category for d in db.query(OnboardingDocument).filter(
         OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
         OnboardingDocument.status != "rejected").all()}
@@ -354,7 +393,7 @@ def request_documents(db: Session, hire: OnboardingNewHire, categories: list[str
     for cat in dict.fromkeys(categories):
         if cat in have:
             continue
-        doc = OnboardingDocument(title=DOCUMENT_LABELS[cat], category=cat, file_path=None, status="requested",
+        doc = OnboardingDocument(title=OS.label_for(db, hire.organization_id, cat), category=cat, file_path=None, status="requested",
                                  onboarding_new_hire_id=hire.id, organization_id=hire.organization_id)
         db.add(doc)
         created.append(doc)

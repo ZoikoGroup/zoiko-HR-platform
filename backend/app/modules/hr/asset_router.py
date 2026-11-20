@@ -55,6 +55,8 @@ from app.core.dependencies import get_current_user, get_current_admin
 from app.core.rate_limiter import limiter
 
 from app.modules.hr import asset_service
+from app.modules.employee.ownership import is_admin
+from app.core.exceptions import NotFoundException
 from app.modules.hr.models import AssetStatus, AssetRequestStatus, RequestPriority
 from app.modules.hr.schemas import (
     AssetCreate, AssetUpdate, AssetResponse, AssetDashboardResponse, AssetListResponse,
@@ -69,6 +71,27 @@ from app.modules.hr.schemas import (
 asset_router = APIRouter(prefix="/hr/assets", tags=["Assets"])
 
 
+# Who sees which assets: the organization admin and HR admin see every asset and request in their organization; anyone else
+# (manager, employee, ...) sees only the assets assigned to them and the requests they raised. Someone else's asset or request
+# answers 404, as if it did not exist.
+
+def _own_scope(user, requested_employee_id: Optional[int] = None) -> Optional[list[int]]:
+    """employee_ids for a list query: None (no limit) for admins, otherwise only the caller (or nothing when they ask for
+    someone else)."""
+    if is_admin(user):
+        return None
+    if requested_employee_id and requested_employee_id != user.id:
+        return []
+    return [user.id]
+
+
+def _visible_asset(db, asset_id: int, user):
+    asset = asset_service.get_asset_by_id(db, asset_id, user.organization_id)
+    if not is_admin(user) and asset.employee_id != user.id:
+        raise NotFoundException("Asset", asset_id)
+    return asset
+
+
 # ════════════════════════════════════════════════════════════════════════════
 # DASHBOARD
 # ════════════════════════════════════════════════════════════════════════════
@@ -81,7 +104,7 @@ asset_router = APIRouter(prefix="/hr/assets", tags=["Assets"])
 )
 def asset_dashboard(
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     return asset_service.get_asset_dashboard(db, current_user.organization_id)
 
@@ -124,7 +147,8 @@ def list_assets(
     sort_by:     Optional[str]          = Query("created_at", description="Sort field"),
     sort_order:  Optional[str]          = Query("desc",       description="Sort direction (asc/desc)"),
 ):
-    return asset_service.get_assets(db, page, per_page, search, status, category, department, employee_id, sort_by, sort_order, current_user.organization_id)
+    return asset_service.get_assets(db, page, per_page, search, status, category, department, employee_id, sort_by, sort_order,
+                                    current_user.organization_id, employee_ids=_own_scope(current_user, employee_id))
 
 
 @asset_router.post(
@@ -152,6 +176,7 @@ def list_maintenance(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _visible_asset(db, asset_id, current_user)
     return asset_service.get_maintenance_by_asset(db, asset_id, current_user.organization_id)
 
 
@@ -167,7 +192,10 @@ def create_maintenance_record(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _visible_asset(db, asset_id, current_user)
     data = data.model_copy(update={"asset_id": asset_id})
+    if not is_admin(current_user):
+        data = data.model_copy(update={"reported_by_id": current_user.id})    # you report a problem as yourself
     return asset_service.create_maintenance(db, data, current_user.organization_id)
 
 
@@ -182,7 +210,8 @@ def get_maintenance(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    return asset_service.get_maintenance_by_id(db, maint_id, current_user.organization_id)
+    _visible_asset(db, asset_id, current_user)
+    return _maintenance_of(db, asset_id, maint_id, current_user)
 
 
 @asset_router.put(
@@ -197,6 +226,8 @@ def update_maintenance_record(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _visible_asset(db, asset_id, current_user)
+    _maintenance_of(db, asset_id, maint_id, current_user)
     return asset_service.update_maintenance(db, maint_id, data, current_user.organization_id)
 
 
@@ -212,7 +243,19 @@ def resolve_maintenance_record(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    _visible_asset(db, asset_id, current_user)
+    _maintenance_of(db, asset_id, maint_id, current_user)
+    if not is_admin(current_user):
+        data = data.model_copy(update={"resolved_by": current_user.id})
     return asset_service.resolve_maintenance(db, maint_id, data, current_user.organization_id)
+
+
+def _maintenance_of(db, asset_id: int, maint_id: int, user):
+    """The maintenance record must belong to the asset in the URL (which the caller was already allowed to see)."""
+    record = asset_service.get_maintenance_by_id(db, maint_id, user.organization_id)
+    if record.asset_id != asset_id:
+        raise NotFoundException("AssetMaintenanceRequest", maint_id)
+    return record
 
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -241,7 +284,8 @@ def list_asset_requests(
     priority:    Optional[RequestPriority]    = Query(None, description="Filter by priority"),
     employee_id: Optional[int]                = Query(None, description="Filter by employee ID"),
 ):
-    return asset_service.get_asset_requests(db, page, per_page, status, priority, employee_id, current_user.organization_id)
+    return asset_service.get_asset_requests(db, page, per_page, status, priority, employee_id, current_user.organization_id,
+                                            employee_ids=_own_scope(current_user, employee_id))
 
 
 @asset_router.post(
@@ -301,6 +345,10 @@ def cancel_asset_request(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
+    # only the person who raised the request, or an admin, can cancel it; anyone else's request looks like it does not exist
+    req = asset_service._get_asset_request_by_id(db, req_id, current_user.organization_id)
+    if not is_admin(current_user) and req.employee_id != current_user.id:
+        raise NotFoundException("AssetRequest", req_id)
     return asset_service.cancel_asset_request(db, req_id, current_user.organization_id)
 
 
@@ -377,7 +425,7 @@ def list_asset_reports(
     page: Optional[int] = Query(None, ge=1),
     per_page: Optional[int] = Query(None, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user=Depends(get_current_user),
+    current_user=Depends(get_current_admin),
 ):
     """Without page/per_page: the plain list (newest first, at most 200) the Asset Reports page reads today.
     With them: {items, total, page, per_page}."""
@@ -450,7 +498,8 @@ def export_assets_csv(
     sort_by:     Optional[str]          = Query("created_at", description="Sort field"),
     sort_order:  Optional[str]          = Query("desc",       description="Sort direction"),
 ):
-    csv_data = asset_service.export_assets_csv(db, search, status, category, department, employee_id, sort_by, sort_order, current_user.organization_id)
+    csv_data = asset_service.export_assets_csv(db, search, status, category, department, employee_id, sort_by, sort_order,
+                                               current_user.organization_id, employee_ids=_own_scope(current_user, employee_id))
     return StreamingResponse(
         iter([csv_data]),
         media_type="text/csv",
@@ -474,7 +523,8 @@ def export_assets_excel(
     sort_by:     Optional[str]          = Query("created_at", description="Sort field"),
     sort_order:  Optional[str]          = Query("desc",       description="Sort direction"),
 ):
-    xlsx_data = asset_service.export_assets_excel(db, search, status, category, department, employee_id, sort_by, sort_order, current_user.organization_id)
+    xlsx_data = asset_service.export_assets_excel(db, search, status, category, department, employee_id, sort_by, sort_order,
+                                                  current_user.organization_id, employee_ids=_own_scope(current_user, employee_id))
     return Response(
         content=xlsx_data,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -544,8 +594,8 @@ def get_asset(
     db: Session = Depends(get_db),
     current_user=Depends(get_current_user),
 ):
-    # Retrieve the asset ORM object
-    asset = asset_service.get_asset_by_id(db, asset_id, current_user.organization_id)
+    # Retrieve the asset ORM object (someone else's asset is a 404 for anyone but an admin)
+    asset = _visible_asset(db, asset_id, current_user)
     # Attach employee_name for the response model (FastAPI will serialize this attribute)
     if hasattr(asset, "employee") and asset.employee is not None:
         asset.employee_name = asset.employee.full_name

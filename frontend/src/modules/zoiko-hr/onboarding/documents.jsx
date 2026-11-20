@@ -22,6 +22,8 @@ import {
   requestOnboardingDocuments,
 } from "../../../service/hrService";
 import OfferPackagePanel from "./OfferPackagePanel";
+import { useRequestCategories } from "../../../utils/useRequestCategories";
+import { getPackageDocuments } from "../../../service/docsSetupService";
 import { MAX_FILE_MB, validateUploadForm, serverUploadErrors, fileSizeText, extensionOf } from "../../../utils/onboardingDocForm";
 
 // The 10 offer-package documents are generated and issued from the Offer package panel, never requested as uploads.
@@ -95,7 +97,6 @@ const fieldCls = (bad) => `w-full rounded-xl border ${bad ? "border-rose-300" : 
 const statusOf = (doc) => doc.status || "pending";
 // Signed, acknowledged, voluntary and information package documents are completed by the new hire, never reviewed by HR.
 const reviewable = (doc) => !["SIGN", "ACKNOWLEDGE", "INFO", "VOLUNTARY"].includes(doc?.package_mode);
-const categoryLabel = (value) => CATEGORIES.find((c) => c.value === value)?.label || value || "—";
 
 function DocStatus({ status, doc }) {
   if (doc?.requires_signature) {
@@ -185,6 +186,20 @@ function FilePreview({ doc }) {
 }
 
 export default function OnboardingDocuments() {
+  // the organisation's own upload categories (Settings › Documents requested from new hires) for labels, filters and uploads
+  const { all: orgCategories } = useRequestCategories();
+  // the organisation's package: how many documents a new hire is sent (its own set when it uploaded its templates)
+  const [packageCount, setPackageCount] = useState(null);
+  useEffect(() => {
+    let live = true;
+    getPackageDocuments().then((r) => {
+      if (live) setPackageCount((r?.documents || []).filter((d) => d.enabled && !(d.source === "org_template" && d.warning)).length);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const sendLabel = packageCount === null ? "Send Onboarding Docs" : `Send ${packageCount} Onboarding Doc${packageCount === 1 ? "" : "s"}`;
+  const CATEGORIES = useMemo(() => [...PACKAGE_CATEGORIES, ...orgCategories, ...UPLOAD_CATEGORIES.filter((c) => !orgCategories.some((o) => o.value === c.value))], [orgCategories]);
+  const categoryLabel = (value) => CATEGORIES.find((c) => c.value === value)?.label || value || "—";
   const insights = useInsights("onboarding");
   const [documents, setDocuments] = useState([]);
   const [records, setRecords] = useState([]);
@@ -492,7 +507,7 @@ export default function OnboardingDocuments() {
     <OnboardingLayout title="Onboarding Documents" subtitle="Request, collect and review new hires' onboarding documents."
       actions={(
         <>
-          <PrimaryButton icon={Send} onClick={() => openSendPackageModal()}>Send 10 Onboarding Docs</PrimaryButton>
+          <PrimaryButton icon={Send} onClick={() => openSendPackageModal()}>{sendLabel}</PrimaryButton>
           <SecondaryButton icon={Send} onClick={() => openRequestModal()}>Request documents from a new hire</SecondaryButton>
           <SecondaryButton icon={Upload} onClick={() => openUpload()}>Upload Document</SecondaryButton>
         </>
@@ -587,12 +602,15 @@ export default function OnboardingDocuments() {
     </div>
   );
 
-  const docRow = (doc, category, key) => {
+  const docRow = (doc, category, key, onWhy) => {
     if (!doc) {
       return (
-        <li key={key} className="flex items-center justify-between gap-3 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2.5">
+        <li key={key} className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-xl border border-dashed border-gray-200 bg-gray-50/60 px-3 py-2.5">
           <span className="flex min-w-0 items-center gap-2 text-sm text-gray-500"><FileText className="h-4 w-4 shrink-0 text-gray-300" />{categoryLabel(category)}</span>
-          <span className="text-xs text-gray-400">Not sent yet</span>
+          {onWhy ? (
+            <button type="button" onClick={onWhy} data-testid={`why-not-sent-${category}`}
+              className="text-xs font-semibold text-amber-700 underline hover:text-amber-900">Not sent yet – see why</button>
+          ) : <span className="text-xs text-gray-400">Not sent yet</span>}
         </li>
       );
     }
@@ -651,7 +669,7 @@ export default function OnboardingDocuments() {
               {active && (
                 <div className="flex flex-wrap gap-2">
                   <SecondaryButton icon={Send} onClick={() => openRequestModal(String(rec.id))}>Request documents</SecondaryButton>
-                  <PrimaryButton icon={Send} onClick={() => openSendPackageModal(String(rec.id))}>Send 10 Onboarding Docs</PrimaryButton>
+                  <PrimaryButton icon={Send} onClick={() => openSendPackageModal(String(rec.id))}>{sendLabel}</PrimaryButton>
                 </div>
               )}
             </div>
@@ -660,7 +678,8 @@ export default function OnboardingDocuments() {
             <section>
               <h3 className="mb-2 text-sm font-semibold text-gray-900">Onboarding package <span className="font-normal text-gray-500">({sum.packageSent} of 10 sent)</span></h3>
               <ol className="space-y-2">
-                {PACKAGE_CATEGORIES.map((c) => docRow(pkgDocs[c.value], c.value, c.value))}
+                {PACKAGE_CATEGORIES.map((c) => docRow(pkgDocs[c.value], c.value, c.value,
+                  active ? () => openSendPackageModal(String(rec.id)) : undefined))}
               </ol>
             </section>
           )}
@@ -712,7 +731,7 @@ export default function OnboardingDocuments() {
 
           {visibleEmployees.length === 0 && !loading ? (
             <EmptyState icon={FileUp} title={employees.length === 0 ? "No new hires yet" : "No employees match the selected filters."}>
-              {employees.length === 0 ? "Add a new hire, then send them the 10 onboarding documents." : null}
+              {employees.length === 0 ? "Add a new hire, then send them their onboarding documents." : null}
             </EmptyState>
           ) : (
             <>
@@ -878,7 +897,7 @@ export default function OnboardingDocuments() {
       {/* Offer package: readiness, missing data, previews and sending */}
       {showPackageModal && (
         <SlideOver
-          title="Send 10 Onboarding Docs"
+          title={sendLabel}
           subtitle="Offer letter, job description, KPIs, NDA, contract, affidavit, self-disclosure, application, DWR and velocity report. Only documents that are ready are sent."
           icon={Send}
           width="sm:max-w-[640px]"

@@ -5,10 +5,16 @@
  * offer package and finance viewers keep their own Save buttons because they save item by item.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import {
-  AlertCircle, BellRing, Check, CheckCircle2, ClipboardCheck, FileText, Info, Layers, Link2, ListChecks, MinusCircle,
+  AlertCircle, BellRing, Check, CheckCircle2, ClipboardCheck, FileText, Info, Layers, Link2, ListChecks, MinusCircle, Settings2,
+  Sparkles, UploadCloud,
 } from "lucide-react";
-import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates } from "../../../service/hrService";
+import { getOnboardingSettings, saveOnboardingSettings, getOnboardingChecklistTemplates, getCompanyProfile } from "../../../service/hrService";
+import { getDocsSetupStatus, getRequestCategories } from "../../../service/docsSetupService";
+import PackageDocumentsSettings from "./PackageDocumentsSettings";
+import PortalFormsSettings from "./PortalFormsSettings";
+import RequestCategoriesSettings from "./RequestCategoriesSettings";
 import { humanizeValidationError } from "../../../utils/validationMessage";
 import FinanceViewersSetting from "./FinanceViewersSetting";
 import OfferPackageSettings from "./OfferPackageSettings";
@@ -18,14 +24,16 @@ import { PrimaryButton, SecondaryButton } from "../recruitment/ui";
 import OnboardingLayout from "./OnboardingLayout";
 import { SettingsCard, SettingsSaveContext } from "./settingsUi";
 
-// Uploads requested automatically. The 10 offer-package documents are issued from Documents › Offer package instead.
-const DOCUMENT_CATEGORIES = [
+// Uploads requested automatically: the organisation's own upload categories (Settings › Documents requested from new hires).
+// This list is only the fallback while they load. The offer-package documents are issued from the package instead.
+const DEFAULT_CATEGORIES = [
   { value: "id_proof", label: "ID proof" },
   { value: "education_certificates", label: "Education certificates" },
   { value: "experience_letters", label: "Experience letters" },
   { value: "bank_details", label: "Bank details" },
   { value: "other", label: "Other" },
 ];
+export const DOCS_SETUP_PATH = "/zoiko-hr/onboarding/settings/docs-setup";
 
 const WELCOME_MAX = 2000;
 
@@ -44,7 +52,7 @@ function fromServer(s) {
   const d = s || {};
   return {
     auto_template_ids: Array.isArray(d.auto_template_ids) ? d.auto_template_ids.map(Number) : [],
-    required_document_categories: (Array.isArray(d.required_document_categories) ? d.required_document_categories : []).filter((c) => DOCUMENT_CATEGORIES.some((x) => x.value === c)),
+    required_document_categories: Array.isArray(d.required_document_categories) ? d.required_document_categories : [],
     auto_send_portal_invite: !!d.auto_send_portal_invite,
     portal_link_days: d.portal_link_days ?? EMPTY.portal_link_days,
     reminder_days: d.reminder_days ?? EMPTY.reminder_days,
@@ -100,10 +108,13 @@ const PAGE_NAV = [
     { href: "#os-step-5", label: "Completion rules" },
   ] },
   { href: "#documents", label: "Onboarding documents", children: [
+    { href: "#docs-setup", label: "Set up docs for your organisation" },
     { href: "#company-profile", label: "Company profile" },
     { href: "#company-profile-legal", label: "Legal & policy defaults" },
     { href: "#onboarding-profiles", label: "Engagement & role profiles" },
+    { href: "#package-documents", label: "Documents in your package" },
     { href: "#offer-package", label: "Offer package & clauses" },
+    { href: "#portal-forms", label: "Forms new hires fill in" },
     { href: "#finance-viewers", label: "Finance viewers" },
   ] },
 ];
@@ -153,6 +164,36 @@ export default function OnboardingSettings() {
   const [saving, setSaving] = useState(false);
   const [errors, setErrors] = useState({});
   const [banner, setBanner] = useState({ type: "", text: "" });
+  const [categoryView, setCategoryView] = useState(null);
+  const [managingCategories, setManagingCategories] = useState(false);
+  const [setupStatus, setSetupStatus] = useState(null);
+  const [profileComplete, setProfileComplete] = useState(true);
+
+  useEffect(() => {
+    let live = true;
+    getRequestCategories().then((v) => live && setCategoryView(v)).catch(() => {});
+    getDocsSetupStatus().then((v) => live && setSetupStatus(v)).catch(() => live && setSetupStatus({ enabled: false }));
+    getCompanyProfile().then((v) => live && setProfileComplete(!!v?.completeness?.complete)).catch(() => {});
+    return () => { live = false; };
+  }, []);
+  const categoryOptions = categoryView
+    ? categoryView.categories.filter((c) => c.active).map((c) => ({ value: c.key, label: c.label }))
+    : DEFAULT_CATEGORIES;
+
+  // a link such as ".../settings#company-profile-clauses" (from the package panel) opens on that section once the
+  // sections have rendered (they load their own data, so the target may appear a moment later)
+  useEffect(() => {
+    const id = typeof window !== "undefined" ? decodeURIComponent(window.location.hash.slice(1)) : "";
+    if (!id) return undefined;
+    let tries = 0;
+    const timer = setInterval(() => {
+      const el = document.getElementById(id);
+      tries += 1;
+      if (el) { el.scrollIntoView({ behavior: "smooth", block: "start" }); clearInterval(timer); }
+      else if (tries > 40) clearInterval(timer);
+    }, 150);
+    return () => clearInterval(timer);
+  }, []);
 
   // sections saved by the header buttons (the company profile) register here
   const registry = useRef({});
@@ -347,12 +388,14 @@ export default function OnboardingSettings() {
             <FieldError msg={errors.auto_template_ids} />
           </SettingsCard>
 
-          <SettingsCard id="os-step-2" icon={FileText} title="Documents requested from new hires" help="Uploads requested from every new hire through their pre-onboarding link. The 10 offer-package documents (offer letter, contract, NDA…) are set up under Onboarding documents.">
+          <SettingsCard id="os-step-2" icon={FileText} title="Documents requested from new hires" help="Uploads requested from every new hire through their pre-onboarding link. The offer-package documents (offer letter, contract, NDA…) are set up under Onboarding documents."
+            action={<SecondaryButton icon={Settings2} onClick={() => setManagingCategories((v) => !v)} aria-expanded={managingCategories}>
+              {managingCategories ? "Done" : "Manage categories"}</SecondaryButton>}>
             {form.required_document_categories.length === 0 && (
               <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">No documents will be requested. Tick at least ID proof and bank details for payroll.</p>
             )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-              {DOCUMENT_CATEGORIES.map((c) => {
+              {categoryOptions.map((c) => {
                 const on = form.required_document_categories.includes(c.value);
                 return (
                   <label key={c.value} className={optionTile(on)}>
@@ -363,6 +406,7 @@ export default function OnboardingSettings() {
               })}
             </div>
             <FieldError msg={errors.required_document_categories} />
+            {managingCategories && categoryView && <RequestCategoriesSettings view={categoryView} onChange={setCategoryView} />}
           </SettingsCard>
 
           <SettingsCard id="os-step-3" icon={Link2} title="Pre-onboarding link" help="The new hire's personal page where they fill in their details, read the welcome message and upload documents.">
@@ -415,11 +459,43 @@ export default function OnboardingSettings() {
           </SettingsCard>
 
           <PartHeading id="documents" title="Onboarding documents"
-            help="What the 10 offer-package documents print. Work top to bottom: company details and legal defaults, then the engagement and role profiles, then the clause wording." />
+            help="What the offer-package documents print. Work top to bottom: company details and legal defaults, then the engagement and role profiles, then the clause wording." />
+
+          {setupStatus?.enabled && (
+            <section id="docs-setup" aria-labelledby="docs-setup-title"
+              className={`scroll-mt-24 rounded-2xl border p-5 shadow-sm ${profileComplete ? "border-blue-100 bg-blue-50/50" : "border-amber-200 bg-amber-50/60"}`}>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex min-w-0 items-start gap-3">
+                  <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-white text-blue-600" aria-hidden="true"><UploadCloud className="h-5 w-5" /></span>
+                  <div className="min-w-0">
+                    <h2 id="docs-setup-title" className="text-base font-semibold text-gray-900">Set up docs for your organisation</h2>
+                    <p className="mt-0.5 text-sm text-gray-600">
+                      {profileComplete
+                        ? "Upload your own offer letter, contract, NDA, handbook and forms. We suggest settings and draft templates from them; you review every suggestion and decide what is used."
+                        : "Your Company Profile is not complete yet. Upload your existing documents and we will suggest the missing details for you to review."}
+                    </p>
+                    <p className="mt-1 inline-flex items-center gap-1 text-xs text-gray-500">
+                      <Sparkles className="h-3.5 w-3.5" aria-hidden="true" />Suggestions may use AI where your plan allows it. You decide what is applied; nothing is sent to new hires.
+                    </p>
+                    {setupStatus.last_session && setupStatus.last_session.status !== "cancelled" && (
+                      <p className="mt-1 text-xs text-gray-600">Last setup: {setupStatus.last_session.status === "applied" ? "applied" : `in progress (step ${setupStatus.last_session.step} of 6)`}</p>
+                    )}
+                  </div>
+                </div>
+                <Link to={DOCS_SETUP_PATH}
+                  className="inline-flex shrink-0 items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-300">
+                  <UploadCloud className="h-4 w-4" aria-hidden="true" />
+                  {setupStatus.last_session && ["uploading", "analysing", "review"].includes(setupStatus.last_session.status) ? "Continue setting up docs" : "Set up docs for your organisation"}
+                </Link>
+              </div>
+            </section>
+          )}
 
           <CompanyProfileSettings />
           <OnboardingProfilesSettings />
+          <PackageDocumentsSettings />
           <OfferPackageSettings />
+          <PortalFormsSettings />
           <FinanceViewersSetting />
 
           {anyDirty && (

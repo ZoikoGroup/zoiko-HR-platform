@@ -59,8 +59,8 @@ def world(monkeypatch):
     # Plans are not what this suite tests: every feature is entitled, so a 403 can only come from the privacy rules.
     from app.modules.billing import entitlement_middleware as _em
     monkeypatch.setattr(_em, "check_entitlement", lambda db, org_id, key: {"state": _em.ENTITLED_AVAILABLE, "mode": "test", "allowed": True, "reason_code": "TEST"})
-    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False}, poolclass=StaticPool)
-    Base.metadata.create_all(engine)
+    from tests.db_backend import make_engine, sync_sequences
+    engine = make_engine()                     # in-memory SQLite, or a real PostgreSQL when HR_TEST_PG_URL is set
     db = sessionmaker(bind=engine, expire_on_commit=False)()
     # The entitlement ASGI middleware opens its own sessions, outside FastAPI dependency_overrides.
     # Keep those reads on the same isolated fixture database instead of the process-level DB URL.
@@ -77,6 +77,7 @@ def world(monkeypatch):
         Organization(id=2, name="TENANT-B", organization_name="TENANT-B", status=OrganizationStatus.ACTIVE),
     ])
     db.commit()
+    sync_sequences(db)                         # PostgreSQL: the explicit ids above must not be handed out again
     w = World(db, app)
     w.u = {
         "platform": _emp(db, "platform.person@zoiko-ops.example.com", UserRole.SUPER_ADMIN, None, "Platform", "Operator"),
@@ -110,6 +111,7 @@ def world(monkeypatch):
     yield w
     app.dependency_overrides.pop(get_db, None)
     db.close()
-    engine.dispose()
+    from tests.db_backend import dispose
+    dispose(engine)
 
 

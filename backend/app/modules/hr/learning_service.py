@@ -26,7 +26,9 @@ from app.modules.hr.schemas import (
     CalendarEventCreate, CalendarEventUpdate,
 )
 from sqlalchemy.exc import SQLAlchemyError
-from app.core.exceptions import NotFoundException, BadRequestException
+from app.core.exceptions import NotFoundException, BadRequestException, ZoikoException
+from app.core.spreadsheet import safe_row
+from app.modules.employee.ownership import filter_ids, get_org_employee_or_404
 
 
 def _check_course_name(db: Session, organization_id, name: str, exclude_id=None) -> None:
@@ -124,7 +126,8 @@ def delete_course(db: Session, course_id: int, organization_id: Optional[int] = 
 
 
 def create_enrollment(db: Session, data: EnrollmentCreate, organization_id: Optional[int] = None) -> LearningEnrollment:
-    get_course_by_id(db, data.course_id)
+    get_course_by_id(db, data.course_id, organization_id)                          # a course of this organization
+    get_org_employee_or_404(db, organization_id, data.employee_id)                # someone working in this organization
     enrollment = LearningEnrollment(**data.model_dump())
     if organization_id is not None:
         enrollment.organization_id = organization_id
@@ -142,9 +145,10 @@ def get_enrollments(
     course_id: Optional[int] = None,
     status: Optional[str] = None,
     organization_id: Optional[int] = None,
+    employee_ids: Optional[list[int]] = None,
 ) -> dict:
     per_page = min(per_page, 100)
-    query = db.query(LearningEnrollment)
+    query = filter_ids(db.query(LearningEnrollment), LearningEnrollment.employee_id, employee_ids)
 
     if employee_id:
         query = query.filter(LearningEnrollment.employee_id == employee_id)
@@ -188,8 +192,11 @@ def get_enrollments(
     }
 
 
-def get_enrollment_by_id(db: Session, enrollment_id: int) -> LearningEnrollment:
-    enrollment = db.query(LearningEnrollment).filter(LearningEnrollment.id == enrollment_id).first()
+def get_enrollment_by_id(db: Session, enrollment_id: int, organization_id: Optional[int] = None) -> LearningEnrollment:
+    query = db.query(LearningEnrollment).filter(LearningEnrollment.id == enrollment_id)
+    if organization_id is not None:
+        query = query.filter(LearningEnrollment.organization_id == organization_id)
+    enrollment = query.first()
     if not enrollment:
         raise NotFoundException("LearningEnrollment", enrollment_id)
     return enrollment
@@ -315,6 +322,9 @@ def update_path_item(db: Session, path_id: int, item_id: int, data: LearningPath
 
 
 def create_certification(db: Session, data: CertificationCreate, created_by: int, organization_id: Optional[int] = None) -> LearningCertification:
+    if organization_id is not None:
+        # a certificate can be recorded for anyone of this organization, including someone who has since left
+        get_org_employee_or_404(db, organization_id, data.employee_id, active_only=False)
     cert = LearningCertification(**data.model_dump(exclude={'created_by'}), created_by=created_by)
     if organization_id is not None:
         cert.organization_id = organization_id
@@ -329,8 +339,9 @@ def create_certification(db: Session, data: CertificationCreate, created_by: int
     return cert
 
 
-def get_certifications(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
-    query = db.query(LearningCertification)
+def get_certifications(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None,
+                       employee_ids: Optional[list[int]] = None):
+    query = filter_ids(db.query(LearningCertification), LearningCertification.employee_id, employee_ids)
     if employee_id:
         query = query.filter(LearningCertification.employee_id == employee_id)
     if organization_id is not None:
@@ -338,8 +349,11 @@ def get_certifications(db: Session, employee_id: Optional[int] = None, organizat
     return list_or_page(query.order_by(LearningCertification.issue_date.desc()), page, per_page, label="/certifications")
 
 
-def get_certification_by_id(db: Session, cert_id: int) -> LearningCertification:
-    cert = db.query(LearningCertification).filter(LearningCertification.id == cert_id).first()
+def get_certification_by_id(db: Session, cert_id: int, organization_id: Optional[int] = None) -> LearningCertification:
+    query = db.query(LearningCertification).filter(LearningCertification.id == cert_id)
+    if organization_id is not None:
+        query = query.filter(LearningCertification.organization_id == organization_id)
+    cert = query.first()
     if not cert:
         raise NotFoundException("LearningCertification", cert_id)
     return cert
@@ -382,9 +396,10 @@ def create_skill(db: Session, data: SkillCreate, organization_id: Optional[int] 
     return skill
 
 
-def get_skills(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None):
+def get_skills(db: Session, employee_id: Optional[int] = None, organization_id: Optional[int] = None, page: Optional[int] = None, per_page: Optional[int] = None,
+               employee_ids: Optional[list[int]] = None):
     """Skills of the caller's organization (organization_id None = platform super admin: every org)."""
-    query = db.query(LearningSkill)
+    query = filter_ids(db.query(LearningSkill), LearningSkill.employee_id, employee_ids)
     if organization_id is not None:
         query = query.filter(LearningSkill.organization_id == organization_id)
     if employee_id:
@@ -599,6 +614,13 @@ def start_quiz(db: Session, data: QuizAttemptStart, organization_id: Optional[in
         raise BadRequestException("Assessment is not active.")
     if not _has_questions(db, assessment.id):
         raise BadRequestException(NO_QUESTIONS_MESSAGE)
+    if organization_id is not None:
+        get_org_employee_or_404(db, organization_id, data.employee_id)            # the learner works in this organization
+    if data.enrollment_id is not None:
+        enrollment = db.query(LearningEnrollment).filter(LearningEnrollment.id == data.enrollment_id,
+                                                         LearningEnrollment.employee_id == data.employee_id).first()
+        if enrollment is None or (organization_id is not None and enrollment.organization_id != organization_id):
+            raise NotFoundException("LearningEnrollment", data.enrollment_id)
 
     if assessment.max_attempts and assessment.max_attempts > 0:
         existing_count = db.query(LearningQuizAttempt).filter(
@@ -702,11 +724,12 @@ def get_quiz_attempts(
     assessment_id: Optional[int] = None,
     employee_id: Optional[int] = None,
     organization_id: Optional[int] = None,
+    employee_ids: Optional[list[int]] = None,
 ) -> list[dict]:
     from app.modules.employee.models import Employee
     if assessment_id and organization_id is not None:
         _assessment_row(db, assessment_id, organization_id)
-    query = db.query(LearningQuizAttempt)
+    query = filter_ids(db.query(LearningQuizAttempt), LearningQuizAttempt.employee_id, employee_ids)
     if assessment_id:
         query = query.filter(LearningQuizAttempt.assessment_id == assessment_id)
     if employee_id:
@@ -887,8 +910,18 @@ def delete_training_program(db: Session, program_id: int, organization_id: Optio
     db.commit()
 
 
+PARTICIPANT_EXISTS_MESSAGE = "This person is already a participant in this program."
+PROGRAM_FULL_MESSAGE = "This program is full: it has reached its maximum number of participants."
+
+
 def assign_program(db: Session, data: ProgramAssignmentCreate, organization_id: Optional[int] = None) -> LearningTrainingProgramAssignment:
-    get_training_program_by_id(db, data.program_id, organization_id)
+    program = _program_row(db, data.program_id, organization_id)
+    get_org_employee_or_404(db, program.organization_id, data.employee_id)      # same organization as the program (audit L3)
+    taken = db.query(LearningTrainingProgramAssignment).filter(LearningTrainingProgramAssignment.program_id == program.id)
+    if taken.filter(LearningTrainingProgramAssignment.employee_id == data.employee_id).first():
+        raise ZoikoException(status_code=409, error_code="ALREADY_EXISTS", message=PARTICIPANT_EXISTS_MESSAGE)
+    if program.max_participants and taken.count() >= program.max_participants:
+        raise ZoikoException(status_code=409, error_code="PROGRAM_FULL", message=PROGRAM_FULL_MESSAGE)
     assignment = LearningTrainingProgramAssignment(**data.model_dump())
     if organization_id is not None:
         assignment.organization_id = organization_id
@@ -918,11 +951,12 @@ def remove_program_assignment(db: Session, assignment_id: int, organization_id: 
     db.commit()
 
 
-def get_program_assignments(db: Session, program_id: int, organization_id: Optional[int] = None) -> list[dict]:
+def get_program_assignments(db: Session, program_id: int, organization_id: Optional[int] = None,
+                            employee_ids: Optional[list[int]] = None) -> list[dict]:
     get_training_program_by_id(db, program_id, organization_id)
-    assignments = db.query(LearningTrainingProgramAssignment).filter(
+    assignments = filter_ids(db.query(LearningTrainingProgramAssignment).filter(
         LearningTrainingProgramAssignment.program_id == program_id
-    ).all()
+    ), LearningTrainingProgramAssignment.employee_id, employee_ids).all()
     # The assignment model has no `employee` relationship (reading a.employee raised AttributeError, so this list failed
     # whenever a program had assignments). Resolve names in one batched lookup instead.
     emp_ids = {a.employee_id for a in assignments if a.employee_id}
@@ -1152,13 +1186,13 @@ def export_course_completion_csv(db: Session, organization_id: Optional[int] = N
     writer = csv.writer(output)
     writer.writerow(["Course ID", "Course Name", "Total Enrollments", "Completed Enrollments", "Completion Rate"])
     for row in data:
-        writer.writerow([
+        writer.writerow(safe_row([
             row["course_id"],
             row["course_name"],
             row["total_enrollments"],
             row["completed"],
             f"{row['completion_rate']}%"
-        ])
+        ]))
     return output.getvalue()
 
 
@@ -1171,13 +1205,13 @@ def export_course_completion_excel(db: Session, organization_id: Optional[int] =
     ws.title = "Course Completion"
     ws.append(["Course ID", "Course Name", "Total Enrollments", "Completed Enrollments", "Completion Rate"])
     for row in data:
-        ws.append([
+        ws.append(safe_row([
             row["course_id"],
             row["course_name"],
             row["total_enrollments"],
             row["completed"],
             f"{row['completion_rate']}%"
-        ])
+        ]))
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -1190,7 +1224,7 @@ def export_certifications_csv(db: Session, organization_id: Optional[int] = None
     writer = csv.writer(output)
     writer.writerow(["ID", "Employee ID", "Certification Name", "Issuing Organization", "Issue Date", "Expiry Date", "Credential URL", "Status"])
     for c in certs:
-        writer.writerow([
+        writer.writerow(safe_row([
             c.id,
             c.employee_id,
             c.certification_name,
@@ -1199,7 +1233,7 @@ def export_certifications_csv(db: Session, organization_id: Optional[int] = None
             c.expiry_date or "",
             c.credential_url or "",
             c.status
-        ])
+        ]))
     return output.getvalue()
 
 
@@ -1212,7 +1246,7 @@ def export_certifications_excel(db: Session, organization_id: Optional[int] = No
     ws.title = "Certifications"
     ws.append(["ID", "Employee ID", "Certification Name", "Issuing Organization", "Issue Date", "Expiry Date", "Credential URL", "Status"])
     for c in certs:
-        ws.append([
+        ws.append(safe_row([
             c.id,
             c.employee_id,
             c.certification_name,
@@ -1221,7 +1255,7 @@ def export_certifications_excel(db: Session, organization_id: Optional[int] = No
             str(c.expiry_date) if c.expiry_date else "",
             c.credential_url or "",
             c.status
-        ])
+        ]))
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()
@@ -1235,12 +1269,12 @@ def export_skill_gap_csv(db: Session, organization_id: Optional[int] = None) -> 
     writer.writerow(["Department Name", "Skill Name", "Employee Count", "Gap Level"])
     for dept in gaps:
         for s in dept["skills"]:
-            writer.writerow([
+            writer.writerow(safe_row([
                 dept["department_name"],
                 s["skill_name"],
                 s["employee_count"],
                 s["gap_level"]
-            ])
+            ]))
     return output.getvalue()
 
 
@@ -1254,12 +1288,12 @@ def export_skill_gap_excel(db: Session, organization_id: Optional[int] = None) -
     ws.append(["Department Name", "Skill Name", "Employee Count", "Gap Level"])
     for dept in gaps:
         for s in dept["skills"]:
-            ws.append([
+            ws.append(safe_row([
                 dept["department_name"],
                 s["skill_name"],
                 s["employee_count"],
                 s["gap_level"]
-            ])
+            ]))
     out = io.BytesIO()
     wb.save(out)
     return out.getvalue()

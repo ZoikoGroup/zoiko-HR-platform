@@ -89,7 +89,11 @@ TEXT_SETTINGS = {"legal_name": 200, "registered_address": 500, "header_label": 6
                  "effective_date": 40}
 
 
-def _org(db, organization_id) -> Optional[Organization]:
+def _org(db=None, organization_id=None):
+    """_org(db, id): the Organization row; _org(): the organisation package module (onboarding_package_org)."""
+    if db is None:
+        from app.modules.hr import onboarding_package_org as ORG
+        return ORG
     return db.get(Organization, organization_id)
 
 
@@ -113,6 +117,8 @@ def _defaults(org) -> dict:
         "hr_contact_email": "",
         "response_days": 7, "leave_entitlement": "", "post_employment_period": "", "pay_frequency": "",
         "kpi_review_cycle": "", "benefits_reference": "", "effective_date": "", "clauses": {}, "logo_key": "",
+        # clause wording proposed by "Set up docs for your organisation": never printed until counsel approves it
+        "clauses_pending": {},
     }
 
 
@@ -203,6 +209,27 @@ def save_config(db, actor, data: dict) -> dict:
     return cfg
 
 
+def decide_pending_clause(db, actor, key: str, approve: bool, counsel_reference: str = "") -> dict:
+    """Counsel's decision on clause wording proposed by "Set up docs for your organisation": approved wording becomes the
+    organisation's clause wording (with counsel's reference); rejected wording is discarded."""
+    from app.modules.doc_templates import access
+    access.require_org_admin(actor)
+    cfg = get_config(db, actor.organization_id)
+    pending = dict(cfg.get("clauses_pending") or {})
+    item = pending.pop(key, None)
+    if item is None:
+        raise HTTPException(404, "No proposed wording for this clause.")
+    if approve:
+        ref = str(counsel_reference or "").strip()[:200]
+        if not ref:
+            raise HTTPException(422, "Give counsel's reference (name, firm or matter) for the approved wording.")
+        save_config(db, actor, {"clauses": {key: {"text": item["text"], "counsel_reference": ref}}})
+        cfg = get_config(db, actor.organization_id)
+    cfg["clauses_pending"] = pending
+    _write_config(db, actor.organization_id, cfg)
+    return settings_view(db, actor.organization_id)
+
+
 # ── company logo (printed in every document's header and the offer letterhead) ──────────────────────────────────────
 LOGO_MAX_BYTES = 2 * 1024 * 1024
 LOGO_MAX_PX = (900, 300)
@@ -274,10 +301,10 @@ def settings_view(db, organization_id: int) -> dict:
             if ck:
                 used.setdefault(ck, []).append(C.DOCS[cat]["title"])
     clauses = [{"key": k, "token": R._hook_token(k), "title": t, "note": n, "required": req, "used_in": used.get(k, []),
-                "standard_text": C.STANDARD_CLAUSES.get(k),
+                "standard_text": C.STANDARD_CLAUSES.get(k), "pending": (cfg.get("clauses_pending") or {}).get(k),
                 **{f: (cfg["clauses"].get(k) or {}).get(f) for f in ("text", "not_applicable", "counsel_reference", "updated_at")}}
                for k, (t, n, req) in C.CLAUSES.items()]
-    settings_out = {k: v for k, v in cfg.items() if k not in ("clauses", "logo_key")}
+    settings_out = {k: v for k, v in cfg.items() if k not in ("clauses", "logo_key", "clauses_pending")}
     settings_out["has_logo"] = bool(cfg.get("logo_key"))
     from app.modules.hr import company_profile as CP
     company = CP.profile_view(db, organization_id)
@@ -369,9 +396,25 @@ def hire_inputs(hire) -> dict:
     return dict((hire.profile_details or {}).get("_package_inputs") or {})
 
 
-def save_hire_inputs(db, hire, values: dict) -> dict:
+def save_hire_inputs(db, hire, values: dict, actor=None) -> dict:
     if not isinstance(values, dict):
         raise HTTPException(422, "values must be an object.")
+    # merge fields of the clause wording ("clause.<token>") are the organisation's: saved once in the Company Profile
+    # (Clause details) for every hire, straight from the panel
+    clause_values = {k: v for k, v in values.items() if isinstance(k, str) and k.startswith("clause.")}
+    if clause_values:
+        from app.modules.hr import company_profile as CP
+        from app.modules.hr import onboarding_clause_tokens as T
+        if actor is None or getattr(actor, "organization_id", None) != hire.organization_id:
+            raise HTTPException(403, "Clause details can only be saved by the organisation's admin.")
+        data = {}
+        for key, val in clause_values.items():
+            token = key.split(".", 1)[1]
+            if token not in T.CATALOG:
+                raise HTTPException(422, f"{key} cannot be set here.")
+            data[T.profile_key(token)] = str(val or "").strip()
+        CP.save_profile(db, actor, data)
+        values = {k: v for k, v in values.items() if k not in clause_values}
     current = hire_inputs(hire)
     for key, val in values.items():
         if key not in HIRE_INPUT_FIELDS:
@@ -385,6 +428,9 @@ def save_hire_inputs(db, hire, values: dict) -> dict:
                 found = PR.role_for(db, hire.organization_id, v, None)
             if found is None:
                 raise HTTPException(422, f"No {V2_HIRE_INPUTS[key].lower()} '{v}' in this organisation.")
+        if v and key == "employment.probation_months":
+            if not re.fullmatch(r"\d{1,2}", v) or not 0 < int(v) <= 36:
+                raise HTTPException(422, "Probation must be a number of months between 1 and 36.")
         if v and key == "document.issue_date":
             try:
                 date.fromisoformat(v[:10])
@@ -449,7 +495,7 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "employment.pay_frequency": cfg.get("pay_frequency") or None,
         "employment.variable_pay": (f"Equity: {offer.equity}" if offer and offer.equity else None),
         "employment.benefits_reference": cfg.get("benefits_reference") or None,
-        "employment.leave_entitlement": cfg.get("leave_entitlement") or None,
+        "employment.leave_entitlement": _leave_text(cfg.get("leave_entitlement")),
         "employment.country": country_name(country_code) if country_code else (cfg.get("jurisdiction") or None),
         "offer.response_deadline": _fmt_date(response_deadline(cfg, start, hire_inputs(hire).get("document.issue_date")), cfg),
         "offer.secure_link": secure_link,
@@ -462,7 +508,8 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
         "kpi.review_cycle": cfg.get("kpi_review_cycle") or None,
     }
     for key, val in hire_inputs(hire).items():                    # HR's per-hire entries win
-        values[key] = val
+        values[key] = _fmt_date(val, cfg) if key == "employment.start_date" else val
+    values["employment.leave_entitlement"] = _leave_text(values.get("employment.leave_entitlement"))
     if address:                                                   # ... except the address the new hire entered themselves
         values["worker.postal_address"] = address
     if values.get("employment.work_pattern") is None:
@@ -472,6 +519,14 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
     if values.get("employment.base_pay") and values.get("employment.pay_frequency"):
         values["employment.pay_terms"] = f"{values['employment.base_pay']}, paid {values['employment.pay_frequency']}"
     values.update(_v2_values(db, hire, cfg, offer, values))
+    # probation in an organisation's own template: HR's entry for this hire, else the engagement profile's
+    values["employment.probation_months"] = (hire_inputs(hire).get("employment.probation_months")
+                                             or values.get("engagement.assessment_months") or None)
+    typed_base = values.pop("_typed_base_pay", None)
+    if typed_base:                                                # HR typed a bare amount: print it formatted everywhere
+        values["employment.base_pay"] = typed_base
+        if values.get("employment.pay_frequency"):
+            values["employment.pay_terms"] = f"{typed_base}, paid {values['employment.pay_frequency']}"
     # merge fields used inside counsel clause wording ({{speak_up_channel}}, {{ip_assignment_term}}, ...)
     from app.modules.hr import company_profile as CP
     from app.modules.hr import onboarding_clause_tokens as T
@@ -488,6 +543,14 @@ def build_values(db, hire: OnboardingNewHire, cfg: dict, *, secure_link: Optiona
 _DAY_NAMES = {"MON": "Monday", "TUE": "Tuesday", "WED": "Wednesday", "THU": "Thursday", "FRI": "Friday", "SAT": "Saturday",
               "SUN": "Sunday"}
 _DAY_ORDER = ["MON", "TUE", "WED", "THU", "FRI", "SAT", "SUN"]
+
+
+def _leave_text(value) -> Optional[str]:
+    """Leave entitlement as printed: a bare number ("24") is that many days."""
+    v = str(value or "").strip()
+    if not v:
+        return None
+    return f"{v} days" if re.fullmatch(r"\d{1,3}(\.\d)?", v) else v
 
 
 def _clock(hhmm: Optional[str]) -> str:
@@ -543,13 +606,24 @@ def worker_address_parts(details: dict) -> dict:
     return parts
 
 
+def engagement_with_source(db, hire) -> tuple:
+    """(engagement profile, source) — see onboarding_profiles.engagement_for_hire."""
+    from app.modules.hr import onboarding_profiles as PR
+    _cand, offer, _req = _offer_for(db, hire)
+    chosen = hire_inputs(hire).get("engagement_profile_slug")
+    offer_slug = getattr(offer, "engagement_profile_slug", None) if offer is not None else None
+    kind = hire.employment_type or (offer.employment_type if offer is not None else None)
+    return _cached(db, ("engagement", hire.id, chosen, offer_slug, kind),
+                   lambda: PR.engagement_for_hire(db, hire.organization_id, chosen, offer_slug, kind))
+
+
 def hire_profiles(db, hire) -> tuple:
     """(engagement profile, role profile) for the hire; the role is None when none was chosen and none matches."""
     from app.modules.hr import onboarding_profiles as PR
     inputs = hire_inputs(hire)
 
     def load():
-        eng = PR.engagement_for(db, hire.organization_id, inputs.get("engagement_profile_slug"))
+        eng, _source = engagement_with_source(db, hire)
         role = PR.role_for(db, hire.organization_id, inputs.get("role_profile_slug"), hire.position)
         if role is None:          # no saved profile for this position: build one from the hire's own records
             role = generated_role(db, hire)
@@ -715,25 +789,34 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     if not worker_lines and v1.get("worker.postal_address"):          # HR typed the address as one line
         worker_lines = [ln.strip() for ln in str(v1["worker.postal_address"]).split(",") if ln.strip()]
 
-    # pay
-    currency = ((offer.currency if offer else None) or profile.get("currency") or "").upper() or None
-    amount = None
-    if offer is not None and offer.salary and currency:
-        amount = F.format_money(offer.salary, currency, profile.get("number_grouping"))
-    statement = None
-    if amount:
-        period = PER_PERIOD.get((offer.pay_period or "annual"), "")
+    # pay: the offer's amount, else the amount HR typed for this hire in the package panel
+    currency = _pay_currency(offer, profile, hire)
+    typed = (hire_inputs(hire).get("employment.base_pay") or "").strip()
+    raw_amount, period_key = None, None
+    if offer is not None and offer.salary:
+        raw_amount, period_key = offer.salary, (offer.pay_period or "annual")
+    elif typed and _BARE_AMOUNT.match(typed):                         # "12000" / "12,000.50": format it like an offer
+        raw_amount = typed.replace(",", "").replace(" ", "")
+        period_key = _default_pay_period(eng, profile)
+    amount, statement, typed_base = None, None, None
+    if raw_amount is not None and currency:
+        amount = F.format_money(raw_amount, currency, profile.get("number_grouping"))
+        period = PER_PERIOD.get(period_key, "")
+        if not (offer is not None and offer.salary):
+            typed_base = f"{amount} {period}".strip()                 # also printed where the documents show "base pay"
         gross = " (gross)" if profile.get("stipend_gross_label") else ""
         statement = f"{amount} {period}{gross}".strip()
-        if (offer.pay_period or "") == "monthly" and profile.get("pay_day_of_month"):
+        if period_key == "monthly" and profile.get("pay_day_of_month"):
             day = F.ordinal(int(profile["pay_day_of_month"]))
             statement += f", paid on the {day} of each month for the preceding period"
-
-    if amount is None and v1.get("employment.base_pay"):             # no offer: the pay HR typed for this hire
-        amount = v1["employment.base_pay"]
+    if amount is None and typed:                                      # HR typed the full wording ("GBP 42,000 per year")
+        amount = typed
         # the statement carries the period too ("GBP 42,000 per year, paid monthly"), as the v1 pay terms did
+        statement = v1.get("employment.pay_terms") or typed
+    if amount is None and v1.get("employment.base_pay"):
+        amount = v1["employment.base_pay"]
         statement = v1.get("employment.pay_terms") or amount
-    start = hire.joining_date or (offer.joining_date if offer else None)
+    start = hire.joining_date or (offer.joining_date if offer else None) or F.to_date(inputs.get("employment.start_date"))
     issue = F.to_date(inputs.get("document.issue_date")) or date.today()
     duties = role.get("contract_duties") or " ".join(role.get("offer_responsibilities") or []) or None
     initials = F.initials(hire.candidate_name)
@@ -786,6 +869,7 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
         "employment.employer_notice_text": F.notice_text(profile.get("employer_notice_value"),
                                                          profile.get("employer_notice_unit")) or None,
         "employment.pay_amount": amount,
+        "_typed_base_pay": typed_base,
         "employment.pay_statement": statement,
         "employment.duties_paragraph": duties,
         "offer.candidate_fit_summary": inputs.get("offer.candidate_fit_summary") or None,
@@ -822,6 +906,30 @@ def _v2_values(db, hire, cfg: dict, offer, v1: dict) -> dict:
     }
 
 
+_BARE_AMOUNT = re.compile(r"^\d{1,3}(?:[, ]?\d{2,3})*(?:\.\d{1,2})?$")
+
+
+def _pay_currency(offer, profile: dict, hire) -> Optional[str]:
+    """The offer's currency, else the Company Profile's, else the work country's."""
+    cur = (offer.currency if offer is not None else None) or profile.get("currency")
+    if not cur:
+        country = (offer.work_country if offer is not None else None) or hire.work_country or profile.get("country")
+        if country:
+            from app.core import regions
+            try:
+                cur = regions.currency_for(country, None)
+            except Exception:
+                cur = None
+    return (cur or "").upper() or None
+
+
+def _default_pay_period(eng: dict, profile: dict) -> str:
+    """The period of an amount HR typed without one: a stipend or a monthly payroll is per month, otherwise per year."""
+    if (eng or {}).get("remuneration_type") == "stipend" or (profile.get("pay_frequency") or "monthly") == "monthly":
+        return "monthly"
+    return "annual"
+
+
 def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
     """Non-blocking checks shown in amber in the package panel: inconsistent terms, dates and names. They never stop a
     send."""
@@ -856,6 +964,21 @@ def consistency_warnings(db, hire, cfg: Optional[dict] = None) -> list:
         if a != b:
             warn("name_mismatch",
                  f"The name on the offer ({cand.name}) differs from the new hire record ({hire.candidate_name}).")
+    _eng, source = engagement_with_source(db, hire)
+    kind = _pretty(hire.employment_type or (offer.employment_type if offer else None))
+    if source == "standard":
+        warn("no_engagement_for_type",
+             f"No engagement profile is set up for {kind or 'this'} hires, so the neutral Standard Employee terms are used. "
+             "Choose the offer type on the offer, or the engagement profile above.")
+    slug = (eng or {}).get("slug")
+    rules = [r for r in profile.get("notice_rules") or [] if r.get("active") and r.get("value") is not None]
+    if slug and rules and not any(r.get("employee_type") == slug for r in rules) and not (eng or {}).get("default"):
+        printed = _employee_notice_text(profile, eng)
+        if printed:
+            warn("notice_from_all_employees_rule",
+                 f"The notice printed ({printed}) is the all-employees rule: there is no notice rule for "
+                 f"{(eng or {}).get('name') or slug}. If these hires give a different notice, add a rule for them in "
+                 "Settings › Company Profile › Notice period rules.")
     emp = CP.notice_for(profile, (eng or {}).get("slug"))["after"] or (None, None)       # after probation: the lasting term
     er = (profile.get("employer_notice_value"), profile.get("employer_notice_unit"))
     if emp[0] is not None and er[0] is not None and tuple(emp) != er:
@@ -939,9 +1062,39 @@ def _values_for(db, hire, cfg: dict, *, secure_link: Optional[str] = None, contr
     return dict(built)
 
 
+def doc_meta(db, hire_or_org, category: str) -> dict:
+    """The document's description for this organisation (title, template id, the organisation's mode …)."""
+    from app.modules.hr import onboarding_package_org as ORG
+    org_id = hire_or_org if isinstance(hire_or_org, int) else hire_or_org.organization_id
+    return _cached(db, ("meta", org_id, category), lambda: ORG.meta(db, org_id, category))
+
+
+def package_categories(db, hire) -> list[str]:
+    """The hire's package documents in order: those in the package now, then any sent earlier that are no longer in it."""
+    from app.modules.hr import onboarding_package_org as ORG
+    cats = [d["category"] for d in ORG.documents_for_hire(db, hire)]
+    return cats + [c for c in _rows(db, hire) if c not in cats]
+
+
+def _content_for(db, hire, category: str, fresh: bool) -> tuple:
+    """(renderer blocks, source). A document already issued uses the version it was issued from (version safety);
+    `fresh` (sending) resolves the version that applies now."""
+    from app.modules.hr import onboarding_package_org as ORG
+    if not fresh:
+        row = _rows(db, hire).get(category)
+        src = issued_meta(row).get("source") if row is not None else None
+        if src:
+            content = ORG.content_for_source(db, category, src)
+            if content is not None:
+                return content, src
+    return ORG.resolve(db, hire, category)
+
+
 def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final: bool = False, esign: bool = False,
-                   secure_link: Optional[str] = None, contract_id: Optional[str] = None) -> R.RenderContext:
+                   secure_link: Optional[str] = None, contract_id: Optional[str] = None, fresh: bool = False) -> R.RenderContext:
     cfg = cfg or _config_for(db, hire.organization_id)
+    meta = doc_meta(db, hire, category)
+    content, source = _content_for(db, hire, category, fresh)
     values = _values_for(db, hire, cfg, secure_link=secure_link, contract_id=contract_id)
     if not final:   # previews: show where the generated values will go
         values.setdefault("offer.secure_link", None)
@@ -953,7 +1106,10 @@ def render_context(db, hire, category: str, *, cfg: Optional[dict] = None, final
                           org_label=header_label(cfg), primary=cfg["brand_primary"],
                           accent=cfg["brand_accent"], paper=cfg["paper"], spelling=cfg["spelling"],
                           effective_date=values.get("document.effective_date") or "", esign=esign,
-                          logo_png=_cached(db, ("logo", hire.organization_id), lambda: logo_bytes(db, hire.organization_id, cfg)))
+                          logo_png=_cached(db, ("logo", hire.organization_id), lambda: logo_bytes(db, hire.organization_id, cfg)),
+                          content=content, source=source, meta=meta)
+    if source.get("kind") == "variant":
+        ctx.version = f"{C.PACKAGE_VERSION} (organisation v{source.get('variant_version')})"
     gaps = readiness(ctx, category)
     ctx.draft = not (final and gaps["ready"])
     ctx.status_text = (f"ISSUED – {values['generated_at']}" if not ctx.draft else None)
@@ -968,7 +1124,7 @@ DERIVED_FROM = {"employment.work_pattern": ("employment.working_hours",),
 
 def readiness(ctx: R.RenderContext, category: str) -> dict:
     fields, clauses = [], []
-    for tok in C.tokens_in(category):
+    for tok in C.tokens_in(category, R.content_for(category, ctx)):
         ck = C.clause_key(tok)
         if ck:
             if ctx.clause_value(ck) is None:
@@ -1021,8 +1177,7 @@ def stored_document_pdf(db, document_id: Optional[int], organization_id: int) ->
 
 def preview_pdf(db, hire, category: str) -> bytes:
     """What HR sees under "Preview": the document as sent (signed copy once signed); a draft render only before sending."""
-    if category not in C.DOCS:
-        raise HTTPException(404, "Unknown package document.")
+    _known(db, hire, category)
     from app.modules.hr import onboarding_package_forms as FORMS
     filled = FORMS.filled_pdf(db, hire, category)
     if filled is not None:                               # a form the new hire filled in online: their completed copy
@@ -1036,10 +1191,17 @@ def preview_pdf(db, hire, category: str) -> bytes:
 
 
 # ── state of a hire's package ────────────────────────────────────────────────────────────────────────────────────────
+def _known(db, hire, category: str) -> None:
+    from app.modules.hr import onboarding_package_org as ORG
+    if not ORG.is_package_category(category) or category not in ORG.known_categories(db, hire.organization_id):
+        raise HTTPException(404, "Unknown package document.")
+
+
 def _rows(db, hire) -> dict:
+    from app.modules.hr import onboarding_package_org as ORG
     rows = (db.query(OnboardingDocument)
             .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False,  # noqa: E712
-                    OnboardingDocument.category.in_(C.CATEGORIES))
+                    OnboardingDocument.category.in_(ORG.known_categories(db, hire.organization_id)))
             .order_by(OnboardingDocument.id.desc()).all())
     out = {}
     for r in rows:
@@ -1095,10 +1257,15 @@ ADDRESS_INPUT = "worker.postal_address"
 _ADDRESS_FORMS = {"worker.address_block", "worker.address_inline"}
 
 
+# computed values with a gap are reported as the input HR types for this hire (so the panel offers a box to fill)
+_COMPUTED_FROM_INPUT = {"employment.pay_statement": "employment.base_pay", "employment.pay_amount": "employment.base_pay",
+                        "employment.start_date_long": "employment.start_date"}
+
+
 def _reported_missing(keys: list) -> list:
     out: dict = {}
     for k in keys:
-        out.setdefault(ADDRESS_INPUT if k in _ADDRESS_FORMS else k, None)
+        out.setdefault(ADDRESS_INPUT if k in _ADDRESS_FORMS else _COMPUTED_FROM_INPUT.get(k, k), None)
     return list(out)
 
 
@@ -1115,6 +1282,29 @@ def field_source(key: str) -> str:
     return C.FIELDS[key][1] if key in C.FIELDS else ""
 
 
+def _clause_token_known(key: str) -> bool:
+    if not key.startswith("clause."):
+        return False
+    from app.modules.hr import onboarding_clause_tokens as T
+    return key.split(".", 1)[1] in T.CATALOG
+
+
+def _settings_path(key: str) -> Optional[str]:
+    """Where in Onboarding › Settings an organisation-wide value that is missing is set (None: typed per hire)."""
+    base = "/zoiko-hr/onboarding/settings#"
+    if key in HIRE_INPUT_FIELDS or key == ADDRESS_INPUT:
+        return None
+    if key.startswith("clause."):
+        return base + "company-profile-clauses"
+    if key in ("employment.notice_text", "employment.employer_notice_text"):
+        return base + "company-profile-legal"
+    if key.startswith(("engagement.", "role.")) or key == "kpi.areas":
+        return base + "onboarding-profiles"
+    if key.startswith(("company.", "employer.")):
+        return base + "company-profile"
+    return base + "offer-package"
+
+
 def package_view(db, hire) -> dict:
     with values_cache(db):
         return _package_view(db, hire)
@@ -1125,8 +1315,9 @@ def _package_view(db, hire) -> dict:
     cfg = _config_for(db, hire.organization_id)
     rows = _rows(db, hire)
     docs = []
-    for d in C.documents():
-        cat = d["category"]
+    in_package = {d["category"] for d in _org().documents_for_hire(db, hire)}
+    for cat in package_categories(db, hire):
+        d = doc_meta(db, hire, cat)
         ctx = render_context(db, hire, cat, cfg=cfg, final=True)
         gaps = readiness(ctx, cat)
         row = rows.get(cat)
@@ -1135,12 +1326,16 @@ def _package_view(db, hire) -> dict:
             "category": cat, "title": d["title"], "template_id": d["template_id"], "mode": d["mode"],
             "mode_label": C.MODE_LABELS[d["mode"]], "doc_type": d["doc_type"], "risk": d["risk"], "sensitivity": d["sensitivity"],
             "orientation": d["orientation"], "signers": d["signers"], "state": _row_state(db, row),
+            "source": d.get("source", "platform"), "in_package": cat in in_package,
+            "template_version": (ctx.source or {}).get("variant_version"),
             "onboarding_document_id": row.id if row else None, "status": row.status if row else None,
             "signing_status": gen.status if gen else None, "ready": gaps["ready"],
             "filled_online": d["mode"] == "COMPLETE" and row is not None and FORMS.submitted(db, hire, cat) is not None,
             "missing_fields": [{"key": k, "meaning": field_meaning(k), "source": field_source(k),
-                                "editable": k in HIRE_INPUT_FIELDS, "candidate_provides": k == ADDRESS_INPUT,
-                                "hr_may_enter": k == ADDRESS_INPUT}
+                                "editable": k in HIRE_INPUT_FIELDS or _clause_token_known(k),
+                                "org_wide": k.startswith("clause."),
+                                "candidate_provides": k == ADDRESS_INPUT, "hr_may_enter": k == ADDRESS_INPUT,
+                                "settings_path": _settings_path(k)}
                                for k in _reported_missing(gaps["missing_fields"])],
             "missing_clauses": [{"key": k, "title": C.CLAUSES[k][0]} for k in gaps["missing_clauses"]],
         })
@@ -1152,8 +1347,14 @@ def _package_view(db, hire) -> dict:
                               "value": values.get(k) if k in C.FIELDS else hire_inputs(hire).get(k),
                               "required": C.FIELDS[k][2] if k in C.FIELDS else False} for k in HIRE_INPUT_FIELDS],
             "warnings": consistency_warnings(db, hire, cfg),
+            "engagement": _engagement_summary(db, hire),
             "printed_values": printed_values(values),
             "ready_to_send": [d["category"] for d in docs if d["ready"] and d["state"] in ("not_sent", "declined")]}
+
+
+def _engagement_summary(db, hire) -> dict:
+    eng, source = engagement_with_source(db, hire)
+    return {"slug": (eng or {}).get("slug"), "name": (eng or {}).get("name"), "source": source}
 
 
 # ── the organisation's board: the 10 documents of every new hire (Onboarding › Checklists) ─────────────────────────────
@@ -1172,11 +1373,12 @@ def status_board(db, organization_id: int, *, include_finished: bool = False) ->
         q = q.filter(OnboardingNewHire.status != "cancelled") if include_finished else             q.filter(OnboardingNewHire.status.in_(_BOARD_ACTIVE))
         hires = q.order_by(OnboardingNewHire.joining_date.is_(None), OnboardingNewHire.joining_date, OnboardingNewHire.id).all()
         by_hire: dict = {}
+        ORG = _org()
         if hires:
             rows = (db.query(OnboardingDocument)
                     .filter(OnboardingDocument.onboarding_new_hire_id.in_([h.id for h in hires]),
                             OnboardingDocument.is_deleted == False,  # noqa: E712
-                            OnboardingDocument.category.in_(C.CATEGORIES))
+                            OnboardingDocument.category.in_(ORG.known_categories(db, organization_id)))
                     .order_by(OnboardingDocument.id.desc()).all())
             gen_ids = {r.document_id for r in rows if r.document_id}
             if gen_ids:                                   # loaded once: _gen() then finds them in the session
@@ -1184,14 +1386,23 @@ def status_board(db, organization_id: int, *, include_finished: bool = False) ->
             for r in rows:
                 by_hire.setdefault(r.onboarding_new_hire_id, {}).setdefault(r.category, r)
         documents = [{"category": d["category"], "title": d["title"], "mode": d["mode"], "mode_label": C.MODE_LABELS[d["mode"]]}
-                     for d in C.documents()]
+                     for d in ORG.documents_for_org(db, organization_id)]
+        pkg_rows = {r.category: r for r in ORG.rows_for(db, organization_id)}
+        audience_rules = any((r.applies_to_engagement_slugs or r.excluded_engagement_slugs) for r in pkg_rows.values())
         totals = {s: 0 for s in BOARD_STATES}
         out = []
         for hire in hires:
             rows = by_hire.get(hire.id, {})
             docs, counts = {}, {s: 0 for s in BOARD_STATES}
+            slug = None
+            if audience_rules:                            # only when a document is limited to some engagement profiles
+                eng, _src = engagement_with_source(db, hire)
+                slug = (eng or {}).get("slug")
             for d in documents:
                 row = rows.get(d["category"])
+                if row is None and audience_rules and not ORG.applies_to(pkg_rows[d["category"]], slug):
+                    docs[d["category"]] = {"state": "not_included", "onboarding_document_id": None, "updated_at": None}
+                    continue
                 state = _row_state(db, row)
                 counts[state] += 1
                 totals[state] += 1
@@ -1202,7 +1413,8 @@ def status_board(db, organization_id: int, *, include_finished: bool = False) ->
             out.append({"new_hire_id": hire.id, "candidate_name": hire.candidate_name, "position": hire.position,
                         "status": hire.status, "joining_date": hire.joining_date.isoformat() if hire.joining_date else None,
                         "sent_at": pkg.get("sent_at"), "documents": docs, "counts": counts,
-                        "done": counts["completed"] + counts["available"]})
+                        "done": counts["completed"] + counts["available"],
+                        "total": sum(1 for v in docs.values() if v["state"] != "not_included")})
         return {"documents": documents, "hires": out, "totals": totals}
 
 
@@ -1231,30 +1443,38 @@ def package_file_key(hire, category: str) -> Optional[str]:
     return ((hire.profile_details or {}).get("_package_files") or {}).get(category)
 
 
+def _slug(category: str) -> str:
+    """A category as a file-name part (organisation documents are "org:<template id>")."""
+    return re.sub(r"[^A-Za-z0-9_-]+", "-", category)
+
+
 def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optional[OnboardingDocument]) -> OnboardingDocument:
     cat, mode = d["category"], d["mode"]
     store = storage.get_store()
     number = f"ONB-{d['template_id'].replace('HR-', '')}-{hire.id}-{secrets.token_hex(3).upper()}"
     ctx = render_context(db, hire, cat, cfg=cfg, final=True, esign=(mode == "SIGN"), secure_link=secure_link,
-                         contract_id=number if cat == "employment_contract" else None)
+                         contract_id=number if cat == "employment_contract" else None, fresh=True)
     pdf = R.render_pdf(cat, ctx)
-    key = store.put(hire.organization_id, f"onb-{hire.id}-{cat}-{secrets.token_hex(4)}.pdf", pdf)
+    source = dict(ctx.source or {})
+    key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.pdf", pdf)
     _store_files(hire, cat, key)
     gen_id = None
     if mode == "SIGN":
         t = _ensure_definition(db, d)
         html = R.render_html(cat, ctx, document_number=number)
-        html_key = store.put(hire.organization_id, f"onb-{hire.id}-{cat}-{secrets.token_hex(4)}.html", html.encode("utf-8"))
+        html_key = store.put(hire.organization_id, f"onb-{hire.id}-{_slug(cat)}-{secrets.token_hex(4)}.html", html.encode("utf-8"))
         now = datetime.utcnow()
         gen = GeneratedDocument(
             document_number=number, organization_id=hire.organization_id, canonical_id=t.canonical_id, family_id=d["family_id"],
             title=d["title"], kind=d["doc_type"], legal_risk=d["risk"], sensitivity=d["sensitivity"], output_mode="DOCUMENT",
-            execution_mode="SIGN_CANDIDATE", audience="COUNTERPARTY", approval_policy=d["risk"], subject_type="new_hire",
+            # an organisation document can ask the employer to sign too (its signers on the package card)
+            execution_mode="SIGN_BOTH" if "employer" in (d.get("party_signers") or []) else "SIGN_CANDIDATE", audience="COUNTERPARTY", approval_policy=d["risk"], subject_type="new_hire",
             subject_id=hire.id, source_ref=f"onboarding_new_hire:{hire.id}", language="en", rendered_html_path=html_key,
             pdf_path=key, pdf_sha256=hashlib.sha256(pdf).hexdigest(), recipient_name=hire.candidate_name,
             recipient_email=hire.email, requested_by=getattr(actor, "id", None) or _fallback_actor(db, hire),
             issued_by=getattr(actor, "id", None), issued_at=now, due_by=now + timedelta(days=int(cfg.get("response_days") or 7)),
-            expires_at=now + timedelta(days=30))
+            expires_at=now + timedelta(days=30), variant_id=source.get("variant_id"),
+            variant_version=source.get("variant_version"), variant_checksum=source.get("variant_checksum"))
         state._set(gen, "ISSUED")
         db.add(gen)
         db.flush()
@@ -1276,7 +1496,15 @@ def _issue_one(db, hire, d: dict, cfg: dict, actor, secure_link: str, row: Optio
     db.flush()
     details = dict(hire.profile_details or {})              # the version and mode this document was issued under
     issued = dict(details.get("_package_issued") or {})
-    issued[str(row.id)] = {"version": C.PACKAGE_VERSION, "mode": mode, "category": cat, "issued_at": datetime.utcnow().isoformat()}
+    # version safety: what this document was issued from (template version, content and values checksums, the PDF's hash)
+    snapshot = hashlib.sha256(json.dumps(ctx.values, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+    issued[str(row.id)] = {"version": C.PACKAGE_VERSION, "mode": mode, "category": cat, "issued_at": datetime.utcnow().isoformat(),
+                           "template_id": d["template_id"], "title": d["title"], "source": source,
+                           "variant_id": source.get("variant_id"), "variant_version": source.get("variant_version"),
+                           "variant_checksum": source.get("variant_checksum"), "starter_revision": source.get("starter_revision"),
+                           "content_checksum": source.get("content_checksum"), "values_checksum": snapshot,
+                           "clauses": sorted(k for k, v in (ctx.clauses or {}).items() if (v or {}).get("text")),
+                           "rendered_sha256": hashlib.sha256(pdf).hexdigest()}
     details["_package_issued"] = issued
     hire.profile_details = details
     return row
@@ -1317,13 +1545,14 @@ def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[
     from app.modules.hr import onboarding_flow
     if hire.status not in onboarding_flow.ACTIVE_STATUSES:
         raise HTTPException(400, "Onboarding documents can only be sent while onboarding is active.")
-    wanted = [c for c in (categories or C.CATEGORIES) if c in C.DOCS]
+    in_package = {d["category"]: d for d in _org().documents_for_hire(db, hire)}
+    wanted = [c for c in (categories or list(in_package)) if c in in_package]   # switched off / not for this hire: never sent
     cfg = _config_for(db, hire.organization_id)
     rows = _rows(db, hire)
     secure_link = onboarding_flow.current_portal_url(db, hire)
     issued, held, unchanged = [], [], []
     for cat in wanted:
-        d, row = C.DOCS[cat], rows.get(cat)
+        d, row = in_package[cat], rows.get(cat)
         st = _row_state(db, row)
         if st not in ("not_sent", "declined"):
             unchanged.append({"category": cat, "title": d["title"], "state": st})
@@ -1331,7 +1560,7 @@ def _send_package(db, hire: OnboardingNewHire, actor=None, categories: Optional[
         if cat == "offer_letter" and _link_recruitment_offer(db, hire, row):
             unchanged.append({"category": cat, "title": d["title"], "state": "completed"})
             continue
-        gaps = readiness(render_context(db, hire, cat, cfg=cfg, final=True, secure_link=secure_link), cat)
+        gaps = readiness(render_context(db, hire, cat, cfg=cfg, final=True, secure_link=secure_link, fresh=True), cat)
         if not gaps["ready"]:
             held.append({"category": cat, "title": d["title"], **gaps})
             continue
@@ -1538,8 +1767,9 @@ def portal_items(db, hire) -> dict:
     out = {}
     for cat, row in _rows(db, hire).items():
         mode = mode_of(row)
-        out[row.id] = {"mode": mode, "mode_label": C.MODE_LABELS[mode],
-                       "template_id": C.DOCS[cat]["template_id"], "package_file": bool(package_file_key(hire, cat)),
+        out[row.id] = {"mode": mode, "mode_label": C.MODE_LABELS.get(mode, mode or ""),
+                       "template_id": issued_meta(row).get("template_id") or doc_meta(db, hire, cat)["template_id"],
+                       "package_file": bool(package_file_key(hire, cat)),
                        "acknowledged_at": (acks.get(str(row.id)) or {}).get("at"), "optional": mode in ("VOLUNTARY", "INFO")}
     return out
 
@@ -1657,9 +1887,9 @@ def next_to_sign(db: Session, doc: GeneratedDocument) -> dict:
         return empty
     rows = _rows(db, hire)
     waiting = []
-    for cat in C.CATEGORIES:
+    for cat in package_categories(db, hire):
         row = rows.get(cat)
-        if row is None or row.document_id == doc.id or mode_of(cat) != "SIGN" or _row_state(db, row) != "awaiting_signature":
+        if row is None or row.document_id == doc.id or mode_of(row) != "SIGN" or _row_state(db, row) != "awaiting_signature":
             continue
         gen = _gen(db, row)
         if gen is None or gen.status != "ISSUED"                 or (gen.recipient_email or "").lower() != (doc.recipient_email or "").lower()                 or "candidate" not in signing.required_parties(gen) or "candidate" in signing.signed_parties(db, gen):
@@ -1691,14 +1921,11 @@ def _outstanding_for_hire(db, hire) -> list[dict]:
     out = []
     package_ids = set()
     rows = _rows(db, hire)
-    for cat in C.CATEGORIES:
-        row = rows.get(cat)
-        if row is None:
-            continue
+    for cat, row in rows.items():
         package_ids.add(row.id)
         verb = _OWED.get(_row_state(db, row))
         if verb:
-            out.append({"title": row.title or C.DOCS[cat]["title"], "action": verb})
+            out.append({"title": row.title or doc_meta(db, hire, cat)["title"], "action": verb})
     others = (db.query(OnboardingDocument)
               .filter(OnboardingDocument.onboarding_new_hire_id == hire.id, OnboardingDocument.is_deleted == False)  # noqa: E712
               .all())
@@ -1715,14 +1942,15 @@ def _outstanding_for_hire(db, hire) -> list[dict]:
                               "outside_activities": "Schedule A: outside activities"}.get(need, need), "action": "complete"})
     # documents HR has not been able to send yet (held): the package is not complete until they arrive and are done
     held = ((hire.profile_details or {}).get("_package") or {}).get("held") or []
+    in_package = {d["category"]: d for d in _org().documents_for_hire(db, hire)}
     for cat in held:
-        if cat not in C.DOCS or mode_of(cat) in ("VOLUNTARY", "INFO"):
-            continue
+        if cat not in in_package or in_package[cat]["mode"] in ("VOLUNTARY", "INFO"):
+            continue                       # switched off since, or never blocks
         gaps = readiness(render_context(db, hire, cat, final=True), cat)
         if not gaps["ready"] and not gaps["missing_clauses"] and set(_reported_missing(gaps["missing_fields"])) <= {ADDRESS_INPUT}:
             continue                       # waiting only for the hire's own address: already listed above as their step
         # otherwise HR still has to complete the settings and/or press Send: the hire has not received it yet
-        out.append({"title": C.DOCS[cat]["title"], "action": "wait for HR to send"})
+        out.append({"title": in_package[cat]["title"], "action": "wait for HR to send"})
     return out
 
 
@@ -1795,7 +2023,44 @@ def submit_package(db, hire) -> dict:
         except Exception:
             logger.exception("submission notification failed for new hire %s", hire.id)
         db.commit()
+        _email_package_submitted(db, hire)
     return {**submission_status(db, hire), "first_submission": first}
+
+
+_DONE_WORDS = {"SIGN": "Signed", "ACKNOWLEDGE": "Acknowledged", "COMPLETE": "Completed", "VOLUNTARY": "Completed",
+               "INFO": "Received"}
+
+
+def _email_package_submitted(db, hire) -> int:
+    """One email to the organisation's admins and the hire's manager: every onboarding document is done."""
+    try:
+        from app.modules.hr import onboarding_flow
+        from app.services.email_service import send_onboarding_documents_submitted
+        rows = _rows(db, hire)
+        documents = []
+        for cat in package_categories(db, hire):
+            row = rows.get(cat)
+            if row is None:
+                continue
+            d = {"title": row.title or doc_meta(db, hire, cat)["title"]}
+            state = _row_state(db, row)
+            done = state in ("completed", "available", "needs_review")
+            word = _DONE_WORDS.get(mode_of(row), "Completed") if done else state.replace("_", " ").capitalize()
+            documents.append({"title": d["title"], "status": word})
+        recipients = {a.email: a.first_name or "there" for a in onboarding_flow._admins(db, hire.organization_id) if a.email}
+        if hire.manager is not None and hire.manager.email:
+            recipients.setdefault(hire.manager.email, hire.manager.first_name or "there")
+        org = onboarding_flow._org_name(db, hire.organization_id)
+        url = f"{onboarding_flow.app_base()}/zoiko-hr/onboarding/checklists"
+        sent = 0
+        for email, name in recipients.items():
+            sent += bool(send_onboarding_documents_submitted(
+                email, name, hire.candidate_name, hire.position, org, documents, url,
+                onboarding_flow._date_display(hire.joining_date), db=db, organization_id=hire.organization_id))
+        return sent
+    except Exception:
+        logger.exception("package submitted email failed for new hire %s", hire.id)
+        return 0
 
 
 def hire_for_document(db, doc: GeneratedDocument) -> Optional[OnboardingNewHire]:
@@ -1829,7 +2094,7 @@ def signed_documents(db, organization_id: int, new_hire_id: Optional[int] = None
                 .filter(DocumentSignature.document_id.in_([g.id for _o, _h, g in rows]), DocumentSignature.decision == "SIGNED")
                 .order_by(DocumentSignature.signed_at).all()):
         sigs.setdefault(sig.document_id, []).append(sig)
-    order = {cat: i for i, cat in enumerate(C.CATEGORIES)}
+    order = {cat: i for i, cat in enumerate(_org().known_categories(db, organization_id))}
     hires: dict[int, dict] = {}
     for onb, hire, gen in rows:
         if gen.id not in sigs:
@@ -1893,8 +2158,7 @@ def package_filename(hire, category: str, ext: str = "pdf", state: str = "") -> 
 def document_file(db, hire, category: str) -> tuple:
     """(pdf bytes, file name, state) of one package document: what the new hire was sent (the signed copy once executed),
     else a watermarked draft rendered now. state: signed | issued | completed | draft."""
-    if category not in C.DOCS:
-        raise HTTPException(404, "Unknown package document.")
+    _known(db, hire, category)
     from app.modules.hr import onboarding_package_forms as FORMS
     filled = FORMS.filled_pdf(db, hire, category)
     if filled is not None:                               # a form the new hire filled in online: the completed copy
@@ -1923,7 +2187,7 @@ def package_zip(db, hire, fmt: str = "pdf") -> tuple:
         raise HTTPException(422, "format must be pdf, docx or both.")
     buf = io.BytesIO()
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
-        for cat in C.CATEGORIES:
+        for cat in package_categories(db, hire):
             if fmt in ("pdf", "both"):
                 data, name, _state = document_file(db, hire, cat)
                 zf.writestr(name, data)
@@ -1938,8 +2202,7 @@ def package_zip(db, hire, fmt: str = "pdf") -> tuple:
 def document_docx(db, hire, category: str) -> tuple:
     """(docx bytes, file name): an editable Word copy for HR, rendered from the same blocks as the PDF with the hire's
     current values. The e-signed / issued record is always the stored PDF."""
-    if category not in C.DOCS:
-        raise HTTPException(404, "Unknown package document.")
+    _known(db, hire, category)
     from app.modules.hr import onboarding_package_docx as D
     from app.modules.hr import onboarding_package_forms as FORMS
     sub = FORMS.submitted(db, hire, category)

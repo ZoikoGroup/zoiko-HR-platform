@@ -7,6 +7,7 @@ import { personEmailError } from "./realEmail";
 
 export const CANDIDATE_LABELS = {
   name: "Name", email: "Email", phone: "Phone", position: "Position", location: "Location", source: "Source",
+  country: "Country", region: "State / region", city: "City",
   experience: "Experience", resume_link: "Resume link", notes: "Notes", requisition_id: "Job requisition", status: "Status",
 };
 
@@ -36,6 +37,12 @@ export function validateCandidateForm(f) {
 
   const location = fieldProblem("location", f.location);
   if (location) errors.location = location;
+
+  // where the candidate lives: city and state / region are place names (a listed state is picked from the list)
+  const city = fieldProblem("place_name", f.city);
+  if (city) errors.city = city;
+  const region = fieldProblem("place_name", f.region);
+  if (region) errors.region = region;
 
   if (f.experience !== "" && f.experience != null) {
     const n = Number(f.experience);
@@ -74,6 +81,23 @@ export function serverFieldErrors(detail) {
   return out;
 }
 
+const hasPlace = (f) => ["country", "region", "city"].some((k) => String(f?.[k] ?? "").trim() !== "");
+
+/**
+ * Splits a free-text location ("Hyderabad, Telangana, India") into city / state / country for the form.
+ * countryOf(text) -> ISO code or null (also guesses from a well-known city); isCountryName(part) -> true when the part
+ * names a country itself; regionsOf(code) -> the country's listed states (or null).
+ */
+export function placeFromLocation(location, countryOf, regionsOf, isCountryName = () => false) {
+  const parts = String(location || "").split(/[,|]/).map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return { country: "", region: "", city: "" };
+  const country = countryOf(location) || "";
+  const listed = (country && regionsOf(country)) || [];
+  const region = listed.find((r) => parts.some((p) => p.toLowerCase() === r.toLowerCase())) || "";
+  const city = parts.find((p) => p.toLowerCase() !== region.toLowerCase() && !isCountryName(p)) || "";
+  return { country, region, city };
+}
+
 /** The payload to send: trimmed text, a whole-number experience, empty optional fields left out as null. */
 export function candidatePayload(f) {
   const text = (v) => { const t = String(v ?? "").trim(); return t === "" ? null : t; };
@@ -84,7 +108,10 @@ export function candidatePayload(f) {
     phone: text(f.phone),
     status: f.status,
     source: text(f.source),
-    location: text(f.location) && text(f.location).replace(/\s+/g, " "),
+    // with a country, state or city the server builds the location text from them ("Hyderabad, Telangana, India")
+    ...(hasPlace(f)
+      ? { country: f.country || null, region: text(f.region), city: text(f.city) && text(f.city).replace(/\s+/g, " ") }
+      : { location: text(f.location) && text(f.location).replace(/\s+/g, " ") }),
     experience: f.experience === "" || f.experience == null ? null : Number(f.experience),
     resume_link: text(f.resume_link),
     notes: text(f.notes),

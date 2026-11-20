@@ -68,9 +68,11 @@ def test_protected_rights_context_is_flagged():
     for text in (
         "I'm sick and have no sick days left, can I take time off?",
         "Can I take leave for my father's funeral?",
-        "Am I allowed to discuss my salary with coworkers?",
+        "What leave do I get if I'm pregnant?",
     ):
         assert pd.assess(text).tier == pd.PROTECTED, text
+    # pay discussion is protected too, and answered with a fixed text rather than generated
+    assert pd.assess("Am I allowed to discuss my salary with coworkers?").tier == pd.PERSONAL
 
 
 def test_dispute_questions_are_never_adjudicated():

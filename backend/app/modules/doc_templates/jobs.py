@@ -193,8 +193,13 @@ def expiry_digest_job():
     return _run("expiry_digest", send_expiry_digest)
 
 
+def _retention(db) -> int:
+    from app.modules.hr import docs_setup
+    return flag_retention(db) + docs_setup.purge_expired(db)     # uploaded company documents: 30 days after the setup
+
+
 def retention_job():
-    return _run("retention", flag_retention)
+    return _run("retention", _retention)
 
 
 def new_joiners_job():

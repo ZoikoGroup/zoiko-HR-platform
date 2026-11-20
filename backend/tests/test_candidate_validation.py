@@ -174,3 +174,19 @@ def test_an_interview_with_feedback_can_be_deleted(client):
     r = client.delete(f"/hr/recruitment/interviews/{iv.id}")
     assert r.status_code in (200, 204), r.text
     assert client.db.query(RecruitmentInterviewFeedback).count() == 0
+
+
+def test_country_state_and_city_are_kept_and_build_the_location(client):
+    r = client.post("/hr/recruitment/candidates", json={**GOOD, "country": "IN", "region": "Telangana", "city": "Hyderabad"})
+    assert r.status_code == 201, r.text
+    body = r.json()
+    assert (body["country"], body["region"], body["city"]) == ("IN", "Telangana", "Hyderabad")
+    assert body["location"] == "Hyderabad, Telangana, India"
+    edited = client.put(f"/hr/recruitment/candidates/{body['id']}", json={"city": "Warangal"}).json()
+    assert edited["location"] == "Warangal, Telangana, India", "the other parts are kept"
+    bad = client.post("/hr/recruitment/candidates", json={**GOOD, "email": "c@x.com", "country": "IN", "region": "Texas"})
+    assert bad.status_code == 400 and "state" in bad.text.lower()
+    assert client.post("/hr/recruitment/candidates", json={**GOOD, "email": "d@x.com", "country": "ZZ"}).status_code == 422
+    # a request with only a free-text location keeps it as typed
+    plain = client.post("/hr/recruitment/candidates", json={**GOOD, "email": "e@x.com", "location": "Pune, India"}).json()
+    assert plain["location"] == "Pune, India" and plain["country"] is None

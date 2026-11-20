@@ -79,15 +79,7 @@ const EMPLOYMENT_TYPES = [
   { value: "freelance", label: "Freelance" },
 ];
 
-const DOCUMENT_CATEGORIES = [
-  { value: "id_proof", label: "ID proof" },
-  { value: "offer_letter", label: "Signed offer letter" },
-  { value: "nda", label: "Signed NDA" },
-  { value: "education_certificates", label: "Education certificates" },
-  { value: "experience_letters", label: "Experience letters" },
-  { value: "bank_details", label: "Bank details" },
-  { value: "other", label: "Other" },
-];
+import { useRequestCategories } from "../../../utils/useRequestCategories";
 
 const DOC_STATUS = {
   requested: { label: "Waiting for new hire", tone: "gray" },
@@ -894,6 +886,7 @@ function HireDetail({ rec, progress, panel, link, busy, employees, act, onClose 
 
 // ── page ────────────────────────────────────────────────────────────────────────────────────────────────────────────
 export default function NewHires() {
+  const { active: DOCUMENT_CATEGORIES } = useRequestCategories();
   const insights = useInsights("onboarding");
   const [records, setRecords] = useState([]);
   const [departmentList, setDepartmentList] = useState([]);

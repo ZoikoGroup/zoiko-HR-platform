@@ -8,7 +8,7 @@ Global formatting standards applied here, once, for all 10 documents:
   header row repeated on each page.
 * Every page: header "<ORG> | HR" left, document title right, a marked logo placeholder box; footer template ID and version,
   "Private and Confidential", "Page X of Y" (counted per document).
-* A document-control block on page 1 of every document; a diagonal "DRAFT – NOT FOR ISSUE" watermark on every draft page.
+* A document-control block on page 1 of every document; a diagonal "DRAFT – NOT FOR ISSUE" watermark on the template set's pages (never on a hire's documents).
 * {{placeholders}} highlighted yellow when unresolved; clause hooks followed by a grey italic drafting note.
 """
 from __future__ import annotations
@@ -70,6 +70,11 @@ class RenderContext:
     answers_signed_on: str = ""                                # the date the new hire signed the filled-in form
     logo_png: Optional[bytes] = None                           # the organisation's uploaded logo (PNG); None -> no logo
                                                                # (the dashed "insert logo" box is shown on the template set only)
+    content: Optional[list] = None                             # renderer blocks of the template version to draw (None ->
+                                                               # the platform default); see onboarding_package.resolve_content
+    source: Optional[dict] = None                              # which template version `content` is (variant id/version/checksum)
+    meta: Optional[dict] = None                                # the document's description (title, template id, orientation…)
+                                                               # None -> onboarding_package_content.DOCS[category]
 
     @property
     def header_text(self) -> str:
@@ -274,8 +279,14 @@ def expand(blocks: list, ctx: "RenderContext") -> list:
     return out
 
 
+def content_for(category: str, ctx: "RenderContext") -> list:
+    """The document's content: what the context carries (the organisation's released version, or the version a document was
+    issued under), else the platform default."""
+    return ctx.content if ctx.content is not None else C.blocks_for(category)
+
+
 def blocks(category: str, ctx: "RenderContext") -> list:
-    out = expand(C.blocks_for(category), ctx)
+    out = expand(content_for(category, ctx), ctx)
     if ctx.answers is not None:                      # a form the new hire filled in online: their answers written in
         from app.modules.hr import onboarding_package_forms as FORMS
         out = FORMS.fill_blocks(out, ctx.answers, ctx.answers_signed_on)
@@ -380,7 +391,9 @@ def _decorate(c, info: dict, page: int, total: int, ctx_for: dict) -> None:
     w, h = c._pagesize
     primary = colors.HexColor(ctx.primary)
     c.saveState()
-    if info.get("draft", ctx.draft):
+    # the diagonal watermark marks the blank template set only: a hire's documents never carry it (an incomplete one is
+    # held back by readiness and cannot be sent, and its preview shows the gaps highlighted instead)
+    if ctx.mode == "template" and info.get("draft", ctx.draft):
         c.setFillColor(colors.Color(0.55, 0.58, 0.62, alpha=0.13))
         c.setFont(FONT_B(), 54 if w < h else 64)
         c.translate(w / 2, h / 2)
@@ -872,8 +885,13 @@ def blank_rows(n, cols):
     return [[""] * cols for _ in range(n)]
 
 
+def doc_meta(category: str, ctx: RenderContext) -> dict:
+    """The document's description: the context's (organisation documents, the organisation's mode), else the platform's."""
+    return ctx.meta or C.DOCS[category]
+
+
 def render_pdf(category: str, ctx: RenderContext) -> bytes:
-    d = C.DOCS[category]
+    d = doc_meta(category, ctx)
     b = PdfBuilder(ctx)
     b.add_document(d, blocks(category, ctx))
     return b.build()
@@ -931,7 +949,7 @@ def render_template_set(ctx: RenderContext) -> bytes:
 
 # ── HTML (what the candidate reads before signing) ──────────────────────────────────────────────────────────────────
 def render_html(category: str, ctx: RenderContext, *, document_number: str = "") -> str:
-    d = C.DOCS[category]
+    d = doc_meta(category, ctx)
     hx = _Html(ctx)
     body = "".join(hx.block(b) for b in blocks(category, ctx))
     status = ctx.status_text or DRAFT_STATUS
@@ -939,7 +957,7 @@ def render_html(category: str, ctx: RenderContext, *, document_number: str = "")
         ("Template ID", d["template_id"]), ("Template version", f"v{ctx.version}"), ("Document type", d["doc_type"]),
         ("Legal risk level", d["risk"]), ("Sensitivity level", d["sensitivity"]), ("Owner", "HR"),
         ("Effective date", ctx.effective_date or "—"), ("Status", status)])
-    wm = f'<div class="wm">{WATERMARK}</div>' if ctx.draft else ""
+    wm = f'<div class="wm">{WATERMARK}</div>' if ctx.draft and ctx.mode == "template" else ""
     p, a = ctx.primary, ctx.accent
     return f"""<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>{_html.escape(d['title'])}</title><style>
@@ -1006,6 +1024,8 @@ class _Html:
         if t == "center":
             return f'<p class="center">{self.il(b["text"])}</p>'
         if t == "note":
+            if "{{" in b["text"]:                # v2 notes carry a value token (velocity motto), as in the PDF
+                return f'<div class="note">{self.il(b["text"])}</div>'
             return f'<div class="note">{_html.escape(ctx.spell(b["text"]))}</div>'
         if t in ("bullets", "numbered"):
             tag = "ol" if t == "numbered" else "ul"

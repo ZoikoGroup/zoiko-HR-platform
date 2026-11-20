@@ -10,8 +10,12 @@ import { realEmailError } from "../../utils/realEmail";
 import { ROLE_DEFAULT_REDIRECT } from "../../config/roles";
 import "./LoginPage.css";
 
+const ROLE_LABELS = { super_admin: "Platform administrator", admin: "Organization admin", hr_admin: "HR admin",
+  manager: "Manager", employee: "Employee" };
+const roleLabel = (role) => ROLE_LABELS[role] || String(role || "").replace(/_/g, " ");
+
 export default function LoginPage() {
-  const { login, loginWithGoogle, confirmMfaEnrollment, error: authError, defaultRedirect } = useAuth();
+  const { login, loginWithGoogle, confirmMfaEnrollment, chooseOrganization, error: authError, defaultRedirect } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = location.state?.from?.pathname || null;
@@ -38,6 +42,53 @@ export default function LoginPage() {
   const [unconfirmed, setUnconfirmed] = useState(false);
   const [resendNote, setResendNote] = useState("");
   const [resending, setResending] = useState(false);
+  // The address has a matching account in several organizations: { organizations, selectionToken, message } until one is chosen.
+  const [orgChoice, setOrgChoice] = useState(null);
+  const [chosenOrgId, setChosenOrgId] = useState(undefined);
+  const [choosing, setChoosing] = useState(false);
+
+  function forgetOrgChoice() {
+    setOrgChoice(null);
+    setChosenOrgId(undefined);
+  }
+
+  // A sign-in step failed: ask for the authenticator code, start enrolment, or say what went wrong.
+  async function handleSignInError(err, address) {
+    if (err?.code === "MFA_REQUIRED") {
+      setMfaStep("code");
+      setMfaCode("");
+      setLocalError(null);
+    } else if (err?.code === "MFA_ENROLLMENT_REQUIRED") {
+      try {
+        setEnrollment(await mfaEnrollStart({ email: address, password }));
+        setMfaStep("enroll");
+        setMfaCode("");
+        setLocalError(null);
+      } catch (startErr) {
+        setLocalError(startErr.message || "The authenticator could not be set up. Please try again.");
+      }
+    } else {
+      if (err?.code === "MFA_INVALID") setMfaCode("");
+      if (err?.status === 401 && orgChoice && err?.code !== "MFA_INVALID") forgetOrgChoice();   // the choice expired: sign in again
+      setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
+      setLocalError(err.message || "Unable to sign in. Please check your credentials.");
+    }
+  }
+
+  async function pickOrganization(organizationId, code) {
+    if (!orgChoice || choosing) return;
+    setLocalError(null);
+    setChosenOrgId(organizationId);
+    setChoosing(true);
+    try {
+      const signedIn = await chooseOrganization({ selectionToken: orgChoice.selectionToken, organizationId, mfaCode: code });
+      navigate(destinationFor(signedIn), { replace: true });
+    } catch (err) {
+      await handleSignInError(err, email.trim());
+    } finally {
+      setChoosing(false);
+    }
+  }
 
   async function sendNewConfirmation() {
     if (resending) return;
@@ -74,7 +125,10 @@ export default function LoginPage() {
     if (error) { setLocalError(googleErrorMessage(error)); return; }
     setGoogleBusy(true);
     loginWithGoogle(ticket)
-      .then((signedIn) => navigate(destinationFor(signedIn), { replace: true }))
+      .then((signedIn) => {
+        if (signedIn?.requiresOrgSelection) { setOrgChoice(signedIn); return; }
+        navigate(destinationFor(signedIn), { replace: true });
+      })
       .catch((err) => setLocalError(googleExchangeMessage(err)))
       .finally(() => setGoogleBusy(false));
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -110,35 +164,29 @@ export default function LoginPage() {
       setFieldErrors({ mfa: "Enter the 6-digit code from your authenticator app." });
       return;
     }
+    if (orgChoice && mfaStep === "code" && chosenOrgId !== undefined) {
+      await pickOrganization(chosenOrgId, mfaCode.trim());       // the chosen account asked for its authenticator code
+      return;
+    }
     setSubmitting(true);
     try {
       const signedIn = mfaStep === "enroll"
         ? await confirmMfaEnrollment({ email: address, password, code: mfaCode.trim() })
         : await login(mfaStep === "code" ? { email: address, password, mfaCode: mfaCode.trim() } : { email: address, password });
+      if (signedIn?.requiresOrgSelection) {
+        setOrgChoice(signedIn);
+        setChosenOrgId(undefined);
+        return;
+      }
       navigate(destinationFor(signedIn), { replace: true });
     } catch (err) {
-      if (err?.code === "MFA_REQUIRED") {
-        setMfaStep("code");
-        setMfaCode("");
-        setLocalError(null);
-      } else if (err?.code === "MFA_ENROLLMENT_REQUIRED") {
-        try {
-          setEnrollment(await mfaEnrollStart({ email: address, password }));
-          setMfaStep("enroll");
-          setMfaCode("");
-          setLocalError(null);
-        } catch (startErr) {
-          setLocalError(startErr.message || "The authenticator could not be set up. Please try again.");
-        }
-      } else {
-        if (err?.code === "MFA_INVALID") setMfaCode("");
-        setUnconfirmed(err?.code === "EMAIL_NOT_VERIFIED");
-        setLocalError(err.message || "Unable to sign in. Please check your credentials.");
-      }
+      await handleSignInError(err, address);
     } finally {
       setSubmitting(false);
     }
   }
+
+  const showPicker = Boolean(orgChoice) && !mfaStep;
 
   const errorMsg = localError || authError;
 
@@ -237,9 +285,35 @@ export default function LoginPage() {
                 {providerNote && <p role="status" className="provider-note">{providerNote}</p>}
               </div>
 
-              <div className="login-divider"><span />or sign in with email<span /></div>
+              {showPicker && (
+                <section className="org-picker" role="group" aria-labelledby="org-picker-title" data-testid="org-picker">
+                  <h2 id="org-picker-title">Choose an organization</h2>
+                  <p className="login-subtitle">{orgChoice.message || "Your email address has an account in more than one organization."}</p>
+                  <ul className="org-picker-list">
+                    {orgChoice.organizations.map((org) => (
+                      <li key={org.id ?? "platform"}>
+                        <button
+                          type="button"
+                          className="org-picker-option"
+                          disabled={choosing}
+                          onClick={() => pickOrganization(org.id ?? null)}
+                        >
+                          <span className="org-picker-name">{org.name || org.code || "Organization"}</span>
+                          <span className="org-picker-role">{roleLabel(org.role)}</span>
+                          <ChevronRight aria-hidden="true" />
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                  <button type="button" className="org-picker-back" onClick={forgetOrgChoice} disabled={choosing}>
+                    Use a different account
+                  </button>
+                </section>
+              )}
 
-              <form className="login-form" onSubmit={handleSubmit} noValidate autoComplete="on">
+              {!showPicker && <div className="login-divider"><span />or sign in with email<span /></div>}
+
+              {!showPicker && <form className="login-form" onSubmit={handleSubmit} noValidate autoComplete="on">
                 <div className="login-field">
                   <label htmlFor="login-email">Email address</label>
                   <input
@@ -249,7 +323,7 @@ export default function LoginPage() {
                     value={email}
                     aria-invalid={fieldErrors.email ? "true" : undefined}
                     aria-describedby={fieldErrors.email ? "login-email-error" : undefined}
-                    onChange={(e) => { setEmail(e.target.value); if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined })); }}
+                    onChange={(e) => { setEmail(e.target.value); forgetOrgChoice(); if (fieldErrors.email) setFieldErrors((f) => ({ ...f, email: undefined })); }}
                     placeholder="name@company.com"
                     autoComplete="email"
                   />
@@ -265,7 +339,7 @@ export default function LoginPage() {
                     name="password"
                     value={password}
                     aria-invalid={fieldErrors.password ? "true" : undefined}
-                    onChange={(e) => { setPassword(e.target.value); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
+                    onChange={(e) => { setPassword(e.target.value); forgetOrgChoice(); if (fieldErrors.password) setFieldErrors((f) => ({ ...f, password: undefined })); }}
                     placeholder="Enter your password"
                     autoComplete="current-password"
                     iconSize={20}
@@ -316,9 +390,9 @@ export default function LoginPage() {
                   className="login-submit"
                   aria-label={mfaStep === "enroll" ? "Confirm and sign in" : "Sign In"}
                 >
-                  {submitting ? "Signing in…" : mfaStep === "enroll" ? "Confirm and sign in" : "Log In"}
+                  {submitting || choosing ? "Signing in…" : mfaStep === "enroll" ? "Confirm and sign in" : "Log In"}
                 </button>
-              </form>
+              </form>}
 
                 <p className="register-prompt">New to Zoiko HR? <Link to="/register">Register</Link></p>
               </div>

@@ -32,15 +32,7 @@ const STATUS_LABELS = {
 };
 const STATUS_TONE = { offer_accepted: "green", pre_joining: "blue", in_progress: "violet", completed: "teal", cancelled: "gray", offer_sent: "amber" };
 
-const DOCUMENT_CATEGORIES = [
-  { value: "id_proof", label: "ID proof" },
-  { value: "offer_letter", label: "Signed offer letter" },
-  { value: "nda", label: "Signed NDA" },
-  { value: "education_certificates", label: "Education certificates" },
-  { value: "experience_letters", label: "Experience letters" },
-  { value: "bank_details", label: "Bank details" },
-  { value: "other", label: "Other" },
-];
+import { useRequestCategories } from "../../../utils/useRequestCategories";
 
 const DOC_STATUS = {
   requested: { label: "Waiting for new hire", tone: "gray" },
@@ -169,6 +161,7 @@ function SlideOverFooter({ children }) {
 const EMPTY_TASK_FORM = { title: "", description: "", due_date: "", recordId: "" };
 
 export default function PreOnboarding() {
+  const { active: DOCUMENT_CATEGORIES } = useRequestCategories();
   const insights = useInsights("onboarding");
   const [allRecords, setAllRecords] = useState([]);
   const [allTasks, setAllTasks] = useState([]);

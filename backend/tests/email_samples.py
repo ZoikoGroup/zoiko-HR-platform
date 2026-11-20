@@ -89,6 +89,11 @@ SENDER_SAMPLES = [
         email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", employee_code="ACM-0042",
         position="Backend Engineer", organization_name="Acme Corp", employees_url=f"{APP}/zoiko-hr/employees",
         joining_date_display="Nov 02, 2026", organization_id=42)),
+    ("send_onboarding_documents_submitted", dict(
+        email="hr@acme.test", recipient_name="Hana", candidate_name="Sam Rivera", position="Backend Engineer",
+        organization_name="Acme Corp", documents=[{"title": "Offer Letter", "status": "Signed"},
+                                                  {"title": "Job Description", "status": "Acknowledged"}],
+        review_url=f"{APP}/zoiko-hr/onboarding/checklists", joining_date_display="Nov 02, 2026", organization_id=42)),
     ("send_leave_request_submitted", dict(
         email="sam@acme.test", first_name="Sam", request_reference="LV-42-0007",
         leave_period_display="Oct 01, 2026 – Oct 03, 2026", leave_request_url=f"{APP}/employee/leaves")),

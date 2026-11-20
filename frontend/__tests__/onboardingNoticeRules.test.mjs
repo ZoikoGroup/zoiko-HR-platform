@@ -15,8 +15,26 @@ const SETTINGS = {
 
 function mockShell(t) {
   t.mock.module("react-router-dom", { exports: { NavLink: ({ children }) => React.createElement("a", null, typeof children === "function" ? children({ isActive: false }) : children),
-    Link: ({ children }) => React.createElement("a", null, children) } });
+    Link: ({ children }) => React.createElement("a", null, children), useNavigate: () => () => {} } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
+  t.mock.module("../src/service/docsSetupService.js", { exports: {
+    getDocsSetupStatus: async () => ({ enabled: false }),
+    getRequestCategories: async () => ({ categories: [
+      { id: 1, key: "id_proof", label: "ID proof", active: true, accepted_types: ["pdf"], max_size_mb: 10, sort_order: 10 },
+      { id: 2, key: "education_certificates", label: "Education certificates", active: true, accepted_types: ["pdf"], max_size_mb: 10, sort_order: 20 },
+      { id: 3, key: "experience_letters", label: "Experience letters", active: true, accepted_types: ["pdf"], max_size_mb: 10, sort_order: 30 },
+      { id: 4, key: "bank_details", label: "Bank details", active: true, accepted_types: ["pdf"], max_size_mb: 10, sort_order: 40 },
+      { id: 5, key: "other", label: "Other", active: true, accepted_types: ["pdf"], max_size_mb: 10, sort_order: 50 }],
+      file_types: ["pdf"], max_size_mb: 20 }),
+    addRequestCategory: async () => ({ categories: [] }), updateRequestCategory: async () => ({ categories: [] }),
+    deleteRequestCategory: async () => ({ categories: [] }),
+    getPackageDocuments: async () => ({ documents: [], modes: [], signer_parties: [], engagement_profiles: [], addable_templates: [] }),
+    savePackageDocuments: async () => ({}), addPackageDocument: async () => ({}), removePackageDocument: async () => ({}),
+    customisePackageDocument: async () => ({}), createOrgTemplate: async () => ({}), decidePendingClause: async () => ({}),
+    getPortalFormSettings: async () => ({ canonical_id: "HR-ONB-001", version: 0, fields: [], added_fields: [], field_order: [],
+      types: ["text"], rules: [], classifications: ["PERSONAL_BASIC"], max_custom_fields: 20 }),
+    savePortalFormSettings: async () => ({}),
+  } });
 }
 
 test("notice rules: add a rule for an employee type and the header Save sends it with the company profile", async (t) => {

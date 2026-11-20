@@ -49,7 +49,13 @@ def _v2_terms(world, title):
         "kpi_areas": [{"title": "Delivery", "bullets": ["Work shipped on time."], "success": "Every release is on time."}]})
 
 
-def test_requisition_to_employee(world):
+def test_requisition_to_employee(world, monkeypatch):
+    # onboarding documents send no "document completed" email each; HR gets one email when the package is submitted
+    from app.services import email_service
+    mails = {"executed": [], "submitted": []}
+    monkeypatch.setattr(email_service, "send_document_executed_email", lambda *a, **k: mails["executed"].append(a) or True)
+    monkeypatch.setattr(email_service, "send_onboarding_documents_submitted",
+                        lambda *a, **k: mails["submitted"].append(a) or True)
     name, email = "Ishaan Candidate", "ishaan.candidate@example.com"
 
     # ── recruitment ──
@@ -160,6 +166,14 @@ def test_requisition_to_employee(world):
     assert sub["submitted_at"] and sub["first_submission"] and sub["view"]["submission"]["submitted_at"]
     again = _ok(world.client.post(f"/public/onboarding/{token}/submit-signed-package"))
     assert again["first_submission"] is False and again["submitted_at"] == sub["submitted_at"]
+    # (the offer letter signed in Recruitment, before onboarding began, still tells HR it was signed)
+    assert all("offer letter" in a[2].lower() for a in mails["executed"]),         f"no per-document completed email for onboarding documents: {[a[2] for a in mails['executed']]}"
+    assert mails["submitted"], "one summary email when the package is submitted"
+    statuses = {d["title"]: d["status"] for d in mails["submitted"][0][5]}
+    assert statuses["Employment Contract"] == "Signed" and statuses["Job Description"] == "Acknowledged"
+    count = len(mails["submitted"])
+    _ok(world.client.post(f"/public/onboarding/{token}/submit-signed-package"))
+    assert len(mails["submitted"]) == count, "sent once, not on every repeat submit"
 
     # contract text carries the offer terms and counsel's wording
     world.db.expire_all()
@@ -304,13 +318,21 @@ def test_pending_account_follows_the_hire_cancel_reopen_and_email_change(world):
     assert world.db.get(Employee, emp.id).status.value == "archived"
 
 
-def test_no_account_is_created_for_an_email_that_signs_in_to_another_organization(world):
+def test_a_hire_whose_email_is_used_in_another_organization_gets_an_account_here(world):
+    """E-mail identity is per organization: the other organization's account is a separate account and is not touched."""
     from app.modules.hr import service as hr_service
+    from app.modules.employee.models import Employee
 
-    other = world.db.query(__import__("app.modules.employee.models", fromlist=["Employee"]).Employee) \
-        .filter(__import__("app.modules.employee.models", fromlist=["Employee"]).Employee.organization_id != 1).first()
-    hire = OnboardingNewHire(candidate_name="Dup Person", email=other.email, position="Analyst",
+    other = world.db.query(Employee).filter(Employee.organization_id != 1).first()
+    other_org, other_password = other.organization_id, other.hashed_password
+    hire = OnboardingNewHire(candidate_name="Dup Person", email=other.email.upper(), position="Analyst",
                              status="offer_accepted", organization_id=1)
     world.db.add(hire)
     world.db.commit()
-    assert hr_service.create_pending_employee_for_hire(world.db, hire, 1) is None
+    emp = hr_service.create_pending_employee_for_hire(world.db, hire, 1)
+    assert emp is not None and emp.organization_id == 1 and emp.id != other.id
+    assert emp.email == other.email.lower(), "stored normalised"
+    world.db.expire_all()
+    same = world.db.get(Employee, other.id)
+    assert same.organization_id == other_org and same.hashed_password == other_password
+    assert hr_service.create_pending_employee_for_hire(world.db, hire, 1) is None, "still never a second account here"

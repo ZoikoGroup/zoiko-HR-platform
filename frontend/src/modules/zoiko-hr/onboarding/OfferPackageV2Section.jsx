@@ -19,6 +19,15 @@ export function printedText(value) {
   return String(value);
 }
 
+/** The "automatic" engagement choice, saying which profile it resolves to and why (offer type, employment type, default). */
+export function autoEngagementLabel(eng) {
+  if (!eng || eng.source === "chosen" || !eng.name) return "Automatic (offer type, else organisation default)";
+  if (eng.source === "offer") return `From the offer type: ${eng.name}`;
+  if (eng.source === "employment_type") return `Matches the employment type: ${eng.name}`;
+  if (eng.source === "standard") return `${eng.name} (no profile for this employment type)`;
+  return `Organisation default: ${eng.name}`;
+}
+
 export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError }) {
   const [profiles, setProfiles] = useState(null);
   const [form, setForm] = useState({});
@@ -71,7 +80,7 @@ export default function OfferPackageV2Section({ pkg, hireId, onSaved, onError })
           <div>
             <label htmlFor="pkg-eng" className="mb-1 block text-sm font-medium text-gray-700">Engagement profile</label>
             <select id="pkg-eng" className={fieldCls} value={form.engagement_profile_slug || ""} onChange={set("engagement_profile_slug")}>
-              <option value="">Organisation default</option>
+              <option value="">{autoEngagementLabel(pkg?.engagement)}</option>
               {(profiles?.engagement_profiles || []).map((p) => <option key={p.slug} value={p.slug}>{p.name}{p.default ? " (default)" : ""}</option>)}
             </select>
           </div>

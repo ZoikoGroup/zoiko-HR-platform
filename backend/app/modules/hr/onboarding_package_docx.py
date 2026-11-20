@@ -3,7 +3,7 @@
 Built from the same blocks and the same token resolution as the PDF and the HTML (`onboarding_package_render.inline`), so a
 value prints the same way in all three. Bullets and numbered lists use Word's own list styles; the running header (logo,
 "LABEL | HR", document title) and footer (template id, version, "Private and Confidential", Page X of Y fields) are real Word
-header/footer parts. Drafts carry "DRAFT – NOT FOR ISSUE" in the header. The e-signed record is always the PDF.
+header/footer parts. The template set carries "DRAFT – NOT FOR ISSUE" in the header (a hire's documents never do). The e-signed record is always the PDF.
 """
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ def _field(paragraph, code: str) -> None:
 
 class _Docx:
     def __init__(self, category: str, ctx: R.RenderContext):
-        self.cat, self.ctx, self.d = category, ctx, C.DOCS[category]
+        self.cat, self.ctx, self.d = category, ctx, R.doc_meta(category, ctx)
         self.doc = Document()
         self.primary = _rgb(ctx.primary)
         self._setup()
@@ -101,7 +101,7 @@ class _Docx:
         r.bold, r.font.size, r.font.color.rgb = True, Pt(9), self.primary
         r = hp.add_run(f"\t\t{self.d['title']}")
         r.font.size = Pt(9)
-        if self.ctx.draft:
+        if self.ctx.draft and self.ctx.mode == "template":       # templates only, never a hire's document
             p = sec.header.add_paragraph()
             r = p.add_run(R.WATERMARK)
             r.bold, r.font.size, r.font.color.rgb = True, Pt(9), RGBColor(0xB4, 0x23, 0x18)
@@ -363,6 +363,6 @@ class _Docx:
 
 
 def render_docx(category: str, ctx: R.RenderContext) -> bytes:
-    if category not in C.DOCS:
+    if category not in C.DOCS and ctx.meta is None:
         raise KeyError(category)
     return _Docx(category, ctx).build()

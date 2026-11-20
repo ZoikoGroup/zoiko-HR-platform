@@ -150,6 +150,9 @@ def list_templates(family: Optional[str] = None, search: Optional[str] = Query(N
     rows = db.query(TemplateDefinition).order_by(TemplateDefinition.canonical_id).all()
     if family:
         rows = [d for d in rows if d.family_id == family]
+    else:                     # the onboarding package's documents are managed from Onboarding › Settings, not the catalogue
+        rows = [d for d in rows if d.family_id != "HR-PKG"]
+    rows = [d for d in rows if not d.family_id.startswith("ORG") or d.family_id == f"ORG{user.organization_id}"]
     if search:
         s = search.casefold()
         rows = [d for d in rows if s in d.title.casefold() or s in d.canonical_id.casefold()]
@@ -315,6 +318,7 @@ def get_variant(variant_id: int, db: Session = Depends(get_db), user=Depends(get
     out = ser_variant(v, full=True)
     out["problems"] = content.validate_variant(db, v) if v.status == "IN_DRAFT" else []
     out["locked_block_ids"] = [b.get("id") for b in content.base_content(db, v) if isinstance(b, dict) and b.get("locked")]
+    out["package"] = content.is_package(v.canonical_id)
     return out
 
 
@@ -340,6 +344,11 @@ def preview_variant(variant_id: int, body: Optional[S.VariantUpdate] = None, db:
     v = content.get_variant(db, user.organization_id, variant_id)
     data = body.model_dump(exclude_unset=True) if body else {}
     blocks_ = data.get("content") or v.content
+    if content.is_package(v.canonical_id):                     # onboarding package document: its own renderer, watermarked
+        problems = content.validate_variant(db, v, blocks_)
+        if problems:
+            return {"html": None, "problems": problems}
+        return {"html": content.package_preview_html(db, v, blocks_), "problems": [], "missing_clauses": []}
     rules = data.get("clause_rules") or v.clause_rules or {}
     problems = content.validate_variant(db, v, blocks_, data.get("field_contract") or v.field_contract, rules)
     if problems:
@@ -410,7 +419,7 @@ def diff_variants(variant_id: int, other_id: int, db: Session = Depends(get_db),
 def get_template(canonical_id: str, db: Session = Depends(get_db), user=Depends(get_current_user)):
     access.require_hr(user)
     d = db.get(TemplateDefinition, canonical_id)
-    if d is None:
+    if d is None or (d.family_id.startswith("ORG") and d.family_id != f"ORG{user.organization_id}"):
         raise HTTPException(404, "Template not found")
     avail = governance.availability(db, user.organization_id).get(canonical_id)
     variants = (db.query(TemplateVariant).filter(TemplateVariant.canonical_id == canonical_id,

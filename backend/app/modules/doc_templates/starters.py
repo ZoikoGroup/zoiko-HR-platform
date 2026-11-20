@@ -59,6 +59,8 @@ def load_files() -> dict:
     if not CONTENT_DIR.exists():
         return out
     for path in sorted(CONTENT_DIR.glob("HR-*/*.json")):
+        if path.parent.name == "HR-PKG":          # onboarding package documents: package_templates.py loads them
+            continue
         raw = json.loads(path.read_text(encoding="utf-8"))
         if raw.get("canonical_id") != path.stem:
             raise ValueError(f"{path}: canonical_id does not match the file name")
@@ -92,6 +94,10 @@ def latest(db, canonical_id: str) -> Optional[dict]:
         if row is not None:
             return {**row.payload, "revision": row.revision}
     s = STARTERS.get(canonical_id)
+    if s is None and str(canonical_id).startswith("PKG-"):        # onboarding package documents (package_templates.py)
+        from app.modules.doc_templates import package_templates as PT
+        pkg = PT.starter_by_canonical(canonical_id)
+        return {**PT.starter_payload(pkg), "revision": None} if pkg else None
     return {**s, "revision": None} if s else None
 
 

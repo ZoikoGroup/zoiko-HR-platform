@@ -36,7 +36,15 @@ ANSWERABLE_HOOKS = {"criminal_record_question"}      # clause wording that asks 
 
 
 def fillable(category: str) -> bool:
-    return category in C.DOCS and C.DOCS[category]["mode"] in FILLABLE_MODES
+    """A package document can be filled in online when it was issued as "Complete and return" (checked on its row)."""
+    from app.modules.hr import onboarding_package_org as ORG
+    return ORG.is_package_category(category)
+
+
+def _meta(db, hire, category: str) -> dict:
+    row = P._rows(db, hire).get(category)
+    meta = P.issued_meta(row) if row is not None else {}
+    return meta if meta.get("template_id") else P.doc_meta(db, hire, category)
 
 
 # ── reading the document ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -294,7 +302,7 @@ def _submission(db, hire, category: str) -> Optional[OnboardingFormSubmission]:
     return (db.query(OnboardingFormSubmission)
             .filter(OnboardingFormSubmission.new_hire_id == hire.id,
                     OnboardingFormSubmission.organization_id == hire.organization_id,
-                    OnboardingFormSubmission.canonical_id == C.DOCS[category]["template_id"])
+                    OnboardingFormSubmission.canonical_id == _meta(db, hire, category)["template_id"])
             .order_by(OnboardingFormSubmission.id.desc()).first())
 
 
@@ -316,7 +324,7 @@ def _portal_form(db, hire, category: str) -> dict:
     sub = _submission(db, hire, category)
     data = (sub.data or {}) if sub else {}
     editable = row.status in ("requested", "rejected")
-    return {"category": category, "title": C.DOCS[category]["title"], "document_id": row.id, "status": row.status,
+    return {"category": category, "title": _meta(db, hire, category)["title"], "document_id": row.id, "status": row.status,
             "editable": editable, "rejection_reason": row.rejection_reason, "items": items,
             "answers": with_defaults(items, data.get("answers")), "submitted_at": data.get("submitted_at")}
 
@@ -334,7 +342,7 @@ def _save_draft(db, hire, category: str, raw: dict) -> dict:
     sub = _submission(db, hire, category)
     if sub is None:
         sub = OnboardingFormSubmission(organization_id=hire.organization_id, new_hire_id=hire.id,
-                                       canonical_id=C.DOCS[category]["template_id"], status="DRAFT")
+                                       canonical_id=_meta(db, hire, category)["template_id"], status="DRAFT")
         db.add(sub)
     sub.data = {**(sub.data or {}), "category": category, "answers": clean_answers(items, raw),
                 "saved_at": datetime.utcnow().isoformat()}
@@ -367,7 +375,7 @@ def _submit(db, hire, category: str, raw: dict) -> dict:
     sub = _submission(db, hire, category)
     if sub is None:
         sub = OnboardingFormSubmission(organization_id=hire.organization_id, new_hire_id=hire.id,
-                                       canonical_id=C.DOCS[category]["template_id"])
+                                       canonical_id=_meta(db, hire, category)["template_id"])
         db.add(sub)
     now = datetime.utcnow()
     signed_on = F.format_date(now.date(), P._config_for(db, hire.organization_id).get("date_format") or "DMY")
@@ -419,6 +427,6 @@ def _submission_view(db, hire, category: str) -> Optional[dict]:
     if sub is None:
         return None
     items = schema(db, hire, category)
-    return {"category": category, "title": C.DOCS[category]["title"], "items": items,
+    return {"category": category, "title": _meta(db, hire, category)["title"], "items": items,
             "answers": with_defaults(items, (sub.data or {}).get("answers")),
             "submitted_at": (sub.data or {}).get("submitted_at"), "signed_name": (sub.data or {}).get("signed_name")}

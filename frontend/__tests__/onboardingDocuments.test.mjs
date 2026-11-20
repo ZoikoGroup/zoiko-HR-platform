@@ -97,6 +97,11 @@ async function load(t, over = {}) {
     Link: ({ children }) => React.createElement("a", null, children) } });
   t.mock.module("../src/components/HRPage.jsx", { exports: { default: ({ children }) => React.createElement("div", null, children) } });
   t.mock.module("../src/service/hrService.js", { exports: svc });
+  // the organisation's package: the 10 standard documents, all on
+  t.mock.module("../src/service/docsSetupService.js", { exports: {
+    getPackageDocuments: async () => ({ documents: Array.from({ length: 10 }, (_, i) => ({ category: `d${i}`, enabled: true, source: "platform" })) }),
+    getRequestCategories: async () => { throw new Error("not needed"); },
+  } });
   const { default: Page } = await import(`../src/modules/zoiko-hr/onboarding/documents.jsx?t=${Math.random()}`);
   render(React.createElement(Page));
   await settle();

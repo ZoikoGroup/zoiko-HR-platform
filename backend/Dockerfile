@@ -1,11 +1,12 @@
 FROM python:3.12-slim
 
-# tesseract-ocr: pytesseract is only a wrapper — OCR fails at runtime without
-#   the actual binary + language data.
+# tesseract-ocr (+ Hindi): pytesseract is only a wrapper — OCR fails at runtime without
+#   the actual binary + language data (scanned pages in Set up docs for your organisation).
 # libpq-dev + gcc: build deps for any package without a prebuilt manylinux
 #   wheel on this base image; cheap to keep, avoids silent install failures.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         tesseract-ocr \
+        tesseract-ocr-hin \
         libpq-dev \
         gcc \
     && rm -rf /var/lib/apt/lists/*

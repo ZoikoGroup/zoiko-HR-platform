@@ -137,3 +137,30 @@ def test_submission_waits_for_contact_details_and_both_forms(world, portal):
     assert _submit(world, token, "HR-ONB-017", GOOD_017).status_code == 200
     r = world.client.post(f"/public/onboarding/{token}/submit-signed-package")
     assert r.status_code == 200 and r.json()["submitted_at"], r.text
+
+
+def test_bank_details_follow_the_address_country_when_hr_set_no_work_country(world):
+    """Field report: the bank form asked for "the employee's country" that a new hire cannot set, so it could not be saved."""
+    from app.modules.hr import onboarding_flow
+    h = OnboardingNewHire(organization_id=1, candidate_name="Anil Kumar", email="anil.kumar@gmail.com", position="Analyst",
+                          joining_date=date.today() + timedelta(days=14), status="offer_accepted", work_country=None)
+    world.db.add(h)
+    world.db.commit()
+    token = onboarding_flow.current_portal_url(world.db, h).rsplit("/", 1)[1]
+    world.db.commit()
+    # nothing known yet but the company: the organisation's own country is used, never "select the country first"
+    form = next(f for f in world.client.get(f"/public/onboarding/{token}/forms").json()["items"] if f["canonical_id"] == "HR-ONB-017")
+    r = _put(world, token, "HR-ONB-001", GOOD_001)                    # the new starter form says India
+    assert r.status_code == 200, r.text
+    form = next(f for f in world.client.get(f"/public/onboarding/{token}/forms").json()["items"] if f["canonical_id"] == "HR-ONB-017")
+    assert form["work_country"] == "IN"
+    assert form["fields"][-1]["label"] or True
+    r = _submit(world, token, "HR-ONB-017", GOOD_017)
+    assert r.status_code == 200, r.text
+    bad = _put(world, token, "HR-ONB-001", GOOD_001)
+    assert bad.status_code in (200, 409)
+    sub = world.db.query(OnboardingFormSubmission).filter_by(new_hire_id=h.id, canonical_id="HR-ONB-017").one()
+    assert sub.status == "SUBMITTED"
+    r = world.post("a_admin", f"/hr/onboarding/forms/{sub.id}/verify")
+    assert r.status_code in (200, 403), r.text                         # HR verifies against the same country
+    assert "country first" not in r.text

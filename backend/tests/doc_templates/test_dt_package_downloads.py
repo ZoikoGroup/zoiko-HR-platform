@@ -91,7 +91,7 @@ def test_docx_download_is_a_word_document_with_the_hires_values(world):
     text = "\n".join(p.text for p in doc.paragraphs) + "\n".join(c.text for t in doc.tables for row in t.rows for c in row.cells)
     assert "Ravuri Rugvedh" in text
     header = "\n".join(p.text for p in doc.sections[0].header.paragraphs)
-    assert "Offer Letter" in header and "DRAFT – NOT FOR ISSUE" in header
+    assert "Offer Letter" in header and "DRAFT – NOT FOR ISSUE" not in header, "a hire's documents carry no draft watermark"
     footer_xml = doc.sections[0].footer._element.xml
     assert "Private and Confidential" in footer_xml and "NUMPAGES" in footer_xml
 
