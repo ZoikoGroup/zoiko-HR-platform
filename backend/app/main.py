@@ -484,6 +484,8 @@ for _r in document_flow_routers:
 offer_package_routers = _safe_import(lambda: [
     __import__("app.modules.hr.onboarding_package_router", fromlist=["x"]).router,
     __import__("app.modules.hr.onboarding_package_router", fromlist=["x"]).portal_router,
+    # "Set up docs for your organisation" and the Word template import (behind HR_ONBOARDING_DOCS_SETUP)
+    __import__("app.modules.hr.docs_setup_router", fromlist=["x"]).router,
 ], "hr.onboarding_package")
 for _r in offer_package_routers or []:
     app.include_router(_r)

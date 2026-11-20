@@ -211,6 +211,19 @@ class Settings(BaseSettings):
     TEMPLATES_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_ENABLED")   # release gate R6: off = no new documents
     # Onboarding package v2 (Company Profile, one formatting standard with Noto Sans for the rupee sign). Off = v1 rendering.
     ONBOARDING_PACKAGE_V2: bool = Field(default=True, validation_alias="HR_ONBOARDING_PACKAGE_V2")
+    # "Set up docs for your organisation" (Onboarding › Settings): the upload wizard and the Word template import. On for
+    # every organisation by default; HR_ONBOARDING_DOCS_SETUP=false switches it off, and HR_ONBOARDING_DOCS_SETUP_ORGS
+    # (comma-separated organisation ids) limits it to those organisations (blank = every organisation).
+    ONBOARDING_DOCS_SETUP: bool = Field(default=True, validation_alias="HR_ONBOARDING_DOCS_SETUP")
+    ONBOARDING_DOCS_SETUP_ORGS: str = Field(default="", validation_alias="HR_ONBOARDING_DOCS_SETUP_ORGS")
+    # Malware scanning of uploaded company documents (clamd). In production, uploads are refused when no scanner is set.
+    CLAMAV_HOST: str = Field(default="", validation_alias="CLAMAV_HOST")
+    CLAMAV_PORT: int = Field(default=3310, validation_alias="CLAMAV_PORT")
+    # File types the setup wizard accepts: "docx" (Word only), or e.g. "docx,pdf,txt" to also accept PDFs and text files
+    DOCS_SETUP_FILE_TYPES: str = Field(default="docx", validation_alias="HR_DOCS_SETUP_FILE_TYPES")
+    DOCS_SETUP_OCR_LANGUAGES: str = Field(default="eng+hin", validation_alias="HR_DOCS_SETUP_OCR_LANGUAGES")
+    # Path to the Tesseract program when it is not on the PATH (blank: the PATH, then its usual install folders)
+    TESSERACT_CMD: str = Field(default="", validation_alias="HR_TESSERACT_CMD")
     TEMPLATES_TENANT_ATTESTATION_ENABLED: bool = Field(default=True, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_ENABLED")
     TEMPLATES_TENANT_ATTESTATION_L3_ENABLED: bool = Field(default=False, validation_alias="HR_TEMPLATES_TENANT_ATTESTATION_L3_ENABLED")
     # Candidate e-signature links and the e-mail one-time codes that guard every signature.

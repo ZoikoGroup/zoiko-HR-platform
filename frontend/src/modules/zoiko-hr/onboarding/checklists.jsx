@@ -27,6 +27,8 @@ const STATES = {
   available: { label: "Shared (no action needed)", tone: "teal", icon: Info, cell: "bg-teal-50 text-teal-600 ring-teal-200" },
   declined: { label: "Declined or expired", tone: "red", icon: XCircle, cell: "bg-rose-50 text-rose-600 ring-rose-200" },
   rejected: { label: "Returned to the new hire", tone: "red", icon: RotateCcw, cell: "bg-rose-50 text-rose-600 ring-rose-200" },
+  // a document the organisation does not send to this hire's engagement profile
+  not_included: { label: "Not in this hire's package", tone: "gray", icon: Circle, cell: "bg-white text-gray-300 ring-gray-100" },
 };
 const WAITING = ["awaiting_signature", "awaiting_acknowledgement", "awaiting_upload"];
 const ATTENTION = ["needs_review", "declined", "rejected"];
@@ -88,7 +90,7 @@ export default function OnboardingChecklists() {
       if (stateFilter === "waiting") return sum(h.counts, WAITING) > 0;
       if (stateFilter === "attention") return sum(h.counts, ATTENTION) > 0;
       if (stateFilter === "not_sent") return (h.counts?.not_sent || 0) > 0;
-      if (stateFilter === "done") return h.done === documents.length;
+      if (stateFilter === "done") return h.done === (h.total ?? documents.length);
       return true;
     });
   }, [board, search, stateFilter, documents.length]);
@@ -98,7 +100,7 @@ export default function OnboardingChecklists() {
   const doneAll = sum(totals, DONE);
 
   return (
-    <OnboardingLayout title="Onboarding Checklists" subtitle="The status of the 10 onboarding documents for each new hire."
+    <OnboardingLayout title="Onboarding Checklists" subtitle="The status of each new hire's onboarding documents."
       actions={<SecondaryButton icon={RefreshCw} onClick={load} disabled={loading}>Refresh</SecondaryButton>}>
       <div className="space-y-5">
         <KpiGrid cols={4}>
@@ -115,7 +117,7 @@ export default function OnboardingChecklists() {
             <div className="grid grid-cols-2 gap-3 sm:flex">
               <FilterSelect label="Documents" value={stateFilter} onChange={setStateFilter} allLabel="All new hires" options={[
                 { value: "attention", label: "Needs your attention" }, { value: "waiting", label: "Waiting on the new hire" },
-                { value: "not_sent", label: "Some not sent" }, { value: "done", label: "All 10 done" }]} />
+                { value: "not_sent", label: "Some not sent" }, { value: "done", label: "All done" }]} />
               <FilterSelect label="New hires" value={scope} onChange={setScope} allLabel="Still onboarding"
                 options={[{ value: "all", label: "Include completed" }]} />
             </div>
@@ -165,7 +167,7 @@ export default function OnboardingChecklists() {
                             <StateCell title={d.title} state={h.documents?.[d.category]?.state} />
                           </td>
                         ))}
-                        <td className="px-4 py-3"><Progress done={h.done} total={documents.length} /></td>
+                        <td className="px-4 py-3"><Progress done={h.done} total={h.total ?? documents.length} /></td>
                       </tr>
                     ))}
                   </tbody>
@@ -182,7 +184,7 @@ export default function OnboardingChecklists() {
                       </NavLink>
                       <div className="flex items-center gap-2">
                         {STAGE_LABEL[h.status] && <StatusPill tone="gray">{STAGE_LABEL[h.status]}</StatusPill>}
-                        <Progress done={h.done} total={documents.length} />
+                        <Progress done={h.done} total={h.total ?? documents.length} />
                       </div>
                     </div>
                     <ol className="mt-3 grid grid-cols-1 gap-2 md:grid-cols-2">

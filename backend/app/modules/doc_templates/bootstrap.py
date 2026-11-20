@@ -48,6 +48,9 @@ def ensure_catalogue() -> None:
     db = SessionLocal()
     try:
         result = seed(db)
+        from app.modules.doc_templates import package_templates
+        result["package_starters_added"] = len(package_templates.load_starters(db))
+        db.commit()
         if any(result.values()):
             logger.info("[startup] template catalogue synced: %s", result)
     except Exception:

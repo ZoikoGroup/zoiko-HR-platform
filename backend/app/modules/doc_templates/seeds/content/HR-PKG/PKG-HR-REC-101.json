@@ -1,0 +1,186 @@
+{
+ "canonical_id": "PKG-HR-REC-101",
+ "template_id": "HR-REC-101",
+ "category": "self_disclosure",
+ "title": "Self-Disclosure Declaration",
+ "family_id": "HR-REC",
+ "doc_type": "FORM",
+ "risk": "L2",
+ "sensitivity": "C3",
+ "mode": "COMPLETE",
+ "orientation": "portrait",
+ "pages": "1–2",
+ "signers": "Employee (declaration)",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "Self-Disclosure Declaration",
+   "level": 1,
+   "id": "b1"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "Name",
+     "{{worker.full_name}}"
+    ],
+    [
+     "Employee ID",
+     "{{worker.employee_id}}"
+    ],
+    [
+     "Department",
+     "{{employment.department}}"
+    ],
+    [
+     "Position / title",
+     "{{role.title}}"
+    ],
+    [
+     "Date",
+     "{{document.issue_date}}"
+    ]
+   ],
+   "id": "b2"
+  },
+  {
+   "type": "notice",
+   "items": [
+    "Your answers are treated as confidential and are seen only by HR and management who need them."
+   ],
+   "id": "b3",
+   "locked": true
+  },
+  {
+   "type": "checks",
+   "label": "1. Do you work exclusively for {{company.legal_name}}?",
+   "options": [
+    "Yes",
+    "No"
+   ],
+   "id": "b4",
+   "locked": true
+  },
+  {
+   "type": "paragraph",
+   "text": "**2. If you answered No to question 1**, list every other business or employer you work with:",
+   "id": "b5",
+   "locked": true
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     ""
+    ],
+    [
+     "",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.3,
+    0.22,
+    0.32,
+    0.16
+   ],
+   "columns": [
+    "Business / employer name",
+    "Role / position",
+    "Nature of involvement",
+    "Hours per week"
+   ],
+   "id": "b6",
+   "locked": true
+  },
+  {
+   "type": "checks",
+   "label": "3. Have you submitted any false documents or incorrect information to the Company (for example bank statements, pay stubs, previous salaries or earnings, qualifications or residential address)?",
+   "options": [
+    "Yes",
+    "No"
+   ],
+   "id": "b7",
+   "locked": true
+  },
+  {
+   "type": "textbox",
+   "label": "3a. If you answered Yes to question 3, give the correct information",
+   "lines": 4,
+   "hint": "Which document or information, and the correction.",
+   "id": "b8",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "Acknowledgement",
+   "level": 2,
+   "id": "b9"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items": [
+    "The information I have given is true and complete to the best of my knowledge.",
+    "I will tell the Company promptly if any of it changes.",
+    "I understand that false or incomplete information may affect my engagement."
+   ],
+   "id": "b10",
+   "locked": true
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ]
+   ],
+   "id": "b11",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "HR / Management Use Only",
+   "level": 3,
+   "id": "b12"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "",
+     "",
+     ""
+    ]
+   ],
+   "widths": [
+    0.3,
+    0.2,
+    0.5
+   ],
+   "columns": [
+    "Verified by",
+    "Date",
+    "Action taken"
+   ],
+   "id": "b13"
+  }
+ ]
+}

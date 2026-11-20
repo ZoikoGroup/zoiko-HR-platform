@@ -111,6 +111,12 @@ TABLES: dict[str, Level] = {
     "policy_distributions": L.PERSONAL_BASIC, "document_expiry_items": L.PERSONAL_BASIC, "document_bulk_runs": L.PERSONAL_BASIC,
     "template_starters": L.PLATFORM_META, "template_starter_clauses": L.PLATFORM_META,
     "job_descriptions": L.PERSONAL_BASIC,
+    # the organisation's own onboarding package, portal forms and upload categories (configuration, no personal data)
+    "org_package_documents": L.PERSONAL_BASIC, "org_form_overrides": L.PERSONAL_BASIC,
+    "org_document_request_categories": L.PERSONAL_BASIC,
+    # "Set up docs for your organisation": uploaded company documents (sample letters can name real people) and what the
+    # wizard proposed from them
+    "docs_setup_sessions": L.PERSONAL_CONFIDENTIAL, "docs_setup_files": L.TENANT_FILE, "docs_setup_proposals": L.PERSONAL_CONFIDENTIAL,
     # Prompt 3 working-time and compensation requests
     "overtime_requests": L.PERSONAL_CONFIDENTIAL, "attendance_correction_requests": L.PERSONAL_CONFIDENTIAL,
     "shift_notices": L.PERSONAL_BASIC, "compensation_statement_requests": L.FINANCIAL,

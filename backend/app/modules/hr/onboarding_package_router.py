@@ -69,6 +69,104 @@ def put_settings(data: dict = Body(...), db: Session = Depends(get_db), user=Dep
     return onboarding_package.settings_view(db, user.organization_id)
 
 
+@router.get("/package/documents", summary="The organisation's package: documents, modes, audiences and template versions")
+def get_package_documents(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_org as ORG
+    return ORG.settings_documents(db, user.organization_id)
+
+
+@router.put("/package/documents", summary="Switch documents on/off, change mode, audience and order (future sends only)")
+def put_package_documents(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_org as ORG
+    return ORG.update_documents(db, user, (data or {}).get("documents"))
+
+
+@router.get("/package/placeholders", summary="The package's Placeholder Dictionary and clause hooks (for the template editor)")
+def package_placeholders(user=Depends(get_current_admin)):
+    from app.modules.doc_templates import blocks as B
+    return {"fields": [{"key": k, "label": v[0], "source": v[1]} for k, v in C.FIELDS.items()],
+            "clauses": [{"key": k, "title": v[0], "required": v[2]} for k, v in C.CLAUSES.items()],
+            "list_sources": list(B.PACKAGE_LIST_SOURCES)}
+
+
+@router.post("/package/documents", summary="Add one of the organisation's released templates to the package")
+def add_package_document(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_org as ORG
+    return ORG.add_org_document(db, user, data)
+
+
+@router.delete("/package/documents/{category}", summary="Remove an own document from the package")
+def remove_package_document(category: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_org as ORG
+    return ORG.remove_org_document(db, user, category)
+
+
+@router.post("/package/documents/{category}/customise",
+             summary="Start the organisation's own version of a package document (an IN_DRAFT template variant)")
+def customise_package_document(category: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_org as ORG
+    v = ORG.customise(db, user, category)
+    return {"variant_id": v.id, "canonical_id": v.canonical_id, "version": v.version, "status": v.status,
+            "editor_path": f"/zoiko-hr/documents/templates/variants/{v.id}"}
+
+
+@router.post("/package/org-templates", summary="Create a new organisation template (first version is a draft)")
+def create_org_template(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_package_org as ORG
+    title = (data or {}).get("title")
+    content = (data or {}).get("content") or [{"type": "heading", "text": str(title or "Document"), "level": 1},
+                                              {"type": "paragraph", "text": "Dear {{worker.full_name}},"}]
+    v = ORG.create_org_template(db, user, title=title, content=content, risk=(data or {}).get("risk") or "L1",
+                                sensitivity=(data or {}).get("sensitivity") or "C2")
+    return {"variant_id": v.id, "canonical_id": v.canonical_id, "version": v.version, "status": v.status,
+            "editor_path": f"/zoiko-hr/documents/templates/variants/{v.id}"}
+
+
+@router.post("/package/clauses/{key}/pending", summary="Counsel's decision on proposed clause wording (approve or reject)")
+def decide_pending_clause(key: str, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    return onboarding_package.decide_pending_clause(db, user, key, bool((data or {}).get("approve")),
+                                                    (data or {}).get("counsel_reference") or "")
+
+
+@router.get("/forms/{canonical_id}/settings", summary="The organisation's portal form: hidden and added fields")
+def get_form_settings(canonical_id: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_org_settings as OS
+    return OS.form_settings(db, user.organization_id, canonical_id)
+
+
+@router.put("/forms/{canonical_id}/settings", summary="Hide optional fields, add custom fields, reorder (core fields stay)")
+def put_form_settings(canonical_id: str, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_org_settings as OS
+    return OS.save_form_settings(db, user, canonical_id, data)
+
+
+@router.get("/request-categories", summary="The organisation's document request (upload) categories")
+def get_request_categories(db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_org_settings as OS
+    return OS.categories_view(db, user.organization_id)
+
+
+@router.post("/request-categories", summary="Add a document request category")
+def add_request_category(data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_org_settings as OS
+    OS.create_category(db, user, data)
+    return OS.categories_view(db, user.organization_id)
+
+
+@router.put("/request-categories/{category_id}", summary="Rename, describe, set file types and size, reorder, (de)activate")
+def put_request_category(category_id: int, data: dict = Body(...), db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_org_settings as OS
+    OS.update_category(db, user, category_id, data)
+    return OS.categories_view(db, user.organization_id)
+
+
+@router.delete("/request-categories/{category_id}", summary="Remove an unused category (a used one is deactivated)")
+def delete_request_category(category_id: int, db: Session = Depends(get_db), user=Depends(get_current_admin)):
+    from app.modules.hr import onboarding_org_settings as OS
+    result = OS.delete_category(db, user, category_id)
+    return {**OS.categories_view(db, user.organization_id), **result}
+
+
 @router.get("/company-profile", summary="The organisation's Company Profile and how complete it is")
 def get_company_profile(db: Session = Depends(get_db), user=Depends(get_current_admin)):
     from app.modules.hr import company_profile
@@ -166,9 +264,8 @@ def hire_package_inputs(new_hire_id: int, data: dict = Body(...), db: Session = 
 @router.get("/new-hires/{new_hire_id}/package/{category}/preview.pdf", summary="Preview one package document for a new hire")
 def hire_package_preview(new_hire_id: int, category: str, db: Session = Depends(get_db), user=Depends(get_current_admin)):
     hire = _hire(db, user, new_hire_id)
-    if category not in C.DOCS:
-        raise HTTPException(404, "Unknown package document.")
-    return _pdf(onboarding_package.preview_pdf(db, hire, category), f"{C.DOCS[category]['template_id']}-preview.pdf")
+    data = onboarding_package.preview_pdf(db, hire, category)        # 404 for a category not in the organisation's package
+    return _pdf(data, f"{onboarding_package.doc_meta(db, hire, category)['template_id']}-preview.pdf")
 
 
 def _attachment(data: bytes, name: str, media_type: str) -> Response:
@@ -250,7 +347,8 @@ def portal_outside_activities(request: Request, token: str, data: dict = Body(..
 @limiter.limit("60/minute")
 def portal_package_file(request: Request, token: str, category: str, db: Session = Depends(get_db)):
     hire = onboarding_flow.hire_for_token(db, token)
-    if category not in C.DOCS:
+    from app.modules.hr import onboarding_package_org as ORG
+    if not ORG.is_package_category(category):
         raise HTTPException(404, "Document not found.")
     issued = db.query(OnboardingDocument).filter(OnboardingDocument.onboarding_new_hire_id == hire.id,
                                                  OnboardingDocument.category == category,
@@ -262,7 +360,10 @@ def portal_package_file(request: Request, token: str, category: str, db: Session
         data = storage.get_store().get(key)
     except (FileNotFoundError, ValueError):
         raise HTTPException(410, "The file for this document is not available.")
-    return _pdf(data, f"{C.DOCS[category]['template_id']} {C.DOCS[category]['title']}.pdf", inline=False)
+    meta = onboarding_package.issued_meta(issued)
+    if not meta.get("template_id"):
+        meta = onboarding_package.doc_meta(db, hire, category)
+    return _pdf(data, f"{meta['template_id']} {meta['title']}.pdf", inline=False)
 
 
 # ── forms the new hire fills in online ("Complete and return": self-disclosure, job application) ───────────────────────

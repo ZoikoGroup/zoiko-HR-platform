@@ -1,0 +1,617 @@
+{
+ "canonical_id": "PKG-HR-CON-001",
+ "template_id": "HR-CON-001",
+ "category": "employment_contract",
+ "title": "Employment Contract",
+ "family_id": "HR-CON",
+ "doc_type": "AGREEMENT",
+ "risk": "L3",
+ "sensitivity": "C3",
+ "mode": "SIGN",
+ "orientation": "portrait",
+ "pages": "8–11",
+ "signers": "Employer; Employee; two witnesses",
+ "initials": true,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "EMPLOYMENT CONTRACT",
+   "level": 1,
+   "style": "center",
+   "id": "b1"
+  },
+  {
+   "type": "paragraph",
+   "text": "between **{{company.legal_name}}** and **{{worker.full_name}}**",
+   "id": "b2"
+  },
+  {
+   "type": "paragraph",
+   "text": "Contract reference: {{contract.id}}",
+   "id": "b3"
+  },
+  {
+   "type": "heading",
+   "text": "Contents",
+   "level": 2,
+   "id": "b4"
+  },
+  {
+   "type": "toc",
+   "entries": [
+    [
+     1,
+     "Commencement Date and Term"
+    ],
+    [
+     2,
+     "Programme Duration and Potential Conversion"
+    ],
+    [
+     3,
+     "Job Title and Description"
+    ],
+    [
+     4,
+     "Remuneration"
+    ],
+    [
+     5,
+     "Place of Work"
+    ],
+    [
+     6,
+     "Time of Work"
+    ],
+    [
+     7,
+     "Benefits"
+    ],
+    [
+     8,
+     "Annual Leave"
+    ],
+    [
+     9,
+     "Duty to Devote Full Time"
+    ],
+    [
+     10,
+     "Conflict of Interest"
+    ],
+    [
+     11,
+     "Non-Solicitation"
+    ],
+    [
+     12,
+     "Confidential Information"
+    ],
+    [
+     13,
+     "Duties regarding Confidential Information"
+    ],
+    [
+     14,
+     "Ownership and Title"
+    ],
+    [
+     15,
+     "Return of Confidential Information"
+    ],
+    [
+     16,
+     "Contract Binding Authority"
+    ],
+    [
+     17,
+     "Termination due to Discontinuance of Business"
+    ],
+    [
+     18,
+     "Termination of Engagement"
+    ],
+    [
+     19,
+     "Remedies"
+    ],
+    [
+     20,
+     "Severability"
+    ],
+    [
+     21,
+     "Notices"
+    ],
+    [
+     22,
+     "Modification"
+    ],
+    [
+     23,
+     "Governing Law"
+    ],
+    [
+     24,
+     "Definitions"
+    ],
+    [
+     25,
+     "General Provisions"
+    ],
+    [
+     "",
+     "Schedule 1 – Particulars"
+    ],
+    [
+     "",
+     "Signatures"
+    ]
+   ],
+   "id": "b5"
+  },
+  {
+   "type": "page_break",
+   "id": "b6"
+  },
+  {
+   "type": "section",
+   "num": "",
+   "title": "Parties and Background",
+   "items": [
+    "This contract is made on the {{document.issue_date_legal}} between **{{company.legal_name_with_associates}}**, of {{company.address_inline}} (the **Company**), and **{{worker.full_name}}**, of {{worker.address_inline}} (the **{{engagement.party_term}}**)."
+   ],
+   "id": "b7"
+  },
+  {
+   "type": "section",
+   "num": "1",
+   "title": "Commencement Date and Term",
+   "items": [
+    "The engagement starts on {{employment.start_date_long}} (the **Start Date**).",
+    "The first {{engagement.assessment_months}} months are the {{engagement.assessment_label}}. During it either party may end the engagement by giving {{employment.notice_text}}.",
+    {
+     "type": "clause",
+     "key": "probation"
+    }
+   ],
+   "anchor": "cl1",
+   "id": "b8"
+  },
+  {
+   "type": "section",
+   "num": "2",
+   "title": "Programme Duration and Potential Conversion",
+   "items": [
+    "{{engagement.conversion_paragraph}}"
+   ],
+   "anchor": "cl2",
+   "id": "b9"
+  },
+  {
+   "type": "section",
+   "num": "3",
+   "title": "Job Title and Description",
+   "items": [
+    "The {{engagement.party_term}} is engaged as **{{role.title}}**, reporting to {{employment.reports_to}}.",
+    "{{employment.duties_paragraph}}",
+    "The {{engagement.party_term}} will also carry out other reasonable duties that fit the role, set out in the Job Description."
+   ],
+   "anchor": "cl3",
+   "id": "b10"
+  },
+  {
+   "type": "section",
+   "num": "4",
+   "title": "Remuneration",
+   "items": [
+    "The {{engagement.remuneration_label}} is {{employment.pay_statement}}.",
+    "The Company will make the deductions the law requires. Any bonus is discretionary. Reasonable business expenses approved in advance are reimbursed under the expenses policy."
+   ],
+   "anchor": "cl4",
+   "id": "b11"
+  },
+  {
+   "type": "section",
+   "num": "5",
+   "title": "Place of Work",
+   "items": [
+    "The {{engagement.party_term}}'s work arrangement is {{employment.work_arrangement}}{{employment.work_location_suffix}}."
+   ],
+   "anchor": "cl5",
+   "id": "b12"
+  },
+  {
+   "type": "section",
+   "num": "6",
+   "title": "Time of Work",
+   "items": [
+    "Normal working time is {{engagement.work_schedule}}.",
+    {
+     "type": "paragraph",
+     "text": "Work may also be required on {{engagement.saturday_rule}}.",
+     "include_when": {
+      "field": "engagement.saturday_rule",
+      "op": "present"
+     }
+    },
+    {
+     "type": "clause",
+     "key": "working_time"
+    }
+   ],
+   "anchor": "cl6",
+   "id": "b13"
+  },
+  {
+   "type": "section",
+   "num": "7",
+   "title": "Benefits",
+   "items": [
+    {
+     "type": "clause",
+     "key": "benefits_and_training"
+    }
+   ],
+   "anchor": "cl7",
+   "id": "b14"
+  },
+  {
+   "type": "section",
+   "num": "8",
+   "title": "Annual Leave",
+   "items": [
+    {
+     "type": "paragraph",
+     "text": "{{engagement.leave_rule}}",
+     "include_when": {
+      "field": "engagement.leave_rule",
+      "op": "present"
+     }
+    },
+    {
+     "type": "clause",
+     "key": "leave_and_holiday"
+    }
+   ],
+   "anchor": "cl8",
+   "id": "b15"
+  },
+  {
+   "type": "section",
+   "num": "9",
+   "title": "Duty to Devote Full Time",
+   "items": [
+    "The {{engagement.party_term}} will devote full working time to the role, record working time in {{company.time_tracking_tool}}, and submit a Daily Work Report each working day to {{company.reports_email}}{{company.reports_channel}}."
+   ],
+   "anchor": "cl9",
+   "id": "b16"
+  },
+  {
+   "type": "section",
+   "num": "10",
+   "title": "Conflict of Interest",
+   "items": [
+    "The {{engagement.party_term}} must disclose any outside activity as set out in the Affidavit of Employment Exclusivity.",
+    {
+     "type": "clause",
+     "key": "outside_employment"
+    }
+   ],
+   "anchor": "cl10",
+   "id": "b17"
+  },
+  {
+   "type": "section",
+   "num": "11",
+   "title": "Non-Solicitation",
+   "items": [
+    "For {{company.non_solicit_months}} months after the engagement ends:",
+    {
+     "type": "clause",
+     "key": "non_solicitation"
+    }
+   ],
+   "anchor": "cl11",
+   "id": "b18"
+  },
+  {
+   "type": "section",
+   "num": "12",
+   "title": "Confidential Information",
+   "items": [
+    "Confidential Information has the meaning given in the Non-Disclosure Agreement signed with this contract. It does **not** include information the {{engagement.party_term}} develops without using Company equipment, Company time or Confidential Information, or that is or becomes public other than through a breach."
+   ],
+   "anchor": "cl12",
+   "id": "b19"
+  },
+  {
+   "type": "section",
+   "num": "13",
+   "title": "Duties regarding Confidential Information",
+   "items": [
+    "The {{engagement.party_term}} must comply with the Non-Disclosure Agreement, which forms part of this contract."
+   ],
+   "anchor": "cl13",
+   "id": "b20"
+  },
+  {
+   "type": "section",
+   "num": "14",
+   "title": "Ownership and Title",
+   "items": [
+    {
+     "type": "clause",
+     "key": "confidentiality_and_ip"
+    }
+   ],
+   "anchor": "cl14",
+   "id": "b21"
+  },
+  {
+   "type": "section",
+   "num": "15",
+   "title": "Return of Confidential Information",
+   "items": [
+    "When the engagement ends the {{engagement.party_term}} must return all Company property and Confidential Information."
+   ],
+   "anchor": "cl15",
+   "id": "b22"
+  },
+  {
+   "type": "section",
+   "num": "16",
+   "title": "Contract Binding Authority",
+   "items": [
+    "The {{engagement.party_term}} may not enter into any contract on the Company's behalf unless authorised in writing."
+   ],
+   "anchor": "cl16",
+   "id": "b23"
+  },
+  {
+   "type": "section",
+   "num": "17",
+   "title": "Termination due to Discontinuance of Business",
+   "items": [
+    {
+     "type": "clause",
+     "key": "business_discontinuance"
+    }
+   ],
+   "anchor": "cl17",
+   "id": "b24"
+  },
+  {
+   "type": "section",
+   "num": "18",
+   "title": "Termination of Engagement",
+   "items": [
+    "Either party may end the engagement by giving {{employment.notice_text}}.",
+    {
+     "type": "clause",
+     "key": "notice_and_termination"
+    }
+   ],
+   "anchor": "cl18",
+   "id": "b25"
+  },
+  {
+   "type": "section",
+   "num": "19",
+   "title": "Remedies",
+   "items": [
+    {
+     "type": "clause",
+     "key": "remedies"
+    }
+   ],
+   "anchor": "cl19",
+   "id": "b26"
+  },
+  {
+   "type": "section",
+   "num": "20",
+   "title": "Severability",
+   "items": [
+    "If any part of this contract cannot be enforced, the rest continues to apply."
+   ],
+   "anchor": "cl20",
+   "id": "b27"
+  },
+  {
+   "type": "section",
+   "num": "21",
+   "title": "Notices",
+   "items": [
+    "Notices are given in writing to the Company at {{company.address_inline}} and to the {{engagement.party_term}} at {{worker.address_inline}}."
+   ],
+   "anchor": "cl21",
+   "id": "b28"
+  },
+  {
+   "type": "section",
+   "num": "22",
+   "title": "Modification",
+   "items": [
+    "A change to this contract is valid only if it is in writing and signed by both parties."
+   ],
+   "anchor": "cl22",
+   "id": "b29"
+  },
+  {
+   "type": "section",
+   "num": "23",
+   "title": "Governing Law",
+   "items": [
+    "This contract is governed by {{company.governing_law}}."
+   ],
+   "anchor": "cl23",
+   "id": "b30"
+  },
+  {
+   "type": "section",
+   "num": "24",
+   "title": "Definitions",
+   "items": [
+    {
+     "type": "table",
+     "rows": [
+      [
+       "Company",
+       "{{company.legal_name}}"
+      ],
+      [
+       "{{engagement.party_term}}",
+       "{{worker.full_name}}"
+      ],
+      [
+       "Start Date",
+       "{{employment.start_date_long}}"
+      ],
+      [
+       "{{engagement.assessment_label}}",
+       "The first {{engagement.assessment_months}} months of the engagement"
+      ],
+      [
+       "Confidential Information",
+       "As defined in the Non-Disclosure Agreement"
+      ]
+     ],
+     "widths": [
+      0.32,
+      0.68
+     ],
+     "columns": [
+      "Term",
+      "Meaning"
+     ]
+    }
+   ],
+   "anchor": "cl24",
+   "id": "b31"
+  },
+  {
+   "type": "section",
+   "num": "25",
+   "title": "General Provisions",
+   "items": [
+    "This contract, Schedule 1, the Job Description and the Non-Disclosure Agreement form the whole agreement on these terms. Nothing in this contract removes a right the {{engagement.party_term}} has by law.",
+    {
+     "type": "clause",
+     "key": "legal_precedence"
+    }
+   ],
+   "anchor": "cl25",
+   "id": "b32"
+  },
+  {
+   "type": "page_break",
+   "id": "b33"
+  },
+  {
+   "type": "anchor",
+   "name": "sched1",
+   "id": "b34"
+  },
+  {
+   "type": "heading",
+   "text": "Schedule 1 – Particulars",
+   "level": 2,
+   "id": "b35"
+  },
+  {
+   "type": "table",
+   "rows": [
+    [
+     "Role",
+     "{{role.title}}"
+    ],
+    [
+     "Start date",
+     "{{employment.start_date_long}}"
+    ],
+    [
+     "{{engagement.assessment_label}}",
+     "{{engagement.assessment_months}} months"
+    ],
+    [
+     "{{engagement.remuneration_label}}",
+     "{{employment.pay_statement}}"
+    ],
+    [
+     "Work schedule",
+     "{{engagement.work_schedule}}"
+    ],
+    [
+     "Work arrangement",
+     "{{employment.work_arrangement}}"
+    ],
+    [
+     "Notice",
+     "{{employment.notice_text}}"
+    ],
+    [
+     "Reports to",
+     "{{employment.reports_to}}"
+    ]
+   ],
+   "widths": [
+    0.35,
+    0.65
+   ],
+   "columns": [
+    "Item",
+    "Particular"
+   ],
+   "id": "b36"
+  },
+  {
+   "type": "anchor",
+   "name": "signatures",
+   "id": "b37"
+  },
+  {
+   "type": "heading",
+   "text": "Signatures",
+   "level": 2,
+   "id": "b38"
+  },
+  {
+   "type": "paragraph",
+   "text": "IN WITNESS WHEREOF the parties have signed this contract on the {{document.issue_date_legal}}.",
+   "id": "b39"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "For {{company.legal_name}} (Per)",
+     "{{employer.signatory_name}}",
+     "{{employer.signatory_title}}",
+     "{{document.issue_date}}"
+    ],
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ],
+    [
+     "Witness 1 (name, address)",
+     "",
+     "",
+     ""
+    ],
+    [
+     "Witness 2 (name, address)",
+     "",
+     "",
+     ""
+    ]
+   ],
+   "id": "b40",
+   "locked": true
+  }
+ ]
+}

@@ -1,0 +1,105 @@
+{
+ "canonical_id": "PKG-HR-PRF-101",
+ "template_id": "HR-PRF-101",
+ "category": "daily_kpi",
+ "title": "Daily Key Performance Indicators",
+ "family_id": "HR-PRF",
+ "doc_type": "ASSESSMENT",
+ "risk": "L1",
+ "sensitivity": "C2",
+ "mode": "ACKNOWLEDGE",
+ "orientation": "portrait",
+ "pages": "2",
+ "signers": "Employee and manager (agreement)",
+ "initials": false,
+ "optional_fields": [],
+ "blocks": [
+  {
+   "type": "heading",
+   "text": "Daily Key Performance Indicators",
+   "level": 1,
+   "id": "b1"
+  },
+  {
+   "type": "kv",
+   "rows": [
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}"
+    ],
+    [
+     "Employee ID",
+     "{{worker.employee_id}}"
+    ],
+    [
+     "Role",
+     "{{role.title}}"
+    ],
+    [
+     "Manager",
+     "{{employment.reports_to}}"
+    ],
+    [
+     "Effective date",
+     "{{document.issue_date}}"
+    ]
+   ],
+   "id": "b2"
+  },
+  {
+   "type": "paragraph",
+   "text": "These are the areas in which your daily performance is reviewed. Your manager discusses them with you; they are a basis for feedback and support, and are never applied automatically.",
+   "id": "b3"
+  },
+  {
+   "type": "kpis",
+   "items_from": "kpi.areas",
+   "id": "b4"
+  },
+  {
+   "type": "heading",
+   "text": "Fairness Safeguards",
+   "level": 2,
+   "id": "b5"
+  },
+  {
+   "type": "list",
+   "style": "bullet",
+   "items": [
+    "A human manager reviews every KPI result with you; no decision about pay or discipline is ever made automatically from a KPI result.",
+    "Days of approved leave, sickness, training or system outage are excluded.",
+    "Targets are adjusted for part-time hours and during ramp-up for new starters.",
+    "You can see your own KPI data at any time and ask for corrections.",
+    "Any reasonable adjustment agreed with you also applies to these KPIs."
+   ],
+   "id": "b6",
+   "locked": true
+  },
+  {
+   "type": "heading",
+   "text": "Agreement",
+   "level": 2,
+   "id": "b7"
+  },
+  {
+   "type": "signature_block",
+   "rows": [
+    [
+     "{{engagement.party_term}}",
+     "{{worker.full_name}}",
+     "{{role.title}}",
+     ""
+    ],
+    [
+     "Manager",
+     "{{employment.reports_to}}",
+     "Line manager",
+     ""
+    ]
+   ],
+   "statement": "Signing confirms that these KPIs have been discussed and agreed.",
+   "id": "b8",
+   "locked": true
+  }
+ ]
+}
