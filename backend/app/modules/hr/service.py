@@ -4642,9 +4642,8 @@ def check_travel_dates(start: Optional[date], end: Optional[date], *, allow_past
 
 def create_travel_request(db: Session, data: TravelRequestCreate, organization_id: int) -> TravelRequest:
     if data.employee_id is not None:
-        found = db.query(Employee.id).filter(Employee.id == data.employee_id, Employee.organization_id == organization_id).first()
-        if not found:
-            raise BadRequestException("The selected staff member was not found in this organization. Choose someone from the list.")
+        from app.modules.employee.ownership import get_org_employee_or_404
+        get_org_employee_or_404(db, organization_id, data.employee_id)        # this organization, still working here
     if data.start_date and data.end_date and data.end_date < data.start_date:
         raise BadRequestException("The end date cannot be before the start date.")
     request = TravelRequest(**data.model_dump(), organization_id=organization_id)
@@ -4665,9 +4664,12 @@ def get_travel_requests(
     status: Optional[RequestStatus] = None,
     start_date: Optional[date] = None,
     end_date: Optional[date] = None,
+    employee_ids: Optional[list[int]] = None,
 ) -> dict:
+    from app.modules.employee.ownership import filter_ids
     query = db.query(TravelRequest).filter(TravelRequest.organization_id == organization_id)
-    
+    query = filter_ids(query, TravelRequest.employee_id, employee_ids)    # who the caller may see (None = everyone)
+
     if employee_id:
         query = query.filter(TravelRequest.employee_id == employee_id)
     if status:
@@ -4822,7 +4824,9 @@ def get_travel_approval_history(db: Session, request_id: int) -> list[TravelAppr
 # ════════════════════════════════════════════════════════════════════════════
 
 def check_expense_trip(db: Session, data, organization_id: int) -> None:
-    """A claim that names a trip must name one of that person's own trips in this organization."""
+    """The claimant must work in this organization, and a claim that names a trip must name one of their own trips here."""
+    from app.modules.employee.ownership import get_org_employee_or_404
+    get_org_employee_or_404(db, organization_id, data.employee_id)            # also when no trip is named (audit T4)
     if getattr(data, "request_id", None) is None:
         return
     trip = db.query(TravelRequest).filter(TravelRequest.id == data.request_id, TravelRequest.organization_id == organization_id,
@@ -4852,9 +4856,12 @@ def get_travel_expenses(
     page: int = 1,
     per_page: int = 20,
     search: Optional[str] = None,
+    employee_ids: Optional[list[int]] = None,
 ) -> dict:
+    from app.modules.employee.ownership import filter_ids
     query = db.query(TravelExpense).filter(TravelExpense.organization_id == organization_id)
-    
+    query = filter_ids(query, TravelExpense.employee_id, employee_ids)    # who the caller may see (None = everyone)
+
     if request_id:
         query = query.filter(TravelExpense.request_id == request_id)
     if employee_id:

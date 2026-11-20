@@ -89,10 +89,10 @@ def test_travel_expenses_carry_the_name_too(env):
 
 
 def test_a_request_for_someone_outside_the_organization_or_with_dates_reversed_is_refused(env):
-    r = _trip(env, env.stranger)
-    assert r.status_code == 400 and "not found in this organization" in r.text
+    r = _trip(env, env.stranger)                       # another organization's employee looks like nobody: 404
+    assert r.status_code == 404
     ghost = env.post("/hr/travel", json={"employee_id": 9999, "destination": "Pune", "start_date": "2026-11-02", "end_date": "2026-11-03"})
-    assert ghost.status_code == 400
+    assert ghost.status_code == 404
     back = _trip(env, env.ann, start_date="2026-11-10", end_date="2026-11-05")
     assert back.status_code == 400 and "end date cannot be before" in back.text
     assert env.get("/hr/travel").json() == []
@@ -144,7 +144,7 @@ def test_an_employee_sees_and_changes_only_their_own_requests(env):
     assert env.get(f"/hr/travel/{theirs['id']}").status_code == 404
     assert env.put(f"/hr/travel/{theirs['id']}", json={"destination": "Goa"}).status_code == 404
     assert env.delete(f"/hr/travel/{theirs['id']}").status_code == 404
-    assert env.put(f"/hr/travel/{mine['id']}", json={"status": "approved"}).status_code == 400          # no approving your own trip
+    assert env.put(f"/hr/travel/{mine['id']}", json={"status": "approved"}).status_code == 403          # no approving your own trip
     past = (date.today() - timedelta(days=2)).isoformat()
     assert env.put(f"/hr/travel/{mine['id']}", json={"start_date": past, "end_date": past}).status_code == 400
     assert env.put(f"/hr/travel/{mine['id']}", json={"destination": "Goa"}).status_code == 200
@@ -197,7 +197,8 @@ def test_bad_claims_are_refused_with_a_message_for_each_box(env):
 def test_an_employee_sees_only_their_own_claims_and_cannot_claim_for_others(env):
     r = _claim(env)                                   # raised by the admin, for the admin
     _as_employee(env)
-    mine = _claim(env, employee_id=env.admin.id).json()
+    assert _claim(env, employee_id=env.admin.id).status_code == 403     # only an admin may claim for someone else
+    mine = _claim(env).json()
     assert mine["employee_id"] == env.ann.id
     assert [x["id"] for x in env.get("/hr/travel-expenses").json()] == [mine["id"]]
 
