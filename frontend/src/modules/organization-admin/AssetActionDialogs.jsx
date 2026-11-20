@@ -7,12 +7,12 @@ import {
   createAssetCategory, updateAssetCategory, deleteAssetCategory,
 } from "../../service/hrService";
 import { employeeName, employeeEmail } from "../../utils/fieldAccess";
-import { useEmployeeOptions } from "./assetPickers";
+import { isFutureDate, todayISO, useEmployeeOptions } from "./assetPickers";
 
 const CONDITION_OPTIONS = ["new", "good", "fair", "poor", "damaged"];
 const NON_ASSIGNED_STATUSES = ["available", "maintenance", "retired", "lost"];
-const inputCls = "w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-800 bg-slate-50 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white transition";
-const labelCls = "text-xs font-semibold text-slate-500 uppercase tracking-wide block mb-1.5";
+const inputCls = "w-full border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2.5 text-sm text-slate-800 dark:text-slate-100 bg-slate-50 dark:bg-[#0f172a] outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400 focus:bg-white dark:focus:bg-[#0f172a] transition";
+const labelCls = "text-xs font-semibold text-slate-500 dark:text-slate-400 uppercase tracking-wide block mb-1.5";
 
 const tagOf = (a) => a.asset_tag || a.assetTag || "";
 const holderOf = (a) => a.employee_name || a.employeeName || "";
@@ -20,7 +20,7 @@ const holderOf = (a) => a.employee_name || a.employeeName || "";
 function ErrorLine({ message }) {
   if (!message) return null;
   return (
-    <div role="alert" className="flex items-center gap-2 bg-red-50 border border-red-200 rounded-xl px-4 py-3 text-red-700 text-sm font-semibold">
+    <div role="alert" className="flex items-center gap-2 bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 rounded-xl px-4 py-3 text-red-700 dark:text-red-300 text-sm font-semibold">
       <AlertCircle size={14} className="flex-shrink-0" /> {message}
     </div>
   );
@@ -29,14 +29,14 @@ function ErrorLine({ message }) {
 function Dialog({ title, subtitle, onClose, busy, children, label }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm p-4" role="dialog" aria-label={label || title}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
-        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100">
+      <div className="bg-white dark:bg-[#1e293b] rounded-2xl shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-[#334155]">
           <div>
-            <h2 className="text-lg font-bold text-slate-800">{title}</h2>
+            <h2 className="text-lg font-bold text-slate-800 dark:text-slate-100">{title}</h2>
             {subtitle && <p className="text-xs text-slate-400 mt-0.5">{subtitle}</p>}
           </div>
           <button type="button" onClick={onClose} disabled={busy} aria-label="Close"
-            className="p-2 rounded-xl hover:bg-slate-100 text-slate-400 transition disabled:opacity-40">
+            className="p-2 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-700 text-slate-400 transition disabled:opacity-40">
             <X size={18} />
           </button>
         </div>
@@ -50,7 +50,7 @@ function Actions({ onClose, busy, disabled, submitLabel, busyLabel, danger = fal
   return (
     <div className="flex justify-end gap-3 pt-2">
       <button type="button" onClick={onClose} disabled={busy}
-        className="px-4 py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition disabled:opacity-40">
+        className="px-4 py-2.5 rounded-xl border border-slate-200 dark:border-[#334155] text-sm font-semibold text-slate-600 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700/40 transition disabled:opacity-40">
         Cancel
       </button>
       <button type={onSubmit ? "button" : "submit"} onClick={onSubmit} disabled={busy || disabled}
@@ -108,6 +108,10 @@ export function EditAssetDialog({ asset, categories = [], onClose, onSaved }) {
       setError("Name and asset tag are required.");
       return;
     }
+    if (isFutureDate(form.purchase_date)) {
+      setError("Purchase date cannot be in the future.");
+      return;
+    }
     const payload = {
       name: form.name.trim(),
       asset_tag: form.asset_tag.trim(),
@@ -124,7 +128,7 @@ export function EditAssetDialog({ asset, categories = [], onClose, onSaved }) {
 
   return (
     <Dialog title="Edit asset" subtitle={tagOf(asset)} onClose={onClose} busy={busy}>
-      <form onSubmit={submit} className="space-y-4">
+      <form onSubmit={submit} noValidate className="space-y-4">
         <ErrorLine message={error} />
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
@@ -177,7 +181,7 @@ export function EditAssetDialog({ asset, categories = [], onClose, onSaved }) {
           </div>
           <div>
             <label className={labelCls} htmlFor="edit-date">Purchase Date</label>
-            <input id="edit-date" type="date" value={form.purchase_date} onChange={set("purchase_date")} className={inputCls} />
+            <input id="edit-date" type="date" max={todayISO()} value={form.purchase_date} onChange={set("purchase_date")} className={inputCls} />
           </div>
         </div>
         <div>
@@ -197,7 +201,7 @@ export function DeleteAssetDialog({ asset, onClose, onDeleted }) {
   return (
     <Dialog title="Delete asset" onClose={onClose} busy={busy}>
       <ErrorLine message={error} />
-      <p className="text-sm text-slate-600">
+      <p className="text-sm text-slate-600 dark:text-slate-300">
         Delete <span className="font-semibold">{asset.name}</span> (<span className="font-mono">{tagOf(asset)}</span>)?
         It disappears from the list and its tag can be used again.
       </p>
@@ -263,17 +267,17 @@ export function TransferAssetDialog({ asset, onClose, onTransferred }) {
         <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
         <input type="text" placeholder="Search active employees..." value={query} autoFocus
           onChange={(e) => { setQuery(e.target.value); setSelected(null); }}
-          className="w-full pl-8 pr-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
+          className="w-full pl-8 pr-3 py-2 border border-slate-200 dark:border-[#334155] rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-300" />
       </div>
-      <div className="max-h-56 overflow-y-auto border border-slate-100 rounded-xl">
+      <div className="max-h-56 overflow-y-auto border border-slate-100 dark:border-[#334155] rounded-xl">
         {loading && options.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-4">Searching...</p>
         ) : options.length === 0 ? (
           <p className="text-xs text-slate-400 text-center py-4">No other active employees match</p>
         ) : options.map((emp) => (
           <button key={emp.id} type="button" onClick={() => setSelected(emp)}
-            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between border-b border-slate-50 last:border-0 transition ${
-              selected?.id === emp.id ? "bg-blue-50 text-blue-700" : "hover:bg-slate-50 text-slate-700"
+            className={`w-full text-left px-3 py-2 text-sm flex items-center justify-between border-b border-slate-50 dark:border-[#334155] last:border-0 transition ${
+              selected?.id === emp.id ? "bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" : "hover:bg-slate-50 dark:hover:bg-slate-700/40 text-slate-700 dark:text-slate-200"
             }`}>
             <span className="min-w-0">
               <span className="font-medium block truncate">{employeeName(emp)}</span>
@@ -313,33 +317,33 @@ function CategoryRow({ category, onChanged }) {
       <div className="flex items-center gap-2">
         {editing ? (
           <input type="text" value={name} onChange={(e) => setName(e.target.value)} aria-label={`New name for ${category.name}`}
-            className="flex-1 border border-slate-200 rounded-lg px-2 py-1.5 text-sm" autoFocus />
+            className="flex-1 border border-slate-200 dark:border-[#334155] rounded-lg px-2 py-1.5 text-sm" autoFocus />
         ) : (
-          <span className="flex-1 text-sm text-slate-700">{category.name}</span>
+          <span className="flex-1 text-sm text-slate-700 dark:text-slate-200">{category.name}</span>
         )}
         {editing ? (
           <>
-            <button type="button" onClick={save} disabled={busy} className="px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg disabled:opacity-40">
+            <button type="button" onClick={save} disabled={busy} className="px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg disabled:opacity-40">
               {busy ? "Saving..." : "Save"}
             </button>
             <button type="button" onClick={() => { setEditing(false); setName(category.name); setError(null); }} disabled={busy}
-              className="px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 rounded-lg disabled:opacity-40">Cancel</button>
+              className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/40 rounded-lg disabled:opacity-40">Cancel</button>
           </>
         ) : confirming ? (
           <>
-            <span className="text-xs text-slate-500">Delete?</span>
-            <button type="button" onClick={remove} disabled={busy} className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg disabled:opacity-40">
+            <span className="text-xs text-slate-500 dark:text-slate-400">Delete?</span>
+            <button type="button" onClick={remove} disabled={busy} className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg disabled:opacity-40">
               {busy ? "Deleting..." : "Yes, delete"}
             </button>
             <button type="button" onClick={() => setConfirming(false)} disabled={busy}
-              className="px-2 py-1 text-xs text-slate-500 hover:bg-slate-50 rounded-lg disabled:opacity-40">No</button>
+              className="px-2 py-1 text-xs text-slate-500 dark:text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-700/40 rounded-lg disabled:opacity-40">No</button>
           </>
         ) : (
           <>
             <button type="button" onClick={() => setEditing(true)} aria-label={`Rename ${category.name}`}
-              className="px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg">Rename</button>
+              className="px-2 py-1 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg">Rename</button>
             <button type="button" onClick={() => setConfirming(true)} aria-label={`Delete ${category.name}`}
-              className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg">Delete</button>
+              className="px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg">Delete</button>
           </>
         )}
       </div>
@@ -363,7 +367,7 @@ export function CategoryManagerDialog({ categories = [], onClose, onChanged }) {
     <Dialog title="Asset categories" subtitle="Names are unique within your organization" onClose={onClose} busy={busy}>
       <form onSubmit={add} className="flex items-start gap-2">
         <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="New category name"
-          aria-label="New category name" className="flex-1 border border-slate-200 rounded-xl px-3 py-2 text-sm" />
+          aria-label="New category name" className="flex-1 border border-slate-200 dark:border-[#334155] rounded-xl px-3 py-2 text-sm" />
         <button type="submit" disabled={busy}
           className="px-4 py-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-sm font-semibold disabled:opacity-60">
           {busy ? "Adding..." : "Add"}
@@ -373,7 +377,7 @@ export function CategoryManagerDialog({ categories = [], onClose, onChanged }) {
       {categories.length === 0 ? (
         <p className="text-sm text-slate-400">No categories yet.</p>
       ) : (
-        <ul className="divide-y divide-slate-100">
+        <ul className="divide-y divide-slate-100 dark:divide-[#334155]">
           {categories.map((c) => (<CategoryRow key={`${c.id}-${c.name}`} category={c} onChanged={onChanged} />))}
         </ul>
       )}

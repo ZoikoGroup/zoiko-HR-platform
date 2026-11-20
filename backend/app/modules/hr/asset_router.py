@@ -46,7 +46,7 @@ Endpoints:
 
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Query, Body, status, Request
+from fastapi import APIRouter, Depends, Query, Body, Path, status, Request
 from fastapi.responses import StreamingResponse, Response
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -480,7 +480,7 @@ def list_asset_settings(db: Session = Depends(get_db), current_user=Depends(get_
     summary="Update an asset setting",
 )
 def update_asset_setting(
-    setting_key: str,
+    setting_key: str = Path(..., min_length=1, max_length=100),     # asset_settings.setting_key is VARCHAR(100)
     setting_value: str = Body(..., embed=True, description="The new setting value"),
     db: Session = Depends(get_db),
     current_user=Depends(get_current_admin),

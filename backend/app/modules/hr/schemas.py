@@ -1078,6 +1078,13 @@ class LeaveStatisticsResponse(BaseModel):
     monthly_trend: Optional[list[dict]] = None
 
 
+def _not_in_future(value):
+    """A purchase date cannot be after today (a typo like 2099 would otherwise be kept)."""
+    if value is not None and value > _date_type.today():
+        raise ValueError("Purchase date cannot be in the future")
+    return value
+
+
 class AssetCreate(BaseModel):
     employee_id: Optional[int] = None
     name: str = Field(..., min_length=1, max_length=150)
@@ -1091,6 +1098,11 @@ class AssetCreate(BaseModel):
     condition: Optional[AssetCondition] = None
     status: AssetStatus = AssetStatus.AVAILABLE
     notes: Optional[str] = None
+
+    @field_validator("purchase_date")
+    @classmethod
+    def purchase_date_not_in_future(cls, value):
+        return _not_in_future(value)
 
 
 class AssetUpdate(BaseModel):
@@ -1106,6 +1118,11 @@ class AssetUpdate(BaseModel):
     condition: Optional[AssetCondition] = None
     status: Optional[AssetStatus] = None
     notes: Optional[str] = None
+
+    @field_validator("purchase_date")
+    @classmethod
+    def purchase_date_not_in_future(cls, value):
+        return _not_in_future(value)
 
 
 class AssetResponse(BaseModel):
@@ -1138,17 +1155,17 @@ class AssetListResponse(BaseModel):
 
 class MaintenanceCreate(BaseModel):
     asset_id: int
-    asset_name: Optional[str] = None
-    asset_tag: Optional[str] = None
-    issue: str
+    asset_name: Optional[str] = Field(None, max_length=150)          # lengths match the asset_maintenance_requests columns
+    asset_tag: Optional[str] = Field(None, max_length=100)
+    issue: str = Field(..., min_length=1)
     priority: MaintenancePriority = MaintenancePriority.MEDIUM
-    reported_by: Optional[str] = None
+    reported_by: Optional[str] = Field(None, max_length=150)
     reported_by_id: Optional[int] = None
     reported_on: date
 
 
 class MaintenanceUpdate(BaseModel):
-    issue: Optional[str] = None
+    issue: Optional[str] = Field(None, min_length=1)
     priority: Optional[MaintenancePriority] = None
     status: Optional[MaintenanceStatus] = None
 
@@ -1180,8 +1197,8 @@ class MaintenanceResponse(BaseModel):
 
 class AssetRequestCreate(BaseModel):
     employee_id: Optional[int] = None
-    employee_name: Optional[str] = None
-    asset_type: str
+    employee_name: Optional[str] = Field(None, max_length=150)       # lengths match the asset_requests columns
+    asset_type: str = Field(..., min_length=1, max_length=100)
     quantity: int = Field(default=1, ge=1)
     priority: RequestPriority = RequestPriority.MEDIUM
     reason: Optional[str] = None
@@ -1226,8 +1243,8 @@ class AssetCategoryResponse(BaseModel):
 
 
 class AssetReportGenerate(BaseModel):
-    report_type: str
-    title: str
+    report_type: str = Field(..., min_length=1, max_length=50)        # lengths match the asset_reports columns
+    title: str = Field(..., min_length=1, max_length=200)
     description: Optional[str] = None
     parameters: Optional[str] = None
 

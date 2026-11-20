@@ -100,14 +100,14 @@ export default function OrgAdminAssetRequestsPage() {
       />
 
       {error && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700 flex items-center justify-between">
+        <div className="rounded-2xl border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/30 p-4 text-sm text-red-700 dark:text-red-300 flex items-center justify-between">
           <span>{error}</span>
           <button onClick={() => setError(null)} className="text-red-500 hover:text-red-700 font-bold">&times;</button>
         </div>
       )}
 
       {!loading && pendingCount > 0 && (
-        <div className="flex items-center gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-5 py-3 text-sm text-amber-800">
+        <div className="flex items-center gap-3 rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/30 px-5 py-3 text-sm text-amber-800 dark:text-amber-300">
           <AlertCircle size={16} />
           <span className="font-medium">{pendingCount} pending request{pendingCount > 1 ? "s" : ""} awaiting your review.</span>
         </div>
@@ -121,13 +121,13 @@ export default function OrgAdminAssetRequestsPage() {
             placeholder="Search by employee, asset type..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+            className="w-full pl-9 pr-4 py-2 border border-slate-200 dark:border-[#334155] rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
           />
         </div>
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-2 border border-slate-200 rounded-xl text-sm bg-white focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
+          className="px-3 py-2 border border-slate-200 dark:border-[#334155] rounded-xl text-sm bg-white dark:bg-[#1e293b] focus:outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-400"
         >
           <option value="">All Statuses</option>
           <option value="pending">Pending</option>
@@ -141,21 +141,21 @@ export default function OrgAdminAssetRequestsPage() {
       {loading && requests.length === 0 ? (
         <div className="flex items-center justify-center py-20">
           <Loader2 className="w-6 h-6 text-blue-500 animate-spin" />
-          <span className="ml-3 text-sm text-slate-500 font-medium">Loading requests...</span>
+          <span className="ml-3 text-sm text-slate-500 dark:text-slate-400 font-medium">Loading requests...</span>
         </div>
       ) : requests.length === 0 ? (
-        <div className="text-center py-20 bg-white rounded-2xl border border-slate-100 shadow-sm">
+        <div className="text-center py-20 bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-100 dark:border-[#334155] shadow-sm">
           <Package className="mx-auto h-10 w-10 text-slate-300" />
-          <p className="mt-3 text-sm font-medium text-slate-500">
+          <p className="mt-3 text-sm font-medium text-slate-500 dark:text-slate-400">
             {filtering ? "No requests match your filters." : "No asset requests yet."}
           </p>
         </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-[#1e293b] rounded-2xl border border-slate-100 dark:border-[#334155] shadow-sm overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-100">
+            <table className="min-w-full divide-y divide-slate-100 dark:divide-[#334155]">
               <thead>
-                <tr className="border-b border-slate-100">
+                <tr className="border-b border-slate-100 dark:border-[#334155]">
                   <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-400 uppercase tracking-widest">Employee</th>
                   <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-400 uppercase tracking-widest">Asset Type</th>
                   <th className="px-5 py-3.5 text-left text-xs font-bold text-slate-400 uppercase tracking-widest">Qty</th>
@@ -167,21 +167,21 @@ export default function OrgAdminAssetRequestsPage() {
                   <th className="px-5 py-3.5 text-right text-xs font-bold text-slate-400 uppercase tracking-widest">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-50">
+              <tbody className="divide-y divide-slate-50 dark:divide-[#334155]">
                 {requests.map((r) => {
                   const status = r.status || "pending";
                   const priority = r.priority || "medium";
                   return (
-                    <tr key={r.id} className="hover:bg-slate-50/60 transition">
-                      <td className="px-5 py-3.5 text-sm font-semibold text-slate-800">{r.employee_name || "-"}</td>
-                      <td className="px-5 py-3.5 text-sm text-slate-600">{r.asset_type || "-"}</td>
-                      <td className="px-5 py-3.5 text-sm text-slate-600">{r.quantity || 1}</td>
+                    <tr key={r.id} className="hover:bg-slate-50/60 dark:hover:bg-slate-700/30 transition">
+                      <td className="px-5 py-3.5 text-sm font-semibold text-slate-800 dark:text-slate-100">{r.employee_name || "-"}</td>
+                      <td className="px-5 py-3.5 text-sm text-slate-600 dark:text-slate-300">{r.asset_type || "-"}</td>
+                      <td className="px-5 py-3.5 text-sm text-slate-600 dark:text-slate-300">{r.quantity || 1}</td>
                       <td className="px-5 py-3.5">
                         <span className={`inline-block px-2.5 py-1 rounded-full text-xs font-semibold ${PRIORITY_COLORS[priority] || "bg-gray-100 text-gray-700"}`}>
                           {priority.charAt(0).toUpperCase() + priority.slice(1)}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-sm text-slate-500 max-w-[200px] truncate" title={r.reason}>{r.reason || "-"}</td>
+                      <td className="px-5 py-3.5 text-sm text-slate-500 dark:text-slate-400 max-w-[200px] truncate" title={r.reason}>{r.reason || "-"}</td>
                       <td className="px-5 py-3.5">
                         <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${STATUS_COLORS[status] || "bg-gray-100 text-gray-800"}`}>
                           {status === "pending" && <Clock size={12} />}
@@ -190,7 +190,7 @@ export default function OrgAdminAssetRequestsPage() {
                           {status.charAt(0).toUpperCase() + status.slice(1)}
                         </span>
                       </td>
-                      <td className="px-5 py-3.5 text-sm text-slate-600">{r.approved_by_name || "-"}</td>
+                      <td className="px-5 py-3.5 text-sm text-slate-600 dark:text-slate-300">{r.approved_by_name || "-"}</td>
                       <td className="px-5 py-3.5 text-sm text-slate-400">
                         {r.requested_on || r.created_at
                           ? formatDate(r.requested_on || r.created_at)
@@ -201,15 +201,15 @@ export default function OrgAdminAssetRequestsPage() {
                           <div className="flex items-center justify-end gap-1">
                             <button
                               onClick={() => handleAction(r.id, "approve")}
-                              disabled={actionLoading === `approve-${r.id}`}
-                              className="px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 rounded-lg transition disabled:opacity-40"
+                              disabled={Boolean(actionLoading)}
+                              className="px-3 py-1.5 text-xs font-semibold text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-900/30 rounded-lg transition disabled:opacity-40"
                             >
                               {actionLoading === `approve-${r.id}` ? "..." : "Approve"}
                             </button>
                             <button
                               onClick={() => handleAction(r.id, "reject")}
-                              disabled={actionLoading === `reject-${r.id}`}
-                              className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 rounded-lg transition disabled:opacity-40"
+                              disabled={Boolean(actionLoading)}
+                              className="px-3 py-1.5 text-xs font-semibold text-red-600 hover:bg-red-50 dark:hover:bg-red-900/30 rounded-lg transition disabled:opacity-40"
                             >
                               {actionLoading === `reject-${r.id}` ? "..." : "Reject"}
                             </button>
@@ -218,8 +218,8 @@ export default function OrgAdminAssetRequestsPage() {
                         {status === "approved" && (
                           <button
                             onClick={() => setFulfilling(r)}
-                            disabled={actionLoading === `fulfill-${r.id}`}
-                            className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 rounded-lg transition disabled:opacity-40"
+                            disabled={Boolean(actionLoading)}
+                            className="px-3 py-1.5 text-xs font-semibold text-blue-600 hover:bg-blue-50 dark:hover:bg-blue-900/30 rounded-lg transition disabled:opacity-40"
                           >
                             {actionLoading === `fulfill-${r.id}` ? "..." : "Fulfill"}
                           </button>

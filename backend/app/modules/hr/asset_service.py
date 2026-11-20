@@ -597,17 +597,15 @@ def get_asset_requests(
     requests = query.order_by(AssetRequest.created_at.desc(), AssetRequest.id.desc()).offset((page - 1) * per_page).limit(per_page).all()
 
     items = []
+    # A16: every name the page needs (requesters without a stored name, approvers) in one query, not two per row
+    wanted = {r.employee_id for r in requests if not r.employee_name and r.employee_id} | {r.approved_by for r in requests if r.approved_by}
+    names = {}
+    if wanted:
+        names = {eid: f"{first} {last}" for eid, first, last in
+                 db.query(Employee.id, Employee.first_name, Employee.last_name).filter(Employee.id.in_(wanted)).all()}
     for req in requests:
-        ename = req.employee_name
-        if not ename and req.employee_id:
-            emp = db.query(Employee).filter(Employee.id == req.employee_id).first()
-            if emp:
-                ename = f"{emp.first_name} {emp.last_name}"
-        aname = None
-        if req.approved_by:
-            aemp = db.query(Employee).filter(Employee.id == req.approved_by).first()
-            if aemp:
-                aname = f"{aemp.first_name} {aemp.last_name}"
+        ename = req.employee_name or (names.get(req.employee_id) if req.employee_id else None)
+        aname = names.get(req.approved_by) if req.approved_by else None
         items.append({
             "id": req.id,
             "employee_id": req.employee_id,

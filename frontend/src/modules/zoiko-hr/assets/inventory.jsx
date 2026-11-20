@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo } from "react";
+import { isFutureDate, todayISO } from "../../organization-admin/assetPickers";
 import { getAssets, createAsset, updateAsset, deleteAsset, getAssetCategories, getAssetEmployeeOptions, transferAsset, assignAsset, returnAsset, exportAssetsCsv, exportAssetsExcel } from "../../../service/hrService";
 
 const ITEMS_PER_PAGE = 15;
@@ -130,6 +131,7 @@ export default function Inventory() {
     const e = {};
     if (!d.name?.trim()) e.name = "Name is required";
     if (!d.assetTag?.trim()) e.assetTag = "Asset tag is required";
+    if (isFutureDate(d.purchaseDate)) e.submit = "Purchase date cannot be in the future";
     return e;
   };
 
@@ -407,7 +409,7 @@ export default function Inventory() {
               </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Purchase Date</label>
-                <input type="date" value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
+                <input type="date" max={todayISO()} value={form.purchaseDate} onChange={(e) => setForm({ ...form, purchaseDate: e.target.value })}
                   className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
               </div>
               <div>

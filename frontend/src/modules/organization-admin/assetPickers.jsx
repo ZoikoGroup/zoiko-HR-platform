@@ -6,6 +6,17 @@ import { getAssetEmployeeOptions, getAssets } from "../../service/hrService";
 
 export const PAGE_SIZE = 20;
 
+/** Today as YYYY-MM-DD in the browser's own time zone (for <input type="date" max>). */
+export function todayISO(now = new Date()) {
+  const pad = (n) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+}
+
+/** A purchase date after today is a typo (e.g. 2099); the server refuses it too. */
+export function isFutureDate(iso, today = todayISO()) {
+  return Boolean(iso) && iso > today;
+}
+
 export function pageCount(total, perPage = PAGE_SIZE) {
   return Math.max(1, Math.ceil((Number(total) || 0) / perPage));
 }
@@ -63,16 +74,16 @@ export function Pager({ page, total, perPage = PAGE_SIZE, onPage, label = "items
   const from = (page - 1) * perPage + 1;
   const to = Math.min(page * perPage, total);
   return (
-    <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 text-xs text-slate-500" data-testid="pager">
+    <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100 dark:border-[#334155] text-xs text-slate-500 dark:text-slate-400" data-testid="pager">
       <span>{from}–{to} of {total} {label}</span>
       <div className="flex items-center gap-2">
         <button type="button" aria-label="Previous page" disabled={page <= 1} onClick={() => onPage(page - 1)}
-          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40">
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-[#334155] hover:bg-slate-50 dark:hover:bg-slate-700/40 disabled:opacity-40">
           <ChevronLeft size={14} />
         </button>
         <span>Page {page} of {pages}</span>
         <button type="button" aria-label="Next page" disabled={page >= pages} onClick={() => onPage(page + 1)}
-          className="p-1.5 rounded-lg border border-slate-200 hover:bg-slate-50 disabled:opacity-40">
+          className="p-1.5 rounded-lg border border-slate-200 dark:border-[#334155] hover:bg-slate-50 dark:hover:bg-slate-700/40 disabled:opacity-40">
           <ChevronRight size={14} />
         </button>
       </div>
