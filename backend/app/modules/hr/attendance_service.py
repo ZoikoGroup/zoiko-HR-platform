@@ -1214,8 +1214,8 @@ def _export_rows(db: Session, organization_id: Optional[int], date_from, date_to
 
 def _csv_safe(value):
     """A spreadsheet runs a cell that starts with = + - @ as a formula; neutralise names and notes."""
-    from app.core.spreadsheet import safe_cell
-    return safe_cell("" if value is None else str(value))
+    text = "" if value is None else str(value)
+    return "'" + text if text[:1] in ("=", "+", "-", "@", "\t", "\r") else text
 
 
 def _export_filename(date_from, date_to, ext: str) -> str:

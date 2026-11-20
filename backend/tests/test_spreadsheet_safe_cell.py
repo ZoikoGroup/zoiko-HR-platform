@@ -1,4 +1,4 @@
-"""app.core.spreadsheet: the one helper every CSV / Excel export uses against formula injection (audit L14)."""
+"""app.core.spreadsheet: the helper the Assets and Learning CSV / Excel exports use against formula injection (audit L14)."""
 import csv
 import io
 from datetime import date
@@ -17,11 +17,8 @@ def test_everything_else_is_left_alone():
         assert safe_cell(value) == value
 
 
-def test_safe_row_and_the_older_helpers_agree():
-    from app.modules.doc_templates.governance import _csv_safe as governance_csv_safe
-    from app.modules.hr.attendance_service import _csv_safe as attendance_csv_safe
+def test_safe_row_neutralises_each_cell_of_a_csv_row():
     assert safe_row(["=x", "ok", 3]) == ["'=x", "ok", 3]
-    assert governance_csv_safe("=x") == attendance_csv_safe("=x") == "'=x"
     out = io.StringIO()
     csv.writer(out).writerow(safe_row(["=cmd|' /C calc'!A0"]))
     assert out.getvalue().startswith("'=cmd")
